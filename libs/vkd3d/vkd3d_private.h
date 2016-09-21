@@ -47,6 +47,21 @@ struct d3d12_command_allocator
 HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_allocator **allocator) DECLSPEC_HIDDEN;
 
+/* ID3D12CommandList */
+struct d3d12_command_list
+{
+    ID3D12GraphicsCommandList ID3D12GraphicsCommandList_iface;
+    ULONG refcount;
+
+    D3D12_COMMAND_LIST_TYPE type;
+
+    struct d3d12_device *device;
+};
+
+HRESULT d3d12_command_list_create(struct d3d12_device *device,
+        UINT node_mask, D3D12_COMMAND_LIST_TYPE type, ID3D12CommandAllocator *allocator_iface,
+        ID3D12PipelineState *initial_pipeline_state, struct d3d12_command_list **list) DECLSPEC_HIDDEN;
+
 /* ID3D12CommandQueue */
 struct d3d12_command_queue
 {

@@ -167,12 +167,21 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandList(ID3D12Device *if
         UINT node_mask, D3D12_COMMAND_LIST_TYPE type, ID3D12CommandAllocator *command_allocator,
         ID3D12PipelineState *initial_pipeline_state, REFIID riid, void **command_list)
 {
-    FIXME("iface %p, node_mask 0x%08x, type %#x, command_allocator %p, "
-            "initial_pipeline_state %p, riid %s, command_list %p stub!\n",
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_command_list *object;
+    HRESULT hr;
+
+    TRACE("iface %p, node_mask 0x%08x, type %#x, command_allocator %p, "
+            "initial_pipeline_state %p, riid %s, command_list %p.\n",
             iface, node_mask, type, command_allocator,
             initial_pipeline_state, debugstr_guid(riid), command_list);
 
-    return E_NOTIMPL;
+    if (FAILED(hr = d3d12_command_list_create(device, node_mask, type, command_allocator,
+            initial_pipeline_state, &object)))
+        return hr;
+
+    return return_interface((IUnknown *)&object->ID3D12GraphicsCommandList_iface,
+            &IID_ID3D12GraphicsCommandList, riid, command_list);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *iface,
