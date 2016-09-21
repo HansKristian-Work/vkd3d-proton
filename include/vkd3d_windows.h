@@ -28,21 +28,21 @@
 
 /* HRESULT */
 typedef int HRESULT;
-#define SUCCEEDED(hr) ((HRESULT)(hr) >= 0)
-#define FAILED(hr)    ((HRESULT)(hr) < 0)
+# define SUCCEEDED(hr) ((HRESULT)(hr) >= 0)
+# define FAILED(hr)    ((HRESULT)(hr) < 0)
 
-#define _HRESULT_TYPEDEF_(x) ((HRESULT)x)
+# define _HRESULT_TYPEDEF_(x) ((HRESULT)x)
 
-#define S_OK    _HRESULT_TYPEDEF_(0)
-#define S_FALSE _HRESULT_TYPEDEF_(1)
+# define S_OK    _HRESULT_TYPEDEF_(0)
+# define S_FALSE _HRESULT_TYPEDEF_(1)
 
-#define E_NOTIMPL     _HRESULT_TYPEDEF_(0x80004001)
-#define E_NOINTERFACE _HRESULT_TYPEDEF_(0x80004002)
-#define E_POINTER     _HRESULT_TYPEDEF_(0x80004003)
-#define E_ABORT       _HRESULT_TYPEDEF_(0x80004004)
-#define E_FAIL        _HRESULT_TYPEDEF_(0x80004005)
-#define E_OUTOFMEMORY _HRESULT_TYPEDEF_(0x8007000E)
-#define E_INVALIDARG  _HRESULT_TYPEDEF_(0x80070057)
+# define E_NOTIMPL     _HRESULT_TYPEDEF_(0x80004001)
+# define E_NOINTERFACE _HRESULT_TYPEDEF_(0x80004002)
+# define E_POINTER     _HRESULT_TYPEDEF_(0x80004003)
+# define E_ABORT       _HRESULT_TYPEDEF_(0x80004004)
+# define E_FAIL        _HRESULT_TYPEDEF_(0x80004005)
+# define E_OUTOFMEMORY _HRESULT_TYPEDEF_(0x8007000E)
+# define E_INVALIDARG  _HRESULT_TYPEDEF_(0x80070057)
 
 /* Basic types */
 typedef unsigned char BYTE;
@@ -54,28 +54,22 @@ typedef unsigned int ULONG;
 typedef float FLOAT;
 typedef LONG BOOL;
 
-# ifndef __WIDL__
-#  include <stdint.h>
-
-typedef uint8_t UINT8;
-typedef uint16_t UINT16;
-typedef uint32_t UINT32;
-typedef int64_t INT64;
-typedef uint64_t UINT64;
-
-typedef uintptr_t ULONG_PTR;
-typedef intptr_t LONG_PTR;
-# else
+/* Assuming LP64 model */
+typedef char INT8;
 typedef unsigned char UINT8;
+typedef short INT16;
 typedef unsigned short UINT16;
+typedef int INT32;
 typedef unsigned int UINT32;
-
-typedef unsigned long UINT64;
+# if defined(__x86_64__) || defined(__WIDL__)
 typedef long INT64;
-
+typedef unsigned long UINT64;
+# else
+typedef long long INT64;
+typedef unsigned long long UINT64;
+# endif
 typedef long LONG_PTR;
 typedef unsigned long ULONG_PTR;
-# endif
 
 typedef ULONG_PTR SIZE_T;
 
