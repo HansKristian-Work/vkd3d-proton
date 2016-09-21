@@ -20,13 +20,30 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef __VKD3D_PRIVATE_H
-#define __VKD3D_PRIVATE_H
+#ifndef __VKD3D_COMMON_H
+#define __VKD3D_COMMON_H
 
-#include "vkd3d_common.h"
+#include "config.h"
+#include "vkd3d_windows.h"
 
-#include "d3d12.h"
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
 
-#include <assert.h>
+#if HAVE_SYNC_ADD_AND_FETCH
+static inline ULONG InterlockedIncrement(ULONG volatile *x)
+{
+    return __sync_add_and_fetch(x, 1);
+}
+#else
+# error "InterlockedIncrement not implemented for this platform"
+#endif  /* HAVE_SYNC_ADD_AND_FETCH */
 
-#endif  /* __VKD3D_PRIVATE_H */
+#if HAVE_SYNC_SUB_AND_FETCH
+static inline ULONG InterlockedDecrement(ULONG volatile *x)
+{
+    return __sync_sub_and_fetch(x, 1);
+}
+#else
+# error "InterlockedDecrement not implemented for this platform"
+#endif
+
+#endif  /* __VKD3D_COMMON_H */
