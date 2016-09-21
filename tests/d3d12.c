@@ -49,6 +49,8 @@ typedef int HRESULT;
 #define WIDL_C_INLINE_WRAPPERS
 #include "d3d12.h"
 
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof(*x))
+
 #define check_interface(a, b, c) check_interface_(__LINE__, (IUnknown *)a, b, c)
 static void check_interface_(unsigned int line, IUnknown *iface, REFIID riid, BOOL supported)
 {
@@ -135,6 +137,106 @@ static void test_node_count(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_check_feature_support(void)
+{
+    D3D12_FEATURE_DATA_FEATURE_LEVELS feature_levels;
+    D3D_FEATURE_LEVEL max_supported_feature_level;
+    ID3D12Device *device;
+    ULONG refcount;
+    HRESULT hr;
+
+    static const D3D_FEATURE_LEVEL all_feature_levels[] =
+    {
+        D3D_FEATURE_LEVEL_12_1,
+        D3D_FEATURE_LEVEL_12_0,
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0,
+        D3D_FEATURE_LEVEL_10_1,
+        D3D_FEATURE_LEVEL_10_0,
+        D3D_FEATURE_LEVEL_9_3,
+        D3D_FEATURE_LEVEL_9_2,
+        D3D_FEATURE_LEVEL_9_1,
+    };
+    static const D3D_FEATURE_LEVEL d3d12_feature_levels[] =
+    {
+        D3D_FEATURE_LEVEL_12_1,
+        D3D_FEATURE_LEVEL_12_0,
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0,
+    };
+    static const D3D_FEATURE_LEVEL d3d_9_x_feature_levels[] =
+    {
+        D3D_FEATURE_LEVEL_9_3,
+        D3D_FEATURE_LEVEL_9_2,
+        D3D_FEATURE_LEVEL_9_1,
+    };
+    static const D3D_FEATURE_LEVEL invalid_feature_levels[] =
+    {
+        0x0000,
+        0x3000,
+    };
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    /* Feature levels */
+    memset(&feature_levels, 0, sizeof(feature_levels));
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
+            &feature_levels, sizeof(feature_levels));
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    feature_levels.NumFeatureLevels = ARRAY_SIZE(all_feature_levels);
+    feature_levels.pFeatureLevelsRequested = all_feature_levels;
+    feature_levels.MaxSupportedFeatureLevel = 0;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
+            &feature_levels, sizeof(feature_levels));
+    ok(SUCCEEDED(hr), "CheckFeatureSupport failed, hr %#x.\n", hr);
+    trace("Max supported feature level %#x.\n", feature_levels.MaxSupportedFeatureLevel);
+    max_supported_feature_level = feature_levels.MaxSupportedFeatureLevel;
+
+    feature_levels.NumFeatureLevels = ARRAY_SIZE(d3d12_feature_levels);
+    feature_levels.pFeatureLevelsRequested = d3d12_feature_levels;
+    feature_levels.MaxSupportedFeatureLevel = 0;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
+            &feature_levels, sizeof(feature_levels));
+    ok(SUCCEEDED(hr), "CheckFeatureSupport failed, hr %#x.\n", hr);
+    ok(feature_levels.MaxSupportedFeatureLevel == max_supported_feature_level,
+            "Got unexpected feature level %#x, expected %#x.\n",
+            feature_levels.MaxSupportedFeatureLevel, max_supported_feature_level);
+
+    /* Check invalid size. */
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
+            &feature_levels, sizeof(feature_levels) + 1);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
+            &feature_levels, sizeof(feature_levels) - 1);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    feature_levels.NumFeatureLevels = ARRAY_SIZE(d3d_9_x_feature_levels);
+    feature_levels.pFeatureLevelsRequested = d3d_9_x_feature_levels;
+    feature_levels.MaxSupportedFeatureLevel = 0;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
+            &feature_levels, sizeof(feature_levels));
+    ok(SUCCEEDED(hr), "CheckFeatureSupport failed, hr %#x.\n", hr);
+    ok(feature_levels.MaxSupportedFeatureLevel == D3D_FEATURE_LEVEL_9_3,
+            "Got unexpected max feature level %#x.\n", feature_levels.MaxSupportedFeatureLevel);
+
+    feature_levels.NumFeatureLevels = ARRAY_SIZE(invalid_feature_levels);
+    feature_levels.pFeatureLevelsRequested = invalid_feature_levels;
+    feature_levels.MaxSupportedFeatureLevel = 0;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
+            &feature_levels, sizeof(feature_levels));
+    ok(SUCCEEDED(hr), "CheckFeatureSupport failed, hr %#x.\n", hr);
+    ok(feature_levels.MaxSupportedFeatureLevel == 0x3000,
+            "Got unexpected max feature level %#x.\n", feature_levels.MaxSupportedFeatureLevel);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12)
 {
     ID3D12Debug *debug;
@@ -147,4 +249,5 @@ START_TEST(d3d12)
 
     test_create_device();
     test_node_count();
+    test_check_feature_support();
 }
