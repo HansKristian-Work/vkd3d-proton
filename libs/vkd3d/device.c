@@ -131,10 +131,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandQueue(ID3D12Device *i
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandAllocator(ID3D12Device *iface,
         D3D12_COMMAND_LIST_TYPE type, REFIID riid, void **command_allocator)
 {
-    FIXME("iface %p, type %#x, riid %s, command_allocator %p stub!.\n",
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_command_allocator *object;
+    HRESULT hr;
+
+    TRACE("iface %p, type %#x, riid %s, command_allocator %p.\n",
             iface, type, debugstr_guid(riid), command_allocator);
 
-    return E_NOTIMPL;
+    if (FAILED(hr = d3d12_command_allocator_create(device, type, &object)))
+        return hr;
+
+    return return_interface((IUnknown *)&object->ID3D12CommandAllocator_iface, &IID_ID3D12CommandAllocator,
+            riid, command_allocator);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateGraphicsPipelineState(ID3D12Device *iface,

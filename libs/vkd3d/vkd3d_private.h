@@ -33,6 +33,20 @@
 
 struct d3d12_device;
 
+/* ID3D12CommandAllocator */
+struct d3d12_command_allocator
+{
+    ID3D12CommandAllocator ID3D12CommandAllocator_iface;
+    ULONG refcount;
+
+    D3D12_COMMAND_LIST_TYPE type;
+
+    struct d3d12_device *device;
+};
+
+HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
+        D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_allocator **allocator) DECLSPEC_HIDDEN;
+
 /* ID3D12CommandQueue */
 struct d3d12_command_queue
 {

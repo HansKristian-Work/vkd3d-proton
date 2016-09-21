@@ -22,6 +22,163 @@
 
 #include "vkd3d_private.h"
 
+/* ID3D12CommandAllocator */
+static inline struct d3d12_command_allocator *impl_from_ID3D12CommandAllocator(ID3D12CommandAllocator *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d12_command_allocator, ID3D12CommandAllocator_iface);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_QueryInterface(ID3D12CommandAllocator *iface,
+        REFIID riid, void **object)
+{
+    TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
+
+    if (IsEqualGUID(riid, &IID_ID3D12CommandAllocator)
+            || IsEqualGUID(riid, &IID_ID3D12Pageable)
+            || IsEqualGUID(riid, &IID_ID3D12DeviceChild)
+            || IsEqualGUID(riid, &IID_ID3D12Object)
+            || IsEqualGUID(riid, &IID_IUnknown))
+    {
+        ID3D12CommandAllocator_AddRef(iface);
+        *object = iface;
+        return S_OK;
+    }
+
+    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(riid));
+
+    *object = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_command_allocator_AddRef(ID3D12CommandAllocator *iface)
+{
+    struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
+    ULONG refcount = InterlockedIncrement(&allocator->refcount);
+
+    TRACE("%p increasing refcount to %u.\n", allocator, refcount);
+
+    return refcount;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllocator *iface)
+{
+    struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
+    ULONG refcount = InterlockedDecrement(&allocator->refcount);
+
+    TRACE("%p decreasing refcount to %u.\n", allocator, refcount);
+
+    if (!refcount)
+    {
+        struct d3d12_device *device = allocator->device;
+
+        vkd3d_free(allocator);
+
+        ID3D12Device_Release(&device->ID3D12Device_iface);
+    }
+
+    return refcount;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_GetPrivateData(ID3D12CommandAllocator *iface,
+        REFGUID guid, UINT *data_size, void *data)
+{
+    FIXME("iface %p, guid %s, data_size %p, data %p stub!", iface, debugstr_guid(guid), data_size, data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetPrivateData(ID3D12CommandAllocator *iface,
+        REFGUID guid, UINT data_size, const void *data)
+{
+    FIXME("iface %p, guid %s, data_size %u, data %p stub!\n", iface, debugstr_guid(guid), data_size, data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetPrivateDataInterface(ID3D12CommandAllocator *iface,
+        REFGUID guid, const IUnknown *data)
+{
+    FIXME("iface %p, guid %s, data %p stub!\n", iface, debugstr_guid(guid), data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetName(ID3D12CommandAllocator *iface, const WCHAR *name)
+{
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_GetDevice(ID3D12CommandAllocator *iface,
+        REFIID riid, void **device)
+{
+    struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
+
+    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+
+    return ID3D12Device_QueryInterface(&allocator->device->ID3D12Device_iface, riid, device);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllocator *iface)
+{
+    FIXME("iface %p stub!\n", iface);
+
+    return E_NOTIMPL;
+}
+
+static const struct ID3D12CommandAllocatorVtbl d3d12_command_allocator_vtbl =
+{
+    /* IUnknown methods */
+    d3d12_command_allocator_QueryInterface,
+    d3d12_command_allocator_AddRef,
+    d3d12_command_allocator_Release,
+    /* ID3D12Object methods */
+    d3d12_command_allocator_GetPrivateData,
+    d3d12_command_allocator_SetPrivateData,
+    d3d12_command_allocator_SetPrivateDataInterface,
+    d3d12_command_allocator_SetName,
+    /* ID3D12DeviceChild methods */
+    d3d12_command_allocator_GetDevice,
+    /* ID3D12CommandAllocator methods */
+    d3d12_command_allocator_Reset,
+};
+
+static void d3d12_command_allocator_init(struct d3d12_command_allocator *allocator,
+        struct d3d12_device *device, D3D12_COMMAND_LIST_TYPE type)
+{
+    allocator->ID3D12CommandAllocator_iface.lpVtbl = &d3d12_command_allocator_vtbl;
+    allocator->refcount = 1;
+
+    allocator->type = type;
+
+    allocator->device = device;
+    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+}
+
+HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
+        D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_allocator **allocator)
+{
+    struct d3d12_command_allocator *object;
+
+    if (!(D3D12_COMMAND_LIST_TYPE_DIRECT <= type && type <= D3D12_COMMAND_LIST_TYPE_COPY))
+    {
+        WARN("Invalid type %#x.\n", type);
+        return E_INVALIDARG;
+    }
+
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    d3d12_command_allocator_init(object, device, type);
+
+    TRACE("Created command allocator %p.\n", object);
+
+    *allocator = object;
+
+    return S_OK;
+}
+
 /* ID3D12CommandQueue */
 static inline struct d3d12_command_queue *impl_from_ID3D12CommandQueue(ID3D12CommandQueue *iface)
 {
