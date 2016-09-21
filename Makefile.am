@@ -1,6 +1,6 @@
 ACLOCAL_AMFLAGS = -I m4
 AM_CFLAGS = @VKD3D_CFLAGS@
-AM_CPPFLAGS = -I$(srcdir)/include -I$(srcdir)/include/dummy
+AM_CPPFLAGS = -I$(srcdir)/include -I$(srcdir)/include/dummy -I$(srcdir)/include/private
 
 widl_headers = \
 	include/d3d12.h
@@ -11,6 +11,9 @@ vkd3d_public_headers = \
 	include/dummy/rpcndr.h \
 	include/dxgibase.h \
 	include/vkd3d_windows.h
+
+vkd3d_tests = \
+	tests/d3d12
 
 BUILT_SOURCES = $(widl_headers)
 CLEANFILES = $(widl_headers)
@@ -25,6 +28,11 @@ libvkd3d_la_SOURCES = \
 pkgconfigdir = $(libdir)/pkgconfig
 pkginclude_HEADERS = $(vkd3d_public_headers)
 nodist_pkgconfig_DATA = libvkd3d.pc
+
+LDADD = libvkd3d.la
+check_PROGRAMS =  $(vkd3d_tests)
+AM_DEFAULT_SOURCE_EXT = .c
+TESTS = $(vkd3d_tests)
 
 $(widl_headers): %.h: %.idl
 	$(WIDL) -o $@ $<

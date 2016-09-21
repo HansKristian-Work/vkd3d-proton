@@ -6,12 +6,17 @@ configure
 libtool
 Makefile
 Makefile.in
+test-suite.log
 
 vkd3d-*.tar.gz
 
+*.exe
 *.la
 *.lo
+*.log
+*.o
 *.pc
+*.trs
 *~
 
 .deps
