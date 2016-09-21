@@ -20,7 +20,7 @@ LT_PREREQ([2.4.2])
 LT_INIT
 
 dnl Check compiler specific flags
-AC_SUBST(VKD3D_CLFAGS, "")
+AC_SUBST(VKD3D_CFLAGS, "")
 if test "x${GCC}" = "xyes"
 then
     VKD3D_CFLAGS="-Wall -pipe"
