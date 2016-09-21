@@ -12,6 +12,12 @@ AC_PROG_CC
 AM_PROG_CC_C_O
 AC_PROG_SED
 AC_PROG_MKDIR_P
+AC_CHECK_PROG(WIDL, [widl], [widl], [no])
+
+if test "x$WIDL" = xno
+then
+    AC_MSG_ERROR([widl is required to build header files.])
+fi
 
 AM_INIT_AUTOMAKE([1.11 foreign silent-rules subdir-objects -Wall -Werror])
 AM_MAINTAINER_MODE([enable])
@@ -34,3 +40,16 @@ fi
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
+
+dnl Output configuration info
+echo ""
+WIDL_VERSION=`$WIDL -V`
+if test $? -eq 0
+then
+    WIDL_VERSION=`echo $WIDL_VERSION | cut -d' ' -f5`
+fi
+echo "  widl version: $WIDL_VERSION"
+
+echo ""
+echo "  Run '${MAKE-make}' to build vkD3D."
+echo ""
