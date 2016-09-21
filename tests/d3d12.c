@@ -244,6 +244,66 @@ static void test_check_feature_support(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_create_command_allocator(void)
+{
+    ID3D12CommandAllocator *command_allocator;
+    ID3D12Device *device, *tmp_device;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
+    ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
+
+    refcount = get_refcount(device);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    hr = ID3D12CommandAllocator_GetDevice(command_allocator, &IID_ID3D12Device, (void **)&tmp_device);
+    ok(SUCCEEDED(hr), "GetDevice failed, hr %#x.\n", hr);
+    refcount = get_refcount(device);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    refcount = ID3D12Device_Release(tmp_device);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    check_interface(command_allocator, &IID_ID3D12Object, TRUE);
+    check_interface(command_allocator, &IID_ID3D12DeviceChild, TRUE);
+    check_interface(command_allocator, &IID_ID3D12Pageable, TRUE);
+    check_interface(command_allocator, &IID_ID3D12CommandAllocator, TRUE);
+
+    refcount = ID3D12CommandAllocator_Release(command_allocator);
+    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", (unsigned int)refcount);
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_BUNDLE,
+            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
+    ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
+    refcount = ID3D12CommandAllocator_Release(command_allocator);
+    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", (unsigned int)refcount);
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
+    ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
+    refcount = ID3D12CommandAllocator_Release(command_allocator);
+    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", (unsigned int)refcount);
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_COPY,
+            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
+    ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
+    refcount = ID3D12CommandAllocator_Release(command_allocator);
+    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", (unsigned int)refcount);
+
+    hr = ID3D12Device_CreateCommandAllocator(device, ~0u,
+            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
+    ok(hr == E_INVALIDARG, "CreateCommandAllocator failed, hr %#x.\n", hr);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 static void test_create_command_queue(void)
 {
     D3D12_COMMAND_QUEUE_DESC desc, result_desc;
@@ -305,5 +365,6 @@ START_TEST(d3d12)
     test_create_device();
     test_node_count();
     test_check_feature_support();
+    test_create_command_allocator();
     test_create_command_queue();
 }
