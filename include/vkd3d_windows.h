@@ -23,6 +23,7 @@
 #ifndef __VKD3D_WINDOWS_H
 #define __VKD3D_WINDOWS_H
 
+
 #if !defined(_WIN32) || defined(__WIDL__)
 
 /* HRESULT */
@@ -121,5 +122,59 @@ typedef GUID IID;
 
 typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 #endif  /* !defined(_WIN32) || defined(__WIDL__) */
+
+
+#ifndef _WIN32
+# include <stdlib.h>
+
+# define COM_NO_WINDOWS_H
+
+# define FORCEINLINE inline
+
+# define CONTAINING_RECORD(address, type, field) \
+        ((type *)((char *)(address) - offsetof(type, field)))
+
+# ifdef __x86_64__
+#  define WINAPI __attribute__((ms_abi))
+#  define STDMETHODCALLTYPE __attribute__((ms_abi))
+# else
+#  define WINAPI __attribute__((__stdcall__))
+#  define STDMETHODCALLTYPE __attribute__((__stdcall__))
+# endif
+
+# ifdef __GNUC__
+#  define DECLSPEC_SELECTANY __attribute__((weak))
+#  define DECLSPEC_HIDDEN __attribute__((visibility("hidden")))
+# endif
+
+# define __C89_NAMELESS
+# define __C89_NAMELESSUNIONNAME
+
+/* Macros for COM interfaces */
+# define interface struct
+# define BEGIN_INTERFACE
+# define END_INTERFACE
+
+# ifdef __cplusplus
+#  define EXTERN_C extern "C"
+# else
+#  define EXTERN_C extern
+# endif
+
+# define CONST_VTBL const
+
+# define TRUE 1
+# define FALSE 0
+
+# if defined(__cplusplus) && !defined(CINTERFACE)
+#  define REFIID const IID &
+#  define REFGUID const GUID &
+# else
+#  define REFIID const IID * const
+#  define REFGUID const GUID * const
+# endif
+
+#endif  /* _WIN32 */
+
 
 #endif  /* __VKD3D_WINDOWS_H */
