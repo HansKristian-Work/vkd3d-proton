@@ -1,3 +1,4 @@
 config.h
 config.h.in
+d3d12.h
 stamp-h1
