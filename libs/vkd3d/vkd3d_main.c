@@ -54,3 +54,10 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_fe
     return return_interface((IUnknown *)&object->ID3D12Device_iface, &IID_ID3D12Device,
             riid, device);
 }
+
+HRESULT WINAPI D3D12GetDebugInterface(REFIID riid, void **debug)
+{
+    FIXME("riid %s, debug %p stub!\n", debugstr_guid(riid), debug);
+
+    return E_NOTIMPL;
+}
