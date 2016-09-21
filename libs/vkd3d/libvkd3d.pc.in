@@ -1,0 +1,10 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+
+Name: vkD3D
+Description: D3D12 to Vulkan translation library.
+Version: @PACKAGE_VERSION@
+Cflags: -I${includedir}/vkd3d
+Libs: -L${libdir} -lvkd3d
