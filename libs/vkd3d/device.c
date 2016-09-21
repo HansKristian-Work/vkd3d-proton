@@ -170,10 +170,40 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandList(ID3D12Device *if
 static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *iface,
         D3D12_FEATURE feature, void *feature_data, UINT feature_data_size)
 {
-    FIXME("iface %p, feature %#x, feature_data %p, feature_data_size %u stub!\n",
+    TRACE("iface %p, feature %#x, feature_data %p, feature_data_size %u.\n",
             iface, feature, feature_data, feature_data_size);
 
-    return E_NOTIMPL;
+    switch (feature)
+    {
+        case D3D12_FEATURE_FEATURE_LEVELS:
+        {
+            D3D12_FEATURE_DATA_FEATURE_LEVELS *data = feature_data;
+            unsigned int i;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+            if (!data->NumFeatureLevels)
+                return E_INVALIDARG;
+
+            data->MaxSupportedFeatureLevel = 0;
+            for (i = 0; i < data->NumFeatureLevels; ++i)
+            {
+                D3D_FEATURE_LEVEL fl = data->pFeatureLevelsRequested[i];
+                if (data->MaxSupportedFeatureLevel < fl && check_feature_level_support(fl))
+                    data->MaxSupportedFeatureLevel = fl;
+            }
+            break;
+        }
+
+        default:
+            FIXME("Unhandled feature %#x.\n", feature);
+            return E_NOTIMPL;
+    }
+
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateDescriptorHeap(ID3D12Device *iface,
