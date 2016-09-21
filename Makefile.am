@@ -17,6 +17,7 @@ CLEANFILES = $(widl_headers)
 
 lib_LTLIBRARIES = libvkd3d.la
 libvkd3d_la_SOURCES = \
+	libs/vkd3d/debug.c \
 	libs/vkd3d/vkd3d_main.c
 
 pkgconfigdir = $(libdir)/pkgconfig

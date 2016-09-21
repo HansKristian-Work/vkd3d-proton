@@ -26,5 +26,8 @@
 HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level,
         REFIID riid, void **device)
 {
+    FIXME("adapter %p, minimum_feature_level %#x, riid %s, device %p stub!\n",
+            adapter, minimum_feature_level, debugstr_guid(riid), device);
+
     return E_NOTIMPL;
 }
