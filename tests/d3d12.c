@@ -51,6 +51,13 @@ typedef int HRESULT;
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*x))
 
+#define get_refcount(a) get_refcount_((IUnknown *)a)
+static ULONG get_refcount_(IUnknown *iface)
+{
+    IUnknown_AddRef(iface);
+    return IUnknown_Release(iface);
+}
+
 #define check_interface(a, b, c) check_interface_(__LINE__, (IUnknown *)a, b, c)
 static void check_interface_(unsigned int line, IUnknown *iface, REFIID riid, BOOL supported)
 {
@@ -237,6 +244,54 @@ static void test_check_feature_support(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_create_command_queue(void)
+{
+    D3D12_COMMAND_QUEUE_DESC desc, result_desc;
+    ID3D12Device *device, *tmp_device;
+    ID3D12CommandQueue *queue;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    desc.NodeMask = 0;
+    hr = ID3D12Device_CreateCommandQueue(device, &desc, &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(SUCCEEDED(hr), "CreateCommandQueue failed, hr %#x.\n", hr);
+
+    refcount = get_refcount(device);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    hr = ID3D12CommandQueue_GetDevice(queue, &IID_ID3D12Device, (void **)&tmp_device);
+    ok(SUCCEEDED(hr), "GetDevice failed, hr %#x.\n", hr);
+    refcount = get_refcount(device);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    refcount = ID3D12Device_Release(tmp_device);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    check_interface(queue, &IID_ID3D12Object, TRUE);
+    check_interface(queue, &IID_ID3D12DeviceChild, TRUE);
+    check_interface(queue, &IID_ID3D12Pageable, TRUE);
+    check_interface(queue, &IID_ID3D12CommandQueue, TRUE);
+
+    result_desc = ID3D12CommandQueue_GetDesc(queue);
+    ok(result_desc.Type == desc.Type, "Got unexpected type %#x.\n", result_desc.Type);
+    ok(result_desc.Priority == desc.Priority, "Got unexpected priority %#x.\n", result_desc.Priority);
+    ok(result_desc.Flags == desc.Flags, "Got unexpected flags %#x.\n", result_desc.Flags);
+    ok(result_desc.NodeMask == 0x1, "Got unexpected node mask 0x%08x.\n", result_desc.NodeMask);
+
+    refcount = ID3D12CommandQueue_Release(queue);
+    ok(!refcount, "ID3D12CommandQueue has %u references left.\n", (unsigned int)refcount);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12)
 {
     ID3D12Debug *debug;
@@ -250,4 +305,5 @@ START_TEST(d3d12)
     test_create_device();
     test_node_count();
     test_check_feature_support();
+    test_create_command_queue();
 }
