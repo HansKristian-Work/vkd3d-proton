@@ -31,6 +31,22 @@
 
 #include <assert.h>
 
+struct d3d12_device;
+
+/* ID3D12CommandQueue */
+struct d3d12_command_queue
+{
+    ID3D12CommandQueue ID3D12CommandQueue_iface;
+    ULONG refcount;
+
+    D3D12_COMMAND_QUEUE_DESC desc;
+
+    struct d3d12_device *device;
+};
+
+HRESULT d3d12_command_queue_create(struct d3d12_device *device,
+        const D3D12_COMMAND_QUEUE_DESC *desc, struct d3d12_command_queue **queue) DECLSPEC_HIDDEN;
+
 /* ID3D12Device */
 struct d3d12_device
 {

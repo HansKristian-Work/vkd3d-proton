@@ -114,10 +114,18 @@ static UINT STDMETHODCALLTYPE d3d12_device_GetNodeCount(ID3D12Device *iface)
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandQueue(ID3D12Device *iface,
         const D3D12_COMMAND_QUEUE_DESC *desc, REFIID riid, void **command_queue)
 {
-    FIXME("iface %p, desc %p, riid %s, command_queue %p stub!.\n",
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_command_queue *object;
+    HRESULT hr;
+
+    TRACE("iface %p, desc %p, riid %s, command_queue %p.\n",
             iface, desc, debugstr_guid(riid), command_queue);
 
-    return E_NOTIMPL;
+    if (FAILED(hr = d3d12_command_queue_create(device, desc, &object)))
+        return hr;
+
+    return return_interface((IUnknown *)&object->ID3D12CommandQueue_iface, &IID_ID3D12CommandQueue,
+            riid, command_queue);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandAllocator(ID3D12Device *iface,
