@@ -117,5 +117,13 @@ static void test_create_device(void)
 
 START_TEST(d3d12)
 {
+    ID3D12Debug *debug;
+
+    if (SUCCEEDED(D3D12GetDebugInterface(&IID_ID3D12Debug, (void **)&debug)))
+    {
+        ID3D12Debug_EnableDebugLayer(debug);
+        ID3D12Debug_Release(debug);
+    }
+
     test_create_device();
 }
