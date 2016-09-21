@@ -316,9 +316,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource(ID3D12Device 
         const D3D12_CLEAR_VALUE *optimized_clear_value,
         REFIID riid, void **resource)
 {
-    FIXME("iface %p, heap %p, heap_offset %lu, desc %p, initial_state %#x, "
+    FIXME("iface %p, heap %p, heap_offset %s, desc %p, initial_state %#x, "
             "optimized_clear_value %p, riid %s, resource %p stub!\n",
-            iface, heap, heap_offset, desc, initial_state,
+            iface, heap, debugstr_uint64(heap_offset), desc, initial_state,
             optimized_clear_value, debugstr_guid(riid), resource);
 
     return E_NOTIMPL;
@@ -385,8 +385,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_Evict(ID3D12Device *iface,
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateFence(ID3D12Device *iface,
         UINT64 initial_value, D3D12_FENCE_FLAGS flags, REFIID riid, void **fence)
 {
-    FIXME("iface %p, intial_value %lu, flags %#x, riid %s, fence %p stub!\n",
-            iface, initial_value, flags, debugstr_guid(riid), fence);
+    FIXME("iface %p, intial_value %s, flags %#x, riid %s, fence %p stub!\n",
+            iface, debugstr_uint64(initial_value), flags, debugstr_guid(riid), fence);
 
     return E_NOTIMPL;
 }
@@ -408,9 +408,9 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         UINT64 *row_size,
         UINT64 *total_bytes)
 {
-    FIXME("iface %p, desc %p, first_sub_resource %u, sub_resource_count %u, base_offset %lu, "
+    FIXME("iface %p, desc %p, first_sub_resource %u, sub_resource_count %u, base_offset %s, "
             "layouts %p, row_count %p, row_size %p, total_bytes %p stub!\n",
-            iface, desc, first_sub_resource, sub_resource_count, base_offset, layouts,
+            iface, desc, first_sub_resource, sub_resource_count, debugstr_uint64(base_offset), layouts,
             row_count, row_size, total_bytes);
 }
 

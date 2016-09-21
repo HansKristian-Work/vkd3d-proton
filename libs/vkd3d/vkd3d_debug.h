@@ -59,6 +59,14 @@ const char *debugstr_w(const WCHAR *wstr) DECLSPEC_HIDDEN;
 #define FIXME VKD3D_DBG_LOG(FIXME)
 #define ERR   VKD3D_DBG_LOG(ERR)
 
+static inline const char *debugstr_uint64(UINT64 v)
+{
+    if ((v >> 32) && sizeof(unsigned long) < sizeof(v))
+        return vkd3d_dbg_sprintf("%lx%08lx", (unsigned long)(v >> 32), (unsigned long)v);
+
+    return vkd3d_dbg_sprintf("%lx", (unsigned long)v);
+}
+
 static inline const char *debugstr_guid(const GUID *guid)
 {
     if (!guid)
