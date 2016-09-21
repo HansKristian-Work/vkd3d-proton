@@ -115,6 +115,26 @@ static void test_create_device(void)
     ok(hr == E_INVALIDARG, "D3D12CreateDevice failed, hr %#x.\n", hr);
 }
 
+static void test_node_count(void)
+{
+    ID3D12Device *device;
+    UINT node_count;
+    ULONG refcount;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    node_count = ID3D12Device_GetNodeCount(device);
+    trace("Node count: %u.\n", node_count);
+    ok(1 <= node_count && node_count <= 32, "Got unexpected node count %u.\n", node_count);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12)
 {
     ID3D12Debug *debug;
@@ -126,4 +146,5 @@ START_TEST(d3d12)
     }
 
     test_create_device();
+    test_node_count();
 }
