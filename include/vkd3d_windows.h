@@ -125,7 +125,9 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 
 
 #ifndef _WIN32
+# include <stddef.h>
 # include <stdlib.h>
+# include <string.h>
 
 # define COM_NO_WINDOWS_H
 
@@ -173,6 +175,12 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 #  define REFIID const IID * const
 #  define REFGUID const GUID * const
 # endif
+
+#if defined(__cplusplus) && !defined(CINTERFACE)
+# define IsEqualGUID(guid1, guid2) (!memcmp(&(guid1), &(guid2), sizeof(GUID)))
+#else
+# define IsEqualGUID(guid1, guid2) (!memcmp(guid1, guid2, sizeof(GUID)))
+#endif
 
 #endif  /* _WIN32 */
 

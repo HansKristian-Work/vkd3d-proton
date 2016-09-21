@@ -26,8 +26,31 @@
 HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level,
         REFIID riid, void **device)
 {
-    FIXME("adapter %p, minimum_feature_level %#x, riid %s, device %p stub!\n",
+    struct d3d12_device *object;
+    HRESULT hr;
+
+    TRACE("adapter %p, minimum_feature_level %#x, riid %s, device %p.\n",
             adapter, minimum_feature_level, debugstr_guid(riid), device);
 
-    return E_NOTIMPL;
+    if (minimum_feature_level < D3D_FEATURE_LEVEL_11_0
+            || !is_valid_feature_level(minimum_feature_level))
+    {
+        WARN("Invalid feature level %#x.\n", minimum_feature_level);
+        return E_INVALIDARG;
+    }
+
+    if (!check_feature_level_support(minimum_feature_level))
+    {
+        FIXME("Unsupported feature level %#x.\n", minimum_feature_level);
+        return E_INVALIDARG;
+    }
+
+    if (adapter)
+        FIXME("Ignoring adapter %p.\n", adapter);
+
+    if (FAILED(hr = d3d12_device_create(&object)))
+        return hr;
+
+    return return_interface((IUnknown *)&object->ID3D12Device_iface, &IID_ID3D12Device,
+            riid, device);
 }

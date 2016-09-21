@@ -20,52 +20,50 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef __VKD3D_PRIVATE_H
-#define __VKD3D_PRIVATE_H
+#include "vkd3d_private.h"
 
-#define COBJMACROS
-#include "vkd3d_common.h"
-#include "vkd3d_debug.h"
-
-#include "d3d12.h"
-
-#include <assert.h>
-
-/* ID3D12Device */
-struct d3d12_device
+BOOL is_valid_feature_level(D3D_FEATURE_LEVEL feature_level)
 {
-    ID3D12Device ID3D12Device_iface;
-    ULONG refcount;
-};
+    static const D3D_FEATURE_LEVEL valid_feature_levels[] =
+    {
+        D3D_FEATURE_LEVEL_12_1,
+        D3D_FEATURE_LEVEL_12_0,
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0,
+        D3D_FEATURE_LEVEL_10_1,
+        D3D_FEATURE_LEVEL_10_0,
+        D3D_FEATURE_LEVEL_9_3,
+        D3D_FEATURE_LEVEL_9_2,
+        D3D_FEATURE_LEVEL_9_1,
+    };
+    unsigned int i;
 
-HRESULT d3d12_device_create(struct d3d12_device **device) DECLSPEC_HIDDEN;
+    for (i = 0; i < ARRAY_SIZE(valid_feature_levels); ++i)
+    {
+        if (valid_feature_levels[i] == feature_level)
+            return TRUE;
+    }
 
-/* utils */
-BOOL is_valid_feature_level(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;
-BOOL check_feature_level_support(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;
+    return FALSE;
+}
+
+BOOL check_feature_level_support(D3D_FEATURE_LEVEL feature_level)
+{
+    return feature_level <= D3D_FEATURE_LEVEL_11_0;
+}
 
 HRESULT return_interface(IUnknown *iface, REFIID iface_riid,
-        REFIID requested_riid, void **object) DECLSPEC_HIDDEN;
-
-static inline void *vkd3d_malloc(size_t size)
+        REFIID requested_riid, void **object)
 {
-    void *ptr;
-    if (!(ptr = malloc(size)))
-        ERR("Out of memory.\n");
-    return ptr;
-}
+    HRESULT hr;
 
-static inline void *vkd3d_calloc(size_t count, size_t size)
-{
-    void *ptr;
-    if (!(ptr = calloc(count, size)))
-        ERR("Out of memory.\n");
-    return ptr;
-}
+    if (IsEqualGUID(iface_riid, requested_riid))
+    {
+        *object = iface;
+        return S_OK;
+    }
 
-static inline void vkd3d_free(void *ptr)
-{
-    free(ptr);
+    hr = IUnknown_QueryInterface(iface, requested_riid, object);
+    IUnknown_Release(iface);
+    return hr;
 }
-
-#endif  /* __VKD3D_PRIVATE_H */
