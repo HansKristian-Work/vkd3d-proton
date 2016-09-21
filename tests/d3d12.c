@@ -20,9 +20,6 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#define INITGUID
-#include "vkd3d_test.h"
-#include "vkd3d_windows.h"
 
 /* Hack for MinGW-w64 headers.
  *
@@ -34,14 +31,21 @@
  * specifiers" compiler error.
  */
 #ifdef __MINGW32__
-#include <_mingw.h>
+# include <_mingw.h>
 # ifdef __MINGW64_VERSION_MAJOR
 #  undef __forceinline
 #  define __forceinline __inline__ __attribute__((__always_inline__,__gnu_inline__))
 # endif
+
+# define _HRESULT_DEFINED
+typedef int HRESULT;
 #endif
 
+#define INITGUID
 #define COBJMACROS
+#include "vkd3d_test.h"
+#include "vkd3d_windows.h"
+
 #define WIDL_C_INLINE_WRAPPERS
 #include "d3d12.h"
 
@@ -88,7 +92,7 @@ static void test_create_device(void)
     check_interface(device, &IID_ID3D12Device, TRUE);
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 
     hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device);
     ok(hr == S_OK, "D3D12CreateDevice failed, hr %#x.\n", hr);

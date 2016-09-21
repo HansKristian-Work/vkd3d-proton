@@ -182,7 +182,15 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 # define IsEqualGUID(guid1, guid2) (!memcmp(guid1, guid2, sizeof(GUID)))
 #endif
 
-#endif  /* _WIN32 */
+#elif !defined(__WIDL__)
 
+# include <windows.h>
+
+# ifndef __C89_NAMELESS
+#  define __C89_NAMELESS
+#  define __C89_NAMELESSUNIONNAME
+# endif  /* __C89_NAMELESS */
+
+#endif  /* _WIN32 */
 
 #endif  /* __VKD3D_WINDOWS_H */
