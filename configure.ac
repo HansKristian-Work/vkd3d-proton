@@ -38,6 +38,12 @@ then
     VKD3D_CHECK_CFLAGS([-Wvla])
 fi
 
+dnl Check for headers
+AC_CHECK_HEADERS([vulkan/vulkan.h], [], [AC_MSG_ERROR([vulkan.h not found.])])
+
+dnl Check for libraries
+AC_CHECK_LIB([vulkan], [vkGetInstanceProcAddr], [], [AC_MSG_ERROR([libvulkan not found.])])
+
 dnl Check for __sync_add_and_fetch
 AC_MSG_CHECKING([for __sync_add_and_fetch])
 AC_LINK_IFELSE(

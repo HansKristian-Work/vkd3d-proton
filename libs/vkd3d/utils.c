@@ -67,3 +67,59 @@ HRESULT return_interface(IUnknown *iface, REFIID iface_riid,
     IUnknown_Release(iface);
     return hr;
 }
+
+HRESULT hresult_from_vk_result(VkResult vr)
+{
+    switch (vr)
+    {
+        case VK_SUCCESS:
+            return S_OK;
+        case VK_ERROR_OUT_OF_HOST_MEMORY:
+        case VK_ERROR_OUT_OF_DEVICE_MEMORY:
+            return E_OUTOFMEMORY;
+
+        default:
+            FIXME("Unhandled VkResult %d.\n", vr);
+            return E_FAIL;
+    }
+}
+
+#define LOAD_INSTANCE_PFN(name) \
+    if (!(procs->name = (void *)vkGetInstanceProcAddr(instance, #name))) \
+    { \
+        ERR("Could not get instance proc addr for '" #name "'.\n"); \
+        return E_FAIL; \
+    }
+
+HRESULT vkd3d_load_vk_instance_procs(struct vkd3d_vk_instance_procs *procs,
+        VkInstance instance)
+{
+    memset(procs, 0, sizeof(*procs));
+
+#define VK_INSTANCE_PFN LOAD_INSTANCE_PFN
+#include "vulkan_procs.h"
+
+    TRACE("Loaded procs for VkInstance %p.\n", instance);
+    return S_OK;
+}
+
+#define COPY_PARENT_PFN(name) procs->name = parent_procs->name;
+#define LOAD_DEVICE_PFN(name) \
+    if (!(procs->name = (void *)procs->vkGetDeviceProcAddr(device, #name))) \
+    { \
+        ERR("Could not get device proc addr for '" #name "'.\n"); \
+        return E_FAIL; \
+    }
+
+HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
+        const struct vkd3d_vk_instance_procs *parent_procs, VkDevice device)
+{
+    memset(procs, 0, sizeof(*procs));
+
+#define VK_INSTANCE_PFN COPY_PARENT_PFN
+#define VK_DEVICE_PFN   LOAD_DEVICE_PFN
+#include "vulkan_procs.h"
+
+    TRACE("Loaded procs for VkDevice %p.\n", device);
+    return S_OK;
+}

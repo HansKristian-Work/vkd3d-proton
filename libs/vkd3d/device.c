@@ -22,6 +22,62 @@
 
 #include "vkd3d_private.h"
 
+static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance)
+{
+    VkApplicationInfo application_info;
+    VkInstanceCreateInfo instance_info;
+    VkInstance vk_instance;
+    VkResult vr;
+    HRESULT hr;
+
+    TRACE("instance %p.\n", instance);
+
+    application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    application_info.pNext = NULL;
+    application_info.pApplicationName = PACKAGE_NAME;
+    application_info.applicationVersion = 0;
+    application_info.pEngineName = NULL;
+    application_info.engineVersion = 0;
+    application_info.apiVersion = VK_API_VERSION_1_0;
+
+    instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    instance_info.pNext = NULL;
+    instance_info.flags = 0;
+    instance_info.pApplicationInfo = &application_info;
+    instance_info.enabledLayerCount = 0;
+    instance_info.ppEnabledLayerNames = NULL;
+    instance_info.enabledExtensionCount = 0;
+    instance_info.ppEnabledExtensionNames = NULL;
+
+    if ((vr = vkCreateInstance(&instance_info, NULL, &vk_instance)))
+    {
+        ERR("Failed to create Vulkan instance, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    if (FAILED(hr = vkd3d_load_vk_instance_procs(&instance->vk_procs, vk_instance)))
+    {
+        ERR("Failed to load instance procs, hr %#x.\n", hr);
+        vkDestroyInstance(vk_instance, NULL);
+        return hr;
+    }
+
+    instance->vk_instance = vk_instance;
+
+    TRACE("Created Vulkan instance %p.\n", vk_instance);
+
+    return S_OK;
+}
+
+static void vkd3d_instance_destroy(struct vkd3d_instance *instance)
+{
+    const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
+
+    TRACE("instance %p.\n", instance);
+
+    VK_CALL(vkDestroyInstance(instance->vk_instance, NULL));
+}
+
 /* ID3D12Device */
 static inline struct d3d12_device *impl_from_ID3D12Device(ID3D12Device *iface)
 {
@@ -66,7 +122,10 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
     TRACE("%p decreasing refcount to %u.\n", device, refcount);
 
     if (!refcount)
+    {
+        vkd3d_instance_destroy(&device->vkd3d_instance);
         vkd3d_free(device);
+    }
 
     return refcount;
 }
@@ -567,20 +626,29 @@ static const struct ID3D12DeviceVtbl d3d12_device_vtbl =
     d3d12_device_GetAdapterLuid,
 };
 
-static void d3d12_device_init(struct d3d12_device *device)
+static HRESULT d3d12_device_init(struct d3d12_device *device)
 {
+    HRESULT hr;
+
     device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl;
     device->refcount = 1;
+
+    if (FAILED(hr = vkd3d_instance_init(&device->vkd3d_instance)))
+        return hr;
+
+    return S_OK;
 }
 
 HRESULT d3d12_device_create(struct d3d12_device **device)
 {
     struct d3d12_device *object;
+    HRESULT hr;
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    d3d12_device_init(object);
+    if (FAILED(hr = d3d12_device_init(object)))
+        return hr;
 
     TRACE("Created device %p.\n", object);
 

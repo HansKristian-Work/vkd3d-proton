@@ -26,12 +26,19 @@
 #define COBJMACROS
 #include "vkd3d_common.h"
 #include "vkd3d_debug.h"
+#include "vkd3d_vulkan.h"
 
 #include "d3d12.h"
 
 #include <assert.h>
 
 struct d3d12_device;
+
+struct vkd3d_instance
+{
+    VkInstance vk_instance;
+    struct vkd3d_vk_instance_procs vk_procs;
+};
 
 /* ID3D12CommandAllocator */
 struct d3d12_command_allocator
@@ -81,6 +88,8 @@ struct d3d12_device
 {
     ID3D12Device ID3D12Device_iface;
     ULONG refcount;
+
+    struct vkd3d_instance vkd3d_instance;
 };
 
 HRESULT d3d12_device_create(struct d3d12_device **device) DECLSPEC_HIDDEN;
@@ -112,5 +121,12 @@ static inline void vkd3d_free(void *ptr)
 {
     free(ptr);
 }
+
+HRESULT hresult_from_vk_result(VkResult vr) DECLSPEC_HIDDEN;
+
+HRESULT vkd3d_load_vk_instance_procs(struct vkd3d_vk_instance_procs *procs,
+        VkInstance instance) DECLSPEC_HIDDEN;
+HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
+        const struct vkd3d_vk_instance_procs *parent_procs, VkDevice device) DECLSPEC_HIDDEN;
 
 #endif  /* __VKD3D_PRIVATE_H */
