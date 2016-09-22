@@ -78,6 +78,353 @@ static void vkd3d_instance_destroy(struct vkd3d_instance *instance)
     VK_CALL(vkDestroyInstance(instance->vk_instance, NULL));
 }
 
+static void vkd3d_trace_physical_device(VkPhysicalDevice device,
+        const struct vkd3d_vk_instance_procs *vk_procs)
+{
+    VkPhysicalDeviceProperties device_properties;
+    VkQueueFamilyProperties *queue_properties;
+    VkPhysicalDeviceFeatures features;
+    VkPhysicalDeviceLimits *limits;
+    uint32_t count;
+    unsigned int i;
+
+    VK_CALL(vkGetPhysicalDeviceProperties(device, &device_properties));
+    TRACE("Device name: %s.\n", device_properties.deviceName);
+    TRACE("Vendor ID: %#x, Device ID: %#x.\n", device_properties.vendorID, device_properties.deviceID);
+    TRACE("Driver version: %#x.\n", device_properties.driverVersion);
+    TRACE("API version: %u.%u.%u.\n", VK_VERSION_MAJOR(device_properties.apiVersion),
+            VK_VERSION_MINOR(device_properties.apiVersion), VK_VERSION_PATCH(device_properties.apiVersion));
+
+    VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(device, &count, NULL));
+    TRACE("Queue families [%u]:\n", count);
+
+    if (!(queue_properties = vkd3d_calloc(count, sizeof(VkQueueFamilyProperties))))
+        return;
+    VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(device, &count, queue_properties));
+
+    for (i = 0; i < count; ++i)
+    {
+        TRACE(" Queue family[%u]: flags %s, count %u, timestamp bits %u, image transfer granularity %s.\n",
+                i, debug_vk_queue_flags(queue_properties[i].queueFlags),
+                queue_properties[i].queueCount, queue_properties[i].timestampValidBits,
+                debug_vk_extent_3d(queue_properties[i].minImageTransferGranularity));
+    }
+    vkd3d_free(queue_properties);
+
+    limits = &device_properties.limits;
+    TRACE("Device limits:\n");
+    TRACE("  maxImageDimension1D: %u.\n", limits->maxImageDimension1D);
+    TRACE("  maxImageDimension2D: %u.\n", limits->maxImageDimension2D);
+    TRACE("  maxImageDimension3D: %u.\n", limits->maxImageDimension3D);
+    TRACE("  maxImageDimensionCube: %u.\n", limits->maxImageDimensionCube);
+    TRACE("  maxImageArrayLayers: %u.\n", limits->maxImageArrayLayers);
+    TRACE("  maxTexelBufferElements: %u.\n", limits->maxTexelBufferElements);
+    TRACE("  maxUniformBufferRange: %u.\n", limits->maxUniformBufferRange);
+    TRACE("  maxStorageBufferRange: %u.\n", limits->maxStorageBufferRange);
+    TRACE("  maxPushConstantsSize: %u.\n", limits->maxPushConstantsSize);
+    TRACE("  maxMemoryAllocationCount: %u.\n", limits->maxMemoryAllocationCount);
+    TRACE("  maxSamplerAllocationCount: %u.\n", limits->maxSamplerAllocationCount);
+    TRACE("  bufferImageGranularity: %s.\n", debugstr_uint64(limits->bufferImageGranularity));
+    TRACE("  sparseAddressSpaceSize: %s.\n", debugstr_uint64(limits->sparseAddressSpaceSize));
+    TRACE("  maxBoundDescriptorSets: %u.\n", limits->maxBoundDescriptorSets);
+    TRACE("  maxPerStageDescriptorSamplers: %u.\n", limits->maxPerStageDescriptorSamplers);
+    TRACE("  maxPerStageDescriptorUniformBuffers: %u.\n", limits->maxPerStageDescriptorUniformBuffers);
+    TRACE("  maxPerStageDescriptorStorageBuffers: %u.\n", limits->maxPerStageDescriptorStorageBuffers);
+    TRACE("  maxPerStageDescriptorSampledImages: %u.\n", limits->maxPerStageDescriptorSampledImages);
+    TRACE("  maxPerStageDescriptorStorageImages: %u.\n", limits->maxPerStageDescriptorStorageImages);
+    TRACE("  maxPerStageDescriptorInputAttachments: %u.\n", limits->maxPerStageDescriptorInputAttachments);
+    TRACE("  maxPerStageResources: %u.\n", limits->maxPerStageResources);
+    TRACE("  maxDescriptorSetSamplers: %u.\n", limits->maxDescriptorSetSamplers);
+    TRACE("  maxDescriptorSetUniformBuffers: %u.\n", limits->maxDescriptorSetUniformBuffers);
+    TRACE("  maxDescriptorSetUniformBuffersDynamic: %u.\n", limits->maxDescriptorSetUniformBuffersDynamic);
+    TRACE("  maxDescriptorSetStorageBuffers: %u.\n", limits->maxDescriptorSetStorageBuffers);
+    TRACE("  maxDescriptorSetStorageBuffersDynamic: %u.\n", limits->maxDescriptorSetStorageBuffersDynamic);
+    TRACE("  maxDescriptorSetSampledImages: %u.\n", limits->maxDescriptorSetSampledImages);
+    TRACE("  maxDescriptorSetStorageImages: %u.\n", limits->maxDescriptorSetStorageImages);
+    TRACE("  maxDescriptorSetInputAttachments: %u.\n", limits->maxDescriptorSetInputAttachments);
+    TRACE("  maxVertexInputAttributes: %u.\n", limits->maxVertexInputAttributes);
+    TRACE("  maxVertexInputBindings: %u.\n", limits->maxVertexInputBindings);
+    TRACE("  maxVertexInputAttributeOffset: %u.\n", limits->maxVertexInputAttributeOffset);
+    TRACE("  maxVertexInputBindingStride: %u.\n", limits->maxVertexInputBindingStride);
+    TRACE("  maxVertexOutputComponents: %u.\n", limits->maxVertexOutputComponents);
+    TRACE("  maxTessellationGenerationLevel: %u.\n", limits->maxTessellationGenerationLevel);
+    TRACE("  maxTessellationPatchSize: %u.\n", limits->maxTessellationPatchSize);
+    TRACE("  maxTessellationControlPerVertexInputComponents: %u.\n",
+            limits->maxTessellationControlPerVertexInputComponents);
+    TRACE("  maxTessellationControlPerVertexOutputComponents: %u.\n",
+            limits->maxTessellationControlPerVertexOutputComponents);
+    TRACE("  maxTessellationControlPerPatchOutputComponents: %u.\n",
+            limits->maxTessellationControlPerPatchOutputComponents);
+    TRACE("  maxTessellationControlTotalOutputComponents: %u.\n",
+            limits->maxTessellationControlTotalOutputComponents);
+    TRACE("  maxTessellationEvaluationInputComponents: %u.\n",
+            limits->maxTessellationEvaluationInputComponents);
+    TRACE("  maxTessellationEvaluationOutputComponents: %u.\n",
+            limits->maxTessellationEvaluationOutputComponents);
+    TRACE("  maxGeometryShaderInvocations: %u.\n", limits->maxGeometryShaderInvocations);
+    TRACE("  maxGeometryInputComponents: %u.\n", limits->maxGeometryInputComponents);
+    TRACE("  maxGeometryOutputComponents: %u.\n", limits->maxGeometryOutputComponents);
+    TRACE("  maxGeometryOutputVertices: %u.\n", limits->maxGeometryOutputVertices);
+    TRACE("  maxGeometryTotalOutputComponents: %u.\n", limits->maxGeometryTotalOutputComponents);
+    TRACE("  maxFragmentInputComponents: %u.\n", limits->maxFragmentInputComponents);
+    TRACE("  maxFragmentOutputAttachments: %u.\n", limits->maxFragmentOutputAttachments);
+    TRACE("  maxFragmentDualSrcAttachments: %u.\n", limits->maxFragmentDualSrcAttachments);
+    TRACE("  maxFragmentCombinedOutputResources: %u.\n", limits->maxFragmentCombinedOutputResources);
+    TRACE("  maxComputeSharedMemorySize: %u.\n", limits->maxComputeSharedMemorySize);
+    TRACE("  maxComputeWorkGroupCount: %u, %u, %u.\n", limits->maxComputeWorkGroupCount[0],
+            limits->maxComputeWorkGroupCount[1], limits->maxComputeWorkGroupCount[2]);
+    TRACE("  maxComputeWorkGroupInvocations: %u.\n", limits->maxComputeWorkGroupInvocations);
+    TRACE("  maxComputeWorkGroupSize: %u, %u, %u.\n", limits->maxComputeWorkGroupSize[0],
+            limits->maxComputeWorkGroupSize[1], limits->maxComputeWorkGroupSize[2]);
+    TRACE("  subPixelPrecisionBits: %u.\n", limits->subPixelPrecisionBits);
+    TRACE("  subTexelPrecisionBits: %u.\n", limits->subTexelPrecisionBits);
+    TRACE("  mipmapPrecisionBits: %u.\n", limits->mipmapPrecisionBits);
+    TRACE("  maxDrawIndexedIndexValue: %u.\n", limits->maxDrawIndexedIndexValue);
+    TRACE("  maxDrawIndirectCount: %u.\n", limits->maxDrawIndirectCount);
+    TRACE("  maxSamplerLodBias: %f.\n", limits->maxSamplerLodBias);
+    TRACE("  maxSamplerAnisotropy: %f.\n", limits->maxSamplerAnisotropy);
+    TRACE("  maxViewports: %u.\n", limits->maxViewports);
+    TRACE("  maxViewportDimensions: %u, %u.\n", limits->maxViewportDimensions[0],
+            limits->maxViewportDimensions[1]);
+    TRACE("  viewportBoundsRange: %f, %f.\n", limits->viewportBoundsRange[0], limits->viewportBoundsRange[1]);
+    TRACE("  viewportSubPixelBits: %u.\n", limits->viewportSubPixelBits);
+    TRACE("  minMemoryMapAlignment: %u.\n", (unsigned int)limits->minMemoryMapAlignment);
+    TRACE("  minTexelBufferOffsetAlignment: %s.\n", debugstr_uint64(limits->minTexelBufferOffsetAlignment));
+    TRACE("  minUniformBufferOffsetAlignment: %s.\n", debugstr_uint64(limits->minUniformBufferOffsetAlignment));
+    TRACE("  minStorageBufferOffsetAlignment: %s.\n", debugstr_uint64(limits->minStorageBufferOffsetAlignment));
+    TRACE("  minTexelOffset: %d.\n", limits->minTexelOffset);
+    TRACE("  maxTexelOffset: %u.\n", limits->maxTexelOffset);
+    TRACE("  minTexelGatherOffset: %d.\n", limits->minTexelGatherOffset);
+    TRACE("  maxTexelGatherOffset: %u.\n", limits->maxTexelGatherOffset);
+    TRACE("  minInterpolationOffset: %f.\n", limits->minInterpolationOffset);
+    TRACE("  maxInterpolationOffset: %f.\n", limits->maxInterpolationOffset);
+    TRACE("  subPixelInterpolationOffsetBits: %u.\n", limits->subPixelInterpolationOffsetBits);
+    TRACE("  maxFramebufferWidth: %u.\n", limits->maxFramebufferWidth);
+    TRACE("  maxFramebufferHeight: %u.\n", limits->maxFramebufferHeight);
+    TRACE("  maxFramebufferLayers: %u.\n", limits->maxFramebufferLayers);
+    TRACE("  framebufferColorSampleCounts: %#x.\n", limits->framebufferColorSampleCounts);
+    TRACE("  framebufferDepthSampleCounts: %#x.\n", limits->framebufferDepthSampleCounts);
+    TRACE("  framebufferStencilSampleCounts: %#x.\n", limits->framebufferStencilSampleCounts);
+    TRACE("  framebufferNoAttachmentsSampleCounts: %#x.\n", limits->framebufferNoAttachmentsSampleCounts);
+    TRACE("  maxColorAttachments: %u.\n", limits->maxColorAttachments);
+    TRACE("  sampledImageColorSampleCounts: %#x.\n", limits->sampledImageColorSampleCounts);
+    TRACE("  sampledImageIntegerSampleCounts: %#x.\n", limits->sampledImageIntegerSampleCounts);
+    TRACE("  sampledImageDepthSampleCounts: %#x.\n", limits->sampledImageDepthSampleCounts);
+    TRACE("  sampledImageStencilSampleCounts: %#x.\n", limits->sampledImageStencilSampleCounts);
+    TRACE("  storageImageSampleCounts: %#x.\n", limits->storageImageSampleCounts);
+    TRACE("  maxSampleMaskWords: %u.\n", limits->maxSampleMaskWords);
+    TRACE("  timestampComputeAndGraphics: %#x.\n", limits->timestampComputeAndGraphics);
+    TRACE("  timestampPeriod: %f.\n", limits->timestampPeriod);
+    TRACE("  maxClipDistances: %u.\n", limits->maxClipDistances);
+    TRACE("  maxCullDistances: %u.\n", limits->maxCullDistances);
+    TRACE("  maxCombinedClipAndCullDistances: %u.\n", limits->maxCombinedClipAndCullDistances);
+    TRACE("  discreteQueuePriorities: %u.\n", limits->discreteQueuePriorities);
+    TRACE("  pointSizeRange: %f, %f.\n", limits->pointSizeRange[0], limits->pointSizeRange[1]);
+    TRACE("  lineWidthRange: %f, %f,\n", limits->lineWidthRange[0], limits->lineWidthRange[1]);
+    TRACE("  pointSizeGranularity: %f.\n", limits->pointSizeGranularity);
+    TRACE("  lineWidthGranularity: %f.\n", limits->lineWidthGranularity);
+    TRACE("  strictLines: %#x.\n", limits->strictLines);
+    TRACE("  standardSampleLocations: %#x.\n", limits->standardSampleLocations);
+    TRACE("  optimalBufferCopyOffsetAlignment: %s.\n",
+            debugstr_uint64(limits->optimalBufferCopyOffsetAlignment));
+    TRACE("  optimalBufferCopyRowPitchAlignment: %s.\n",
+            debugstr_uint64(limits->optimalBufferCopyRowPitchAlignment));
+    TRACE("  nonCoherentAtomSize: %s.\n", debugstr_uint64(limits->nonCoherentAtomSize));
+
+    VK_CALL(vkGetPhysicalDeviceFeatures(device, &features));
+    TRACE("Device features:\n");
+    TRACE("  robustBufferAccess: %#x.\n", features.robustBufferAccess);
+    TRACE("  fullDrawIndexUint32: %#x.\n", features.fullDrawIndexUint32);
+    TRACE("  imageCubeArray: %#x.\n", features.imageCubeArray);
+    TRACE("  independentBlend: %#x.\n", features.independentBlend);
+    TRACE("  geometryShader: %#x.\n", features.geometryShader);
+    TRACE("  tessellationShader: %#x.\n", features.tessellationShader);
+    TRACE("  sampleRateShading: %#x.\n", features.sampleRateShading);
+    TRACE("  dualSrcBlend: %#x.\n", features.dualSrcBlend);
+    TRACE("  logicOp: %#x.\n", features.logicOp);
+    TRACE("  multiDrawIndirect: %#x.\n", features.multiDrawIndirect);
+    TRACE("  drawIndirectFirstInstance: %#x.\n", features.drawIndirectFirstInstance);
+    TRACE("  depthClamp: %#x.\n", features.depthClamp);
+    TRACE("  depthBiasClamp: %#x.\n", features.depthBiasClamp);
+    TRACE("  fillModeNonSolid: %#x.\n", features.fillModeNonSolid);
+    TRACE("  depthBounds: %#x.\n", features.depthBounds);
+    TRACE("  wideLines: %#x.\n", features.wideLines);
+    TRACE("  largePoints: %#x.\n", features.largePoints);
+    TRACE("  alphaToOne: %#x.\n", features.alphaToOne);
+    TRACE("  multiViewport: %#x.\n", features.multiViewport);
+    TRACE("  samplerAnisotropy: %#x.\n", features.samplerAnisotropy);
+    TRACE("  textureCompressionETC2: %#x.\n", features.textureCompressionETC2);
+    TRACE("  textureCompressionASTC_LDR: %#x.\n", features.textureCompressionASTC_LDR);
+    TRACE("  textureCompressionBC: %#x.\n", features.textureCompressionBC);
+    TRACE("  occlusionQueryPrecise: %#x.\n", features.occlusionQueryPrecise);
+    TRACE("  pipelineStatisticsQuery: %#x.\n", features.pipelineStatisticsQuery);
+    TRACE("  vertexOipelineStoresAndAtomics: %#x.\n", features.vertexPipelineStoresAndAtomics);
+    TRACE("  fragmentStoresAndAtomics: %#x.\n", features.fragmentStoresAndAtomics);
+    TRACE("  shaderTessellationAndGeometryPointSize: %#x.\n", features.shaderTessellationAndGeometryPointSize);
+    TRACE("  shaderImageGatherExtended: %#x.\n", features.shaderImageGatherExtended);
+    TRACE("  shaderStorageImageExtendedFormats: %#x.\n", features.shaderStorageImageExtendedFormats);
+    TRACE("  shaderStorageImageMultisample: %#x.\n", features.shaderStorageImageMultisample);
+    TRACE("  shaderStorageImageReadWithoutFormat: %#x.\n", features.shaderStorageImageReadWithoutFormat);
+    TRACE("  shaderStorageImageWriteWithoutFormat: %#x.\n", features.shaderStorageImageWriteWithoutFormat);
+    TRACE("  shaderUniformBufferArrayDynamicIndexing: %#x.\n", features.shaderUniformBufferArrayDynamicIndexing);
+    TRACE("  shaderSampledImageArrayDynamicIndexing: %#x.\n", features.shaderSampledImageArrayDynamicIndexing);
+    TRACE("  shaderStorageBufferArrayDynamicIndexing: %#x.\n", features.shaderStorageBufferArrayDynamicIndexing);
+    TRACE("  shaderStorageImageArrayDynamicIndexing: %#x.\n", features.shaderStorageImageArrayDynamicIndexing);
+    TRACE("  shaderClipDistance: %#x.\n", features.shaderClipDistance);
+    TRACE("  shaderCullDistance: %#x.\n", features.shaderCullDistance);
+    TRACE("  shaderFloat64: %#x.\n", features.shaderFloat64);
+    TRACE("  shaderInt64: %#x.\n", features.shaderInt64);
+    TRACE("  shaderInt16: %#x.\n", features.shaderInt16);
+    TRACE("  shaderResourceResidency: %#x.\n", features.shaderResourceResidency);
+    TRACE("  shaderResourceMinLod: %#x.\n", features.shaderResourceMinLod);
+    TRACE("  sparseBinding: %#x.\n", features.sparseBinding);
+    TRACE("  sparseResidencyBuffer: %#x.\n", features.sparseResidencyBuffer);
+    TRACE("  sparseResidencyImage2D: %#x.\n", features.sparseResidencyImage2D);
+    TRACE("  sparseResidencyImage3D: %#x.\n", features.sparseResidencyImage3D);
+    TRACE("  sparseResidency2Samples: %#x.\n", features.sparseResidency2Samples);
+    TRACE("  sparseResidency4Samples: %#x.\n", features.sparseResidency4Samples);
+    TRACE("  sparseResidency8Samples: %#x.\n", features.sparseResidency8Samples);
+    TRACE("  sparseResidency16Samples: %#x.\n", features.sparseResidency16Samples);
+    TRACE("  sparseResidencyAliased: %#x.\n", features.sparseResidencyAliased);
+    TRACE("  variableMultisampleRate: %#x.\n", features.variableMultisampleRate);
+    TRACE("  inheritedQueries: %#x.\n", features.inheritedQueries);
+}
+
+static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
+{
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance.vk_procs;
+    unsigned int direct_queue_family_index, copy_queue_family_index;
+    VkInstance instance = device->vkd3d_instance.vk_instance;
+    VkQueueFamilyProperties *queue_properties;
+    VkPhysicalDevice selected_physical_device;
+    VkPhysicalDeviceFeatures device_features;
+    VkDeviceQueueCreateInfo *queue_info;
+    VkPhysicalDevice *physical_devices;
+    VkDeviceCreateInfo device_info;
+    uint32_t physical_device_count;
+    uint32_t queue_family_count;
+    VkDevice vk_device;
+    unsigned int i;
+    VkResult vr;
+    HRESULT hr;
+
+    TRACE("device %p.\n", device);
+
+    /* Select a physical device */
+    physical_device_count = 0;
+    if ((vr = VK_CALL(vkEnumeratePhysicalDevices(instance, &physical_device_count, NULL))))
+    {
+        ERR("Failed to enumerate physical devices, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+    if (!physical_device_count)
+    {
+        ERR("No physical device available.\n");
+        return E_FAIL;
+    }
+    if (!(physical_devices = vkd3d_calloc(physical_device_count, sizeof(*physical_devices))))
+        return E_OUTOFMEMORY;
+
+    TRACE("Enumerating %u physical device(s).\n", physical_device_count);
+    if ((vr = VK_CALL(vkEnumeratePhysicalDevices(instance, &physical_device_count, physical_devices))))
+    {
+        ERR("Failed to enumerate physical devices, vr %d.\n", vr);
+        vkd3d_free(physical_devices);
+        return hresult_from_vk_result(vr);
+    }
+
+    for (i = 0; i < physical_device_count; ++i)
+        vkd3d_trace_physical_device(physical_devices[i], vk_procs);
+
+    if (physical_device_count > 1)
+        FIXME("Multiple physical devices available, selecting the first one.\n");
+
+    selected_physical_device = physical_devices[0];
+    vkd3d_free(physical_devices);
+
+    /* Create command queues */
+    VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(selected_physical_device, &queue_family_count, NULL));
+    if (!(queue_properties = vkd3d_calloc(queue_family_count, sizeof(*queue_properties))))
+        return E_OUTOFMEMORY;
+    VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(selected_physical_device,
+            &queue_family_count, queue_properties));
+
+    if (!(queue_info = vkd3d_calloc(queue_family_count, sizeof(*queue_info))))
+    {
+        vkd3d_free(queue_properties);
+        return E_OUTOFMEMORY;
+    }
+
+    direct_queue_family_index = ~0u;
+    copy_queue_family_index = ~0u;
+    for (i = 0; i < queue_family_count; ++i)
+    {
+        static float priorities[] = {1.0f};
+
+        queue_info[i].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queue_info[i].pNext = NULL;
+        queue_info[i].flags = 0;
+        queue_info[i].queueFamilyIndex = i;
+        queue_info[i].queueCount = 1;
+        queue_info[i].pQueuePriorities = priorities;
+
+        if ((queue_properties[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
+                == (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
+            direct_queue_family_index = i;
+        if (queue_properties[i].queueFlags & VK_QUEUE_TRANSFER_BIT)
+            copy_queue_family_index = i;
+    }
+    vkd3d_free(queue_properties);
+
+    if (direct_queue_family_index == ~0u)
+    {
+        FIXME("Could not find a suitable queue family for a direct command queue.\n");
+        vkd3d_free(queue_info);
+        return E_FAIL;
+    }
+    if (copy_queue_family_index == ~0u)
+    {
+        FIXME("Could not find a suitable queue family for a copy command queue.\n");
+        vkd3d_free(queue_info);
+        return E_FAIL;
+    }
+
+    /* Create device */
+    VK_CALL(vkGetPhysicalDeviceFeatures(selected_physical_device, &device_features));
+
+    device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    device_info.pNext = NULL;
+    device_info.flags = 0;
+    device_info.queueCreateInfoCount = queue_family_count;
+    device_info.pQueueCreateInfos = queue_info;
+    device_info.enabledLayerCount = 0;
+    device_info.ppEnabledLayerNames = NULL;
+    device_info.enabledExtensionCount = 0;
+    device_info.ppEnabledExtensionNames = NULL;
+    device_info.pEnabledFeatures = &device_features;
+
+    vr = VK_CALL(vkCreateDevice(selected_physical_device, &device_info, NULL, &vk_device));
+    vkd3d_free(queue_info);
+    if (vr)
+    {
+        ERR("Failed to create Vulkan device, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    if (FAILED(hr = vkd3d_load_vk_device_procs(&device->vk_procs, vk_procs, vk_device)))
+    {
+        ERR("Failed to load device procs, hr %#x.\n", hr);
+        vkDestroyDevice(vk_device, NULL);
+        return hr;
+    }
+
+    device->vk_device = vk_device;
+
+    TRACE("Created Vulkan device %p.\n", vk_device);
+
+    return S_OK;
+}
+
 /* ID3D12Device */
 static inline struct d3d12_device *impl_from_ID3D12Device(ID3D12Device *iface)
 {
@@ -123,7 +470,11 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
 
     if (!refcount)
     {
+        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+        VK_CALL(vkDestroyDevice(device->vk_device, NULL));
         vkd3d_instance_destroy(&device->vkd3d_instance);
+
         vkd3d_free(device);
     }
 
@@ -635,6 +986,12 @@ static HRESULT d3d12_device_init(struct d3d12_device *device)
 
     if (FAILED(hr = vkd3d_instance_init(&device->vkd3d_instance)))
         return hr;
+
+    if (FAILED(hr = vkd3d_create_vk_device(device)))
+    {
+        vkd3d_instance_destroy(&device->vkd3d_instance);
+        return hr;
+    }
 
     return S_OK;
 }

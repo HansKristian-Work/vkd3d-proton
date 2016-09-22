@@ -89,6 +89,9 @@ struct d3d12_device
     ID3D12Device ID3D12Device_iface;
     ULONG refcount;
 
+    VkDevice vk_device;
+    struct vkd3d_vk_device_procs vk_procs;
+
     struct vkd3d_instance vkd3d_instance;
 };
 
@@ -100,6 +103,9 @@ BOOL check_feature_level_support(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDE
 
 HRESULT return_interface(IUnknown *iface, REFIID iface_riid,
         REFIID requested_riid, void **object) DECLSPEC_HIDDEN;
+
+const char *debug_vk_extent_3d(VkExtent3D extent) DECLSPEC_HIDDEN;
+const char *debug_vk_queue_flags(VkQueueFlags flags) DECLSPEC_HIDDEN;
 
 static inline void *vkd3d_malloc(size_t size)
 {

@@ -68,6 +68,33 @@ HRESULT return_interface(IUnknown *iface, REFIID iface_riid,
     return hr;
 }
 
+const char *debug_vk_extent_3d(VkExtent3D extent)
+{
+    return vkd3d_dbg_sprintf("(%u, %u, %u)",
+            (unsigned int)extent.width,
+            (unsigned int)extent.height,
+            (unsigned int)extent.depth);
+}
+
+const char *debug_vk_queue_flags(VkQueueFlags flags)
+{
+    char buffer[120];
+
+    buffer[0] = '\0';
+#define FLAG_TO_STR(f) if (flags & f) { strcat(buffer, " | "#f); flags &= ~f; }
+    FLAG_TO_STR(VK_QUEUE_GRAPHICS_BIT)
+    FLAG_TO_STR(VK_QUEUE_COMPUTE_BIT)
+    FLAG_TO_STR(VK_QUEUE_TRANSFER_BIT)
+    FLAG_TO_STR(VK_QUEUE_SPARSE_BINDING_BIT)
+#undef FLAG_TO_STR
+    if (flags)
+        FIXME("Unrecognized flag(s) %#x.\n", flags);
+
+    if (!buffer[0])
+        return "0";
+    return vkd3d_dbg_sprintf("%s", &buffer[3]);
+}
+
 HRESULT hresult_from_vk_result(VkResult vr)
 {
     switch (vr)
