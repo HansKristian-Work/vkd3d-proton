@@ -1048,7 +1048,10 @@ HRESULT d3d12_device_create(struct d3d12_device **device)
         return E_OUTOFMEMORY;
 
     if (FAILED(hr = d3d12_device_init(object)))
+    {
+        vkd3d_free(object);
         return hr;
+    }
 
     TRACE("Created device %p.\n", object);
 
