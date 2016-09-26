@@ -70,6 +70,18 @@ struct d3d12_descriptor_heap
 HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc, struct d3d12_descriptor_heap **descriptor_heap) DECLSPEC_HIDDEN;
 
+/* ID3D12RootSignature */
+struct d3d12_root_signature
+{
+    ID3D12RootSignature ID3D12RootSignature_iface;
+    ULONG refcount;
+
+    struct d3d12_device *device;
+};
+
+HRESULT d3d12_root_signature_create(struct d3d12_device *device,
+        const D3D12_ROOT_SIGNATURE_DESC *desc, struct d3d12_root_signature **root_signature) DECLSPEC_HIDDEN;
+
 /* ID3D12CommandAllocator */
 struct d3d12_command_allocator
 {

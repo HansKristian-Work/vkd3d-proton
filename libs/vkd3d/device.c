@@ -662,11 +662,29 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignature(ID3D12Device *
         UINT node_mask, const void *bytecode, SIZE_T bytecode_length,
         REFIID riid, void **root_signature)
 {
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_root_signature *object;
+    HRESULT hr;
+
     FIXME("iface %p, node_mask 0x%08x, bytecode %p, bytecode_length %lu, "
             "riid %s, root_signature %p stub!\n",
             iface, node_mask, bytecode, bytecode_length, debugstr_guid(riid), root_signature);
 
-    return E_NOTIMPL;
+    if (node_mask && node_mask != 1)
+        FIXME("Ignoring node mask 0x%08x.\n", node_mask);
+
+    if (bytecode_length != ~0u)
+    {
+        FIXME("Root signature byte code not supported.\n");
+        return E_NOTIMPL;
+    }
+
+    if (FAILED(hr = d3d12_root_signature_create(device,
+            (const D3D12_ROOT_SIGNATURE_DESC *)bytecode, &object)))
+        return hr;
+
+    return return_interface((IUnknown *)&object->ID3D12RootSignature_iface,
+            &IID_ID3D12RootSignature, riid, root_signature);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateConstantBufferView(ID3D12Device *iface,
