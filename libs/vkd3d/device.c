@@ -636,10 +636,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateDescriptorHeap(ID3D12Device *iface,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc, REFIID riid, void **descriptor_heap)
 {
-    FIXME("iface %p, desc %p, riid %s, descriptor_heap %p stub!\n",
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_descriptor_heap *object;
+    HRESULT hr;
+
+    TRACE("iface %p, desc %p, riid %s, descriptor_heap %p.\n",
             iface, desc, debugstr_guid(riid), descriptor_heap);
 
-    return E_NOTIMPL;
+    if (FAILED(hr = d3d12_descriptor_heap_create(device, desc, &object)))
+        return hr;
+
+    return return_interface((IUnknown *)&object->ID3D12DescriptorHeap_iface,
+            &IID_ID3D12DescriptorHeap, riid, descriptor_heap);
 }
 
 static UINT STDMETHODCALLTYPE d3d12_device_GetDescriptorHandleIncrementSize(ID3D12Device *iface,

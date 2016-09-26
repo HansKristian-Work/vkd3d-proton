@@ -243,3 +243,176 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
 
     return S_OK;
 }
+
+/* ID3D12DescriptorHeap */
+static inline struct d3d12_descriptor_heap *impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d12_descriptor_heap, ID3D12DescriptorHeap_iface);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_QueryInterface(ID3D12DescriptorHeap *iface,
+        REFIID riid, void **object)
+{
+    TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
+
+    if (IsEqualGUID(riid, &IID_ID3D12DescriptorHeap)
+            || IsEqualGUID(riid, &IID_ID3D12Pageable)
+            || IsEqualGUID(riid, &IID_ID3D12DeviceChild)
+            || IsEqualGUID(riid, &IID_ID3D12Object)
+            || IsEqualGUID(riid, &IID_IUnknown))
+    {
+        ID3D12DescriptorHeap_AddRef(iface);
+        *object = iface;
+        return S_OK;
+    }
+
+    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(riid));
+
+    *object = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_AddRef(ID3D12DescriptorHeap *iface)
+{
+    struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
+    ULONG refcount = InterlockedIncrement(&heap->refcount);
+
+    TRACE("%p increasing refcount to %u.\n", heap, refcount);
+
+    return refcount;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHeap *iface)
+{
+    struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
+    ULONG refcount = InterlockedDecrement(&heap->refcount);
+
+    TRACE("%p decreasing refcount to %u.\n", heap, refcount);
+
+    if (!refcount)
+    {
+        struct d3d12_device *device = heap->device;
+
+        vkd3d_free(heap);
+
+        ID3D12Device_Release(&device->ID3D12Device_iface);
+    }
+
+    return refcount;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_GetPrivateData(ID3D12DescriptorHeap *iface,
+        REFGUID guid, UINT *data_size, void *data)
+{
+    FIXME("iface %p, guid %s, data_size %p, data %p stub!", iface, debugstr_guid(guid), data_size, data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetPrivateData(ID3D12DescriptorHeap *iface,
+        REFGUID guid, UINT data_size, const void *data)
+{
+    FIXME("iface %p, guid %s, data_size %u, data %p stub!\n", iface, debugstr_guid(guid), data_size, data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetPrivateDataInterface(ID3D12DescriptorHeap *iface,
+        REFGUID guid, const IUnknown *data)
+{
+    FIXME("iface %p, guid %s, data %p stub!\n", iface, debugstr_guid(guid), data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetName(ID3D12DescriptorHeap *iface, const WCHAR *name)
+{
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_GetDevice(ID3D12DescriptorHeap *iface,
+        REFIID riid, void **device)
+{
+    struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
+
+    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+
+    return ID3D12Device_QueryInterface(&heap->device->ID3D12Device_iface, riid, device);
+}
+
+static D3D12_DESCRIPTOR_HEAP_DESC * STDMETHODCALLTYPE d3d12_descriptor_heap_GetDesc(ID3D12DescriptorHeap *iface,
+        D3D12_DESCRIPTOR_HEAP_DESC *desc)
+{
+    struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
+
+    TRACE("iface %p, desc %p.\n", iface, desc);
+
+    *desc = heap->desc;
+    return desc;
+}
+
+static D3D12_CPU_DESCRIPTOR_HANDLE * STDMETHODCALLTYPE d3d12_descriptor_heap_GetCPUDescriptorHandleForHeapStart(
+        ID3D12DescriptorHeap *iface, D3D12_CPU_DESCRIPTOR_HANDLE *descriptor)
+{
+    FIXME("iface %p, descriptor %p stub!\n", iface, descriptor);
+
+    return descriptor;
+}
+
+static D3D12_GPU_DESCRIPTOR_HANDLE * STDMETHODCALLTYPE d3d12_descriptor_heap_GetGPUDescriptorHandleForHeapStart(
+        ID3D12DescriptorHeap *iface, D3D12_GPU_DESCRIPTOR_HANDLE *descriptor)
+{
+    FIXME("iface %p, descriptor %p stub!\n", iface, descriptor);
+
+    return descriptor;
+}
+
+static const struct ID3D12DescriptorHeapVtbl d3d12_descriptor_heap_vtbl =
+{
+    /* IUnknown methods */
+    d3d12_descriptor_heap_QueryInterface,
+    d3d12_descriptor_heap_AddRef,
+    d3d12_descriptor_heap_Release,
+    /* ID3D12Object methods */
+    d3d12_descriptor_heap_GetPrivateData,
+    d3d12_descriptor_heap_SetPrivateData,
+    d3d12_descriptor_heap_SetPrivateDataInterface,
+    d3d12_descriptor_heap_SetName,
+    /* ID3D12DeviceChild methods */
+    d3d12_descriptor_heap_GetDevice,
+    /* ID3D12DescriptorHeap methods */
+    d3d12_descriptor_heap_GetDesc,
+    d3d12_descriptor_heap_GetCPUDescriptorHandleForHeapStart,
+    d3d12_descriptor_heap_GetGPUDescriptorHandleForHeapStart,
+};
+
+static void d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descriptor_heap,
+        struct d3d12_device *device, const D3D12_DESCRIPTOR_HEAP_DESC *desc)
+{
+    descriptor_heap->ID3D12DescriptorHeap_iface.lpVtbl = &d3d12_descriptor_heap_vtbl;
+    descriptor_heap->refcount = 1;
+
+    descriptor_heap->desc = *desc;
+
+    descriptor_heap->device = device;
+    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+}
+
+HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
+        const D3D12_DESCRIPTOR_HEAP_DESC *desc, struct d3d12_descriptor_heap **descriptor_heap)
+{
+    struct d3d12_descriptor_heap *object;
+
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    d3d12_descriptor_heap_init(object, device, desc);
+
+    TRACE("Created descriptor heap %p.\n", object);
+
+    *descriptor_heap = object;
+
+    return S_OK;
+}
