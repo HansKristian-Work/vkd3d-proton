@@ -69,6 +69,9 @@ static ULONG STDMETHODCALLTYPE d3d12_root_signature_Release(ID3D12RootSignature 
     if (!refcount)
     {
         struct d3d12_device *device = root_signature->device;
+        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+        VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->vk_pipeline_layout, NULL));
 
         vkd3d_free(root_signature);
 
@@ -134,25 +137,58 @@ static const struct ID3D12RootSignatureVtbl d3d12_root_signature_vtbl =
     d3d12_root_signature_GetDevice,
 };
 
-static void d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
+static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkPipelineLayoutCreateInfo pipeline_layout_info;
+    VkResult vr;
+
     root_signature->ID3D12RootSignature_iface.lpVtbl = &d3d12_root_signature_vtbl;
     root_signature->refcount = 1;
 
+    if (desc->NumParameters)
+        FIXME("Non-empty root signatures not supported yet.\n");
+    if (desc->NumStaticSamplers)
+        FIXME("Static samplers not implemented yet.\n");
+    if (desc->Flags)
+        FIXME("Ignoring root signature flags %#x.\n", desc->Flags);
+
+    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_info.pNext = NULL;
+    pipeline_layout_info.flags = 0;
+    pipeline_layout_info.setLayoutCount = 0;
+    pipeline_layout_info.pSetLayouts = NULL;
+    pipeline_layout_info.pushConstantRangeCount = 0;
+    pipeline_layout_info.pPushConstantRanges = NULL;
+
+    if ((vr = VK_CALL(vkCreatePipelineLayout(device->vk_device, &pipeline_layout_info, NULL,
+            &root_signature->vk_pipeline_layout))))
+    {
+        WARN("Failed to create Vulkan pipeline layout, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
     root_signature->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
+
+    return S_OK;
 }
 
 HRESULT d3d12_root_signature_create(struct d3d12_device *device,
         const D3D12_ROOT_SIGNATURE_DESC *desc, struct d3d12_root_signature **root_signature)
 {
     struct d3d12_root_signature *object;
+    HRESULT hr;
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    d3d12_root_signature_init(object, device, desc);
+    if (FAILED(hr = d3d12_root_signature_init(object, device, desc)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
 
     TRACE("Created root signature %p.\n", object);
 

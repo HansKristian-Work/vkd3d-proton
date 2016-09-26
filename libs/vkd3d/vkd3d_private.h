@@ -76,6 +76,8 @@ struct d3d12_root_signature
     ID3D12RootSignature ID3D12RootSignature_iface;
     ULONG refcount;
 
+    VkPipelineLayout vk_pipeline_layout;
+
     struct d3d12_device *device;
 };
 

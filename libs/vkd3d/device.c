@@ -674,8 +674,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignature(ID3D12Device *
     struct d3d12_root_signature *object;
     HRESULT hr;
 
-    FIXME("iface %p, node_mask 0x%08x, bytecode %p, bytecode_length %lu, "
-            "riid %s, root_signature %p stub!\n",
+    TRACE("iface %p, node_mask 0x%08x, bytecode %p, bytecode_length %lu, riid %s, root_signature %p.\n",
             iface, node_mask, bytecode, bytecode_length, debugstr_guid(riid), root_signature);
 
     if (node_mask && node_mask != 1)
