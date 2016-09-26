@@ -72,6 +72,33 @@ static void check_interface_(unsigned int line, IUnknown *iface, REFIID riid, BO
         IUnknown_Release(unk);
 }
 
+#define create_root_signature(a, b, c) create_root_signature_(__LINE__, a, b, c)
+#if _WIN32
+static HRESULT create_root_signature_(unsigned int line, ID3D12Device *device,
+        const D3D12_ROOT_SIGNATURE_DESC *desc, ID3D12RootSignature **root_signature)
+{
+    ID3DBlob *blob;
+    HRESULT hr;
+
+    if (FAILED(hr = D3D12SerializeRootSignature(desc, D3D_ROOT_SIGNATURE_VERSION_1_0, &blob, NULL)))
+        return hr;
+
+    hr = ID3D12Device_CreateRootSignature(device, 0, ID3D10Blob_GetBufferPointer(blob),
+            ID3D10Blob_GetBufferSize(blob), &IID_ID3D12RootSignature, (void **)root_signature);
+    ID3D10Blob_Release(blob);
+    return hr;
+}
+#else
+/* XXX: Root signature byte code is not supported yet. We allow to pass D3D12_ROOT_SIGNATURE_DESC
+ * directly to CreateRootSignature(). */
+static HRESULT create_root_signature_(unsigned int line, ID3D12Device *device,
+        const D3D12_ROOT_SIGNATURE_DESC *desc, ID3D12RootSignature **root_signature)
+{
+    return ID3D12Device_CreateRootSignature(device, 0, desc, ~0u,
+            &IID_ID3D12RootSignature, (void **)root_signature);
+}
+#endif
+
 static ID3D12Device *create_device(void)
 {
     ID3D12Device *device;
@@ -617,6 +644,70 @@ static void test_create_descriptor_heap(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_create_root_signature(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
+    D3D12_ROOT_PARAMETER root_parameters[1];
+    ID3D12RootSignature *root_signature;
+    ID3D12Device *device, *tmp_device;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    descriptor_ranges[0].NumDescriptors = 1;
+    descriptor_ranges[0].BaseShaderRegister = 0;
+    descriptor_ranges[0].RegisterSpace = 0;
+    descriptor_ranges[0].OffsetInDescriptorsFromTableStart = 0;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = descriptor_ranges;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = 1;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    refcount = get_refcount(device);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    hr = ID3D12RootSignature_GetDevice(root_signature, &IID_ID3D12Device, (void **)&tmp_device);
+    ok(SUCCEEDED(hr), "GetDevice failed, hr %#x.\n", hr);
+    refcount = get_refcount(device);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    refcount = ID3D12Device_Release(tmp_device);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    check_interface(root_signature, &IID_ID3D12Object, TRUE);
+    check_interface(root_signature, &IID_ID3D12DeviceChild, TRUE);
+    check_interface(root_signature, &IID_ID3D12Pageable, FALSE);
+    check_interface(root_signature, &IID_ID3D12RootSignature, TRUE);
+
+    refcount = ID3D12RootSignature_Release(root_signature);
+    ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
+
+    root_signature_desc.NumParameters = 0;
+    root_signature_desc.pParameters = NULL;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    refcount = ID3D12RootSignature_Release(root_signature);
+    ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12)
 {
     ID3D12Debug *debug;
@@ -635,4 +726,5 @@ START_TEST(d3d12)
     test_create_command_queue();
     test_create_committed_resource();
     test_create_descriptor_heap();
+    test_create_root_signature();
 }
