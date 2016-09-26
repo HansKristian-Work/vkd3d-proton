@@ -40,6 +40,22 @@ struct vkd3d_instance
     struct vkd3d_vk_instance_procs vk_procs;
 };
 
+/* ID3D12Resource */
+struct d3d12_resource
+{
+    ID3D12Resource ID3D12Resource_iface;
+    ULONG refcount;
+
+    D3D12_RESOURCE_DESC desc;
+
+    struct d3d12_device *device;
+};
+
+HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource) DECLSPEC_HIDDEN;
+
 /* ID3D12CommandAllocator */
 struct d3d12_command_allocator
 {

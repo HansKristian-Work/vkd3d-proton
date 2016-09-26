@@ -23,6 +23,7 @@ libvkd3d_la_SOURCES = \
 	libs/vkd3d/command.c \
 	libs/vkd3d/debug.c \
 	libs/vkd3d/device.c \
+	libs/vkd3d/resource.c \
 	libs/vkd3d/utils.c \
 	libs/vkd3d/vkd3d_main.c
 

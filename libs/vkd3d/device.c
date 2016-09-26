@@ -758,12 +758,21 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource(ID3D12Devi
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, REFIID riid, void **resource)
 {
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_resource *object;
+    HRESULT hr;
+
     FIXME("iface %p, heap_properties %p, heap_flags %#x,  desc %p, initial_state %#x, "
             "optimized_clear_value %p, riid %s, resource %p stub!\n",
             iface, heap_properties, heap_flags, desc, initial_state,
             optimized_clear_value, debugstr_guid(riid), resource);
 
-    return E_NOTIMPL;
+    if (FAILED(hr = d3d12_committed_resource_create(device, heap_properties, heap_flags,
+            desc, initial_state, optimized_clear_value, &object)))
+        return hr;
+
+    return return_interface((IUnknown *)&object->ID3D12Resource_iface, &IID_ID3D12Resource,
+            riid, resource);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateHeap(ID3D12Device *iface,
