@@ -99,6 +99,18 @@ static HRESULT create_root_signature_(unsigned int line, ID3D12Device *device,
 }
 #endif
 
+static D3D12_SHADER_BYTECODE shader_bytecode(const DWORD *code, size_t size)
+{
+    D3D12_SHADER_BYTECODE shader_bytecode = { code, size };
+    return shader_bytecode;
+}
+
+#if _WIN32
+# define SHADER_BYTECODE(dxbc, spirv) ((void)spirv, shader_bytecode(dxbc, sizeof(dxbc)))
+#else
+# define SHADER_BYTECODE(dxbc, spirv) ((void)dxbc, shader_bytecode(spirv, sizeof(spirv)))
+#endif
+
 static ID3D12Device *create_device(void)
 {
     ID3D12Device *device;
@@ -708,6 +720,94 @@ static void test_create_root_signature(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_create_pipeline_state(void)
+{
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_state_desc;
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12RootSignature *root_signature;
+    ID3D12PipelineState *pipeline_state;
+    ID3D12Device *device, *tmp_device;
+    ULONG refcount;
+    HRESULT hr;
+
+    static const DWORD dxbc_code[] =
+    {
+#if 0
+        [numthreads(1, 1, 1)]
+        void main() { }
+#endif
+        0x43425844, 0x1acc3ad0, 0x71c7b057, 0xc72c4306, 0xf432cb57, 0x00000001, 0x00000074, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000020, 0x00050050, 0x00000008, 0x0100086a,
+        0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x0100003e,
+    };
+    static const DWORD spv_code[] =
+    {
+#if 0
+        #version 450 core
+        void main() { }
+#endif
+        0x07230203, 0x00010000, 0x00080001, 0x00003ee8, 0x00000000, 0x00020011, 0x00000001, 0x0006000b,
+        0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e, 0x00000000, 0x0003000e, 0x00000000, 0x00000001,
+        0x0005000f, 0x00000005, 0x0000161f, 0x6e69616d, 0x00000000, 0x00060010, 0x0000161f, 0x00000011,
+        0x00000001, 0x00000001, 0x00000001, 0x00020013, 0x00000008, 0x00030021, 0x00000502, 0x00000008,
+        0x00050036, 0x00000008, 0x0000161f, 0x00000000, 0x00000502, 0x000200f8, 0x00003ee7, 0x000100fd,
+        0x00010038,
+    };
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    root_signature_desc.NumParameters = 0;
+    root_signature_desc.pParameters = NULL;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    refcount = get_refcount(device);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    memset(&pipeline_state_desc, 0, sizeof(pipeline_state_desc));
+    pipeline_state_desc.pRootSignature = root_signature;
+    pipeline_state_desc.CS = SHADER_BYTECODE(dxbc_code, spv_code);
+    pipeline_state_desc.NodeMask = 0;
+    pipeline_state_desc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+
+    hr = ID3D12Device_CreateComputePipelineState(device, &pipeline_state_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok(SUCCEEDED(hr), "CreateComputePipelineState failed, hr %#x.\n", hr);
+
+    refcount = get_refcount(root_signature);
+    ok(refcount == 1, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    refcount = get_refcount(device);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    hr = ID3D12PipelineState_GetDevice(pipeline_state, &IID_ID3D12Device, (void **)&tmp_device);
+    ok(SUCCEEDED(hr), "GetDevice failed, hr %#x.\n", hr);
+    refcount = get_refcount(device);
+    ok(refcount == 4, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    refcount = ID3D12Device_Release(tmp_device);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    check_interface(pipeline_state, &IID_ID3D12Object, TRUE);
+    check_interface(pipeline_state, &IID_ID3D12DeviceChild, TRUE);
+    check_interface(pipeline_state, &IID_ID3D12Pageable, TRUE);
+    check_interface(pipeline_state, &IID_ID3D12PipelineState, TRUE);
+
+    refcount = ID3D12PipelineState_Release(pipeline_state);
+    ok(!refcount, "ID3D12PipelineState has %u references left.\n", (unsigned int)refcount);
+    refcount = ID3D12RootSignature_Release(root_signature);
+    ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12)
 {
     ID3D12Debug *debug;
@@ -727,4 +827,5 @@ START_TEST(d3d12)
     test_create_committed_resource();
     test_create_descriptor_heap();
     test_create_root_signature();
+    test_create_pipeline_state();
 }
