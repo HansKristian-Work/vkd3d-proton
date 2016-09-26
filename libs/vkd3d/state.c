@@ -160,3 +160,153 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
 
     return S_OK;
 }
+
+/* ID3D12PipelineState */
+static inline struct d3d12_pipeline_state *impl_from_ID3D12PipelineState(ID3D12PipelineState *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d12_pipeline_state, ID3D12PipelineState_iface);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_QueryInterface(ID3D12PipelineState *iface,
+        REFIID riid, void **object)
+{
+    TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
+
+    if (IsEqualGUID(riid, &IID_ID3D12PipelineState)
+            || IsEqualGUID(riid, &IID_ID3D12Pageable)
+            || IsEqualGUID(riid, &IID_ID3D12DeviceChild)
+            || IsEqualGUID(riid, &IID_ID3D12Object)
+            || IsEqualGUID(riid, &IID_IUnknown))
+    {
+        ID3D12PipelineState_AddRef(iface);
+        *object = iface;
+        return S_OK;
+    }
+
+    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(riid));
+
+    *object = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_AddRef(ID3D12PipelineState *iface)
+{
+    struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
+    ULONG refcount = InterlockedIncrement(&state->refcount);
+
+    TRACE("%p increasing refcount to %u.\n", state, refcount);
+
+    return refcount;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState *iface)
+{
+    struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
+    ULONG refcount = InterlockedDecrement(&state->refcount);
+
+    TRACE("%p decreasing refcount to %u.\n", state, refcount);
+
+    if (!refcount)
+    {
+        struct d3d12_device *device = state->device;
+
+        vkd3d_free(state);
+
+        ID3D12Device_Release(&device->ID3D12Device_iface);
+    }
+
+    return refcount;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetPrivateData(ID3D12PipelineState *iface,
+        REFGUID guid, UINT *data_size, void *data)
+{
+    FIXME("iface %p, guid %s, data_size %p, data %p stub!", iface, debugstr_guid(guid), data_size, data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetPrivateData(ID3D12PipelineState *iface,
+        REFGUID guid, UINT data_size, const void *data)
+{
+    FIXME("iface %p, guid %s, data_size %u, data %p stub!\n", iface, debugstr_guid(guid), data_size, data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetPrivateDataInterface(ID3D12PipelineState *iface,
+        REFGUID guid, const IUnknown *data)
+{
+    FIXME("iface %p, guid %s, data %p stub!\n", iface, debugstr_guid(guid), data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetName(ID3D12PipelineState *iface, const WCHAR *name)
+{
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetDevice(ID3D12PipelineState *iface,
+        REFIID riid, void **device)
+{
+    struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
+
+    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+
+    return ID3D12Device_QueryInterface(&state->device->ID3D12Device_iface, riid, device);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetCachedBlob(ID3D12PipelineState *iface,
+        ID3DBlob **blob)
+{
+    FIXME("iface %p, blob %p stub!\n", iface, blob);
+
+    return E_NOTIMPL;
+}
+
+static const struct ID3D12PipelineStateVtbl d3d12_pipeline_state_vtbl =
+{
+    /* IUnknown methods */
+    d3d12_pipeline_state_QueryInterface,
+    d3d12_pipeline_state_AddRef,
+    d3d12_pipeline_state_Release,
+    /* ID3D12Object methods */
+    d3d12_pipeline_state_GetPrivateData,
+    d3d12_pipeline_state_SetPrivateData,
+    d3d12_pipeline_state_SetPrivateDataInterface,
+    d3d12_pipeline_state_SetName,
+    /* ID3D12DeviceChild methods */
+    d3d12_pipeline_state_GetDevice,
+    /* ID3D12PipelineState methods */
+    d3d12_pipeline_state_GetCachedBlob,
+};
+
+static void d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *state,
+        struct d3d12_device *device, const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc)
+{
+    state->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
+    state->refcount = 1;
+
+    state->device = device;
+    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+}
+
+HRESULT d3d12_pipeline_state_create_compute(struct d3d12_device *device,
+        const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc, struct d3d12_pipeline_state **state)
+{
+    struct d3d12_pipeline_state *object;
+
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    d3d12_pipeline_state_init_compute(object, device, desc);
+
+    TRACE("Created compute pipeline state %p.\n", object);
+
+    *state = object;
+
+    return S_OK;
+}
