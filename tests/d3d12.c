@@ -547,6 +547,76 @@ static void test_create_committed_resource(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_create_descriptor_heap(void)
+{
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    ID3D12Device *device, *tmp_device;
+    ID3D12DescriptorHeap *heap;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap_desc.NumDescriptors = 16;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+
+    refcount = get_refcount(device);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    hr = ID3D12DescriptorHeap_GetDevice(heap, &IID_ID3D12Device, (void **)&tmp_device);
+    ok(SUCCEEDED(hr), "GetDevice failed, hr %#x.\n", hr);
+    refcount = get_refcount(device);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    refcount = ID3D12Device_Release(tmp_device);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    check_interface(heap, &IID_ID3D12Object, TRUE);
+    check_interface(heap, &IID_ID3D12DeviceChild, TRUE);
+    check_interface(heap, &IID_ID3D12Pageable, TRUE);
+    check_interface(heap, &IID_ID3D12DescriptorHeap, TRUE);
+
+    refcount = ID3D12DescriptorHeap_Release(heap);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+    refcount = ID3D12DescriptorHeap_Release(heap);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+    refcount = ID3D12DescriptorHeap_Release(heap);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+    refcount = ID3D12DescriptorHeap_Release(heap);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+    refcount = ID3D12DescriptorHeap_Release(heap);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12)
 {
     ID3D12Debug *debug;
@@ -564,4 +634,5 @@ START_TEST(d3d12)
     test_create_command_list();
     test_create_command_queue();
     test_create_committed_resource();
+    test_create_descriptor_heap();
 }
