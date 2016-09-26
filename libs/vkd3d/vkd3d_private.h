@@ -90,6 +90,8 @@ struct d3d12_pipeline_state
     ID3D12PipelineState ID3D12PipelineState_iface;
     ULONG refcount;
 
+    VkPipeline vk_pipeline;
+
     struct d3d12_device *device;
 };
 

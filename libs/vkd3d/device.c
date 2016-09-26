@@ -571,7 +571,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateComputePipelineState(ID3D12D
     struct d3d12_pipeline_state *object;
     HRESULT hr;
 
-    FIXME("iface %p, desc %p, riid %s, pipeline_state %p stub!\n",
+    TRACE("iface %p, desc %p, riid %s, pipeline_state %p.\n",
             iface, desc, debugstr_guid(riid), pipeline_state);
 
     if (FAILED(hr = d3d12_pipeline_state_create_compute(device, desc, &object)))
