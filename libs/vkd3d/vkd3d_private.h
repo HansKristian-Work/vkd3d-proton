@@ -159,6 +159,7 @@ struct d3d12_device
 
     unsigned int direct_queue_family_index;
     unsigned int copy_queue_family_index;
+    VkPhysicalDeviceMemoryProperties memory_properties;
 
     struct vkd3d_instance vkd3d_instance;
 };
@@ -173,6 +174,8 @@ HRESULT return_interface(IUnknown *iface, REFIID iface_riid,
         REFIID requested_riid, void **object) DECLSPEC_HIDDEN;
 
 const char *debug_vk_extent_3d(VkExtent3D extent) DECLSPEC_HIDDEN;
+const char *debug_vk_memory_heap_flags(VkMemoryHeapFlags flags) DECLSPEC_HIDDEN;
+const char *debug_vk_memory_property_flags(VkMemoryPropertyFlags flags) DECLSPEC_HIDDEN;
 const char *debug_vk_queue_flags(VkQueueFlags flags) DECLSPEC_HIDDEN;
 
 static inline void *vkd3d_malloc(size_t size)

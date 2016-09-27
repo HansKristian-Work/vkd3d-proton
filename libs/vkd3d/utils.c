@@ -95,6 +95,42 @@ const char *debug_vk_queue_flags(VkQueueFlags flags)
     return vkd3d_dbg_sprintf("%s", &buffer[3]);
 }
 
+const char *debug_vk_memory_heap_flags(VkMemoryHeapFlags flags)
+{
+    char buffer[50];
+
+    buffer[0] = '\0';
+#define FLAG_TO_STR(f) if (flags & f) { strcat(buffer, " | "#f); flags &= ~f; }
+    FLAG_TO_STR(VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+#undef FLAG_TO_STR
+    if (flags)
+        FIXME("Unrecognized flag(s) %#x.\n", flags);
+
+    if (!buffer[0])
+        return "0";
+    return vkd3d_dbg_sprintf("%s", &buffer[3]);
+}
+
+const char *debug_vk_memory_property_flags(VkMemoryPropertyFlags flags)
+{
+    char buffer[200];
+
+    buffer[0] = '\0';
+#define FLAG_TO_STR(f) if (flags & f) { strcat(buffer, " | "#f); flags &= ~f; }
+    FLAG_TO_STR(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+    FLAG_TO_STR(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+    FLAG_TO_STR(VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+    FLAG_TO_STR(VK_MEMORY_PROPERTY_HOST_CACHED_BIT)
+    FLAG_TO_STR(VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT)
+#undef FLAG_TO_STR
+    if (flags)
+        FIXME("Unrecognized flag(s) %#x.\n", flags);
+
+    if (!buffer[0])
+        return "0";
+    return vkd3d_dbg_sprintf("%s", &buffer[3]);
+}
+
 HRESULT hresult_from_vk_result(VkResult vr)
 {
     switch (vr)

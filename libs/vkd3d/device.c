@@ -81,12 +81,13 @@ static void vkd3d_instance_destroy(struct vkd3d_instance *instance)
 static void vkd3d_trace_physical_device(VkPhysicalDevice device,
         const struct vkd3d_vk_instance_procs *vk_procs)
 {
+    VkPhysicalDeviceMemoryProperties memory_properties;
     VkPhysicalDeviceProperties device_properties;
     VkQueueFamilyProperties *queue_properties;
     VkPhysicalDeviceFeatures features;
     VkPhysicalDeviceLimits *limits;
+    unsigned int i, j;
     uint32_t count;
-    unsigned int i;
 
     VK_CALL(vkGetPhysicalDeviceProperties(device, &device_properties));
     TRACE("Device name: %s.\n", device_properties.deviceName);
@@ -104,12 +105,28 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
 
     for (i = 0; i < count; ++i)
     {
-        TRACE(" Queue family[%u]: flags %s, count %u, timestamp bits %u, image transfer granularity %s.\n",
+        TRACE(" Queue family [%u]: flags %s, count %u, timestamp bits %u, image transfer granularity %s.\n",
                 i, debug_vk_queue_flags(queue_properties[i].queueFlags),
                 queue_properties[i].queueCount, queue_properties[i].timestampValidBits,
                 debug_vk_extent_3d(queue_properties[i].minImageTransferGranularity));
     }
     vkd3d_free(queue_properties);
+
+    VK_CALL(vkGetPhysicalDeviceMemoryProperties(device, &memory_properties));
+    for (i = 0; i < memory_properties.memoryHeapCount; ++i)
+    {
+        const VkMemoryHeap *heap = &memory_properties.memoryHeaps[i];
+        TRACE("Memory heap [%u]: size %s (%lu MiB), flags %s, memory types:\n",
+                i, debugstr_uint64(heap->size), (unsigned long)(heap->size / 1024 / 1024),
+                debug_vk_memory_heap_flags(heap->flags));
+        for (j = 0; j < memory_properties.memoryTypeCount; ++j)
+        {
+            const VkMemoryType *type = &memory_properties.memoryTypes[j];
+            if (type->heapIndex != i)
+                continue;
+            TRACE("  Memory type [%u]: flags %s.\n", j, debug_vk_memory_property_flags(type->propertyFlags));
+        }
+    }
 
     limits = &device_properties.limits;
     TRACE("Device limits:\n");
@@ -393,6 +410,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     device->copy_queue_family_index = copy_queue_family_index;
     TRACE("Using queue family %u for direct command queues.\n", direct_queue_family_index);
     TRACE("Using queue family %u for copy command queues.\n", copy_queue_family_index);
+
+    VK_CALL(vkGetPhysicalDeviceMemoryProperties(selected_physical_device, &device->memory_properties));
 
     /* Create device */
     VK_CALL(vkGetPhysicalDeviceFeatures(selected_physical_device, &device_features));
