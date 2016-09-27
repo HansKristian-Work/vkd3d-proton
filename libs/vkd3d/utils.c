@@ -131,6 +131,30 @@ const char *debug_vk_memory_property_flags(VkMemoryPropertyFlags flags)
     return vkd3d_dbg_sprintf("%s", &buffer[3]);
 }
 
+VkFormat vk_format_from_dxgi_format(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_R32G32B32A32_FLOAT:
+            return VK_FORMAT_R32G32B32A32_SFLOAT;
+        case DXGI_FORMAT_R32G32B32A32_UINT:
+            return VK_FORMAT_R32G32B32A32_UINT;
+        case DXGI_FORMAT_R32G32B32A32_SINT:
+            return VK_FORMAT_R32G32B32A32_SINT;
+        case DXGI_FORMAT_R32G32B32_FLOAT:
+            return VK_FORMAT_R32G32B32_SFLOAT;
+        case DXGI_FORMAT_R8G8B8A8_UNORM:
+            return VK_FORMAT_R8G8B8A8_UNORM;
+        case DXGI_FORMAT_R32_FLOAT:
+            return VK_FORMAT_R32_SFLOAT;
+        case DXGI_FORMAT_B8G8R8A8_UNORM:
+            return VK_FORMAT_B8G8R8A8_UNORM;
+        default:
+            FIXME("Unhandled format %#x.\n", format);
+            return VK_FORMAT_UNDEFINED;
+    }
+}
+
 HRESULT hresult_from_vk_result(VkResult vr)
 {
     switch (vr)

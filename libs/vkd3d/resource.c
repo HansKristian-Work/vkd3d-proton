@@ -22,6 +22,236 @@
 
 #include "vkd3d_private.h"
 
+static VkImageType vk_image_type_from_d3d12_resource_dimension(D3D12_RESOURCE_DIMENSION dimension)
+{
+    switch (dimension)
+    {
+        case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
+            return VK_IMAGE_TYPE_1D;
+        case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
+            return VK_IMAGE_TYPE_2D;
+        case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
+            return VK_IMAGE_TYPE_3D;
+        default:
+            ERR("Invalid resource dimension %#x.\n", dimension);
+            return VK_IMAGE_TYPE_2D;
+    }
+}
+
+static VkSampleCountFlagBits vk_samples_from_dxgi_sample_desc(const DXGI_SAMPLE_DESC *desc)
+{
+    switch (desc->Count)
+    {
+        case 1:
+            return VK_SAMPLE_COUNT_1_BIT;
+        case 2:
+            return VK_SAMPLE_COUNT_2_BIT;
+        case 4:
+            return VK_SAMPLE_COUNT_4_BIT;
+        case 8:
+            return VK_SAMPLE_COUNT_8_BIT;
+        case 16:
+            return VK_SAMPLE_COUNT_16_BIT;
+        case 32:
+            return VK_SAMPLE_COUNT_32_BIT;
+        case 64:
+            return VK_SAMPLE_COUNT_64_BIT;
+        default:
+            FIXME("Unhandled sample count %u.\n", desc->Count);
+            return VK_SAMPLE_COUNT_1_BIT;
+    }
+}
+
+static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkImageCreateInfo image_info;
+    VkResult vr;
+
+    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info.pNext = NULL;
+    image_info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+        image_info.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+
+    image_info.imageType = vk_image_type_from_d3d12_resource_dimension(desc->Dimension);
+    image_info.format = vk_format_from_dxgi_format(desc->Format);
+    image_info.extent.width = desc->Width;
+    image_info.extent.height = desc->Height;
+
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+    {
+        image_info.extent.depth = desc->DepthOrArraySize;
+        image_info.arrayLayers = 1;
+    }
+    else
+    {
+        image_info.extent.depth = 1;
+        image_info.arrayLayers = desc->DepthOrArraySize;
+    }
+
+    image_info.mipLevels = desc->MipLevels;
+    image_info.samples = vk_samples_from_dxgi_sample_desc(&desc->SampleDesc);
+
+    if (desc->Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN)
+    {
+        image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    }
+    else if (desc->Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR)
+    {
+        image_info.tiling = VK_IMAGE_TILING_LINEAR;
+    }
+    else
+    {
+        FIXME("Unsupported layout %#x.\n", desc->Layout);
+        return E_NOTIMPL;
+    }
+
+    image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)
+    {
+        image_info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        image_info.usage |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+    }
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
+    {
+        image_info.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        image_info.usage |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+    }
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
+        image_info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+    if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
+        image_info.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
+        FIXME("Ignoring D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS.\n");
+
+    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    image_info.queueFamilyIndexCount = 0;
+    image_info.pQueueFamilyIndices = NULL;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+
+    FIXME("Ignoring initial state %#x.\n", initial_state);
+
+    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &resource->vk_image))))
+    {
+        WARN("Failed to create Vulkan image, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    TRACE("Created Vulkan image for resource %p.\n", resource);
+
+    return S_OK;
+}
+
+static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32_t memory_type_mask,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
+{
+    VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
+    VkMemoryPropertyFlags required_flags;
+    unsigned int i;
+
+    switch (heap_properties->Type)
+    {
+        case D3D12_HEAP_TYPE_DEFAULT:
+            required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+            break;
+
+        case D3D12_HEAP_TYPE_UPLOAD:
+        case D3D12_HEAP_TYPE_READBACK:
+            required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            break;
+
+        default:
+            FIXME("Unsupported heap type %#x.\n", heap_properties->Type);
+            return ~0u;
+    }
+
+    for (i = 0; i < memory_info->memoryTypeCount; ++i)
+    {
+        if (!(memory_type_mask & (1u << i)))
+            continue;
+        if ((memory_info->memoryTypes[i].propertyFlags & required_flags) == required_flags)
+            return i;
+    }
+
+    return ~0u;
+}
+
+static HRESULT vkd3d_allocate_image_memory(struct d3d12_resource *resource, struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryRequirements memory_requirements;
+    VkMemoryAllocateInfo allocate_info;
+    VkResult vr;
+
+    assert(D3D12_RESOURCE_DIMENSION_TEXTURE1D <= resource->desc.Dimension
+            && resource->desc.Dimension <= D3D12_RESOURCE_DIMENSION_TEXTURE3D);
+
+    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->vk_image, &memory_requirements));
+
+    TRACE("Memory requirements: size %s, alignment %s.\n",
+            debugstr_uint64(memory_requirements.size), debugstr_uint64(memory_requirements.alignment));
+
+    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocate_info.pNext = NULL;
+    allocate_info.allocationSize = memory_requirements.size;
+    allocate_info.memoryTypeIndex = vkd3d_select_memory_type(device,
+            memory_requirements.memoryTypeBits, heap_properties, heap_flags);
+
+    if (allocate_info.memoryTypeIndex == ~0u)
+    {
+        ERR("Failed to find memory type.\n");
+        return E_FAIL;
+    }
+
+    TRACE("Allocating memory type %u.\n", allocate_info.memoryTypeIndex);
+
+    if ((vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, &resource->vk_memory))))
+    {
+        WARN("Failed to allocate memory, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, resource->vk_image, resource->vk_memory, 0))))
+    {
+        WARN("Failed to bind memory, vr %d.\n", vr);
+        VK_CALL(vkFreeMemory(device->vk_device, resource->vk_memory, NULL));
+        resource->vk_memory = VK_NULL_HANDLE;
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
+static void vkd3d_destroy_resource(struct d3d12_resource *resource, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    switch (resource->desc.Dimension)
+    {
+        case D3D12_RESOURCE_DIMENSION_BUFFER:
+            FIXME("Unhandled buffer resource.\n");
+            break;
+
+        case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
+        case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
+        case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
+            VK_CALL(vkDestroyImage(device->vk_device, resource->vk_image, NULL));
+            break;
+
+        default:
+            ERR("Invalid resource dimension %#x.\n", resource->desc.Dimension);
+            break;
+    }
+
+    if (resource->vk_memory)
+        VK_CALL(vkFreeMemory(device->vk_device, resource->vk_memory, NULL));
+}
+
 /* ID3D12Resource */
 static inline struct d3d12_resource *impl_from_ID3D12Resource(ID3D12Resource *iface)
 {
@@ -71,6 +301,7 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_Release(ID3D12Resource *iface)
     {
         struct d3d12_device *device = resource->device;
 
+        vkd3d_destroy_resource(resource, device);
         vkd3d_free(resource);
 
         ID3D12Device_Release(&device->ID3D12Device_iface);
@@ -210,18 +441,50 @@ static const struct ID3D12ResourceVtbl d3d12_resource_vtbl =
     d3d12_resource_GetHeapProperties,
 };
 
-static void d3d12_committed_resource_init(struct d3d12_resource *resource, struct d3d12_device *device,
+static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value)
 {
+    HRESULT hr;
+
     resource->ID3D12Resource_iface.lpVtbl = &d3d12_resource_vtbl;
     resource->refcount = 1;
 
     resource->desc = *desc;
 
+    if (optimized_clear_value)
+        FIXME("Ignoring optimized clear value.\n");
+
+    switch (desc->Dimension)
+    {
+        case D3D12_RESOURCE_DIMENSION_BUFFER:
+            FIXME("Unhandled buffer resource.\n");
+            resource->vk_memory = VK_NULL_HANDLE;
+            break;
+
+        case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
+        case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
+        case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
+            if (FAILED(hr = vkd3d_create_image(resource, device, heap_properties, heap_flags,
+                    desc, initial_state)))
+                return hr;
+            if (FAILED(hr = vkd3d_allocate_image_memory(resource, device, heap_properties, heap_flags)))
+            {
+                vkd3d_destroy_resource(resource, device);
+                return hr;
+            }
+            break;
+
+        default:
+            WARN("Invalid resource dimension %#x.\n", resource->desc.Dimension);
+            return E_INVALIDARG;
+    }
+
     resource->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
+
+    return S_OK;
 }
 
 HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
@@ -230,12 +493,17 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
 {
     struct d3d12_resource *object;
+    HRESULT hr;
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    d3d12_committed_resource_init(object, device, heap_properties, heap_flags,
-            desc, initial_state, optimized_clear_value);
+    if (FAILED(hr = d3d12_committed_resource_init(object, device, heap_properties, heap_flags,
+            desc, initial_state, optimized_clear_value)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
 
     TRACE("Created committed resource %p.\n", object);
 
