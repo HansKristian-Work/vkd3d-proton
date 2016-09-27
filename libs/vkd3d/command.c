@@ -409,9 +409,15 @@ static D3D12_COMMAND_LIST_TYPE STDMETHODCALLTYPE d3d12_command_list_GetType(ID3D
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(ID3D12GraphicsCommandList *iface)
 {
-    FIXME("iface %p stub!\n", iface);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkResult vr;
 
-    return E_NOTIMPL;
+    TRACE("iface %p.\n", iface);
+
+    vk_procs = &list->device->vk_procs;
+    vr = VK_CALL(vkEndCommandBuffer(list->vk_command_buffer));
+    return hresult_from_vk_result(vr);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(ID3D12GraphicsCommandList *iface,
