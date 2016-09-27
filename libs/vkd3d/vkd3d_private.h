@@ -106,6 +106,8 @@ struct d3d12_command_allocator
 
     D3D12_COMMAND_LIST_TYPE type;
 
+    VkCommandPool vk_command_pool;
+
     struct d3d12_device *device;
 };
 
@@ -149,6 +151,9 @@ struct d3d12_device
 
     VkDevice vk_device;
     struct vkd3d_vk_device_procs vk_procs;
+
+    unsigned int direct_queue_family_index;
+    unsigned int copy_queue_family_index;
 
     struct vkd3d_instance vkd3d_instance;
 };

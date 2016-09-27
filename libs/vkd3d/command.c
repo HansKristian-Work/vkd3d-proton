@@ -70,6 +70,9 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
     if (!refcount)
     {
         struct d3d12_device *device = allocator->device;
+        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+        VK_CALL(vkDestroyCommandPool(device->vk_device, allocator->vk_command_pool, NULL));
 
         vkd3d_free(allocator);
 
@@ -152,22 +155,53 @@ static struct d3d12_command_allocator *unsafe_impl_from_ID3D12CommandAllocator(I
     return impl_from_ID3D12CommandAllocator(iface);
 }
 
-static void d3d12_command_allocator_init(struct d3d12_command_allocator *allocator,
+static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allocator,
         struct d3d12_device *device, D3D12_COMMAND_LIST_TYPE type)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkCommandPoolCreateInfo command_pool_info;
+    VkResult vr;
+
     allocator->ID3D12CommandAllocator_iface.lpVtbl = &d3d12_command_allocator_vtbl;
     allocator->refcount = 1;
 
     allocator->type = type;
 
+    command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_info.pNext = NULL;
+    command_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    switch (type)
+    {
+        case D3D12_COMMAND_LIST_TYPE_DIRECT:
+            command_pool_info.queueFamilyIndex = device->direct_queue_family_index;
+            break;
+        case D3D12_COMMAND_LIST_TYPE_COPY:
+            command_pool_info.queueFamilyIndex = device->copy_queue_family_index;
+            break;
+        default:
+            FIXME("Unhandled command list type %#x.\n", type);
+            command_pool_info.queueFamilyIndex = device->direct_queue_family_index;
+            break;
+    }
+
+    if ((vr = VK_CALL(vkCreateCommandPool(device->vk_device, &command_pool_info, NULL,
+            &allocator->vk_command_pool))))
+    {
+        WARN("Failed to create Vulkan command pool, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
     allocator->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
+
+    return S_OK;
 }
 
 HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_allocator **allocator)
 {
     struct d3d12_command_allocator *object;
+    HRESULT hr;
 
     if (!(D3D12_COMMAND_LIST_TYPE_DIRECT <= type && type <= D3D12_COMMAND_LIST_TYPE_COPY))
     {
@@ -178,7 +212,11 @@ HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    d3d12_command_allocator_init(object, device, type);
+    if (FAILED(hr = d3d12_command_allocator_init(object, device, type)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
 
     TRACE("Created command allocator %p.\n", object);
 

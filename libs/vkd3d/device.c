@@ -389,6 +389,11 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
         return E_FAIL;
     }
 
+    device->direct_queue_family_index = direct_queue_family_index;
+    device->copy_queue_family_index = copy_queue_family_index;
+    TRACE("Using queue family %u for direct command queues.\n", direct_queue_family_index);
+    TRACE("Using queue family %u for copy command queues.\n", copy_queue_family_index);
+
     /* Create device */
     VK_CALL(vkGetPhysicalDeviceFeatures(selected_physical_device, &device_features));
 
