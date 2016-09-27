@@ -23,7 +23,6 @@
 #ifndef __VKD3D_WINDOWS_H
 #define __VKD3D_WINDOWS_H
 
-
 #if !defined(_WIN32) || defined(__WIDL__)
 
 /* HRESULT */
@@ -143,9 +142,6 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 #  define DECLSPEC_HIDDEN __attribute__((visibility("hidden")))
 # endif
 
-# define __C89_NAMELESS
-# define __C89_NAMELESSUNIONNAME
-
 /* Macros for COM interfaces */
 # define interface struct
 # define BEGIN_INTERFACE
@@ -180,11 +176,17 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 
 # include <windows.h>
 
-# ifndef __C89_NAMELESS
+#endif  /* _WIN32 */
+
+
+#ifndef __C89_NAMELESS
+# ifdef NONAMELESSUNION
+#  define __C89_NAMELESS
+#  define __C89_NAMELESSUNIONNAME u
+# else
 #  define __C89_NAMELESS
 #  define __C89_NAMELESSUNIONNAME
-# endif  /* __C89_NAMELESS */
-
-#endif  /* _WIN32 */
+# endif /* NONAMELESSUNION */
+#endif  /* __C89_NAMELESS */
 
 #endif  /* __VKD3D_WINDOWS_H */

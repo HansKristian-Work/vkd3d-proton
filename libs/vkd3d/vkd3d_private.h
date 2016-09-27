@@ -24,6 +24,7 @@
 #define __VKD3D_PRIVATE_H
 
 #define COBJMACROS
+#define NONAMELESSUNION
 #include "vkd3d_common.h"
 #include "vkd3d_debug.h"
 #include "vkd3d_vulkan.h"
