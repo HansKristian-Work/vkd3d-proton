@@ -32,6 +32,7 @@
 
 #include <assert.h>
 
+struct d3d12_command_list;
 struct d3d12_device;
 
 struct vkd3d_instance
@@ -108,6 +109,7 @@ struct d3d12_command_allocator
 
     VkCommandPool vk_command_pool;
 
+    struct d3d12_command_list *current_command_list;
     struct d3d12_device *device;
 };
 
@@ -122,6 +124,9 @@ struct d3d12_command_list
 
     D3D12_COMMAND_LIST_TYPE type;
 
+    VkCommandBuffer vk_command_buffer;
+
+    struct d3d12_command_allocator *allocator;
     struct d3d12_device *device;
 };
 
