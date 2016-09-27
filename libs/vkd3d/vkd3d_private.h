@@ -50,7 +50,11 @@ struct d3d12_resource
 
     D3D12_RESOURCE_DESC desc;
 
-    VkImage vk_image;
+    union
+    {
+        VkBuffer vk_buffer;
+        VkImage vk_image;
+    } u;
     VkDeviceMemory vk_memory;
 
     struct d3d12_device *device;

@@ -62,6 +62,50 @@ static VkSampleCountFlagBits vk_samples_from_dxgi_sample_desc(const DXGI_SAMPLE_
     }
 }
 
+static HRESULT vkd3d_create_buffer(struct d3d12_resource *resource, struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkBufferCreateInfo buffer_info;
+    VkResult vr;
+
+    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_info.pNext = NULL;
+    buffer_info.flags = 0;
+    buffer_info.size = desc->Width;
+
+    /* FIXME: Try to limit usage based on heap_properties. */
+    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+            | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+            | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+            | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+            | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+            | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
+    {
+        buffer_info.usage |= VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
+        buffer_info.usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    }
+    if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
+        buffer_info.usage |= VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
+
+    /* FIXME: Buffers always can be accessed from multiple queues. */
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    buffer_info.queueFamilyIndexCount = 0;
+    buffer_info.pQueueFamilyIndices = 0;
+
+    if ((vr = VK_CALL(vkCreateBuffer(device->vk_device, &buffer_info, NULL, &resource->u.vk_buffer))))
+    {
+        WARN("Failed to create Vulkan buffer, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    TRACE("Created Vulkan buffer for resource %p.\n", resource);
+
+    return S_OK;
+}
+
 static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state)
@@ -135,7 +179,7 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
 
     FIXME("Ignoring initial state %#x.\n", initial_state);
 
-    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &resource->vk_image))))
+    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &resource->u.vk_image))))
     {
         WARN("Failed to create Vulkan image, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -180,43 +224,86 @@ static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32
     return ~0u;
 }
 
-static HRESULT vkd3d_allocate_image_memory(struct d3d12_resource *resource, struct d3d12_device *device,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
+static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const VkMemoryRequirements *memory_requirements, VkDeviceMemory *vk_memory)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkMemoryRequirements memory_requirements;
     VkMemoryAllocateInfo allocate_info;
     VkResult vr;
 
-    assert(D3D12_RESOURCE_DIMENSION_TEXTURE1D <= resource->desc.Dimension
-            && resource->desc.Dimension <= D3D12_RESOURCE_DIMENSION_TEXTURE3D);
-
-    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->vk_image, &memory_requirements));
-
     TRACE("Memory requirements: size %s, alignment %s.\n",
-            debugstr_uint64(memory_requirements.size), debugstr_uint64(memory_requirements.alignment));
+            debugstr_uint64(memory_requirements->size),
+            debugstr_uint64(memory_requirements->alignment));
 
     allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocate_info.pNext = NULL;
-    allocate_info.allocationSize = memory_requirements.size;
+    allocate_info.allocationSize = memory_requirements->size;
     allocate_info.memoryTypeIndex = vkd3d_select_memory_type(device,
-            memory_requirements.memoryTypeBits, heap_properties, heap_flags);
+            memory_requirements->memoryTypeBits, heap_properties, heap_flags);
 
     if (allocate_info.memoryTypeIndex == ~0u)
     {
-        ERR("Failed to find memory type.\n");
+        ERR("Failed to find suitable memory type.\n");
+        *vk_memory = VK_NULL_HANDLE;
         return E_FAIL;
     }
 
     TRACE("Allocating memory type %u.\n", allocate_info.memoryTypeIndex);
 
-    if ((vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, &resource->vk_memory))))
+    if ((vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, vk_memory))))
     {
-        WARN("Failed to allocate memory, vr %d.\n", vr);
+        WARN("Failed to allocate device memory, vr %d.\n", vr);
+        *vk_memory = VK_NULL_HANDLE;
         return hresult_from_vk_result(vr);
     }
 
-    if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, resource->vk_image, resource->vk_memory, 0))))
+    return S_OK;
+}
+
+static HRESULT vkd3d_allocate_buffer_memory(struct d3d12_resource *resource, struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryRequirements memory_requirements;
+    VkResult vr;
+    HRESULT hr;
+
+    assert(resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER);
+
+    VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, resource->u.vk_buffer, &memory_requirements));
+    if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
+            &memory_requirements, &resource->vk_memory)))
+        return hr;
+
+    if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, resource->u.vk_buffer, resource->vk_memory, 0))))
+    {
+        WARN("Failed to bind memory, vr %d.\n", vr);
+        VK_CALL(vkFreeMemory(device->vk_device, resource->vk_memory, NULL));
+        resource->vk_memory = VK_NULL_HANDLE;
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
+static HRESULT vkd3d_allocate_image_memory(struct d3d12_resource *resource, struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryRequirements memory_requirements;
+    VkResult vr;
+    HRESULT hr;
+
+    assert(D3D12_RESOURCE_DIMENSION_TEXTURE1D <= resource->desc.Dimension
+            && resource->desc.Dimension <= D3D12_RESOURCE_DIMENSION_TEXTURE3D);
+
+    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->u.vk_image, &memory_requirements));
+    if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
+            &memory_requirements, &resource->vk_memory)))
+        return hr;
+
+    if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, resource->u.vk_image, resource->vk_memory, 0))))
     {
         WARN("Failed to bind memory, vr %d.\n", vr);
         VK_CALL(vkFreeMemory(device->vk_device, resource->vk_memory, NULL));
@@ -234,13 +321,13 @@ static void vkd3d_destroy_resource(struct d3d12_resource *resource, struct d3d12
     switch (resource->desc.Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
-            FIXME("Unhandled buffer resource.\n");
+            VK_CALL(vkDestroyBuffer(device->vk_device, resource->u.vk_buffer, NULL));
             break;
 
         case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
         case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
         case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
-            VK_CALL(vkDestroyImage(device->vk_device, resource->vk_image, NULL));
+            VK_CALL(vkDestroyImage(device->vk_device, resource->u.vk_image, NULL));
             break;
 
         default:
@@ -459,8 +546,14 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     switch (desc->Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
-            FIXME("Unhandled buffer resource.\n");
-            resource->vk_memory = VK_NULL_HANDLE;
+            if (FAILED(hr = vkd3d_create_buffer(resource, device, heap_properties, heap_flags,
+                    desc, initial_state)))
+                return hr;
+            if (FAILED(hr = vkd3d_allocate_buffer_memory(resource, device, heap_properties, heap_flags)))
+            {
+                vkd3d_destroy_resource(resource, device);
+                return hr;
+            }
             break;
 
         case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
