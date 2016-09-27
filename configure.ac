@@ -23,6 +23,7 @@ fi
 
 AM_INIT_AUTOMAKE([1.11 foreign silent-rules subdir-objects -Wall -Werror])
 AM_MAINTAINER_MODE([enable])
+AM_SILENT_RULES([yes])
 
 LT_PREREQ([2.4.2])
 LT_INIT
