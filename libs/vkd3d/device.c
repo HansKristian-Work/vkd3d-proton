@@ -916,10 +916,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_Evict(ID3D12Device *iface,
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateFence(ID3D12Device *iface,
         UINT64 initial_value, D3D12_FENCE_FLAGS flags, REFIID riid, void **fence)
 {
-    FIXME("iface %p, intial_value %s, flags %#x, riid %s, fence %p stub!\n",
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_fence *object;
+    HRESULT hr;
+
+    TRACE("iface %p, intial_value %s, flags %#x, riid %s, fence %p.\n",
             iface, debugstr_uint64(initial_value), flags, debugstr_guid(riid), fence);
 
-    return E_NOTIMPL;
+    if (FAILED(hr = d3d12_fence_create(device, initial_value, flags, &object)))
+        return hr;
+
+    return return_interface((IUnknown *)&object->ID3D12Fence_iface, &IID_ID3D12Fence,
+            riid, fence);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_GetDeviceRemovedReason(ID3D12Device *iface)

@@ -42,6 +42,20 @@ struct vkd3d_instance
     struct vkd3d_vk_instance_procs vk_procs;
 };
 
+/* ID3D12Fence */
+struct d3d12_fence
+{
+    ID3D12Fence ID3D12Fence_iface;
+    ULONG refcount;
+
+    UINT64 value;
+
+    struct d3d12_device *device;
+};
+
+HRESULT d3d12_fence_create(struct d3d12_device *device,
+        UINT64 initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence) DECLSPEC_HIDDEN;
+
 /* ID3D12Resource */
 struct d3d12_resource
 {
