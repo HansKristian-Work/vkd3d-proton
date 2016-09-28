@@ -809,8 +809,31 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(ID3D12GraphicsCo
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(ID3D12GraphicsCommandList *iface,
         UINT rect_count, const D3D12_RECT *rects)
 {
-    FIXME("iface %p, rect_count %u, rects %p stub!\n",
-            iface, rect_count, rects);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct VkRect2D *vk_rects;
+    unsigned int i;
+
+    TRACE("iface %p, rect_count %u, rects %p.\n", iface, rect_count, rects);
+
+    if (!(vk_rects = vkd3d_calloc(rect_count, sizeof(*vk_rects))))
+    {
+        ERR("Failed to allocate Vulkan scissor rects.\n");
+        return;
+    }
+
+    for (i = 0; i < rect_count; ++i)
+    {
+        vk_rects[i].offset.x = rects[i].left;
+        vk_rects[i].offset.y = rects[i].top;
+        vk_rects[i].extent.width = rects[i].right - rects[i].left;
+        vk_rects[i].extent.height = rects[i].bottom - rects[i].top;
+    }
+
+    vk_procs = &list->device->vk_procs;
+    VK_CALL(vkCmdSetScissor(list->vk_command_buffer, 0, rect_count, vk_rects));
+
+    free(vk_rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetBlendFactor(ID3D12GraphicsCommandList *iface,
