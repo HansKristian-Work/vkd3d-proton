@@ -57,6 +57,9 @@ struct d3d12_resource
     } u;
     VkDeviceMemory vk_memory;
 
+    unsigned int map_count;
+    void *map_data;
+
     struct d3d12_device *device;
 };
 

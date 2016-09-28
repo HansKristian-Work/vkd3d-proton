@@ -441,10 +441,45 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_GetDevice(ID3D12Resource *iface,
 static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT sub_resource,
         const D3D12_RANGE *read_range, void **data)
 {
-    FIXME("iface %p, sub_resource %u, read_range %p, data %p stub!\n",
+    struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct d3d12_device *device;
+    VkResult vr;
+
+    TRACE("iface %p, sub_resource %u, read_range %p, data %p.\n",
             iface, sub_resource, read_range, data);
 
-    return E_NOTIMPL;
+    FIXME("Ignoring read range %p.\n", read_range);
+
+    device = resource->device;
+    vk_procs = &device->vk_procs;
+
+    if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+    {
+        FIXME("Not implemented for textures.\n");
+        return E_NOTIMPL;
+    }
+
+    if (!resource->vk_memory)
+    {
+        FIXME("Not implemented for this resource type.\n");
+        return E_NOTIMPL;
+    }
+
+    if (!resource->map_count)
+    {
+        if ((vr = VK_CALL(vkMapMemory(device->vk_device, resource->vk_memory,
+                0, VK_WHOLE_SIZE, 0, &resource->map_data))))
+        {
+            WARN("Failed to map device memory, vr %d.\n", vr);
+            return hresult_from_vk_result(vr);
+        }
+    }
+
+    *data = resource->map_data;
+    ++resource->map_count;
+
+    return S_OK;
 }
 
 static void STDMETHODCALLTYPE d3d12_resource_Unmap(ID3D12Resource *iface, UINT sub_resource,
@@ -573,6 +608,9 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
             WARN("Invalid resource dimension %#x.\n", resource->desc.Dimension);
             return E_INVALIDARG;
     }
+
+    resource->map_count = 0;
+    resource->map_data = NULL;
 
     resource->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
