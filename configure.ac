@@ -16,10 +16,7 @@ AC_PROG_SED
 AC_PROG_MKDIR_P
 AC_CHECK_PROG(WIDL, [widl], [widl], [no])
 
-if test "x$WIDL" = xno
-then
-    AC_MSG_ERROR([widl is required to build header files.])
-fi
+AS_IF([test "x$WIDL" = "xno"], [AC_MSG_ERROR([widl is required to build header files.])])
 
 AM_INIT_AUTOMAKE([1.11 foreign silent-rules subdir-objects -Wall -Werror])
 AM_MAINTAINER_MODE([enable])
@@ -30,16 +27,13 @@ LT_INIT
 
 dnl Check compiler specific flags
 AC_SUBST(VKD3D_CFLAGS, "")
-if test "x${GCC}" = "xyes"
-then
-    VKD3D_CFLAGS="-Wall -pipe"
-
-    VKD3D_CHECK_CFLAGS([-std=c99])
-    VKD3D_CHECK_CFLAGS([-Wdeclaration-after-statement])
-    VKD3D_CHECK_CFLAGS([-Wmissing-prototypes])
-    VKD3D_CHECK_CFLAGS([-Wunused-but-set-parameter])
-    VKD3D_CHECK_CFLAGS([-Wvla])
-fi
+AS_IF([test "x${GCC}" = "xyes"],
+      [VKD3D_CFLAGS="-Wall -pipe"
+      VKD3D_CHECK_CFLAGS([-std=c99])
+      VKD3D_CHECK_CFLAGS([-Wdeclaration-after-statement])
+      VKD3D_CHECK_CFLAGS([-Wmissing-prototypes])
+      VKD3D_CHECK_CFLAGS([-Wunused-but-set-parameter])
+      VKD3D_CHECK_CFLAGS([-Wvla])])
 
 dnl Check for headers
 AC_CHECK_HEADERS([vulkan/vulkan.h], [], [AC_MSG_ERROR([vulkan.h not found.])])
@@ -80,10 +74,7 @@ AC_OUTPUT
 dnl Output configuration info
 echo ""
 WIDL_VERSION=`$WIDL -V`
-if test $? -eq 0
-then
-    WIDL_VERSION=`echo $WIDL_VERSION | cut -d' ' -f5`
-fi
+AS_IF([test $? -eq 0], [WIDL_VERSION=`echo $WIDL_VERSION | cut -d' ' -f5`])
 echo "  widl version: $WIDL_VERSION"
 
 echo ""
