@@ -485,8 +485,34 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
 static void STDMETHODCALLTYPE d3d12_resource_Unmap(ID3D12Resource *iface, UINT sub_resource,
         const D3D12_RANGE *written_range)
 {
-    FIXME("iface %p, sub_resource %u, written_range %p stub!\n",
+    struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct d3d12_device *device;
+
+    TRACE("iface %p, sub_resource %u, written_range %p.\n",
             iface, sub_resource, written_range);
+
+    device = resource->device;
+    vk_procs = &device->vk_procs;
+
+    if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+    {
+        FIXME("Not implemented for textures.\n");
+        return;
+    }
+
+    if (!resource->map_count)
+    {
+        WARN("Resource %p is not mapped.\n", resource);
+        return;
+    }
+
+    --resource->map_count;
+    if (!resource->map_count)
+    {
+        resource->map_data = NULL;
+        VK_CALL(vkUnmapMemory(device->vk_device, resource->vk_memory));
+    }
 }
 
 static D3D12_RESOURCE_DESC * STDMETHODCALLTYPE d3d12_resource_GetDesc(ID3D12Resource *iface,
