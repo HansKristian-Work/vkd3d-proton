@@ -1295,7 +1295,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetStencilRef(ID3D12GraphicsC
 static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(ID3D12GraphicsCommandList *iface,
         ID3D12PipelineState *pipeline_state)
 {
-    FIXME("iface %p, pipeline_state %p stub!\n", iface, pipeline_state);
+    struct d3d12_pipeline_state *state = unsafe_impl_from_ID3D12PipelineState(pipeline_state);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, pipeline_state %p.\n", iface, pipeline_state);
+
+    list->state = state;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsCommandList *iface,

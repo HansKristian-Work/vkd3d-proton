@@ -331,6 +331,14 @@ static const struct ID3D12PipelineStateVtbl d3d12_pipeline_state_vtbl =
     d3d12_pipeline_state_GetCachedBlob,
 };
 
+struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface)
+{
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_pipeline_state_vtbl);
+    return impl_from_ID3D12PipelineState(iface);
+}
+
 static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc)
 {

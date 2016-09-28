@@ -191,6 +191,7 @@ struct d3d12_pipeline_state
 
 HRESULT d3d12_pipeline_state_create_compute(struct d3d12_device *device,
         const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
+struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface) DECLSPEC_HIDDEN;
 
 /* ID3D12CommandAllocator */
 struct d3d12_command_allocator
@@ -235,6 +236,8 @@ struct d3d12_command_list
     VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     unsigned int fb_width;
     unsigned int fb_height;
+
+    struct d3d12_pipeline_state *state;
 
     struct d3d12_command_allocator *allocator;
     struct d3d12_device *device;
