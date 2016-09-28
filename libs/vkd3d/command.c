@@ -1121,6 +1121,14 @@ static const struct ID3D12GraphicsCommandListVtbl d3d12_command_list_vtbl =
     d3d12_command_list_ExecuteIndirect,
 };
 
+static struct d3d12_command_list *unsafe_impl_from_ID3D12CommandList(ID3D12CommandList *iface)
+{
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == (struct ID3D12CommandListVtbl *)&d3d12_command_list_vtbl);
+    return CONTAINING_RECORD(iface, struct d3d12_command_list, ID3D12GraphicsCommandList_iface);
+}
+
 static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_allocator *allocator,
         ID3D12PipelineState *initial_pipeline_state)
@@ -1317,8 +1325,44 @@ static void STDMETHODCALLTYPE d3d12_command_queue_CopyTileMappings(ID3D12Command
 static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12CommandQueue *iface,
         UINT command_list_count, ID3D12CommandList * const *command_lists)
 {
-    FIXME("iface %p, command_list_count %u, command_lists %p stub!\n",
+    struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct VkSubmitInfo submit_desc;
+    VkCommandBuffer *buffers;
+    unsigned int i;
+    VkResult vr;
+
+    TRACE("iface %p, command_list_count %u, command_lists %p.\n",
             iface, command_list_count, command_lists);
+
+    vk_procs = &command_queue->device->vk_procs;
+
+    if (!(buffers = vkd3d_calloc(command_list_count, sizeof(*buffers))))
+    {
+        ERR("Failed to allocate command buffer array.\n");
+        return;
+    }
+
+    for (i = 0; i < command_list_count; ++i)
+    {
+        buffers[i] = unsafe_impl_from_ID3D12CommandList(command_lists[i])->vk_command_buffer;
+    }
+
+    submit_desc.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_desc.pNext = NULL;
+    submit_desc.waitSemaphoreCount = 0;
+    submit_desc.pWaitSemaphores = NULL;
+    submit_desc.pWaitDstStageMask = NULL;
+    submit_desc.commandBufferCount = command_list_count;
+    submit_desc.pCommandBuffers = buffers;
+    submit_desc.signalSemaphoreCount = 0;
+    submit_desc.pSignalSemaphores = NULL;
+
+    if ((vr = VK_CALL(vkQueueSubmit(command_queue->vk_queue,
+            1, &submit_desc, VK_NULL_HANDLE))) < 0)
+        ERR("Failed to submit queue(s), vr %d.\n", vr);
+
+    vkd3d_free(buffers);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_queue_SetMarker(ID3D12CommandQueue *iface,
