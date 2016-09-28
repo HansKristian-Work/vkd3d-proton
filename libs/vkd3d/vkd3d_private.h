@@ -52,6 +52,7 @@ struct d3d12_resource
 
     union
     {
+        D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
         VkBuffer vk_buffer;
         VkImage vk_image;
     } u;

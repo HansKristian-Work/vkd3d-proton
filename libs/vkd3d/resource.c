@@ -528,9 +528,11 @@ static D3D12_RESOURCE_DESC * STDMETHODCALLTYPE d3d12_resource_GetDesc(ID3D12Reso
 
 static D3D12_GPU_VIRTUAL_ADDRESS STDMETHODCALLTYPE d3d12_resource_GetGPUVirtualAddress(ID3D12Resource *iface)
 {
-    FIXME("iface %p stub!\n", iface);
+    struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
 
-    return 0;
+    TRACE("iface %p.\n", iface);
+
+    return resource->u.gpu_address;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(ID3D12Resource *iface,
