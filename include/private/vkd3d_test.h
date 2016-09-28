@@ -42,7 +42,6 @@ static const char *vkd3d_test_name;
 # define VKD3D_UNUSED
 #endif  /* __GNUC__ */
 
-
 #define ok ok_(__LINE__)
 #define todo todo_(__LINE__)
 #define skip skip_(__LINE__)
@@ -92,6 +91,8 @@ static struct
     unsigned int skip_count;
     unsigned int todo_count;
     unsigned int todo_success_count;
+
+    unsigned int debug;
 } vkd3d_test_state;
 
 static void vkd3d_test_ok(unsigned int line,
@@ -107,7 +108,8 @@ static void vkd3d_test_ok(unsigned int line, int result, const char *fmt, ...)
 {
     if (result)
     {
-        printf("%s:%d: Test succeeded.\n", vkd3d_test_name, line);
+        if (vkd3d_test_state.debug)
+            printf("%s:%d: Test succeeded.\n", vkd3d_test_name, line);
         ++vkd3d_test_state.success_count;
     }
     else
@@ -162,7 +164,12 @@ static void vkd3d_test_trace(unsigned int line, const char *fmt, ...)
 
 int main(int argc, char **argv)
 {
+    const char *vkd3d_test_debug;
+
     memset(&vkd3d_test_state, 0, sizeof(vkd3d_test_state));
+
+    vkd3d_test_state.debug = (vkd3d_test_debug = getenv("VKD3D_TEST_DEBUG"))
+            && (*vkd3d_test_debug == 'y' || *vkd3d_test_debug == '1');
 
     vkd3d_test_main();
 
