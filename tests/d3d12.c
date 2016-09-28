@@ -41,15 +41,19 @@
 typedef int HRESULT;
 #endif
 
-#define INITGUID
 #define COBJMACROS
+#define INITGUID
+#define WIDL_C_INLINE_WRAPPERS
 #include "vkd3d_test.h"
 #include "vkd3d_windows.h"
-
-#define WIDL_C_INLINE_WRAPPERS
 #include "d3d12.h"
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*x))
+
+static size_t align(size_t addr, unsigned int alignment)
+{
+    return (addr + (alignment - 1)) & ~(alignment - 1);
+}
 
 #define get_refcount(a) get_refcount_((IUnknown *)a)
 static ULONG get_refcount_(IUnknown *iface)
@@ -110,6 +114,167 @@ static D3D12_SHADER_BYTECODE shader_bytecode(const DWORD *code, size_t size)
 #else
 # define SHADER_BYTECODE(dxbc, spirv) ((void)dxbc, shader_bytecode(spirv, sizeof(spirv)))
 #endif
+
+static void exec_command_list(ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *list)
+{
+    ID3D12CommandList *lists[] = {(ID3D12CommandList *)list};
+    ID3D12CommandQueue_ExecuteCommandLists(queue, 1, lists);
+}
+
+#define wait_queue_idle(a, b) wait_queue_idle_(__LINE__, a, b)
+#ifdef _WIN32
+static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12CommandQueue *queue)
+{
+    const UINT64 value = 1;
+    ID3D12Fence *fence;
+    unsigned int ret;
+    HANDLE event;
+    HRESULT hr;
+
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence);
+    ok_(line)(SUCCEEDED(hr), "CreateFence failed, hr %#x.\n", hr);
+
+    hr = ID3D12CommandQueue_Signal(queue, fence, value);
+    ok_(line)(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+
+    if (ID3D12Fence_GetCompletedValue(fence) < value)
+    {
+        event = CreateEventA(NULL, FALSE, FALSE, NULL);
+        ok_(line)(!!event, "CreateEvent failed.\n");
+
+        hr = ID3D12Fence_SetEventOnCompletion(fence, value, event);
+        ok_(line)(SUCCEEDED(hr), "SetEventOnCompletion failed, hr %#x.\n", hr);
+        ret = WaitForSingleObject(event, INFINITE);
+        ok_(line)(ret == WAIT_OBJECT_0, "WaitForSingleObject failed, ret %#x.\n", ret);
+
+        CloseHandle(event);
+    }
+
+    ID3D12Fence_Release(fence);
+}
+#else
+static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12CommandQueue *queue)
+{
+    todo_(line)(0, "wait_queue_idle() not implemented.\n");
+}
+#endif
+
+static unsigned int format_size(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_R8G8B8A8_UNORM:
+        case DXGI_FORMAT_B8G8R8A8_UNORM:
+            return 4;
+        default:
+            trace("Unhandled format %#x.\n", format);
+            return 1;
+    }
+}
+
+struct resource_readback
+{
+    unsigned int width;
+    unsigned int height;
+    ID3D12Resource *resource;
+    unsigned int row_pitch;
+    void *data;
+};
+
+static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsigned int sub_resource,
+        struct resource_readback *rb, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
+{
+    D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *resource;
+    unsigned int miplevel;
+    ID3D12Device *device;
+    DXGI_FORMAT format;
+    HRESULT hr;
+
+    hr = ID3D12Resource_GetDevice(texture, &IID_ID3D12Device, (void **)&device);
+    ok(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
+
+    resource_desc = ID3D12Resource_GetDesc(texture);
+    ok(resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER,
+            "Resource %p is not texture.\n", texture);
+    ok(resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D,
+            "Readback not implemented for 3D textures.\n");
+
+    miplevel = sub_resource % resource_desc.MipLevels;
+    rb->width = max(1, resource_desc.Width >> miplevel);
+    rb->height = max(1, resource_desc.Height >> miplevel);
+    rb->row_pitch = align(rb->width * format_size(resource_desc.Format), D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+    rb->data = NULL;
+
+    format = resource_desc.Format;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = rb->row_pitch * rb->height;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_READBACK;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
+    rb->resource = resource;
+
+    dst_location.pResource = resource;
+    dst_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    dst_location.PlacedFootprint.Offset = 0;
+    dst_location.PlacedFootprint.Footprint.Format = format;
+    dst_location.PlacedFootprint.Footprint.Width = rb->width;
+    dst_location.PlacedFootprint.Footprint.Height = rb->height;
+    dst_location.PlacedFootprint.Footprint.Depth = 1;
+    dst_location.PlacedFootprint.Footprint.RowPitch = rb->row_pitch;
+
+    src_location.pResource = texture;
+    src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    src_location.SubresourceIndex = sub_resource;
+
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst_location, 0, 0, 0, &src_location, NULL);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+
+    hr = ID3D12Resource_Map(resource, 0, NULL, &rb->data);
+    ok(SUCCEEDED(hr), "Map failed, hr %#x.\n", hr);
+
+    ID3D12Device_Release(device);
+}
+
+static void *get_readback_data(struct resource_readback *rb, unsigned int x, unsigned int y,
+        size_t element_size)
+{
+    return &((BYTE *)rb->data)[rb->row_pitch * y + x * element_size];
+}
+
+static unsigned int get_readback_uint(struct resource_readback *rb, unsigned int x, unsigned int y)
+{
+    return *(unsigned int *)get_readback_data(rb, x, y, sizeof(unsigned int));
+}
+
+static void release_resource_readback(struct resource_readback *rb)
+{
+    D3D12_RANGE range = {0, 0};
+    ID3D12Resource_Unmap(rb->resource, 0, &range);
+    ID3D12Resource_Release(rb->resource);
+}
 
 static ID3D12Device *create_device(void)
 {
@@ -865,6 +1030,120 @@ static void test_reset_command_allocator(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_clear_render_target_view(void)
+{
+    static const float green[] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
+    ID3D12CommandAllocator *command_allocator;
+    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    unsigned int rtv_increment_size;
+    ID3D12DescriptorHeap *rtv_heap;
+    D3D12_CLEAR_VALUE clear_value;
+    struct resource_readback rb;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    unsigned int x, y;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    command_queue_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
+            &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(SUCCEEDED(hr), "CreateCommandQueue failed, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
+    ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
+
+    rtv_heap_desc.NumDescriptors = 1;
+    rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    rtv_heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &rtv_heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&rtv_heap);
+    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+
+    rtv_increment_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
+            D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+    trace("RTV descriptor handle increment size: %u.\n", rtv_increment_size);
+
+    rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+    resource_desc.Alignment = 0,
+    resource_desc.Width = 32,
+    resource_desc.Height = 32,
+    resource_desc.DepthOrArraySize = 1,
+    resource_desc.MipLevels = 1,
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN,
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+    clear_value.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    clear_value.Color[0] = 1.0f;
+    clear_value.Color[1] = 0.0f;
+    clear_value.Color[2] = 0.0f;
+    clear_value.Color[3] = 1.0f;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
+
+    ID3D12Device_CreateRenderTargetView(device, resource, NULL, rtv_handle);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, green, 0, NULL);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
+    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+
+    get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
+    for (y = 0; y < resource_desc.Height; ++y)
+    {
+        for (x = 0; x < resource_desc.Width; ++x)
+        {
+           unsigned int v = get_readback_uint(&rb, x, y);
+           todo(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
+        }
+    }
+    release_resource_readback(&rb);
+
+    ID3D12GraphicsCommandList_Release(command_list);
+    ID3D12CommandAllocator_Release(command_allocator);
+    ID3D12Resource_Release(resource);
+    ID3D12CommandQueue_Release(queue);
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12)
 {
     ID3D12Debug *debug;
@@ -886,4 +1165,5 @@ START_TEST(d3d12)
     test_create_root_signature();
     test_create_pipeline_state();
     test_reset_command_allocator();
+    test_clear_render_target_view();
 }
