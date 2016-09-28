@@ -154,6 +154,8 @@ struct d3d12_command_queue
 
     D3D12_COMMAND_QUEUE_DESC desc;
 
+    VkQueue vk_queue;
+
     struct d3d12_device *device;
 };
 

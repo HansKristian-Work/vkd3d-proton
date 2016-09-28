@@ -1236,9 +1236,12 @@ static const struct ID3D12CommandQueueVtbl d3d12_command_queue_vtbl =
     d3d12_command_queue_GetDesc,
 };
 
-static void d3d12_command_queue_init(struct d3d12_command_queue *queue,
+static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
         struct d3d12_device *device, const D3D12_COMMAND_QUEUE_DESC *desc)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    unsigned int queue_family_index;
+
     queue->ID3D12CommandQueue_iface.lpVtbl = &d3d12_command_queue_vtbl;
     queue->refcount = 1;
 
@@ -1246,19 +1249,47 @@ static void d3d12_command_queue_init(struct d3d12_command_queue *queue,
     if (!queue->desc.NodeMask)
         queue->desc.NodeMask = 0x1;
 
+    switch (desc->Type)
+    {
+        case D3D12_COMMAND_LIST_TYPE_DIRECT:
+            queue_family_index = device->direct_queue_family_index;
+            break;
+        case D3D12_COMMAND_LIST_TYPE_COPY:
+            queue_family_index = device->copy_queue_family_index;
+            break;
+        default:
+            FIXME("Unhandled command list type %#x.\n", desc->Type);
+            return E_NOTIMPL;
+    }
+
+    if (desc->Priority)
+        FIXME("Ignoring priority %#x.\n", desc->Priority);
+    if (desc->Flags)
+        FIXME("Ignoring flags %#x.\n", desc->Flags);
+
+    /* FIXME: Access to VkQueue must be externally synchronized. */
+    VK_CALL(vkGetDeviceQueue(device->vk_device, queue_family_index, 0, &queue->vk_queue));
+
     queue->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
+
+    return S_OK;
 }
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
         const D3D12_COMMAND_QUEUE_DESC *desc, struct d3d12_command_queue **queue)
 {
     struct d3d12_command_queue *object;
+    HRESULT hr;
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    d3d12_command_queue_init(object, device, desc);
+    if (FAILED(hr = d3d12_command_queue_init(object, device, desc)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
 
     TRACE("Created command queue %p.\n", object);
 
