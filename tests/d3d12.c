@@ -43,9 +43,9 @@ typedef int HRESULT;
 
 #define COBJMACROS
 #define INITGUID
-#define WIDL_C_INLINE_WRAPPERS
 #include "vkd3d_test.h"
 #include "vkd3d_windows.h"
+#define WIDL_C_INLINE_WRAPPERS
 #include "d3d12.h"
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*x))
