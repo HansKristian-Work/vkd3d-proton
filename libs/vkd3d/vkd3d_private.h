@@ -136,6 +136,7 @@ struct d3d12_command_list
     D3D12_COMMAND_LIST_TYPE type;
 
     VkCommandBuffer vk_command_buffer;
+    BOOL is_recording;
 
     struct d3d12_command_allocator *allocator;
     struct d3d12_device *device;

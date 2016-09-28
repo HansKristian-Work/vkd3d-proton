@@ -60,6 +60,8 @@ static HRESULT vkd3d_command_allocator_allocate_command_list(struct d3d12_comman
     if ((vr = VK_CALL(vkBeginCommandBuffer(list->vk_command_buffer, &begin_info))))
         ERR("Failed to begin command buffer, vr %d.\n", vr);
 
+    list->is_recording = TRUE;
+
     allocator->current_command_list = list;
 
     return S_OK;
@@ -415,9 +417,21 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(ID3D12GraphicsCommandL
 
     TRACE("iface %p.\n", iface);
 
+    if (!list->is_recording)
+    {
+        WARN("Command list is not in the recording state.\n");
+        return E_FAIL;
+    }
+
     vk_procs = &list->device->vk_procs;
-    vr = VK_CALL(vkEndCommandBuffer(list->vk_command_buffer));
-    return hresult_from_vk_result(vr);
+    if ((vr = VK_CALL(vkEndCommandBuffer(list->vk_command_buffer))))
+    {
+        WARN("Failed to end command buffer, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    list->is_recording = FALSE;
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(ID3D12GraphicsCommandList *iface,
