@@ -973,6 +973,56 @@ static void test_create_pipeline_state(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_create_fence(void)
+{
+    ID3D12Device *device, *tmp_device;
+    ID3D12Fence *fence;
+    ULONG refcount;
+    UINT64 value;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence);
+    ok(SUCCEEDED(hr), "CreateFence failed, hr %#x.\n", hr);
+
+    refcount = get_refcount(device);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    hr = ID3D12Fence_GetDevice(fence, &IID_ID3D12Device, (void **)&tmp_device);
+    ok(SUCCEEDED(hr), "GetDevice failed, hr %#x.\n", hr);
+    refcount = get_refcount(device);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    refcount = ID3D12Device_Release(tmp_device);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    check_interface(fence, &IID_ID3D12Object, TRUE);
+    check_interface(fence, &IID_ID3D12DeviceChild, TRUE);
+    check_interface(fence, &IID_ID3D12Pageable, TRUE);
+    check_interface(fence, &IID_ID3D12Fence, TRUE);
+
+    value = ID3D12Fence_GetCompletedValue(fence);
+    ok(value == 0, "Got unexpected value %lu.\n", (unsigned long)value);
+
+    refcount = ID3D12Fence_Release(fence);
+    ok(!refcount, "ID3D12Fence has %u references left.\n", (unsigned int)refcount);
+
+    hr = ID3D12Device_CreateFence(device, 99, D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence);
+    ok(SUCCEEDED(hr), "CreateFence failed, hr %#x.\n", hr);
+    value = ID3D12Fence_GetCompletedValue(fence);
+    ok(value == 99, "Got unexpected value %lu.\n", (unsigned long)value);
+    refcount = ID3D12Fence_Release(fence);
+    ok(!refcount, "ID3D12Fence has %u references left.\n", (unsigned int)refcount);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 static void test_reset_command_allocator(void)
 {
     ID3D12CommandAllocator *command_allocator;
@@ -1164,6 +1214,7 @@ START_TEST(d3d12)
     test_create_descriptor_heap();
     test_create_root_signature();
     test_create_pipeline_state();
+    test_create_fence();
     test_reset_command_allocator();
     test_clear_render_target_view();
 }
