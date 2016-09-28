@@ -245,6 +245,10 @@ struct d3d12_command_allocator
     size_t framebuffers_size;
     size_t framebuffer_count;
 
+    VkPipeline *pipelines;
+    size_t pipelines_size;
+    size_t pipeline_count;
+
     struct d3d12_command_list *current_command_list;
     struct d3d12_device *device;
 };
@@ -270,6 +274,9 @@ struct d3d12_command_list
     VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     unsigned int fb_width;
     unsigned int fb_height;
+
+    VkFramebuffer current_framebuffer;
+    VkPipeline current_pipeline;
 
     struct d3d12_pipeline_state *state;
 

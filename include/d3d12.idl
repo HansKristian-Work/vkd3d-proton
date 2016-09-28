@@ -27,6 +27,10 @@ import "dxgibase.h";
 #include "unknown.idl"
 
 const UINT D3D12_APPEND_ALIGNED_ELEMENT = 0xffffffff;
+cpp_quote("#define D3D12_DEFAULT_BLEND_FACTOR_ALPHA (1.0f)")
+cpp_quote("#define D3D12_DEFAULT_BLEND_FACTOR_BLUE (1.0f)")
+cpp_quote("#define D3D12_DEFAULT_BLEND_FACTOR_GREEN (1.0f)")
+cpp_quote("#define D3D12_DEFAULT_BLEND_FACTOR_RED (1.0f)")
 const UINT D3D12_DEFAULT_DEPTH_BIAS = 0;
 cpp_quote("#define D3D12_DEFAULT_DEPTH_BIAS_CLAMP (0.0f)")
 cpp_quote("#define D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS (0.0f)")
