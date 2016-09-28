@@ -761,8 +761,11 @@ static void STDMETHODCALLTYPE d3d12_device_CreateRenderTargetView(ID3D12Device *
         ID3D12Resource *resource, const D3D12_RENDER_TARGET_VIEW_DESC *desc,
         D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    FIXME("iface %p, resource %p, desc %p, descriptor %#lx stub!\n",
+    TRACE("iface %p, resource %p, desc %p, descriptor %#lx.\n",
             iface, resource, desc, descriptor.ptr);
+
+    d3d12_rtv_desc_create_rtv((struct d3d12_rtv_desc *)descriptor.ptr,
+            impl_from_ID3D12Device(iface), unsafe_impl_from_ID3D12Resource(resource), desc);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateDepthStencilView(ID3D12Device *iface,

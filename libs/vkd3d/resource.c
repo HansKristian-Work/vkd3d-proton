@@ -591,6 +591,14 @@ static const struct ID3D12ResourceVtbl d3d12_resource_vtbl =
     d3d12_resource_GetHeapProperties,
 };
 
+struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface)
+{
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_resource_vtbl);
+    return impl_from_ID3D12Resource(iface);
+}
+
 static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
@@ -671,6 +679,70 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
     return S_OK;
 }
 
+/* RTVs */
+static void d3d12_rtv_desc_destroy(struct d3d12_rtv_desc *rtv, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    if (rtv->magic != VKD3D_DESCRIPTOR_MAGIC_RTV)
+        return;
+
+    VK_CALL(vkDestroyImageView(device->vk_device, rtv->vk_view, NULL));
+    memset(rtv, 0, sizeof(*rtv));
+}
+
+void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_device *device,
+        struct d3d12_resource *resource, const D3D12_RENDER_TARGET_VIEW_DESC *desc)
+{
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct VkImageViewCreateInfo view_desc;
+    DXGI_FORMAT format;
+    VkResult vr;
+
+    vk_procs = &device->vk_procs;
+
+    d3d12_rtv_desc_destroy(rtv_desc, device);
+
+    if (!resource)
+    {
+        FIXME("NULL resource RTV not implemented.\n");
+        return;
+    }
+
+    if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    {
+        FIXME("Resource dimension %#x not implemented.\n", resource->desc.Dimension);
+        return;
+    }
+
+    format = desc ? desc->Format : resource->desc.Format;
+    view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_desc.pNext = NULL;
+    view_desc.flags = 0;
+    view_desc.image = resource->u.vk_image;
+    view_desc.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_desc.format = vk_format_from_dxgi_format(format);
+    view_desc.components.r = VK_COMPONENT_SWIZZLE_R;
+    view_desc.components.g = VK_COMPONENT_SWIZZLE_G;
+    view_desc.components.b = VK_COMPONENT_SWIZZLE_B;
+    view_desc.components.a = VK_COMPONENT_SWIZZLE_A;
+    view_desc.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    view_desc.subresourceRange.baseMipLevel = desc ? desc->u.Texture2D.MipSlice : 0;
+    view_desc.subresourceRange.levelCount = 1;
+    view_desc.subresourceRange.baseArrayLayer = desc ? desc->u.Texture2D.PlaneSlice : 0;
+    view_desc.subresourceRange.layerCount = 1;
+    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &rtv_desc->vk_view))) < 0)
+    {
+        WARN("Failed to create Vulkan image view, vr %d.\n", vr);
+        return;
+    }
+
+    rtv_desc->format = view_desc.format;
+    rtv_desc->width = resource->desc.Width;
+    rtv_desc->height = resource->desc.Height;
+    rtv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_RTV;
+}
+
 /* ID3D12DescriptorHeap */
 static inline struct d3d12_descriptor_heap *impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface)
 {
@@ -719,6 +791,17 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
     if (!refcount)
     {
         struct d3d12_device *device = heap->device;
+        unsigned int i;
+
+        if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_RTV)
+        {
+            struct d3d12_rtv_desc *rtvs = (struct d3d12_rtv_desc *)heap->descriptors;
+
+            for (i = 0; i < heap->desc.NumDescriptors; ++i)
+            {
+                d3d12_rtv_desc_destroy(&rtvs[i], device);
+            }
+        }
 
         vkd3d_free(heap);
 

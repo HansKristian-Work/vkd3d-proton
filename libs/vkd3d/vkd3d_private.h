@@ -34,6 +34,7 @@
 #include <assert.h>
 
 #define VKD3D_DESCRIPTOR_MAGIC_FREE 0x00000000u
+#define VKD3D_DESCRIPTOR_MAGIC_RTV  0x00565452u
 
 struct d3d12_command_list;
 struct d3d12_device;
@@ -84,6 +85,7 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource) DECLSPEC_HIDDEN;
+struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface) DECLSPEC_HIDDEN;
 
 struct d3d12_cbv_srv_uav_desc
 {
@@ -98,7 +100,14 @@ struct d3d12_sampler_desc
 struct d3d12_rtv_desc
 {
     uint32_t magic;
+    VkFormat format;
+    uint64_t width;
+    unsigned int height;
+    VkImageView vk_view;
 };
+
+void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_device *device,
+        struct d3d12_resource *resource, const D3D12_RENDER_TARGET_VIEW_DESC *desc) DECLSPEC_HIDDEN;
 
 struct d3d12_dsv_desc
 {
