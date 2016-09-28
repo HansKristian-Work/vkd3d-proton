@@ -37,6 +37,8 @@
 #define VKD3D_DESCRIPTOR_MAGIC_FREE 0x00000000u
 #define VKD3D_DESCRIPTOR_MAGIC_RTV  0x00565452u
 
+#define VKD3D_MAX_SHADER_STAGES     5u
+
 struct d3d12_command_list;
 struct d3d12_device;
 
@@ -178,19 +180,51 @@ struct d3d12_root_signature
 HRESULT d3d12_root_signature_create(struct d3d12_device *device,
         const D3D12_ROOT_SIGNATURE_DESC *desc, struct d3d12_root_signature **root_signature) DECLSPEC_HIDDEN;
 
+struct d3d12_graphics_pipeline_state
+{
+    struct VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
+    size_t stage_count;
+
+    struct VkVertexInputAttributeDescription attributes[D3D12_VS_INPUT_REGISTER_COUNT];
+    size_t attribute_count;
+
+    struct VkAttachmentDescription attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    struct VkAttachmentReference attachment_references[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    struct VkPipelineColorBlendAttachmentState blend_attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    size_t attachment_count;
+    VkRenderPass render_pass;
+
+    struct VkPipelineRasterizationStateCreateInfo rs_desc;
+    struct VkPipelineMultisampleStateCreateInfo ms_desc;
+
+    struct d3d12_root_signature *root_signature;
+};
+
+struct d3d12_compute_pipeline_state
+{
+    VkPipeline vk_pipeline;
+};
+
 /* ID3D12PipelineState */
 struct d3d12_pipeline_state
 {
     ID3D12PipelineState ID3D12PipelineState_iface;
     LONG refcount;
 
-    VkPipeline vk_pipeline;
+    union
+    {
+        struct d3d12_graphics_pipeline_state graphics;
+        struct d3d12_compute_pipeline_state compute;
+    } u;
+    VkPipelineBindPoint vk_bind_point;
 
     struct d3d12_device *device;
 };
 
 HRESULT d3d12_pipeline_state_create_compute(struct d3d12_device *device,
         const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
+HRESULT d3d12_pipeline_state_create_graphics(struct d3d12_device *device,
+        const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
 struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface) DECLSPEC_HIDDEN;
 
 /* ID3D12CommandAllocator */

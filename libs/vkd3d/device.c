@@ -580,10 +580,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandAllocator(ID3D12Devic
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateGraphicsPipelineState(ID3D12Device *iface,
         const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid, void **pipeline_state)
 {
-    FIXME("iface %p, desc %p, riid %s, pipeline_state %p stub!\n",
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_pipeline_state *object;
+    HRESULT hr;
+
+    TRACE("iface %p, desc %p, riid %s, pipeline_state %p.\n",
             iface, desc, debugstr_guid(riid), pipeline_state);
 
-    return E_NOTIMPL;
+    if (FAILED(hr = d3d12_pipeline_state_create_graphics(device, desc, &object)))
+        return hr;
+
+    return return_interface((IUnknown *)&object->ID3D12PipelineState_iface,
+            &IID_ID3D12PipelineState, riid, pipeline_state);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateComputePipelineState(ID3D12Device *iface,
