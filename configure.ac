@@ -6,6 +6,8 @@ AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_LIBOBJ_DIR([portable])
 AC_CONFIG_HEADERS(include/config.h)
 
+AC_ARG_VAR(WIDL, [widl IDL compiler])
+
 dnl Check for progs
 AM_PROG_AR
 AC_PROG_CC
