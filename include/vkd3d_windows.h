@@ -179,6 +179,7 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 #endif  /* _WIN32 */
 
 
+/* Nameless unions */
 #ifndef __C89_NAMELESS
 # ifdef NONAMELESSUNION
 #  define __C89_NAMELESS
@@ -188,5 +189,14 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 #  define __C89_NAMELESSUNIONNAME
 # endif /* NONAMELESSUNION */
 #endif  /* __C89_NAMELESS */
+
+/* Define min() & max() macros */
+#ifndef min
+# define min(a, b) (((a) <= (b)) ? (a) : (b))
+#endif
+
+#ifndef max
+# define max(a, b) (((a) >= (b)) ? (a) : (b))
+#endif
 
 #endif  /* __VKD3D_WINDOWS_H */
