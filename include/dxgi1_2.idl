@@ -1,5 +1,6 @@
 /*
  * Copyright 2016 Józef Kucia for CodeWeavers
+ * Copyright 2016 Henri Verbeet for CodeWeavers
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -20,40 +21,29 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-cpp_quote("#ifndef __VKD3D_UNKNOWN_H")
-cpp_quote("#define __VKD3D_UNKNOWN_H")
+import "dxgi.idl";
 
-/* For IDL only. */
-cpp_quote("#if 0")
-typedef IID *REFIID;
-typedef IID *REFGUID;
-cpp_quote("#endif")
+typedef struct DXGI_SWAP_CHAIN_DESC1 DXGI_SWAP_CHAIN_DESC1;
+typedef struct DXGI_SWAP_CHAIN_FULLSCREEN_DESC DXGI_SWAP_CHAIN_FULLSCREEN_DESC;
+typedef struct DXGI_PRESENT_PARAMETERS DXGI_PRESENT_PARAMETERS;
 
-cpp_quote("#if !defined(_WIN32)")
-typedef void *HWND;
-typedef void *HMODULE;
-
-typedef struct LUID
+[
+    local,
+    object,
+    uuid(790a45f7-0d42-4876-983a-0a55cfe6f4aa),
+    pointer_default(unique)
+]
+interface IDXGISwapChain1 : IDXGISwapChain
 {
-    DWORD LowPart;
-    LONG HighPart;
-} LUID;
-
-typedef struct _RECT
-{
-    LONG left;
-    LONG top;
-    LONG right;
-    LONG bottom;
-} RECT;
-cpp_quote("#endif")
-
-[uuid(00000000-0000-0000-C000-000000000046), object, local, pointer_default(unique)]
-interface IUnknown
-{
-    HRESULT QueryInterface(REFIID riid, void **object);
-    ULONG AddRef();
-    ULONG Release();
+    HRESULT GetDesc1(DXGI_SWAP_CHAIN_DESC1 *desc);
+    HRESULT GetFullscreenDesc(DXGI_SWAP_CHAIN_FULLSCREEN_DESC *desc);
+    HRESULT GetHwnd(HWND *hwnd);
+    HRESULT GetCoreWindow(REFIID riid, void **object);
+    HRESULT Present1(UINT sync_interval, UINT flags, const DXGI_PRESENT_PARAMETERS *parameters);
+    BOOL IsTemporaryMonoSupported();
+    HRESULT GetRestrictToOutput(IDXGIOutput **output);
+    HRESULT SetBackgroundColor(const DXGI_RGBA *color);
+    HRESULT GetBackgroundColor(DXGI_RGBA *color);
+    HRESULT SetRotation(DXGI_MODE_ROTATION rotation);
+    HRESULT GetRotation(DXGI_MODE_ROTATION *rotation);
 };
-
-cpp_quote("#endif   /* __VKD3D_UNKNOWN_H */")

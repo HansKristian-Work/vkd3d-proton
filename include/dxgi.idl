@@ -1,0 +1,84 @@
+/*
+ * Copyright 2016 Józef Kucia for CodeWeavers
+ * Copyright 2016 Henri Verbeet for CodeWeavers
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ * DEALINGS IN THE SOFTWARE.
+ */
+
+import "dxgitype.idl";
+
+#include "unknown.idl"
+
+typedef enum DXGI_MODE_ROTATION
+{
+    DXGI_MODE_ROTATION_UNSPECIFIED = 0x0,
+    DXGI_MODE_ROTATION_IDENTITY    = 0x1,
+    DXGI_MODE_ROTATION_ROTATE90    = 0x2,
+    DXGI_MODE_ROTATION_ROTATE180   = 0x3,
+    DXGI_MODE_ROTATION_ROTATE270   = 0x4,
+} DXGI_MODE_ROTATION;
+
+interface IDXGIOutput;
+typedef struct DXGI_SWAP_CHAIN_DESC DXGI_SWAP_CHAIN_DESC;
+typedef struct DXGI_FRAME_STATISTICS DXGI_FRAME_STATISTICS;
+
+[
+    local,
+    object,
+    uuid(aec22fb8-76f3-4639-9be0-28eb43a67a2e),
+    pointer_default(unique)
+]
+interface IDXGIObject : IUnknown
+{
+    HRESULT SetPrivateData(REFGUID name, UINT data_size, const void *data);
+    HRESULT GetPrivateDataInterface(REFGUID name, const IUnknown *unknown);
+    HRESULT GetPrivateData(REFGUID name, UINT *data_size, void *data);
+    HRESULT GetParent(REFIID riid, void **parent);
+};
+
+[
+    local,
+    object,
+    uuid(3d3e0379-f9de-4d58-bb6c-18d62992f1a6),
+    pointer_default(unique)
+]
+interface IDXGIDeviceSubObject : IDXGIObject
+{
+    HRESULT GetDevice(REFIID riid, void **device);
+};
+
+[
+    local,
+    object,
+    uuid(310d36a0-d2e7-4c0a-aa04-6a9d23b8886a),
+    pointer_default(unique)
+]
+interface IDXGISwapChain : IDXGIDeviceSubObject
+{
+    HRESULT Present(UINT sync_interval, UINT flags);
+    HRESULT GetBuffer(UINT buffer_idx, REFIID riid, void **surface);
+    HRESULT SetFullscreenState(BOOL fullscreen, IDXGIOutput *target);
+    HRESULT GetFullscreenState(BOOL *fullscreen, IDXGIOutput **target);
+    HRESULT GetDesc(DXGI_SWAP_CHAIN_DESC *desc);
+    HRESULT ResizeBuffers(const DXGI_MODE_DESC *desc);
+    HRESULT ResizeTarget(const DXGI_MODE_DESC *desc);
+    HRESULT GetContainingOutput(IDXGIOutput **output);
+    HRESULT GetFrameStatistics(DXGI_FRAME_STATISTICS *stats);
+    HRESULT GetLastPresentCount(UINT *last_present_count);
+};

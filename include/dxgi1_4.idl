@@ -1,5 +1,6 @@
 /*
  * Copyright 2016 Józef Kucia for CodeWeavers
+ * Copyright 2016 Henri Verbeet for CodeWeavers
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -20,40 +21,19 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-cpp_quote("#ifndef __VKD3D_UNKNOWN_H")
-cpp_quote("#define __VKD3D_UNKNOWN_H")
+import "dxgi1_3.idl";
 
-/* For IDL only. */
-cpp_quote("#if 0")
-typedef IID *REFIID;
-typedef IID *REFGUID;
-cpp_quote("#endif")
-
-cpp_quote("#if !defined(_WIN32)")
-typedef void *HWND;
-typedef void *HMODULE;
-
-typedef struct LUID
+[
+    local,
+    object,
+    uuid(94d99bdb-f1f8-4ab0-b236-7da0170edab1),
+    pointer_default(unique)
+]
+interface IDXGISwapChain3 : IDXGISwapChain2
 {
-    DWORD LowPart;
-    LONG HighPart;
-} LUID;
-
-typedef struct _RECT
-{
-    LONG left;
-    LONG top;
-    LONG right;
-    LONG bottom;
-} RECT;
-cpp_quote("#endif")
-
-[uuid(00000000-0000-0000-C000-000000000046), object, local, pointer_default(unique)]
-interface IUnknown
-{
-    HRESULT QueryInterface(REFIID riid, void **object);
-    ULONG AddRef();
-    ULONG Release();
+    UINT GetCurrentBackBufferIndex();
+    HRESULT CheckColorSpaceSupport(DXGI_COLOR_SPACE_TYPE type, UINT *support);
+    HRESULT SetColorSpace1(DXGI_COLOR_SPACE_TYPE type);
+    HRESULT ResizeBuffers1(UINT buffer_count, UINT width, UINT height, DXGI_FORMAT format,
+            UINT flags, const UINT *node_mask, IUnknown *const *present_queue);
 };
-
-cpp_quote("#endif   /* __VKD3D_UNKNOWN_H */")

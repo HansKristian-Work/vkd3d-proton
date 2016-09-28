@@ -3,7 +3,12 @@ AM_CFLAGS = @VKD3D_CFLAGS@
 AM_CPPFLAGS = -I$(srcdir)/include -I$(srcdir)/include/dummy -I$(srcdir)/include/private
 
 widl_headers = \
-	include/d3d12.h
+	include/d3d12.h \
+	include/dxgi.h \
+	include/dxgi1_2.h \
+	include/dxgi1_3.h \
+	include/dxgi1_4.h \
+	include/dxgitype.h
 
 vkd3d_public_headers = \
 	include/d3d12.h \
@@ -66,6 +71,7 @@ vkd3d_v_widl_ = $(vkd3d_v_widl_@AM_DEFAULT_V@)
 vkd3d_v_widl_0 = @echo "  WIDL    " $@;
 vkd3d_v_widl_1 =
 
+EXTRA_DIST += $(widl_headers) $(widl_headers:.h=.idl)
 $(widl_headers): %.h: %.idl
 	$(VKD3D_V_WIDL)$(WIDL) -o $@ $<
 

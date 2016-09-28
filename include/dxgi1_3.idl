@@ -1,5 +1,6 @@
 /*
  * Copyright 2016 Józef Kucia for CodeWeavers
+ * Copyright 2016 Henri Verbeet for CodeWeavers
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -20,40 +21,23 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-cpp_quote("#ifndef __VKD3D_UNKNOWN_H")
-cpp_quote("#define __VKD3D_UNKNOWN_H")
+import "dxgi1_2.idl";
 
-/* For IDL only. */
-cpp_quote("#if 0")
-typedef IID *REFIID;
-typedef IID *REFGUID;
-cpp_quote("#endif")
+typedef struct DXGI_MATRIX_3X2_F DXGI_MATRIX_3X2_F;
 
-cpp_quote("#if !defined(_WIN32)")
-typedef void *HWND;
-typedef void *HMODULE;
-
-typedef struct LUID
+[
+    local,
+    object,
+    uuid(a8be2ac4-199f-4946-b331-79599fb98de7),
+    pointer_default(unique)
+]
+interface IDXGISwapChain2 : IDXGISwapChain1
 {
-    DWORD LowPart;
-    LONG HighPart;
-} LUID;
-
-typedef struct _RECT
-{
-    LONG left;
-    LONG top;
-    LONG right;
-    LONG bottom;
-} RECT;
-cpp_quote("#endif")
-
-[uuid(00000000-0000-0000-C000-000000000046), object, local, pointer_default(unique)]
-interface IUnknown
-{
-    HRESULT QueryInterface(REFIID riid, void **object);
-    ULONG AddRef();
-    ULONG Release();
+    HRESULT SetSourceSize(UINT width, UINT height);
+    HRESULT GetSourceSize(UINT *width, UINT *height);
+    HRESULT SetMaximumFrameLatency(UINT latency);
+    HRESULT GetMaximumFrameLatency(UINT *latency);
+    HANDLE  GetFrameLatencyWaitableObject();
+    HRESULT SetMatrixTransform(const DXGI_MATRIX_3X2_F *matrix);
+    HRESULT GetMatrixTransform(DXGI_MATRIX_3X2_F *matrix);
 };
-
-cpp_quote("#endif   /* __VKD3D_UNKNOWN_H */")

@@ -1,5 +1,6 @@
 /*
  * Copyright 2016 Józef Kucia for CodeWeavers
+ * Copyright 2016 Henri Verbeet for CodeWeavers
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -20,40 +21,25 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-cpp_quote("#ifndef __VKD3D_UNKNOWN_H")
-cpp_quote("#define __VKD3D_UNKNOWN_H")
+import "vkd3d_windows.h";
+import "dxgibase.h";
 
-/* For IDL only. */
-cpp_quote("#if 0")
-typedef IID *REFIID;
-typedef IID *REFGUID;
-cpp_quote("#endif")
-
-cpp_quote("#if !defined(_WIN32)")
-typedef void *HWND;
-typedef void *HMODULE;
-
-typedef struct LUID
+typedef enum DXGI_COLOR_SPACE_TYPE
 {
-    DWORD LowPart;
-    LONG HighPart;
-} LUID;
+    DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709        = 0x0,
+    DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709        = 0x1,
+    DXGI_COLOR_SPACE_RGB_STUDIO_G22_NONE_P709      = 0x2,
+    DXGI_COLOR_SPACE_RGB_STUDIO_G22_NONE_P2020     = 0x3,
+    DXGI_COLOR_SPACE_RESERVED                      = 0x4,
+    DXGI_COLOR_SPACE_YCBCR_FULL_G22_NONE_P709_X601 = 0x5,
+    DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P601    = 0x6,
+    DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P601      = 0x7,
+    DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709    = 0x8,
+    DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P709      = 0x9,
+    DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P2020   = 0xa,
+    DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P2020     = 0xb,
+    DXGI_COLOR_SPACE_CUSTOM                        = 0xffffffff,
+} DXGI_COLOR_SPACE_TYPE;
 
-typedef struct _RECT
-{
-    LONG left;
-    LONG top;
-    LONG right;
-    LONG bottom;
-} RECT;
-cpp_quote("#endif")
-
-[uuid(00000000-0000-0000-C000-000000000046), object, local, pointer_default(unique)]
-interface IUnknown
-{
-    HRESULT QueryInterface(REFIID riid, void **object);
-    ULONG AddRef();
-    ULONG Release();
-};
-
-cpp_quote("#endif   /* __VKD3D_UNKNOWN_H */")
+typedef struct _D3DCOLORVALUE D3DCOLORVALUE, DXGI_RGBA;
+typedef struct DXGI_MODE_DESC DXGI_MODE_DESC;
