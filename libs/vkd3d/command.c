@@ -22,14 +22,52 @@
 
 #include "vkd3d_private.h"
 
+static HRESULT vkd3d_begin_command_buffer(struct d3d12_command_list *list)
+{
+    struct d3d12_device *device = list->device;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkCommandBufferBeginInfo begin_info;
+    VkResult vr;
+
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.pNext = NULL;
+    begin_info.flags = 0;
+    begin_info.pInheritanceInfo = NULL;
+
+    if ((vr = VK_CALL(vkBeginCommandBuffer(list->vk_command_buffer, &begin_info))))
+    {
+        WARN("Failed to begin command buffer, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    list->is_recording = TRUE;
+    return S_OK;
+}
+
+static HRESULT vkd3d_reset_command_buffer(struct d3d12_command_list *list)
+{
+    struct d3d12_device *device = list->device;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkResult vr;
+
+    if ((vr = VK_CALL(vkResetCommandBuffer(list->vk_command_buffer,
+            VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT))))
+    {
+        WARN("Failed to reset command buffer, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    return vkd3d_begin_command_buffer(list);
+}
+
 static HRESULT vkd3d_command_allocator_allocate_command_list(struct d3d12_command_allocator *allocator,
         struct d3d12_command_list *list)
 {
     struct d3d12_device *device = allocator->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkCommandBufferAllocateInfo command_buffer_info;
-    VkCommandBufferBeginInfo begin_info;
     VkResult vr;
+    HRESULT hr;
 
     TRACE("allocator %p, list %p.\n", allocator, list);
 
@@ -52,15 +90,12 @@ static HRESULT vkd3d_command_allocator_allocate_command_list(struct d3d12_comman
         return hresult_from_vk_result(vr);
     }
 
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.pNext = NULL;
-    begin_info.flags = 0;
-    begin_info.pInheritanceInfo = NULL;
-
-    if ((vr = VK_CALL(vkBeginCommandBuffer(list->vk_command_buffer, &begin_info))))
-        ERR("Failed to begin command buffer, vr %d.\n", vr);
-
-    list->is_recording = TRUE;
+    if (FAILED(hr = vkd3d_begin_command_buffer(list)))
+    {
+        VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
+                1, &list->vk_command_buffer));
+        return hr;
+    }
 
     allocator->current_command_list = list;
 
@@ -464,10 +499,39 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(ID3D12GraphicsCommandL
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(ID3D12GraphicsCommandList *iface,
         ID3D12CommandAllocator *allocator, ID3D12PipelineState *initial_state)
 {
-    FIXME("iface %p, allocator %p, initial_state %p stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_command_allocator *allocator_impl = unsafe_impl_from_ID3D12CommandAllocator(allocator);
+    HRESULT hr;
+
+    TRACE("iface %p, allocator %p, initial_state %p.\n",
             iface, allocator, initial_state);
 
-    return E_NOTIMPL;
+    if (!allocator_impl)
+    {
+        WARN("Command allocator is NULL.\n");
+        return E_INVALIDARG;
+    }
+
+    if (list->is_recording)
+    {
+        WARN("Command list is in the recording state.\n");
+        return E_FAIL;
+    }
+
+    if (list->allocator == allocator_impl)
+        return vkd3d_reset_command_buffer(list);
+
+    if (list->allocator)
+        vkd3d_command_allocator_free_command_list(list->allocator, list);
+
+    list->allocator = allocator_impl;
+    if (FAILED(hr = vkd3d_command_allocator_allocate_command_list(allocator_impl, list)))
+        return hr;
+
+    if (initial_state)
+        FIXME("Ignoring initial pipeline state %p.\n", initial_state);
+
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_ClearState(ID3D12GraphicsCommandList *iface,
@@ -892,6 +956,7 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     list->refcount = 1;
 
     list->type = type;
+    list->device = device;
 
     list->allocator = allocator;
     if (FAILED(hr = vkd3d_command_allocator_allocate_command_list(allocator, list)))
@@ -900,7 +965,6 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     if (initial_pipeline_state)
         FIXME("Ignoring initial pipeline state %p.\n", initial_pipeline_state);
 
-    list->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
 
     return S_OK;

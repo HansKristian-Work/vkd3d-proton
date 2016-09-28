@@ -849,15 +849,15 @@ static void test_reset_command_allocator(void)
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
-    todo(SUCCEEDED(hr), "Resetting Command list failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Resetting Command list failed, hr %#x.\n", hr);
 
     hr = ID3D12CommandAllocator_Reset(command_allocator);
-    todo(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    todo(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
     hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
-    todo(SUCCEEDED(hr), "Resetting command list failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Resetting command list failed, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_Release(command_list);
     ID3D12CommandAllocator_Release(command_allocator);
