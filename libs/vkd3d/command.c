@@ -196,9 +196,36 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_GetDevice(ID3D12Command
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllocator *iface)
 {
-    FIXME("iface %p stub!\n", iface);
+    struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct d3d12_command_list *list;
+    struct d3d12_device *device;
+    VkResult vr;
 
-    return E_NOTIMPL;
+    TRACE("iface %p.\n", iface);
+
+    if ((list = allocator->current_command_list))
+    {
+        if (list->is_recording)
+        {
+            WARN("A command list using this allocator is in the recording state.\n");
+            return E_FAIL;
+        }
+
+        TRACE("Resetting command list %p.\n", list);
+    }
+
+    device = allocator->device;
+    vk_procs = &device->vk_procs;
+
+    if ((vr = VK_CALL(vkResetCommandPool(device->vk_device, allocator->vk_command_pool,
+            VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT))))
+    {
+        WARN("Resetting command pool failed, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
 }
 
 static const struct ID3D12CommandAllocatorVtbl d3d12_command_allocator_vtbl =

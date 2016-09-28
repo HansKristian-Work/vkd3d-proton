@@ -827,26 +827,26 @@ static void test_reset_command_allocator(void)
     ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
 
     hr = ID3D12CommandAllocator_Reset(command_allocator);
-    todo(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
     hr = ID3D12CommandAllocator_Reset(command_allocator);
-    todo(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
     ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
 
     hr = ID3D12CommandAllocator_Reset(command_allocator);
-    todo(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
     hr = ID3D12CommandAllocator_Reset(command_allocator);
-    todo(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
 
     hr = ID3D12CommandAllocator_Reset(command_allocator);
-    todo(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
     hr = ID3D12CommandAllocator_Reset(command_allocator);
-    todo(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
     todo(SUCCEEDED(hr), "Resetting Command list failed, hr %#x.\n", hr);
