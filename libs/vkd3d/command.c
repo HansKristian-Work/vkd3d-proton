@@ -796,8 +796,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(ID3D12Gr
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(ID3D12GraphicsCommandList *iface,
         UINT viewport_count, const D3D12_VIEWPORT *viewports)
 {
-    FIXME("iface %p, viewport_count %u, viewports %p stub!\n",
-            iface, viewport_count, viewports);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+
+    TRACE("iface %p, viewport_count %u, viewports %p.\n", iface, viewport_count, viewports);
+
+    vk_procs = &list->device->vk_procs;
+    VK_CALL(vkCmdSetViewport(list->vk_command_buffer, 0,
+            viewport_count, (const struct VkViewport *)viewports));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(ID3D12GraphicsCommandList *iface,
