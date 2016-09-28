@@ -47,7 +47,7 @@ static enum vkd3d_dbg_level vkd3d_dbg_get_level(void)
     if (level != ~0u)
         return level;
 
-    if (!(vkd3d_debug = getenv("VKD3DDEBUG")))
+    if (!(vkd3d_debug = getenv("VKD3D_DEBUG")))
         vkd3d_debug = "";
 
     for (i = 0; i < sizeof(debug_level_names) / sizeof(*debug_level_names); ++i)
