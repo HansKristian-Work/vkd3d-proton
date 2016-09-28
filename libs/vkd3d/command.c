@@ -1422,7 +1422,30 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(ID3D12Graphics
 static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12GraphicsCommandList *iface,
         UINT start_slot, UINT view_count, const D3D12_VERTEX_BUFFER_VIEW *views)
 {
-    FIXME("iface %p, start_slot %u, view_count %u, views %p stub!\n", iface, start_slot, view_count, views);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    VkDeviceSize offsets[ARRAY_SIZE(list->strides)];
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkBuffer buffers[ARRAY_SIZE(list->strides)];
+    unsigned int i;
+
+    TRACE("iface %p, start_slot %u, view_count %u, views %p.\n", iface, start_slot, view_count, views);
+
+    vk_procs = &list->device->vk_procs;
+
+    if (start_slot >= ARRAY_SIZE(list->strides) || view_count > ARRAY_SIZE(list->strides) - start_slot)
+    {
+        WARN("Invalid start slot %u / view count %u.\n", start_slot, view_count);
+        return;
+    }
+
+    for (i = 0; i < view_count; ++i)
+    {
+        offsets[i] = 0;
+        buffers[i] = (VkBuffer)views[i].BufferLocation;
+        list->strides[start_slot + i] = views[i].StrideInBytes;
+    }
+
+    VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer, start_slot, view_count, buffers, offsets));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(ID3D12GraphicsCommandList *iface,
@@ -1739,6 +1762,7 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
         return hr;
     }
 
+    memset(list->strides, 0, sizeof(list->strides));
     list->ia_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     list->ia_desc.pNext = NULL;
     list->ia_desc.flags = 0;

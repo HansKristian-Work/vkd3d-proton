@@ -229,6 +229,7 @@ struct d3d12_command_list
     VkCommandBuffer vk_command_buffer;
     BOOL is_recording;
 
+    uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     struct VkPipelineInputAssemblyStateCreateInfo ia_desc;
 
     struct d3d12_command_allocator *allocator;
