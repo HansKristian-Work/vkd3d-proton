@@ -139,7 +139,6 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 
 # ifdef __GNUC__
 #  define DECLSPEC_SELECTANY __attribute__((weak))
-#  define DECLSPEC_HIDDEN __attribute__((visibility("hidden")))
 # endif
 
 /* Macros for COM interfaces */
@@ -189,6 +188,17 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 #  define __C89_NAMELESSUNIONNAME
 # endif /* NONAMELESSUNION */
 #endif  /* __C89_NAMELESS */
+
+/* Define DECLSPEC_HIDDEN */
+#ifndef DECLSPEC_HIDDEN
+# if defined(__MINGW32__)
+#  define DECLSPEC_HIDDEN
+# elif defined(__GNUC__)
+#  define DECLSPEC_HIDDEN __attribute__((visibility("hidden")))
+# else
+#  define DECLSPEC_HIDDEN
+# endif
+#endif  /* DECLSPEC_HIDDEN */
 
 /* Define min() & max() macros */
 #ifndef min

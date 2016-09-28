@@ -28,22 +28,24 @@
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
 
-#if HAVE_SYNC_ADD_AND_FETCH
+#ifndef _WIN32
+# if HAVE_SYNC_ADD_AND_FETCH
 static inline ULONG InterlockedIncrement(ULONG volatile *x)
 {
     return __sync_add_and_fetch(x, 1);
 }
-#else
-# error "InterlockedIncrement not implemented for this platform"
-#endif  /* HAVE_SYNC_ADD_AND_FETCH */
+# else
+#  error "InterlockedIncrement not implemented for this platform"
+# endif  /* HAVE_SYNC_ADD_AND_FETCH */
 
-#if HAVE_SYNC_SUB_AND_FETCH
+# if HAVE_SYNC_SUB_AND_FETCH
 static inline ULONG InterlockedDecrement(ULONG volatile *x)
 {
     return __sync_sub_and_fetch(x, 1);
 }
-#else
-# error "InterlockedDecrement not implemented for this platform"
-#endif
+# else
+#  error "InterlockedDecrement not implemented for this platform"
+# endif
+#endif  /* _WIN32 */
 
 #endif  /* __VKD3D_COMMON_H */
