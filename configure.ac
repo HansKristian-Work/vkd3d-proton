@@ -41,25 +41,9 @@ AC_CHECK_HEADERS([vulkan/vulkan.h], [], [AC_MSG_ERROR([vulkan.h not found.])])
 dnl Check for libraries
 AC_CHECK_LIB([vulkan], [vkGetInstanceProcAddr], [], [AC_MSG_ERROR([libvulkan not found.])])
 
-dnl Check for __sync_add_and_fetch
-AC_MSG_CHECKING([for __sync_add_and_fetch])
-AC_LINK_IFELSE(
-    [AC_LANG_SOURCE([
-        int main(void) { return __sync_add_and_fetch((int *)0, 0); }
-    ])],
-    [AC_MSG_RESULT([yes])
-    AC_DEFINE([HAVE_SYNC_ADD_AND_FETCH], [1], [Define to 1 if you have __sync_add_and_fetch.])],
-    [AC_MSG_RESULT([no])])
-
-dnl Check for __sync_sub_and_fetch
-AC_MSG_CHECKING([for __sync_sub_and_fetch])
-AC_LINK_IFELSE(
-    [AC_LANG_SOURCE([
-        int main(void) { return __sync_sub_and_fetch((int *)0, 0); }
-    ])],
-    [AC_MSG_RESULT([yes])
-    AC_DEFINE([HAVE_SYNC_SUB_AND_FETCH], [1], [Define to 1 if you have __sync_sub_and_fetch.])],
-    [AC_MSG_RESULT([no])])
+dnl Check for functions
+VKD3D_CHECK_SYNC_ADD_AND_FETCH_FUNC
+VKD3D_CHECK_SYNC_SUB_AND_FETCH_FUNC
 
 dnl Check for cross compilers
 VKD3D_CHECK_MINGW32_PROG(CROSSCC32, CROSSTARGET32, false)
