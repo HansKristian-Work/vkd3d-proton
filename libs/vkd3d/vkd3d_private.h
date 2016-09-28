@@ -202,6 +202,7 @@ struct d3d12_command_list
     ULONG refcount;
 
     D3D12_COMMAND_LIST_TYPE type;
+    ID3D12PipelineState *pipeline_state;
 
     VkCommandBuffer vk_command_buffer;
     BOOL is_recording;

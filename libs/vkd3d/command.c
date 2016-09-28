@@ -331,6 +331,10 @@ static HRESULT vkd3d_begin_command_buffer(struct d3d12_command_list *list)
     }
 
     list->is_recording = TRUE;
+
+    if (list->pipeline_state)
+        ID3D12GraphicsCommandList_SetPipelineState(&list->ID3D12GraphicsCommandList_iface, list->pipeline_state);
+
     return S_OK;
 }
 
@@ -851,11 +855,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(ID3D12GraphicsCommandL
         vkd3d_command_allocator_free_command_list(list->allocator, list);
 
     list->allocator = allocator_impl;
+    list->pipeline_state = initial_state;
     if (FAILED(hr = vkd3d_command_allocator_allocate_command_list(allocator_impl, list)))
         return hr;
-
-    if (initial_state)
-        FIXME("Ignoring initial pipeline state %p.\n", initial_state);
 
     return S_OK;
 }
@@ -1455,6 +1457,8 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
 
     list->allocator = allocator;
+    list->pipeline_state = initial_pipeline_state;
+
     if (FAILED(hr = vkd3d_command_allocator_allocate_command_list(allocator, list)))
         return hr;
 
@@ -1465,9 +1469,6 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     list->framebuffers = NULL;
     list->framebuffers_size = 0;
     list->framebuffer_count = 0;
-
-    if (initial_pipeline_state)
-        FIXME("Ignoring initial pipeline state %p.\n", initial_pipeline_state);
 
     return S_OK;
 }
