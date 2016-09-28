@@ -1,5 +1,6 @@
 /*
  * Copyright 2016 Józef Kucia for CodeWeavers
+ * Copyright 2016 Henri Verbeet for CodeWeavers
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -978,8 +979,113 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(ID3D12Gra
 static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12GraphicsCommandList *iface,
         D3D12_CPU_DESCRIPTOR_HANDLE rtv, const FLOAT color[4], UINT rect_count, const D3D12_RECT *rects)
 {
-    FIXME("iface %p, rtv %#lx, color %p, rect_count %u, rects %p stub!\n",
+    const union VkClearValue clear_value = {{{color[0], color[1], color[2], color[3]}}};
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_rtv_desc *rtv_desc = (struct d3d12_rtv_desc *)rtv.ptr;
+    struct VkAttachmentDescription attachment_desc;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct VkAttachmentReference color_reference;
+    struct VkSubpassDescription sub_pass_desc;
+    struct VkRenderPassCreateInfo pass_desc;
+    struct VkRenderPassBeginInfo begin_desc;
+    struct VkFramebufferCreateInfo fb_desc;
+    VkFramebuffer vk_framebuffer;
+    VkRenderPass vk_render_pass;
+    D3D12_RECT full_rect;
+    unsigned int i;
+    VkResult vr;
+
+    TRACE("iface %p, rtv %#lx, color %p, rect_count %u, rects %p.\n",
             iface, rtv.ptr, color, rect_count, rects);
+
+    vk_procs = &list->device->vk_procs;
+
+    if (!rect_count)
+    {
+        full_rect.top = 0;
+        full_rect.left = 0;
+        full_rect.bottom = rtv_desc->height;
+        full_rect.right = rtv_desc->width;
+
+        rect_count = 1;
+        rects = &full_rect;
+    }
+
+    attachment_desc.flags = 0;
+    attachment_desc.format = rtv_desc->format;
+    attachment_desc.samples = VK_SAMPLE_COUNT_1_BIT;
+    attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachment_desc.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    attachment_desc.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    color_reference.attachment = 0;
+    color_reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    sub_pass_desc.flags = 0;
+    sub_pass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    sub_pass_desc.inputAttachmentCount = 0;
+    sub_pass_desc.pInputAttachments = NULL;
+    sub_pass_desc.colorAttachmentCount = 1;
+    sub_pass_desc.pColorAttachments = &color_reference;
+    sub_pass_desc.pResolveAttachments = NULL;
+    sub_pass_desc.pDepthStencilAttachment = NULL;
+    sub_pass_desc.preserveAttachmentCount = 0;
+    sub_pass_desc.pPreserveAttachments = NULL;
+
+    pass_desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    pass_desc.pNext = NULL;
+    pass_desc.flags = 0;
+    pass_desc.attachmentCount = 1;
+    pass_desc.pAttachments = &attachment_desc;
+    pass_desc.subpassCount = 1;
+    pass_desc.pSubpasses = &sub_pass_desc;
+    pass_desc.dependencyCount = 0;
+    pass_desc.pDependencies = NULL;
+    if ((vr = VK_CALL(vkCreateRenderPass(list->device->vk_device, &pass_desc, NULL, &vk_render_pass))) < 0)
+    {
+        WARN("Failed to create Vulkan render pass, vr %d.\n", vr);
+        return;
+    }
+
+    fb_desc.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fb_desc.pNext = NULL;
+    fb_desc.flags = 0;
+    fb_desc.renderPass = vk_render_pass;
+    fb_desc.attachmentCount = 1;
+    fb_desc.pAttachments = &rtv_desc->vk_view;
+    fb_desc.width = rtv_desc->width;
+    fb_desc.height = rtv_desc->height;
+    fb_desc.layers = 1;
+    if ((vr = VK_CALL(vkCreateFramebuffer(list->device->vk_device, &fb_desc, NULL, &vk_framebuffer))) < 0)
+    {
+        WARN("Failed to create Vulkan framebuffer, vr %d.\n", vr);
+        VK_CALL(vkDestroyRenderPass(list->device->vk_device, vk_render_pass, NULL));
+        return;
+    }
+
+    begin_desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    begin_desc.pNext = NULL;
+    begin_desc.renderPass = vk_render_pass;
+    begin_desc.framebuffer = vk_framebuffer;
+    begin_desc.clearValueCount = 1;
+    begin_desc.pClearValues = &clear_value;
+
+    for (i = 0; i < rect_count; ++i)
+    {
+        begin_desc.renderArea.offset.x = rects[i].left;
+        begin_desc.renderArea.offset.y = rects[i].top;
+        begin_desc.renderArea.extent.width = rects[i].right - rects[i].left;
+        begin_desc.renderArea.extent.height = rects[i].bottom - rects[i].top;
+        VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer, &begin_desc, VK_SUBPASS_CONTENTS_INLINE));
+        VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
+    }
+
+    VK_CALL(vkDestroyFramebuffer(list->device->vk_device, vk_framebuffer, NULL));
+
+    VK_CALL(vkDestroyRenderPass(list->device->vk_device, vk_render_pass, NULL));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(ID3D12GraphicsCommandList *iface,
