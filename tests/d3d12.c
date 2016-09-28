@@ -808,6 +808,63 @@ static void test_create_pipeline_state(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_reset_command_allocator(void)
+{
+    ID3D12CommandAllocator *command_allocator;
+    ID3D12GraphicsCommandList *command_list;
+    ID3D12Device *device;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
+    ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
+
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    todo(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    todo(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
+
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    todo(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    todo(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    todo(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    todo(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
+    todo(SUCCEEDED(hr), "Resetting Command list failed, hr %#x.\n", hr);
+
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    todo(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
+    todo(SUCCEEDED(hr), "Resetting command list failed, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_Release(command_list);
+    ID3D12CommandAllocator_Release(command_allocator);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12)
 {
     ID3D12Debug *debug;
@@ -828,4 +885,5 @@ START_TEST(d3d12)
     test_create_descriptor_heap();
     test_create_root_signature();
     test_create_pipeline_state();
+    test_reset_command_allocator();
 }
