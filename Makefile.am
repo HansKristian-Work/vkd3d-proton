@@ -56,6 +56,7 @@ libvkd3d.pc: $(srcdir)/libs/vkd3d/libvkd3d.pc.in
 ## Cross-compile tests
 cross_implibs = crosslibs/d3d12
 CROSS_CPPFLAGS = -I$(srcdir)/include -I$(srcdir)/include/private -I$(builddir)/include
+CROSS_CFLAGS = -g -O2 -Wall ${CROSS_CPPFLAGS}
 
 if HAS_CROSSTARGET32
 CROSS32_CC = @CROSSCC32@
@@ -72,7 +73,7 @@ $(CROSS32_IMPLIBS): %.cross32.a: %.cross32.def
 	$(AM_V_GEN)$(CROSS32_DLLTOOL) -k -m i386 --as-flags=-32 -d $< -l $@
 
 $(CROSS32_EXEFILES): %.cross32.exe: %.c $(CROSS32_IMPLIBS)
-	$(AM_V_CCLD)$(CROSS32_CC) $(CROSS_CPPFLAGS) -o $@ $< $(CROSS32_IMPLIBS)
+	$(AM_V_CCLD)$(CROSS32_CC) $(CROSS_CFLAGS) -o $@ $< $(CROSS32_IMPLIBS)
 else
 crosstest32:
 endif
@@ -92,7 +93,7 @@ $(CROSS64_IMPLIBS): %.cross64.a: %.cross64.def
 	$(AM_V_GEN)$(CROSS64_DLLTOOL) -k -m i386:x86-64 --as-flags=-64 -d $< -l $@
 
 $(CROSS64_EXEFILES): %.cross64.exe: %.c $(CROSS64_IMPLIBS)
-	$(AM_V_CCLD)$(CROSS64_CC) $(CROSS_CPPFLAGS) -o $@ $< $(CROSS64_IMPLIBS)
+	$(AM_V_CCLD)$(CROSS64_CC) $(CROSS_CFLAGS) -o $@ $< $(CROSS64_IMPLIBS)
 else
 crosstest64:
 endif
