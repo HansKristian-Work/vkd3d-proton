@@ -162,7 +162,7 @@ static void vkd3d_test_trace(unsigned int line, const char *fmt, ...)
     va_end(args);
 }
 
-int main(int argc, char **argv)
+int wmain(void)
 {
     const char *vkd3d_test_debug;
 
