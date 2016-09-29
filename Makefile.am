@@ -37,8 +37,13 @@ check_PROGRAMS =  $(vkd3d_tests)
 AM_DEFAULT_SOURCE_EXT = .c
 TESTS = $(vkd3d_tests)
 
+VKD3D_V_WIDL = $(vkd3d_v_widl_@AM_V@)
+vkd3d_v_widl_ = $(vkd3d_v_widl_@AM_DEFAULT_V@)
+vkd3d_v_widl_0 = @echo "  WIDL    " $@;
+vkd3d_v_widl_1 =
+
 $(widl_headers): %.h: %.idl
-	$(WIDL) -o $@ $<
+	$(VKD3D_V_WIDL)$(WIDL) -o $@ $<
 
 libvkd3d.pc: $(srcdir)/libs/vkd3d/libvkd3d.pc.in
 	sed -e 's![@]prefix[@]!$(prefix)!g' \
@@ -63,11 +68,11 @@ CLEANFILES += $(CROSS32_FILES)
 crosstest32: $(widl_headers) $(CROSS32_FILES)
 
 $(CROSS32_IMPLIBS): %.cross32.a: %.cross32.def
-	${MKDIR_P} crosslibs
-	$(CROSS32_DLLTOOL) -k -m i386 --as-flags=-32 -d $< -l $@
+	@${MKDIR_P} crosslibs
+	$(AM_V_GEN)$(CROSS32_DLLTOOL) -k -m i386 --as-flags=-32 -d $< -l $@
 
 $(CROSS32_EXEFILES): %.cross32.exe: %.c $(CROSS32_IMPLIBS)
-	$(CROSS32_CC) $(CROSS_CPPFLAGS) -o $@ $< $(CROSS32_IMPLIBS)
+	$(AM_V_CCLD)$(CROSS32_CC) $(CROSS_CPPFLAGS) -o $@ $< $(CROSS32_IMPLIBS)
 else
 crosstest32:
 endif
@@ -83,11 +88,11 @@ CLEANFILES += $(CROSS64_FILES)
 crosstest64: $(widl_headers) $(CROSS64_FILES)
 
 $(CROSS64_IMPLIBS): %.cross64.a: %.cross64.def
-	${MKDIR_P} crosslibs
-	$(CROSS64_DLLTOOL) -k -m i386:x86-64 --as-flags=-64 -d $< -l $@
+	@${MKDIR_P} crosslibs
+	$(AM_V_GEN)$(CROSS64_DLLTOOL) -k -m i386:x86-64 --as-flags=-64 -d $< -l $@
 
 $(CROSS64_EXEFILES): %.cross64.exe: %.c $(CROSS64_IMPLIBS)
-	$(CROSS64_CC) $(CROSS_CPPFLAGS) -o $@ $< $(CROSS64_IMPLIBS)
+	$(AM_V_CCLD)$(CROSS64_CC) $(CROSS_CPPFLAGS) -o $@ $< $(CROSS64_IMPLIBS)
 else
 crosstest64:
 endif
