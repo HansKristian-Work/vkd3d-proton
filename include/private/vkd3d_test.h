@@ -162,7 +162,11 @@ static void vkd3d_test_trace(unsigned int line, const char *fmt, ...)
     va_end(args);
 }
 
+#ifdef _WIN32
 int wmain(void)
+#else
+int main(void)
+#endif
 {
     const char *vkd3d_test_debug;
 
