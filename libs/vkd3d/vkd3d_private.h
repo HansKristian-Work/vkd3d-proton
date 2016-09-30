@@ -33,6 +33,8 @@
 
 #include <assert.h>
 
+#define VKD3D_DESCRIPTOR_MAGIC_FREE 0x00000000u
+
 struct d3d12_command_list;
 struct d3d12_device;
 
@@ -83,6 +85,26 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource) DECLSPEC_HIDDEN;
 
+struct d3d12_cbv_srv_uav_desc
+{
+    uint32_t magic;
+};
+
+struct d3d12_sampler_desc
+{
+    uint32_t magic;
+};
+
+struct d3d12_rtv_desc
+{
+    uint32_t magic;
+};
+
+struct d3d12_dsv_desc
+{
+    uint32_t magic;
+};
+
 /* ID3D12DescriptorHeap */
 struct d3d12_descriptor_heap
 {
@@ -92,6 +114,8 @@ struct d3d12_descriptor_heap
     D3D12_DESCRIPTOR_HEAP_DESC desc;
 
     struct d3d12_device *device;
+
+    BYTE descriptors[];
 };
 
 HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,

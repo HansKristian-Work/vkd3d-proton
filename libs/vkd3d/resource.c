@@ -830,12 +830,28 @@ static void d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descriptor_
 HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc, struct d3d12_descriptor_heap **descriptor_heap)
 {
+    size_t max_descriptor_count, descriptor_size;
     struct d3d12_descriptor_heap *object;
 
-    if (!(object = vkd3d_malloc(sizeof(*object))))
+    if (!(descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(&device->ID3D12Device_iface, desc->Type)))
+    {
+        WARN("No descriptor size for descriptor type %#x.\n", desc->Type);
+        return E_INVALIDARG;
+    }
+
+    max_descriptor_count = (~(size_t)0 - sizeof(*object)) / descriptor_size;
+    if (desc->NumDescriptors > max_descriptor_count)
+    {
+        WARN("Invalid descriptor count %u (max %zu).\n", desc->NumDescriptors, max_descriptor_count);
+        return E_OUTOFMEMORY;
+    }
+
+    if (!(object = vkd3d_malloc(offsetof(struct d3d12_descriptor_heap,
+            descriptors[descriptor_size * desc->NumDescriptors]))))
         return E_OUTOFMEMORY;
 
     d3d12_descriptor_heap_init(object, device, desc);
+    memset(object->descriptors, 0, descriptor_size * desc->NumDescriptors);
 
     TRACE("Created descriptor heap %p.\n", object);
 
