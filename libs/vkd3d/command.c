@@ -1462,7 +1462,10 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     list->pipeline_state = initial_pipeline_state;
 
     if (FAILED(hr = vkd3d_command_allocator_allocate_command_list(allocator, list)))
+    {
+        ID3D12Device_Release(&device->ID3D12Device_iface);
         return hr;
+    }
 
     list->passes = NULL;
     list->passes_size = 0;
