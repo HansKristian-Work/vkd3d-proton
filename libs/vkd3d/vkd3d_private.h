@@ -46,6 +46,13 @@ struct vkd3d_instance
     struct vkd3d_vk_instance_procs vk_procs;
 };
 
+struct vkd3d_event
+{
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    BOOL is_signaled;
+};
+
 /* ID3D12Fence */
 struct d3d12_fence
 {

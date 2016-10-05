@@ -171,6 +171,16 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 # define IsEqualGUID(guid1, guid2) (!memcmp(guid1, guid2, sizeof(GUID)))
 #endif
 
+#define WAIT_OBJECT_0 (0)
+#define WAIT_TIMEOUT (1)
+#define WAIT_FAILED (~0u)
+#define INFINITE (~0u)
+
+HANDLE WINAPI VKD3DCreateEvent(void);
+BOOL WINAPI VKD3DSignalEvent(HANDLE event);
+unsigned int WINAPI VKD3DWaitEvent(HANDLE event, unsigned int milliseconds);
+void WINAPI VKD3DDestroyEvent(HANDLE event);
+
 #elif !defined(__WIDL__)
 
 # include <windows.h>
