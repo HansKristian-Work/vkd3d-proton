@@ -1,8 +1,7 @@
 dnl VKD3D_CHECK_MINGW32_PROG(cc-variable, crosstarget-variable, [value-if-not-found], [path])
 AC_DEFUN([VKD3D_CHECK_MINGW32_PROG],
 [AC_SUBST([$2], [$3])
-vkd3d_mingw_list="m4_foreach([vkd3d_mingw_prefix], [w64-mingw32, pc-mingw32, mingw32, mingw32msvc],
-    m4_foreach([vkd3d_cpu], [i686, i586, i486, i386], [vkd3d_cpu-vkd3d_mingw_prefix-gcc ])) mingw32-gcc"
+vkd3d_mingw_list="m4_foreach([vkd3d_cpu], [i686, i586, i486, i386], [vkd3d_cpu-w64-mingw32-gcc ])"
 AC_CHECK_PROGS([$1], [$vkd3d_mingw_list], [$3], [$4])
 AS_VAR_PUSHDEF([vkd3d_cross_cc], [$1])dnl
 AS_VAR_IF([vkd3d_cross_cc], [$3],
@@ -21,8 +20,7 @@ AS_VAR_POPDEF([vkd3d_cross_cc])dnl
 dnl VKD3D_CHECK_MINGW64_PROG(cc-variable, crosstarget-variable, [value-if-not-found], [path])
 AC_DEFUN([VKD3D_CHECK_MINGW64_PROG],
 [AC_SUBST([$2], [$3])
-vkd3d_mingw_list="m4_foreach([vkd3d_mingw_prefix], [pc-mingw32, w64-mingw32, mingw32msvc],
-    m4_foreach([vkd3d_cpu], [x86_64, amd64], [vkd3d_cpu-vkd3d_mingw_prefix-gcc ]))"
+vkd3d_mingw_list="m4_foreach([vkd3d_cpu], [x86_64, amd64], [vkd3d_cpu-w64-mingw32-gcc ])"
 AC_CHECK_PROGS([$1], [$vkd3d_mingw_list], [$3], [$4])
 AS_VAR_PUSHDEF([vkd3d_cross_cc], [$1])dnl
 AS_VAR_IF([vkd3d_cross_cc], [$3],
