@@ -748,9 +748,27 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(ID3D12Graphics
         ID3D12Resource *dst_resource, UINT64 dst_offset, ID3D12Resource *src_resource,
         UINT64 src_offset, UINT64 byte_count)
 {
-    FIXME("iface %p, dst_resource %p, dst_offset %s, src_resource %p, src_offset %s, byte_count %s stub!\n",
+    struct d3d12_resource *dst_resource_impl = unsafe_impl_from_ID3D12Resource(dst_resource);
+    struct d3d12_resource *src_resource_impl = unsafe_impl_from_ID3D12Resource(src_resource);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkBufferCopy buffer_copy;
+
+    TRACE("iface %p, dst_resource %p, dst_offset %s, src_resource %p, src_offset %s, byte_count %s.\n",
             iface, dst_resource, debugstr_uint64(dst_offset), src_resource,
             debugstr_uint64(src_offset), debugstr_uint64(byte_count));
+
+    vk_procs = &list->device->vk_procs;
+
+    assert(dst_resource_impl->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER);
+    assert(src_resource_impl->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER);
+
+    buffer_copy.srcOffset = src_offset;
+    buffer_copy.dstOffset = dst_offset;
+    buffer_copy.size = byte_count;
+
+    VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
+            src_resource_impl->u.vk_buffer, dst_resource_impl->u.vk_buffer, 1, &buffer_copy));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12GraphicsCommandList *iface,
