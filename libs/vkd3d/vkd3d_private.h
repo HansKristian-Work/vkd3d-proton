@@ -53,6 +53,12 @@ struct vkd3d_event
     BOOL is_signaled;
 };
 
+struct vkd3d_waiting_event
+{
+    UINT64 value;
+    HANDLE event;
+};
+
 /* ID3D12Fence */
 struct d3d12_fence
 {
@@ -61,6 +67,10 @@ struct d3d12_fence
 
     UINT64 value;
     pthread_mutex_t mutex;
+
+    unsigned int event_array_size;
+    unsigned int event_count;
+    struct vkd3d_waiting_event *events;
 
     struct d3d12_device *device;
 };
@@ -255,6 +265,13 @@ static inline void *vkd3d_malloc(size_t size)
 {
     void *ptr;
     if (!(ptr = malloc(size)))
+        ERR("Out of memory.\n");
+    return ptr;
+}
+
+static inline void *vkd3d_realloc(void *ptr, size_t size)
+{
+    if (!(ptr = realloc(ptr, size)))
         ERR("Out of memory.\n");
     return ptr;
 }

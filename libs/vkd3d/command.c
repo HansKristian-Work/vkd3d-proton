@@ -73,6 +73,7 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_Release(ID3D12Fence *iface)
     {
         struct d3d12_device *device = fence->device;
 
+        vkd3d_free(fence->events);
         if ((rc = pthread_mutex_destroy(&fence->mutex)))
             ERR("Failed to destroy mutex, error %d.\n", rc);
         vkd3d_free(fence);
@@ -147,14 +148,66 @@ static UINT64 STDMETHODCALLTYPE d3d12_fence_GetCompletedValue(ID3D12Fence *iface
 static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(ID3D12Fence *iface,
         UINT64 value, HANDLE event)
 {
-    FIXME("iface %p, value %s, event %p stub!\n", iface, debugstr_uint64(value), event);
+    struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+    unsigned int i;
+    int rc;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, value %s, event %p.\n", iface, debugstr_uint64(value), event);
+
+    if ((rc = pthread_mutex_lock(&fence->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return E_FAIL;
+    }
+
+    if (value <= fence->value)
+    {
+        VKD3DSignalEvent(event);
+        pthread_mutex_unlock(&fence->mutex);
+        return S_OK;
+    }
+
+    for (i = 0; i < fence->event_count; ++i)
+    {
+        struct vkd3d_waiting_event *current = &fence->events[i];
+        if (current->value == value && current->event == event)
+        {
+            WARN("Event completion for (%p, %s) is already in the list.\n",
+                    event, debugstr_uint64(value));
+            pthread_mutex_unlock(&fence->mutex);
+            return S_OK;
+        }
+    }
+
+    if (fence->event_array_size == fence->event_count)
+    {
+        unsigned int new_size = 2 * fence->event_array_size;
+        struct vkd3d_waiting_event *new_events;
+
+        TRACE("Resizing waiting events array from %u to %u.\n", fence->event_array_size, new_size);
+
+        if (!(new_events = vkd3d_realloc(fence->events, new_size * sizeof(*fence->events))))
+        {
+            pthread_mutex_unlock(&fence->mutex);
+            return E_OUTOFMEMORY;
+        }
+
+        fence->event_array_size = new_size;
+        fence->events = new_events;
+    }
+
+    fence->events[fence->event_count].value = value;
+    fence->events[fence->event_count].event = event;
+    ++fence->event_count;
+
+    pthread_mutex_unlock(&fence->mutex);
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_fence_Signal(ID3D12Fence *iface, UINT64 value)
 {
     struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+    unsigned int i, j;
     int rc;
 
     TRACE("iface %p, value %s.\n", iface, debugstr_uint64(value));
@@ -164,7 +217,26 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_Signal(ID3D12Fence *iface, UINT64 v
         ERR("Failed to lock mutex, error %d.\n", rc);
         return E_FAIL;
     }
+
     fence->value = value;
+
+    for (i = 0, j = 0; i < fence->event_count; ++i)
+    {
+        struct vkd3d_waiting_event *current = &fence->events[i];
+
+        if (current->value <= value)
+        {
+            VKD3DSignalEvent(current->event);
+        }
+        else
+        {
+            if (i != j)
+                fence->events[j] = *current;
+            ++j;
+        }
+    }
+    fence->event_count = j;
+
     pthread_mutex_unlock(&fence->mutex);
 
     return S_OK;
@@ -208,6 +280,14 @@ static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *
     if (flags)
         FIXME("Ignoring flags %#x.\n", flags);
 
+    fence->event_array_size = 2;
+    if (!(fence->events = vkd3d_calloc(fence->event_array_size, sizeof(*fence->events))))
+    {
+        pthread_mutex_destroy(&fence->mutex);
+        return E_OUTOFMEMORY;
+    }
+    fence->event_count = 0;
+
     fence->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
 
@@ -231,6 +311,7 @@ HRESULT d3d12_fence_create(struct d3d12_device *device,
     return S_OK;
 }
 
+/* Command buffers */
 static HRESULT vkd3d_begin_command_buffer(struct d3d12_command_list *list)
 {
     struct d3d12_device *device = list->device;
