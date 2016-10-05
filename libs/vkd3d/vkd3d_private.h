@@ -32,6 +32,7 @@
 #include "d3d12.h"
 
 #include <assert.h>
+#include <pthread.h>
 
 #define VKD3D_DESCRIPTOR_MAGIC_FREE 0x00000000u
 #define VKD3D_DESCRIPTOR_MAGIC_RTV  0x00565452u
@@ -52,6 +53,7 @@ struct d3d12_fence
     ULONG refcount;
 
     UINT64 value;
+    pthread_mutex_t mutex;
 
     struct d3d12_device *device;
 };

@@ -65,6 +65,7 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_Release(ID3D12Fence *iface)
 {
     struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
     ULONG refcount = InterlockedDecrement(&fence->refcount);
+    int rc;
 
     TRACE("%p decreasing refcount to %u.\n", fence, refcount);
 
@@ -72,6 +73,8 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_Release(ID3D12Fence *iface)
     {
         struct d3d12_device *device = fence->device;
 
+        if ((rc = pthread_mutex_destroy(&fence->mutex)))
+            ERR("Failed to destroy mutex, error %d.\n", rc);
         vkd3d_free(fence);
 
         ID3D12Device_Release(&device->ID3D12Device_iface);
@@ -126,10 +129,19 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_GetDevice(ID3D12Fence *iface,
 static UINT64 STDMETHODCALLTYPE d3d12_fence_GetCompletedValue(ID3D12Fence *iface)
 {
     struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+    UINT64 completed_value;
+    int rc;
 
     TRACE("iface %p.\n", iface);
 
-    return fence->value;
+    if ((rc = pthread_mutex_lock(&fence->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return 0;
+    }
+    completed_value = fence->value;
+    pthread_mutex_unlock(&fence->mutex);
+    return completed_value;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(ID3D12Fence *iface,
@@ -142,9 +154,20 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(ID3D12Fence *i
 
 static HRESULT STDMETHODCALLTYPE d3d12_fence_Signal(ID3D12Fence *iface, UINT64 value)
 {
-    FIXME("iface %p, value %s stub!\n", iface, debugstr_uint64(value));
+    struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+    int rc;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, value %s.\n", iface, debugstr_uint64(value));
+
+    if ((rc = pthread_mutex_lock(&fence->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return E_FAIL;
+    }
+    fence->value = value;
+    pthread_mutex_unlock(&fence->mutex);
+
+    return S_OK;
 }
 
 static const struct ID3D12FenceVtbl d3d12_fence_vtbl =
@@ -166,19 +189,29 @@ static const struct ID3D12FenceVtbl d3d12_fence_vtbl =
     d3d12_fence_Signal,
 };
 
-static void d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *device,
+static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *device,
         UINT64 initial_value, D3D12_FENCE_FLAGS flags)
 {
+    int rc;
+
     fence->ID3D12Fence_iface.lpVtbl = &d3d12_fence_vtbl;
     fence->refcount = 1;
 
     fence->value = initial_value;
+
+    if ((rc = pthread_mutex_init(&fence->mutex, NULL)))
+    {
+        ERR("Failed to initialize mutex, error %d.\n", rc);
+        return E_FAIL;
+    }
 
     if (flags)
         FIXME("Ignoring flags %#x.\n", flags);
 
     fence->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
+
+    return S_OK;
 }
 
 HRESULT d3d12_fence_create(struct d3d12_device *device,
