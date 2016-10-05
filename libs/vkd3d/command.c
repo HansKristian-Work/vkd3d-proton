@@ -179,21 +179,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(ID3D12Fence *i
         }
     }
 
-    if (fence->event_array_size == fence->event_count)
+    if (!vkd3d_array_reserve((void **)&fence->events, &fence->events_size,
+            fence->event_count + 1, sizeof(*fence->events)))
     {
-        unsigned int new_size = 2 * fence->event_array_size;
-        struct vkd3d_waiting_event *new_events;
-
-        TRACE("Resizing waiting events array from %u to %u.\n", fence->event_array_size, new_size);
-
-        if (!(new_events = vkd3d_realloc(fence->events, new_size * sizeof(*fence->events))))
-        {
-            pthread_mutex_unlock(&fence->mutex);
-            return E_OUTOFMEMORY;
-        }
-
-        fence->event_array_size = new_size;
-        fence->events = new_events;
+        WARN("Failed to add event.\n");
+        pthread_mutex_unlock(&fence->mutex);
+        return E_OUTOFMEMORY;
     }
 
     fence->events[fence->event_count].value = value;
@@ -280,12 +271,8 @@ static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *
     if (flags)
         FIXME("Ignoring flags %#x.\n", flags);
 
-    fence->event_array_size = 2;
-    if (!(fence->events = vkd3d_calloc(fence->event_array_size, sizeof(*fence->events))))
-    {
-        pthread_mutex_destroy(&fence->mutex);
-        return E_OUTOFMEMORY;
-    }
+    fence->events = NULL;
+    fence->events_size = 0;
     fence->event_count = 0;
 
     fence->device = device;

@@ -69,9 +69,9 @@ struct d3d12_fence
     UINT64 value;
     pthread_mutex_t mutex;
 
-    unsigned int event_array_size;
-    unsigned int event_count;
     struct vkd3d_waiting_event *events;
+    size_t events_size;
+    size_t event_count;
 
     struct d3d12_device *device;
 };
