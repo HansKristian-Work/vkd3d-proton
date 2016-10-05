@@ -667,6 +667,17 @@ static bool d3d12_command_list_add_render_pass(struct d3d12_command_list *list, 
     return true;
 }
 
+static bool d3d12_command_list_add_framebuffer(struct d3d12_command_list *list, VkFramebuffer framebuffer)
+{
+    if (!vkd3d_array_reserve((void **)&list->framebuffers, &list->framebuffers_size,
+            list->framebuffer_count + 1, sizeof(*list->framebuffers)))
+        return false;
+
+    list->framebuffers[list->framebuffer_count++] = framebuffer;
+
+    return true;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(ID3D12GraphicsCommandList *iface,
         REFIID riid, void **object)
 {
@@ -717,6 +728,11 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(ID3D12GraphicsCommandL
         /* When command pool is destroyed, all command buffers are implicitly freed. */
         if (list->allocator)
             vkd3d_command_allocator_free_command_list(list->allocator, list);
+
+        for (i = 0; i < list->framebuffer_count; ++i)
+        {
+            VK_CALL(vkDestroyFramebuffer(device->vk_device, list->framebuffers[i], NULL));
+        }
 
         for (i = 0; i < list->pass_count; ++i)
         {
@@ -1253,6 +1269,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
         return;
     }
 
+    if (!d3d12_command_list_add_framebuffer(list, vk_framebuffer))
+    {
+        WARN("Failed to add framebuffer.\n");
+        VK_CALL(vkDestroyFramebuffer(list->device->vk_device, vk_framebuffer, NULL));
+        return;
+    }
+
     begin_desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     begin_desc.pNext = NULL;
     begin_desc.renderPass = vk_render_pass;
@@ -1269,8 +1292,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
         VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer, &begin_desc, VK_SUBPASS_CONTENTS_INLINE));
         VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
     }
-
-    VK_CALL(vkDestroyFramebuffer(list->device->vk_device, vk_framebuffer, NULL));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(ID3D12GraphicsCommandList *iface,
@@ -1440,6 +1461,10 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     list->passes = NULL;
     list->passes_size = 0;
     list->pass_count = 0;
+
+    list->framebuffers = NULL;
+    list->framebuffers_size = 0;
+    list->framebuffer_count = 0;
 
     if (initial_pipeline_state)
         FIXME("Ignoring initial pipeline state %p.\n", initial_pipeline_state);

@@ -210,6 +210,10 @@ struct d3d12_command_list
     size_t passes_size;
     size_t pass_count;
 
+    VkFramebuffer *framebuffers;
+    size_t framebuffers_size;
+    size_t framebuffer_count;
+
     struct d3d12_command_allocator *allocator;
     struct d3d12_device *device;
 };
