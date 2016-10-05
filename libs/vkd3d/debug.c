@@ -73,9 +73,9 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_level level, const char *function, const ch
 
     assert(level <= sizeof(debug_level_names) / sizeof(*debug_level_names));
 
-    printf("%s:%s: ", debug_level_names[level], function);
+    fprintf(stderr, "%s:%s: ", debug_level_names[level], function);
     va_start(args, fmt);
-    vprintf(fmt, args);
+    vfprintf(stderr, fmt, args);
     va_end(args);
 }
 
