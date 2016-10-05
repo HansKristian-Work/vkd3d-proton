@@ -743,6 +743,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(ID3D12GraphicsCommandL
         {
             VK_CALL(vkDestroyRenderPass(device->vk_device, list->passes[i], NULL));
         }
+        vkd3d_free(list->passes);
 
         vkd3d_free(list);
 
