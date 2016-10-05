@@ -36,9 +36,16 @@ AS_IF([test "x${GCC}" = "xyes"],
       VKD3D_CHECK_CFLAGS([-Wvla])])
 
 dnl Check for headers
-AC_CHECK_HEADERS([vulkan/vulkan.h], [], [AC_MSG_ERROR([vulkan.h not found.])])
+AC_CHECK_HEADERS([pthread.h vulkan/vulkan.h])
+AS_IF([test "x$ac_cv_header_pthread_h" != "xyes"], [AC_MSG_ERROR([pthread.h not found.])])
+AS_IF([test "x$ac_cv_header_vulkan_vulkan_h" != "xyes"], [AC_MSG_ERROR([vulkan.h not found.])])
 
 dnl Check for libraries
+AC_ARG_VAR([PTHREAD_LIBS], [linker flags for pthreads])
+AC_CHECK_LIB([pthread], [pthread_create],
+             [AC_SUBST(PTHREAD_LIBS, "-lpthread")],
+             [AC_MSG_ERROR(libpthread not found.)])
+
 AC_CHECK_LIB([vulkan], [vkGetInstanceProcAddr], [], [AC_MSG_ERROR([libvulkan not found.])])
 
 dnl Check for functions

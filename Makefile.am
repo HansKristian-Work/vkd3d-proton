@@ -27,6 +27,7 @@ libvkd3d_la_SOURCES = \
 	libs/vkd3d/state.c \
 	libs/vkd3d/utils.c \
 	libs/vkd3d/vkd3d_main.c
+libvkd3d_la_LIBADD = @PTHREAD_LIBS@
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkginclude_HEADERS = $(vkd3d_public_headers)
