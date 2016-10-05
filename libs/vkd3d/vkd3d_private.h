@@ -33,6 +33,7 @@
 
 #include <assert.h>
 #include <pthread.h>
+#include <stdbool.h>
 
 #define VKD3D_DESCRIPTOR_MAGIC_FREE 0x00000000u
 #define VKD3D_DESCRIPTOR_MAGIC_RTV  0x00565452u
@@ -205,6 +206,10 @@ struct d3d12_command_list
     VkCommandBuffer vk_command_buffer;
     BOOL is_recording;
 
+    VkRenderPass *passes;
+    size_t passes_size;
+    size_t pass_count;
+
     struct d3d12_command_allocator *allocator;
     struct d3d12_device *device;
 };
@@ -260,6 +265,9 @@ const char *debug_vk_memory_property_flags(VkMemoryPropertyFlags flags) DECLSPEC
 const char *debug_vk_queue_flags(VkQueueFlags flags) DECLSPEC_HIDDEN;
 
 VkFormat vk_format_from_dxgi_format(DXGI_FORMAT format) DECLSPEC_HIDDEN;
+
+bool vkd3d_array_reserve(void **elements, size_t *capacity,
+        size_t element_count, size_t element_size) DECLSPEC_HIDDEN;
 
 static inline void *vkd3d_malloc(size_t size)
 {

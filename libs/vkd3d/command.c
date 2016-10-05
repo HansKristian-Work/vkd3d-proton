@@ -656,6 +656,17 @@ static inline struct d3d12_command_list *impl_from_ID3D12GraphicsCommandList(ID3
     return CONTAINING_RECORD(iface, struct d3d12_command_list, ID3D12GraphicsCommandList_iface);
 }
 
+static bool d3d12_command_list_add_render_pass(struct d3d12_command_list *list, VkRenderPass pass)
+{
+    if (!vkd3d_array_reserve((void **)&list->passes, &list->passes_size,
+            list->pass_count + 1, sizeof(*list->passes)))
+        return false;
+
+    list->passes[list->pass_count++] = pass;
+
+    return true;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(ID3D12GraphicsCommandList *iface,
         REFIID riid, void **object)
 {
@@ -698,10 +709,19 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(ID3D12GraphicsCommandL
     if (!refcount)
     {
         struct d3d12_device *device = list->device;
+        struct vkd3d_vk_device_procs *vk_procs;
+        unsigned int i;
+
+        vk_procs = &device->vk_procs;
 
         /* When command pool is destroyed, all command buffers are implicitly freed. */
         if (list->allocator)
             vkd3d_command_allocator_free_command_list(list->allocator, list);
+
+        for (i = 0; i < list->pass_count; ++i)
+        {
+            VK_CALL(vkDestroyRenderPass(device->vk_device, list->passes[i], NULL));
+        }
 
         vkd3d_free(list);
 
@@ -1211,6 +1231,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
         return;
     }
 
+    if (!d3d12_command_list_add_render_pass(list, vk_render_pass))
+    {
+        WARN("Failed to add render pass,\n");
+        VK_CALL(vkDestroyRenderPass(list->device->vk_device, vk_render_pass, NULL));
+        return;
+    }
+
     fb_desc.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     fb_desc.pNext = NULL;
     fb_desc.flags = 0;
@@ -1223,7 +1250,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
     if ((vr = VK_CALL(vkCreateFramebuffer(list->device->vk_device, &fb_desc, NULL, &vk_framebuffer))) < 0)
     {
         WARN("Failed to create Vulkan framebuffer, vr %d.\n", vr);
-        VK_CALL(vkDestroyRenderPass(list->device->vk_device, vk_render_pass, NULL));
         return;
     }
 
@@ -1245,8 +1271,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
     }
 
     VK_CALL(vkDestroyFramebuffer(list->device->vk_device, vk_framebuffer, NULL));
-
-    VK_CALL(vkDestroyRenderPass(list->device->vk_device, vk_render_pass, NULL));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(ID3D12GraphicsCommandList *iface,
@@ -1407,15 +1431,18 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
 
     list->type = type;
     list->device = device;
+    ID3D12Device_AddRef(&device->ID3D12Device_iface);
 
     list->allocator = allocator;
     if (FAILED(hr = vkd3d_command_allocator_allocate_command_list(allocator, list)))
         return hr;
 
+    list->passes = NULL;
+    list->passes_size = 0;
+    list->pass_count = 0;
+
     if (initial_pipeline_state)
         FIXME("Ignoring initial pipeline state %p.\n", initial_pipeline_state);
-
-    ID3D12Device_AddRef(&device->ID3D12Device_iface);
 
     return S_OK;
 }
