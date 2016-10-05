@@ -737,6 +737,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(ID3D12GraphicsCommandL
         {
             VK_CALL(vkDestroyFramebuffer(device->vk_device, list->framebuffers[i], NULL));
         }
+        vkd3d_free(list->framebuffers);
 
         for (i = 0; i < list->pass_count; ++i)
         {
