@@ -229,6 +229,8 @@ struct d3d12_command_list
     VkCommandBuffer vk_command_buffer;
     BOOL is_recording;
 
+    struct VkPipelineInputAssemblyStateCreateInfo ia_desc;
+
     struct d3d12_command_allocator *allocator;
     struct d3d12_device *device;
 };

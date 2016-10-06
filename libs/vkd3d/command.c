@@ -1207,10 +1207,34 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(ID3D12Graphi
             iface, dst_resource, dst_sub_resource, src_resource, src_sub_resource, format);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(ID3D12GraphicsCommandList *iface,
-        D3D12_PRIMITIVE_TOPOLOGY primitive_topology)
+static enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_TOPOLOGY topology)
 {
-    FIXME("iface %p, primitive_topology %#x stub!\n", iface, primitive_topology);
+    switch (topology)
+    {
+        case D3D_PRIMITIVE_TOPOLOGY_POINTLIST:
+            return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+        case D3D_PRIMITIVE_TOPOLOGY_LINELIST:
+            return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+        case D3D_PRIMITIVE_TOPOLOGY_LINESTRIP:
+            return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+        case D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST:
+            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        case D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP:
+            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+        default:
+            FIXME("Unhandled primitive topology %#x.\n", topology);
+            return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+    }
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(ID3D12GraphicsCommandList *iface,
+        D3D12_PRIMITIVE_TOPOLOGY topology)
+{
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, topology %#x.\n", iface, topology);
+
+    list->ia_desc.topology = vk_topology_from_d3d12_topology(topology);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(ID3D12GraphicsCommandList *iface,
@@ -1714,6 +1738,12 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
         ID3D12Device_Release(&device->ID3D12Device_iface);
         return hr;
     }
+
+    list->ia_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    list->ia_desc.pNext = NULL;
+    list->ia_desc.flags = 0;
+    list->ia_desc.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+    list->ia_desc.primitiveRestartEnable = VK_FALSE;
 
     return S_OK;
 }
