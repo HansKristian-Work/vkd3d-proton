@@ -232,6 +232,10 @@ struct d3d12_command_list
     uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     struct VkPipelineInputAssemblyStateCreateInfo ia_desc;
 
+    VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    unsigned int fb_width;
+    unsigned int fb_height;
+
     struct d3d12_command_allocator *allocator;
     struct d3d12_device *device;
 };

@@ -1458,10 +1458,36 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
         UINT render_target_descriptor_count, const D3D12_CPU_DESCRIPTOR_HANDLE *render_target_descriptors,
         BOOL single_descriptor_handle, const D3D12_CPU_DESCRIPTOR_HANDLE *depth_stencil_descriptor)
 {
-    FIXME("iface %p, render_target_descriptor_count %u, render_target_descriptors %p, "
-            "single_descriptor_handle %#x, depth_stencil_descriptor %p stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    unsigned int i;
+
+    TRACE("iface %p, render_target_descriptor_count %u, render_target_descriptors %p, "
+            "single_descriptor_handle %#x, depth_stencil_descriptor %p.\n",
             iface, render_target_descriptor_count, render_target_descriptors,
             single_descriptor_handle, depth_stencil_descriptor);
+
+    if (depth_stencil_descriptor)
+        FIXME("Ignoring depth/stencil descriptor %p.\n", depth_stencil_descriptor);
+
+    if (render_target_descriptor_count > ARRAY_SIZE(list->views))
+    {
+        WARN("Descriptor count %u > %zu, ignoring extra descriptors.\n",
+                render_target_descriptor_count, ARRAY_SIZE(list->views));
+        render_target_descriptor_count = ARRAY_SIZE(list->views);
+    }
+
+    list->fb_width = 0;
+    list->fb_height = 0;
+    for (i = 0; i < render_target_descriptor_count; ++i)
+    {
+        const struct d3d12_rtv_desc *rtv_desc = (const struct d3d12_rtv_desc *)render_target_descriptors[i].ptr;
+
+        list->views[i] = rtv_desc->vk_view;
+        if (rtv_desc->width > list->fb_width)
+            list->fb_width = rtv_desc->width;
+        if (rtv_desc->height > list->fb_height)
+            list->fb_height = rtv_desc->height;
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(ID3D12GraphicsCommandList *iface,
@@ -1768,6 +1794,10 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     list->ia_desc.flags = 0;
     list->ia_desc.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
     list->ia_desc.primitiveRestartEnable = VK_FALSE;
+
+    memset(list->views, 0, sizeof(list->views));
+    list->fb_width = 0;
+    list->fb_height = 0;
 
     return S_OK;
 }
