@@ -23,36 +23,48 @@
 #define INITGUID
 #include "vkd3d_private.h"
 
-HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level,
+HRESULT WINAPI vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         REFIID riid, void **device)
 {
     struct d3d12_device *object;
     HRESULT hr;
 
-    TRACE("adapter %p, minimum_feature_level %#x, riid %s, device %p.\n",
-            adapter, minimum_feature_level, debugstr_guid(riid), device);
+    TRACE("create_info %p, riid %s, device %p.\n", create_info, debugstr_guid(riid), device);
 
-    if (minimum_feature_level < D3D_FEATURE_LEVEL_11_0
-            || !is_valid_feature_level(minimum_feature_level))
+    if (create_info->minimum_feature_level < D3D_FEATURE_LEVEL_11_0
+            || !is_valid_feature_level(create_info->minimum_feature_level))
     {
-        WARN("Invalid feature level %#x.\n", minimum_feature_level);
+        WARN("Invalid feature level %#x.\n", create_info->minimum_feature_level);
         return E_INVALIDARG;
     }
 
-    if (!check_feature_level_support(minimum_feature_level))
+    if (!check_feature_level_support(create_info->minimum_feature_level))
     {
-        FIXME("Unsupported feature level %#x.\n", minimum_feature_level);
+        FIXME("Unsupported feature level %#x.\n", create_info->minimum_feature_level);
         return E_INVALIDARG;
     }
-
-    if (adapter)
-        FIXME("Ignoring adapter %p.\n", adapter);
 
     if (FAILED(hr = d3d12_device_create(&object)))
         return hr;
 
     return return_interface((IUnknown *)&object->ID3D12Device_iface, &IID_ID3D12Device,
             riid, device);
+}
+
+HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level,
+        REFIID riid, void **device)
+{
+    struct vkd3d_device_create_info create_info;
+
+    TRACE("adapter %p, minimum_feature_level %#x, riid %s, device %p.\n",
+            adapter, minimum_feature_level, debugstr_guid(riid), device);
+
+    if (adapter)
+        FIXME("Ignoring adapter %p.\n", adapter);
+
+    create_info.minimum_feature_level = minimum_feature_level;
+
+    return vkd3d_create_device(&create_info, riid, device);
 }
 
 /* Events */

@@ -25,11 +25,10 @@
 
 #define COBJMACROS
 #define NONAMELESSUNION
+#include "vkd3d.h"
 #include "vkd3d_common.h"
 #include "vkd3d_debug.h"
 #include "vkd3d_vulkan.h"
-
-#include "d3d12.h"
 
 #include <assert.h>
 #include <pthread.h>
