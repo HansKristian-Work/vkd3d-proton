@@ -20,13 +20,37 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef __VKD3D_UTILS_PRIVATE_H
-#define __VKD3D_UTILS_PRIVATE_H
+#ifndef __VKD3D_MEMORY_H
+#define __VKD3D_MEMORY_H
 
-#define COBJMACROS
-#define NONAMELESSUNION
 #include "vkd3d_debug.h"
 
-#include "vkd3d.h"
+static inline void *vkd3d_malloc(size_t size)
+{
+    void *ptr;
+    if (!(ptr = malloc(size)))
+        ERR("Out of memory.\n");
+    return ptr;
+}
 
-#endif  /* __VKD3D_UTILS_PRIVATE_H */
+static inline void *vkd3d_realloc(void *ptr, size_t size)
+{
+    if (!(ptr = realloc(ptr, size)))
+        ERR("Out of memory.\n");
+    return ptr;
+}
+
+static inline void *vkd3d_calloc(size_t count, size_t size)
+{
+    void *ptr;
+    if (!(ptr = calloc(count, size)))
+        ERR("Out of memory.\n");
+    return ptr;
+}
+
+static inline void vkd3d_free(void *ptr)
+{
+    free(ptr);
+}
+
+#endif  /* __VKD3D_MEMORY_H */

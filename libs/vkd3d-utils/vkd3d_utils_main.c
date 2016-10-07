@@ -28,3 +28,20 @@ HRESULT WINAPI D3D12GetDebugInterface(REFIID riid, void **debug)
 
     return E_NOTIMPL;
 }
+
+HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
+        D3D_FEATURE_LEVEL minimum_feature_level, REFIID riid, void **device)
+{
+    struct vkd3d_device_create_info create_info;
+
+    TRACE("adapter %p, minimum_feature_level %#x, riid %s, device %p.\n",
+            adapter, minimum_feature_level, debugstr_guid(riid), device);
+
+    if (adapter)
+        FIXME("Ignoring adapter %p.\n", adapter);
+
+    create_info.minimum_feature_level = minimum_feature_level;
+    create_info.signal_event_pfn = VKD3DSignalEvent;
+
+    return vkd3d_create_device(&create_info, riid, device);
+}

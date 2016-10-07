@@ -26,8 +26,7 @@
 #define COBJMACROS
 #define NONAMELESSUNION
 #include "vkd3d.h"
-#include "vkd3d_common.h"
-#include "vkd3d_debug.h"
+#include "vkd3d_memory.h"
 #include "vkd3d_vulkan.h"
 
 #include <assert.h>
@@ -274,34 +273,6 @@ VkFormat vk_format_from_dxgi_format(DXGI_FORMAT format) DECLSPEC_HIDDEN;
 
 bool vkd3d_array_reserve(void **elements, size_t *capacity,
         size_t element_count, size_t element_size) DECLSPEC_HIDDEN;
-
-static inline void *vkd3d_malloc(size_t size)
-{
-    void *ptr;
-    if (!(ptr = malloc(size)))
-        ERR("Out of memory.\n");
-    return ptr;
-}
-
-static inline void *vkd3d_realloc(void *ptr, size_t size)
-{
-    if (!(ptr = realloc(ptr, size)))
-        ERR("Out of memory.\n");
-    return ptr;
-}
-
-static inline void *vkd3d_calloc(size_t count, size_t size)
-{
-    void *ptr;
-    if (!(ptr = calloc(count, size)))
-        ERR("Out of memory.\n");
-    return ptr;
-}
-
-static inline void vkd3d_free(void *ptr)
-{
-    free(ptr);
-}
 
 HRESULT hresult_from_vk_result(VkResult vr) DECLSPEC_HIDDEN;
 
