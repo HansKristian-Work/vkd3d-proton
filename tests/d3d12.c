@@ -48,6 +48,10 @@ typedef int HRESULT;
 #define WIDL_C_INLINE_WRAPPERS
 #include "d3d12.h"
 
+#ifndef _WIN32
+# include "vkd3d_utils.h"
+#endif
+
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*x))
 
 static size_t align(size_t addr, unsigned int alignment)

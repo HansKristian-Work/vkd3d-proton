@@ -20,21 +20,27 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef __VKD3D_UTILS_PRIVATE_H
-#define __VKD3D_UTILS_PRIVATE_H
+#ifndef __VKD3D_UTILS_H
+#define __VKD3D_UTILS_H
 
-#include <pthread.h>
+#include "vkd3d.h"
 
-#define COBJMACROS
-#define NONAMELESSUNION
-#include "vkd3d_memory.h"
-#include "vkd3d_utils.h"
+#ifdef __cplusplus
+extern "C" {
+#endif  /* __cplusplus */
 
-struct vkd3d_event
-{
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
-    BOOL is_signaled;
-};
+#define WAIT_OBJECT_0 (0)
+#define WAIT_TIMEOUT (1)
+#define WAIT_FAILED (~0u)
+#define INFINITE (~0u)
 
-#endif  /* __VKD3D_UTILS_PRIVATE_H */
+HANDLE WINAPI VKD3DCreateEvent(void);
+BOOL WINAPI VKD3DSignalEvent(HANDLE event);
+unsigned int WINAPI VKD3DWaitEvent(HANDLE event, unsigned int milliseconds);
+void WINAPI VKD3DDestroyEvent(HANDLE event);
+
+#ifdef __cplusplus
+}
+#endif  /* __cplusplus */
+
+#endif  /* __VKD3D_UTILS_H */
