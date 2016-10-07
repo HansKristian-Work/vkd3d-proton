@@ -246,6 +246,7 @@ struct d3d12_device
 
     VkDevice vk_device;
     struct vkd3d_vk_device_procs vk_procs;
+    vkd3d_signal_event_pfn signal_event;
 
     unsigned int direct_queue_family_index;
     unsigned int copy_queue_family_index;
@@ -254,7 +255,8 @@ struct d3d12_device
     struct vkd3d_instance vkd3d_instance;
 };
 
-HRESULT d3d12_device_create(struct d3d12_device **device) DECLSPEC_HIDDEN;
+HRESULT d3d12_device_create(const struct vkd3d_device_create_info *create_info,
+        struct d3d12_device **device) DECLSPEC_HIDDEN;
 
 /* utils */
 BOOL is_valid_feature_level(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;

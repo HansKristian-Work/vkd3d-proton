@@ -44,7 +44,7 @@ HRESULT WINAPI vkd3d_create_device(const struct vkd3d_device_create_info *create
         return E_INVALIDARG;
     }
 
-    if (FAILED(hr = d3d12_device_create(&object)))
+    if (FAILED(hr = d3d12_device_create(create_info, &object)))
         return hr;
 
     return return_interface((IUnknown *)&object->ID3D12Device_iface, &IID_ID3D12Device,
@@ -63,6 +63,7 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_fe
         FIXME("Ignoring adapter %p.\n", adapter);
 
     create_info.minimum_feature_level = minimum_feature_level;
+    create_info.signal_event_pfn = VKD3DSignalEvent;
 
     return vkd3d_create_device(&create_info, riid, device);
 }

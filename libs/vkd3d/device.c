@@ -1071,7 +1071,8 @@ static const struct ID3D12DeviceVtbl d3d12_device_vtbl =
     d3d12_device_GetAdapterLuid,
 };
 
-static HRESULT d3d12_device_init(struct d3d12_device *device)
+static HRESULT d3d12_device_init(struct d3d12_device *device,
+        const struct vkd3d_device_create_info *create_info)
 {
     HRESULT hr;
 
@@ -1087,10 +1088,13 @@ static HRESULT d3d12_device_init(struct d3d12_device *device)
         return hr;
     }
 
+    device->signal_event = create_info->signal_event_pfn;
+
     return S_OK;
 }
 
-HRESULT d3d12_device_create(struct d3d12_device **device)
+HRESULT d3d12_device_create(const struct vkd3d_device_create_info *create_info,
+        struct d3d12_device **device)
 {
     struct d3d12_device *object;
     HRESULT hr;
@@ -1098,7 +1102,7 @@ HRESULT d3d12_device_create(struct d3d12_device **device)
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    if (FAILED(hr = d3d12_device_init(object)))
+    if (FAILED(hr = d3d12_device_init(object, create_info)))
     {
         vkd3d_free(object);
         return hr;

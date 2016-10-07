@@ -162,7 +162,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(ID3D12Fence *i
 
     if (value <= fence->value)
     {
-        VKD3DSignalEvent(event);
+        fence->device->signal_event(event);
         pthread_mutex_unlock(&fence->mutex);
         return S_OK;
     }
@@ -217,7 +217,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_Signal(ID3D12Fence *iface, UINT64 v
 
         if (current->value <= value)
         {
-            VKD3DSignalEvent(current->event);
+            fence->device->signal_event(current->event);
         }
         else
         {

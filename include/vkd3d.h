@@ -30,9 +30,12 @@
 extern "C" {
 #endif  /* __cplusplus */
 
+typedef BOOL (WINAPI *vkd3d_signal_event_pfn)(HANDLE event);
+
 struct vkd3d_device_create_info
 {
     D3D_FEATURE_LEVEL minimum_feature_level;
+    vkd3d_signal_event_pfn signal_event_pfn;
 };
 
 HRESULT WINAPI vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
