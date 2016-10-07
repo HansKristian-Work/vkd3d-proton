@@ -22,7 +22,8 @@ noinst_LTLIBRARIES = libvkd3d-common.la
 libvkd3d_common_la_SOURCES = \
 	libs/vkd3d-common/debug.c
 
-lib_LTLIBRARIES = libvkd3d.la
+lib_LTLIBRARIES = libvkd3d.la libvkd3d-utils.la
+
 libvkd3d_la_SOURCES = \
 	libs/vkd3d/command.c \
 	libs/vkd3d/device.c \
@@ -32,11 +33,15 @@ libvkd3d_la_SOURCES = \
 	libs/vkd3d/vkd3d_main.c
 libvkd3d_la_LIBADD = libvkd3d-common.la @PTHREAD_LIBS@
 
+libvkd3d_utils_la_SOURCES = \
+	libs/vkd3d-utils/vkd3d_utils_main.c
+libvkd3d_utils_la_LIBADD = libvkd3d-common.la libvkd3d.la
+
 pkgconfigdir = $(libdir)/pkgconfig
 pkginclude_HEADERS = $(vkd3d_public_headers)
 nodist_pkgconfig_DATA = libvkd3d.pc
 
-LDADD = libvkd3d.la
+LDADD = libvkd3d-utils.la
 check_PROGRAMS =  $(vkd3d_tests)
 AM_DEFAULT_SOURCE_EXT = .c
 TESTS = $(vkd3d_tests)
