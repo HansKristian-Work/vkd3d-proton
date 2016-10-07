@@ -45,13 +45,6 @@ struct vkd3d_instance
     struct vkd3d_vk_instance_procs vk_procs;
 };
 
-struct vkd3d_event
-{
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
-    BOOL is_signaled;
-};
-
 struct vkd3d_waiting_event
 {
     UINT64 value;
