@@ -18,16 +18,19 @@ vkd3d_tests = \
 BUILT_SOURCES = $(widl_headers)
 CLEANFILES = $(widl_headers)
 
+noinst_LTLIBRARIES = libvkd3d-common.la
+libvkd3d_common_la_SOURCES = \
+	libs/vkd3d-common/debug.c
+
 lib_LTLIBRARIES = libvkd3d.la
 libvkd3d_la_SOURCES = \
 	libs/vkd3d/command.c \
-	libs/vkd3d/debug.c \
 	libs/vkd3d/device.c \
 	libs/vkd3d/resource.c \
 	libs/vkd3d/state.c \
 	libs/vkd3d/utils.c \
 	libs/vkd3d/vkd3d_main.c
-libvkd3d_la_LIBADD = @PTHREAD_LIBS@
+libvkd3d_la_LIBADD = libvkd3d-common.la @PTHREAD_LIBS@
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkginclude_HEADERS = $(vkd3d_public_headers)
