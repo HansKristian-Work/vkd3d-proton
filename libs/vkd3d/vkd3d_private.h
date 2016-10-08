@@ -51,6 +51,17 @@ struct vkd3d_waiting_event
     HANDLE event;
 };
 
+struct vkd3d_fence_worker
+{
+    pthread_t thread;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    bool should_exit;
+};
+
+HRESULT vkd3d_start_fence_worker(struct vkd3d_fence_worker *worker) DECLSPEC_HIDDEN;
+HRESULT vkd3d_stop_fence_worker(struct vkd3d_fence_worker *worker) DECLSPEC_HIDDEN;
+
 /* ID3D12Fence */
 struct d3d12_fence
 {
@@ -239,6 +250,8 @@ struct d3d12_device
     VkDevice vk_device;
     struct vkd3d_vk_device_procs vk_procs;
     vkd3d_signal_event_pfn signal_event;
+
+    struct vkd3d_fence_worker fence_worker;
 
     unsigned int direct_queue_family_index;
     unsigned int copy_queue_family_index;

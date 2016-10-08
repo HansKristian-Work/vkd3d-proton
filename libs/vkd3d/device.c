@@ -496,6 +496,7 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
     {
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+        vkd3d_stop_fence_worker(&device->fence_worker);
         VK_CALL(vkDestroyDevice(device->vk_device, NULL));
         vkd3d_instance_destroy(&device->vkd3d_instance);
 
@@ -1089,6 +1090,14 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     }
 
     device->signal_event = create_info->signal_event_pfn;
+
+    if (FAILED(hr = vkd3d_start_fence_worker(&device->fence_worker)))
+    {
+        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+        VK_CALL(vkDestroyDevice(device->vk_device, NULL));
+        vkd3d_instance_destroy(&device->vkd3d_instance);
+        return hr;
+    }
 
     return S_OK;
 }

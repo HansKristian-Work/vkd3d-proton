@@ -23,6 +23,100 @@
 
 #include "vkd3d_private.h"
 
+/* Fence worker thread */
+static void *vkd3d_fence_worker_main(void *arg)
+{
+    struct vkd3d_fence_worker *worker = arg;
+    int rc;
+
+    for (;;)
+    {
+        if ((rc = pthread_mutex_lock(&worker->mutex)))
+        {
+            ERR("Failed to lock mutex, error %d.\n", rc);
+            return NULL;
+        }
+
+        if (worker->should_exit)
+        {
+            pthread_mutex_unlock(&worker->mutex);
+            break;
+        }
+
+        if ((rc = pthread_cond_wait(&worker->cond, &worker->mutex)))
+        {
+            ERR("Failed to wait on condition variable, error %d.\n", rc);
+            pthread_mutex_unlock(&worker->mutex);
+            return NULL;
+        }
+
+        pthread_mutex_unlock(&worker->mutex);
+    }
+
+    return NULL;
+}
+
+HRESULT vkd3d_start_fence_worker(struct vkd3d_fence_worker *worker)
+{
+    int rc;
+
+    TRACE("worker %p.\n", worker);
+
+    worker->should_exit = false;
+
+    if ((rc = pthread_mutex_init(&worker->mutex, NULL)))
+    {
+        ERR("Failed to initialize mutex, error %d.\n", rc);
+        return E_FAIL;
+    }
+
+    if ((rc = pthread_cond_init(&worker->cond, NULL)))
+    {
+        ERR("Failed to initialize condition variable, error %d.\n", rc);
+        pthread_mutex_destroy(&worker->mutex);
+        return E_FAIL;
+    }
+
+    if ((rc = pthread_create(&worker->thread, NULL, vkd3d_fence_worker_main, worker)))
+    {
+        ERR("Failed to create fence worker thread, error %d.\n", rc);
+        pthread_mutex_destroy(&worker->mutex);
+        pthread_cond_destroy(&worker->cond);
+        return E_FAIL;
+    }
+
+    return S_OK;
+}
+
+HRESULT vkd3d_stop_fence_worker(struct vkd3d_fence_worker *worker)
+{
+    int rc;
+
+    TRACE("worker %p.\n", worker);
+
+    if ((rc = pthread_mutex_lock(&worker->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return E_FAIL;
+    }
+
+    worker->should_exit = true;
+    pthread_cond_signal(&worker->cond);
+
+    pthread_mutex_unlock(&worker->mutex);
+
+    if ((rc = pthread_join(worker->thread, NULL)))
+    {
+        ERR("Failed to join fence worker thread, error %d.\n", rc);
+        return E_FAIL;
+    }
+
+    pthread_mutex_destroy(&worker->mutex);
+    pthread_cond_destroy(&worker->cond);
+
+    return S_OK;
+}
+
 /* ID3D12Fence */
 static struct d3d12_fence *impl_from_ID3D12Fence(ID3D12Fence *iface)
 {
