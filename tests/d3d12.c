@@ -168,7 +168,6 @@ static void destroy_event(HANDLE event)
 #endif
 
 #define wait_queue_idle(a, b) wait_queue_idle_(__LINE__, a, b)
-#if _WIN32
 static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12CommandQueue *queue)
 {
     const UINT64 value = 1;
@@ -187,24 +186,18 @@ static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12Comm
     if (ID3D12Fence_GetCompletedValue(fence) < value)
     {
         event = create_event();
-        ok_(line)(!!event, "CreateEvent failed.\n");
+        ok_(line)(!!event, "Failed to create event.\n");
 
         hr = ID3D12Fence_SetEventOnCompletion(fence, value, event);
         ok_(line)(SUCCEEDED(hr), "SetEventOnCompletion failed, hr %#x.\n", hr);
         ret = wait_event(event, INFINITE);
-        ok_(line)(ret == WAIT_OBJECT_0, "WaitForSingleObject failed, ret %#x.\n", ret);
+        ok_(line)(ret == WAIT_OBJECT_0, "Failed to wait for event, ret %#x.\n", ret);
 
         destroy_event(event);
     }
 
     ID3D12Fence_Release(fence);
 }
-#else
-static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12CommandQueue *queue)
-{
-    todo_(line)(0, "wait_queue_idle() not implemented.\n");
-}
-#endif
 
 static unsigned int format_size(DXGI_FORMAT format)
 {
