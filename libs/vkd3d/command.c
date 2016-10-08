@@ -24,6 +24,45 @@
 #include "vkd3d_private.h"
 
 /* Fence worker thread */
+static HRESULT vkd3d_queue_gpu_fence(struct vkd3d_fence_worker *worker,
+        VkFence vk_fence, ID3D12Fence *fence, UINT64 value)
+{
+    int rc;
+
+    TRACE("worker %p, fence %p, value %s.\n", worker, fence, debugstr_uint64(value));
+
+    if ((rc = pthread_mutex_lock(&worker->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return E_FAIL;
+    }
+
+    if (!vkd3d_array_reserve((void **)&worker->vk_fences, &worker->vk_fences_size,
+            worker->fence_count + 1, sizeof(*worker->vk_fences)))
+    {
+        ERR("Failed to add GPU fence.\n");
+        pthread_mutex_unlock(&worker->mutex);
+        return E_OUTOFMEMORY;
+    }
+    if (!vkd3d_array_reserve((void **)&worker->fences, &worker->fences_size,
+            worker->fence_count + 1, sizeof(*worker->fences)))
+    {
+        ERR("Failed to add GPU fence.\n");
+        pthread_mutex_unlock(&worker->mutex);
+        return E_OUTOFMEMORY;
+    }
+
+    worker->vk_fences[worker->fence_count] = vk_fence;
+    worker->fences[worker->fence_count].fence = fence;
+    worker->fences[worker->fence_count].value = value;
+    ++worker->fence_count;
+
+    pthread_cond_signal(&worker->cond);
+    pthread_mutex_unlock(&worker->mutex);
+
+    return S_OK;
+}
+
 static void vkd3d_wait_for_gpu_fences(struct vkd3d_fence_worker *worker)
 {
     struct d3d12_device *device = worker->device;
@@ -1855,9 +1894,50 @@ static void STDMETHODCALLTYPE d3d12_command_queue_EndEvent(ID3D12CommandQueue *i
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *iface,
         ID3D12Fence *fence, UINT64 value)
 {
-    FIXME("iface %p, fence %p, value %s stub!\n", iface, fence, debugstr_uint64(value));
+    struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkFenceCreateInfo fence_info;
+    struct d3d12_device *device;
+    VkFence vk_fence;
+    VkResult vr;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, fence %p, value %s.\n", iface, fence, debugstr_uint64(value));
+
+    device = command_queue->device;
+    vk_procs = &device->vk_procs;
+
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_info.pNext = NULL;
+    fence_info.flags = 0;
+
+    /* XXX: It may be a good idea to re-use Vulkan fences. */
+    if ((vr = VK_CALL(vkCreateFence(device->vk_device, &fence_info, NULL, &vk_fence))) < 0)
+    {
+        WARN("Failed to create Vulkan fence, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    if ((vr = VK_CALL(vkQueueSubmit(command_queue->vk_queue, 0, NULL, vk_fence))) < 0)
+    {
+        WARN("Failed to submit fence, vr %d.\n", vr);
+        VK_CALL(vkDestroyFence(device->vk_device, vk_fence, NULL));
+        return hresult_from_vk_result(vr);
+    }
+
+    vr = VK_CALL(vkGetFenceStatus(device->vk_device, vk_fence));
+    if (vr == VK_SUCCESS)
+    {
+        VK_CALL(vkDestroyFence(device->vk_device, vk_fence, NULL));
+        return d3d12_fence_Signal(fence, value);
+    }
+    if (vr != VK_NOT_READY)
+    {
+        WARN("Failed to get fence status, vr %d.\n", vr);
+        VK_CALL(vkDestroyFence(device->vk_device, vk_fence, NULL));
+        return hresult_from_vk_result(vr);
+    }
+
+    return vkd3d_queue_gpu_fence(&device->fence_worker, vk_fence, fence, value);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Wait(ID3D12CommandQueue *iface,
