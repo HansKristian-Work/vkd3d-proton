@@ -51,6 +51,7 @@ typedef int HRESULT;
 #include "d3d12.h"
 
 #ifndef _WIN32
+# include <pthread.h>
 # include "vkd3d_utils.h"
 #endif
 
@@ -166,6 +167,89 @@ static unsigned int wait_event(HANDLE event, unsigned int milliseconds)
 static void destroy_event(HANDLE event)
 {
     VKD3DDestroyEvent(event);
+}
+#endif
+
+typedef void (*thread_main_pfn)(void *data);
+
+struct test_thread_data
+{
+    thread_main_pfn main_pfn;
+    void *user_data;
+};
+
+#ifdef _WIN32
+static DWORD WINAPI test_thread_main(void *untyped_data)
+{
+    struct test_thread_data *data = untyped_data;
+    data->main_pfn(data->user_data);
+    free(untyped_data);
+    return 0;
+}
+
+static HANDLE create_thread(thread_main_pfn main_pfn, void *user_data)
+{
+    struct test_thread_data *data;
+
+    if (!(data = malloc(sizeof(*data))))
+        return NULL;
+    data->main_pfn = main_pfn;
+    data->user_data = user_data;
+
+    return CreateThread(NULL, 0, test_thread_main, data, 0, NULL);
+}
+
+static BOOL join_thread(HANDLE thread)
+{
+    int ret;
+
+    ret = WaitForSingleObject(thread, INFINITE);
+    CloseHandle(thread);
+    return ret == WAIT_OBJECT_0;
+}
+#else
+static void *test_thread_main(void *untyped_data)
+{
+    struct test_thread_data *data = untyped_data;
+    data->main_pfn(data->user_data);
+    free(untyped_data);
+    return NULL;
+}
+
+static HANDLE create_thread(thread_main_pfn main_pfn, void *user_data)
+{
+    struct test_thread_data *data;
+    pthread_t *thread;
+
+    if (!(thread = malloc(sizeof(*thread))))
+        return NULL;
+
+    if (!(data = malloc(sizeof(*data))))
+    {
+        free(thread);
+        return NULL;
+    }
+    data->main_pfn = main_pfn;
+    data->user_data = user_data;
+
+    if (pthread_create(thread, NULL, test_thread_main, data))
+    {
+        free(data);
+        free(thread);
+        return NULL;
+    }
+
+    return thread;
+}
+
+static BOOL join_thread(HANDLE untyped_thread)
+{
+    pthread_t *thread = untyped_thread;
+    int rc;
+
+    rc = pthread_join(*thread, NULL);
+    free(thread);
+    return !rc;
 }
 #endif
 
@@ -1639,6 +1723,129 @@ static void test_gpu_signal_fence(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+struct multithread_fence_wait_data
+{
+    HANDLE event;
+    ID3D12Fence *fence;
+    UINT64 value;
+};
+
+static void fence_event_wait_main(void *untyped_data)
+{
+    struct multithread_fence_wait_data *data = untyped_data;
+    HANDLE event;
+    HRESULT hr;
+    int ret;
+
+    event = create_event();
+    ok(!!event, "Failed to create event.\n");
+
+    hr = ID3D12Fence_SetEventOnCompletion(data->fence, data->value, event);
+    ok(SUCCEEDED(hr), "SetEventOnCompletion failed, hr %#x.\n", hr);
+
+    signal_event(data->event);
+
+    ret = wait_event(event, INFINITE);
+    ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
+
+    destroy_event(event);
+}
+
+static void fence_busy_wait_main(void *untyped_data)
+{
+    struct multithread_fence_wait_data *data = untyped_data;
+
+    signal_event(data->event);
+
+    while (ID3D12Fence_GetCompletedValue(data->fence) < data->value)
+        ;
+}
+
+static void test_multithread_fence_wait(void)
+{
+    struct multithread_fence_wait_data thread_data;
+    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    unsigned int ret;
+    ULONG refcount;
+    HANDLE thread;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    command_queue_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
+            &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(SUCCEEDED(hr), "CreateCommandQueue failed, hr %#x.\n", hr);
+
+    thread_data.event = create_event();
+    thread_data.value = 0;
+    ok(!!thread_data.event, "Failed to create event.\n");
+    hr = ID3D12Device_CreateFence(device, thread_data.value, D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&thread_data.fence);
+    ok(SUCCEEDED(hr), "CreateFence failed, hr %#x.\n", hr);
+
+    /* Signal fence on host. */
+    ++thread_data.value;
+    thread = create_thread(fence_event_wait_main, &thread_data);
+    ok(!!thread, "Failed to create thread.\n");
+    ret = wait_event(thread_data.event, INFINITE);
+    ok(ret == WAIT_OBJECT_0, "Failed to wait for thread start, return value %#x.\n", ret);
+
+    hr = ID3D12Fence_Signal(thread_data.fence, thread_data.value);
+    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+
+    ok(join_thread(thread), "Failed to join thread.\n");
+
+    ++thread_data.value;
+    thread = create_thread(fence_busy_wait_main, &thread_data);
+    ok(!!thread, "Failed to create thread.\n");
+    ret = wait_event(thread_data.event, INFINITE);
+    ok(ret == WAIT_OBJECT_0, "Failed to wait for thread start, return value %#x.\n", ret);
+
+    hr = ID3D12Fence_Signal(thread_data.fence, thread_data.value);
+    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+
+    ok(join_thread(thread), "Failed to join thread.\n");
+
+    /* Signal fence on device. */
+    ++thread_data.value;
+    thread = create_thread(fence_event_wait_main, &thread_data);
+    ok(!!thread, "Failed to create thread.\n");
+    ret = wait_event(thread_data.event, INFINITE);
+    ok(ret == WAIT_OBJECT_0, "Failed to wait for thread start, return value %#x.\n", ret);
+
+    hr = ID3D12CommandQueue_Signal(queue, thread_data.fence, thread_data.value);
+    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+
+    ok(join_thread(thread), "Failed to join thread.\n");
+
+    ++thread_data.value;
+    thread = create_thread(fence_busy_wait_main, &thread_data);
+    ok(!!thread, "Failed to create thread.\n");
+    ret = wait_event(thread_data.event, INFINITE);
+    ok(ret == WAIT_OBJECT_0, "Failed to wait for thread start, return value %#x.\n", ret);
+
+    hr = ID3D12CommandQueue_Signal(queue, thread_data.fence, thread_data.value);
+    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+
+    ok(join_thread(thread), "Failed to join thread.\n");
+
+    destroy_event(thread_data.event);
+    ID3D12Fence_Release(thread_data.fence);
+    ID3D12CommandQueue_Release(queue);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 static void test_clear_render_target_view(void)
 {
     static const float green[] = { 0.0f, 1.0f, 0.0f, 1.0f };
@@ -1777,5 +1984,6 @@ START_TEST(d3d12)
     test_reset_command_allocator();
     test_cpu_signal_fence();
     test_gpu_signal_fence();
+    test_multithread_fence_wait();
     test_clear_render_target_view();
 }
