@@ -1111,8 +1111,55 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
         const D3D12_TEXTURE_COPY_LOCATION *dst, UINT dst_x, UINT dst_y, UINT dst_z,
         const D3D12_TEXTURE_COPY_LOCATION *src, const D3D12_BOX *src_box)
 {
-    FIXME("iface %p, dst %p, dst_x %u, dst_y %u, dst_z %u, src %p, src_box %p stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_resource *dst_resource, *src_resource;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkBufferImageCopy buffer_image_copy;
+    const struct vkd3d_format *format;
+
+    TRACE("iface %p, dst %p, dst_x %u, dst_y %u, dst_z %u, src %p, src_box %p.\n",
             iface, dst, dst_x, dst_y, dst_z, src, src_box);
+
+    vk_procs = &list->device->vk_procs;
+
+    dst_resource = unsafe_impl_from_ID3D12Resource(dst->pResource);
+    src_resource = unsafe_impl_from_ID3D12Resource(src->pResource);
+
+    if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
+            && dst->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
+    {
+        if (!(format = vkd3d_get_format(dst->u.PlacedFootprint.Footprint.Format)))
+        {
+            WARN("Invalid format %#x.\n", dst->u.PlacedFootprint.Footprint.Format);
+            return;
+        }
+
+        if ((format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                && (format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
+            FIXME("Depth-stencil format %#x not fully supported yet.\n", format->dxgi_format);
+
+        buffer_image_copy.bufferOffset = dst->u.PlacedFootprint.Offset;
+        buffer_image_copy.bufferRowLength = dst->u.PlacedFootprint.Footprint.RowPitch / format->byte_count;
+        buffer_image_copy.bufferImageHeight = 0;
+        buffer_image_copy.imageSubresource.aspectMask = format->vk_aspect_mask;
+        buffer_image_copy.imageSubresource.mipLevel = src->u.SubresourceIndex % src_resource->desc.MipLevels;
+        buffer_image_copy.imageSubresource.baseArrayLayer = src->u.SubresourceIndex / src_resource->desc.MipLevels;
+        buffer_image_copy.imageSubresource.layerCount = 1;
+        buffer_image_copy.imageOffset.x = dst_x;
+        buffer_image_copy.imageOffset.y = dst_y;
+        buffer_image_copy.imageOffset.z = dst_z;
+        buffer_image_copy.imageExtent.width = dst->u.PlacedFootprint.Footprint.Width;
+        buffer_image_copy.imageExtent.height = dst->u.PlacedFootprint.Footprint.Height;
+        buffer_image_copy.imageExtent.depth = dst->u.PlacedFootprint.Footprint.Depth;
+
+        VK_CALL(vkCmdCopyImageToBuffer(list->vk_command_buffer,
+                src_resource->u.vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                dst_resource->u.vk_buffer, 1, &buffer_image_copy));
+    }
+    else
+    {
+        FIXME("Copy type %#x -> %#x not implemented.\n", src->Type, dst->Type);
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(ID3D12GraphicsCommandList *iface,

@@ -1739,7 +1739,7 @@ static void test_clear_render_target_view(void)
         for (x = 0; x < resource_desc.Width; ++x)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
-           todo(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
+           ok(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
         }
     }
     release_resource_readback(&rb);
