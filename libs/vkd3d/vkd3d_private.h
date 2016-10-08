@@ -296,8 +296,6 @@ const char *debug_vk_memory_heap_flags(VkMemoryHeapFlags flags) DECLSPEC_HIDDEN;
 const char *debug_vk_memory_property_flags(VkMemoryPropertyFlags flags) DECLSPEC_HIDDEN;
 const char *debug_vk_queue_flags(VkQueueFlags flags) DECLSPEC_HIDDEN;
 
-VkFormat vk_format_from_dxgi_format(DXGI_FORMAT format) DECLSPEC_HIDDEN;
-
 bool vkd3d_array_reserve(void **elements, size_t *capacity,
         size_t element_count, size_t element_size) DECLSPEC_HIDDEN;
 

@@ -111,8 +111,15 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const struct vkd3d_format *format;
     VkImageCreateInfo image_info;
     VkResult vr;
+
+    if (!(format = vkd3d_get_format(desc->Format)))
+    {
+        WARN("Invalid DXGI format %#x.\n", desc->Format);
+        return E_INVALIDARG;
+    }
 
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.pNext = NULL;
@@ -121,7 +128,7 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
         image_info.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
 
     image_info.imageType = vk_image_type_from_d3d12_resource_dimension(desc->Dimension);
-    image_info.format = vk_format_from_dxgi_format(desc->Format);
+    image_info.format = format->vk_format;
     image_info.extent.width = desc->Width;
     image_info.extent.height = desc->Height;
 
@@ -696,7 +703,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 {
     const struct vkd3d_vk_device_procs *vk_procs;
     struct VkImageViewCreateInfo view_desc;
-    DXGI_FORMAT format;
+    const struct vkd3d_format *format;
     VkResult vr;
 
     vk_procs = &device->vk_procs;
@@ -715,13 +722,24 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
         return;
     }
 
-    format = desc ? desc->Format : resource->desc.Format;
+    if (!(format = vkd3d_get_format(desc ? desc->Format : resource->desc.Format)))
+    {
+        WARN("Invalid DXGI format.\n");
+        return;
+    }
+
+    if (format->vk_aspect_mask != VK_IMAGE_ASPECT_COLOR_BIT)
+    {
+        WARN("Trying to create RTV for depth/stencil format %#x.\n", format->dxgi_format);
+        return;
+    }
+
     view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_desc.pNext = NULL;
     view_desc.flags = 0;
     view_desc.image = resource->u.vk_image;
     view_desc.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_desc.format = vk_format_from_dxgi_format(format);
+    view_desc.format = format->vk_format;
     view_desc.components.r = VK_COMPONENT_SWIZZLE_R;
     view_desc.components.g = VK_COMPONENT_SWIZZLE_G;
     view_desc.components.b = VK_COMPONENT_SWIZZLE_B;

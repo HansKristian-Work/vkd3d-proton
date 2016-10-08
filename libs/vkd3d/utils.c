@@ -47,19 +47,6 @@ const struct vkd3d_format *vkd3d_get_format(DXGI_FORMAT dxgi_format)
     return NULL;
 }
 
-VkFormat vk_format_from_dxgi_format(DXGI_FORMAT dxgi_format)
-{
-    const struct vkd3d_format *format;
-
-    if (!(format = vkd3d_get_format(dxgi_format)))
-    {
-        FIXME("Unhandled format %#x.\n", dxgi_format);
-        return VK_FORMAT_UNDEFINED;
-    }
-
-    return format->vk_format;
-}
-
 bool vkd3d_array_reserve(void **elements, size_t *capacity, size_t element_count, size_t element_size)
 {
     size_t new_capacity, max_capacity;
