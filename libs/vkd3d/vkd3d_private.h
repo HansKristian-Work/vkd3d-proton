@@ -45,21 +45,28 @@ struct vkd3d_instance
     struct vkd3d_vk_instance_procs vk_procs;
 };
 
-struct vkd3d_waiting_event
-{
-    UINT64 value;
-    HANDLE event;
-};
-
 struct vkd3d_fence_worker
 {
     pthread_t thread;
     pthread_mutex_t mutex;
     pthread_cond_t cond;
     bool should_exit;
+
+    size_t fence_count;
+    VkFence *vk_fences;
+    size_t vk_fences_size;
+    struct vkd3d_waiting_fence
+    {
+        ID3D12Fence *fence;
+        UINT64 value;
+    } *fences;
+    size_t fences_size;
+
+    struct d3d12_device *device;
 };
 
-HRESULT vkd3d_start_fence_worker(struct vkd3d_fence_worker *worker) DECLSPEC_HIDDEN;
+HRESULT vkd3d_start_fence_worker(struct vkd3d_fence_worker *worker,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
 HRESULT vkd3d_stop_fence_worker(struct vkd3d_fence_worker *worker) DECLSPEC_HIDDEN;
 
 /* ID3D12Fence */
@@ -71,7 +78,11 @@ struct d3d12_fence
     UINT64 value;
     pthread_mutex_t mutex;
 
-    struct vkd3d_waiting_event *events;
+    struct vkd3d_waiting_event
+    {
+        UINT64 value;
+        HANDLE event;
+    } *events;
     size_t events_size;
     size_t event_count;
 

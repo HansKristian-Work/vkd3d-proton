@@ -24,6 +24,51 @@
 #include "vkd3d_private.h"
 
 /* Fence worker thread */
+static void vkd3d_wait_for_gpu_fences(struct vkd3d_fence_worker *worker)
+{
+    struct d3d12_device *device = worker->device;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    unsigned int i, j;
+    HRESULT hr;
+    int vr;
+
+    if (!worker->fence_count)
+        return;
+
+    vr = VK_CALL(vkWaitForFences(device->vk_device,
+            worker->fence_count, worker->vk_fences, VK_FALSE, 0));
+    if (vr == VK_TIMEOUT)
+        return;
+    if (vr != VK_SUCCESS)
+    {
+        ERR("Failed to wait for Vulkan fences, vr %d.\n", vr);
+        return;
+    }
+
+    for (i = 0, j = 0; i < worker->fence_count; ++i)
+    {
+        if (!(vr = VK_CALL(vkGetFenceStatus(device->vk_device, worker->vk_fences[i]))))
+        {
+            struct vkd3d_waiting_fence *current = &worker->fences[i];
+            if (FAILED(hr = ID3D12Fence_Signal(current->fence, current->value)))
+                ERR("Failed to signal D3D12 fence, hr %d.\n", hr);
+            VK_CALL(vkDestroyFence(device->vk_device, worker->vk_fences[i], NULL));
+            continue;
+        }
+
+        if (vr != VK_NOT_READY)
+            ERR("Failed to get Vulkan fence status, vr %d.\n", vr);
+
+        if (i != j)
+        {
+            worker->vk_fences[j] = worker->vk_fences[i];
+            worker->fences[j] = worker->fences[i];
+        }
+        ++j;
+    }
+    worker->fence_count = j;
+}
+
 static void *vkd3d_fence_worker_main(void *arg)
 {
     struct vkd3d_fence_worker *worker = arg;
@@ -37,18 +82,23 @@ static void *vkd3d_fence_worker_main(void *arg)
             return NULL;
         }
 
-        if (worker->should_exit)
+        if (worker->should_exit && !worker->fence_count)
         {
             pthread_mutex_unlock(&worker->mutex);
             break;
         }
 
-        if ((rc = pthread_cond_wait(&worker->cond, &worker->mutex)))
+        if (!worker->fence_count)
         {
-            ERR("Failed to wait on condition variable, error %d.\n", rc);
-            pthread_mutex_unlock(&worker->mutex);
-            return NULL;
+            if ((rc = pthread_cond_wait(&worker->cond, &worker->mutex)))
+            {
+                ERR("Failed to wait on condition variable, error %d.\n", rc);
+                pthread_mutex_unlock(&worker->mutex);
+                return NULL;
+            }
         }
+
+        vkd3d_wait_for_gpu_fences(worker);
 
         pthread_mutex_unlock(&worker->mutex);
     }
@@ -56,13 +106,22 @@ static void *vkd3d_fence_worker_main(void *arg)
     return NULL;
 }
 
-HRESULT vkd3d_start_fence_worker(struct vkd3d_fence_worker *worker)
+HRESULT vkd3d_start_fence_worker(struct vkd3d_fence_worker *worker,
+        struct d3d12_device *device)
 {
     int rc;
 
     TRACE("worker %p.\n", worker);
 
     worker->should_exit = false;
+    worker->device = device;
+
+    worker->fence_count = 0;
+
+    worker->vk_fences = NULL;
+    worker->vk_fences_size = 0;
+    worker->fences = NULL;
+    worker->fences_size = 0;
 
     if ((rc = pthread_mutex_init(&worker->mutex, NULL)))
     {
@@ -113,6 +172,9 @@ HRESULT vkd3d_stop_fence_worker(struct vkd3d_fence_worker *worker)
 
     pthread_mutex_destroy(&worker->mutex);
     pthread_cond_destroy(&worker->cond);
+
+    vkd3d_free(worker->vk_fences);
+    vkd3d_free(worker->fences);
 
     return S_OK;
 }
