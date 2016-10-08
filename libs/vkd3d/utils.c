@@ -22,6 +22,44 @@
 
 #include "vkd3d_private.h"
 
+static const struct vkd3d_format vkd3d_formats[] =
+{
+    {DXGI_FORMAT_R32G32B32A32_FLOAT, VK_FORMAT_R32G32B32A32_SFLOAT, 16, VK_IMAGE_ASPECT_COLOR_BIT},
+    {DXGI_FORMAT_R32G32B32A32_UINT,  VK_FORMAT_R32G32B32A32_UINT,   16, VK_IMAGE_ASPECT_COLOR_BIT},
+    {DXGI_FORMAT_R32G32B32A32_SINT,  VK_FORMAT_R32G32B32A32_SINT,   16, VK_IMAGE_ASPECT_COLOR_BIT},
+    {DXGI_FORMAT_R32G32B32_FLOAT,    VK_FORMAT_R32G32B32_SFLOAT,    12, VK_IMAGE_ASPECT_COLOR_BIT},
+    {DXGI_FORMAT_R8G8B8A8_UNORM,     VK_FORMAT_R8G8B8A8_UNORM,       4, VK_IMAGE_ASPECT_COLOR_BIT},
+    {DXGI_FORMAT_R32_FLOAT,          VK_FORMAT_R32_SFLOAT,           4, VK_IMAGE_ASPECT_COLOR_BIT},
+    {DXGI_FORMAT_B8G8R8A8_UNORM,     VK_FORMAT_B8G8R8A8_UNORM,       4, VK_IMAGE_ASPECT_COLOR_BIT},
+};
+
+const struct vkd3d_format *vkd3d_get_format(DXGI_FORMAT dxgi_format)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(vkd3d_formats); ++i)
+    {
+        if (vkd3d_formats[i].dxgi_format == dxgi_format)
+            return &vkd3d_formats[i];
+    }
+
+    FIXME("Unhandled DXGI format %#x.\n", dxgi_format);
+    return NULL;
+}
+
+VkFormat vk_format_from_dxgi_format(DXGI_FORMAT dxgi_format)
+{
+    const struct vkd3d_format *format;
+
+    if (!(format = vkd3d_get_format(dxgi_format)))
+    {
+        FIXME("Unhandled format %#x.\n", dxgi_format);
+        return VK_FORMAT_UNDEFINED;
+    }
+
+    return format->vk_format;
+}
+
 bool vkd3d_array_reserve(void **elements, size_t *capacity, size_t element_count, size_t element_size)
 {
     size_t new_capacity, max_capacity;
@@ -157,30 +195,6 @@ const char *debug_vk_memory_property_flags(VkMemoryPropertyFlags flags)
     if (!buffer[0])
         return "0";
     return vkd3d_dbg_sprintf("%s", &buffer[3]);
-}
-
-VkFormat vk_format_from_dxgi_format(DXGI_FORMAT format)
-{
-    switch (format)
-    {
-        case DXGI_FORMAT_R32G32B32A32_FLOAT:
-            return VK_FORMAT_R32G32B32A32_SFLOAT;
-        case DXGI_FORMAT_R32G32B32A32_UINT:
-            return VK_FORMAT_R32G32B32A32_UINT;
-        case DXGI_FORMAT_R32G32B32A32_SINT:
-            return VK_FORMAT_R32G32B32A32_SINT;
-        case DXGI_FORMAT_R32G32B32_FLOAT:
-            return VK_FORMAT_R32G32B32_SFLOAT;
-        case DXGI_FORMAT_R8G8B8A8_UNORM:
-            return VK_FORMAT_R8G8B8A8_UNORM;
-        case DXGI_FORMAT_R32_FLOAT:
-            return VK_FORMAT_R32_SFLOAT;
-        case DXGI_FORMAT_B8G8R8A8_UNORM:
-            return VK_FORMAT_B8G8R8A8_UNORM;
-        default:
-            FIXME("Unhandled format %#x.\n", format);
-            return VK_FORMAT_UNDEFINED;
-    }
 }
 
 HRESULT hresult_from_vk_result(VkResult vr)

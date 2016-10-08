@@ -275,6 +275,16 @@ HRESULT d3d12_device_create(const struct vkd3d_device_create_info *create_info,
         struct d3d12_device **device) DECLSPEC_HIDDEN;
 
 /* utils */
+struct vkd3d_format
+{
+    DXGI_FORMAT dxgi_format;
+    VkFormat vk_format;
+    size_t byte_count;
+    VkImageAspectFlags vk_aspect_mask;
+};
+
+const struct vkd3d_format *vkd3d_get_format(DXGI_FORMAT dxgi_format) DECLSPEC_HIDDEN;
+
 BOOL is_valid_feature_level(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;
 BOOL check_feature_level_support(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;
 
