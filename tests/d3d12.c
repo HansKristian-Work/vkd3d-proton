@@ -251,34 +251,44 @@ static BOOL join_thread(HANDLE untyped_thread)
 }
 #endif
 
+static HRESULT wait_for_fence(ID3D12Fence *fence, UINT64 value)
+{
+    unsigned int ret;
+    HANDLE event;
+    HRESULT hr;
+
+    if (ID3D12Fence_GetCompletedValue(fence) >= value)
+        return S_OK;
+
+    if (!(event = create_event()))
+        return E_FAIL;
+
+    if (FAILED(hr = ID3D12Fence_SetEventOnCompletion(fence, value, event)))
+    {
+        destroy_event(event);
+        return hr;
+    }
+
+    ret = wait_event(event, INFINITE);
+    destroy_event(event);
+
+    return ret == WAIT_OBJECT_0;
+}
+
 #define wait_queue_idle(a, b) wait_queue_idle_(__LINE__, a, b)
 static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12CommandQueue *queue)
 {
-    const UINT64 value = 1;
     ID3D12Fence *fence;
-    unsigned int ret;
-    HANDLE event;
     HRESULT hr;
 
     hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
             &IID_ID3D12Fence, (void **)&fence);
     ok_(line)(SUCCEEDED(hr), "CreateFence failed, hr %#x.\n", hr);
 
-    hr = ID3D12CommandQueue_Signal(queue, fence, value);
+    hr = ID3D12CommandQueue_Signal(queue, fence, 1);
     ok_(line)(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
-
-    if (ID3D12Fence_GetCompletedValue(fence) < value)
-    {
-        event = create_event();
-        ok_(line)(!!event, "Failed to create event.\n");
-
-        hr = ID3D12Fence_SetEventOnCompletion(fence, value, event);
-        ok_(line)(SUCCEEDED(hr), "SetEventOnCompletion failed, hr %#x.\n", hr);
-        ret = wait_event(event, INFINITE);
-        ok_(line)(ret == WAIT_OBJECT_0, "Failed to wait for event, ret %#x.\n", ret);
-
-        destroy_event(event);
-    }
+    hr = wait_for_fence(fence, 1);
+    ok_(line)(SUCCEEDED(hr), "Failed to wait for fence, hr %#x.\n", hr);
 
     ID3D12Fence_Release(fence);
 }
