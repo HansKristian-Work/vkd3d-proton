@@ -747,6 +747,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
     const struct vkd3d_vk_device_procs *vk_procs;
     struct d3d12_command_list *list;
     struct d3d12_device *device;
+    unsigned int i;
     VkResult vr;
 
     TRACE("iface %p.\n", iface);
@@ -764,6 +765,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
 
     device = allocator->device;
     vk_procs = &device->vk_procs;
+
+    for (i = 0; i < allocator->framebuffer_count; ++i)
+    {
+        VK_CALL(vkDestroyFramebuffer(device->vk_device, allocator->framebuffers[i], NULL));
+    }
+    allocator->framebuffer_count = 0;
+
+    for (i = 0; i < allocator->pass_count; ++i)
+    {
+        VK_CALL(vkDestroyRenderPass(device->vk_device, allocator->passes[i], NULL));
+    }
+    allocator->pass_count = 0;
 
     if ((vr = VK_CALL(vkResetCommandPool(device->vk_device, allocator->vk_command_pool,
             VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT))))
