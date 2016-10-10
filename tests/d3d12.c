@@ -105,7 +105,7 @@ static HRESULT create_root_signature_(unsigned int line, ID3D12Device *device,
 static HRESULT create_root_signature_(unsigned int line, ID3D12Device *device,
         const D3D12_ROOT_SIGNATURE_DESC *desc, ID3D12RootSignature **root_signature)
 {
-    return ID3D12Device_CreateRootSignature(device, 0, desc, ~0u,
+    return ID3D12Device_CreateRootSignature(device, 0, desc, ~(SIZE_T)0,
             &IID_ID3D12RootSignature, (void **)root_signature);
 }
 #endif

@@ -719,7 +719,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignature(ID3D12Device *
     if (node_mask && node_mask != 1)
         FIXME("Ignoring node mask 0x%08x.\n", node_mask);
 
-    if (bytecode_length != ~0u)
+    if (bytecode_length != ~(SIZE_T)0)
     {
         FIXME("Root signature byte code not supported.\n");
         return E_NOTIMPL;
