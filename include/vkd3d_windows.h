@@ -25,6 +25,10 @@
 
 #if !defined(_WIN32) || defined(__WIDL__)
 
+# ifdef __GNUC__
+#  define DECLSPEC_ALIGN(x) __attribute__((aligned(x)))
+# endif
+
 /* HRESULT */
 typedef int HRESULT;
 # define SUCCEEDED(hr) ((HRESULT)(hr) >= 0)
@@ -64,8 +68,8 @@ typedef unsigned int UINT32;
 typedef long INT64;
 typedef unsigned long UINT64;
 # else
-typedef long long INT64;
-typedef unsigned long long UINT64;
+typedef long long DECLSPEC_ALIGN(8) INT64;
+typedef unsigned long long DECLSPEC_ALIGN(8) UINT64;
 # endif
 typedef long LONG_PTR;
 typedef unsigned long ULONG_PTR;
