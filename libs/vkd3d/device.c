@@ -116,9 +116,8 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
     for (i = 0; i < memory_properties.memoryHeapCount; ++i)
     {
         const VkMemoryHeap *heap = &memory_properties.memoryHeaps[i];
-        TRACE("Memory heap [%u]: size %s (%lu MiB), flags %s, memory types:\n",
-                i, debugstr_uint64(heap->size), (unsigned long)(heap->size / 1024 / 1024),
-                debug_vk_memory_heap_flags(heap->flags));
+        TRACE("Memory heap [%u]: size %#"PRIx64" (%"PRIu64" MiB), flags %s, memory types:\n",
+                i, heap->size, heap->size / 1024 / 1024, debug_vk_memory_heap_flags(heap->flags));
         for (j = 0; j < memory_properties.memoryTypeCount; ++j)
         {
             const VkMemoryType *type = &memory_properties.memoryTypes[j];
@@ -141,8 +140,8 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
     TRACE("  maxPushConstantsSize: %u.\n", limits->maxPushConstantsSize);
     TRACE("  maxMemoryAllocationCount: %u.\n", limits->maxMemoryAllocationCount);
     TRACE("  maxSamplerAllocationCount: %u.\n", limits->maxSamplerAllocationCount);
-    TRACE("  bufferImageGranularity: %s.\n", debugstr_uint64(limits->bufferImageGranularity));
-    TRACE("  sparseAddressSpaceSize: %s.\n", debugstr_uint64(limits->sparseAddressSpaceSize));
+    TRACE("  bufferImageGranularity: %#"PRIx64".\n", limits->bufferImageGranularity);
+    TRACE("  sparseAddressSpaceSize: %#"PRIx64".\n", limits->sparseAddressSpaceSize);
     TRACE("  maxBoundDescriptorSets: %u.\n", limits->maxBoundDescriptorSets);
     TRACE("  maxPerStageDescriptorSamplers: %u.\n", limits->maxPerStageDescriptorSamplers);
     TRACE("  maxPerStageDescriptorUniformBuffers: %u.\n", limits->maxPerStageDescriptorUniformBuffers);
@@ -206,9 +205,9 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
     TRACE("  viewportBoundsRange: %f, %f.\n", limits->viewportBoundsRange[0], limits->viewportBoundsRange[1]);
     TRACE("  viewportSubPixelBits: %u.\n", limits->viewportSubPixelBits);
     TRACE("  minMemoryMapAlignment: %u.\n", (unsigned int)limits->minMemoryMapAlignment);
-    TRACE("  minTexelBufferOffsetAlignment: %s.\n", debugstr_uint64(limits->minTexelBufferOffsetAlignment));
-    TRACE("  minUniformBufferOffsetAlignment: %s.\n", debugstr_uint64(limits->minUniformBufferOffsetAlignment));
-    TRACE("  minStorageBufferOffsetAlignment: %s.\n", debugstr_uint64(limits->minStorageBufferOffsetAlignment));
+    TRACE("  minTexelBufferOffsetAlignment: %#"PRIx64".\n", limits->minTexelBufferOffsetAlignment);
+    TRACE("  minUniformBufferOffsetAlignment: %#"PRIx64".\n", limits->minUniformBufferOffsetAlignment);
+    TRACE("  minStorageBufferOffsetAlignment: %#"PRIx64".\n", limits->minStorageBufferOffsetAlignment);
     TRACE("  minTexelOffset: %d.\n", limits->minTexelOffset);
     TRACE("  maxTexelOffset: %u.\n", limits->maxTexelOffset);
     TRACE("  minTexelGatherOffset: %d.\n", limits->minTexelGatherOffset);
@@ -242,11 +241,9 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
     TRACE("  lineWidthGranularity: %f.\n", limits->lineWidthGranularity);
     TRACE("  strictLines: %#x.\n", limits->strictLines);
     TRACE("  standardSampleLocations: %#x.\n", limits->standardSampleLocations);
-    TRACE("  optimalBufferCopyOffsetAlignment: %s.\n",
-            debugstr_uint64(limits->optimalBufferCopyOffsetAlignment));
-    TRACE("  optimalBufferCopyRowPitchAlignment: %s.\n",
-            debugstr_uint64(limits->optimalBufferCopyRowPitchAlignment));
-    TRACE("  nonCoherentAtomSize: %s.\n", debugstr_uint64(limits->nonCoherentAtomSize));
+    TRACE("  optimalBufferCopyOffsetAlignment: %#"PRIx64".\n", limits->optimalBufferCopyOffsetAlignment);
+    TRACE("  optimalBufferCopyRowPitchAlignment: %#"PRIx64".\n", limits->optimalBufferCopyRowPitchAlignment);
+    TRACE("  nonCoherentAtomSize: %#"PRIx64".\n", limits->nonCoherentAtomSize);
 
     VK_CALL(vkGetPhysicalDeviceFeatures(device, &features));
     TRACE("Device features:\n");
@@ -868,9 +865,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource(ID3D12Device 
         const D3D12_CLEAR_VALUE *optimized_clear_value,
         REFIID riid, void **resource)
 {
-    FIXME("iface %p, heap %p, heap_offset %s, desc %p, initial_state %#x, "
+    FIXME("iface %p, heap %p, heap_offset %#"PRIx64", desc %p, initial_state %#x, "
             "optimized_clear_value %p, riid %s, resource %p stub!\n",
-            iface, heap, debugstr_uint64(heap_offset), desc, initial_state,
+            iface, heap, heap_offset, desc, initial_state,
             optimized_clear_value, debugstr_guid(riid), resource);
 
     return E_NOTIMPL;
@@ -941,8 +938,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateFence(ID3D12Device *iface,
     struct d3d12_fence *object;
     HRESULT hr;
 
-    TRACE("iface %p, intial_value %s, flags %#x, riid %s, fence %p.\n",
-            iface, debugstr_uint64(initial_value), flags, debugstr_guid(riid), fence);
+    TRACE("iface %p, intial_value %#"PRIx64", flags %#x, riid %s, fence %p.\n",
+            iface, initial_value, flags, debugstr_guid(riid), fence);
 
     if (FAILED(hr = d3d12_fence_create(device, initial_value, flags, &object)))
         return hr;
@@ -968,9 +965,9 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         UINT64 *row_size,
         UINT64 *total_bytes)
 {
-    FIXME("iface %p, desc %p, first_sub_resource %u, sub_resource_count %u, base_offset %s, "
+    FIXME("iface %p, desc %p, first_sub_resource %u, sub_resource_count %u, base_offset %#"PRIx64", "
             "layouts %p, row_count %p, row_size %p, total_bytes %p stub!\n",
-            iface, desc, first_sub_resource, sub_resource_count, debugstr_uint64(base_offset), layouts,
+            iface, desc, first_sub_resource, sub_resource_count, base_offset, layouts,
             row_count, row_size, total_bytes);
 }
 

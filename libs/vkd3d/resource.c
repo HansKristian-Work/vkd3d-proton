@@ -239,9 +239,8 @@ static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
     VkMemoryAllocateInfo allocate_info;
     VkResult vr;
 
-    TRACE("Memory requirements: size %s, alignment %s.\n",
-            debugstr_uint64(memory_requirements->size),
-            debugstr_uint64(memory_requirements->alignment));
+    TRACE("Memory requirements: size %#"PRIx64", alignment %#"PRIx64".\n",
+            memory_requirements->size, memory_requirements->alignment);
 
     allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocate_info.pNext = NULL;

@@ -30,6 +30,7 @@
 #include "vkd3d_vulkan.h"
 
 #include <assert.h>
+#include <inttypes.h>
 #include <pthread.h>
 #include <stdbool.h>
 

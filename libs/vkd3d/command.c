@@ -29,7 +29,7 @@ static HRESULT vkd3d_queue_gpu_fence(struct vkd3d_fence_worker *worker,
 {
     int rc;
 
-    TRACE("worker %p, fence %p, value %s.\n", worker, fence, debugstr_uint64(value));
+    TRACE("worker %p, fence %p, value %#"PRIx64".\n", worker, fence, value);
 
     if ((rc = pthread_mutex_lock(&worker->mutex)))
     {
@@ -347,7 +347,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(ID3D12Fence *i
     unsigned int i;
     int rc;
 
-    TRACE("iface %p, value %s, event %p.\n", iface, debugstr_uint64(value), event);
+    TRACE("iface %p, value %#"PRIx64", event %p.\n", iface, value, event);
 
     if ((rc = pthread_mutex_lock(&fence->mutex)))
     {
@@ -367,8 +367,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(ID3D12Fence *i
         struct vkd3d_waiting_event *current = &fence->events[i];
         if (current->value == value && current->event == event)
         {
-            WARN("Event completion for (%p, %s) is already in the list.\n",
-                    event, debugstr_uint64(value));
+            WARN("Event completion for (%p, %#"PRIx64") is already in the list.\n",
+                    event, value);
             pthread_mutex_unlock(&fence->mutex);
             return S_OK;
         }
@@ -396,7 +396,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_Signal(ID3D12Fence *iface, UINT64 v
     unsigned int i, j;
     int rc;
 
-    TRACE("iface %p, value %s.\n", iface, debugstr_uint64(value));
+    TRACE("iface %p, value %#"PRIx64".\n", iface, value);
 
     if ((rc = pthread_mutex_lock(&fence->mutex)))
     {
@@ -1090,9 +1090,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(ID3D12Graphics
     const struct vkd3d_vk_device_procs *vk_procs;
     VkBufferCopy buffer_copy;
 
-    TRACE("iface %p, dst_resource %p, dst_offset %s, src_resource %p, src_offset %s, byte_count %s.\n",
-            iface, dst_resource, debugstr_uint64(dst_offset), src_resource,
-            debugstr_uint64(src_offset), debugstr_uint64(byte_count));
+    TRACE("iface %p, dst_resource %p, dst_offset %#"PRIx64", src_resource %p, "
+            "src_offset %#"PRIx64", byte_count %#"PRIx64".\n",
+            iface, dst_resource, dst_offset, src_resource, src_offset, byte_count);
 
     vk_procs = &list->device->vk_procs;
 
@@ -1174,9 +1174,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(ID3D12GraphicsCommand
         D3D12_TILE_COPY_FLAGS flags)
 {
     FIXME("iface %p, tiled_resource %p, tile_region_start_coordinate %p, tile_region_size %p, "
-            "buffer %p, buffer_offset %s, flags %#x stub!\n",
+            "buffer %p, buffer_offset %#"PRIx64", flags %#x stub!\n",
             iface, tiled_resource, tile_region_start_coordinate, tile_region_size,
-            buffer, debugstr_uint64(buffer_offset), flags);
+            buffer, buffer_offset, flags);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(ID3D12GraphicsCommandList *iface,
@@ -1289,15 +1289,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable(ID3D12GraphicsCommandList *iface,
         UINT root_parameter_index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
 {
-    FIXME("iface %p, root_parameter_index %u, base_descriptor %s stub!\n",
-            iface, root_parameter_index, debugstr_uint64(base_descriptor.ptr));
+    FIXME("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64" stub!\n",
+            iface, root_parameter_index, base_descriptor.ptr);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable(ID3D12GraphicsCommandList *iface,
         UINT root_parameter_index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
 {
-    FIXME("iface %p, root_parameter_index %u, base_descriptor %s stub!\n",
-            iface, root_parameter_index, debugstr_uint64(base_descriptor.ptr));
+    FIXME("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64" stub!\n",
+            iface, root_parameter_index, base_descriptor.ptr);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRoot32BitConstant(ID3D12GraphicsCommandList *iface,
@@ -1331,43 +1331,43 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRoot32BitConstants(I
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootConstantBufferView(
         ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
 {
-    FIXME("iface %p, root_parameter_index %u, address %s stub!\n",
-            iface, root_parameter_index, debugstr_uint64(address));
+    FIXME("iface %p, root_parameter_index %u, address %#"PRIx64" stub!\n",
+            iface, root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootConstantBufferView(
         ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
 {
-    FIXME("iface %p, root_parameter_index %u, address %s stub!\n",
-            iface, root_parameter_index, debugstr_uint64(address));
+    FIXME("iface %p, root_parameter_index %u, address %#"PRIx64" stub!\n",
+            iface, root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootShaderResourceView(
         ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
 {
-    FIXME("iface %p, root_parameter_index %u, address %s stub!\n",
-            iface, root_parameter_index, debugstr_uint64(address));
+    FIXME("iface %p, root_parameter_index %u, address %#"PRIx64" stub!\n",
+            iface, root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootShaderResourceView(
         ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
 {
-    FIXME("iface %p, root_parameter_index %u, address %s stub!\n",
-            iface, root_parameter_index, debugstr_uint64(address));
+    FIXME("iface %p, root_parameter_index %u, address %#"PRIx64" stub!\n",
+            iface, root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootUnorderedAccessView(
         ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
 {
-    FIXME("iface %p, root_parameter_index %u, address %s stub!\n",
-            iface, root_parameter_index, debugstr_uint64(address));
+    FIXME("iface %p, root_parameter_index %u, address %#"PRIx64" stub!\n",
+            iface, root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootUnorderedAccessView(
         ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
 {
-    FIXME("iface %p, root_parameter_index %u, address %s stub!\n",
-            iface, root_parameter_index, debugstr_uint64(address));
+    FIXME("iface %p, root_parameter_index %u, address %#"PRIx64" stub!\n",
+            iface, root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(ID3D12GraphicsCommandList *iface,
@@ -1531,8 +1531,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(I
         D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle,
         ID3D12Resource *resource, UINT rect_count, const D3D12_RECT *rects)
 {
-    FIXME("iface %p, gpu_handle %s, cpu_handle %lx, resource %p, rect_count %u, rects %p stub!\n",
-            iface, debugstr_uint64(gpu_handle.ptr), cpu_handle.ptr, resource, rect_count, rects);
+    FIXME("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, rect_count %u, rects %p stub!\n",
+            iface, gpu_handle.ptr, cpu_handle.ptr, resource, rect_count, rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(ID3D12GraphicsCommandList *iface,
@@ -1558,16 +1558,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
         ID3D12Resource *dst_buffer, UINT64 aligned_dst_buffer_offset)
 {
     FIXME("iface %p, heap %p, type %#x, start_index %u, query_count %u, "
-            "dst_buffer %p, aligned_dst_buffer_offset %s stub!\n",
+            "dst_buffer %p, aligned_dst_buffer_offset %#"PRIx64" stub!\n",
             iface, heap, type, start_index, query_count,
-            dst_buffer, debugstr_uint64(aligned_dst_buffer_offset));
+            dst_buffer, aligned_dst_buffer_offset);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(ID3D12GraphicsCommandList *iface,
         ID3D12Resource *buffer, UINT64 aligned_buffer_offset, D3D12_PREDICATION_OP operation)
 {
-    FIXME("iface %p, buffer %p, aligned_buffer_offset %s, operation %#x stub!\n",
-            iface, buffer, debugstr_uint64(aligned_buffer_offset), operation);
+    FIXME("iface %p, buffer %p, aligned_buffer_offset %#"PRIx64", operation %#x stub!\n",
+            iface, buffer, aligned_buffer_offset, operation);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetMarker(ID3D12GraphicsCommandList *iface,
@@ -1593,9 +1593,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(ID3D12GraphicsC
         UINT64 arg_buffer_offset, ID3D12Resource *count_buffer, UINT64 count_buffer_offset)
 {
     FIXME("iface %p, command_signature %p, max_command_count %u, arg_buffer %p, "
-            "arg_buffer_offset %s, count_buffer %p, count_buffer_offset %s stub!\n",
-            iface, command_signature, max_command_count, arg_buffer, debugstr_uint64(arg_buffer_offset),
-            count_buffer, debugstr_uint64(count_buffer_offset));
+            "arg_buffer_offset %#"PRIx64", count_buffer %p, count_buffer_offset %#"PRIx64" stub!\n",
+            iface, command_signature, max_command_count, arg_buffer, arg_buffer_offset,
+            count_buffer, count_buffer_offset);
 }
 
 static const struct ID3D12GraphicsCommandListVtbl d3d12_command_list_vtbl =
@@ -1948,7 +1948,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
     VkFence vk_fence;
     VkResult vr;
 
-    TRACE("iface %p, fence %p, value %s.\n", iface, fence, debugstr_uint64(value));
+    TRACE("iface %p, fence %p, value %#"PRIx64".\n", iface, fence, value);
 
     device = command_queue->device;
     vk_procs = &device->vk_procs;
@@ -1990,7 +1990,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Wait(ID3D12CommandQueue *iface,
         ID3D12Fence *fence, UINT64 value)
 {
-    FIXME("iface %p, fence %p, value %s stub!\n", iface, fence, debugstr_uint64(value));
+    FIXME("iface %p, fence %p, value %#"PRIx64" stub!\n", iface, fence, value);
 
     return E_NOTIMPL;
 }
