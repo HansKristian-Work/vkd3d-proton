@@ -1131,7 +1131,7 @@ static void test_create_fence(void)
     check_interface(fence, &IID_ID3D12Fence, TRUE);
 
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 0, "Got unexpected value %lu.\n", (unsigned long)value);
+    ok(value == 0, "Got unexpected value %"PRIu64".\n", value);
 
     refcount = ID3D12Fence_Release(fence);
     ok(!refcount, "ID3D12Fence has %u references left.\n", (unsigned int)refcount);
@@ -1140,7 +1140,7 @@ static void test_create_fence(void)
             &IID_ID3D12Fence, (void **)&fence);
     ok(SUCCEEDED(hr), "CreateFence failed, hr %#x.\n", hr);
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 99, "Got unexpected value %lu.\n", (unsigned long)value);
+    ok(value == 99, "Got unexpected value %"PRIu64".\n", value);
     refcount = ID3D12Fence_Release(fence);
     ok(!refcount, "ID3D12Fence has %u references left.\n", (unsigned int)refcount);
 
@@ -1228,22 +1228,22 @@ static void test_cpu_signal_fence(void)
     hr = ID3D12Fence_Signal(fence, 1);
     ok(SUCCEEDED(hr), "Signal failed, hr %#x.\n", hr);
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 1, "Got unexpected value %lu.\n", (unsigned long)value);
+    ok(value == 1, "Got unexpected value %"PRIu64".\n", value);
 
     hr = ID3D12Fence_Signal(fence, 10);
     ok(SUCCEEDED(hr), "Signal failed, hr %#x.\n", hr);
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 10, "Got unexpected value %lu.\n", (unsigned long)value);
+    ok(value == 10, "Got unexpected value %"PRIu64".\n", value);
 
     hr = ID3D12Fence_Signal(fence, 5);
     ok(SUCCEEDED(hr), "Signal failed, hr %#x.\n", hr);
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 5, "Got unexpected value %lu.\n", (unsigned long)value);
+    ok(value == 5, "Got unexpected value %"PRIu64".\n", value);
 
     hr = ID3D12Fence_Signal(fence, 0);
     ok(SUCCEEDED(hr), "Signal failed, hr %#x.\n", hr);
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 0, "Got unexpected value %lu.\n", (unsigned long)value);
+    ok(value == 0, "Got unexpected value %"PRIu64".\n", value);
 
     /* Basic tests with single event. */
     event1 = create_event();
@@ -1336,7 +1336,7 @@ static void test_cpu_signal_fence(void)
     hr = ID3D12Fence_Signal(fence, 0);
     ok(SUCCEEDED(hr), "Signal failed, hr %#x.\n", hr);
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 0, "Got unexpected value %lu.\n", (unsigned long)value);
+    ok(value == 0, "Got unexpected value %"PRIu64".\n", value);
 
     event2 = create_event();
     ok(!!event2, "Failed to create event.\n");
@@ -1447,7 +1447,7 @@ static void test_cpu_signal_fence(void)
     hr = ID3D12Fence_Signal(fence, 20);
     ok(SUCCEEDED(hr), "Signal failed, hr %#x.\n", hr);
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 20, "Got unexpected value %lu.\n", (unsigned long)value);
+    ok(value == 20, "Got unexpected value %"PRIu64".\n", value);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 

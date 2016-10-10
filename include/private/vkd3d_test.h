@@ -23,6 +23,7 @@
 #ifndef __VKD3D_TEST_H
 #define __VKD3D_TEST_H
 
+#include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
