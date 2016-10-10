@@ -48,11 +48,11 @@ const char *debugstr_w(const WCHAR *wstr) DECLSPEC_HIDDEN;
 
 #define VKD3D_DBG_LOG(level) \
         do { \
-        const enum vkd3d_dbg_level __level = VKD3D_DBG_LEVEL_##level; \
+        const enum vkd3d_dbg_level vkd3d_dbg_level = VKD3D_DBG_LEVEL_##level; \
         VKD3D_DBG_PRINTF
 
 #define VKD3D_DBG_PRINTF(args...) \
-        vkd3d_dbg_printf(__level, __FUNCTION__, args); } while (0)
+        vkd3d_dbg_printf(vkd3d_dbg_level, __FUNCTION__, args); } while (0)
 
 #define TRACE VKD3D_DBG_LOG(TRACE)
 #define WARN  VKD3D_DBG_LOG(WARN)
