@@ -81,11 +81,11 @@ static const char *vkd3d_test_name;
 
 static struct
 {
-    unsigned int success_count;
-    unsigned int failure_count;
-    unsigned int skip_count;
-    unsigned int todo_count;
-    unsigned int todo_success_count;
+    LONG success_count;
+    LONG failure_count;
+    LONG skip_count;
+    LONG todo_count;
+    LONG todo_success_count;
 
     unsigned int debug;
 } vkd3d_test_state;
@@ -105,7 +105,7 @@ static void vkd3d_test_ok(unsigned int line, int result, const char *fmt, ...)
     {
         if (vkd3d_test_state.debug)
             printf("%s:%d: Test succeeded.\n", vkd3d_test_name, line);
-        ++vkd3d_test_state.success_count;
+        InterlockedIncrement(&vkd3d_test_state.success_count);
     }
     else
     {
@@ -114,7 +114,7 @@ static void vkd3d_test_ok(unsigned int line, int result, const char *fmt, ...)
         printf("%s:%d: Test failed: ", vkd3d_test_name, line);
         vprintf(fmt, args);
         va_end(args);
-        ++vkd3d_test_state.failure_count;
+        InterlockedIncrement(&vkd3d_test_state.failure_count);
     }
 }
 
@@ -125,12 +125,12 @@ static void vkd3d_test_todo(unsigned int line, int result, const char *fmt, ...)
     if (result)
     {
         printf("%s:%d Todo succeeded: ", vkd3d_test_name, line);
-        ++vkd3d_test_state.todo_success_count;
+        InterlockedIncrement(&vkd3d_test_state.todo_success_count);
     }
     else
     {
         printf("%s:%d: Todo: ", vkd3d_test_name, line);
-        ++vkd3d_test_state.todo_count;
+        InterlockedIncrement(&vkd3d_test_state.todo_count);
     }
 
     va_start(args, fmt);
@@ -145,7 +145,7 @@ static void vkd3d_test_skip(unsigned int line, const char *fmt, ...)
     printf("%s:%d: Test skipped: ", vkd3d_test_name, line);
     vprintf(fmt, args);
     va_end(args);
-    ++vkd3d_test_state.skip_count;
+    InterlockedIncrement(&vkd3d_test_state.skip_count);
 }
 
 static void vkd3d_test_trace(unsigned int line, const char *fmt, ...)
@@ -172,13 +172,15 @@ int main(void)
 
     vkd3d_test_main();
 
-    printf("%s: %u tests executed (%u failures, %u skipped, %u todo).\n",
+    printf("%s: %lu tests executed (%lu failures, %lu skipped, %lu todo).\n",
             vkd3d_test_name,
-            vkd3d_test_state.success_count + vkd3d_test_state.failure_count
-            + vkd3d_test_state.todo_count + vkd3d_test_state.todo_success_count,
-            vkd3d_test_state.failure_count + vkd3d_test_state.todo_success_count,
-            vkd3d_test_state.skip_count,
-            vkd3d_test_state.todo_count);
+            (unsigned long)(vkd3d_test_state.success_count
+            + vkd3d_test_state.failure_count + vkd3d_test_state.todo_count
+            + vkd3d_test_state.todo_success_count),
+            (unsigned long)(vkd3d_test_state.failure_count
+            + vkd3d_test_state.todo_success_count),
+            (unsigned long)vkd3d_test_state.skip_count,
+            (unsigned long)vkd3d_test_state.todo_count);
 
     return vkd3d_test_state.failure_count || vkd3d_test_state.todo_success_count;
 }
