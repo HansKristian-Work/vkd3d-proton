@@ -28,6 +28,14 @@
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
 
+#ifdef __GNUC__
+# define VKD3D_PRINTF_FUNC(fmt, args) __attribute__((format(printf, fmt, args)))
+# define VKD3D_UNUSED __attribute__((unused))
+#else
+# define VKD3D_PRINTF_FUNC(fmt, args)
+# define VKD3D_UNUSED
+#endif  /* __GNUC__ */
+
 #ifndef _WIN32
 # if HAVE_SYNC_ADD_AND_FETCH
 static inline ULONG InterlockedIncrement(ULONG volatile *x)

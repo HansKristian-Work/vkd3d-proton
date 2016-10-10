@@ -29,19 +29,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "vkd3d_common.h"
+
 static void vkd3d_test_main(void);
 static const char *vkd3d_test_name;
 
 #define START_TEST(name) static const char *vkd3d_test_name = #name; \
         static void vkd3d_test_main(void)
-
-#ifdef __GNUC__
-# define VKD3D_PRINTF_FUNC(fmt, args) __attribute__((format(printf, fmt, args)))
-# define VKD3D_UNUSED __attribute__((unused))
-#else
-# define VKD3D_PRINTF_FUNC(fmt, args)
-# define VKD3D_UNUSED
-#endif  /* __GNUC__ */
 
 #define ok ok_(__LINE__)
 #define todo todo_(__LINE__)

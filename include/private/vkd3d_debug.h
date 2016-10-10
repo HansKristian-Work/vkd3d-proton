@@ -25,12 +25,6 @@
 
 #include "vkd3d_common.h"
 
-#ifdef __GNUC__
-# define VKD3D_PRINTF_FUNC(fmt, args) __attribute__((format(printf, fmt, args)))
-#else
-# define VKD3D_PRINTF_FUNC(fmt, args)
-#endif  /* __GNUC__ */
-
 enum vkd3d_dbg_level
 {
     VKD3D_DBG_LEVEL_NONE,

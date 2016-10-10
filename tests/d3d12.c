@@ -55,8 +55,6 @@ typedef int HRESULT;
 # include "vkd3d_utils.h"
 #endif
 
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof(*x))
-
 static size_t align(size_t addr, unsigned int alignment)
 {
     return (addr + (alignment - 1)) & ~(alignment - 1);
