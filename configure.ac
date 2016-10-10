@@ -6,7 +6,9 @@ AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_LIBOBJ_DIR([portable])
 AC_CONFIG_HEADERS(include/config.h)
 
-AC_ARG_VAR(WIDL, [widl IDL compiler])
+AC_ARG_VAR([WIDL], [widl IDL compiler])
+AC_ARG_VAR([CROSSCC32], [32-bit Windows cross compiler])
+AC_ARG_VAR([CROSSCC64], [64-bit Windows cross compiler])
 
 dnl Check for progs
 AM_PROG_AR
