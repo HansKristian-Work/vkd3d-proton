@@ -84,8 +84,8 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_level level, const char *function, const ch
 static char *get_buffer(void)
 {
     static char buffers[64][VKD3D_DEBUG_BUFFER_SIZE];
-    static ULONG buffer_index;
-    ULONG current_index;
+    static LONG buffer_index;
+    LONG current_index;
 
     current_index = InterlockedIncrement(&buffer_index) % ARRAY_SIZE(buffers);
     return buffers[current_index];

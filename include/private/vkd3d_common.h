@@ -38,7 +38,7 @@
 
 #ifndef _WIN32
 # if HAVE_SYNC_ADD_AND_FETCH
-static inline ULONG InterlockedIncrement(ULONG volatile *x)
+static inline LONG InterlockedIncrement(LONG volatile *x)
 {
     return __sync_add_and_fetch(x, 1);
 }
@@ -47,7 +47,7 @@ static inline ULONG InterlockedIncrement(ULONG volatile *x)
 # endif  /* HAVE_SYNC_ADD_AND_FETCH */
 
 # if HAVE_SYNC_SUB_AND_FETCH
-static inline ULONG InterlockedDecrement(ULONG volatile *x)
+static inline LONG InterlockedDecrement(LONG volatile *x)
 {
     return __sync_sub_and_fetch(x, 1);
 }

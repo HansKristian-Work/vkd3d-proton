@@ -74,7 +74,7 @@ HRESULT vkd3d_stop_fence_worker(struct vkd3d_fence_worker *worker) DECLSPEC_HIDD
 struct d3d12_fence
 {
     ID3D12Fence ID3D12Fence_iface;
-    ULONG refcount;
+    LONG refcount;
 
     UINT64 value;
     pthread_mutex_t mutex;
@@ -97,7 +97,7 @@ HRESULT d3d12_fence_create(struct d3d12_device *device,
 struct d3d12_resource
 {
     ID3D12Resource ID3D12Resource_iface;
-    ULONG refcount;
+    LONG refcount;
 
     D3D12_RESOURCE_DESC desc;
 
@@ -152,7 +152,7 @@ struct d3d12_dsv_desc
 struct d3d12_descriptor_heap
 {
     ID3D12DescriptorHeap ID3D12DescriptorHeap_iface;
-    ULONG refcount;
+    LONG refcount;
 
     D3D12_DESCRIPTOR_HEAP_DESC desc;
 
@@ -168,7 +168,7 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
 struct d3d12_root_signature
 {
     ID3D12RootSignature ID3D12RootSignature_iface;
-    ULONG refcount;
+    LONG refcount;
 
     VkPipelineLayout vk_pipeline_layout;
 
@@ -182,7 +182,7 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
 struct d3d12_pipeline_state
 {
     ID3D12PipelineState ID3D12PipelineState_iface;
-    ULONG refcount;
+    LONG refcount;
 
     VkPipeline vk_pipeline;
 
@@ -196,7 +196,7 @@ HRESULT d3d12_pipeline_state_create_compute(struct d3d12_device *device,
 struct d3d12_command_allocator
 {
     ID3D12CommandAllocator ID3D12CommandAllocator_iface;
-    ULONG refcount;
+    LONG refcount;
 
     D3D12_COMMAND_LIST_TYPE type;
 
@@ -213,7 +213,7 @@ HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
 struct d3d12_command_list
 {
     ID3D12GraphicsCommandList ID3D12GraphicsCommandList_iface;
-    ULONG refcount;
+    LONG refcount;
 
     D3D12_COMMAND_LIST_TYPE type;
     ID3D12PipelineState *pipeline_state;
@@ -241,7 +241,7 @@ HRESULT d3d12_command_list_create(struct d3d12_device *device,
 struct d3d12_command_queue
 {
     ID3D12CommandQueue ID3D12CommandQueue_iface;
-    ULONG refcount;
+    LONG refcount;
 
     D3D12_COMMAND_QUEUE_DESC desc;
 
@@ -257,7 +257,7 @@ HRESULT d3d12_command_queue_create(struct d3d12_device *device,
 struct d3d12_device
 {
     ID3D12Device ID3D12Device_iface;
-    ULONG refcount;
+    LONG refcount;
 
     VkDevice vk_device;
     struct vkd3d_vk_device_procs vk_procs;
