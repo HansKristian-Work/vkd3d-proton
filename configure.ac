@@ -38,8 +38,8 @@ AS_IF([test "x${GCC}" = "xyes"],
       VKD3D_CHECK_CFLAGS([-Wvla])])
 
 dnl Check for cross compilers
-VKD3D_CHECK_MINGW32_PROG([CROSSCC32], [CROSSTARGET32], [false])
-VKD3D_CHECK_MINGW64_PROG([CROSSCC64], [CROSSTARGET64], [false])
+VKD3D_CHECK_MINGW32_PROG([CROSSCC32], [CROSSTARGET32], [no])
+VKD3D_CHECK_MINGW64_PROG([CROSSCC64], [CROSSTARGET64], [no])
 
 dnl Check for headers
 AC_CHECK_HEADERS([pthread.h vulkan/vulkan.h])
@@ -58,20 +58,20 @@ dnl Check for functions
 VKD3D_CHECK_SYNC_ADD_AND_FETCH_FUNC
 VKD3D_CHECK_SYNC_SUB_AND_FETCH_FUNC
 
-AM_CONDITIONAL([HAS_CROSSTARGET32], [test "x$CROSSTARGET32" != "xfalse"])
-AM_CONDITIONAL([HAS_CROSSTARGET64], [test "x$CROSSTARGET64" != "xfalse"])
+AM_CONDITIONAL([HAS_CROSSTARGET32], [test "x$CROSSTARGET32" != "xno"])
+AM_CONDITIONAL([HAS_CROSSTARGET64], [test "x$CROSSTARGET64" != "xno"])
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
 
 dnl Output configuration summary
-AS_IF([test "x$CROSSTARGET32" != "xfalse" -o "x$CROSSTARGET64" != "xfalse"],
+AS_IF([test "x$CROSSTARGET32" != "xno" -o "x$CROSSTARGET64" != "xno"],
       [HAVE_CROSSTEST=yes], [HAVE_CROSSTEST=no])
 
 AS_ECHO(["
   Configuration summary for $PACKAGE $VERSION
 
   Building crosstests: ${HAVE_CROSSTEST}"])
-AS_IF([test "x$CROSSTARGET32" != "xfalse"], [AS_ECHO(["    Using 32-bit cross compiler: $CROSSCC32"])])
-AS_IF([test "x$CROSSTARGET64" != "xfalse"], [AS_ECHO(["    Using 64-bit cross compiler: $CROSSCC64"])])
+AS_IF([test "x$CROSSTARGET32" != "xno"], [AS_ECHO(["    Using 32-bit cross compiler: $CROSSCC32"])])
+AS_IF([test "x$CROSSTARGET64" != "xno"], [AS_ECHO(["    Using 64-bit cross compiler: $CROSSCC64"])])
 AS_ECHO([])
