@@ -16,7 +16,7 @@ AC_PROG_CC
 AM_PROG_CC_C_O
 AC_PROG_SED
 AC_PROG_MKDIR_P
-AC_CHECK_PROG(WIDL, [widl], [widl], [no])
+AC_CHECK_PROG([WIDL], [widl], [widl], [no])
 
 AS_IF([test "x$WIDL" = "xno"], [AC_MSG_ERROR([widl is required to build header files.])])
 
@@ -28,7 +28,7 @@ LT_PREREQ([2.4.2])
 LT_INIT
 
 dnl Check compiler specific flags
-AC_SUBST(VKD3D_CFLAGS, "")
+AC_SUBST([VKD3D_CFLAGS], [""])
 AS_IF([test "x${GCC}" = "xyes"],
       [VKD3D_CFLAGS="-Wall -pipe"
       VKD3D_CHECK_CFLAGS([-std=c99])
