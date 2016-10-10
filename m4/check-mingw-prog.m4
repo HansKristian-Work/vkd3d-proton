@@ -1,3 +1,7 @@
+dnl
+dnl This file contains code derived from WINE_CHECK_MINGW_PROG() and is used courtesy of Alexandre Julliard.
+dnl
+
 dnl VKD3D_CHECK_MINGW32_PROG(cc-variable, crosstarget-variable, [value-if-not-found], [path])
 AC_DEFUN([VKD3D_CHECK_MINGW32_PROG],
 [AC_SUBST([$2], [$3])
