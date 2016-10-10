@@ -35,6 +35,10 @@ AS_IF([test "x${GCC}" = "xyes"],
       VKD3D_CHECK_CFLAGS([-Wunused-but-set-parameter])
       VKD3D_CHECK_CFLAGS([-Wvla])])
 
+dnl Check for cross compilers
+VKD3D_CHECK_MINGW32_PROG([CROSSCC32], [CROSSTARGET32], [false])
+VKD3D_CHECK_MINGW64_PROG([CROSSCC64], [CROSSTARGET64], [false])
+
 dnl Check for headers
 AC_CHECK_HEADERS([pthread.h vulkan/vulkan.h])
 AS_IF([test "x$ac_cv_header_pthread_h" != "xyes"], [AC_MSG_ERROR([pthread.h not found.])])
@@ -52,12 +56,8 @@ dnl Check for functions
 VKD3D_CHECK_SYNC_ADD_AND_FETCH_FUNC
 VKD3D_CHECK_SYNC_SUB_AND_FETCH_FUNC
 
-dnl Check for cross compilers
-VKD3D_CHECK_MINGW32_PROG(CROSSCC32, CROSSTARGET32, [false])
-VKD3D_CHECK_MINGW64_PROG(CROSSCC64, CROSSTARGET64, [false])
-
-AM_CONDITIONAL([HAS_CROSSTARGET32], [test "x$CROSSTARGET32" != xfalse])
-AM_CONDITIONAL([HAS_CROSSTARGET64], [test "x$CROSSTARGET64" != xfalse])
+AM_CONDITIONAL([HAS_CROSSTARGET32], [test "x$CROSSTARGET32" != "xfalse"])
+AM_CONDITIONAL([HAS_CROSSTARGET64], [test "x$CROSSTARGET64" != "xfalse"])
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
