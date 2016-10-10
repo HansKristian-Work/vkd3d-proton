@@ -202,6 +202,14 @@ struct d3d12_command_allocator
 
     VkCommandPool vk_command_pool;
 
+    VkRenderPass *passes;
+    size_t passes_size;
+    size_t pass_count;
+
+    VkFramebuffer *framebuffers;
+    size_t framebuffers_size;
+    size_t framebuffer_count;
+
     struct d3d12_command_list *current_command_list;
     struct d3d12_device *device;
 };
@@ -220,14 +228,6 @@ struct d3d12_command_list
 
     VkCommandBuffer vk_command_buffer;
     BOOL is_recording;
-
-    VkRenderPass *passes;
-    size_t passes_size;
-    size_t pass_count;
-
-    VkFramebuffer *framebuffers;
-    size_t framebuffers_size;
-    size_t framebuffer_count;
 
     struct d3d12_command_allocator *allocator;
     struct d3d12_device *device;
