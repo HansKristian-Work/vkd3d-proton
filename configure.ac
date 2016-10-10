@@ -64,12 +64,14 @@ AM_CONDITIONAL([HAS_CROSSTARGET64], [test "x$CROSSTARGET64" != "xfalse"])
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
 
-dnl Output configuration info
-echo ""
-WIDL_VERSION=`$WIDL -V`
-AS_IF([test $? -eq 0], [WIDL_VERSION=`echo $WIDL_VERSION | cut -d' ' -f5`])
-echo "  widl version: $WIDL_VERSION"
+dnl Output configuration summary
+AS_IF([test "x$CROSSTARGET32" != "xfalse" -o "x$CROSSTARGET64" != "xfalse"],
+      [HAVE_CROSSTEST=yes], [HAVE_CROSSTEST=no])
 
-echo ""
-echo "  Run '${MAKE-make}' to build vkD3D."
-echo ""
+AS_ECHO(["
+  Configuration summary for $PACKAGE $VERSION
+
+  Building crosstests: ${HAVE_CROSSTEST}"])
+AS_IF([test "x$CROSSTARGET32" != "xfalse"], [AS_ECHO(["    Using 32-bit cross compiler: $CROSSCC32"])])
+AS_IF([test "x$CROSSTARGET64" != "xfalse"], [AS_ECHO(["    Using 64-bit cross compiler: $CROSSCC64"])])
+AS_ECHO([])
