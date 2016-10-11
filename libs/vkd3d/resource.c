@@ -95,7 +95,7 @@ static HRESULT vkd3d_create_buffer(struct d3d12_resource *resource, struct d3d12
     buffer_info.queueFamilyIndexCount = 0;
     buffer_info.pQueueFamilyIndices = 0;
 
-    if ((vr = VK_CALL(vkCreateBuffer(device->vk_device, &buffer_info, NULL, &resource->u.vk_buffer))))
+    if ((vr = VK_CALL(vkCreateBuffer(device->vk_device, &buffer_info, NULL, &resource->u.vk_buffer))) < 0)
     {
         WARN("Failed to create Vulkan buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -186,7 +186,7 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
 
     FIXME("Ignoring initial state %#x.\n", initial_state);
 
-    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &resource->u.vk_image))))
+    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &resource->u.vk_image))) < 0)
     {
         WARN("Failed to create Vulkan image, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -257,7 +257,7 @@ static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
 
     TRACE("Allocating memory type %u.\n", allocate_info.memoryTypeIndex);
 
-    if ((vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, vk_memory))))
+    if ((vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, vk_memory))) < 0)
     {
         WARN("Failed to allocate device memory, vr %d.\n", vr);
         *vk_memory = VK_NULL_HANDLE;
@@ -282,7 +282,7 @@ static HRESULT vkd3d_allocate_buffer_memory(struct d3d12_resource *resource, str
             &memory_requirements, &resource->vk_memory)))
         return hr;
 
-    if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, resource->u.vk_buffer, resource->vk_memory, 0))))
+    if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, resource->u.vk_buffer, resource->vk_memory, 0))) < 0)
     {
         WARN("Failed to bind memory, vr %d.\n", vr);
         VK_CALL(vkFreeMemory(device->vk_device, resource->vk_memory, NULL));
@@ -309,7 +309,7 @@ static HRESULT vkd3d_allocate_image_memory(struct d3d12_resource *resource, stru
             &memory_requirements, &resource->vk_memory)))
         return hr;
 
-    if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, resource->u.vk_image, resource->vk_memory, 0))))
+    if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, resource->u.vk_image, resource->vk_memory, 0))) < 0)
     {
         WARN("Failed to bind memory, vr %d.\n", vr);
         VK_CALL(vkFreeMemory(device->vk_device, resource->vk_memory, NULL));
@@ -475,7 +475,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
     if (!resource->map_count)
     {
         if ((vr = VK_CALL(vkMapMemory(device->vk_device, resource->vk_memory,
-                0, VK_WHOLE_SIZE, 0, &resource->map_data))))
+                0, VK_WHOLE_SIZE, 0, &resource->map_data))) < 0)
         {
             WARN("Failed to map device memory, vr %d.\n", vr);
             return hresult_from_vk_result(vr);

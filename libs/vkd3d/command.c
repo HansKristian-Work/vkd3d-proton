@@ -506,7 +506,7 @@ static HRESULT vkd3d_begin_command_buffer(struct d3d12_command_list *list)
     begin_info.flags = 0;
     begin_info.pInheritanceInfo = NULL;
 
-    if ((vr = VK_CALL(vkBeginCommandBuffer(list->vk_command_buffer, &begin_info))))
+    if ((vr = VK_CALL(vkBeginCommandBuffer(list->vk_command_buffer, &begin_info))) < 0)
     {
         WARN("Failed to begin command buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -527,7 +527,7 @@ static HRESULT vkd3d_reset_command_buffer(struct d3d12_command_list *list)
     VkResult vr;
 
     if ((vr = VK_CALL(vkResetCommandBuffer(list->vk_command_buffer,
-            VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT))))
+            VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT))) < 0)
     {
         WARN("Failed to reset command buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -560,7 +560,7 @@ static HRESULT vkd3d_command_allocator_allocate_command_list(struct d3d12_comman
     command_buffer_info.commandBufferCount = 1;
 
     if ((vr = VK_CALL(vkAllocateCommandBuffers(device->vk_device, &command_buffer_info,
-            &list->vk_command_buffer))))
+            &list->vk_command_buffer))) < 0)
     {
         WARN("Failed to allocate Vulkan command buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -866,7 +866,7 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     }
 
     if ((vr = VK_CALL(vkCreateCommandPool(device->vk_device, &command_pool_info, NULL,
-            &allocator->vk_command_pool))))
+            &allocator->vk_command_pool))) < 0)
     {
         WARN("Failed to create Vulkan command pool, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -1056,7 +1056,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(ID3D12GraphicsCommandL
     }
 
     vk_procs = &list->device->vk_procs;
-    if ((vr = VK_CALL(vkEndCommandBuffer(list->vk_command_buffer))))
+    if ((vr = VK_CALL(vkEndCommandBuffer(list->vk_command_buffer))) < 0)
     {
         WARN("Failed to end command buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);

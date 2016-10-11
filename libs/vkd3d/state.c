@@ -172,7 +172,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     pipeline_layout_info.pPushConstantRanges = NULL;
 
     if ((vr = VK_CALL(vkCreatePipelineLayout(device->vk_device, &pipeline_layout_info, NULL,
-            &root_signature->vk_pipeline_layout))))
+            &root_signature->vk_pipeline_layout))) < 0)
     {
         WARN("Failed to create Vulkan pipeline layout, vr %d.\n", vr);
         return hresult_from_vk_result(vr);

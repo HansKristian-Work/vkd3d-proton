@@ -326,7 +326,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
 
     /* Select a physical device */
     physical_device_count = 0;
-    if ((vr = VK_CALL(vkEnumeratePhysicalDevices(instance, &physical_device_count, NULL))))
+    if ((vr = VK_CALL(vkEnumeratePhysicalDevices(instance, &physical_device_count, NULL))) < 0)
     {
         ERR("Failed to enumerate physical devices, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -340,7 +340,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
         return E_OUTOFMEMORY;
 
     TRACE("Enumerating %u physical device(s).\n", physical_device_count);
-    if ((vr = VK_CALL(vkEnumeratePhysicalDevices(instance, &physical_device_count, physical_devices))))
+    if ((vr = VK_CALL(vkEnumeratePhysicalDevices(instance, &physical_device_count, physical_devices))) < 0)
     {
         ERR("Failed to enumerate physical devices, vr %d.\n", vr);
         vkd3d_free(physical_devices);
@@ -426,7 +426,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
 
     vr = VK_CALL(vkCreateDevice(selected_physical_device, &device_info, NULL, &vk_device));
     vkd3d_free(queue_info);
-    if (vr)
+    if (vr < 0)
     {
         ERR("Failed to create Vulkan device, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
