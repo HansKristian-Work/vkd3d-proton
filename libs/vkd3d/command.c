@@ -514,8 +514,7 @@ static HRESULT vkd3d_begin_command_buffer(struct d3d12_command_list *list)
 
     list->is_recording = TRUE;
 
-    if (list->pipeline_state)
-        ID3D12GraphicsCommandList_SetPipelineState(&list->ID3D12GraphicsCommandList_iface, list->pipeline_state);
+    ID3D12GraphicsCommandList_SetPipelineState(&list->ID3D12GraphicsCommandList_iface, list->pipeline_state);
 
     return S_OK;
 }
@@ -1291,6 +1290,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(ID3D12GraphicsCom
             "start_vertex_location %u, start_instance_location %u.\n",
             iface, vertex_count_per_instance, instance_count,
             start_vertex_location, start_instance_location);
+
+    if (!list->state)
+    {
+        WARN("Pipeline state is NULL. Ignoring draw call.\n");
+        return;
+    }
 
     vk_procs = &list->device->vk_procs;
 
