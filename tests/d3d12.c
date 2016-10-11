@@ -1968,6 +1968,279 @@ static void test_clear_render_target_view(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_draw_instanced(void)
+{
+    static const float green[] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline_state_desc;
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
+    ID3D12CommandAllocator *command_allocator;
+    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3D12RootSignature *root_signature;
+    ID3D12PipelineState *pipeline_state;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12DescriptorHeap *rtv_heap;
+    D3D12_CLEAR_VALUE clear_value;
+    struct resource_readback rb;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *resource;
+    D3D12_VIEWPORT viewport;
+    ID3D12Device *device;
+    RECT scissor_rect;
+    unsigned int x, y;
+    ULONG refcount;
+    HRESULT hr;
+
+    static const DWORD dxbc_vs_code[] =
+    {
+#if 0
+        void main(uint id : SV_VertexID, out float4 position : SV_Position)
+        {
+            float2 coords = float2((id << 1) & 2, id & 2);
+            position = float4(coords * float2(2, -2) + float2(-1, 1), 0, 1);
+        }
+#endif
+        0x43425844, 0xf900d25e, 0x68bfefa7, 0xa63ac0a7, 0xa476af7a, 0x00000001, 0x0000018c, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x65747265, 0x00444978,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69, 0x58454853, 0x000000f0, 0x00010050,
+        0x0000003c, 0x0100086a, 0x04000060, 0x00101012, 0x00000000, 0x00000006, 0x04000067, 0x001020f2,
+        0x00000000, 0x00000001, 0x02000068, 0x00000001, 0x0b00008c, 0x00100012, 0x00000000, 0x00004001,
+        0x00000001, 0x00004001, 0x00000001, 0x0010100a, 0x00000000, 0x00004001, 0x00000000, 0x07000001,
+        0x00100042, 0x00000000, 0x0010100a, 0x00000000, 0x00004001, 0x00000002, 0x05000056, 0x00100032,
+        0x00000000, 0x00100086, 0x00000000, 0x0f000032, 0x00102032, 0x00000000, 0x00100046, 0x00000000,
+        0x00004002, 0x40000000, 0xc0000000, 0x00000000, 0x00000000, 0x00004002, 0xbf800000, 0x3f800000,
+        0x00000000, 0x00000000, 0x08000036, 0x001020c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000,
+        0x00000000, 0x3f800000, 0x0100003e,
+    };
+    static const DWORD spv_vs_code[] =
+    {
+#if 0
+        #version 450 core
+
+        void main()
+        {
+            uint id = gl_VertexIndex;
+            vec2 coords = vec2((id << 1) & 2, id & 2);
+            gl_Position = vec4(coords * vec2(2, -2) + vec2(-1, 1), 0, 1);
+        }
+#endif
+        0x07230203, 0x00010000, 0x00080001, 0x00000032, 0x00000000, 0x00020011, 0x00000001, 0x0006000b,
+        0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e, 0x00000000, 0x0003000e, 0x00000000, 0x00000001,
+        0x0007000f, 0x00000000, 0x00000004, 0x6e69616d, 0x00000000, 0x0000000b, 0x00000021, 0x00040047,
+        0x0000000b, 0x0000000b, 0x0000002a, 0x00050048, 0x0000001f, 0x00000000, 0x0000000b, 0x00000000,
+        0x00050048, 0x0000001f, 0x00000001, 0x0000000b, 0x00000001, 0x00050048, 0x0000001f, 0x00000002,
+        0x0000000b, 0x00000003, 0x00050048, 0x0000001f, 0x00000003, 0x0000000b, 0x00000004, 0x00030047,
+        0x0000001f, 0x00000002, 0x00020013, 0x00000002, 0x00030021, 0x00000003, 0x00000002, 0x00040015,
+        0x00000006, 0x00000020, 0x00000000, 0x00040020, 0x00000007, 0x00000007, 0x00000006, 0x00040015,
+        0x00000009, 0x00000020, 0x00000001, 0x00040020, 0x0000000a, 0x00000001, 0x00000009, 0x0004003b,
+        0x0000000a, 0x0000000b, 0x00000001, 0x00030016, 0x0000000e, 0x00000020, 0x00040017, 0x0000000f,
+        0x0000000e, 0x00000002, 0x00040020, 0x00000010, 0x00000007, 0x0000000f, 0x0004002b, 0x00000009,
+        0x00000013, 0x00000001, 0x0004002b, 0x00000006, 0x00000015, 0x00000002, 0x00040017, 0x0000001c,
+        0x0000000e, 0x00000004, 0x0004002b, 0x00000006, 0x0000001d, 0x00000001, 0x0004001c, 0x0000001e,
+        0x0000000e, 0x0000001d, 0x0006001e, 0x0000001f, 0x0000001c, 0x0000000e, 0x0000001e, 0x0000001e,
+        0x00040020, 0x00000020, 0x00000003, 0x0000001f, 0x0004003b, 0x00000020, 0x00000021, 0x00000003,
+        0x0004002b, 0x00000009, 0x00000022, 0x00000000, 0x0004002b, 0x0000000e, 0x00000024, 0x40000000,
+        0x0004002b, 0x0000000e, 0x00000025, 0xc0000000, 0x0005002c, 0x0000000f, 0x00000026, 0x00000024,
+        0x00000025, 0x0004002b, 0x0000000e, 0x00000028, 0xbf800000, 0x0004002b, 0x0000000e, 0x00000029,
+        0x3f800000, 0x0005002c, 0x0000000f, 0x0000002a, 0x00000028, 0x00000029, 0x0004002b, 0x0000000e,
+        0x0000002c, 0x00000000, 0x00040020, 0x00000030, 0x00000003, 0x0000001c, 0x00050036, 0x00000002,
+        0x00000004, 0x00000000, 0x00000003, 0x000200f8, 0x00000005, 0x0004003b, 0x00000007, 0x00000008,
+        0x00000007, 0x0004003b, 0x00000010, 0x00000011, 0x00000007, 0x0004003d, 0x00000009, 0x0000000c,
+        0x0000000b, 0x0004007c, 0x00000006, 0x0000000d, 0x0000000c, 0x0003003e, 0x00000008, 0x0000000d,
+        0x0004003d, 0x00000006, 0x00000012, 0x00000008, 0x000500c4, 0x00000006, 0x00000014, 0x00000012,
+        0x00000013, 0x000500c7, 0x00000006, 0x00000016, 0x00000014, 0x00000015, 0x00040070, 0x0000000e,
+        0x00000017, 0x00000016, 0x0004003d, 0x00000006, 0x00000018, 0x00000008, 0x000500c7, 0x00000006,
+        0x00000019, 0x00000018, 0x00000015, 0x00040070, 0x0000000e, 0x0000001a, 0x00000019, 0x00050050,
+        0x0000000f, 0x0000001b, 0x00000017, 0x0000001a, 0x0003003e, 0x00000011, 0x0000001b, 0x0004003d,
+        0x0000000f, 0x00000023, 0x00000011, 0x00050085, 0x0000000f, 0x00000027, 0x00000023, 0x00000026,
+        0x00050081, 0x0000000f, 0x0000002b, 0x00000027, 0x0000002a, 0x00050051, 0x0000000e, 0x0000002d,
+        0x0000002b, 0x00000000, 0x00050051, 0x0000000e, 0x0000002e, 0x0000002b, 0x00000001, 0x00070050,
+        0x0000001c, 0x0000002f, 0x0000002d, 0x0000002e, 0x0000002c, 0x00000029, 0x00050041, 0x00000030,
+        0x00000031, 0x00000021, 0x00000022, 0x0003003e, 0x00000031, 0x0000002f, 0x000100fd, 0x00010038,
+    };
+    static const DWORD dxbc_ps_code[] =
+    {
+#if 0
+        void main(const in float4 position : SV_Position, out float4 target : SV_Target0)
+        {
+            target = float4(1.0f, 1.0f, 1.0f, 1.0f);
+        }
+#endif
+        0x43425844, 0xc1e910e0, 0xe168c974, 0xc32ae666, 0x82f81f71, 0x00000001, 0x000000d8, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x0000003c, 0x00000050,
+        0x0000000f, 0x0100086a, 0x03000065, 0x001020f2, 0x00000000, 0x08000036, 0x001020f2, 0x00000000,
+        0x00004002, 0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000, 0x0100003e,
+    };
+    static const DWORD spv_ps_code[] =
+    {
+#if 0
+        #version 450 core
+
+        layout(location = 0) out vec4 target;
+
+        void main()
+        {
+            target = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+        }
+#endif
+        0x07230203, 0x00010000, 0x00080001, 0x0000000c, 0x00000000, 0x00020011, 0x00000001, 0x0006000b,
+        0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e, 0x00000000, 0x0003000e, 0x00000000, 0x00000001,
+        0x0006000f, 0x00000004, 0x00000004, 0x6e69616d, 0x00000000, 0x00000009, 0x00030010, 0x00000004,
+        0x00000007, 0x00040047, 0x00000009, 0x0000001e, 0x00000000, 0x00020013, 0x00000002, 0x00030021,
+        0x00000003, 0x00000002, 0x00030016, 0x00000006, 0x00000020, 0x00040017, 0x00000007, 0x00000006,
+        0x00000004, 0x00040020, 0x00000008, 0x00000003, 0x00000007, 0x0004003b, 0x00000008, 0x00000009,
+        0x00000003, 0x0004002b, 0x00000006, 0x0000000a, 0x3f800000, 0x0007002c, 0x00000007, 0x0000000b,
+        0x0000000a, 0x0000000a, 0x0000000a, 0x0000000a, 0x00050036, 0x00000002, 0x00000004, 0x00000000,
+        0x00000003, 0x000200f8, 0x00000005, 0x0003003e, 0x00000009, 0x0000000b, 0x000100fd, 0x00010038,
+    };
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    command_queue_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
+            &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(SUCCEEDED(hr), "CreateCommandQueue failed, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
+    ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
+
+    rtv_heap_desc.NumDescriptors = 1;
+    rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    rtv_heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &rtv_heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&rtv_heap);
+    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+
+    rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+    resource_desc.Alignment = 0,
+    resource_desc.Width = 32,
+    resource_desc.Height = 32,
+    resource_desc.DepthOrArraySize = 1,
+    resource_desc.MipLevels = 1,
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN,
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+    clear_value.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    clear_value.Color[0] = 0.0f;
+    clear_value.Color[1] = 1.0f;
+    clear_value.Color[2] = 0.0f;
+    clear_value.Color[3] = 1.0f;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
+
+    ID3D12Device_CreateRenderTargetView(device, resource, NULL, rtv_handle);
+
+    root_signature_desc.NumParameters = 0;
+    root_signature_desc.pParameters = NULL;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    memset(&pipeline_state_desc, 0, sizeof(pipeline_state_desc));
+    pipeline_state_desc.pRootSignature = root_signature;
+    pipeline_state_desc.VS = SHADER_BYTECODE(dxbc_vs_code, spv_vs_code);
+    pipeline_state_desc.PS = SHADER_BYTECODE(dxbc_ps_code, spv_ps_code);
+    pipeline_state_desc.StreamOutput.RasterizedStream = 0;
+    pipeline_state_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    pipeline_state_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    pipeline_state_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pipeline_state_desc.SampleMask = ~(UINT)0;
+    pipeline_state_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pipeline_state_desc.NumRenderTargets = 1;
+    pipeline_state_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pipeline_state_desc.SampleDesc.Count = 1;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pipeline_state_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = resource_desc.Width;
+    viewport.Height = resource_desc.Height;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 0.0f;
+
+    scissor_rect.left = scissor_rect.top = 0;
+    scissor_rect.right = resource_desc.Width;
+    scissor_rect.bottom = resource_desc.Height;
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, green, 0, NULL);
+
+    /* This draw call is ignored. */
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv_handle, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
+    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+
+    get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
+    for (y = 0; y < resource_desc.Height; ++y)
+    {
+        for (x = 0; x < resource_desc.Width; ++x)
+        {
+           unsigned int v = get_readback_uint(&rb, x, y);
+           ok(v == 0xffffffff, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
+        }
+    }
+    release_resource_readback(&rb);
+
+    ID3D12PipelineState_Release(pipeline_state);
+    ID3D12RootSignature_Release(root_signature);
+    ID3D12GraphicsCommandList_Release(command_list);
+    ID3D12CommandAllocator_Release(command_allocator);
+    ID3D12Resource_Release(resource);
+    ID3D12CommandQueue_Release(queue);
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12)
 {
     ID3D12Debug *debug;
@@ -1994,4 +2267,5 @@ START_TEST(d3d12)
     test_gpu_signal_fence();
     test_multithread_fence_wait();
     test_clear_render_target_view();
+    test_draw_instanced();
 }
