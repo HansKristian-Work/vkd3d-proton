@@ -573,13 +573,20 @@ static enum VkBlendOp vk_blend_op_from_d3d12(D3D12_BLEND_OP op)
 static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentState *vk_desc,
         const D3D12_RENDER_TARGET_BLEND_DESC *d3d12_desc)
 {
-    vk_desc->blendEnable = d3d12_desc->BlendEnable;
-    vk_desc->srcColorBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->SrcBlend, false);
-    vk_desc->dstColorBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->DestBlend, false);
-    vk_desc->colorBlendOp = vk_blend_op_from_d3d12(d3d12_desc->BlendOp);
-    vk_desc->srcAlphaBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->SrcBlendAlpha, true);
-    vk_desc->dstAlphaBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->DestBlendAlpha, true);
-    vk_desc->alphaBlendOp = vk_blend_op_from_d3d12(d3d12_desc->BlendOpAlpha);;
+    if (d3d12_desc->BlendEnable)
+    {
+        vk_desc->blendEnable = VK_TRUE;
+        vk_desc->srcColorBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->SrcBlend, false);
+        vk_desc->dstColorBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->DestBlend, false);
+        vk_desc->colorBlendOp = vk_blend_op_from_d3d12(d3d12_desc->BlendOp);
+        vk_desc->srcAlphaBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->SrcBlendAlpha, true);
+        vk_desc->dstAlphaBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->DestBlendAlpha, true);
+        vk_desc->alphaBlendOp = vk_blend_op_from_d3d12(d3d12_desc->BlendOpAlpha);
+    }
+    else
+    {
+        memset(vk_desc, 0, sizeof(*vk_desc));
+    }
     vk_desc->colorWriteMask = 0;
     if (d3d12_desc->RenderTargetWriteMask & D3D12_COLOR_WRITE_ENABLE_RED)
         vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_R_BIT;
