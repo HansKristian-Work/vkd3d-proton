@@ -304,18 +304,60 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
     TRACE("  inheritedQueries: %#x.\n", features.inheritedQueries);
 }
 
+static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
+        VkPhysicalDevice *selected_device)
+{
+    const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
+    VkInstance vk_instance = instance->vk_instance;
+    VkPhysicalDevice *physical_devices;
+    uint32_t count;
+    unsigned int i;
+    VkResult vr;
+
+    count = 0;
+    if ((vr = VK_CALL(vkEnumeratePhysicalDevices(vk_instance, &count, NULL))) < 0)
+    {
+        ERR("Failed to enumerate physical devices, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+    if (!count)
+    {
+        ERR("No physical device available.\n");
+        return E_FAIL;
+    }
+    if (!(physical_devices = vkd3d_calloc(count, sizeof(*physical_devices))))
+        return E_OUTOFMEMORY;
+
+    TRACE("Enumerating %u physical device(s).\n", count);
+    if ((vr = VK_CALL(vkEnumeratePhysicalDevices(vk_instance, &count, physical_devices))) < 0)
+    {
+        ERR("Failed to enumerate physical devices, vr %d.\n", vr);
+        vkd3d_free(physical_devices);
+        return hresult_from_vk_result(vr);
+    }
+
+    for (i = 0; i < count; ++i)
+        vkd3d_trace_physical_device(physical_devices[i], vk_procs);
+
+    if (count > 1)
+        FIXME("Multiple physical devices available, selecting the first one.\n");
+
+    *selected_device = physical_devices[0];
+
+    vkd3d_free(physical_devices);
+
+    return S_OK;
+}
+
 static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance.vk_procs;
     unsigned int direct_queue_family_index, copy_queue_family_index;
-    VkInstance instance = device->vkd3d_instance.vk_instance;
     VkQueueFamilyProperties *queue_properties;
-    VkPhysicalDevice selected_physical_device;
     VkPhysicalDeviceFeatures device_features;
     VkDeviceQueueCreateInfo *queue_info;
-    VkPhysicalDevice *physical_devices;
+    VkPhysicalDevice physical_device;
     VkDeviceCreateInfo device_info;
-    uint32_t physical_device_count;
     uint32_t queue_family_count;
     VkDevice vk_device;
     unsigned int i;
@@ -324,43 +366,15 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
 
     TRACE("device %p.\n", device);
 
-    /* Select a physical device */
-    physical_device_count = 0;
-    if ((vr = VK_CALL(vkEnumeratePhysicalDevices(instance, &physical_device_count, NULL))) < 0)
-    {
-        ERR("Failed to enumerate physical devices, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
-    }
-    if (!physical_device_count)
-    {
-        ERR("No physical device available.\n");
-        return E_FAIL;
-    }
-    if (!(physical_devices = vkd3d_calloc(physical_device_count, sizeof(*physical_devices))))
-        return E_OUTOFMEMORY;
-
-    TRACE("Enumerating %u physical device(s).\n", physical_device_count);
-    if ((vr = VK_CALL(vkEnumeratePhysicalDevices(instance, &physical_device_count, physical_devices))) < 0)
-    {
-        ERR("Failed to enumerate physical devices, vr %d.\n", vr);
-        vkd3d_free(physical_devices);
-        return hresult_from_vk_result(vr);
-    }
-
-    for (i = 0; i < physical_device_count; ++i)
-        vkd3d_trace_physical_device(physical_devices[i], vk_procs);
-
-    if (physical_device_count > 1)
-        FIXME("Multiple physical devices available, selecting the first one.\n");
-
-    selected_physical_device = physical_devices[0];
-    vkd3d_free(physical_devices);
+    physical_device = VK_NULL_HANDLE;
+    if (FAILED(hr = vkd3d_select_physical_device(&device->vkd3d_instance, &physical_device)))
+        return hr;
 
     /* Create command queues */
-    VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(selected_physical_device, &queue_family_count, NULL));
+    VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, NULL));
     if (!(queue_properties = vkd3d_calloc(queue_family_count, sizeof(*queue_properties))))
         return E_OUTOFMEMORY;
-    VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(selected_physical_device,
+    VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(physical_device,
             &queue_family_count, queue_properties));
 
     if (!(queue_info = vkd3d_calloc(queue_family_count, sizeof(*queue_info))))
@@ -408,10 +422,10 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     TRACE("Using queue family %u for direct command queues.\n", direct_queue_family_index);
     TRACE("Using queue family %u for copy command queues.\n", copy_queue_family_index);
 
-    VK_CALL(vkGetPhysicalDeviceMemoryProperties(selected_physical_device, &device->memory_properties));
+    VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 
     /* Create device */
-    VK_CALL(vkGetPhysicalDeviceFeatures(selected_physical_device, &device_features));
+    VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &device_features));
 
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     device_info.pNext = NULL;
@@ -424,7 +438,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     device_info.ppEnabledExtensionNames = NULL;
     device_info.pEnabledFeatures = &device_features;
 
-    vr = VK_CALL(vkCreateDevice(selected_physical_device, &device_info, NULL, &vk_device));
+    vr = VK_CALL(vkCreateDevice(physical_device, &device_info, NULL, &vk_device));
     vkd3d_free(queue_info);
     if (vr < 0)
     {
