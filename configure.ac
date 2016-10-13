@@ -7,6 +7,7 @@ AC_CONFIG_LIBOBJ_DIR([portable])
 AC_CONFIG_HEADERS(include/config.h)
 
 AC_ARG_VAR([WIDL], [widl IDL compiler])
+AC_ARG_VAR([GLSLANG], [glslangValidator GLSL compiler])
 AC_ARG_VAR([CROSSCC32], [32-bit Windows cross compiler])
 AC_ARG_VAR([CROSSCC64], [64-bit Windows cross compiler])
 
@@ -17,8 +18,9 @@ AM_PROG_CC_C_O
 AC_PROG_SED
 AC_PROG_MKDIR_P
 AC_CHECK_PROG([WIDL], [widl], [widl], [no])
-
 AS_IF([test "x$WIDL" = "xno"], [AC_MSG_ERROR([widl is required to build header files.])])
+AC_CHECK_PROG([GLSLANG], [glslangValidator], [glslang], [no])
+AS_IF([test "x$GLSLANG" = "xno"], [AC_MSG_ERROR([glslangValidator is required to compile shaders.])])
 
 AM_INIT_AUTOMAKE([1.11 foreign silent-rules subdir-objects no-dist-gzip dist-xz -Wall -Werror])
 AM_MAINTAINER_MODE([enable])
@@ -51,6 +53,11 @@ AC_ARG_VAR([PTHREAD_LIBS], [linker flags for pthreads])
 AC_CHECK_LIB([pthread], [pthread_create],
              [AC_SUBST(PTHREAD_LIBS, "-lpthread")],
              [AC_MSG_ERROR(libpthread not found.)])
+
+AC_ARG_VAR([XCB_LIBS], [linker flags for xcb])
+AC_CHECK_LIB([xcb], [xcb_connect],
+             [AC_SUBST(XCB_LIBS, "-lxcb")],
+             [AC_MSG_ERROR([libxcb not found.])])
 
 AC_CHECK_LIB([vulkan], [vkGetInstanceProcAddr], [], [AC_MSG_ERROR([libvulkan not found.])])
 

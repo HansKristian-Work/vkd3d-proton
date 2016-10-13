@@ -19,11 +19,29 @@ vkd3d_public_headers = \
 	include/vkd3d_utils.h \
 	include/vkd3d_windows.h
 
+spv_triangle_shaders = \
+	demos/triangle.vert.spv \
+	demos/triangle.frag.spv
+
+spv_shaders = \
+	$(spv_triangle_shaders)
+
+hlsl_shaders = \
+	demos/triangle.hlsl
+
 vkd3d_tests = \
 	tests/d3d12
 
+vkd3d_demos = \
+	demos/triangle
+
+vkd3d_demos_headers = \
+	demos/demo.h \
+	demos/demo_win32.h \
+	demos/demo_xcb.h
+
 BUILT_SOURCES = $(widl_headers)
-CLEANFILES = $(widl_headers)
+CLEANFILES = $(widl_headers) $(spv_shaders)
 
 noinst_LTLIBRARIES = libvkd3d-common.la
 libvkd3d_common_la_SOURCES = \
@@ -66,6 +84,11 @@ AM_DEFAULT_SOURCE_EXT = .c
 TESTS = $(vkd3d_tests)
 tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@
 
+noinst_PROGRAMS = $(vkd3d_demos)
+EXTRA_DIST += $(vkd3d_demos_headers)
+EXTRA_demos_triangle_DEPENDENCIES = $(spv_triangle_shaders)
+demos_triangle_LDADD = libvkd3d.la $(LDADD) @XCB_LIBS@
+
 VKD3D_V_WIDL = $(vkd3d_v_widl_@AM_V@)
 vkd3d_v_widl_ = $(vkd3d_v_widl_@AM_DEFAULT_V@)
 vkd3d_v_widl_0 = @echo "  WIDL    " $@;
@@ -74,6 +97,17 @@ vkd3d_v_widl_1 =
 EXTRA_DIST += $(widl_headers) $(widl_headers:.h=.idl)
 $(widl_headers): %.h: %.idl
 	$(VKD3D_V_WIDL)$(WIDL) -o $@ $<
+
+VKD3D_V_GLSLANG = $(vkd3d_v_glslang_@AM_V@)
+vkd3d_v_glslang_ = $(vkd3d_v_glslang_@AM_DEFAULT_V@)
+vkd3d_v_glslang_0 = @echo "  GLSLANG " $@;
+vkd3d_v_glslang_1 =
+
+EXTRA_DIST += $(spv_shaders:.spv=)
+$(spv_shaders): %.spv: %
+	$(VKD3D_V_GLSLANG)$(GLSLANG) -V -o $@ $<
+
+EXTRA_DIST += $(hlsl_shaders)
 
 libvkd3d.pc: $(srcdir)/libs/vkd3d/libvkd3d.pc.in
 	sed -e 's![@]prefix[@]!$(prefix)!g' \
@@ -93,13 +127,14 @@ if HAS_CROSSTARGET32
 CROSS32_CC = @CROSSCC32@
 CROSS32_DLLTOOL = @CROSSTARGET32@-dlltool
 CROSS32_IMPLIBS = $(cross_implibs:=.cross32.a)
-CROSS32_EXEFILES = $(vkd3d_tests:=.cross32.exe)
+CROSS32_EXEFILES = $(vkd3d_tests:=.cross32.exe) $(vkd3d_demos:=.cross32.exe)
 CROSS32_FILES = $(CROSS32_IMPLIBS) $(CROSS32_EXEFILES)
 
 CLEANFILES += $(CROSS32_FILES)
 crosstest32: $(CROSS32_FILES)
 
 -include tests/$(DEPDIR)/*.cross32.Po
+-include demos/$(DEPDIR)/*.cross32.Po
 
 $(CROSS32_IMPLIBS): %.cross32.a: %.cross32.def
 	@${MKDIR_P} crosslibs
@@ -107,7 +142,7 @@ $(CROSS32_IMPLIBS): %.cross32.a: %.cross32.def
 
 $(CROSS32_EXEFILES): %.cross32.exe: %.c $(CROSS32_IMPLIBS) $(widl_headers)
 	$(AM_V_CCLD)depbase=`echo $@ | sed 's![^/]*$$!$(DEPDIR)/&!;s!\.exe$$!!'`; \
-	$(CROSS32_CC) $(CROSS_CFLAGS) -MT $@ -MD -MP -MF $$depbase.Tpo -o $@ $< $(CROSS32_IMPLIBS) && \
+	$(CROSS32_CC) $(CROSS_CFLAGS) -MT $@ -MD -MP -MF $$depbase.Tpo -o $@ $< $(CROSS32_IMPLIBS) -ldxgi -lgdi32 && \
 	$(am__mv) $$depbase.Tpo $$depbase.Po
 else
 crosstest32:
@@ -117,13 +152,14 @@ if HAS_CROSSTARGET64
 CROSS64_CC = @CROSSCC64@
 CROSS64_DLLTOOL = @CROSSTARGET64@-dlltool
 CROSS64_IMPLIBS = $(cross_implibs:=.cross64.a)
-CROSS64_EXEFILES = $(vkd3d_tests:=.cross64.exe)
+CROSS64_EXEFILES = $(vkd3d_tests:=.cross64.exe) $(vkd3d_demos:=.cross64.exe)
 CROSS64_FILES = $(CROSS64_IMPLIBS) $(CROSS64_EXEFILES)
 
 CLEANFILES += $(CROSS64_FILES)
 crosstest64: $(CROSS64_FILES)
 
 -include tests/$(DEPDIR)/*.cross64.Po
+-include demos/$(DEPDIR)/*.cross64.Po
 
 $(CROSS64_IMPLIBS): %.cross64.a: %.cross64.def
 	@${MKDIR_P} crosslibs
@@ -131,7 +167,7 @@ $(CROSS64_IMPLIBS): %.cross64.a: %.cross64.def
 
 $(CROSS64_EXEFILES): %.cross64.exe: %.c $(CROSS64_IMPLIBS) $(widl_headers)
 	$(AM_V_CCLD)depbase=`echo $@ | sed 's![^/]*$$!$(DEPDIR)/&!;s!\.exe$$!!'`; \
-	$(CROSS64_CC) $(CROSS_CFLAGS) -MT $@ -MD -MP -MF $$depbase.Tpo -o $@ $< $(CROSS64_IMPLIBS) && \
+	$(CROSS64_CC) $(CROSS_CFLAGS) -MT $@ -MD -MP -MF $$depbase.Tpo -o $@ $< $(CROSS64_IMPLIBS) -ldxgi -lgdi32 && \
 	$(am__mv) $$depbase.Tpo $$depbase.Po
 else
 crosstest64:

@@ -24,6 +24,12 @@
 
 static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance)
 {
+    static const char * const extensions[] =
+    {
+        "VK_KHR_surface",
+        "VK_KHR_xcb_surface",
+    };
+
     VkApplicationInfo application_info;
     VkInstanceCreateInfo instance_info;
     VkInstance vk_instance;
@@ -46,8 +52,8 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance)
     instance_info.pApplicationInfo = &application_info;
     instance_info.enabledLayerCount = 0;
     instance_info.ppEnabledLayerNames = NULL;
-    instance_info.enabledExtensionCount = 0;
-    instance_info.ppEnabledExtensionNames = NULL;
+    instance_info.enabledExtensionCount = ARRAY_SIZE(extensions);
+    instance_info.ppEnabledExtensionNames = extensions;
 
     if ((vr = vkCreateInstance(&instance_info, NULL, &vk_instance)))
     {
@@ -351,6 +357,11 @@ static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
 
 static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
 {
+    static const char * const extensions[] =
+    {
+        "VK_KHR_swapchain",
+    };
+
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance.vk_procs;
     unsigned int direct_queue_family_index, copy_queue_family_index;
     VkQueueFamilyProperties *queue_properties;
@@ -434,8 +445,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     device_info.pQueueCreateInfos = queue_info;
     device_info.enabledLayerCount = 0;
     device_info.ppEnabledLayerNames = NULL;
-    device_info.enabledExtensionCount = 0;
-    device_info.ppEnabledExtensionNames = NULL;
+    device_info.enabledExtensionCount = ARRAY_SIZE(extensions);
+    device_info.ppEnabledExtensionNames = extensions;
     device_info.pEnabledFeatures = &device_features;
 
     vr = VK_CALL(vkCreateDevice(physical_device, &device_info, NULL, &vk_device));
