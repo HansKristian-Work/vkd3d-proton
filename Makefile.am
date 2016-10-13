@@ -81,6 +81,7 @@ libvkd3d.pc: $(srcdir)/libs/vkd3d/libvkd3d.pc.in
 cross_implibs = crosslibs/d3d12
 CROSS_CPPFLAGS = -I$(srcdir)/include -I$(srcdir)/include/private -I$(builddir)/include
 CROSS_CFLAGS = -g -O2 -Wall -municode ${CROSS_CPPFLAGS}
+EXTRA_DIST += crosslibs/d3d12.cross32.def crosslibs/d3d12.cross64.def
 
 if HAS_CROSSTARGET32
 CROSS32_CC = @CROSSCC32@
