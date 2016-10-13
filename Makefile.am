@@ -53,6 +53,8 @@ libvkd3d_utils_la_LIBADD = libvkd3d-common.la libvkd3d.la
 pkgconfigdir = $(libdir)/pkgconfig
 pkginclude_HEADERS = $(vkd3d_public_headers)
 nodist_pkgconfig_DATA = libvkd3d.pc
+CLEANFILES += libvkd3d.pc
+EXTRA_DIST = libs/vkd3d/libvkd3d.pc.in
 
 LDADD = libvkd3d-utils.la
 check_PROGRAMS = $(vkd3d_tests)
