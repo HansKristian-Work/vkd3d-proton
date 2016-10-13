@@ -60,6 +60,7 @@ LDADD = libvkd3d-utils.la
 check_PROGRAMS = $(vkd3d_tests)
 AM_DEFAULT_SOURCE_EXT = .c
 TESTS = $(vkd3d_tests)
+tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@
 
 VKD3D_V_WIDL = $(vkd3d_v_widl_@AM_V@)
 vkd3d_v_widl_ = $(vkd3d_v_widl_@AM_DEFAULT_V@)
