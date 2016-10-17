@@ -974,7 +974,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_GetDeviceRemovedReason(ID3D12Devic
 {
     FIXME("iface %p stub!\n", iface);
 
-    return E_NOTIMPL;
+    return S_OK;
 }
 
 static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *iface,
