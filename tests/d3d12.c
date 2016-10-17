@@ -2475,6 +2475,63 @@ static void test_invalid_texture_resource_barriers(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_device_removed_reason(void)
+{
+    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
+    ID3D12CommandAllocator *command_allocator;
+    ID3D12GraphicsCommandList *command_list;
+    ID3D12CommandQueue *queue, *tmp_queue;
+    ID3D12Device *device;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    hr = ID3D12Device_GetDeviceRemovedReason(device);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    command_queue_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
+            &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(SUCCEEDED(hr), "CreateCommandQueue failed, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
+    ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
+
+    /* Execute a command list in the recording state. */
+    exec_command_list(queue, command_list);
+
+    hr = ID3D12Device_GetDeviceRemovedReason(device);
+    todo(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
+            &IID_ID3D12CommandQueue, (void **)&tmp_queue);
+    todo(hr == DXGI_ERROR_DEVICE_REMOVED, "Got unexpected hr %#x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12CommandQueue_Release(tmp_queue);
+
+    hr = ID3D12Device_GetDeviceRemovedReason(device);
+    todo(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_Release(command_list);
+    ID3D12CommandAllocator_Release(command_allocator);
+    ID3D12CommandQueue_Release(queue);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12)
 {
     ID3D12Debug *debug;
@@ -2503,4 +2560,5 @@ START_TEST(d3d12)
     test_clear_render_target_view();
     test_draw_instanced();
     test_invalid_texture_resource_barriers();
+    test_device_removed_reason();
 }
