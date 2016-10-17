@@ -90,16 +90,8 @@ static struct
     unsigned int debug;
 } vkd3d_test_state;
 
-static void vkd3d_test_ok(unsigned int line,
-        int result, const char *fmt, ...) VKD3D_PRINTF_FUNC(3, 4) VKD3D_UNUSED;
-static void vkd3d_test_todo(unsigned int line,
-        int result, const char *fmt, ...) VKD3D_PRINTF_FUNC(3, 4) VKD3D_UNUSED;
-static void vkd3d_test_skip(unsigned int line,
-        const char *fmt, ...) VKD3D_PRINTF_FUNC(2, 3) VKD3D_UNUSED;
-static void vkd3d_test_trace(unsigned int line,
-        const char *fmt, ...) VKD3D_PRINTF_FUNC(2, 3) VKD3D_UNUSED;
-
-static void vkd3d_test_ok(unsigned int line, int result, const char *fmt, ...)
+static void VKD3D_PRINTF_FUNC(3, 4) VKD3D_UNUSED
+vkd3d_test_ok(unsigned int line, int result, const char *fmt, ...)
 {
     if (result)
     {
@@ -118,7 +110,8 @@ static void vkd3d_test_ok(unsigned int line, int result, const char *fmt, ...)
     }
 }
 
-static void vkd3d_test_todo(unsigned int line, int result, const char *fmt, ...)
+static void VKD3D_PRINTF_FUNC(3, 4) VKD3D_UNUSED
+vkd3d_test_todo(unsigned int line, int result, const char *fmt, ...)
 {
     va_list args;
 
@@ -138,7 +131,8 @@ static void vkd3d_test_todo(unsigned int line, int result, const char *fmt, ...)
     va_end(args);
 }
 
-static void vkd3d_test_skip(unsigned int line, const char *fmt, ...)
+static void VKD3D_PRINTF_FUNC(2, 3) VKD3D_UNUSED
+vkd3d_test_skip(unsigned int line, const char *fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
@@ -148,7 +142,8 @@ static void vkd3d_test_skip(unsigned int line, const char *fmt, ...)
     InterlockedIncrement(&vkd3d_test_state.skip_count);
 }
 
-static void vkd3d_test_trace(unsigned int line, const char *fmt, ...)
+static void VKD3D_PRINTF_FUNC(2, 3) VKD3D_UNUSED
+vkd3d_test_trace(unsigned int line, const char *fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
