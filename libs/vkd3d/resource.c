@@ -620,6 +620,13 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     if (optimized_clear_value)
         FIXME("Ignoring optimized clear value.\n");
 
+    if (desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER
+            && (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD || heap_properties->Type == D3D12_HEAP_TYPE_READBACK))
+    {
+        WARN("Texture cannot be created on a UPLOAD/READBACK heap.\n");
+        return E_INVALIDARG;
+    }
+
     if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD && initial_state != D3D12_RESOURCE_STATE_GENERIC_READ)
     {
         WARN("For D3D12_HEAP_TYPE_UPLOAD the state must be D3D12_RESOURCE_STATE_GENERIC_READ.\n");
