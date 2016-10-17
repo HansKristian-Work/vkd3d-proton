@@ -620,6 +620,17 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     if (optimized_clear_value)
         FIXME("Ignoring optimized clear value.\n");
 
+    if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD && initial_state != D3D12_RESOURCE_STATE_GENERIC_READ)
+    {
+        WARN("For D3D12_HEAP_TYPE_UPLOAD the state must be D3D12_RESOURCE_STATE_GENERIC_READ.\n");
+        return E_INVALIDARG;
+    }
+    if (heap_properties->Type == D3D12_HEAP_TYPE_READBACK && initial_state != D3D12_RESOURCE_STATE_COPY_DEST)
+    {
+        WARN("For D3D12_HEAP_TYPE_READBACK the state must be D3D12_RESOURCE_STATE_COPY_DEST.\n");
+        return E_INVALIDARG;
+    }
+
     switch (desc->Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
