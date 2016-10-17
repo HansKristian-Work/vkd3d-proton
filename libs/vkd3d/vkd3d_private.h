@@ -23,16 +23,20 @@
 #ifndef __VKD3D_PRIVATE_H
 #define __VKD3D_PRIVATE_H
 
+#define VK_NO_PROTOTYPES
+#include <vulkan/vulkan.h>
+
 #define COBJMACROS
 #define NONAMELESSUNION
 #include "vkd3d.h"
 #include "vkd3d_memory.h"
-#include "vkd3d_vulkan.h"
 
 #include <assert.h>
 #include <inttypes.h>
 #include <pthread.h>
 #include <stdbool.h>
+
+#define VK_CALL(f) (vk_procs->f)
 
 #define VKD3D_DESCRIPTOR_MAGIC_FREE 0x00000000u
 #define VKD3D_DESCRIPTOR_MAGIC_RTV  0x00565452u
@@ -41,6 +45,21 @@
 
 struct d3d12_command_list;
 struct d3d12_device;
+
+#define DECLARE_VK_PFN(name) PFN_##name name;
+struct vkd3d_vk_instance_procs
+{
+#define VK_INSTANCE_PFN DECLARE_VK_PFN
+#include "vulkan_procs.h"
+};
+
+struct vkd3d_vk_device_procs
+{
+#define VK_INSTANCE_PFN DECLARE_VK_PFN
+#define VK_DEVICE_PFN   DECLARE_VK_PFN
+#include "vulkan_procs.h"
+};
+#undef DECLARE_VK_PFN
 
 struct vkd3d_instance
 {
@@ -357,5 +376,17 @@ HRESULT vkd3d_load_vk_instance_procs(struct vkd3d_vk_instance_procs *procs,
         VkInstance instance) DECLSPEC_HIDDEN;
 HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
         const struct vkd3d_vk_instance_procs *parent_procs, VkDevice device) DECLSPEC_HIDDEN;
+
+/* We link directly to the loader library and use the following exported functions. */
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance,
+        const char *name);
+VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo *create_info,
+        const VkAllocationCallbacks *allocator, VkInstance *instance);
+VKAPI_ATTR VkResult VKAPI_CALL vkEnumerateInstanceExtensionProperties(const char *layer_name,
+        uint32_t *property_count, VkExtensionProperties *properties);
+VKAPI_ATTR VkResult VKAPI_CALL vkEnumerateInstanceLayerProperties(uint32_t *property_count,
+        VkLayerProperties *properties);
+VKAPI_ATTR void VKAPI_CALL vkDestroyInstance(VkInstance instance, const VkAllocationCallbacks *allocator);
+VKAPI_ATTR void VKAPI_CALL vkDestroyDevice(VkDevice device, const VkAllocationCallbacks *allocator);
 
 #endif  /* __VKD3D_PRIVATE_H */
