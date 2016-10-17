@@ -250,7 +250,7 @@ static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
 
     if (allocate_info.memoryTypeIndex == ~0u)
     {
-        ERR("Failed to find suitable memory type.\n");
+        FIXME("Failed to find suitable memory type (allowed types %#x).\n", memory_requirements->memoryTypeBits);
         *vk_memory = VK_NULL_HANDLE;
         return E_FAIL;
     }
