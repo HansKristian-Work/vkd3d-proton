@@ -120,6 +120,21 @@ static D3D12_SHADER_BYTECODE shader_bytecode(const DWORD *code, size_t size)
 # define SHADER_BYTECODE(dxbc, spirv) ((void)dxbc, shader_bytecode(spirv, sizeof(spirv)))
 #endif
 
+static void transition_resource_state(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
+        D3D12_RESOURCE_STATES state_before, D3D12_RESOURCE_STATES state_after)
+{
+    D3D12_RESOURCE_BARRIER barrier;
+
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.Transition.pResource = resource;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barrier.Transition.StateBefore = state_before;
+    barrier.Transition.StateAfter = state_after;
+
+    ID3D12GraphicsCommandList_ResourceBarrier(list, 1, &barrier);
+}
+
 static void exec_command_list(ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *list)
 {
     ID3D12CommandList *lists[] = {(ID3D12CommandList *)list};
@@ -1991,6 +2006,8 @@ static void test_clear_render_target_view(void)
     ID3D12Device_CreateRenderTargetView(device, resource, NULL, rtv_handle);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, green, 0, NULL);
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
 
@@ -2261,6 +2278,9 @@ static void test_draw_instanced(void)
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
     for (y = 0; y < resource_desc.Height; ++y)
