@@ -164,22 +164,22 @@ static void destroy_event(HANDLE event)
 #else
 static HANDLE create_event(void)
 {
-    return VKD3DCreateEvent();
+    return vkd3d_create_event();
 }
 
 static void signal_event(HANDLE event)
 {
-    VKD3DSignalEvent(event);
+    vkd3d_signal_event(event);
 }
 
 static unsigned int wait_event(HANDLE event, unsigned int milliseconds)
 {
-    return VKD3DWaitEvent(event, milliseconds);
+    return vkd3d_wait_event(event, milliseconds);
 }
 
 static void destroy_event(HANDLE event)
 {
-    VKD3DDestroyEvent(event);
+    vkd3d_destroy_event(event);
 }
 #endif
 

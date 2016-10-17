@@ -34,10 +34,10 @@ extern "C" {
 #define WAIT_FAILED (~0u)
 #define INFINITE (~0u)
 
-HANDLE WINAPI VKD3DCreateEvent(void);
-BOOL WINAPI VKD3DSignalEvent(HANDLE event);
-unsigned int WINAPI VKD3DWaitEvent(HANDLE event, unsigned int milliseconds);
-void WINAPI VKD3DDestroyEvent(HANDLE event);
+HANDLE WINAPI vkd3d_create_event(void);
+BOOL WINAPI vkd3d_signal_event(HANDLE event);
+unsigned int WINAPI vkd3d_wait_event(HANDLE event, unsigned int milliseconds);
+void WINAPI vkd3d_destroy_event(HANDLE event);
 
 #ifdef __cplusplus
 }

@@ -41,13 +41,13 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
         FIXME("Ignoring adapter %p.\n", adapter);
 
     create_info.minimum_feature_level = minimum_feature_level;
-    create_info.signal_event_pfn = VKD3DSignalEvent;
+    create_info.signal_event_pfn = vkd3d_signal_event;
 
     return vkd3d_create_device(&create_info, riid, device);
 }
 
 /* Events */
-HANDLE WINAPI VKD3DCreateEvent(void)
+HANDLE WINAPI vkd3d_create_event(void)
 {
     struct vkd3d_event *event;
     int rc;
@@ -78,7 +78,7 @@ HANDLE WINAPI VKD3DCreateEvent(void)
     return event;
 }
 
-unsigned int WINAPI VKD3DWaitEvent(HANDLE event, unsigned int milliseconds)
+unsigned int WINAPI vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
 {
     struct vkd3d_event *impl = event;
     int rc;
@@ -121,7 +121,7 @@ unsigned int WINAPI VKD3DWaitEvent(HANDLE event, unsigned int milliseconds)
     return WAIT_FAILED;
 }
 
-BOOL WINAPI VKD3DSignalEvent(HANDLE event)
+BOOL WINAPI vkd3d_signal_event(HANDLE event)
 {
     struct vkd3d_event *impl = event;
     int rc;
@@ -140,7 +140,7 @@ BOOL WINAPI VKD3DSignalEvent(HANDLE event)
     return TRUE;
 }
 
-void WINAPI VKD3DDestroyEvent(HANDLE event)
+void WINAPI vkd3d_destroy_event(HANDLE event)
 {
     struct vkd3d_event *impl = event;
     int rc;
