@@ -47,7 +47,7 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
 }
 
 /* Events */
-HANDLE WINAPI vkd3d_create_event(void)
+HANDLE vkd3d_create_event(void)
 {
     struct vkd3d_event *event;
     int rc;
@@ -78,7 +78,7 @@ HANDLE WINAPI vkd3d_create_event(void)
     return event;
 }
 
-unsigned int WINAPI vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
+unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
 {
     struct vkd3d_event *impl = event;
     int rc;
@@ -121,7 +121,7 @@ unsigned int WINAPI vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
     return WAIT_FAILED;
 }
 
-BOOL WINAPI vkd3d_signal_event(HANDLE event)
+BOOL vkd3d_signal_event(HANDLE event)
 {
     struct vkd3d_event *impl = event;
     int rc;
@@ -140,7 +140,7 @@ BOOL WINAPI vkd3d_signal_event(HANDLE event)
     return TRUE;
 }
 
-void WINAPI vkd3d_destroy_event(HANDLE event)
+void vkd3d_destroy_event(HANDLE event)
 {
     struct vkd3d_event *impl = event;
     int rc;

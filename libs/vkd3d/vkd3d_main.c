@@ -23,7 +23,7 @@
 #define INITGUID
 #include "vkd3d_private.h"
 
-HRESULT WINAPI vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
+HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         REFIID riid, void **device)
 {
     struct d3d12_device *object;

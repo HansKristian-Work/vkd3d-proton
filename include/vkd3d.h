@@ -30,7 +30,7 @@
 extern "C" {
 #endif  /* __cplusplus */
 
-typedef BOOL (WINAPI *vkd3d_signal_event_pfn)(HANDLE event);
+typedef BOOL (*vkd3d_signal_event_pfn)(HANDLE event);
 
 struct vkd3d_device_create_info
 {
@@ -38,7 +38,7 @@ struct vkd3d_device_create_info
     vkd3d_signal_event_pfn signal_event_pfn;
 };
 
-HRESULT WINAPI vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
+HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         REFIID riid, void **device);
 
 #ifdef __cplusplus
