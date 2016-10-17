@@ -2262,16 +2262,6 @@ static void test_draw_instanced(void)
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
-    hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
-
-    exec_command_list(queue, command_list);
-    wait_queue_idle(device, queue);
-    hr = ID3D12CommandAllocator_Reset(command_allocator);
-    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
-    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
-
     get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
     for (y = 0; y < resource_desc.Height; ++y)
     {
