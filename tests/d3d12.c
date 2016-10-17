@@ -2304,6 +2304,177 @@ static void test_draw_instanced(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_invalid_texture_resource_barriers(void)
+{
+    ID3D12Resource *texture, *readback_buffer, *upload_buffer;
+    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
+    ID3D12CommandAllocator *command_allocator;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    command_queue_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
+            &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(SUCCEEDED(hr), "CreateCommandQueue failed, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
+    ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 32;
+    resource_desc.Height = 32;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, NULL,
+            &IID_ID3D12Resource, (void **)&texture);
+    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Height = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = 0;
+
+    heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
+            &IID_ID3D12Resource, (void **)&upload_buffer);
+    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
+
+    heap_properties.Type = D3D12_HEAP_TYPE_READBACK;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+            &IID_ID3D12Resource, (void **)&readback_buffer);
+    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
+
+    /* The following invalid barrier is not detected by the runtime. */
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
+    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+
+    /* The before state does not match with the previous state. */
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    /* The returned error code has changed after a Windows update. */
+    ok(hr == S_OK || hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    if (hr == S_OK)
+    {
+        exec_command_list(queue, command_list);
+        wait_queue_idle(device, queue);
+    }
+
+    ID3D12GraphicsCommandList_Release(command_list);
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
+
+    /* The before state does not match with the previous state. */
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    /* The returned error code has changed after a Windows update. */
+    ok(hr == S_OK || hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    if (hr == S_OK)
+    {
+        exec_command_list(queue, command_list);
+        wait_queue_idle(device, queue);
+    }
+
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+    ID3D12GraphicsCommandList_Release(command_list);
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
+
+    /* Exactly one write state or a combination of read-only states are allowed. */
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    todo(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+    ID3D12GraphicsCommandList_Release(command_list);
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
+
+    /* Readback resources cannot transition from D3D12_RESOURCE_STATE_COPY_DEST. */
+    transition_resource_state(command_list, readback_buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    todo(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+    ID3D12GraphicsCommandList_Release(command_list);
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
+
+    /* Upload resources cannot transition from D3D12_RESOURCE_STATE_GENERIC_READ. */
+    transition_resource_state(command_list, upload_buffer,
+            D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_COMMON);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    todo(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    ID3D12CommandAllocator_Release(command_allocator);
+    ID3D12CommandQueue_Release(queue);
+    ID3D12GraphicsCommandList_Release(command_list);
+    ID3D12Resource_Release(readback_buffer);
+    ID3D12Resource_Release(texture);
+    ID3D12Resource_Release(upload_buffer);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12)
 {
     ID3D12Debug *debug;
@@ -2331,4 +2502,5 @@ START_TEST(d3d12)
     test_multithread_fence_wait();
     test_clear_render_target_view();
     test_draw_instanced();
+    test_invalid_texture_resource_barriers();
 }
