@@ -462,8 +462,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
 
     if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
     {
+        /* Textures seem to be mappable only on UMA adapters. */
         FIXME("Not implemented for textures.\n");
-        return E_NOTIMPL;
+        return E_INVALIDARG;
     }
 
     if (!resource->vk_memory)
