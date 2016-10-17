@@ -1150,3 +1150,10 @@ HRESULT d3d12_device_create(const struct vkd3d_device_create_info *create_info,
 
     return S_OK;
 }
+
+VkInstance vkd3d_get_vk_instance(ID3D12Device *device)
+{
+    struct d3d12_device *d3d12_device = impl_from_ID3D12Device(device);
+
+    return d3d12_device->vkd3d_instance.vk_instance;
+}
