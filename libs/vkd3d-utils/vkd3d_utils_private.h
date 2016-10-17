@@ -24,6 +24,7 @@
 #define __VKD3D_UTILS_PRIVATE_H
 
 #include <pthread.h>
+#include <vkd3d.h>
 
 #define COBJMACROS
 #define NONAMELESSUNION

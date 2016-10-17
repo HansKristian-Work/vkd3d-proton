@@ -71,7 +71,7 @@ HANDLE vkd3d_create_event(void)
         return NULL;
     }
 
-    event->is_signaled = FALSE;
+    event->is_signaled = false;
 
     TRACE("Created event %p.\n", event);
 
@@ -93,8 +93,8 @@ unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
 
     if (impl->is_signaled || !milliseconds)
     {
-        BOOL is_signaled = impl->is_signaled;
-        impl->is_signaled = FALSE;
+        bool is_signaled = impl->is_signaled;
+        impl->is_signaled = false;
         pthread_mutex_unlock(&impl->mutex);
         return is_signaled ? WAIT_OBJECT_0 : WAIT_TIMEOUT;
     }
@@ -111,7 +111,7 @@ unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
             }
         } while (!impl->is_signaled);
 
-        impl->is_signaled = FALSE;
+        impl->is_signaled = false;
         pthread_mutex_unlock(&impl->mutex);
         return WAIT_OBJECT_0;
     }
@@ -121,7 +121,7 @@ unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
     return WAIT_FAILED;
 }
 
-BOOL vkd3d_signal_event(HANDLE event)
+bool vkd3d_signal_event(HANDLE event)
 {
     struct vkd3d_event *impl = event;
     int rc;
@@ -131,13 +131,13 @@ BOOL vkd3d_signal_event(HANDLE event)
     if ((rc = pthread_mutex_lock(&impl->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
-        return FALSE;
+        return false;
     }
-    impl->is_signaled = TRUE;
+    impl->is_signaled = true;
     pthread_cond_signal(&impl->cond);
     pthread_mutex_unlock(&impl->mutex);
 
-    return TRUE;
+    return true;
 }
 
 void vkd3d_destroy_event(HANDLE event)

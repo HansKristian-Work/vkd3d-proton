@@ -23,7 +23,7 @@
 #ifndef __VKD3D_UTILS_H
 #define __VKD3D_UTILS_H
 
-#include "vkd3d.h"
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,7 +35,7 @@ extern "C" {
 #define INFINITE (~0u)
 
 HANDLE vkd3d_create_event(void);
-BOOL vkd3d_signal_event(HANDLE event);
+bool vkd3d_signal_event(HANDLE event);
 unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds);
 void vkd3d_destroy_event(HANDLE event);
 

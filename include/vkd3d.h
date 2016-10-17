@@ -25,12 +25,13 @@
 
 #include "vkd3d_windows.h"
 #include "d3d12.h"
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif  /* __cplusplus */
 
-typedef BOOL (*vkd3d_signal_event_pfn)(HANDLE event);
+typedef bool (*vkd3d_signal_event_pfn)(HANDLE event);
 
 struct vkd3d_device_create_info
 {
