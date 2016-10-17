@@ -1091,6 +1091,14 @@ static const struct ID3D12DeviceVtbl d3d12_device_vtbl =
     d3d12_device_GetAdapterLuid,
 };
 
+struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface)
+{
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_device_vtbl);
+    return impl_from_ID3D12Device(iface);
+}
+
 static HRESULT d3d12_device_init(struct d3d12_device *device,
         const struct vkd3d_device_create_info *create_info)
 {

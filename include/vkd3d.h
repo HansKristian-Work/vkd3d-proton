@@ -25,6 +25,7 @@
 
 #include "vkd3d_windows.h"
 #include "d3d12.h"
+#include <vulkan/vulkan.h>
 #include <stdbool.h>
 
 #ifdef __cplusplus
@@ -41,6 +42,8 @@ struct vkd3d_device_create_info
 
 HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         REFIID riid, void **device);
+HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_DESC *desc,
+        VkImage vk_image, ID3D12Resource **resource);
 
 #ifdef __cplusplus
 }

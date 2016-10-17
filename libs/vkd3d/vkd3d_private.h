@@ -24,7 +24,6 @@
 #define __VKD3D_PRIVATE_H
 
 #define VK_NO_PROTOTYPES
-#include <vulkan/vulkan.h>
 
 #define COBJMACROS
 #define NONAMELESSUNION
@@ -129,6 +128,7 @@ struct d3d12_resource
         VkImage vk_image;
     } u;
     VkDeviceMemory vk_memory;
+    bool external;
 
     unsigned int map_count;
     void *map_data;
@@ -344,6 +344,7 @@ struct d3d12_device
 
 HRESULT d3d12_device_create(const struct vkd3d_device_create_info *create_info,
         struct d3d12_device **device) DECLSPEC_HIDDEN;
+struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface) DECLSPEC_HIDDEN;
 
 /* utils */
 struct vkd3d_format

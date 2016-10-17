@@ -324,6 +324,9 @@ static void vkd3d_destroy_resource(struct d3d12_resource *resource, struct d3d12
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+    if (resource->external)
+        return;
+
     switch (resource->desc.Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
@@ -670,6 +673,7 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
             return E_INVALIDARG;
     }
 
+    resource->external = false;
     resource->map_count = 0;
     resource->map_data = NULL;
 
@@ -700,6 +704,33 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
     TRACE("Created committed resource %p.\n", object);
 
     *resource = object;
+
+    return S_OK;
+}
+
+HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_DESC *desc,
+        VkImage vk_image, ID3D12Resource **resource)
+{
+    struct d3d12_device *d3d12_device = unsafe_impl_from_ID3D12Device(device);
+    struct d3d12_resource *object;
+
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    object->ID3D12Resource_iface.lpVtbl = &d3d12_resource_vtbl;
+    object->refcount = 1;
+    object->desc = *desc;
+    object->u.vk_image = vk_image;
+    object->vk_memory = VK_NULL_HANDLE;
+    object->external = true;
+    object->map_count = 0;
+    object->map_data = NULL;
+    object->device = d3d12_device;
+    ID3D12Device_AddRef(&d3d12_device->ID3D12Device_iface);
+
+    TRACE("Created resource %p.\n", object);
+
+    *resource = &object->ID3D12Resource_iface;
 
     return S_OK;
 }
