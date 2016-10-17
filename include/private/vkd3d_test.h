@@ -43,41 +43,41 @@ static const char *vkd3d_test_name;
 #define trace trace_(__LINE__)
 
 #define ok_(line) \
-    do { \
-    unsigned int vkd3d_line = line; \
-    VKD3D_TEST_OK
+        do { \
+        unsigned int vkd3d_line = line; \
+        VKD3D_TEST_OK
 
 #define VKD3D_TEST_OK(args...) \
-    vkd3d_test_ok(vkd3d_line, args); } while (0)
+        vkd3d_test_ok(vkd3d_line, args); } while (0)
 
 #define todo_(line) \
-    do { \
-    unsigned int vkd3d_line = line; \
-    VKD3D_TEST_TODO
+        do { \
+        unsigned int vkd3d_line = line; \
+        VKD3D_TEST_TODO
 
 #ifdef _WIN32
 # define VKD3D_TEST_TODO(args...) \
-    vkd3d_test_ok(vkd3d_line, args); } while (0)
+        vkd3d_test_ok(vkd3d_line, args); } while (0)
 #else
 # define VKD3D_TEST_TODO(args...) \
-    vkd3d_test_todo(vkd3d_line, args); } while (0)
+        vkd3d_test_todo(vkd3d_line, args); } while (0)
 #endif  /* _WIN32 */
 
 #define skip_(line) \
-    do { \
-    unsigned int vkd3d_line = line; \
-    VKD3D_TEST_SKIP
+        do { \
+        unsigned int vkd3d_line = line; \
+        VKD3D_TEST_SKIP
 
 #define VKD3D_TEST_SKIP(args...) \
-    vkd3d_test_skip(vkd3d_line, args); } while (0)
+        vkd3d_test_skip(vkd3d_line, args); } while (0)
 
 #define trace_(line) \
-    do { \
-    unsigned int vkd3d_line = line; \
-    VKD3D_TEST_TRACE
+        do { \
+        unsigned int vkd3d_line = line; \
+        VKD3D_TEST_TRACE
 
 #define VKD3D_TEST_TRACE(args...) \
-    vkd3d_test_trace(vkd3d_line, args); } while (0)
+        vkd3d_test_trace(vkd3d_line, args); } while (0)
 
 static struct
 {
