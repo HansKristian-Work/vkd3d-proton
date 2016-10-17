@@ -2461,3 +2461,10 @@ HRESULT d3d12_command_queue_create(struct d3d12_device *device,
 
     return S_OK;
 }
+
+VkQueue vkd3d_get_vk_queue(ID3D12CommandQueue *queue)
+{
+    struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
+
+    return d3d12_queue->vk_queue;
+}
