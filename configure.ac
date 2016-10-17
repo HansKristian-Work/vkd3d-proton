@@ -20,7 +20,7 @@ AC_CHECK_PROG([WIDL], [widl], [widl], [no])
 
 AS_IF([test "x$WIDL" = "xno"], [AC_MSG_ERROR([widl is required to build header files.])])
 
-AM_INIT_AUTOMAKE([1.11 foreign silent-rules subdir-objects -Wall -Werror])
+AM_INIT_AUTOMAKE([1.11 foreign silent-rules subdir-objects no-dist-gzip dist-xz -Wall -Werror])
 AM_MAINTAINER_MODE([enable])
 AM_SILENT_RULES([yes])
 
