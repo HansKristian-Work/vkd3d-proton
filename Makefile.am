@@ -92,14 +92,18 @@ CROSS32_EXEFILES = $(vkd3d_tests:=.cross32.exe)
 CROSS32_FILES = $(CROSS32_IMPLIBS) $(CROSS32_EXEFILES)
 
 CLEANFILES += $(CROSS32_FILES)
-crosstest32: $(widl_headers) $(CROSS32_FILES)
+crosstest32: $(CROSS32_FILES)
+
+-include tests/$(DEPDIR)/*.cross32.Po
 
 $(CROSS32_IMPLIBS): %.cross32.a: %.cross32.def
 	@${MKDIR_P} crosslibs
 	$(AM_V_GEN)$(CROSS32_DLLTOOL) -k -m i386 --as-flags=-32 -d $< -l $@
 
-$(CROSS32_EXEFILES): %.cross32.exe: %.c $(CROSS32_IMPLIBS) include/private/vkd3d_test.h
-	$(AM_V_CCLD)$(CROSS32_CC) $(CROSS_CFLAGS) -o $@ $< $(CROSS32_IMPLIBS)
+$(CROSS32_EXEFILES): %.cross32.exe: %.c $(CROSS32_IMPLIBS) $(widl_headers)
+	$(AM_V_CCLD)depbase=`echo $@ | sed 's![^/]*$$!$(DEPDIR)/&!;s!\.exe$$!!'`; \
+	$(CROSS32_CC) $(CROSS_CFLAGS) -MT $@ -MD -MP -MF $$depbase.Tpo -o $@ $< $(CROSS32_IMPLIBS) && \
+	$(am__mv) $$depbase.Tpo $$depbase.Po
 else
 crosstest32:
 endif
@@ -112,14 +116,18 @@ CROSS64_EXEFILES = $(vkd3d_tests:=.cross64.exe)
 CROSS64_FILES = $(CROSS64_IMPLIBS) $(CROSS64_EXEFILES)
 
 CLEANFILES += $(CROSS64_FILES)
-crosstest64: $(widl_headers) $(CROSS64_FILES)
+crosstest64: $(CROSS64_FILES)
+
+-include tests/$(DEPDIR)/*.cross64.Po
 
 $(CROSS64_IMPLIBS): %.cross64.a: %.cross64.def
 	@${MKDIR_P} crosslibs
 	$(AM_V_GEN)$(CROSS64_DLLTOOL) -k -m i386:x86-64 --as-flags=-64 -d $< -l $@
 
-$(CROSS64_EXEFILES): %.cross64.exe: %.c $(CROSS64_IMPLIBS) include/private/vkd3d_test.h
-	$(AM_V_CCLD)$(CROSS64_CC) $(CROSS_CFLAGS) -o $@ $< $(CROSS64_IMPLIBS)
+$(CROSS64_EXEFILES): %.cross64.exe: %.c $(CROSS64_IMPLIBS) $(widl_headers)
+	$(AM_V_CCLD)depbase=`echo $@ | sed 's![^/]*$$!$(DEPDIR)/&!;s!\.exe$$!!'`; \
+	$(CROSS64_CC) $(CROSS_CFLAGS) -MT $@ -MD -MP -MF $$depbase.Tpo -o $@ $< $(CROSS64_IMPLIBS) && \
+	$(am__mv) $$depbase.Tpo $$depbase.Po
 else
 crosstest64:
 endif
