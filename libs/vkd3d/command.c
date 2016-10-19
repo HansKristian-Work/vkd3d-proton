@@ -936,6 +936,173 @@ static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_
     list->current_pipeline = VK_NULL_HANDLE;
 }
 
+static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
+        VkAccessFlags *access_mask, VkPipelineStageFlags *stage_flags,
+        VkImageLayout *image_layout)
+{
+    switch (state)
+    {
+        case D3D12_RESOURCE_STATE_COMMON: /* D3D12_RESOURCE_STATE_PRESENT */
+            /* The COMMON state is used for ownership transfer between
+             * DIRECT/COMPUTE and COPY queues. Additionally, a texture has to
+             * be in the COMMON state to be accessed by CPU. Moreover,
+             * resources can be implicitly promoted to other states out of the
+             * COMMON state, and the resource state can decay to the COMMON
+             * state when GPU finishes execution of a command list. */
+            *access_mask = VK_ACCESS_HOST_READ_BIT | VK_ACCESS_HOST_WRITE_BIT;
+            *stage_flags = VK_PIPELINE_STAGE_HOST_BIT;
+            if (image_layout)
+                *image_layout = VK_IMAGE_LAYOUT_GENERAL;
+            return true;
+
+        /* Handle write states. */
+        case D3D12_RESOURCE_STATE_RENDER_TARGET:
+            *access_mask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT
+                    | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            *stage_flags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            if (image_layout)
+                *image_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            return true;
+
+        case D3D12_RESOURCE_STATE_UNORDERED_ACCESS:
+            *access_mask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+            /* FIXME: We can limit shader bits based on command list type,
+             * fragmentStoresAndAtomics and vertexPipelineStoresAndAtomics. */
+            *stage_flags = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT
+                    | VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT
+                    | VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT
+                    | VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT
+                    | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                    | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+            if (image_layout)
+                *image_layout = VK_IMAGE_LAYOUT_GENERAL;
+            return true;
+
+        case D3D12_RESOURCE_STATE_DEPTH_WRITE:
+            *access_mask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT
+                    | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            *stage_flags = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                    | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+            if (image_layout)
+                *image_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            return true;
+
+        case D3D12_RESOURCE_STATE_COPY_DEST:
+            *access_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            *stage_flags = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            if (image_layout)
+                *image_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            return true;
+
+        case D3D12_RESOURCE_STATE_STREAM_OUT:
+        case D3D12_RESOURCE_STATE_RESOLVE_DEST:
+            FIXME("Unhandled resource state %#x.\n", state);
+            return false;
+
+        /* Set the Vulkan image layout for read-only states. */
+        case D3D12_RESOURCE_STATE_DEPTH_READ:
+        case D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE:
+        case D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:
+        case D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+                | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:
+            *access_mask = 0;
+            *stage_flags = 0;
+            if (image_layout)
+                *image_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+            break;
+
+        case D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:
+        case D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE:
+        case D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE:
+            *access_mask = 0;
+            *stage_flags = 0;
+            if (image_layout)
+                *image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            break;
+
+        case D3D12_RESOURCE_STATE_COPY_SOURCE:
+            *access_mask = 0;
+            *stage_flags = 0;
+            if (image_layout)
+                *image_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            break;
+
+        default:
+            *access_mask = 0;
+            *stage_flags = 0;
+            if (image_layout)
+                *image_layout = VK_IMAGE_LAYOUT_GENERAL;
+            break;
+    }
+
+    /* Handle read-only states. */
+    assert(!is_write_resource_state(state));
+
+    if (state & D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER)
+    {
+        *access_mask |= VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT
+                | VK_ACCESS_UNIFORM_READ_BIT;
+        *stage_flags |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT
+                | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT
+                | VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT
+                | VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT
+                | VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT
+                | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        state &= ~D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
+    }
+
+    if (state & D3D12_RESOURCE_STATE_INDEX_BUFFER)
+    {
+        *access_mask |= VK_ACCESS_INDEX_READ_BIT;
+        *stage_flags |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+        state &= ~D3D12_RESOURCE_STATE_INDEX_BUFFER;
+    }
+
+    if (state & D3D12_RESOURCE_STATE_DEPTH_READ)
+    {
+        *access_mask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+        *stage_flags |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        state &= ~D3D12_RESOURCE_STATE_DEPTH_READ;
+    }
+
+    if (state & D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+    {
+        *access_mask |= VK_ACCESS_SHADER_READ_BIT;
+        *stage_flags |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT
+                | VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT
+                | VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT
+                | VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT
+                | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        state &= ~D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    }
+    if (state & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
+    {
+        *access_mask |= VK_ACCESS_SHADER_READ_BIT;
+        *stage_flags |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        state &= ~D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    }
+
+    if (state & D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT) /* D3D12_RESOURCE_STATE_PREDICATION */
+    {
+        *access_mask |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+        *stage_flags |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+        state &= ~D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+    }
+
+    if (state & D3D12_RESOURCE_STATE_COPY_SOURCE)
+    {
+        *access_mask |= VK_ACCESS_TRANSFER_READ_BIT;
+        *stage_flags |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+        state &= ~D3D12_RESOURCE_STATE_COPY_SOURCE;
+    }
+
+    if (state)
+        FIXME("Unhandled resource state %#x.\n", state);
+    return true;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(ID3D12GraphicsCommandList *iface,
         REFIID riid, void **object)
 {
@@ -1559,13 +1726,21 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     bool have_aliasing_barriers = false, have_split_barriers = false;
+    const struct vkd3d_vk_device_procs *vk_procs;
     unsigned int i;
 
     TRACE("iface %p, barrier_count %u, barriers %p.\n", iface, barrier_count, barriers);
 
+    vk_procs = &list->device->vk_procs;
+
     for (i = 0; i < barrier_count; ++i)
     {
+        unsigned int sub_resource_idx = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        VkPipelineStageFlags src_stage_mask = 0, dst_stage_mask = 0;
+        VkAccessFlags src_access_mask = 0, dst_access_mask = 0;
         const D3D12_RESOURCE_BARRIER *current = &barriers[i];
+        VkImageLayout layout_before, layout_after;
+        struct d3d12_resource *resource;
 
         have_split_barriers = have_split_barriers
                 || (current->Flags & D3D12_RESOURCE_BARRIER_FLAG_BEGIN_ONLY)
@@ -1593,14 +1768,32 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
                     continue;
                 }
 
-                FIXME("Transition barriers not implemented yet.\n");
+                if (!vk_barrier_parameters_from_d3d12_resource_state(transition->StateBefore,
+                        &src_access_mask, &src_stage_mask, &layout_before))
+                {
+                    FIXME("Unhandled state %#x.\n", transition->StateBefore);
+                    continue;
+                }
+                if (!vk_barrier_parameters_from_d3d12_resource_state(transition->StateAfter,
+                        &dst_access_mask, &dst_stage_mask, &layout_after))
+                {
+                    FIXME("Unhandled state %#x.\n", transition->StateAfter);
+                    continue;
+                }
+
+                resource = unsafe_impl_from_ID3D12Resource(transition->pResource);
+                assert(resource);
+                sub_resource_idx = transition->Subresource;
+
+                TRACE("Transition barrier (resource %p, subresource %#x, before %#x, after %#x).\n",
+                        resource, transition->Subresource, transition->StateBefore, transition->StateAfter);
                 break;
             }
 
             case D3D12_RESOURCE_BARRIER_TYPE_UAV:
             {
                 FIXME("UAV barriers not implemented yet.\n");
-                break;
+                continue;
             }
 
             case D3D12_RESOURCE_BARRIER_TYPE_ALIASING:
@@ -1609,6 +1802,64 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
             default:
                 WARN("Invalid barrier type %#x.\n", current->Type);
                 continue;
+        }
+
+        if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        {
+            VkBufferMemoryBarrier vk_barrier;
+
+            vk_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            vk_barrier.pNext = NULL;
+            vk_barrier.srcAccessMask = src_access_mask;
+            vk_barrier.dstAccessMask = dst_access_mask;
+            vk_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            vk_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            vk_barrier.buffer = resource->u.vk_buffer;
+            vk_barrier.offset = 0;
+            vk_barrier.size = VK_WHOLE_SIZE;
+
+            VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer, src_stage_mask, dst_stage_mask, 0,
+                    0, NULL, 1, &vk_barrier, 0, NULL));
+        }
+        else
+        {
+            const struct vkd3d_format *format;
+            VkImageMemoryBarrier vk_barrier;
+
+            if (!(format = vkd3d_get_format(resource->desc.Format)))
+            {
+                ERR("Resource %p has invalid format %#x.\n", resource, resource->desc.Format);
+                continue;
+            }
+
+            vk_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            vk_barrier.pNext = NULL;
+            vk_barrier.srcAccessMask = src_access_mask;
+            vk_barrier.dstAccessMask = dst_access_mask;
+            vk_barrier.oldLayout = layout_before;
+            vk_barrier.newLayout = layout_after;
+            vk_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            vk_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            vk_barrier.image = resource->u.vk_image;
+
+            vk_barrier.subresourceRange.aspectMask = format->vk_aspect_mask;
+            if (sub_resource_idx == D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES)
+            {
+                vk_barrier.subresourceRange.baseMipLevel = 0;
+                vk_barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+                vk_barrier.subresourceRange.baseArrayLayer = 0;
+                vk_barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+            }
+            else
+            {
+                vk_barrier.subresourceRange.baseMipLevel = sub_resource_idx % resource->desc.MipLevels;
+                vk_barrier.subresourceRange.levelCount = 1;
+                vk_barrier.subresourceRange.baseArrayLayer = sub_resource_idx / resource->desc.MipLevels;
+                vk_barrier.subresourceRange.layerCount = 1;
+            }
+
+            VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer, src_stage_mask, dst_stage_mask, 0,
+                    0, NULL, 0, NULL, 1, &vk_barrier));
         }
     }
 

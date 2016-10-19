@@ -105,7 +105,7 @@ bool check_feature_level_support(D3D_FEATURE_LEVEL feature_level)
     return feature_level <= D3D_FEATURE_LEVEL_11_0;
 }
 
-static bool is_write_resource_state(D3D12_RESOURCE_STATES state)
+bool is_write_resource_state(D3D12_RESOURCE_STATES state)
 {
     return state & (D3D12_RESOURCE_STATE_RENDER_TARGET
             | D3D12_RESOURCE_STATE_UNORDERED_ACCESS

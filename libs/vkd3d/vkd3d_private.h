@@ -362,6 +362,7 @@ bool is_valid_feature_level(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;
 bool check_feature_level_support(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;
 
 bool is_valid_resource_state(D3D12_RESOURCE_STATES state) DECLSPEC_HIDDEN;
+bool is_write_resource_state(D3D12_RESOURCE_STATES state) DECLSPEC_HIDDEN;
 
 HRESULT return_interface(IUnknown *iface, REFIID iface_riid,
         REFIID requested_riid, void **object) DECLSPEC_HIDDEN;
