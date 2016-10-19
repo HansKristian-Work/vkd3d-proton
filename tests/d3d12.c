@@ -500,6 +500,7 @@ static void test_check_feature_support(void)
 {
     D3D12_FEATURE_DATA_FEATURE_LEVELS feature_levels;
     D3D_FEATURE_LEVEL max_supported_feature_level;
+    D3D12_FEATURE_DATA_ARCHITECTURE architecture;
     ID3D12Device *device;
     ULONG refcount;
     HRESULT hr;
@@ -539,6 +540,27 @@ static void test_check_feature_support(void)
     {
         skip("Failed to create device.\n");
         return;
+    }
+
+    /* Architecture. */
+    memset(&architecture, 0, sizeof(architecture));
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ARCHITECTURE,
+            &architecture, sizeof(architecture));
+    todo(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(!architecture.NodeIndex, "Got unexpected node %u.\n", architecture.NodeIndex);
+    ok(!architecture.CacheCoherentUMA || architecture.UMA,
+            "Got unexpected cache coherent UMA %#x (UMA %#x).\n",
+            architecture.CacheCoherentUMA, architecture.UMA);
+    trace("UMA %#x, cache coherent UMA %#x, tile based renderer %#x.\n",
+            architecture.UMA, architecture.CacheCoherentUMA, architecture.TileBasedRenderer);
+
+    if (ID3D12Device_GetNodeCount(device) == 1)
+    {
+        memset(&architecture, 0, sizeof(architecture));
+        architecture.NodeIndex = 1;
+        hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ARCHITECTURE,
+                &architecture, sizeof(architecture));
+        todo(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
     }
 
     /* Feature levels */

@@ -1266,6 +1266,14 @@ typedef struct D3D12_COMMAND_QUEUE_DESC
     UINT NodeMask;
 } D3D12_COMMAND_QUEUE_DESC;
 
+typedef struct D3D12_FEATURE_DATA_ARCHITECTURE
+{
+    UINT NodeIndex;
+    BOOL TileBasedRenderer;
+    BOOL UMA;
+    BOOL CacheCoherentUMA;
+} D3D12_FEATURE_DATA_ARCHITECTURE;
+
 typedef struct D3D12_FEATURE_DATA_FORMAT_INFO
 {
     DXGI_FORMAT Format;
