@@ -649,11 +649,47 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandList(ID3D12Device *if
 static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *iface,
         D3D12_FEATURE feature, void *feature_data, UINT feature_data_size)
 {
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
     TRACE("iface %p, feature %#x, feature_data %p, feature_data_size %u.\n",
             iface, feature, feature_data, feature_data_size);
 
     switch (feature)
     {
+        case D3D12_FEATURE_ARCHITECTURE:
+        {
+            D3D12_FEATURE_DATA_ARCHITECTURE *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            if (data->NodeIndex)
+            {
+                FIXME("Multi-adapter not supported.\n");
+                return E_INVALIDARG;
+            }
+
+            FIXME("Assuming device does not support tile based rendering.\n");
+            data->TileBasedRenderer = FALSE;
+
+            if (device->memory_properties.memoryTypeCount == 1)
+            {
+                TRACE("Assuming cache coherent UMA.\n");
+                data->UMA = TRUE;
+                data->CacheCoherentUMA = TRUE;
+            }
+            else
+            {
+                FIXME("Assuming NUMA.\n");
+                data->UMA = FALSE;
+                data->CacheCoherentUMA = FALSE;
+            }
+            return S_OK;
+        }
+
         case D3D12_FEATURE_FEATURE_LEVELS:
         {
             D3D12_FEATURE_DATA_FEATURE_LEVELS *data = feature_data;
@@ -674,15 +710,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
                 if (data->MaxSupportedFeatureLevel < fl && check_feature_level_support(fl))
                     data->MaxSupportedFeatureLevel = fl;
             }
-            break;
+            return S_OK;
         }
 
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
     }
-
-    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateDescriptorHeap(ID3D12Device *iface,

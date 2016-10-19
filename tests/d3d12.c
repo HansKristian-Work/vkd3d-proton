@@ -546,7 +546,7 @@ static void test_check_feature_support(void)
     memset(&architecture, 0, sizeof(architecture));
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ARCHITECTURE,
             &architecture, sizeof(architecture));
-    todo(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
     ok(!architecture.NodeIndex, "Got unexpected node %u.\n", architecture.NodeIndex);
     ok(!architecture.CacheCoherentUMA || architecture.UMA,
             "Got unexpected cache coherent UMA %#x (UMA %#x).\n",
@@ -560,7 +560,7 @@ static void test_check_feature_support(void)
         architecture.NodeIndex = 1;
         hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ARCHITECTURE,
                 &architecture, sizeof(architecture));
-        todo(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
     }
 
     /* Feature levels */
