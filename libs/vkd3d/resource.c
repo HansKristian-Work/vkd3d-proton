@@ -621,9 +621,6 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
 
     resource->desc = *desc;
 
-    if (optimized_clear_value)
-        FIXME("Ignoring optimized clear value.\n");
-
     if (desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER
             && (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD || heap_properties->Type == D3D12_HEAP_TYPE_READBACK))
     {
@@ -641,6 +638,15 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
         WARN("For D3D12_HEAP_TYPE_READBACK the state must be D3D12_RESOURCE_STATE_COPY_DEST.\n");
         return E_INVALIDARG;
     }
+
+    if (optimized_clear_value && desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+    {
+        WARN("Optimized clear value must be NULL for buffers.\n");
+        return E_INVALIDARG;
+    }
+
+    if (optimized_clear_value)
+        FIXME("Ignoring optimized clear value.\n");
 
     switch (desc->Dimension)
     {
