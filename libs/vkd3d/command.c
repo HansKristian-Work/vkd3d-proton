@@ -1792,8 +1792,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
 
             case D3D12_RESOURCE_BARRIER_TYPE_UAV:
             {
-                FIXME("UAV barriers not implemented yet.\n");
-                continue;
+                const D3D12_RESOURCE_UAV_BARRIER *uav = &current->u.UAV;
+                VkPipelineStageFlags stage_mask;
+                VkImageLayout image_layout;
+                VkAccessFlags access_mask;
+
+                resource = unsafe_impl_from_ID3D12Resource(uav->pResource);
+                vk_barrier_parameters_from_d3d12_resource_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                        &access_mask, &stage_mask, &image_layout);
+                src_access_mask = dst_access_mask = access_mask;
+                dst_stage_mask = src_stage_mask = stage_mask;
+                layout_before = layout_after = image_layout;
+
+                TRACE("UAV barrier (resource %p).\n", resource);
+                break;
             }
 
             case D3D12_RESOURCE_BARRIER_TYPE_ALIASING:
@@ -1804,7 +1816,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
                 continue;
         }
 
-        if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        if (!resource)
+        {
+            VkMemoryBarrier vk_barrier;
+
+            vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+            vk_barrier.pNext = NULL;
+            vk_barrier.srcAccessMask = src_access_mask;
+            vk_barrier.dstAccessMask = dst_access_mask;
+
+            VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer, src_stage_mask, dst_stage_mask, 0,
+                    1, &vk_barrier, 0, NULL, 0, NULL));
+        }
+        else if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
         {
             VkBufferMemoryBarrier vk_barrier;
 
