@@ -2473,7 +2473,7 @@ static void test_invalid_texture_resource_barriers(void)
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    todo(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12CommandAllocator_Reset(command_allocator);
     ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);

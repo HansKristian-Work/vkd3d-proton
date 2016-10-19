@@ -512,7 +512,8 @@ static HRESULT vkd3d_begin_command_buffer(struct d3d12_command_list *list)
         return hresult_from_vk_result(vr);
     }
 
-    list->is_recording = TRUE;
+    list->is_recording = true;
+    list->is_valid = true;
 
     ID3D12GraphicsCommandList_SetPipelineState(&list->ID3D12GraphicsCommandList_iface, list->pipeline_state);
 
@@ -1061,7 +1062,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(ID3D12GraphicsCommandL
         return hresult_from_vk_result(vr);
     }
 
-    list->is_recording = FALSE;
+    list->is_recording = false;
+
+    if (!list->is_valid)
+    {
+        WARN("Error occurred during command list recording.\n");
+        return E_INVALIDARG;
+    }
+
     return S_OK;
 }
 
@@ -1549,8 +1557,67 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(ID3D12Graphics
 static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsCommandList *iface,
         UINT barrier_count, const D3D12_RESOURCE_BARRIER *barriers)
 {
-    FIXME("iface %p, barrier_count %u, barriers %p stub!\n",
-            iface, barrier_count, barriers);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    bool have_aliasing_barriers = false, have_split_barriers = false;
+    unsigned int i;
+
+    TRACE("iface %p, barrier_count %u, barriers %p.\n", iface, barrier_count, barriers);
+
+    for (i = 0; i < barrier_count; ++i)
+    {
+        const D3D12_RESOURCE_BARRIER *current = &barriers[i];
+
+        have_split_barriers = have_split_barriers
+                || (current->Flags & D3D12_RESOURCE_BARRIER_FLAG_BEGIN_ONLY)
+                || (current->Flags & D3D12_RESOURCE_BARRIER_FLAG_END_ONLY);
+
+        if (current->Flags & D3D12_RESOURCE_BARRIER_FLAG_BEGIN_ONLY)
+            continue;
+
+        switch (current->Type)
+        {
+            case D3D12_RESOURCE_BARRIER_TYPE_TRANSITION:
+            {
+                const D3D12_RESOURCE_TRANSITION_BARRIER *transition = &current->u.Transition;
+
+                if (!is_valid_resource_state(transition->StateBefore))
+                {
+                    WARN("Invalid StateBefore %#x (barrier %u).\n", transition->StateBefore, i);
+                    list->is_valid = false;
+                    continue;
+                }
+                if (!is_valid_resource_state(transition->StateAfter))
+                {
+                    WARN("Invalid StateAfter %#x (barrier %u).\n", transition->StateAfter, i);
+                    list->is_valid = false;
+                    continue;
+                }
+
+                FIXME("Transition barriers not implemented yet.\n");
+                break;
+            }
+
+            case D3D12_RESOURCE_BARRIER_TYPE_UAV:
+            {
+                FIXME("UAV barriers not implemented yet.\n");
+                break;
+            }
+
+            case D3D12_RESOURCE_BARRIER_TYPE_ALIASING:
+                have_aliasing_barriers = true;
+                continue;
+            default:
+                WARN("Invalid barrier type %#x.\n", current->Type);
+                continue;
+        }
+    }
+
+    if (have_aliasing_barriers)
+        FIXME("Aliasing barriers not implemented yet.\n");
+
+    /* Vulkan doesn't support split barriers. */
+    if (have_split_barriers)
+        WARN("Issuing split barrier(s) on D3D12_RESOURCE_BARRIER_FLAG_END_ONLY.\n");
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ExecuteBundle(ID3D12GraphicsCommandList *iface,
