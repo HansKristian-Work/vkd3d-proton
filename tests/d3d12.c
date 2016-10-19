@@ -890,6 +890,11 @@ static void test_create_committed_resource(void)
     refcount = ID3D12Resource_Release(resource);
     ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
 
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+            &clear_value, &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
     /* For D3D12_RESOURCE_STATE_RENDER_TARGET the D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET flag is required. */
     resource_desc.Flags = 0;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,

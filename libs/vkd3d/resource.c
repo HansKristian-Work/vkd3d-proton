@@ -639,6 +639,12 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
         return E_INVALIDARG;
     }
 
+    if (!is_valid_resource_state(initial_state))
+    {
+        WARN("Invalid initial resource state %#x.\n", initial_state);
+        return E_INVALIDARG;
+    }
+
     if (optimized_clear_value && desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
         WARN("Optimized clear value must be NULL for buffers.\n");

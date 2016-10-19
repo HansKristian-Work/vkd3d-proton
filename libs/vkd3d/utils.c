@@ -75,7 +75,7 @@ bool vkd3d_array_reserve(void **elements, size_t *capacity, size_t element_count
     return true;
 }
 
-BOOL is_valid_feature_level(D3D_FEATURE_LEVEL feature_level)
+bool is_valid_feature_level(D3D_FEATURE_LEVEL feature_level)
 {
     static const D3D_FEATURE_LEVEL valid_feature_levels[] =
     {
@@ -94,15 +94,68 @@ BOOL is_valid_feature_level(D3D_FEATURE_LEVEL feature_level)
     for (i = 0; i < ARRAY_SIZE(valid_feature_levels); ++i)
     {
         if (valid_feature_levels[i] == feature_level)
-            return TRUE;
+            return true;
     }
 
-    return FALSE;
+    return false;
 }
 
-BOOL check_feature_level_support(D3D_FEATURE_LEVEL feature_level)
+bool check_feature_level_support(D3D_FEATURE_LEVEL feature_level)
 {
     return feature_level <= D3D_FEATURE_LEVEL_11_0;
+}
+
+static bool is_write_resource_state(D3D12_RESOURCE_STATES state)
+{
+    return state & (D3D12_RESOURCE_STATE_RENDER_TARGET
+            | D3D12_RESOURCE_STATE_UNORDERED_ACCESS
+            | D3D12_RESOURCE_STATE_DEPTH_WRITE
+            | D3D12_RESOURCE_STATE_STREAM_OUT
+            | D3D12_RESOURCE_STATE_COPY_DEST
+            | D3D12_RESOURCE_STATE_RESOLVE_DEST);
+}
+
+static bool is_power_of_two(unsigned int x)
+{
+    return x && !(x & (x -1));
+}
+
+bool is_valid_resource_state(D3D12_RESOURCE_STATES state)
+{
+    const D3D12_RESOURCE_STATES valid_states =
+            D3D12_RESOURCE_STATE_COMMON |
+            D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER |
+            D3D12_RESOURCE_STATE_INDEX_BUFFER |
+            D3D12_RESOURCE_STATE_RENDER_TARGET |
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS |
+            D3D12_RESOURCE_STATE_DEPTH_WRITE |
+            D3D12_RESOURCE_STATE_DEPTH_READ |
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
+            D3D12_RESOURCE_STATE_STREAM_OUT |
+            D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT |
+            D3D12_RESOURCE_STATE_COPY_DEST |
+            D3D12_RESOURCE_STATE_COPY_SOURCE |
+            D3D12_RESOURCE_STATE_RESOLVE_DEST |
+            D3D12_RESOURCE_STATE_RESOLVE_SOURCE |
+            D3D12_RESOURCE_STATE_GENERIC_READ |
+            D3D12_RESOURCE_STATE_PRESENT |
+            D3D12_RESOURCE_STATE_PREDICATION;
+
+    if (state & ~valid_states)
+    {
+        WARN("Invalid resource states %#x.\n", state & ~valid_states);
+        return false;
+    }
+
+    /* Exactly one bit must be set for write states. */
+    if (is_write_resource_state(state) && !is_power_of_two(state))
+    {
+        WARN("Write state cannot be mixed with other states: %#x.\n", state);
+        return false;
+    }
+
+    return true;
 }
 
 HRESULT return_interface(IUnknown *iface, REFIID iface_riid,
