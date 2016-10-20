@@ -268,6 +268,10 @@ struct d3d12_command_allocator
     size_t pipelines_size;
     size_t pipeline_count;
 
+    VkCommandBuffer *command_buffers;
+    size_t command_buffers_size;
+    size_t command_buffer_count;
+
     struct d3d12_command_list *current_command_list;
     struct d3d12_device *device;
 };
