@@ -135,6 +135,17 @@ static void transition_resource_state(ID3D12GraphicsCommandList *list, ID3D12Res
     ID3D12GraphicsCommandList_ResourceBarrier(list, 1, &barrier);
 }
 
+static void uav_barrier(ID3D12GraphicsCommandList *list, ID3D12Resource *resource)
+{
+    D3D12_RESOURCE_BARRIER barrier;
+
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.UAV.pResource = resource;
+
+    ID3D12GraphicsCommandList_ResourceBarrier(list, 1, &barrier);
+}
+
 static void exec_command_list(ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *list)
 {
     ID3D12CommandList *lists[] = {(ID3D12CommandList *)list};
@@ -1262,8 +1273,10 @@ static void test_create_fence(void)
 
 static void test_reset_command_allocator(void)
 {
-    ID3D12CommandAllocator *command_allocator;
+    ID3D12CommandAllocator *command_allocator, *command_allocator2;
+    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
     ID3D12GraphicsCommandList *command_list;
+    ID3D12CommandQueue *queue;
     ID3D12Device *device;
     ULONG refcount;
     HRESULT hr;
@@ -1311,8 +1324,40 @@ static void test_reset_command_allocator(void)
     hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
     ok(SUCCEEDED(hr), "Resetting command list failed, hr %#x.\n", hr);
 
-    ID3D12GraphicsCommandList_Release(command_list);
+    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    command_queue_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
+            &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(SUCCEEDED(hr), "CreateCommandQueue failed, hr %#x.\n", hr);
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            &IID_ID3D12CommandAllocator, (void **)&command_allocator2);
+    ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
+
+    uav_barrier(command_list, NULL);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+
+    exec_command_list(queue, command_list);
+
+    /* A command list can be reset when it is in use. */
+    hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator2, NULL);
+    ok(SUCCEEDED(hr), "Resetting command list failed, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+
+    wait_queue_idle(device, queue);
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
+    ok(SUCCEEDED(hr), "Resetting command list failed, hr %#x.\n", hr);
+
     ID3D12CommandAllocator_Release(command_allocator);
+    ID3D12CommandAllocator_Release(command_allocator2);
+    ID3D12CommandQueue_Release(queue);
+    ID3D12GraphicsCommandList_Release(command_list);
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
