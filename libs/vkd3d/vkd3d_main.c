@@ -50,4 +50,3 @@ HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
     return return_interface((IUnknown *)&object->ID3D12Device_iface, &IID_ID3D12Device,
             riid, device);
 }
-

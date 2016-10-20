@@ -145,7 +145,7 @@ static void *vkd3d_fence_worker_main(void *arg)
     return NULL;
 }
 
-HRESULT vkd3d_start_fence_worker(struct vkd3d_fence_worker *worker,
+HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
         struct d3d12_device *device)
 {
     int rc;
@@ -186,7 +186,7 @@ HRESULT vkd3d_start_fence_worker(struct vkd3d_fence_worker *worker,
     return S_OK;
 }
 
-HRESULT vkd3d_stop_fence_worker(struct vkd3d_fence_worker *worker)
+HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker)
 {
     int rc;
 
@@ -494,7 +494,7 @@ HRESULT d3d12_fence_create(struct d3d12_device *device,
 }
 
 /* Command buffers */
-static HRESULT vkd3d_begin_command_buffer(struct d3d12_command_list *list)
+static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list *list)
 {
     struct d3d12_device *device = list->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -520,7 +520,7 @@ static HRESULT vkd3d_begin_command_buffer(struct d3d12_command_list *list)
     return S_OK;
 }
 
-static HRESULT vkd3d_reset_command_buffer(struct d3d12_command_list *list)
+static HRESULT d3d12_command_list_reset_command_buffer(struct d3d12_command_list *list)
 {
     struct d3d12_device *device = list->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -533,10 +533,10 @@ static HRESULT vkd3d_reset_command_buffer(struct d3d12_command_list *list)
         return hresult_from_vk_result(vr);
     }
 
-    return vkd3d_begin_command_buffer(list);
+    return d3d12_command_list_begin_command_buffer(list);
 }
 
-static HRESULT vkd3d_command_allocator_allocate_command_list(struct d3d12_command_allocator *allocator,
+static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_command_allocator *allocator,
         struct d3d12_command_list *list)
 {
     struct d3d12_device *device = allocator->device;
@@ -566,7 +566,7 @@ static HRESULT vkd3d_command_allocator_allocate_command_list(struct d3d12_comman
         return hresult_from_vk_result(vr);
     }
 
-    if (FAILED(hr = vkd3d_begin_command_buffer(list)))
+    if (FAILED(hr = d3d12_command_list_begin_command_buffer(list)))
     {
         VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
                 1, &list->vk_command_buffer));
@@ -578,7 +578,7 @@ static HRESULT vkd3d_command_allocator_allocate_command_list(struct d3d12_comman
     return S_OK;
 }
 
-static void vkd3d_command_allocator_free_command_list(struct d3d12_command_allocator *allocator,
+static void d3d12_command_allocator_free_command_buffer(struct d3d12_command_allocator *allocator,
         struct d3d12_command_list *list)
 {
     struct d3d12_device *device = allocator->device;
@@ -635,7 +635,7 @@ static bool d3d12_command_allocator_add_pipeline(struct d3d12_command_allocator 
     return true;
 }
 
-static void vkd3d_command_list_destroyed(struct d3d12_command_list *list)
+static void d3d12_command_list_allocator_destroyed(struct d3d12_command_list *list)
 {
     TRACE("list %p.\n", list);
 
@@ -695,7 +695,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
         unsigned int i;
 
         if (allocator->current_command_list)
-            vkd3d_command_list_destroyed(allocator->current_command_list);
+            d3d12_command_list_allocator_destroyed(allocator->current_command_list);
 
         for (i = 0; i < allocator->pipeline_count; ++i)
         {
@@ -1171,7 +1171,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(ID3D12GraphicsCommandL
 
         /* When command pool is destroyed, all command buffers are implicitly freed. */
         if (list->allocator)
-            vkd3d_command_allocator_free_command_list(list->allocator, list);
+            d3d12_command_allocator_free_command_buffer(list->allocator, list);
 
         vkd3d_free(list);
 
@@ -1286,14 +1286,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(ID3D12GraphicsCommandL
     }
 
     if (list->allocator == allocator_impl)
-        return vkd3d_reset_command_buffer(list);
+        return d3d12_command_list_reset_command_buffer(list);
 
     if (list->allocator)
-        vkd3d_command_allocator_free_command_list(list->allocator, list);
+        d3d12_command_allocator_free_command_buffer(list->allocator, list);
 
     list->allocator = allocator_impl;
     list->pipeline_state = initial_state;
-    if (FAILED(hr = vkd3d_command_allocator_allocate_command_list(allocator_impl, list)))
+    if (FAILED(hr = d3d12_command_allocator_allocate_command_buffer(allocator_impl, list)))
         return hr;
 
     return S_OK;
@@ -2399,7 +2399,7 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     list->allocator = allocator;
     list->pipeline_state = initial_pipeline_state;
 
-    if (FAILED(hr = vkd3d_command_allocator_allocate_command_list(allocator, list)))
+    if (FAILED(hr = d3d12_command_allocator_allocate_command_buffer(allocator, list)))
     {
         ID3D12Device_Release(&device->ID3D12Device_iface);
         return hr;

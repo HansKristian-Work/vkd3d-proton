@@ -86,9 +86,9 @@ struct vkd3d_fence_worker
     struct d3d12_device *device;
 };
 
-HRESULT vkd3d_start_fence_worker(struct vkd3d_fence_worker *worker,
+HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
-HRESULT vkd3d_stop_fence_worker(struct vkd3d_fence_worker *worker) DECLSPEC_HIDDEN;
+HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker) DECLSPEC_HIDDEN;
 
 /* ID3D12Fence */
 struct d3d12_fence

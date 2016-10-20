@@ -320,7 +320,7 @@ static HRESULT vkd3d_allocate_image_memory(struct d3d12_resource *resource, stru
     return S_OK;
 }
 
-static void vkd3d_destroy_resource(struct d3d12_resource *resource, struct d3d12_device *device)
+static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
@@ -397,7 +397,7 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_Release(ID3D12Resource *iface)
     {
         struct d3d12_device *device = resource->device;
 
-        vkd3d_destroy_resource(resource, device);
+        d3d12_resource_destroy(resource, device);
         vkd3d_free(resource);
 
         ID3D12Device_Release(&device->ID3D12Device_iface);
@@ -662,7 +662,7 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
                 return hr;
             if (FAILED(hr = vkd3d_allocate_buffer_memory(resource, device, heap_properties, heap_flags)))
             {
-                vkd3d_destroy_resource(resource, device);
+                d3d12_resource_destroy(resource, device);
                 return hr;
             }
             break;
@@ -675,7 +675,7 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
                 return hr;
             if (FAILED(hr = vkd3d_allocate_image_memory(resource, device, heap_properties, heap_flags)))
             {
-                vkd3d_destroy_resource(resource, device);
+                d3d12_resource_destroy(resource, device);
                 return hr;
             }
             break;
