@@ -1274,8 +1274,8 @@ static void test_create_fence(void)
 static void test_reset_command_allocator(void)
 {
     ID3D12CommandAllocator *command_allocator, *command_allocator2;
+    ID3D12GraphicsCommandList *command_list, *command_list2;
     D3D12_COMMAND_QUEUE_DESC command_queue_desc;
-    ID3D12GraphicsCommandList *command_list;
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
     ULONG refcount;
@@ -1354,10 +1354,25 @@ static void test_reset_command_allocator(void)
     hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
     ok(SUCCEEDED(hr), "Resetting command list failed, hr %#x.\n", hr);
 
+    /* A command allocator can be used with one command list at a time. */
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list2);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator2, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list2);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12GraphicsCommandList_Close(command_list2);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(command_list2, command_allocator, NULL);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
     ID3D12CommandAllocator_Release(command_allocator);
     ID3D12CommandAllocator_Release(command_allocator2);
     ID3D12CommandQueue_Release(queue);
     ID3D12GraphicsCommandList_Release(command_list);
+    ID3D12GraphicsCommandList_Release(command_list2);
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }

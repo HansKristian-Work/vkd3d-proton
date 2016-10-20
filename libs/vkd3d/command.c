@@ -549,8 +549,8 @@ static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_comm
 
     if (allocator->current_command_list)
     {
-        FIXME("Allocation for multiple command list not supported.\n");
-        return E_NOTIMPL;
+        WARN("Command allocator is already in use.\n");
+        return E_INVALIDARG;
     }
 
     command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
