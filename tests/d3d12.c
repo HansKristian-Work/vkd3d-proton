@@ -2091,17 +2091,17 @@ static void test_clear_render_target_view(void)
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-    resource_desc.Alignment = 0,
-    resource_desc.Width = 32,
-    resource_desc.Height = 32,
-    resource_desc.DepthOrArraySize = 1,
-    resource_desc.MipLevels = 1,
-    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 32;
+    resource_desc.Height = 32;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     resource_desc.SampleDesc.Count = 1;
     resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN,
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     clear_value.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     clear_value.Color[0] = 1.0f;
     clear_value.Color[1] = 0.0f;
@@ -2316,17 +2316,17 @@ static void test_draw_instanced(void)
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-    resource_desc.Alignment = 0,
-    resource_desc.Width = 32,
-    resource_desc.Height = 32,
-    resource_desc.DepthOrArraySize = 1,
-    resource_desc.MipLevels = 1,
-    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 32;
+    resource_desc.Height = 32;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     resource_desc.SampleDesc.Count = 1;
     resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN,
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     clear_value.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     clear_value.Color[0] = 0.0f;
     clear_value.Color[1] = 1.0f;
@@ -2457,7 +2457,7 @@ static void test_invalid_texture_resource_barriers(void)
     resource_desc.Height = 32;
     resource_desc.DepthOrArraySize = 1;
     resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     resource_desc.SampleDesc.Count = 1;
     resource_desc.SampleDesc.Quality = 0;
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
