@@ -654,6 +654,8 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     if (optimized_clear_value)
         FIXME("Ignoring optimized clear value.\n");
 
+    resource->external = false;
+
     switch (desc->Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
@@ -685,7 +687,6 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
             return E_INVALIDARG;
     }
 
-    resource->external = false;
     resource->map_count = 0;
     resource->map_data = NULL;
 
