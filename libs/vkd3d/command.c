@@ -520,22 +520,6 @@ static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list
     return S_OK;
 }
 
-static HRESULT d3d12_command_list_reset_command_buffer(struct d3d12_command_list *list)
-{
-    struct d3d12_device *device = list->device;
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkResult vr;
-
-    if ((vr = VK_CALL(vkResetCommandBuffer(list->vk_command_buffer,
-            VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT))) < 0)
-    {
-        WARN("Failed to reset command buffer, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
-    }
-
-    return d3d12_command_list_begin_command_buffer(list);
-}
-
 static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_command_allocator *allocator,
         struct d3d12_command_list *list)
 {
@@ -1285,18 +1269,19 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(ID3D12GraphicsCommandL
         return E_FAIL;
     }
 
-    if (list->allocator == allocator_impl)
-        return d3d12_command_list_reset_command_buffer(list);
-
     if (list->allocator)
+    {
         d3d12_command_allocator_free_command_buffer(list->allocator, list);
+        list->allocator = NULL;
+    }
 
-    list->allocator = allocator_impl;
-    list->pipeline_state = initial_state;
-    if (FAILED(hr = d3d12_command_allocator_allocate_command_buffer(allocator_impl, list)))
-        return hr;
+    if (SUCCEEDED(hr = d3d12_command_allocator_allocate_command_buffer(allocator_impl, list)))
+    {
+        list->allocator = allocator_impl;
+        list->pipeline_state = initial_state;
+    }
 
-    return S_OK;
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_ClearState(ID3D12GraphicsCommandList *iface,

@@ -1338,7 +1338,6 @@ static void test_reset_command_allocator(void)
     uav_barrier(command_list, NULL);
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
-
     exec_command_list(queue, command_list);
 
     /* A command list can be reset when it is in use. */
@@ -1350,7 +1349,22 @@ static void test_reset_command_allocator(void)
     wait_queue_idle(device, queue);
     hr = ID3D12CommandAllocator_Reset(command_allocator);
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
+    ok(SUCCEEDED(hr), "Resetting command list failed, hr %#x.\n", hr);
 
+    uav_barrier(command_list, NULL);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+
+    hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
+    ok(SUCCEEDED(hr), "Resetting command list failed, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+
+    wait_queue_idle(device, queue);
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
     hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
     ok(SUCCEEDED(hr), "Resetting command list failed, hr %#x.\n", hr);
 
