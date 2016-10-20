@@ -988,6 +988,7 @@ static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
             return true;
 
         case D3D12_RESOURCE_STATE_COPY_DEST:
+        case D3D12_RESOURCE_STATE_RESOLVE_DEST:
             *access_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
             *stage_flags = VK_PIPELINE_STAGE_TRANSFER_BIT;
             if (image_layout)
@@ -995,7 +996,6 @@ static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
             return true;
 
         case D3D12_RESOURCE_STATE_STREAM_OUT:
-        case D3D12_RESOURCE_STATE_RESOLVE_DEST:
             FIXME("Unhandled resource state %#x.\n", state);
             return false;
 
@@ -1091,15 +1091,18 @@ static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
         state &= ~D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
     }
 
-    if (state & D3D12_RESOURCE_STATE_COPY_SOURCE)
+    if (state & (D3D12_RESOURCE_STATE_COPY_SOURCE | D3D12_RESOURCE_STATE_RESOLVE_SOURCE))
     {
         *access_mask |= VK_ACCESS_TRANSFER_READ_BIT;
         *stage_flags |= VK_PIPELINE_STAGE_TRANSFER_BIT;
-        state &= ~D3D12_RESOURCE_STATE_COPY_SOURCE;
+        state &= ~(D3D12_RESOURCE_STATE_COPY_SOURCE | D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
     }
 
     if (state)
-        FIXME("Unhandled resource state %#x.\n", state);
+    {
+        WARN("Invalid resource state %#x.\n", state);
+        return false;
+    }
     return true;
 }
 
