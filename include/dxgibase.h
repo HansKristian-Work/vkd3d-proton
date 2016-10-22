@@ -50,6 +50,8 @@ typedef enum DXGI_FORMAT
     DXGI_FORMAT_B8G8R8A8_UNORM        = 0x57,
     DXGI_FORMAT_B8G8R8X8_UNORM        = 0x58,
 
+    DXGI_FORMAT_B8G8R8A8_UNORM_SRGB   = 0x5b,
+
     DXGI_FORMAT_FORCE_DWORD           = 0xffffffff,
 } DXGI_FORMAT;
 
