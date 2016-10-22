@@ -47,3 +47,27 @@ interface IDXGISwapChain1 : IDXGISwapChain
     HRESULT SetRotation(DXGI_MODE_ROTATION rotation);
     HRESULT GetRotation(DXGI_MODE_ROTATION *rotation);
 };
+
+[
+    local,
+    object,
+    uuid(50c83a1c-e072-4c48-87b0-3630fa36a6d0),
+    pointer_default(unique)
+]
+interface IDXGIFactory2 : IDXGIFactory1
+{
+    BOOL IsWindowedStereoEnabled();
+    HRESULT CreateSwapChainForHwnd(IUnknown *device, HWND window, const DXGI_SWAP_CHAIN_DESC1 *desc,
+            const DXGI_SWAP_CHAIN_FULLSCREEN_DESC *fullscreen_desc, IDXGIOutput *output, IDXGISwapChain1 **swapchain);
+    HRESULT CreateSwapChainForCoreWindow(IUnknown *device, IUnknown *window, const DXGI_SWAP_CHAIN_DESC1 *desc,
+            IDXGIOutput *output, IDXGISwapChain1 **swapchain);
+    HRESULT GetSharedResourceAdapterLuid(HANDLE resource, LUID *luid);
+    HRESULT RegisterStereoStatusWindow(HWND window, UINT msg, DWORD *cookie);
+    HRESULT RegisterStereoStatusEvent(HANDLE event, DWORD *cookie);
+    void UnregisterStereoStatus(DWORD cookie);
+    HRESULT RegisterOcclusionStatusWindow(HWND window, UINT msg, DWORD *cookie);
+    HRESULT RegisterOcclusionStatusEvent(HANDLE event, DWORD *cookie);
+    void UnregisterOcclusionStatus(DWORD cookie);
+    HRESULT CreateSwapChainForComposition(IUnknown *device, const DXGI_SWAP_CHAIN_DESC1 *desc,
+            IDXGIOutput *output, IDXGISwapChain1 **swapchain);
+};

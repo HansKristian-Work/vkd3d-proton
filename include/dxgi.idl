@@ -34,6 +34,8 @@ typedef enum DXGI_MODE_ROTATION
     DXGI_MODE_ROTATION_ROTATE270   = 0x4,
 } DXGI_MODE_ROTATION;
 
+interface IDXGIAdapter;
+interface IDXGIAdapter1;
 interface IDXGIOutput;
 typedef struct DXGI_SWAP_CHAIN_DESC DXGI_SWAP_CHAIN_DESC;
 typedef struct DXGI_FRAME_STATISTICS DXGI_FRAME_STATISTICS;
@@ -82,3 +84,33 @@ interface IDXGISwapChain : IDXGIDeviceSubObject
     HRESULT GetFrameStatistics(DXGI_FRAME_STATISTICS *stats);
     HRESULT GetLastPresentCount(UINT *last_present_count);
 };
+
+[
+    local,
+    object,
+    uuid(7b7166ec-21c7-44ae-b21a-c9ae321ae369),
+    pointer_default(unique)
+]
+interface IDXGIFactory : IDXGIObject
+{
+    HRESULT EnumAdapters(UINT adapter_idx, IDXGIAdapter **adapter);
+    HRESULT MakeWindowAssociation(HWND hwnd, UINT flags);
+    HRESULT GetWindowAssociation(HWND *hwnd);
+    HRESULT CreateSwapChain(IUnknown *device, DXGI_SWAP_CHAIN_DESC *desc, IDXGISwapChain **swapchain);
+    HRESULT CreateSoftwareAdapter(HMODULE hmodule, IDXGIAdapter **adapter);
+};
+
+[
+    local,
+    object,
+    uuid(770aae78-f26f-4dba-a829-253c83d1b387),
+    pointer_default(unique)
+]
+interface IDXGIFactory1 : IDXGIFactory
+{
+    HRESULT EnumAdapters1(UINT adapter_idx, IDXGIAdapter1 **adpter);
+    BOOL IsCurrent();
+};
+
+[local] HRESULT __stdcall CreateDXGIFactory(REFIID riid, void **factory);
+[local] HRESULT __stdcall CreateDXGIFactory1(REFIID riid, void **factory);
