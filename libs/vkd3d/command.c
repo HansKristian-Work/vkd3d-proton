@@ -2783,6 +2783,7 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
 
     /* FIXME: Access to VkQueue must be externally synchronized. */
     VK_CALL(vkGetDeviceQueue(device->vk_device, queue_family_index, 0, &queue->vk_queue));
+    queue->vk_queue_family_index = queue_family_index;
 
     queue->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
@@ -2817,4 +2818,11 @@ VkQueue vkd3d_get_vk_queue(ID3D12CommandQueue *queue)
     struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
 
     return d3d12_queue->vk_queue;
+}
+
+uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue)
+{
+    struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
+
+    return d3d12_queue->vk_queue_family_index;
 }

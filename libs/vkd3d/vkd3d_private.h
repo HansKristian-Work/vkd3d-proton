@@ -328,6 +328,7 @@ struct d3d12_command_queue
     D3D12_COMMAND_QUEUE_DESC desc;
 
     VkQueue vk_queue;
+    uint32_t vk_queue_family_index;
 
     struct d3d12_device *device;
 };
