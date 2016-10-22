@@ -343,6 +343,7 @@ struct d3d12_device
     LONG refcount;
 
     VkDevice vk_device;
+    VkPhysicalDevice vk_physical_device;
     struct vkd3d_vk_device_procs vk_procs;
     vkd3d_signal_event_pfn signal_event;
 

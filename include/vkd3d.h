@@ -46,6 +46,7 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_D
         VkImage vk_image, ID3D12Resource **resource);
 VkDevice vkd3d_get_vk_device(ID3D12Device *device);
 VkInstance vkd3d_get_vk_instance(ID3D12Device *device);
+VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device);
 VkQueue vkd3d_get_vk_queue(ID3D12CommandQueue *queue);
 uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue);
 

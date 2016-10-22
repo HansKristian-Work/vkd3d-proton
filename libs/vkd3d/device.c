@@ -453,6 +453,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
         return hr;
     }
 
+    device->vk_physical_device = physical_device;
     device->vk_device = vk_device;
 
     TRACE("Created Vulkan device %p.\n", vk_device);
@@ -1197,4 +1198,11 @@ VkInstance vkd3d_get_vk_instance(ID3D12Device *device)
     struct d3d12_device *d3d12_device = impl_from_ID3D12Device(device);
 
     return d3d12_device->vkd3d_instance.vk_instance;
+}
+
+VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device)
+{
+    struct d3d12_device *d3d12_device = impl_from_ID3D12Device(device);
+
+    return d3d12_device->vk_physical_device;
 }
