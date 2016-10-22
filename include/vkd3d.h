@@ -45,6 +45,7 @@ HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
 HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_DESC *desc,
         VkImage vk_image, ID3D12Resource **resource);
 VkDevice vkd3d_get_vk_device(ID3D12Device *device);
+VkFormat vkd3d_get_vk_format(DXGI_FORMAT format);
 VkInstance vkd3d_get_vk_instance(ID3D12Device *device);
 VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device);
 VkQueue vkd3d_get_vk_queue(ID3D12CommandQueue *queue);
