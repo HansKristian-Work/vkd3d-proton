@@ -182,7 +182,9 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
     image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     image_info.queueFamilyIndexCount = 0;
     image_info.pQueueFamilyIndices = NULL;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+
+    image_info.initialLayout = is_cpu_accessible_heap(heap_properties) ?
+            VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
 
     FIXME("Ignoring initial state %#x.\n", initial_state);
 
