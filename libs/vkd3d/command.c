@@ -700,6 +700,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
         vkd3d_free(allocator->passes);
 
         /* All command buffers are implicitly freed when a pool is destroyed. */
+        vkd3d_free(allocator->command_buffers);
         VK_CALL(vkDestroyCommandPool(device->vk_device, allocator->vk_command_pool, NULL));
 
         vkd3d_free(allocator);
