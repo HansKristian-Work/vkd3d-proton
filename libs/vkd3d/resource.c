@@ -279,7 +279,7 @@ static HRESULT vkd3d_allocate_buffer_memory(struct d3d12_resource *resource, str
     VkResult vr;
     HRESULT hr;
 
-    assert(resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER);
+    assert(d3d12_resource_is_buffer(resource));
 
     VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, resource->u.vk_buffer, &memory_requirements));
     if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
@@ -471,7 +471,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
         return E_INVALIDARG;
     }
 
-    if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+    if (!d3d12_resource_is_buffer(resource))
     {
         /* Textures seem to be mappable only on UMA adapters. */
         FIXME("Not implemented for textures.\n");
@@ -515,7 +515,7 @@ static void STDMETHODCALLTYPE d3d12_resource_Unmap(ID3D12Resource *iface, UINT s
     device = resource->device;
     vk_procs = &device->vk_procs;
 
-    if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+    if (!d3d12_resource_is_buffer(resource))
     {
         FIXME("Not implemented for textures.\n");
         return;
@@ -551,6 +551,12 @@ static D3D12_GPU_VIRTUAL_ADDRESS STDMETHODCALLTYPE d3d12_resource_GetGPUVirtualA
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
 
     TRACE("iface %p.\n", iface);
+
+    if (!d3d12_resource_is_buffer(resource))
+    {
+        WARN("GPU virtual address for textures is always 0.\n");
+        return 0;
+    }
 
     return resource->u.gpu_address;
 }
@@ -631,7 +637,7 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
 
     resource->desc = *desc;
 
-    if (desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER
+    if (!d3d12_resource_is_buffer(resource)
             && (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD || heap_properties->Type == D3D12_HEAP_TYPE_READBACK))
     {
         WARN("Texture cannot be created on a UPLOAD/READBACK heap.\n");
@@ -655,7 +661,7 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
         return E_INVALIDARG;
     }
 
-    if (optimized_clear_value && desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+    if (optimized_clear_value && d3d12_resource_is_buffer(resource))
     {
         WARN("Optimized clear value must be NULL for buffers.\n");
         return E_INVALIDARG;

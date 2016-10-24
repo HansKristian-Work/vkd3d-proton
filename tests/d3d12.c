@@ -844,6 +844,7 @@ static void test_create_command_queue(void)
 
 static void test_create_committed_resource(void)
 {
+    D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Device *device, *tmp_device;
@@ -897,6 +898,9 @@ static void test_create_committed_resource(void)
     check_interface(resource, &IID_ID3D12DeviceChild, TRUE);
     check_interface(resource, &IID_ID3D12Pageable, TRUE);
     check_interface(resource, &IID_ID3D12Resource, TRUE);
+
+    gpu_address = ID3D12Resource_GetGPUVirtualAddress(resource);
+    ok(!gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
 
     refcount = ID3D12Resource_Release(resource);
     ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
@@ -952,6 +956,9 @@ static void test_create_committed_resource(void)
     check_interface(resource, &IID_ID3D12DeviceChild, TRUE);
     check_interface(resource, &IID_ID3D12Pageable, TRUE);
     check_interface(resource, &IID_ID3D12Resource, TRUE);
+
+    gpu_address = ID3D12Resource_GetGPUVirtualAddress(resource);
+    ok(gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
 
     refcount = ID3D12Resource_Release(resource);
     ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);

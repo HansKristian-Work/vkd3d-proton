@@ -1538,8 +1538,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(ID3D12Graphics
 
     vk_procs = &list->device->vk_procs;
 
-    assert(dst_resource_impl->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER);
-    assert(src_resource_impl->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER);
+    assert(d3d12_resource_is_buffer(dst_resource_impl));
+    assert(d3d12_resource_is_buffer(src_resource_impl));
 
     buffer_copy.srcOffset = src_offset;
     buffer_copy.dstOffset = dst_offset;
@@ -1836,7 +1836,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
             VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer, src_stage_mask, dst_stage_mask, 0,
                     1, &vk_barrier, 0, NULL, 0, NULL));
         }
-        else if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        else if (d3d12_resource_is_buffer(resource))
         {
             VkBufferMemoryBarrier vk_barrier;
 

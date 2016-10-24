@@ -138,6 +138,11 @@ struct d3d12_resource
     struct d3d12_device *device;
 };
 
+static inline bool d3d12_resource_is_buffer(const struct d3d12_resource *resource)
+{
+    return resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER;
+}
+
 HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
