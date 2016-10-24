@@ -25,6 +25,7 @@
 
 #include <inttypes.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -91,7 +92,7 @@ static struct
 } vkd3d_test_state;
 
 static void VKD3D_PRINTF_FUNC(3, 4) VKD3D_UNUSED
-vkd3d_test_ok(unsigned int line, int result, const char *fmt, ...)
+vkd3d_test_ok(unsigned int line, bool result, const char *fmt, ...)
 {
     if (result)
     {
@@ -111,7 +112,7 @@ vkd3d_test_ok(unsigned int line, int result, const char *fmt, ...)
 }
 
 static void VKD3D_PRINTF_FUNC(3, 4) VKD3D_UNUSED
-vkd3d_test_todo(unsigned int line, int result, const char *fmt, ...)
+vkd3d_test_todo(unsigned int line, bool result, const char *fmt, ...)
 {
     va_list args;
 
@@ -180,4 +181,4 @@ int main(void)
     return vkd3d_test_state.failure_count || vkd3d_test_state.todo_success_count;
 }
 
-#endif  /* __VKD3D_TEST__H */
+#endif  /* __VKD3D_TEST_H */

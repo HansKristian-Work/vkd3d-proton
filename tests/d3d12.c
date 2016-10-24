@@ -68,7 +68,7 @@ static ULONG get_refcount_(IUnknown *iface)
 }
 
 #define check_interface(a, b, c) check_interface_(__LINE__, (IUnknown *)a, b, c)
-static void check_interface_(unsigned int line, IUnknown *iface, REFIID riid, BOOL supported)
+static void check_interface_(unsigned int line, IUnknown *iface, REFIID riid, bool supported)
 {
     HRESULT hr, expected_hr;
     IUnknown *unk;
@@ -223,7 +223,7 @@ static HANDLE create_thread(thread_main_pfn main_pfn, void *user_data)
     return CreateThread(NULL, 0, test_thread_main, data, 0, NULL);
 }
 
-static BOOL join_thread(HANDLE thread)
+static bool join_thread(HANDLE thread)
 {
     int ret;
 
@@ -266,7 +266,7 @@ static HANDLE create_thread(thread_main_pfn main_pfn, void *user_data)
     return thread;
 }
 
-static BOOL join_thread(HANDLE untyped_thread)
+static bool join_thread(HANDLE untyped_thread)
 {
     pthread_t *thread = untyped_thread;
     int rc;
