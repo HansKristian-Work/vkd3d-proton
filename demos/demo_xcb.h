@@ -164,6 +164,8 @@ static inline struct demo_window *demo_window_create(struct demo *demo, const ch
 
     xcb_map_window(demo->connection, window->window);
 
+    xcb_flush(demo->connection);
+
     return window;
 }
 
