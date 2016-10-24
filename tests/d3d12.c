@@ -348,6 +348,7 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *resource;
+    D3D12_RANGE read_range;
     unsigned int miplevel;
     ID3D12Device *device;
     DXGI_FORMAT format;
@@ -411,7 +412,9 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
     exec_command_list(queue, command_list);
     wait_queue_idle(device, queue);
 
-    hr = ID3D12Resource_Map(resource, 0, NULL, &rb->data);
+    read_range.Begin = 0;
+    read_range.End = resource_desc.Width;
+    hr = ID3D12Resource_Map(resource, 0, &read_range, &rb->data);
     ok(SUCCEEDED(hr), "Map failed, hr %#x.\n", hr);
 
     ID3D12Device_Release(device);
