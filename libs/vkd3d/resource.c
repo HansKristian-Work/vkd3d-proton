@@ -460,10 +460,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
     TRACE("iface %p, sub_resource %u, read_range %p, data %p.\n",
             iface, sub_resource, read_range, data);
 
-    FIXME("Ignoring read range %p.\n", read_range);
-
     device = resource->device;
     vk_procs = &device->vk_procs;
+
+    if (!is_cpu_accessible_heap(&resource->heap_properties))
+    {
+        WARN("Resource is not CPU accessible.\n");
+        return E_INVALIDARG;
+    }
 
     if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
     {
@@ -477,6 +481,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
         FIXME("Not implemented for this resource type.\n");
         return E_NOTIMPL;
     }
+
+    FIXME("Ignoring read range %p.\n", read_range);
 
     if (!resource->map_count)
     {
@@ -692,6 +698,8 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     resource->map_count = 0;
     resource->map_data = NULL;
 
+    resource->heap_properties = *heap_properties;
+
     resource->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
 
@@ -740,6 +748,8 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_D
     object->external = true;
     object->map_count = 0;
     object->map_data = NULL;
+    memset(&object->heap_properties, 0, sizeof(object->heap_properties));
+    object->heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
     object->device = d3d12_device;
     ID3D12Device_AddRef(&d3d12_device->ID3D12Device_iface);
 

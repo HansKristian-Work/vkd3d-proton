@@ -2716,7 +2716,7 @@ static void test_map_resource(void)
 
     /* Resources on a DEFAULT heap cannot be mapped. */
     hr = ID3D12Resource_Map(resource, 0, NULL, &data);
-    todo(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     ID3D12Resource_Release(resource);
 

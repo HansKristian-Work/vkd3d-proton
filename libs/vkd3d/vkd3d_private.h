@@ -133,6 +133,8 @@ struct d3d12_resource
     unsigned int map_count;
     void *map_data;
 
+    D3D12_HEAP_PROPERTIES heap_properties;
+
     struct d3d12_device *device;
 };
 
@@ -367,6 +369,18 @@ bool check_feature_level_support(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDE
 
 bool is_valid_resource_state(D3D12_RESOURCE_STATES state) DECLSPEC_HIDDEN;
 bool is_write_resource_state(D3D12_RESOURCE_STATES state) DECLSPEC_HIDDEN;
+
+static inline bool is_cpu_accessible_heap(const struct D3D12_HEAP_PROPERTIES *properties)
+{
+    if (properties->Type == D3D12_HEAP_TYPE_DEFAULT)
+        return false;
+    if (properties->Type == D3D12_HEAP_TYPE_CUSTOM)
+    {
+        return properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE
+                || properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    }
+    return true;
+}
 
 HRESULT return_interface(IUnknown *iface, REFIID iface_riid,
         REFIID requested_riid, void **object) DECLSPEC_HIDDEN;
