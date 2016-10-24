@@ -23,6 +23,7 @@
 #ifndef __VKD3D_MEMORY_H
 #define __VKD3D_MEMORY_H
 
+#include <assert.h>
 #include "vkd3d_debug.h"
 
 static inline void *vkd3d_malloc(size_t size)
@@ -43,6 +44,7 @@ static inline void *vkd3d_realloc(void *ptr, size_t size)
 static inline void *vkd3d_calloc(size_t count, size_t size)
 {
     void *ptr;
+    assert(count <= ~(size_t)0 / size);
     if (!(ptr = calloc(count, size)))
         ERR("Out of memory.\n");
     return ptr;
