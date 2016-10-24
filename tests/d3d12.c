@@ -2773,6 +2773,211 @@ static void test_map_resource(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_bundle_state_inheritance(void)
+{
+    static const float green[] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    ID3D12GraphicsCommandList *command_list, *bundle;
+    ID3D12CommandAllocator *bundle_allocator;
+    struct draw_test_context context;
+    struct resource_readback rb;
+    ID3D12CommandQueue *queue;
+    D3D12_VIEWPORT viewport;
+    ID3D12Device *device;
+    RECT scissor_rect;
+    unsigned int x, y;
+    HRESULT hr;
+
+#ifndef _WIN32
+    /* Avoid 2048 test todos. */
+    skip("Bundles are not implemented yet.\n");
+    return;
+#endif
+
+    if (!init_draw_test_context(&context))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_BUNDLE,
+            &IID_ID3D12CommandAllocator, (void **)&bundle_allocator);
+    ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_BUNDLE,
+            bundle_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&bundle);
+    ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = context.render_target_desc.Width;
+    viewport.Height = context.render_target_desc.Height;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 0.0f;
+
+    scissor_rect.left = scissor_rect.top = 0;
+    scissor_rect.right = context.render_target_desc.Width;
+    scissor_rect.bottom = context.render_target_desc.Height;
+
+    /* A bundle does not inherit the current pipeline state. */
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+
+    ID3D12GraphicsCommandList_DrawInstanced(bundle, 3, 1, 0, 0);
+    hr = ID3D12GraphicsCommandList_Close(bundle);
+    ok(SUCCEEDED(hr), "Failed to close bundle, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_ExecuteBundle(command_list, bundle);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (y = 0; y < context.render_target_desc.Height; ++y)
+    {
+        for (x = 0; x < context.render_target_desc.Width; ++x)
+        {
+           unsigned int v = get_readback_uint(&rb, x, y);
+           /* This works on AMD. */
+           ok(v == 0xff00ff00 || v == 0xffffffff, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
+        }
+    }
+    release_resource_readback(&rb);
+
+    hr = ID3D12CommandAllocator_Reset(context.allocator);
+    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
+    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+    hr = ID3D12CommandAllocator_Reset(bundle_allocator);
+    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(bundle, bundle_allocator, NULL);
+    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+
+    /* A bundle does not inherit the current primitive topology. */
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+
+    ID3D12GraphicsCommandList_SetPipelineState(bundle, context.pipeline_state);
+    ID3D12GraphicsCommandList_DrawInstanced(bundle, 3, 1, 0, 0);
+    hr = ID3D12GraphicsCommandList_Close(bundle);
+    ok(SUCCEEDED(hr), "Failed to close bundle, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_ExecuteBundle(command_list, bundle);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (y = 0; y < context.render_target_desc.Height; ++y)
+    {
+        for (x = 0; x < context.render_target_desc.Width; ++x)
+        {
+           unsigned int v = get_readback_uint(&rb, x, y);
+           /* This works on AMD, even though the debug layer says that the primitive topology is undefined. */
+           ok(v == 0xff00ff00 || v == 0xffffffff, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
+        }
+    }
+    release_resource_readback(&rb);
+
+    hr = ID3D12CommandAllocator_Reset(context.allocator);
+    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
+    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+    hr = ID3D12CommandAllocator_Reset(bundle_allocator);
+    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(bundle, bundle_allocator, NULL);
+    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+
+    /* A bundle inherit all other states. */
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+
+    ID3D12GraphicsCommandList_SetPipelineState(bundle, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(bundle, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_DrawInstanced(bundle, 3, 1, 0, 0);
+    hr = ID3D12GraphicsCommandList_Close(bundle);
+    ok(SUCCEEDED(hr), "Failed to close bundle, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_ExecuteBundle(command_list, bundle);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (y = 0; y < context.render_target_desc.Height; ++y)
+    {
+        for (x = 0; x < context.render_target_desc.Width; ++x)
+        {
+           unsigned int v = get_readback_uint(&rb, x, y);
+           todo(v == 0xffffffff, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
+        }
+    }
+    release_resource_readback(&rb);
+
+    hr = ID3D12CommandAllocator_Reset(context.allocator);
+    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
+    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+    hr = ID3D12CommandAllocator_Reset(bundle_allocator);
+    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(bundle, bundle_allocator, NULL);
+    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+
+    /* All state that is set in a bundle affects a command list. */
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(bundle, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(bundle, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(bundle, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    hr = ID3D12GraphicsCommandList_Close(bundle);
+    ok(SUCCEEDED(hr), "Failed to close bundle, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_ExecuteBundle(command_list, bundle);
+
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (y = 0; y < context.render_target_desc.Height; ++y)
+    {
+        for (x = 0; x < context.render_target_desc.Width; ++x)
+        {
+           unsigned int v = get_readback_uint(&rb, x, y);
+           todo(v == 0xffffffff, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
+        }
+    }
+    release_resource_readback(&rb);
+
+    ID3D12CommandAllocator_Release(bundle_allocator);
+    ID3D12GraphicsCommandList_Release(bundle);
+    destroy_draw_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     ID3D12Debug *debug;
@@ -2803,4 +3008,5 @@ START_TEST(d3d12)
     test_invalid_texture_resource_barriers();
     test_device_removed_reason();
     test_map_resource();
+    test_bundle_state_inheritance();
 }
