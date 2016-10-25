@@ -941,9 +941,8 @@ static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_
     list->current_pipeline = VK_NULL_HANDLE;
 }
 
-static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
-        VkAccessFlags *access_mask, VkPipelineStageFlags *stage_flags,
-        VkImageLayout *image_layout)
+static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state, bool is_swapchain_image,
+        VkAccessFlags *access_mask, VkPipelineStageFlags *stage_flags, VkImageLayout *image_layout)
 {
     switch (state)
     {
@@ -954,10 +953,20 @@ static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
              * resources can be implicitly promoted to other states out of the
              * COMMON state, and the resource state can decay to the COMMON
              * state when GPU finishes execution of a command list. */
-            *access_mask = VK_ACCESS_HOST_READ_BIT | VK_ACCESS_HOST_WRITE_BIT;
-            *stage_flags = VK_PIPELINE_STAGE_HOST_BIT;
-            if (image_layout)
-                *image_layout = VK_IMAGE_LAYOUT_GENERAL;
+            if (is_swapchain_image)
+            {
+                *access_mask = VK_ACCESS_MEMORY_READ_BIT;
+                *stage_flags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+                if (image_layout)
+                    *image_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            }
+            else
+            {
+                *access_mask = VK_ACCESS_HOST_READ_BIT | VK_ACCESS_HOST_WRITE_BIT;
+                *stage_flags = VK_PIPELINE_STAGE_HOST_BIT;
+                if (image_layout)
+                    *image_layout = VK_IMAGE_LAYOUT_GENERAL;
+            }
             return true;
 
         /* Handle write states. */
@@ -1144,6 +1153,7 @@ static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12
     }
 
     if (!vk_barrier_parameters_from_d3d12_resource_state(resource->initial_state,
+            resource->flags & VKD3D_RESOURCE_SWAPCHAIN_IMAGE,
             &barrier.dstAccessMask, &dst_stage_mask, &barrier.newLayout))
     {
         FIXME("Unhandled state %#x.\n", resource->initial_state);
@@ -1848,22 +1858,24 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
                     continue;
                 }
 
+                resource = unsafe_impl_from_ID3D12Resource(transition->pResource);
+                assert(resource);
+                sub_resource_idx = transition->Subresource;
+
                 if (!vk_barrier_parameters_from_d3d12_resource_state(transition->StateBefore,
+                        resource->flags & VKD3D_RESOURCE_SWAPCHAIN_IMAGE,
                         &src_access_mask, &src_stage_mask, &layout_before))
                 {
                     FIXME("Unhandled state %#x.\n", transition->StateBefore);
                     continue;
                 }
                 if (!vk_barrier_parameters_from_d3d12_resource_state(transition->StateAfter,
+                        resource->flags & VKD3D_RESOURCE_SWAPCHAIN_IMAGE,
                         &dst_access_mask, &dst_stage_mask, &layout_after))
                 {
                     FIXME("Unhandled state %#x.\n", transition->StateAfter);
                     continue;
                 }
-
-                resource = unsafe_impl_from_ID3D12Resource(transition->pResource);
-                assert(resource);
-                sub_resource_idx = transition->Subresource;
 
                 TRACE("Transition barrier (resource %p, subresource %#x, before %#x, after %#x).\n",
                         resource, transition->Subresource, transition->StateBefore, transition->StateAfter);
@@ -1879,6 +1891,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
 
                 resource = unsafe_impl_from_ID3D12Resource(uav->pResource);
                 vk_barrier_parameters_from_d3d12_resource_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                        resource && (resource->flags & VKD3D_RESOURCE_SWAPCHAIN_IMAGE),
                         &access_mask, &stage_mask, &image_layout);
                 src_access_mask = dst_access_mask = access_mask;
                 dst_stage_mask = src_stage_mask = stage_mask;

@@ -738,7 +738,7 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
 }
 
 HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_DESC *desc,
-        VkImage vk_image, ID3D12Resource **resource)
+        VkImage vk_image, unsigned int resource_flags, ID3D12Resource **resource)
 {
     struct d3d12_device *d3d12_device = unsafe_impl_from_ID3D12Device(device);
     struct d3d12_resource *object;
@@ -752,6 +752,7 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_D
     object->u.vk_image = vk_image;
     object->vk_memory = VK_NULL_HANDLE;
     object->flags = VKD3D_RESOURCE_EXTERNAL;
+    object->flags |= resource_flags & VKD3D_RESOURCE_PUBLIC_FLAGS;
     object->map_count = 0;
     object->map_data = NULL;
     memset(&object->heap_properties, 0, sizeof(object->heap_properties));

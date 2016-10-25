@@ -407,8 +407,9 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     for (i = 0; i < image_count; ++i)
     {
-        if (FAILED(vkd3d_create_image_resource(d3d12_device,
-                &resource_desc, vk_images[i], &swapchain->buffers[i])))
+        if (FAILED(vkd3d_create_image_resource(d3d12_device, &resource_desc, vk_images[i],
+                VKD3D_RESOURCE_INITIAL_STATE_TRANSITION | VKD3D_RESOURCE_SWAPCHAIN_IMAGE,
+                &swapchain->buffers[i])))
         {
             for (j = 0; j < i; ++j)
             {

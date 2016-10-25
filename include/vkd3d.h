@@ -40,10 +40,14 @@ struct vkd3d_device_create_info
     vkd3d_signal_event_pfn signal_event_pfn;
 };
 
+/* resource flags */
+#define VKD3D_RESOURCE_INITIAL_STATE_TRANSITION 0x00000001
+#define VKD3D_RESOURCE_SWAPCHAIN_IMAGE          0x00000002
+
 HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         REFIID riid, void **device);
 HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_DESC *desc,
-        VkImage vk_image, ID3D12Resource **resource);
+        VkImage vk_image, unsigned int resource_flags, ID3D12Resource **resource);
 VkDevice vkd3d_get_vk_device(ID3D12Device *device);
 VkFormat vkd3d_get_vk_format(DXGI_FORMAT format);
 VkInstance vkd3d_get_vk_instance(ID3D12Device *device);
