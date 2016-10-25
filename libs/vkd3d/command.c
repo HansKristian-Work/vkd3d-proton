@@ -1111,6 +1111,71 @@ static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
     return true;
 }
 
+static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12_command_list *list,
+        struct d3d12_resource *resource)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkPipelineStageFlags src_stage_mask, dst_stage_mask;
+    const struct vkd3d_format *format;
+    VkImageMemoryBarrier barrier;
+
+    assert(!d3d12_resource_is_buffer(resource));
+
+    if (!(format = vkd3d_get_format(resource->desc.Format)))
+    {
+        ERR("Resource %p has invalid format %#x.\n", resource, resource->desc.Format);
+        return;
+    }
+
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.pNext = NULL;
+
+    if (is_cpu_accessible_heap(&resource->heap_properties))
+    {
+        barrier.srcAccessMask = VK_ACCESS_HOST_READ_BIT | VK_ACCESS_HOST_WRITE_BIT;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+        src_stage_mask = VK_PIPELINE_STAGE_HOST_BIT;
+    }
+    else
+    {
+        barrier.srcAccessMask = 0;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        src_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    }
+
+    if (!vk_barrier_parameters_from_d3d12_resource_state(resource->initial_state,
+            &barrier.dstAccessMask, &dst_stage_mask, &barrier.newLayout))
+    {
+        FIXME("Unhandled state %#x.\n", resource->initial_state);
+        return;
+    }
+
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = resource->u.vk_image;
+    barrier.subresourceRange.aspectMask = format->vk_aspect_mask;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+    TRACE("Initial state %#x transition for resource %p (old layout %#x, new layout %#x).\n",
+            resource->initial_state, resource, barrier.oldLayout, barrier.newLayout);
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer, src_stage_mask, dst_stage_mask, 0,
+            0, NULL, 0, NULL, 1, &barrier));
+}
+
+static void d3d12_command_list_track_resource_usage(struct d3d12_command_list *list,
+        struct d3d12_resource *resource)
+{
+    if (resource->flags & VKD3D_RESOURCE_INITIAL_STATE_TRANSITION)
+    {
+        d3d12_command_list_transition_resource_to_initial_state(list, resource);
+        resource->flags &= ~VKD3D_RESOURCE_INITIAL_STATE_TRANSITION;
+    }
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(ID3D12GraphicsCommandList *iface,
         REFIID riid, void **object)
 {
@@ -1542,6 +1607,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(ID3D12Graphics
     src_resource = unsafe_impl_from_ID3D12Resource(src);
     assert(d3d12_resource_is_buffer(src_resource));
 
+    d3d12_command_list_track_resource_usage(list, dst_resource);
+    d3d12_command_list_track_resource_usage(list, src_resource);
+
     buffer_copy.srcOffset = src_offset;
     buffer_copy.dstOffset = dst_offset;
     buffer_copy.size = byte_count;
@@ -1567,6 +1635,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
 
     dst_resource = unsafe_impl_from_ID3D12Resource(dst->pResource);
     src_resource = unsafe_impl_from_ID3D12Resource(src->pResource);
+
+    d3d12_command_list_track_resource_usage(list, dst_resource);
+    d3d12_command_list_track_resource_usage(list, src_resource);;
 
     if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
             && dst->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
@@ -1824,6 +1895,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
                 WARN("Invalid barrier type %#x.\n", current->Type);
                 continue;
         }
+
+        if (resource)
+            d3d12_command_list_track_resource_usage(list, resource);
 
         if (!resource)
         {
@@ -2083,6 +2157,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
     {
         const struct d3d12_rtv_desc *rtv_desc = (const struct d3d12_rtv_desc *)render_target_descriptors[i].ptr;
 
+        d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
+
         list->views[i] = rtv_desc->vk_view;
         if (rtv_desc->width > list->fb_width)
             list->fb_width = rtv_desc->width;
@@ -2122,6 +2198,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
 
     TRACE("iface %p, rtv %#lx, color %p, rect_count %u, rects %p.\n",
             iface, rtv.ptr, color, rect_count, rects);
+
+    d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
 
     vk_procs = &list->device->vk_procs;
 

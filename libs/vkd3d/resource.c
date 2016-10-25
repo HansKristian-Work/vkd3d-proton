@@ -64,7 +64,7 @@ static VkSampleCountFlagBits vk_samples_from_dxgi_sample_desc(const DXGI_SAMPLE_
 
 static HRESULT vkd3d_create_buffer(struct d3d12_resource *resource, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state)
+        const D3D12_RESOURCE_DESC *desc)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkBufferCreateInfo buffer_info;
@@ -108,7 +108,7 @@ static HRESULT vkd3d_create_buffer(struct d3d12_resource *resource, struct d3d12
 
 static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state)
+        const D3D12_RESOURCE_DESC *desc)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_format *format;
@@ -185,8 +185,6 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
 
     image_info.initialLayout = is_cpu_accessible_heap(heap_properties) ?
             VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
-
-    FIXME("Ignoring initial state %#x.\n", initial_state);
 
     if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &resource->u.vk_image))) < 0)
     {
@@ -675,8 +673,7 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     switch (desc->Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
-            if (FAILED(hr = vkd3d_create_buffer(resource, device, heap_properties, heap_flags,
-                    desc, initial_state)))
+            if (FAILED(hr = vkd3d_create_buffer(resource, device, heap_properties, heap_flags, desc)))
                 return hr;
             if (FAILED(hr = vkd3d_allocate_buffer_memory(resource, device, heap_properties, heap_flags)))
             {
@@ -688,8 +685,8 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
         case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
         case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
         case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
-            if (FAILED(hr = vkd3d_create_image(resource, device, heap_properties, heap_flags,
-                    desc, initial_state)))
+            resource->flags |= VKD3D_RESOURCE_INITIAL_STATE_TRANSITION;
+            if (FAILED(hr = vkd3d_create_image(resource, device, heap_properties, heap_flags, desc)))
                 return hr;
             if (FAILED(hr = vkd3d_allocate_image_memory(resource, device, heap_properties, heap_flags)))
             {
@@ -707,6 +704,7 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     resource->map_data = NULL;
 
     resource->heap_properties = *heap_properties;
+    resource->initial_state = initial_state;
 
     resource->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
@@ -758,6 +756,7 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_D
     object->map_data = NULL;
     memset(&object->heap_properties, 0, sizeof(object->heap_properties));
     object->heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    object->initial_state = D3D12_RESOURCE_STATE_COMMON;
     object->device = d3d12_device;
     ID3D12Device_AddRef(&d3d12_device->ID3D12Device_iface);
 
@@ -841,6 +840,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
     rtv_desc->width = resource->desc.Width;
     rtv_desc->height = resource->desc.Height;
     rtv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_RTV;
+    rtv_desc->resource = resource;
 }
 
 /* ID3D12DescriptorHeap */
