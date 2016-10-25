@@ -2463,6 +2463,137 @@ static void test_draw_instanced(void)
     destroy_draw_test_context(&context);
 }
 
+static void test_texture_resource_barriers(void)
+{
+    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
+    ID3D12CommandAllocator *command_allocator;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_BARRIER barriers[8];
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    command_queue_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
+            &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(SUCCEEDED(hr), "CreateCommandQueue failed, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
+    ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 32;
+    resource_desc.Height = 32;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
+
+    barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[0].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barriers[0].Transition.pResource = resource;
+    barriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+    barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barriers[0]);
+
+    barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barriers[1].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barriers[1].UAV.pResource = resource;
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barriers[1]);
+
+    barriers[2].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[2].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barriers[2].Transition.pResource = resource;
+    barriers[2].Transition.Subresource = 0;
+    barriers[2].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    barriers[2].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barriers[2]);
+
+    barriers[3].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[3].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barriers[3].Transition.pResource = resource;
+    barriers[3].Transition.Subresource = 0;
+    barriers[3].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    barriers[3].Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
+            | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barriers[3]);
+
+    barriers[4].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[4].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barriers[4].Transition.pResource = resource;
+    barriers[4].Transition.Subresource = 0;
+    barriers[4].Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
+            | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    barriers[4].Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barriers[4]);
+
+    barriers[5].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[5].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barriers[5].Transition.pResource = resource;
+    barriers[5].Transition.Subresource = 0;
+    barriers[5].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    barriers[5].Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barriers[5]);
+
+    barriers[6].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barriers[6].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barriers[6].UAV.pResource = resource;
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barriers[6]);
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barriers[6]);
+
+    barriers[7].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[7].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barriers[7].Transition.pResource = resource;
+    barriers[7].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barriers[7].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    barriers[7].Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barriers[7]);
+
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 8, barriers);
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+
+    ID3D12GraphicsCommandList_Release(command_list);
+    ID3D12CommandAllocator_Release(command_allocator);
+    ID3D12Resource_Release(resource);
+    ID3D12CommandQueue_Release(queue);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 static void test_invalid_texture_resource_barriers(void)
 {
     ID3D12Resource *texture, *readback_buffer, *upload_buffer;
@@ -3005,6 +3136,7 @@ START_TEST(d3d12)
     test_multithread_fence_wait();
     test_clear_render_target_view();
     test_draw_instanced();
+    test_texture_resource_barriers();
     test_invalid_texture_resource_barriers();
     test_device_removed_reason();
     test_map_resource();
