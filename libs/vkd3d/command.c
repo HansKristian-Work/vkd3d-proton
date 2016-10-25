@@ -1524,30 +1524,30 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(ID3D12GraphicsCommandL
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(ID3D12GraphicsCommandList *iface,
-        ID3D12Resource *dst_resource, UINT64 dst_offset, ID3D12Resource *src_resource,
-        UINT64 src_offset, UINT64 byte_count)
+        ID3D12Resource *dst, UINT64 dst_offset, ID3D12Resource *src, UINT64 src_offset, UINT64 byte_count)
 {
-    struct d3d12_resource *dst_resource_impl = unsafe_impl_from_ID3D12Resource(dst_resource);
-    struct d3d12_resource *src_resource_impl = unsafe_impl_from_ID3D12Resource(src_resource);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_resource *dst_resource, *src_resource;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkBufferCopy buffer_copy;
 
     TRACE("iface %p, dst_resource %p, dst_offset %#"PRIx64", src_resource %p, "
             "src_offset %#"PRIx64", byte_count %#"PRIx64".\n",
-            iface, dst_resource, dst_offset, src_resource, src_offset, byte_count);
+            iface, dst, dst_offset, src, src_offset, byte_count);
 
     vk_procs = &list->device->vk_procs;
 
-    assert(d3d12_resource_is_buffer(dst_resource_impl));
-    assert(d3d12_resource_is_buffer(src_resource_impl));
+    dst_resource = unsafe_impl_from_ID3D12Resource(dst);
+    assert(d3d12_resource_is_buffer(dst_resource));
+    src_resource = unsafe_impl_from_ID3D12Resource(src);
+    assert(d3d12_resource_is_buffer(src_resource));
 
     buffer_copy.srcOffset = src_offset;
     buffer_copy.dstOffset = dst_offset;
     buffer_copy.size = byte_count;
 
     VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
-            src_resource_impl->u.vk_buffer, dst_resource_impl->u.vk_buffer, 1, &buffer_copy));
+            src_resource->u.vk_buffer, dst_resource->u.vk_buffer, 1, &buffer_copy));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12GraphicsCommandList *iface,
