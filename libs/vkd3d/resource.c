@@ -328,7 +328,7 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
-    if (resource->external)
+    if (resource->flags & VKD3D_RESOURCE_EXTERNAL)
         return;
 
     switch (resource->desc.Dimension)
@@ -670,7 +670,7 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     if (optimized_clear_value)
         FIXME("Ignoring optimized clear value.\n");
 
-    resource->external = false;
+    resource->flags = 0;
 
     switch (desc->Dimension)
     {
@@ -753,7 +753,7 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_D
     object->desc = *desc;
     object->u.vk_image = vk_image;
     object->vk_memory = VK_NULL_HANDLE;
-    object->external = true;
+    object->flags = VKD3D_RESOURCE_EXTERNAL;
     object->map_count = 0;
     object->map_data = NULL;
     memset(&object->heap_properties, 0, sizeof(object->heap_properties));

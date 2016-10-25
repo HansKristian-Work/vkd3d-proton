@@ -114,6 +114,8 @@ struct d3d12_fence
 HRESULT d3d12_fence_create(struct d3d12_device *device,
         UINT64 initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence) DECLSPEC_HIDDEN;
 
+#define VKD3D_RESOURCE_EXTERNAL 0x00000001
+
 /* ID3D12Resource */
 struct d3d12_resource
 {
@@ -129,7 +131,7 @@ struct d3d12_resource
         VkImage vk_image;
     } u;
     VkDeviceMemory vk_memory;
-    bool external;
+    unsigned int flags;
 
     unsigned int map_count;
     void *map_data;
