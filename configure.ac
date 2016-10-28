@@ -18,7 +18,7 @@ AM_PROG_CC_C_O
 AC_PROG_SED
 AC_PROG_MKDIR_P
 AC_CHECK_PROG([WIDL], [widl], [widl], [no])
-AS_IF([test "x$WIDL" = "xno"], [AC_MSG_ERROR([widl is required to build header files.])])
+AS_IF([test "x$WIDL" = "xno"], [AC_MSG_WARN([widl is required to build header files.])])
 AC_CHECK_PROG([GLSLANG], [glslangValidator], [glslangValidator], [no])
 AS_IF([test "x$GLSLANG" = "xno"], [AC_MSG_ERROR([glslangValidator is required to compile shaders.])])
 
