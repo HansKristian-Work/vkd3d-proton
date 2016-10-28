@@ -41,7 +41,7 @@ vkd3d_demos_headers = \
 	demos/demo_xcb.h
 
 BUILT_SOURCES = $(widl_headers)
-CLEANFILES = $(widl_headers) $(spv_shaders)
+CLEANFILES = $(spv_shaders)
 
 noinst_LTLIBRARIES = libvkd3d-common.la
 libvkd3d_common_la_SOURCES = \
