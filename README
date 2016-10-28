@@ -1,1 +1,6 @@
-vkD3D - Direct3D 12 to Vulkan translation library
+=============================
+The vkd3d 3D Graphics Library
+=============================
+
+Vkd3d is a 3D graphics library built on top of Vulkan. It has an API very
+similar, but not identical, to Direct3D 12.
