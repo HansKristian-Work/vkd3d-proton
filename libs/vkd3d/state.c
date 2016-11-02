@@ -502,6 +502,104 @@ static void rs_desc_from_d3d12(struct VkPipelineRasterizationStateCreateInfo *vk
         FIXME("Ignoring ConservativeRaster %#x.\n", d3d12_desc->ConservativeRaster);
 }
 
+static enum VkStencilOp vk_stencil_op_from_d3d12(D3D12_STENCIL_OP op)
+{
+    switch (op)
+    {
+        case D3D12_STENCIL_OP_KEEP:
+            return VK_STENCIL_OP_KEEP;
+        case D3D12_STENCIL_OP_ZERO:
+            return VK_STENCIL_OP_ZERO;
+        case D3D12_STENCIL_OP_REPLACE:
+            return VK_STENCIL_OP_REPLACE;
+        case D3D12_STENCIL_OP_INCR_SAT:
+            return VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+        case D3D12_STENCIL_OP_DECR_SAT:
+            return VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+        case D3D12_STENCIL_OP_INVERT:
+            return VK_STENCIL_OP_INVERT;
+        case D3D12_STENCIL_OP_INCR:
+            return VK_STENCIL_OP_INCREMENT_AND_WRAP;
+        case D3D12_STENCIL_OP_DECR:
+            return VK_STENCIL_OP_DECREMENT_AND_WRAP;
+        default:
+            FIXME("Unhandled stencil op %#x.\n", op);
+            return VK_STENCIL_OP_KEEP;
+    }
+}
+
+static enum VkCompareOp vk_compare_op_from_d3d12(D3D12_COMPARISON_FUNC op)
+{
+    switch (op)
+    {
+        case D3D12_COMPARISON_FUNC_NEVER:
+            return VK_COMPARE_OP_NEVER;
+        case D3D12_COMPARISON_FUNC_LESS:
+            return VK_COMPARE_OP_LESS;
+        case D3D12_COMPARISON_FUNC_EQUAL:
+            return VK_COMPARE_OP_EQUAL;
+        case D3D12_COMPARISON_FUNC_LESS_EQUAL:
+            return VK_COMPARE_OP_LESS_OR_EQUAL;
+        case D3D12_COMPARISON_FUNC_GREATER:
+            return VK_COMPARE_OP_GREATER;
+        case D3D12_COMPARISON_FUNC_NOT_EQUAL:
+            return VK_COMPARE_OP_NOT_EQUAL;
+        case D3D12_COMPARISON_FUNC_GREATER_EQUAL:
+            return VK_COMPARE_OP_GREATER_OR_EQUAL;
+        case D3D12_COMPARISON_FUNC_ALWAYS:
+            return VK_COMPARE_OP_ALWAYS;
+        default:
+            FIXME("Unhandled compare op %#x.\n", op);
+            return VK_COMPARE_OP_NEVER;
+    }
+}
+
+static void vk_stencil_op_state_from_d3d12(struct VkStencilOpState *vk_desc,
+        const D3D12_DEPTH_STENCILOP_DESC *d3d12_desc, uint32_t compare_mask, uint32_t write_mask)
+{
+    vk_desc->failOp = vk_stencil_op_from_d3d12(d3d12_desc->StencilFailOp);
+    vk_desc->passOp = vk_stencil_op_from_d3d12(d3d12_desc->StencilPassOp);
+    vk_desc->depthFailOp = vk_stencil_op_from_d3d12(d3d12_desc->StencilDepthFailOp);
+    vk_desc->compareOp = vk_compare_op_from_d3d12(d3d12_desc->StencilFunc);
+    vk_desc->compareMask = compare_mask;
+    vk_desc->writeMask = write_mask;
+    vk_desc->reference = 0; /* FIXME: From OMSetStencilRef(). */
+}
+
+static void ds_desc_from_d3d12(struct VkPipelineDepthStencilStateCreateInfo *vk_desc,
+        const D3D12_DEPTH_STENCIL_DESC *d3d12_desc)
+{
+    memset(vk_desc, 0, sizeof(*vk_desc));
+    vk_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    vk_desc->pNext = NULL;
+    vk_desc->flags = 0;
+    if ((vk_desc->depthTestEnable = d3d12_desc->DepthEnable))
+    {
+        vk_desc->depthWriteEnable = d3d12_desc->DepthWriteMask & D3D12_DEPTH_WRITE_MASK_ALL;
+        vk_desc->depthCompareOp = vk_compare_op_from_d3d12(d3d12_desc->DepthFunc);
+    }
+    else
+    {
+        vk_desc->depthWriteEnable = VK_FALSE;
+        vk_desc->depthCompareOp = VK_COMPARE_OP_NEVER;
+    }
+    vk_desc->depthBoundsTestEnable = VK_FALSE;
+    if ((vk_desc->stencilTestEnable = d3d12_desc->StencilEnable))
+    {
+        vk_stencil_op_state_from_d3d12(&vk_desc->front, &d3d12_desc->FrontFace,
+                d3d12_desc->StencilReadMask, d3d12_desc->StencilWriteMask);
+        vk_stencil_op_state_from_d3d12(&vk_desc->back, &d3d12_desc->BackFace,
+                d3d12_desc->StencilReadMask, d3d12_desc->StencilWriteMask);
+    }
+    else
+    {
+        memset(&vk_desc->front, 0, sizeof(vk_desc->front));
+        memset(&vk_desc->back, 0, sizeof(vk_desc->back));
+    }
+    vk_desc->minDepthBounds = 0.0f;
+    vk_desc->maxDepthBounds = 1.0f;
+}
+
 static enum VkBlendFactor vk_blend_factor_from_d3d12(D3D12_BLEND blend, bool alpha)
 {
     switch (blend)
@@ -610,6 +708,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     struct VkRenderPassCreateInfo pass_desc;
     const struct vkd3d_format *format;
     enum VkVertexInputRate input_rate;
+    size_t rt_count;
     unsigned int i;
     uint32_t mask;
     VkResult vr;
@@ -708,17 +807,59 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         mask |= 1u << e->InputSlot;
     }
 
-    graphics->attachment_count = desc->NumRenderTargets;
-    if (graphics->attachment_count > ARRAY_SIZE(graphics->attachments))
+    rt_count = desc->NumRenderTargets;
+    if (rt_count > ARRAY_SIZE(graphics->attachments) - 1)
     {
         FIXME("NumRenderTargets %zu > %zu, ignoring extra formats.\n",
-                graphics->attachment_count, ARRAY_SIZE(graphics->attachments));
-        graphics->attachment_count = ARRAY_SIZE(graphics->attachments);
+                rt_count, ARRAY_SIZE(graphics->attachments) - 1);
+        rt_count = ARRAY_SIZE(graphics->attachments) - 1;
     }
 
-    for (i = 0; i < graphics->attachment_count; ++i)
+    graphics->rt_idx = 0;
+    if (desc->DepthStencilState.DepthEnable || desc->DepthStencilState.StencilEnable)
+    {
+        if (!(format = vkd3d_get_format(desc->DSVFormat)))
+        {
+            WARN("Invalid DXGI format %#x.\n", desc->DSVFormat);
+            hr = E_FAIL;
+            goto fail;
+        }
+
+        graphics->attachments[0].flags = 0;
+        graphics->attachments[0].format = format->vk_format;
+        graphics->attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+        if (desc->DepthStencilState.DepthEnable)
+        {
+            graphics->attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            graphics->attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        }
+        else
+        {
+            graphics->attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            graphics->attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        }
+        if (desc->DepthStencilState.StencilEnable)
+        {
+            graphics->attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            graphics->attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+        }
+        else
+        {
+            graphics->attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            graphics->attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        }
+        graphics->attachments[0].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        graphics->attachments[0].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        graphics->attachment_references[0].attachment = 0;
+        graphics->attachment_references[0].layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        ++graphics->rt_idx;
+    }
+
+    for (i = 0; i < rt_count; ++i)
     {
         unsigned int blend_idx = desc->BlendState.IndependentBlendEnable ? i : 0;
+        size_t idx = graphics->rt_idx + i;
 
         if (!(format = vkd3d_get_format(desc->RTVFormats[i])))
         {
@@ -727,30 +868,34 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
         }
 
-        graphics->attachments[i].flags = 0;
-        graphics->attachments[i].format = format->vk_format;
-        graphics->attachments[i].samples = VK_SAMPLE_COUNT_1_BIT;
-        graphics->attachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        graphics->attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        graphics->attachments[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        graphics->attachments[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        graphics->attachments[i].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        graphics->attachments[i].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        graphics->attachments[idx].flags = 0;
+        graphics->attachments[idx].format = format->vk_format;
+        graphics->attachments[idx].samples = VK_SAMPLE_COUNT_1_BIT;
+        graphics->attachments[idx].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        graphics->attachments[idx].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        graphics->attachments[idx].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        graphics->attachments[idx].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        graphics->attachments[idx].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        graphics->attachments[idx].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-        graphics->attachment_references[i].attachment = i;
-        graphics->attachment_references[i].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        graphics->attachment_references[idx].attachment = idx;
+        graphics->attachment_references[idx].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
         blend_attachment_from_d3d12(&graphics->blend_attachments[i], &desc->BlendState.RenderTarget[blend_idx]);
     }
+    graphics->attachment_count = graphics->rt_idx + rt_count;
 
     sub_pass_desc.flags = 0;
     sub_pass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     sub_pass_desc.inputAttachmentCount = 0;
     sub_pass_desc.pInputAttachments = NULL;
-    sub_pass_desc.colorAttachmentCount = graphics->attachment_count;
-    sub_pass_desc.pColorAttachments = graphics->attachment_references;
+    sub_pass_desc.colorAttachmentCount = rt_count;
+    sub_pass_desc.pColorAttachments = &graphics->attachment_references[graphics->rt_idx];
     sub_pass_desc.pResolveAttachments = NULL;
-    sub_pass_desc.pDepthStencilAttachment = NULL;
+    if (graphics->rt_idx)
+        sub_pass_desc.pDepthStencilAttachment = &graphics->attachment_references[0];
+    else
+        sub_pass_desc.pDepthStencilAttachment = NULL;
     sub_pass_desc.preserveAttachmentCount = 0;
     sub_pass_desc.pPreserveAttachments = NULL;
 
@@ -781,6 +926,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->ms_desc.pSampleMask = NULL;
     graphics->ms_desc.alphaToCoverageEnable = desc->BlendState.AlphaToCoverageEnable;
     graphics->ms_desc.alphaToOneEnable = VK_FALSE;
+
+    ds_desc_from_d3d12(&graphics->ds_desc, &desc->DepthStencilState);
 
     graphics->root_signature = unsafe_impl_from_ID3D12RootSignature(desc->pRootSignature);
 

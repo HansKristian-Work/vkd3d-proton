@@ -231,14 +231,15 @@ struct d3d12_graphics_pipeline_state
     enum VkVertexInputRate input_rates[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     size_t attribute_count;
 
-    struct VkAttachmentDescription attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-    struct VkAttachmentReference attachment_references[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    struct VkAttachmentDescription attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+    struct VkAttachmentReference attachment_references[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
     struct VkPipelineColorBlendAttachmentState blend_attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-    size_t attachment_count;
+    size_t attachment_count, rt_idx;
     VkRenderPass render_pass;
 
     struct VkPipelineRasterizationStateCreateInfo rs_desc;
     struct VkPipelineMultisampleStateCreateInfo ms_desc;
+    struct VkPipelineDepthStencilStateCreateInfo ds_desc;
 
     struct d3d12_root_signature *root_signature;
 };
@@ -319,7 +320,7 @@ struct d3d12_command_list
     uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     struct VkPipelineInputAssemblyStateCreateInfo ia_desc;
 
-    VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
     unsigned int fb_width;
     unsigned int fb_height;
 

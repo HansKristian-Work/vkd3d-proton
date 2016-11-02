@@ -1373,17 +1373,21 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
 {
     struct VkFramebufferCreateInfo fb_desc;
     VkFramebuffer vk_framebuffer;
+    size_t start_idx = 0;
     VkResult vr;
 
     if (list->current_framebuffer != VK_NULL_HANDLE)
         return true;
+
+    if (!list->state->u.graphics.rt_idx)
+        ++start_idx;
 
     fb_desc.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     fb_desc.pNext = NULL;
     fb_desc.flags = 0;
     fb_desc.renderPass = list->state->u.graphics.render_pass;
     fb_desc.attachmentCount = list->state->u.graphics.attachment_count;
-    fb_desc.pAttachments = list->views;
+    fb_desc.pAttachments = &list->views[start_idx];
     fb_desc.width = list->fb_width;
     fb_desc.height = list->fb_height;
     fb_desc.layers = 1;
@@ -1491,7 +1495,7 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     /* FIXME: Logic ops are per-target in D3D. */
     blend_desc.logicOpEnable = VK_FALSE;
     blend_desc.logicOp = VK_LOGIC_OP_COPY;
-    blend_desc.attachmentCount = state->attachment_count;
+    blend_desc.attachmentCount = state->attachment_count - state->rt_idx;
     blend_desc.pAttachments = state->blend_attachments;
     blend_desc.blendConstants[0] = D3D12_DEFAULT_BLEND_FACTOR_RED;
     blend_desc.blendConstants[1] = D3D12_DEFAULT_BLEND_FACTOR_GREEN;
@@ -1509,7 +1513,7 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     pipeline_desc.pViewportState = &vp_desc;
     pipeline_desc.pRasterizationState = &state->rs_desc;
     pipeline_desc.pMultisampleState = &state->ms_desc;
-    pipeline_desc.pDepthStencilState = NULL;
+    pipeline_desc.pDepthStencilState = &state->ds_desc;
     pipeline_desc.pColorBlendState = &blend_desc;
     pipeline_desc.pDynamicState = &dynamic_desc;
     pipeline_desc.layout = state->root_signature->vk_pipeline_layout;
@@ -2207,14 +2211,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
             iface, render_target_descriptor_count, render_target_descriptors,
             single_descriptor_handle, depth_stencil_descriptor);
 
-    if (depth_stencil_descriptor)
-        FIXME("Ignoring depth/stencil descriptor %p.\n", depth_stencil_descriptor);
-
-    if (render_target_descriptor_count > ARRAY_SIZE(list->views))
+    if (render_target_descriptor_count > ARRAY_SIZE(list->views) - 1)
     {
         WARN("Descriptor count %u > %zu, ignoring extra descriptors.\n",
-                render_target_descriptor_count, ARRAY_SIZE(list->views));
-        render_target_descriptor_count = ARRAY_SIZE(list->views);
+                render_target_descriptor_count, ARRAY_SIZE(list->views) - 1);
+        render_target_descriptor_count = ARRAY_SIZE(list->views) - 1;
     }
 
     list->fb_width = 0;
@@ -2225,11 +2226,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
 
         d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
 
-        list->views[i] = rtv_desc->vk_view;
+        list->views[i + 1] = rtv_desc->vk_view;
         if (rtv_desc->width > list->fb_width)
             list->fb_width = rtv_desc->width;
         if (rtv_desc->height > list->fb_height)
             list->fb_height = rtv_desc->height;
+    }
+
+    if (depth_stencil_descriptor)
+    {
+        const struct d3d12_dsv_desc *dsv_desc = (const struct d3d12_dsv_desc *)depth_stencil_descriptor->ptr;
+
+        d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
+
+        list->views[0] = dsv_desc->vk_view;
     }
 
     d3d12_command_list_invalidate_current_framebuffer(list);
