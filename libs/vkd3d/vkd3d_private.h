@@ -39,6 +39,7 @@
 #define VK_CALL(f) (vk_procs->f)
 
 #define VKD3D_DESCRIPTOR_MAGIC_FREE 0x00000000u
+#define VKD3D_DESCRIPTOR_MAGIC_DSV  0x00565344u
 #define VKD3D_DESCRIPTOR_MAGIC_RTV  0x00565452u
 
 #define VKD3D_MAX_SHADER_STAGES     5u
@@ -181,7 +182,15 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 struct d3d12_dsv_desc
 {
     uint32_t magic;
+    VkFormat format;
+    uint64_t width;
+    unsigned int height;
+    VkImageView vk_view;
+    struct d3d12_resource *resource;
 };
+
+void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_device *device,
+        struct d3d12_resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc) DECLSPEC_HIDDEN;
 
 /* ID3D12DescriptorHeap */
 struct d3d12_descriptor_heap

@@ -844,6 +844,85 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
     rtv_desc->resource = resource;
 }
 
+/* DSVs */
+static void d3d12_dsv_desc_destroy(struct d3d12_dsv_desc *dsv, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    if (dsv->magic != VKD3D_DESCRIPTOR_MAGIC_DSV)
+        return;
+
+    VK_CALL(vkDestroyImageView(device->vk_device, dsv->vk_view, NULL));
+    memset(dsv, 0, sizeof(*dsv));
+}
+
+void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_device *device,
+        struct d3d12_resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc)
+{
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct VkImageViewCreateInfo view_desc;
+    const struct vkd3d_format *format;
+    VkResult vr;
+
+    vk_procs = &device->vk_procs;
+
+    d3d12_dsv_desc_destroy(dsv_desc, device);
+
+    if (!resource)
+    {
+        FIXME("NULL resource DSV not implemented.\n");
+        return;
+    }
+
+    if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    {
+        FIXME("Resource dimension %#x not implemented.\n", resource->desc.Dimension);
+        return;
+    }
+
+    if (!(format = vkd3d_get_format(desc ? desc->Format : resource->desc.Format)))
+    {
+        WARN("Invalid DXGI format.\n");
+        return;
+    }
+
+    if (!(format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
+    {
+        WARN("Trying to create DSV for format %#x.\n", format->dxgi_format);
+        return;
+    }
+
+    if (desc && desc->Flags)
+        FIXME("Ignoring flags %#x.\n", desc->Flags);
+
+    view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_desc.pNext = NULL;
+    view_desc.flags = 0;
+    view_desc.image = resource->u.vk_image;
+    view_desc.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_desc.format = format->vk_format;
+    view_desc.components.r = VK_COMPONENT_SWIZZLE_R;
+    view_desc.components.g = VK_COMPONENT_SWIZZLE_G;
+    view_desc.components.b = VK_COMPONENT_SWIZZLE_B;
+    view_desc.components.a = VK_COMPONENT_SWIZZLE_A;
+    view_desc.subresourceRange.aspectMask = format->vk_aspect_mask;
+    view_desc.subresourceRange.baseMipLevel = desc ? desc->u.Texture2D.MipSlice : 0;
+    view_desc.subresourceRange.levelCount = 1;
+    view_desc.subresourceRange.baseArrayLayer = 0;
+    view_desc.subresourceRange.layerCount = 1;
+    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &dsv_desc->vk_view))) < 0)
+    {
+        WARN("Failed to create Vulkan image view, vr %d.\n", vr);
+        return;
+    }
+
+    dsv_desc->format = view_desc.format;
+    dsv_desc->width = resource->desc.Width;
+    dsv_desc->height = resource->desc.Height;
+    dsv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_DSV;
+    dsv_desc->resource = resource;
+}
+
 /* ID3D12DescriptorHeap */
 static inline struct d3d12_descriptor_heap *impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface)
 {
@@ -901,6 +980,15 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
             for (i = 0; i < heap->desc.NumDescriptors; ++i)
             {
                 d3d12_rtv_desc_destroy(&rtvs[i], device);
+            }
+        }
+        else if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_DSV)
+        {
+            struct d3d12_dsv_desc *dsvs = (struct d3d12_dsv_desc *)heap->descriptors;
+
+            for (i = 0; i < heap->desc.NumDescriptors; ++i)
+            {
+                d3d12_dsv_desc_destroy(&dsvs[i], device);
             }
         }
 
