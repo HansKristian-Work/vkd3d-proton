@@ -46,12 +46,7 @@
  */
 
 #define INITGUID
-#include <limits.h>
 #include <assert.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <stdio.h>
 #include "demo.h"
 
 struct cxt_fence

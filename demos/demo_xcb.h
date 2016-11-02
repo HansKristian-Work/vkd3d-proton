@@ -25,6 +25,10 @@
 #include <vkd3d.h>
 #include <xcb/xcb_event.h>
 #include <xcb/xcb_icccm.h>
+#include <sys/stat.h>
+#include <limits.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 struct demo
 {
