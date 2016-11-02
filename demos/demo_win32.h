@@ -44,6 +44,7 @@ struct demo_window
     struct demo *demo;
     void *user_data;
     void (*draw_func)(void *user_data);
+    void (*key_press_func)(struct demo_window *window, demo_key key, void *user_data);
 };
 
 struct demo_swapchain
@@ -74,6 +75,7 @@ static inline struct demo_window *demo_window_create(struct demo *demo, const ch
     window->instance = GetModuleHandle(NULL);
     window->draw_func = draw_func;
     window->user_data = user_data;
+    window->key_press_func = NULL;
 
     style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
     AdjustWindowRect(&rect, style, FALSE);
@@ -101,6 +103,13 @@ static inline void demo_window_destroy(struct demo_window *window)
     free(window);
 }
 
+static inline demo_key demo_key_from_vkey(DWORD vkey)
+{
+    if (vkey == VK_ESCAPE)
+        return DEMO_KEY_ESCAPE;
+    return DEMO_KEY_UNKNOWN;
+}
+
 static inline LRESULT CALLBACK demo_window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 {
     struct demo_window *window = (void *)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
@@ -112,6 +121,12 @@ static inline LRESULT CALLBACK demo_window_proc(HWND hwnd, UINT message, WPARAM 
                 window->draw_func(window->user_data);
                 return 0;
 
+        case WM_KEYDOWN:
+            if (!window->key_press_func)
+                break;
+            window->key_press_func(window, demo_key_from_vkey(wparam), window->user_data);
+            return 0;
+
         case WM_DESTROY:
             window->hwnd = NULL;
             demo_window_destroy(window);
@@ -119,6 +134,12 @@ static inline LRESULT CALLBACK demo_window_proc(HWND hwnd, UINT message, WPARAM 
     }
 
     return DefWindowProcW(hwnd, message, wparam, lparam);
+}
+
+static inline void demo_window_set_key_press_func(struct demo_window *window,
+        void (*key_press_func)(struct demo_window *window, demo_key key, void *user_data))
+{
+    window->key_press_func = key_press_func;
 }
 
 static inline void demo_process_events(struct demo *demo)

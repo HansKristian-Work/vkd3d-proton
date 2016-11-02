@@ -41,8 +41,12 @@
 #define WIDL_C_INLINE_WRAPPERS
 #define COBJMACROS
 #include <d3d12.h>
+#include <inttypes.h>
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*x))
+
+#define DEMO_KEY_UNKNOWN    0x0000
+#define DEMO_KEY_ESCAPE     0xff1b
 
 struct demo_vec3
 {
@@ -61,6 +65,8 @@ struct demo_swapchain_desc
     unsigned int buffer_count;
     DXGI_FORMAT format;
 };
+
+typedef uint32_t demo_key;
 
 static inline void demo_rasterizer_desc_init_default(D3D12_RASTERIZER_DESC *desc)
 {

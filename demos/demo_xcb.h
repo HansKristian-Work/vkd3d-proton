@@ -25,6 +25,7 @@
 #include <vkd3d.h>
 #include <xcb/xcb_event.h>
 #include <xcb/xcb_icccm.h>
+#include <xcb/xcb_keysyms.h>
 #include <sys/stat.h>
 #include <limits.h>
 #include <unistd.h>
@@ -35,6 +36,7 @@ struct demo
     xcb_connection_t *connection;
     xcb_atom_t wm_protocols_atom;
     xcb_atom_t wm_delete_window_atom;
+    xcb_key_symbols_t *xcb_keysyms;
 
     struct demo_window **windows;
     size_t windows_size;
@@ -48,6 +50,7 @@ struct demo_window
 
     void *user_data;
     void (*draw_func)(void *user_data);
+    void (*key_press_func)(struct demo_window *window, demo_key key, void *user_data);
 };
 
 struct demo_swapchain
@@ -131,7 +134,7 @@ static inline struct demo_window *demo_find_window(struct demo *demo, xcb_window
 static inline struct demo_window *demo_window_create(struct demo *demo, const char *title,
         unsigned int width, unsigned int height, void (*draw_func)(void *user_data), void *user_data)
 {
-    static const uint32_t window_events = XCB_EVENT_MASK_EXPOSURE;
+    static const uint32_t window_events = XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_KEY_PRESS;
 
     struct demo_window *window;
     xcb_size_hints_t hints;
@@ -150,6 +153,7 @@ static inline struct demo_window *demo_window_create(struct demo *demo, const ch
     window->demo = demo;
     window->draw_func = draw_func;
     window->user_data = user_data;
+    window->key_press_func = NULL;
     screen = xcb_setup_roots_iterator(xcb_get_setup(demo->connection)).data;
     xcb_create_window(demo->connection, XCB_COPY_FROM_PARENT, window->window, screen->root, 0, 0,
             width, height, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual,
@@ -181,16 +185,23 @@ static inline void demo_window_destroy(struct demo_window *window)
     free(window);
 }
 
+static inline void demo_window_set_key_press_func(struct demo_window *window,
+        void (*key_press_func)(struct demo_window *window, demo_key key, void *user_data))
+{
+    window->key_press_func = key_press_func;
+}
+
 static inline void demo_process_events(struct demo *demo)
 {
-    const xcb_client_message_event_t *client_message;
+    const struct xcb_client_message_event_t *client_message;
+    struct xcb_key_press_event_t *key_press;
     xcb_generic_event_t *event;
     struct demo_window *window;
-    bool done = false;
+    xcb_keysym_t sym;
 
     xcb_flush(demo->connection);
 
-    while (!done && (event = xcb_wait_for_event(demo->connection)))
+    while (demo->window_count && (event = xcb_wait_for_event(demo->connection)))
     {
         switch (XCB_EVENT_RESPONSE_TYPE(event))
         {
@@ -199,16 +210,20 @@ static inline void demo_process_events(struct demo *demo)
                     window->draw_func(window->user_data);
                 break;
 
+            case XCB_KEY_PRESS:
+                key_press = (struct xcb_key_press_event_t *)event;
+                if (!(window = demo_find_window(demo, key_press->event)) || !window->key_press_func)
+                    break;
+                sym = xcb_key_press_lookup_keysym(demo->xcb_keysyms, key_press, 0);
+                window->key_press_func(window, sym, window->user_data);
+                break;
+
             case XCB_CLIENT_MESSAGE:
                 client_message = (xcb_client_message_event_t *)event;
                 if (client_message->type == demo->wm_protocols_atom
                         && client_message->data.data32[0] == demo->wm_delete_window_atom
                         && (window = demo_find_window(demo, client_message->window)))
-                {
                     demo_window_destroy(window);
-                    if (!demo->window_count)
-                        done = true;
-                }
                 break;
         }
 
@@ -226,6 +241,8 @@ static inline bool demo_init(struct demo *demo)
         goto fail;
     if ((demo->wm_protocols_atom = demo_get_atom(demo->connection, "WM_PROTOCOLS")) == XCB_NONE)
         goto fail;
+    if (!(demo->xcb_keysyms = xcb_key_symbols_alloc(demo->connection)))
+        goto fail;
 
     demo->windows = NULL;
     demo->windows_size = 0;
@@ -241,6 +258,7 @@ fail:
 static inline void demo_cleanup(struct demo *demo)
 {
     free(demo->windows);
+    xcb_key_symbols_free(demo->xcb_keysyms);
     xcb_disconnect(demo->connection);
 }
 

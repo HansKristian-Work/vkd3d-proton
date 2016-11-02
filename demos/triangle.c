@@ -358,6 +358,12 @@ static void cxt_load_assets(struct cx_triangle *cxt)
     cxt_wait_for_previous_frame(cxt);
 }
 
+static void cxt_key_press(struct demo_window *window, demo_key key, void *user_data)
+{
+    if (key == DEMO_KEY_ESCAPE)
+        demo_window_destroy(window);
+}
+
 static int cxt_main(void)
 {
     unsigned int width = 640, height = 480;
@@ -370,6 +376,7 @@ static int cxt_main(void)
 
     cxt.window = demo_window_create(&cxt.demo, "Vkd3d Triangle",
             width, height, cxt_render_frame, &cxt);
+    demo_window_set_key_press_func(cxt.window, cxt_key_press);
 
     cxt.width = width;
     cxt.height = height;
