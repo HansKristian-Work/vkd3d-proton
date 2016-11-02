@@ -1473,7 +1473,7 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
         b = &bindings[binding_count];
         b->binding = binding;
         b->stride = list->strides[binding];
-        b->inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        b->inputRate = state->input_rates[binding];
         ++binding_count;
     }
 

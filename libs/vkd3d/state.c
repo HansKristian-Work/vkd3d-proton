@@ -609,7 +609,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     struct VkSubpassDescription sub_pass_desc;
     struct VkRenderPassCreateInfo pass_desc;
     const struct vkd3d_format *format;
+    enum VkVertexInputRate input_rate;
     unsigned int i;
+    uint32_t mask;
     VkResult vr;
     HRESULT hr;
 
@@ -652,7 +654,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         graphics->attribute_count = ARRAY_SIZE(graphics->attributes);
     }
 
-    for (i = 0; i < graphics->attribute_count; ++i)
+    for (i = 0, mask = 0; i < graphics->attribute_count; ++i)
     {
         const D3D12_INPUT_ELEMENT_DESC *e = &desc->InputLayout.pInputElementDescs[i];
 
@@ -663,14 +665,47 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
         }
 
+        if (e->InputSlot >= ARRAY_SIZE(graphics->input_rates))
+        {
+            WARN("Invalid input slot %#x.\n", e->InputSlot);
+            hr = E_FAIL;
+            goto fail;
+        }
+
         graphics->attributes[i].location = i;
         graphics->attributes[i].binding = e->InputSlot;
         graphics->attributes[i].format = format->vk_format;
         if (e->AlignedByteOffset == D3D12_APPEND_ALIGNED_ELEMENT)
             FIXME("D3D12_APPEND_ALIGNED_ELEMENT not implemented.\n");
         graphics->attributes[i].offset = e->AlignedByteOffset;
-        if (e->InputSlotClass != D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA)
-            FIXME("Ignoring input slot class %#x on input element %u.\n", e->InputSlotClass, i);
+
+        switch (e->InputSlotClass)
+        {
+            case D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA:
+                input_rate = VK_VERTEX_INPUT_RATE_VERTEX;
+                break;
+
+            case D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA:
+                if (e->InstanceDataStepRate != 1)
+                    FIXME("Ignoring step rate %#x on input element %u.\n", e->InstanceDataStepRate, i);
+                input_rate = VK_VERTEX_INPUT_RATE_INSTANCE;
+                break;
+
+            default:
+                FIXME("Unhandled input slot class %#x on input element %u.\n", e->InputSlotClass, i);
+                hr = E_FAIL;
+                goto fail;
+        }
+
+        if (mask & (1u << e->InputSlot) && graphics->input_rates[e->InputSlot] != input_rate)
+        {
+            FIXME("Input slot class %#x on input element %u conflicts with earlier input slot class %#x.\n",
+                    e->InputSlotClass, e->InputSlot, graphics->input_rates[e->InputSlot]);
+            hr = E_FAIL;
+            goto fail;
+        }
+        graphics->input_rates[e->InputSlot] = input_rate;
+        mask |= 1u << e->InputSlot;
     }
 
     graphics->attachment_count = desc->NumRenderTargets;

@@ -219,6 +219,7 @@ struct d3d12_graphics_pipeline_state
     size_t stage_count;
 
     struct VkVertexInputAttributeDescription attributes[D3D12_VS_INPUT_REGISTER_COUNT];
+    enum VkVertexInputRate input_rates[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     size_t attribute_count;
 
     struct VkAttachmentDescription attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
