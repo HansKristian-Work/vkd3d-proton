@@ -35,6 +35,9 @@ struct demo
             ID3DBlob **code, ID3DBlob **errors);
     size_t window_count;
     bool quit;
+
+    void *user_data;
+    void (*idle_func)(struct demo *demo, void *user_data);
 };
 
 struct demo_window
@@ -101,8 +104,32 @@ static inline void demo_window_destroy(struct demo_window *window)
 
 static inline demo_key demo_key_from_vkey(DWORD vkey)
 {
-    if (vkey == VK_ESCAPE)
-        return DEMO_KEY_ESCAPE;
+    static const struct
+    {
+        DWORD vkey;
+        demo_key demo_key;
+    }
+    lookup[] =
+    {
+        {VK_ESCAPE, DEMO_KEY_ESCAPE},
+        {VK_LEFT,   DEMO_KEY_LEFT},
+        {VK_RIGHT,  DEMO_KEY_RIGHT},
+        {VK_UP,     DEMO_KEY_UP},
+        {VK_DOWN,   DEMO_KEY_DOWN},
+    };
+    unsigned int i;
+
+    if (vkey >= '0' && vkey <= '9')
+        return vkey;
+    if (vkey >= 'A' && vkey <= 'Z')
+        return vkey;
+
+    for (i = 0; i < ARRAY_SIZE(lookup); ++i)
+    {
+        if (lookup[i].vkey == vkey)
+            return lookup[i].demo_key;
+    }
+
     return DEMO_KEY_UNKNOWN;
 }
 
@@ -149,8 +176,19 @@ static inline void demo_process_events(struct demo *demo)
 {
     MSG msg = {0};
 
-    while (GetMessage(&msg, NULL, 0, 0) != -1)
+    for (;;)
     {
+        if (!demo->idle_func)
+        {
+            if (GetMessageW(&msg, NULL, 0, 0) == -1)
+                break;
+        }
+        else if (!PeekMessageW(&msg, 0, 0, 0, PM_REMOVE))
+        {
+            demo->idle_func(demo, demo->user_data);
+            continue;
+        }
+
         if (msg.message == WM_QUIT)
             break;
         TranslateMessage(&msg);
@@ -160,7 +198,7 @@ static inline void demo_process_events(struct demo *demo)
     }
 }
 
-static inline bool demo_init(struct demo *demo)
+static inline bool demo_init(struct demo *demo, void *user_data)
 {
     WNDCLASSEXW wc;
 
@@ -184,7 +222,10 @@ static inline bool demo_init(struct demo *demo)
     if (!RegisterClassExW(&wc))
         goto fail;
 
+    demo->window_count = 0;
     demo->quit = false;
+    demo->user_data = user_data;
+    demo->idle_func = NULL;
 
     return true;
 
@@ -197,6 +238,12 @@ static inline void demo_cleanup(struct demo *demo)
 {
     UnregisterClassW(DEMO_WINDOW_CLASS_NAME, GetModuleHandle(NULL));
     FreeLibrary(demo->d3dcompiler);
+}
+
+static inline void demo_set_idle_func(struct demo *demo,
+        void (*idle_func)(struct demo *demo, void *user_data))
+{
+    demo->idle_func = idle_func;
 }
 
 static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *command_queue,

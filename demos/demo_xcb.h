@@ -41,6 +41,9 @@ struct demo
     struct demo_window **windows;
     size_t windows_size;
     size_t window_count;
+
+    void *user_data;
+    void (*idle_func)(struct demo *demo, void *user_data);
 };
 
 struct demo_window
@@ -207,8 +210,19 @@ static inline void demo_process_events(struct demo *demo)
 
     xcb_flush(demo->connection);
 
-    while (demo->window_count && (event = xcb_wait_for_event(demo->connection)))
+    while (demo->window_count)
     {
+        if (!demo->idle_func)
+        {
+            if (!(event = xcb_wait_for_event(demo->connection)))
+                break;
+        }
+        else if (!(event = xcb_poll_for_event(demo->connection)))
+        {
+            demo->idle_func(demo, demo->user_data);
+            continue;
+        }
+
         switch (XCB_EVENT_RESPONSE_TYPE(event))
         {
             case XCB_EXPOSE:
@@ -238,7 +252,7 @@ static inline void demo_process_events(struct demo *demo)
     }
 }
 
-static inline bool demo_init(struct demo *demo)
+static inline bool demo_init(struct demo *demo, void *user_data)
 {
     if (!(demo->connection = xcb_connect(NULL, NULL)))
         return false;
@@ -254,6 +268,8 @@ static inline bool demo_init(struct demo *demo)
     demo->windows = NULL;
     demo->windows_size = 0;
     demo->window_count = 0;
+    demo->user_data = user_data;
+    demo->idle_func = NULL;
 
     return true;
 
@@ -267,6 +283,12 @@ static inline void demo_cleanup(struct demo *demo)
     free(demo->windows);
     xcb_key_symbols_free(demo->xcb_keysyms);
     xcb_disconnect(demo->connection);
+}
+
+static inline void demo_set_idle_func(struct demo *demo,
+        void (*idle_func)(struct demo *demo, void *user_data))
+{
+    demo->idle_func = idle_func;
 }
 
 static inline DXGI_FORMAT demo_get_srgb_format(DXGI_FORMAT format)

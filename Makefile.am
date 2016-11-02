@@ -19,20 +19,27 @@ vkd3d_public_headers = \
 	include/vkd3d_utils.h \
 	include/vkd3d_windows.h
 
+spv_gears_shaders = \
+	demos/gears.vert.spv \
+	demos/gears_flat.frag.spv \
+	demos/gears_smooth.frag.spv
 spv_triangle_shaders = \
 	demos/triangle.vert.spv \
 	demos/triangle.frag.spv
 
 spv_shaders = \
+	$(spv_gears_shaders) \
 	$(spv_triangle_shaders)
 
 hlsl_shaders = \
+	demos/gears.hlsl \
 	demos/triangle.hlsl
 
 vkd3d_tests = \
 	tests/d3d12
 
 vkd3d_demos = \
+	demos/gears \
 	demos/triangle
 
 vkd3d_demos_headers = \
@@ -84,11 +91,18 @@ AM_DEFAULT_SOURCE_EXT = .c
 TESTS = $(vkd3d_tests)
 tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@
 
+DEMOS_LDADD = libvkd3d.la $(LDADD) @XCB_LIBS@
+DEMOS_CFLAGS = @XCB_CFLAGS@
 noinst_PROGRAMS = $(vkd3d_demos)
 EXTRA_DIST += $(vkd3d_demos_headers)
+
+EXTRA_demos_gears_DEPENDENCIES = $(spv_gears_shaders)
+demos_gears_CFLAGS = $(DEMOS_CFLAGS)
+demos_gears_LDADD = $(DEMOS_LDADD) -lm
+
 EXTRA_demos_triangle_DEPENDENCIES = $(spv_triangle_shaders)
-demos_triangle_CFLAGS = @XCB_CFLAGS@
-demos_triangle_LDADD = libvkd3d.la $(LDADD) @XCB_LIBS@
+demos_triangle_CFLAGS = $(DEMOS_CFLAGS)
+demos_triangle_LDADD = $(DEMOS_LDADD)
 
 VKD3D_V_WIDL = $(vkd3d_v_widl_@AM_V@)
 vkd3d_v_widl_ = $(vkd3d_v_widl_@AM_DEFAULT_V@)

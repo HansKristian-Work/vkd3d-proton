@@ -371,7 +371,7 @@ static int cxt_main(void)
 
     memset(&cxt, 0, sizeof(cxt));
 
-    if (!demo_init(&cxt.demo))
+    if (!demo_init(&cxt.demo, NULL))
         return EXIT_FAILURE;
 
     cxt.window = demo_window_create(&cxt.demo, "Vkd3d Triangle", width, height, &cxt);

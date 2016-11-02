@@ -47,6 +47,10 @@
 
 #define DEMO_KEY_UNKNOWN    0x0000
 #define DEMO_KEY_ESCAPE     0xff1b
+#define DEMO_KEY_LEFT       0xff51
+#define DEMO_KEY_UP         0xff52
+#define DEMO_KEY_RIGHT      0xff53
+#define DEMO_KEY_DOWN       0xff54
 
 struct demo_vec3
 {
@@ -67,6 +71,21 @@ struct demo_swapchain_desc
 };
 
 typedef uint32_t demo_key;
+
+static inline void demo_vec3_set(struct demo_vec3 *v, float x, float y, float z)
+{
+    v->x = x;
+    v->y = y;
+    v->z = z;
+}
+
+static inline void demo_vec4_set(struct demo_vec4 *v, float x, float y, float z, float w)
+{
+    v->x = x;
+    v->y = y;
+    v->z = z;
+    v->w = w;
+}
 
 static inline void demo_rasterizer_desc_init_default(D3D12_RASTERIZER_DESC *desc)
 {
