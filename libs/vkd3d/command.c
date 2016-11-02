@@ -2182,23 +2182,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
     d3d12_command_list_invalidate_current_framebuffer(list);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(ID3D12GraphicsCommandList *iface,
-        D3D12_CPU_DESCRIPTOR_HANDLE dsv, D3D12_CLEAR_FLAGS flags, FLOAT depth, UINT8 stencil,
-        UINT rect_count, const D3D12_RECT *rects)
+static void d3d12_command_list_clear(struct d3d12_command_list *list, const struct vkd3d_vk_device_procs *vk_procs,
+        const struct VkAttachmentDescription *attachment_desc, const struct VkAttachmentReference *color_reference,
+        const struct VkAttachmentReference *ds_reference, VkImageView vk_view, size_t width, size_t height,
+        const union VkClearValue *clear_value, unsigned int rect_count, const D3D12_RECT *rects)
 {
-    FIXME("iface %p, dsv %#lx, flags %#x, depth %.8e, stencil 0x%02x, rect_count %u, rects %p stub!\n",
-            iface, dsv.ptr, flags, depth, stencil, rect_count, rects);
-}
-
-static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12GraphicsCommandList *iface,
-        D3D12_CPU_DESCRIPTOR_HANDLE rtv, const FLOAT color[4], UINT rect_count, const D3D12_RECT *rects)
-{
-    const union VkClearValue clear_value = {{{color[0], color[1], color[2], color[3]}}};
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    struct d3d12_rtv_desc *rtv_desc = (struct d3d12_rtv_desc *)rtv.ptr;
-    struct VkAttachmentDescription attachment_desc;
-    const struct vkd3d_vk_device_procs *vk_procs;
-    struct VkAttachmentReference color_reference;
     struct VkSubpassDescription sub_pass_desc;
     struct VkRenderPassCreateInfo pass_desc;
     struct VkRenderPassBeginInfo begin_desc;
@@ -2209,45 +2197,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
     unsigned int i;
     VkResult vr;
 
-    TRACE("iface %p, rtv %#lx, color %p, rect_count %u, rects %p.\n",
-            iface, rtv.ptr, color, rect_count, rects);
-
-    d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
-
-    vk_procs = &list->device->vk_procs;
-
     if (!rect_count)
     {
         full_rect.top = 0;
         full_rect.left = 0;
-        full_rect.bottom = rtv_desc->height;
-        full_rect.right = rtv_desc->width;
+        full_rect.bottom = height;
+        full_rect.right = width;
 
         rect_count = 1;
         rects = &full_rect;
     }
 
-    attachment_desc.flags = 0;
-    attachment_desc.format = rtv_desc->format;
-    attachment_desc.samples = VK_SAMPLE_COUNT_1_BIT;
-    attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachment_desc.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    attachment_desc.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    color_reference.attachment = 0;
-    color_reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
     sub_pass_desc.flags = 0;
     sub_pass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     sub_pass_desc.inputAttachmentCount = 0;
     sub_pass_desc.pInputAttachments = NULL;
-    sub_pass_desc.colorAttachmentCount = 1;
-    sub_pass_desc.pColorAttachments = &color_reference;
+    sub_pass_desc.colorAttachmentCount = !!color_reference;
+    sub_pass_desc.pColorAttachments = color_reference;
     sub_pass_desc.pResolveAttachments = NULL;
-    sub_pass_desc.pDepthStencilAttachment = NULL;
+    sub_pass_desc.pDepthStencilAttachment = ds_reference;
     sub_pass_desc.preserveAttachmentCount = 0;
     sub_pass_desc.pPreserveAttachments = NULL;
 
@@ -2255,7 +2223,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
     pass_desc.pNext = NULL;
     pass_desc.flags = 0;
     pass_desc.attachmentCount = 1;
-    pass_desc.pAttachments = &attachment_desc;
+    pass_desc.pAttachments = attachment_desc;
     pass_desc.subpassCount = 1;
     pass_desc.pSubpasses = &sub_pass_desc;
     pass_desc.dependencyCount = 0;
@@ -2278,9 +2246,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
     fb_desc.flags = 0;
     fb_desc.renderPass = vk_render_pass;
     fb_desc.attachmentCount = 1;
-    fb_desc.pAttachments = &rtv_desc->vk_view;
-    fb_desc.width = rtv_desc->width;
-    fb_desc.height = rtv_desc->height;
+    fb_desc.pAttachments = &vk_view;
+    fb_desc.width = width;
+    fb_desc.height = height;
     fb_desc.layers = 1;
     if ((vr = VK_CALL(vkCreateFramebuffer(list->device->vk_device, &fb_desc, NULL, &vk_framebuffer))) < 0)
     {
@@ -2300,7 +2268,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
     begin_desc.renderPass = vk_render_pass;
     begin_desc.framebuffer = vk_framebuffer;
     begin_desc.clearValueCount = 1;
-    begin_desc.pClearValues = &clear_value;
+    begin_desc.pClearValues = clear_value;
 
     for (i = 0; i < rect_count; ++i)
     {
@@ -2311,6 +2279,85 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
         VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer, &begin_desc, VK_SUBPASS_CONTENTS_INLINE));
         VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
     }
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(ID3D12GraphicsCommandList *iface,
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv, D3D12_CLEAR_FLAGS flags, float depth, UINT8 stencil,
+        UINT rect_count, const D3D12_RECT *rects)
+{
+    const union VkClearValue clear_value = {.depthStencil = {depth, stencil}};
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_dsv_desc *dsv_desc = (struct d3d12_dsv_desc *)dsv.ptr;
+    struct VkAttachmentDescription attachment_desc;
+    struct VkAttachmentReference ds_reference;
+
+    TRACE("iface %p, dsv %#lx, flags %#x, depth %.8e, stencil 0x%02x, rect_count %u, rects %p.\n",
+            iface, dsv.ptr, flags, depth, stencil, rect_count, rects);
+
+    d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
+
+    attachment_desc.flags = 0;
+    attachment_desc.format = dsv_desc->format;
+    attachment_desc.samples = VK_SAMPLE_COUNT_1_BIT;
+    if (flags & D3D12_CLEAR_FLAG_DEPTH)
+    {
+        attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    }
+    else
+    {
+        attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    }
+    if (flags & D3D12_CLEAR_FLAG_STENCIL)
+    {
+        attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+    }
+    else
+    {
+        attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    }
+    attachment_desc.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    attachment_desc.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    ds_reference.attachment = 0;
+    ds_reference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    d3d12_command_list_clear(list, &list->device->vk_procs, &attachment_desc, NULL, &ds_reference,
+            dsv_desc->vk_view, dsv_desc->width, dsv_desc->height, &clear_value, rect_count, rects);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12GraphicsCommandList *iface,
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv, const FLOAT color[4], UINT rect_count, const D3D12_RECT *rects)
+{
+    const union VkClearValue clear_value = {{{color[0], color[1], color[2], color[3]}}};
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_rtv_desc *rtv_desc = (struct d3d12_rtv_desc *)rtv.ptr;
+    struct VkAttachmentDescription attachment_desc;
+    struct VkAttachmentReference color_reference;
+
+    TRACE("iface %p, rtv %#lx, color %p, rect_count %u, rects %p.\n",
+            iface, rtv.ptr, color, rect_count, rects);
+
+    d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
+
+    attachment_desc.flags = 0;
+    attachment_desc.format = rtv_desc->format;
+    attachment_desc.samples = VK_SAMPLE_COUNT_1_BIT;
+    attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachment_desc.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    attachment_desc.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    color_reference.attachment = 0;
+    color_reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    d3d12_command_list_clear(list, &list->device->vk_procs, &attachment_desc, &color_reference, NULL,
+            rtv_desc->vk_view, rtv_desc->width, rtv_desc->height, &clear_value, rect_count, rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(ID3D12GraphicsCommandList *iface,
