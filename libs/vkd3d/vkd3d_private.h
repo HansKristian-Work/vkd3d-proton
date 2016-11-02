@@ -215,6 +215,7 @@ struct d3d12_root_signature
     LONG refcount;
 
     VkPipelineLayout vk_pipeline_layout;
+    VkDescriptorSetLayout vk_set_layout;
 
     struct d3d12_device *device;
 };

@@ -73,6 +73,7 @@ static ULONG STDMETHODCALLTYPE d3d12_root_signature_Release(ID3D12RootSignature 
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
         VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->vk_pipeline_layout, NULL));
+        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
 
         vkd3d_free(root_signature);
 
@@ -146,28 +147,95 @@ static struct d3d12_root_signature *unsafe_impl_from_ID3D12RootSignature(ID3D12R
     return impl_from_ID3D12RootSignature(iface);
 }
 
+static VkShaderStageFlags stage_flags_from_visibility(D3D12_SHADER_VISIBILITY visibility)
+{
+    switch (visibility)
+    {
+        case D3D12_SHADER_VISIBILITY_ALL:
+            return VK_SHADER_STAGE_ALL;
+        case D3D12_SHADER_VISIBILITY_VERTEX:
+            return VK_SHADER_STAGE_VERTEX_BIT;
+        case D3D12_SHADER_VISIBILITY_HULL:
+            return VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+        case D3D12_SHADER_VISIBILITY_DOMAIN:
+            return VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+        case D3D12_SHADER_VISIBILITY_GEOMETRY:
+            return VK_SHADER_STAGE_GEOMETRY_BIT;
+        case D3D12_SHADER_VISIBILITY_PIXEL:
+            return VK_SHADER_STAGE_FRAGMENT_BIT;
+        default:
+            return 0;
+    }
+}
+
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkPipelineLayoutCreateInfo pipeline_layout_info;
+    struct VkPipelineLayoutCreateInfo pipeline_layout_info;
+    struct VkDescriptorSetLayoutBinding *binding_desc;
+    struct VkDescriptorSetLayoutCreateInfo set_desc;
+    unsigned int i;
     VkResult vr;
 
     root_signature->ID3D12RootSignature_iface.lpVtbl = &d3d12_root_signature_vtbl;
     root_signature->refcount = 1;
 
-    if (desc->NumParameters)
-        FIXME("Non-empty root signatures not supported yet.\n");
     if (desc->NumStaticSamplers)
         FIXME("Static samplers not implemented yet.\n");
     if (desc->Flags)
         FIXME("Ignoring root signature flags %#x.\n", desc->Flags);
 
+    if (!(binding_desc = vkd3d_calloc(desc->NumParameters, sizeof(*binding_desc))))
+        return E_OUTOFMEMORY;
+
+    for (i = 0; i < desc->NumParameters; ++i)
+    {
+        const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
+
+        switch (p->ParameterType)
+        {
+            case D3D12_ROOT_PARAMETER_TYPE_CBV:
+                /* FIXME: Register spaces should map to set layouts. */
+                if (p->u.Descriptor.RegisterSpace)
+                {
+                    FIXME("Unhandled register space %u for parameter %u.\n", p->u.Descriptor.RegisterSpace, i);
+                    vkd3d_free(binding_desc);
+                    return E_NOTIMPL;
+                }
+                binding_desc[i].binding = p->u.Descriptor.ShaderRegister;
+                binding_desc[i].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                binding_desc[i].descriptorCount = 1;
+                binding_desc[i].stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
+                binding_desc[i].pImmutableSamplers = NULL;
+                break;
+
+            default:
+                FIXME("Unhandled type %#x for parameter %u.\n", p->ParameterType, i);
+                vkd3d_free(binding_desc);
+                return E_NOTIMPL;
+        }
+    }
+
+    set_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    set_desc.pNext = NULL;
+    set_desc.flags = 0;
+    set_desc.bindingCount = desc->NumParameters;
+    set_desc.pBindings = binding_desc;
+
+    vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device, &set_desc, NULL, &root_signature->vk_set_layout));
+    vkd3d_free(binding_desc);
+    if (vr < 0)
+    {
+        WARN("Failed to create Vulkan descriptor set layout, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipeline_layout_info.pNext = NULL;
     pipeline_layout_info.flags = 0;
-    pipeline_layout_info.setLayoutCount = 0;
-    pipeline_layout_info.pSetLayouts = NULL;
+    pipeline_layout_info.setLayoutCount = 1;
+    pipeline_layout_info.pSetLayouts = &root_signature->vk_set_layout;
     pipeline_layout_info.pushConstantRangeCount = 0;
     pipeline_layout_info.pPushConstantRanges = NULL;
 
