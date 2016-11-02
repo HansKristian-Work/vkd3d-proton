@@ -43,7 +43,7 @@ struct demo_window
     HWND hwnd;
     struct demo *demo;
     void *user_data;
-    void (*draw_func)(void *user_data);
+    void (*expose_func)(struct demo_window *window, void *user_data);
     void (*key_press_func)(struct demo_window *window, demo_key key, void *user_data);
 };
 
@@ -53,7 +53,7 @@ struct demo_swapchain
 };
 
 static inline struct demo_window *demo_window_create(struct demo *demo, const char *title,
-        unsigned int width, unsigned int height, void (*draw_func)(void *user_data), void *user_data)
+        unsigned int width, unsigned int height, void *user_data)
 {
     RECT rect = {0, 0, width, height};
     struct demo_window *window;
@@ -73,8 +73,8 @@ static inline struct demo_window *demo_window_create(struct demo *demo, const ch
     MultiByteToWideChar(CP_UTF8, 0, title, -1, title_w, title_size);
 
     window->instance = GetModuleHandle(NULL);
-    window->draw_func = draw_func;
     window->user_data = user_data;
+    window->expose_func = NULL;
     window->key_press_func = NULL;
 
     style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
@@ -117,9 +117,9 @@ static inline LRESULT CALLBACK demo_window_proc(HWND hwnd, UINT message, WPARAM 
     switch (message)
     {
         case WM_PAINT:
-            if (window && window->draw_func)
-                window->draw_func(window->user_data);
-                return 0;
+            if (window && window->expose_func)
+                window->expose_func(window, window->user_data);
+            return 0;
 
         case WM_KEYDOWN:
             if (!window->key_press_func)
@@ -140,6 +140,12 @@ static inline void demo_window_set_key_press_func(struct demo_window *window,
         void (*key_press_func)(struct demo_window *window, demo_key key, void *user_data))
 {
     window->key_press_func = key_press_func;
+}
+
+static inline void demo_window_set_expose_func(struct demo_window *window,
+        void (*expose_func)(struct demo_window *window, void *user_data))
+{
+    window->expose_func = expose_func;
 }
 
 static inline void demo_process_events(struct demo *demo)

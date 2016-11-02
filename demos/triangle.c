@@ -150,7 +150,7 @@ static void cxt_wait_for_previous_frame(struct cx_triangle *cxt)
     cxt->frame_idx = demo_swapchain_get_current_back_buffer_index(cxt->swapchain);
 }
 
-static void cxt_render_frame(void *user_data)
+static void cxt_render_frame(struct demo_window *window, void *user_data)
 {
     struct cx_triangle *cxt = user_data;
 
@@ -374,8 +374,8 @@ static int cxt_main(void)
     if (!demo_init(&cxt.demo))
         return EXIT_FAILURE;
 
-    cxt.window = demo_window_create(&cxt.demo, "Vkd3d Triangle",
-            width, height, cxt_render_frame, &cxt);
+    cxt.window = demo_window_create(&cxt.demo, "Vkd3d Triangle", width, height, &cxt);
+    demo_window_set_expose_func(cxt.window, cxt_render_frame);
     demo_window_set_key_press_func(cxt.window, cxt_key_press);
 
     cxt.width = width;

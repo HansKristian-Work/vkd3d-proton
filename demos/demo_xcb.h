@@ -49,7 +49,7 @@ struct demo_window
     struct demo *demo;
 
     void *user_data;
-    void (*draw_func)(void *user_data);
+    void (*expose_func)(struct demo_window *window, void *user_data);
     void (*key_press_func)(struct demo_window *window, demo_key key, void *user_data);
 };
 
@@ -132,7 +132,7 @@ static inline struct demo_window *demo_find_window(struct demo *demo, xcb_window
 }
 
 static inline struct demo_window *demo_window_create(struct demo *demo, const char *title,
-        unsigned int width, unsigned int height, void (*draw_func)(void *user_data), void *user_data)
+        unsigned int width, unsigned int height, void *user_data)
 {
     static const uint32_t window_events = XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_KEY_PRESS;
 
@@ -151,8 +151,8 @@ static inline struct demo_window *demo_window_create(struct demo *demo, const ch
 
     window->window = xcb_generate_id(demo->connection);
     window->demo = demo;
-    window->draw_func = draw_func;
     window->user_data = user_data;
+    window->expose_func = NULL;
     window->key_press_func = NULL;
     screen = xcb_setup_roots_iterator(xcb_get_setup(demo->connection)).data;
     xcb_create_window(demo->connection, XCB_COPY_FROM_PARENT, window->window, screen->root, 0, 0,
@@ -191,6 +191,12 @@ static inline void demo_window_set_key_press_func(struct demo_window *window,
     window->key_press_func = key_press_func;
 }
 
+static inline void demo_window_set_expose_func(struct demo_window *window,
+        void (*expose_func)(struct demo_window *window, void *user_data))
+{
+    window->expose_func = expose_func;
+}
+
 static inline void demo_process_events(struct demo *demo)
 {
     const struct xcb_client_message_event_t *client_message;
@@ -206,8 +212,9 @@ static inline void demo_process_events(struct demo *demo)
         switch (XCB_EVENT_RESPONSE_TYPE(event))
         {
             case XCB_EXPOSE:
-                if ((window = demo_find_window(demo, ((struct xcb_expose_event_t *)event)->window)))
-                    window->draw_func(window->user_data);
+                if ((window = demo_find_window(demo, ((struct xcb_expose_event_t *)event)->window))
+                        && window->expose_func)
+                    window->expose_func(window, window->user_data);
                 break;
 
             case XCB_KEY_PRESS:
