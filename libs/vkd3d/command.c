@@ -2102,7 +2102,28 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootUnorderedAccessV
 static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(ID3D12GraphicsCommandList *iface,
         const D3D12_INDEX_BUFFER_VIEW *view)
 {
-    FIXME("iface %p, view %p stub!\n", iface, view);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+    enum VkIndexType index_type;
+
+    TRACE("iface %p, view %p.\n", iface, view);
+
+    vk_procs = &list->device->vk_procs;
+
+    switch (view->Format)
+    {
+        case DXGI_FORMAT_R16_UINT:
+            index_type = VK_INDEX_TYPE_UINT16;
+            break;
+        case DXGI_FORMAT_R32_UINT:
+            index_type = VK_INDEX_TYPE_UINT32;
+            break;
+        default:
+            FIXME("Unhandled format %#x.\n", view->Format);
+            return;
+    }
+
+    VK_CALL(vkCmdBindIndexBuffer(list->vk_command_buffer, (VkBuffer)view->BufferLocation, 0, index_type));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12GraphicsCommandList *iface,

@@ -47,6 +47,9 @@ typedef enum DXGI_FORMAT
 
     DXGI_FORMAT_D32_FLOAT             = 0x28,
     DXGI_FORMAT_R32_FLOAT             = 0x29,
+    DXGI_FORMAT_R32_UINT              = 0x2a,
+
+    DXGI_FORMAT_R16_UINT              = 0x39,
 
     DXGI_FORMAT_B8G8R8A8_UNORM        = 0x57,
     DXGI_FORMAT_B8G8R8X8_UNORM        = 0x58,
