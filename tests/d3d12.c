@@ -2576,6 +2576,102 @@ static void test_draw_instanced(void)
     destroy_draw_test_context(&context);
 }
 
+static void test_draw_indexed_instanced(void)
+{
+    static const float green[] = {0.0f, 1.0f, 0.0f, 1.0f};
+    static const uint16_t indices[] = {0, 1, 2};
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct draw_test_context context;
+    D3D12_HEAP_PROPERTIES heap_desc;
+    struct resource_readback rb;
+    D3D12_INDEX_BUFFER_VIEW ibv;
+    ID3D12CommandQueue *queue;
+    D3D12_VIEWPORT viewport;
+    ID3D12Resource *ib;
+    RECT scissor_rect;
+    unsigned int x, y;
+    HRESULT hr;
+    void *ptr;
+
+    if (!init_draw_test_context(&context))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = context.render_target_desc.Width;
+    viewport.Height = context.render_target_desc.Height;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 0.0f;
+
+    scissor_rect.left = scissor_rect.top = 0;
+    scissor_rect.right = context.render_target_desc.Width;
+    scissor_rect.bottom = context.render_target_desc.Height;
+
+    heap_desc.Type = D3D12_HEAP_TYPE_UPLOAD;
+    heap_desc.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+    heap_desc.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+    heap_desc.CreationNodeMask = 1;
+    heap_desc.VisibleNodeMask = 1;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = sizeof(indices);
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_desc, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &IID_ID3D12Resource, (void **)&ib);
+    ok(SUCCEEDED(hr), "Failed to create index buffer, hr %#x.\n", hr);
+    hr = ID3D12Resource_Map(ib, 0, NULL, (void **)&ptr);
+    ok(SUCCEEDED(hr), "Failed to map index buffer, hr %#x.\n", hr);
+    memcpy(ptr, indices, sizeof(indices));
+    ID3D12Resource_Unmap(ib, 0, NULL);
+
+    ibv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(ib);
+    ibv.SizeInBytes = sizeof(indices);
+    ibv.Format = DXGI_FORMAT_R16_UINT;
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+
+    /* This draw call is ignored. */
+    ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, 3, 1, 0, 0, 0);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_IASetIndexBuffer(command_list, &ibv);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+    ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, 3, 1, 0, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (y = 0; y < context.render_target_desc.Height; ++y)
+    {
+        for (x = 0; x < context.render_target_desc.Width; ++x)
+        {
+           unsigned int v = get_readback_uint(&rb, x, y);
+           ok(v == 0xffffffff, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
+        }
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(ib);
+    destroy_draw_test_context(&context);
+}
+
 static void test_texture_resource_barriers(void)
 {
     D3D12_COMMAND_QUEUE_DESC command_queue_desc;
@@ -3254,6 +3350,7 @@ START_TEST(d3d12)
     run_test(test_clear_depth_stencil_view);
     run_test(test_clear_render_target_view);
     run_test(test_draw_instanced);
+    run_test(test_draw_indexed_instanced);
     run_test(test_texture_resource_barriers);
     run_test(test_invalid_texture_resource_barriers);
     run_test(test_device_removed_reason);

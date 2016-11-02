@@ -1537,33 +1537,24 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     return true;
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(ID3D12GraphicsCommandList *iface,
-        UINT vertex_count_per_instance, UINT instance_count, UINT start_vertex_location,
-        UINT start_instance_location)
+static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list,
+        const struct vkd3d_vk_device_procs *vk_procs)
 {
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs;
     struct VkRenderPassBeginInfo begin_desc;
-
-    TRACE("iface %p, vertex_count_per_instance %u, instance_count %u, "
-            "start_vertex_location %u, start_instance_location %u.\n",
-            iface, vertex_count_per_instance, instance_count,
-            start_vertex_location, start_instance_location);
 
     if (!list->state)
     {
-        WARN("Pipeline state is NULL. Ignoring draw call.\n");
-        return;
+        WARN("Pipeline state is NULL.");
+        return false;
     }
 
     vk_procs = &list->device->vk_procs;
 
     if (!d3d12_command_list_update_current_framebuffer(list, vk_procs))
-        return;
+        return false;
     if (!d3d12_command_list_update_current_pipeline(list, vk_procs))
-        return;
+        return false;
 
-    /* FIXME: We probably don't want to begin a render pass for each draw. */
     begin_desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     begin_desc.pNext = NULL;
     begin_desc.renderPass = list->state->u.graphics.render_pass;
@@ -1576,6 +1567,30 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(ID3D12GraphicsCom
     begin_desc.pClearValues = NULL;
     VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer, &begin_desc, VK_SUBPASS_CONTENTS_INLINE));
 
+    return true;
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(ID3D12GraphicsCommandList *iface,
+        UINT vertex_count_per_instance, UINT instance_count, UINT start_vertex_location,
+        UINT start_instance_location)
+{
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+
+    TRACE("iface %p, vertex_count_per_instance %u, instance_count %u, "
+            "start_vertex_location %u, start_instance_location %u.\n",
+            iface, vertex_count_per_instance, instance_count,
+            start_vertex_location, start_instance_location);
+
+    vk_procs = &list->device->vk_procs;
+
+    /* FIXME: We probably don't want to begin a render pass for each draw. */
+    if (!d3d12_command_list_begin_render_pass(list, vk_procs))
+    {
+        WARN("Failed to begin render pass, ignoring draw call.\n");
+        return;
+    }
+
     VK_CALL(vkCmdDraw(list->vk_command_buffer, vertex_count_per_instance,
             instance_count, start_vertex_location, start_instance_location));
 
@@ -1586,10 +1601,27 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(ID3D12Grap
         UINT index_count_per_instance, UINT instance_count, UINT start_vertex_location,
         INT base_vertex_location, UINT start_instance_location)
 {
-    FIXME("iface %p, index_count_per_instance %u, instance_count %u, start_vertex_location %u, "
-            "base_vertex_location %d, start_instance_location %u stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+
+    TRACE("iface %p, index_count_per_instance %u, instance_count %u, start_vertex_location %u, "
+            "base_vertex_location %d, start_instance_location %u.\n",
             iface, index_count_per_instance, instance_count, start_vertex_location,
             base_vertex_location, start_instance_location);
+
+    vk_procs = &list->device->vk_procs;
+
+    /* FIXME: We probably don't want to begin a render pass for each draw. */
+    if (!d3d12_command_list_begin_render_pass(list, vk_procs))
+    {
+        WARN("Failed to begin render pass, ignoring draw call.\n");
+        return;
+    }
+
+    VK_CALL(vkCmdDrawIndexed(list->vk_command_buffer, index_count_per_instance,
+            instance_count, start_vertex_location, base_vertex_location, start_instance_location));
+
+    VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(ID3D12GraphicsCommandList *iface,
