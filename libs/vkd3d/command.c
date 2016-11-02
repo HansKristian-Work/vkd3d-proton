@@ -2081,7 +2081,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
     const struct vkd3d_vk_device_procs *vk_procs;
     struct VkDescriptorSetAllocateInfo set_desc;
     struct VkDescriptorPoolCreateInfo pool_desc;
-    VkDescriptorSet vk_descriptor_set;
     VkDescriptorPool vk_pool;
     VkResult vr;
 
@@ -2109,7 +2108,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
     set_desc.descriptorPool = vk_pool;
     set_desc.descriptorSetCount = 1;
     set_desc.pSetLayouts = &rs->vk_set_layout;
-    if ((vr = VK_CALL(vkAllocateDescriptorSets(list->device->vk_device, &set_desc, &vk_descriptor_set))) < 0)
+    if ((vr = VK_CALL(vkAllocateDescriptorSets(list->device->vk_device,
+            &set_desc, &list->current_descriptor_set))) < 0)
     {
         ERR("Failed to allocate descriptor set, vr %d.\n", vr);
         VK_CALL(vkDestroyDescriptorPool(list->device->vk_device, vk_pool, NULL));
@@ -2124,7 +2124,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
     }
 
     VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            rs->vk_pipeline_layout, 0, 1, &vk_descriptor_set, 0, NULL));
+            rs->vk_pipeline_layout, 0, 1, &list->current_descriptor_set, 0, NULL));
 
     list->root_signature = rs;
 }
@@ -2181,8 +2181,31 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootConstantBufferVie
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootConstantBufferView(
         ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
 {
-    FIXME("iface %p, root_parameter_index %u, address %#"PRIx64" stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct VkWriteDescriptorSet descriptor_write;
+    struct VkDescriptorBufferInfo buffer_info;
+
+    TRACE("iface %p, root_parameter_index %u, address %#"PRIx64".\n",
             iface, root_parameter_index, address);
+
+    vk_procs = &list->device->vk_procs;
+
+    buffer_info.buffer = (VkBuffer)address;
+    buffer_info.offset = 0;
+    buffer_info.range = VK_WHOLE_SIZE;
+
+    descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptor_write.pNext = NULL;
+    descriptor_write.dstSet = list->current_descriptor_set;
+    descriptor_write.dstBinding = root_parameter_index;
+    descriptor_write.dstArrayElement = 0;
+    descriptor_write.descriptorCount = 1;
+    descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptor_write.pImageInfo = NULL;
+    descriptor_write.pBufferInfo = &buffer_info;
+    descriptor_write.pTexelBufferView = NULL;
+    VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &descriptor_write, 0, NULL));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootShaderResourceView(
@@ -2683,6 +2706,7 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
 
     list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;
+    list->current_descriptor_set = VK_NULL_HANDLE;
 
     list->state = NULL;
     list->root_signature = NULL;
