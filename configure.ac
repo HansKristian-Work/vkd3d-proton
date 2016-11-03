@@ -58,7 +58,7 @@ AC_CHECK_LIB([pthread], [pthread_create],
 
 AC_CHECK_LIB([vulkan], [vkGetInstanceProcAddr], [], [AC_MSG_ERROR([libvulkan not found.])])
 
-PKG_CHECK_MODULES([XCB], [xcb xcb-keysyms], [], [AC_MSG_ERROR[libxcb and/or libxcb-keysyms not found.]])
+PKG_CHECK_MODULES([XCB], [xcb xcb-keysyms])
 
 dnl Check for functions
 VKD3D_CHECK_SYNC_ADD_AND_FETCH_FUNC
