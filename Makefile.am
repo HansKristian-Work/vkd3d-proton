@@ -87,6 +87,7 @@ tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@
 noinst_PROGRAMS = $(vkd3d_demos)
 EXTRA_DIST += $(vkd3d_demos_headers)
 EXTRA_demos_triangle_DEPENDENCIES = $(spv_triangle_shaders)
+demos_triangle_CFLAGS = @XCB_CFLAGS@
 demos_triangle_LDADD = libvkd3d.la $(LDADD) @XCB_LIBS@
 
 VKD3D_V_WIDL = $(vkd3d_v_widl_@AM_V@)

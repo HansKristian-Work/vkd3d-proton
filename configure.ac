@@ -49,17 +49,16 @@ AS_IF([test "x$ac_cv_header_pthread_h" != "xyes"], [AC_MSG_ERROR([pthread.h not 
 AS_IF([test "x$ac_cv_header_vulkan_vulkan_h" != "xyes"], [AC_MSG_ERROR([vulkan.h not found.])])
 
 dnl Check for libraries
+m4_ifdef([PKG_PROG_PKG_CONFIG], [PKG_PROG_PKG_CONFIG], [m4_fatal([pkg-config autoconf macros not found.])])
+
 AC_ARG_VAR([PTHREAD_LIBS], [linker flags for pthreads])
 AC_CHECK_LIB([pthread], [pthread_create],
              [AC_SUBST(PTHREAD_LIBS, "-lpthread")],
              [AC_MSG_ERROR(libpthread not found.)])
 
-AC_ARG_VAR([XCB_LIBS], [linker flags for xcb])
-AC_CHECK_LIB([xcb], [xcb_connect],
-             [AC_SUBST(XCB_LIBS, "-lxcb")],
-             [AC_MSG_ERROR([libxcb not found.])])
-
 AC_CHECK_LIB([vulkan], [vkGetInstanceProcAddr], [], [AC_MSG_ERROR([libvulkan not found.])])
+
+PKG_CHECK_MODULES([XCB], [xcb], [], [AC_MSG_ERROR[libxcb not found.]])
 
 dnl Check for functions
 VKD3D_CHECK_SYNC_ADD_AND_FETCH_FUNC
