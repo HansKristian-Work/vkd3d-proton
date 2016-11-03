@@ -73,6 +73,7 @@ static ULONG STDMETHODCALLTYPE d3d12_root_signature_Release(ID3D12RootSignature 
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
         VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->vk_pipeline_layout, NULL));
+        vkd3d_free(root_signature->pool_sizes);
         VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
 
         vkd3d_free(root_signature);
@@ -139,7 +140,7 @@ static const struct ID3D12RootSignatureVtbl d3d12_root_signature_vtbl =
     d3d12_root_signature_GetDevice,
 };
 
-static struct d3d12_root_signature *unsafe_impl_from_ID3D12RootSignature(ID3D12RootSignature *iface)
+struct d3d12_root_signature *unsafe_impl_from_ID3D12RootSignature(ID3D12RootSignature *iface)
 {
     if (!iface)
         return NULL;
@@ -175,6 +176,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     struct VkPipelineLayoutCreateInfo pipeline_layout_info;
     struct VkDescriptorSetLayoutBinding *binding_desc;
     struct VkDescriptorSetLayoutCreateInfo set_desc;
+    size_t cbv_count = 0;
     unsigned int i;
     VkResult vr;
 
@@ -208,6 +210,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
                 binding_desc[i].descriptorCount = 1;
                 binding_desc[i].stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
                 binding_desc[i].pImmutableSamplers = NULL;
+                ++cbv_count;
                 break;
 
             default:
@@ -231,6 +234,24 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         return hresult_from_vk_result(vr);
     }
 
+    if (cbv_count)
+    {
+        if (!(root_signature->pool_sizes = vkd3d_calloc(1, sizeof(*root_signature->pool_sizes))))
+        {
+            VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
+            return E_OUTOFMEMORY;
+        }
+        root_signature->pool_size_count = 1;
+
+        root_signature->pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        root_signature->pool_sizes[0].descriptorCount = cbv_count;
+    }
+    else
+    {
+        root_signature->pool_sizes = NULL;
+        root_signature->pool_size_count = 0;
+    }
+
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipeline_layout_info.pNext = NULL;
     pipeline_layout_info.flags = 0;
@@ -243,6 +264,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             &root_signature->vk_pipeline_layout))) < 0)
     {
         WARN("Failed to create Vulkan pipeline layout, vr %d.\n", vr);
+        vkd3d_free(root_signature->pool_sizes);
+        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
         return hresult_from_vk_result(vr);
     }
 

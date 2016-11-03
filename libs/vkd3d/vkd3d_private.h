@@ -217,11 +217,15 @@ struct d3d12_root_signature
     VkPipelineLayout vk_pipeline_layout;
     VkDescriptorSetLayout vk_set_layout;
 
+    struct VkDescriptorPoolSize *pool_sizes;
+    size_t pool_size_count;
+
     struct d3d12_device *device;
 };
 
 HRESULT d3d12_root_signature_create(struct d3d12_device *device,
         const D3D12_ROOT_SIGNATURE_DESC *desc, struct d3d12_root_signature **root_signature) DECLSPEC_HIDDEN;
+struct d3d12_root_signature *unsafe_impl_from_ID3D12RootSignature(ID3D12RootSignature *iface) DECLSPEC_HIDDEN;
 
 struct d3d12_graphics_pipeline_state
 {
@@ -294,6 +298,10 @@ struct d3d12_command_allocator
     size_t pipelines_size;
     size_t pipeline_count;
 
+    VkDescriptorPool *descriptor_pools;
+    size_t descriptor_pools_size;
+    size_t descriptor_pool_count;
+
     VkCommandBuffer *command_buffers;
     size_t command_buffers_size;
     size_t command_buffer_count;
@@ -329,6 +337,7 @@ struct d3d12_command_list
     VkPipeline current_pipeline;
 
     struct d3d12_pipeline_state *state;
+    struct d3d12_root_signature *root_signature;
 
     struct d3d12_command_allocator *allocator;
     struct d3d12_device *device;
