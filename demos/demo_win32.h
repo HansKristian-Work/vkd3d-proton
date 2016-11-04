@@ -96,11 +96,7 @@ static inline struct demo_window *demo_window_create(struct demo *demo, const ch
 
 static inline void demo_window_destroy(struct demo_window *window)
 {
-    if (window->hwnd)
-        DestroyWindow(window->hwnd);
-    if (!--window->demo->window_count)
-        window->demo->quit = true;
-    free(window);
+    DestroyWindow(window->hwnd);
 }
 
 static inline demo_key demo_key_from_vkey(DWORD vkey)
@@ -128,8 +124,9 @@ static inline LRESULT CALLBACK demo_window_proc(HWND hwnd, UINT message, WPARAM 
             return 0;
 
         case WM_DESTROY:
-            window->hwnd = NULL;
-            demo_window_destroy(window);
+            if (!--window->demo->window_count)
+                window->demo->quit = true;
+            free(window);
             return 0;
     }
 
