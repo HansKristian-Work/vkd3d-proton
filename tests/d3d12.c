@@ -3119,26 +3119,26 @@ START_TEST(d3d12)
         ID3D12Debug_Release(debug);
     }
 
-    test_create_device();
-    test_node_count();
-    test_check_feature_support();
-    test_create_command_allocator();
-    test_create_command_list();
-    test_create_command_queue();
-    test_create_committed_resource();
-    test_create_descriptor_heap();
-    test_create_root_signature();
-    test_create_pipeline_state();
-    test_create_fence();
-    test_reset_command_allocator();
-    test_cpu_signal_fence();
-    test_gpu_signal_fence();
-    test_multithread_fence_wait();
-    test_clear_render_target_view();
-    test_draw_instanced();
-    test_texture_resource_barriers();
-    test_invalid_texture_resource_barriers();
-    test_device_removed_reason();
-    test_map_resource();
-    test_bundle_state_inheritance();
+    run_test(test_create_device);
+    run_test(test_node_count);
+    run_test(test_check_feature_support);
+    run_test(test_create_command_allocator);
+    run_test(test_create_command_list);
+    run_test(test_create_command_queue);
+    run_test(test_create_committed_resource);
+    run_test(test_create_descriptor_heap);
+    run_test(test_create_root_signature);
+    run_test(test_create_pipeline_state);
+    run_test(test_create_fence);
+    run_test(test_reset_command_allocator);
+    run_test(test_cpu_signal_fence);
+    run_test(test_gpu_signal_fence);
+    run_test(test_multithread_fence_wait);
+    run_test(test_clear_render_target_view);
+    run_test(test_draw_instanced);
+    run_test(test_texture_resource_barriers);
+    run_test(test_invalid_texture_resource_barriers);
+    run_test(test_device_removed_reason);
+    run_test(test_map_resource);
+    run_test(test_bundle_state_inheritance);
 }

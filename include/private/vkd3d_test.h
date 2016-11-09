@@ -153,6 +153,30 @@ vkd3d_test_trace(unsigned int line, const char *fmt, ...)
     va_end(args);
 }
 
+static void VKD3D_PRINTF_FUNC(1, 2) VKD3D_UNUSED
+vkd3d_test_debug(const char *fmt, ...)
+{
+    char buffer[512];
+    va_list args;
+    int size;
+
+    size = snprintf(buffer, sizeof(buffer), "%s: ", vkd3d_test_name);
+    if (0 < size && size < sizeof(buffer))
+    {
+        va_start(args, fmt);
+        vsnprintf(buffer + size, sizeof(buffer) - size, fmt, args);
+        va_end(args);
+    }
+    buffer[sizeof(buffer) - 1] = '\0';
+
+#ifdef _WIN32
+    OutputDebugStringA(buffer);
+#endif
+
+    if (vkd3d_test_state.debug)
+        printf("%s\n", buffer);
+}
+
 #ifdef _WIN32
 int wmain(void)
 #else
@@ -180,5 +204,16 @@ int main(void)
 
     return vkd3d_test_state.failure_count || vkd3d_test_state.todo_success_count;
 }
+
+typedef void (*vkd3d_test_pfn)(void);
+
+static inline void vkd3d_run_test(const char *name, vkd3d_test_pfn test_pfn)
+{
+    vkd3d_test_debug(name);
+    test_pfn();
+}
+
+#define run_test(test_pfn) \
+        vkd3d_run_test(#test_pfn, test_pfn)
 
 #endif  /* __VKD3D_TEST_H */
