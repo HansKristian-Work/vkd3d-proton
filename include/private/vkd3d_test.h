@@ -90,7 +90,7 @@ static struct
     LONG todo_count;
     LONG todo_success_count;
 
-    unsigned int debug;
+    unsigned int debug_level;
 } vkd3d_test_state;
 
 static void VKD3D_PRINTF_FUNC(3, 4) VKD3D_UNUSED
@@ -98,7 +98,7 @@ vkd3d_test_ok(unsigned int line, bool result, const char *fmt, ...)
 {
     if (result)
     {
-        if (vkd3d_test_state.debug)
+        if (vkd3d_test_state.debug_level > 1)
             printf("%s:%d: Test succeeded.\n", vkd3d_test_name, line);
         InterlockedIncrement(&vkd3d_test_state.success_count);
     }
@@ -175,18 +175,16 @@ vkd3d_test_debug(const char *fmt, ...)
     OutputDebugStringA(buffer);
 #endif
 
-    if (vkd3d_test_state.debug)
+    if (vkd3d_test_state.debug_level > 0)
         printf("%s\n", buffer);
 }
 
 int main(int argc, char **argv)
 {
-    const char *vkd3d_test_debug;
+    const char *debug_level = getenv("VKD3D_TEST_DEBUG");
 
     memset(&vkd3d_test_state, 0, sizeof(vkd3d_test_state));
-
-    vkd3d_test_state.debug = (vkd3d_test_debug = getenv("VKD3D_TEST_DEBUG"))
-            && (*vkd3d_test_debug == 'y' || *vkd3d_test_debug == '1');
+    vkd3d_test_state.debug_level = !debug_level ? 0 : atoi(debug_level);
 
     vkd3d_test_main(argc, argv);
 
