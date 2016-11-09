@@ -23,6 +23,7 @@
 #ifndef __VKD3D_TEST_H
 #define __VKD3D_TEST_H
 
+#include <assert.h>
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -32,11 +33,12 @@
 
 #include "vkd3d_common.h"
 
-static void vkd3d_test_main(void);
+static void vkd3d_test_main(int argc, char **argv);
 static const char *vkd3d_test_name;
 
-#define START_TEST(name) static const char *vkd3d_test_name = #name; \
-        static void vkd3d_test_main(void)
+#define START_TEST(name) \
+        static const char *vkd3d_test_name = #name; \
+        static void vkd3d_test_main(int argc, char **argv)
 
 #define ok ok_(__LINE__)
 #define todo todo_(__LINE__)
@@ -177,11 +179,7 @@ vkd3d_test_debug(const char *fmt, ...)
         printf("%s\n", buffer);
 }
 
-#ifdef _WIN32
-int wmain(void)
-#else
-int main(void)
-#endif
+int main(int argc, char **argv)
 {
     const char *vkd3d_test_debug;
 
@@ -190,7 +188,7 @@ int main(void)
     vkd3d_test_state.debug = (vkd3d_test_debug = getenv("VKD3D_TEST_DEBUG"))
             && (*vkd3d_test_debug == 'y' || *vkd3d_test_debug == '1');
 
-    vkd3d_test_main();
+    vkd3d_test_main(argc, argv);
 
     printf("%s: %lu tests executed (%lu failures, %lu skipped, %lu todo).\n",
             vkd3d_test_name,
@@ -204,6 +202,45 @@ int main(void)
 
     return vkd3d_test_state.failure_count || vkd3d_test_state.todo_success_count;
 }
+
+#ifdef _WIN32
+static char *vkd3d_test_strdupWtoA(WCHAR *str)
+{
+    char *out;
+    int len;
+
+    if (!(len = WideCharToMultiByte(CP_ACP, 0, str, -1, NULL, 0, NULL, NULL)))
+        return NULL;
+    if (!(out = malloc(len)))
+        return NULL;
+    WideCharToMultiByte(CP_ACP, 0, str, -1, out, len, NULL, NULL);
+
+    return out;
+}
+
+int wmain(int argc, WCHAR **wargv)
+{
+    char **argv;
+    int i, ret;
+
+    argv = malloc(argc * sizeof(*argv));
+    assert(argv);
+    for (i = 0; i < argc; ++i)
+    {
+        if (!(argv[i] = vkd3d_test_strdupWtoA(wargv[i])))
+            break;
+    }
+    assert(i == argc);
+
+    ret = main(argc, argv);
+
+    for (i = 0; i < argc; ++i)
+        free(argv[i]);
+    free(argv);
+
+    return ret;
+}
+#endif  /* _WIN32 */
 
 typedef void (*vkd3d_test_pfn)(void);
 
