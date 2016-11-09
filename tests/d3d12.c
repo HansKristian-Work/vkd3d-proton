@@ -3111,9 +3111,13 @@ static void test_bundle_state_inheritance(void)
 
 START_TEST(d3d12)
 {
+    BOOL enable_debug_layer = FALSE;
     ID3D12Debug *debug;
 
-    if (SUCCEEDED(D3D12GetDebugInterface(&IID_ID3D12Debug, (void **)&debug)))
+    if (argc >= 2 && !strcmp(argv[1], "--validate"))
+        enable_debug_layer = TRUE;
+
+    if (enable_debug_layer && SUCCEEDED(D3D12GetDebugInterface(&IID_ID3D12Debug, (void **)&debug)))
     {
         ID3D12Debug_EnableDebugLayer(debug);
         ID3D12Debug_Release(debug);
