@@ -654,7 +654,8 @@ static void vk_stencil_op_state_from_d3d12(struct VkStencilOpState *vk_desc,
     vk_desc->compareOp = vk_compare_op_from_d3d12(d3d12_desc->StencilFunc);
     vk_desc->compareMask = compare_mask;
     vk_desc->writeMask = write_mask;
-    vk_desc->reference = 0; /* FIXME: From OMSetStencilRef(). */
+    /* The stencil reference value is a dynamic state. Set by OMSetStencilRef(). */
+    vk_desc->reference = 0;
 }
 
 static void ds_desc_from_d3d12(struct VkPipelineDepthStencilStateCreateInfo *vk_desc,

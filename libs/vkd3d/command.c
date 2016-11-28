@@ -1465,6 +1465,7 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     {
         VK_DYNAMIC_STATE_VIEWPORT,
         VK_DYNAMIC_STATE_SCISSOR,
+        VK_DYNAMIC_STATE_STENCIL_REFERENCE,
     };
     static const struct VkPipelineDynamicStateCreateInfo dynamic_desc =
     {
@@ -1859,7 +1860,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetBlendFactor(ID3D12Graphics
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetStencilRef(ID3D12GraphicsCommandList *iface,
         UINT stencil_ref)
 {
-    FIXME("iface %p, stencil_ref %u stub!\n", iface, stencil_ref);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+
+    TRACE("iface %p, stencil_ref %u.\n", iface, stencil_ref);
+
+    vk_procs = &list->device->vk_procs;
+    VK_CALL(vkCmdSetStencilReference(list->vk_command_buffer, VK_STENCIL_FRONT_AND_BACK, stencil_ref));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(ID3D12GraphicsCommandList *iface,
