@@ -60,11 +60,11 @@ static size_t align(size_t addr, unsigned int alignment)
     return (addr + (alignment - 1)) & ~(alignment - 1);
 }
 
-#define get_refcount(a) get_refcount_((IUnknown *)a)
-static ULONG get_refcount_(IUnknown *iface)
+static ULONG get_refcount(void *iface)
 {
-    IUnknown_AddRef(iface);
-    return IUnknown_Release(iface);
+    IUnknown *unk = iface;
+    IUnknown_AddRef(unk);
+    return IUnknown_Release(unk);
 }
 
 #define check_interface(a, b, c) check_interface_(__LINE__, (IUnknown *)a, b, c)
