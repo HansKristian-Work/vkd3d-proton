@@ -1573,7 +1573,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
 
     if (!list->state)
     {
-        WARN("Pipeline state is NULL.");
+        WARN("Pipeline state is NULL.\n");
         return false;
     }
 
