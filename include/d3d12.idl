@@ -971,12 +971,9 @@ typedef struct D3D12_SAMPLER_DESC
     FLOAT MipLODBias;
     UINT MaxAnisotropy;
     D3D12_COMPARISON_FUNC ComparisonFunc;
-    D3D12_STATIC_BORDER_COLOR BorderColor;
+    FLOAT BorderColor[4];
     FLOAT MinLOD;
     FLOAT MaxLOD;
-    UINT ShaderRegister;
-    UINT RegisterSpace;
-    D3D12_SHADER_VISIBILITY ShaderVisibility;
 } D3D12_SAMPLER_DESC;
 
 typedef struct D3D12_CPU_DESCRIPTOR_HANDLE
