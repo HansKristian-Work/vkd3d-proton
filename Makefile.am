@@ -72,7 +72,7 @@ libvkd3d_la_SOURCES = \
 	libs/vkd3d/vkd3d_main.c \
 	libs/vkd3d/vkd3d_private.h \
 	libs/vkd3d/vulkan_procs.h
-libvkd3d_la_LIBADD = libvkd3d-common.la @PTHREAD_LIBS@
+libvkd3d_la_LIBADD = libvkd3d-common.la @PTHREAD_LIBS@ @VULKAN_LIBS@
 
 libvkd3d_utils_la_SOURCES = \
 	libs/vkd3d-utils/vkd3d_utils_main.c \

@@ -54,10 +54,13 @@ m4_ifdef([PKG_PROG_PKG_CONFIG], [PKG_PROG_PKG_CONFIG], [m4_fatal([pkg-config aut
 
 AC_ARG_VAR([PTHREAD_LIBS], [linker flags for pthreads])
 AC_CHECK_LIB([pthread], [pthread_create],
-             [AC_SUBST(PTHREAD_LIBS, "-lpthread")],
-             [AC_MSG_ERROR(libpthread not found.)])
+             [AC_SUBST([PTHREAD_LIBS], ["-lpthread"])],
+             [AC_MSG_ERROR([libpthread not found.])])
 
-AC_CHECK_LIB([vulkan], [vkGetInstanceProcAddr], [], [AC_MSG_ERROR([libvulkan not found.])])
+AC_SUBST([VULKAN_LIBS])
+AC_CHECK_LIB([vulkan], [vkGetInstanceProcAddr],
+             [VULKAN_LIBS="-lvulkan"],
+             [AC_MSG_ERROR([libvulkan not found.])])
 
 PKG_CHECK_MODULES([XCB], [xcb xcb-keysyms])
 
