@@ -1538,8 +1538,7 @@ interface ID3D12GraphicsCommandList : ID3D12CommandList
             D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, ID3D12Resource *resource, const UINT values[4],
             UINT rect_count, const D3D12_RECT *rects);
     void ClearUnorderedAccessViewFloat(D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle,
-            D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle,
-            ID3D12Resource *resource,
+            D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, ID3D12Resource *resource, const float values[4],
             UINT rect_count, const D3D12_RECT *rects);
 
     void DiscardResource(ID3D12Resource *resource, const D3D12_DISCARD_REGION *region);
