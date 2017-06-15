@@ -1534,6 +1534,9 @@ interface ID3D12GraphicsCommandList : ID3D12CommandList
             FLOAT depth, UINT8 stencil, UINT rect_count, const D3D12_RECT *rects);
     void ClearRenderTargetView(D3D12_CPU_DESCRIPTOR_HANDLE rtv, const FLOAT color[4],
             UINT rect_count, const D3D12_RECT *rects);
+    void ClearUnorderedAccessViewUint(D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle,
+            D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, ID3D12Resource *resource, const UINT values[4],
+            UINT rect_count, const D3D12_RECT *rects);
     void ClearUnorderedAccessViewFloat(D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle,
             D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle,
             ID3D12Resource *resource,

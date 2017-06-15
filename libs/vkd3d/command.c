@@ -2583,6 +2583,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
             rtv_desc->vk_view, rtv_desc->width, rtv_desc->height, &clear_value, rect_count, rects);
 }
 
+static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID3D12GraphicsCommandList *iface,
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, ID3D12Resource *resource,
+        const UINT values[4], UINT rect_count, const D3D12_RECT *rects)
+{
+    FIXME("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p stub!\n",
+            iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(ID3D12GraphicsCommandList *iface,
         D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle,
         ID3D12Resource *resource, UINT rect_count, const D3D12_RECT *rects)
@@ -2710,6 +2718,7 @@ static const struct ID3D12GraphicsCommandListVtbl d3d12_command_list_vtbl =
     d3d12_command_list_OMSetRenderTargets,
     d3d12_command_list_ClearDepthStencilView,
     d3d12_command_list_ClearRenderTargetView,
+    d3d12_command_list_ClearUnorderedAccessViewUint,
     d3d12_command_list_ClearUnorderedAccessViewFloat,
     d3d12_command_list_DiscardResource,
     d3d12_command_list_BeginQuery,
