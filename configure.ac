@@ -40,6 +40,17 @@ AS_IF([test "x${GCC}" = "xyes"],
       VKD3D_CHECK_CFLAGS([-Wvla])
       VKD3D_CHECK_CFLAGS([-Wl,--no-undefined])])
 
+AC_EGREP_CPP(yes,
+            [#define _POSIX_C_SOURCE 200809L
+             #include <unistd.h>
+             #ifdef _POSIX_VERSION
+             #if _POSIX_VERSION == 200809L
+             yes
+             #endif
+             #endif],
+             [AC_DEFINE([_POSIX_C_SOURCE], [200809L], [Define the POSIX version.])],
+             [])
+
 dnl Check for cross compilers
 VKD3D_CHECK_MINGW32_PROG([CROSSCC32], [CROSSTARGET32], [no])
 VKD3D_CHECK_MINGW64_PROG([CROSSCC64], [CROSSTARGET64], [no])
