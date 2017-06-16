@@ -96,6 +96,10 @@ nodist_pkgconfig_DATA = libvkd3d.pc
 CLEANFILES += libvkd3d.pc
 EXTRA_DIST = libs/vkd3d/libvkd3d.pc.in
 
+bin_PROGRAMS = vkd3d-compiler
+vkd3d_compiler_SOURCES = programs/vkd3d-compiler/main.c
+vkd3d_compiler_LDADD = libvkd3d-shader.la
+
 LDADD = libvkd3d-utils.la
 check_PROGRAMS = $(vkd3d_tests)
 AM_DEFAULT_SOURCE_EXT = .c
