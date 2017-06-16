@@ -50,11 +50,6 @@ typedef int HRESULT;
 # include "vkd3d_utils.h"
 #endif
 
-static size_t align(size_t addr, unsigned int alignment)
-{
-    return (addr + (alignment - 1)) & ~(alignment - 1);
-}
-
 static ULONG get_refcount(void *iface)
 {
     IUnknown *unk = iface;

@@ -24,6 +24,11 @@
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
 
+static inline size_t align(size_t addr, size_t alignment)
+{
+    return (addr + (alignment - 1)) & ~(alignment - 1);
+}
+
 #ifdef __GNUC__
 # define VKD3D_PRINTF_FUNC(fmt, args) __attribute__((format(printf, fmt, args)))
 # define VKD3D_UNUSED __attribute__((unused))
