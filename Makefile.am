@@ -16,6 +16,7 @@ vkd3d_public_headers = \
 	include/dummy/rpcndr.h \
 	include/dxgibase.h \
 	include/vkd3d.h \
+	include/vkd3d_shader.h \
 	include/vkd3d_utils.h \
 	include/vkd3d_windows.h
 
@@ -55,7 +56,17 @@ libvkd3d_common_la_SOURCES = \
 	include/private/vkd3d_debug.h \
 	libs/vkd3d-common/debug.c
 
-lib_LTLIBRARIES = libvkd3d.la libvkd3d-utils.la
+lib_LTLIBRARIES = libvkd3d-shader.la libvkd3d.la libvkd3d-utils.la
+
+libvkd3d_shader_la_SOURCES = \
+	include/private/list.h \
+	include/private/rbtree.h \
+	include/private/vkd3d_common.h \
+	include/private/vkd3d_debug.h \
+	include/private/vkd3d_memory.h \
+	libs/vkd3d-shader/vkd3d_shader_main.c \
+	libs/vkd3d-shader/vkd3d_shader_private.h
+libvkd3d_shader_la_LIBADD = libvkd3d-common.la
 
 libvkd3d_la_SOURCES = \
 	include/d3d12.idl \
