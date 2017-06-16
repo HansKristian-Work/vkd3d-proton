@@ -103,6 +103,66 @@ const char *vkd3d_dbg_sprintf(const char *fmt, ...)
     return buffer;
 }
 
+const char *debugstr_a(const char *str)
+{
+    char *buffer, *ptr;
+    char c;
+
+    if (!str)
+        return "(null)";
+
+    ptr = buffer = get_buffer();
+
+    *ptr++ = '"';
+    while ((c = *str++) && ptr <= buffer + VKD3D_DEBUG_BUFFER_SIZE - 8)
+    {
+        int escape_char;
+
+        switch (c)
+        {
+            case '"':
+            case '\\':
+            case '\n':
+            case '\r':
+            case '\t':
+                escape_char = c;
+                break;
+            default:
+                escape_char = 0;
+                break;
+        }
+
+        if (escape_char)
+        {
+            *ptr++ = '\\';
+            *ptr++ = escape_char;
+            continue;
+        }
+
+        if (isprint(c))
+        {
+            *ptr++ = c;
+        }
+        else
+        {
+            *ptr++ = '\\';
+            sprintf(ptr, "%02x", c);
+            ptr += 2;
+        }
+    }
+    *ptr++ = '"';
+
+    if (c)
+    {
+        *ptr++ = '.';
+        *ptr++ = '.';
+        *ptr++ = '.';
+    }
+    *ptr = '\0';
+
+    return buffer;
+}
+
 const char *debugstr_w(const WCHAR *wstr)
 {
     char *buffer, *ptr;
