@@ -25,6 +25,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define VKD3D_DEBUG_BUFFER_COUNT 64
+#define VKD3D_DEBUG_BUFFER_SIZE 512
+
 static const char *debug_level_names[] =
 {
     /* VKD3D_DBG_LEVEL_NONE  */ "none",
@@ -46,7 +49,7 @@ static enum vkd3d_dbg_level vkd3d_dbg_get_level(void)
     if (!(vkd3d_debug = getenv("VKD3D_DEBUG")))
         vkd3d_debug = "";
 
-    for (i = 0; i < sizeof(debug_level_names) / sizeof(*debug_level_names); ++i)
+    for (i = 0; i < ARRAY_SIZE(debug_level_names); ++i)
     {
         if (!strcmp(debug_level_names[i], vkd3d_debug))
         {
@@ -67,7 +70,7 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_level level, const char *function, const ch
     if (vkd3d_dbg_get_level() < level)
         return;
 
-    assert(level <= sizeof(debug_level_names) / sizeof(*debug_level_names));
+    assert(level <= ARRAY_SIZE(debug_level_names));
 
     fprintf(stderr, "%s:%s: ", debug_level_names[level], function);
     va_start(args, fmt);
@@ -75,11 +78,9 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_level level, const char *function, const ch
     va_end(args);
 }
 
-#define VKD3D_DEBUG_BUFFER_SIZE 512
-
 static char *get_buffer(void)
 {
-    static char buffers[64][VKD3D_DEBUG_BUFFER_SIZE];
+    static char buffers[VKD3D_DEBUG_BUFFER_COUNT][VKD3D_DEBUG_BUFFER_SIZE];
     static LONG buffer_index;
     LONG current_index;
 
