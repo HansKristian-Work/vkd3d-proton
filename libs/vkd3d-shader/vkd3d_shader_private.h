@@ -25,7 +25,7 @@
  * Copyright 2006 Stefan Dösinger
  * Copyright 2006-2011, 2013 Stefan Dösinger for CodeWeavers
  * Copyright 2007 Henri Verbeet
- * Copyright 2008 Henri Verbeet for CodeWeavers
+ * Copyright 2008-2009 Henri Verbeet for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -810,5 +810,11 @@ void shader_sm4_read_header(void *data, const DWORD **ptr,
 void shader_sm4_read_instruction(void *data, const DWORD **ptr,
         struct vkd3d_shader_instruction *ins) DECLSPEC_HIDDEN;
 BOOL shader_sm4_is_end(void *data, const DWORD **ptr) DECLSPEC_HIDDEN;
+
+HRESULT shader_extract_from_dxbc(const void *dxbc, SIZE_T dxbc_length,
+        struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
+struct vkd3d_shader_signature_element *shader_find_signature_element(const struct vkd3d_shader_signature *s,
+        const char *semantic_name, unsigned int semantic_idx, unsigned int stream_idx) DECLSPEC_HIDDEN;
+void free_shader_desc(struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
 
 #endif  /* __VKD3D_SHADER_PRIVATE_H */

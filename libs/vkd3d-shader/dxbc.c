@@ -1,5 +1,5 @@
 /*
- * Copyright 2009 Henri Verbeet for CodeWeavers
+ * Copyright 2008-2009 Henri Verbeet for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -1725,4 +1725,297 @@ BOOL shader_sm4_is_end(void *data, const DWORD **ptr)
 {
     struct vkd3d_sm4_data *priv = data;
     return *ptr == priv->end;
+}
+
+#define MAKE_TAG(ch0, ch1, ch2, ch3) \
+    ((DWORD)(ch0) | ((DWORD)(ch1) << 8) | \
+    ((DWORD)(ch2) << 16) | ((DWORD)(ch3) << 24 ))
+#define TAG_DXBC MAKE_TAG('D', 'X', 'B', 'C')
+#define TAG_ISGN MAKE_TAG('I', 'S', 'G', 'N')
+#define TAG_OSGN MAKE_TAG('O', 'S', 'G', 'N')
+#define TAG_OSG5 MAKE_TAG('O', 'S', 'G', '5')
+#define TAG_PCSG MAKE_TAG('P', 'C', 'S', 'G')
+#define TAG_SHDR MAKE_TAG('S', 'H', 'D', 'R')
+#define TAG_SHEX MAKE_TAG('S', 'H', 'E', 'X')
+#define TAG_AON9 MAKE_TAG('A', 'o', 'n', '9')
+
+static BOOL require_space(size_t offset, size_t count, size_t size, size_t data_size)
+{
+    return !count || (data_size - offset) / count >= size;
+}
+
+static void read_dword(const char **ptr, DWORD *d)
+{
+    memcpy(d, *ptr, sizeof(*d));
+    *ptr += sizeof(*d);
+}
+
+static void skip_dword_unknown(const char **ptr, unsigned int count)
+{
+    unsigned int i;
+    DWORD d;
+
+    WARN("Skipping %u unknown DWORDs:\n", count);
+    for (i = 0; i < count; ++i)
+    {
+        read_dword(ptr, &d);
+        WARN("\t0x%08x\n", d);
+    }
+}
+
+static const char *shader_get_string(const char *data, size_t data_size, DWORD offset)
+{
+    size_t len, max_len;
+
+    if (offset >= data_size)
+    {
+        WARN("Invalid offset %#x (data size %#lx).\n", offset, (long)data_size);
+        return NULL;
+    }
+
+    max_len = data_size - offset;
+    len = strnlen(data + offset, max_len);
+
+    if (len == max_len)
+        return NULL;
+
+    return data + offset;
+}
+
+static HRESULT parse_dxbc(const char *data, SIZE_T data_size,
+        HRESULT (*chunk_handler)(const char *data, DWORD data_size, DWORD tag, void *ctx), void *ctx)
+{
+    const char *ptr = data;
+    HRESULT hr = S_OK;
+    DWORD chunk_count;
+    DWORD total_size;
+    unsigned int i;
+    DWORD tag;
+
+    read_dword(&ptr, &tag);
+    TRACE("tag: %#x.\n", tag);
+
+    if (tag != TAG_DXBC)
+    {
+        WARN("Wrong tag.\n");
+        return E_INVALIDARG;
+    }
+
+    WARN("Ignoring DXBC checksum.\n");
+    skip_dword_unknown(&ptr, 4);
+
+    skip_dword_unknown(&ptr, 1); /* It seems to always be 0x00000001. */
+
+    read_dword(&ptr, &total_size);
+    TRACE("total size: %#x\n", total_size);
+
+    read_dword(&ptr, &chunk_count);
+    TRACE("chunk count: %#x\n", chunk_count);
+
+    for (i = 0; i < chunk_count; ++i)
+    {
+        DWORD chunk_tag, chunk_size;
+        const char *chunk_ptr;
+        DWORD chunk_offset;
+
+        read_dword(&ptr, &chunk_offset);
+        TRACE("chunk %u at offset %#x\n", i, chunk_offset);
+
+        if (chunk_offset >= data_size || !require_space(chunk_offset, 2, sizeof(DWORD), data_size))
+        {
+            WARN("Invalid chunk offset %#x (data size %#lx).\n", chunk_offset, data_size);
+            return E_FAIL;
+        }
+
+        chunk_ptr = data + chunk_offset;
+
+        read_dword(&chunk_ptr, &chunk_tag);
+        read_dword(&chunk_ptr, &chunk_size);
+
+        if (!require_space(chunk_ptr - data, 1, chunk_size, data_size))
+        {
+            WARN("Invalid chunk size %#x (data size %#lx, chunk offset %#x).\n",
+                    chunk_size, data_size, chunk_offset);
+            return E_FAIL;
+        }
+
+        hr = chunk_handler(chunk_ptr, chunk_size, chunk_tag, ctx);
+        if (FAILED(hr)) break;
+    }
+
+    return hr;
+}
+
+static HRESULT shader_parse_signature(DWORD tag, const char *data, DWORD data_size,
+        struct vkd3d_shader_signature *s)
+{
+    struct vkd3d_shader_signature_element *e;
+    const char *ptr = data;
+    unsigned int i;
+    DWORD count;
+
+    if (!require_space(0, 2, sizeof(DWORD), data_size))
+    {
+        WARN("Invalid data size %#x.\n", data_size);
+        return E_INVALIDARG;
+    }
+
+    read_dword(&ptr, &count);
+    TRACE("%u elements.\n", count);
+
+    skip_dword_unknown(&ptr, 1); /* It seems to always be 0x00000008. */
+
+    if (!require_space(ptr - data, count, 6 * sizeof(DWORD), data_size))
+    {
+        WARN("Invalid count %#x (data size %#x).\n", count, data_size);
+        return E_INVALIDARG;
+    }
+
+    if (!(e = vkd3d_calloc(count, sizeof(*e))))
+    {
+        ERR("Failed to allocate input signature memory.\n");
+        return E_OUTOFMEMORY;
+    }
+
+    for (i = 0; i < count; ++i)
+    {
+        DWORD name_offset;
+
+        if (tag == TAG_OSG5)
+            read_dword(&ptr, &e[i].stream_idx);
+        else
+            e[i].stream_idx = 0;
+        read_dword(&ptr, &name_offset);
+        if (!(e[i].semantic_name = shader_get_string(data, data_size, name_offset)))
+        {
+            WARN("Invalid name offset %#x (data size %#x).\n", name_offset, data_size);
+            vkd3d_free(e);
+            return E_INVALIDARG;
+        }
+        read_dword(&ptr, &e[i].semantic_idx);
+        read_dword(&ptr, &e[i].sysval_semantic);
+        read_dword(&ptr, &e[i].component_type);
+        read_dword(&ptr, &e[i].register_idx);
+        read_dword(&ptr, &e[i].mask);
+
+        TRACE("Stream: %u, semantic: %s, semantic idx: %u, sysval_semantic %#x, "
+                "type %u, register idx: %u, use_mask %#x, input_mask %#x.\n",
+                e[i].stream_idx, debugstr_a(e[i].semantic_name), e[i].semantic_idx, e[i].sysval_semantic,
+                e[i].component_type, e[i].register_idx, (e[i].mask >> 8) & 0xff, e[i].mask & 0xff);
+    }
+
+    s->elements = e;
+    s->element_count = count;
+
+    return S_OK;
+}
+
+struct vkd3d_shader_signature_element *shader_find_signature_element(const struct vkd3d_shader_signature *s,
+        const char *semantic_name, unsigned int semantic_idx, unsigned int stream_idx)
+{
+    struct vkd3d_shader_signature_element *e = s->elements;
+    unsigned int i;
+
+    for (i = 0; i < s->element_count; ++i)
+    {
+        if (!strcasecmp(e[i].semantic_name, semantic_name) && e[i].semantic_idx == semantic_idx
+                && e[i].stream_idx == stream_idx)
+            return &e[i];
+    }
+
+    return NULL;
+}
+
+static void shader_free_signature(struct vkd3d_shader_signature *s)
+{
+    vkd3d_free(s->elements);
+}
+
+static HRESULT shdr_handler(const char *data, DWORD data_size, DWORD tag, void *context)
+{
+    struct vkd3d_shader_desc *desc = context;
+    HRESULT hr;
+
+    switch (tag)
+    {
+        case TAG_ISGN:
+            if (desc->input_signature.elements)
+            {
+                FIXME("Multiple input signatures.\n");
+                break;
+            }
+            if (FAILED(hr = shader_parse_signature(tag, data, data_size, &desc->input_signature)))
+                return hr;
+            break;
+
+        case TAG_OSGN:
+        case TAG_OSG5:
+            if (desc->output_signature.elements)
+            {
+                FIXME("Multiple output signatures.\n");
+                break;
+            }
+            if (FAILED(hr = shader_parse_signature(tag, data, data_size, &desc->output_signature)))
+                return hr;
+            break;
+
+        case TAG_PCSG:
+            if (desc->patch_constant_signature.elements)
+            {
+                FIXME("Multiple patch constant signatures.\n");
+                break;
+            }
+            if (FAILED(hr = shader_parse_signature(tag, data, data_size, &desc->patch_constant_signature)))
+                return hr;
+            break;
+
+        case TAG_SHDR:
+        case TAG_SHEX:
+            if (desc->byte_code)
+                FIXME("Multiple shader code chunks.\n");
+            desc->byte_code = (const DWORD *)data;
+            desc->byte_code_size = data_size;
+            break;
+
+        case TAG_AON9:
+            TRACE("Skipping AON9 shader code chunk.\n");
+            break;
+
+        default:
+            FIXME("Unhandled chunk %#x.\n", tag);
+            break;
+    }
+
+    return S_OK;
+}
+
+void free_shader_desc(struct vkd3d_shader_desc *desc)
+{
+    shader_free_signature(&desc->input_signature);
+    shader_free_signature(&desc->output_signature);
+    shader_free_signature(&desc->patch_constant_signature);
+}
+
+HRESULT shader_extract_from_dxbc(const void *dxbc, SIZE_T dxbc_length,
+        struct vkd3d_shader_desc *desc)
+{
+    HRESULT hr;
+
+    desc->byte_code = NULL;
+    desc->byte_code_size = 0;
+    memset(&desc->input_signature, 0, sizeof(desc->input_signature));
+    memset(&desc->output_signature, 0, sizeof(desc->output_signature));
+    memset(&desc->patch_constant_signature, 0, sizeof(desc->patch_constant_signature));
+
+    hr = parse_dxbc(dxbc, dxbc_length, shdr_handler, desc);
+    if (!desc->byte_code)
+        hr = E_INVALIDARG;
+
+    if (FAILED(hr))
+    {
+        FIXME("Failed to parse shader, hr %#x.\n", hr);
+        free_shader_desc(desc);
+    }
+
+    return hr;
 }
