@@ -56,9 +56,11 @@ VKD3D_CHECK_MINGW32_PROG([CROSSCC32], [CROSSTARGET32], [no])
 VKD3D_CHECK_MINGW64_PROG([CROSSCC64], [CROSSTARGET64], [no])
 
 dnl Check for headers
-AC_CHECK_HEADERS([pthread.h vulkan/vulkan.h])
+AC_CHECK_HEADERS([pthread.h vulkan/vulkan.h spirv/1.0/spirv.h spirv/1.0/GLSL.std.450.h])
 AS_IF([test "x$ac_cv_header_pthread_h" != "xyes"], [AC_MSG_ERROR([pthread.h not found.])])
 AS_IF([test "x$ac_cv_header_vulkan_vulkan_h" != "xyes"], [AC_MSG_ERROR([vulkan.h not found.])])
+AS_IF([test "x$ac_cv_header_spirv_1_0_spirv_h" != "xyes"], [AC_MSG_ERROR([spirv.h not found.])])
+AS_IF([test "x$ac_cv_header_spirv_1_0_GLSL_std_450_h" != "xyes"], [AC_MSG_ERROR([GLSL.std.450.h not found.])])
 
 dnl Check for libraries
 m4_ifdef([PKG_PROG_PKG_CONFIG], [PKG_PROG_PKG_CONFIG], [m4_fatal([pkg-config autoconf macros not found.])])
