@@ -88,7 +88,6 @@ interface ID3D12Fence;
 interface ID3D12RootSignature;
 interface ID3D12Heap;
 interface ID3D12DescriptorHeap;
-interface ID3D12QueryHeap;
 interface ID3D12Resource;
 interface ID3D12CommandAllocator;
 interface ID3D12GraphicsCommandList;
@@ -1473,6 +1472,11 @@ interface ID3D12DescriptorHeap : ID3D12Pageable
 
     D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandleForHeapStart();
     D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandleForHeapStart();
+};
+
+[uuid(0d9658ae-ed45-469e-a61d-970ec583cab4), object, local, pointer_default(unique)]
+interface ID3D12QueryHeap : ID3D12Pageable
+{
 };
 
 [uuid(c36a797c-ec80-4f0a-8985-a7b2475082d1), object, local, pointer_default(unique)]
