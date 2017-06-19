@@ -1406,19 +1406,6 @@ static void test_create_pipeline_state(void)
         0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000020, 0x00050050, 0x00000008, 0x0100086a,
         0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x0100003e,
     };
-    static const DWORD spv_code[] =
-    {
-#if 0
-        #version 450 core
-        void main() { }
-#endif
-        0x07230203, 0x00010000, 0x00080001, 0x00003ee8, 0x00000000, 0x00020011, 0x00000001, 0x0006000b,
-        0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e, 0x00000000, 0x0003000e, 0x00000000, 0x00000001,
-        0x0005000f, 0x00000005, 0x0000161f, 0x6e69616d, 0x00000000, 0x00060010, 0x0000161f, 0x00000011,
-        0x00000001, 0x00000001, 0x00000001, 0x00020013, 0x00000008, 0x00030021, 0x00000502, 0x00000008,
-        0x00050036, 0x00000008, 0x0000161f, 0x00000000, 0x00000502, 0x000200f8, 0x00003ee7, 0x000100fd,
-        0x00010038,
-    };
 
     if (!(device = create_device()))
     {
@@ -1439,7 +1426,7 @@ static void test_create_pipeline_state(void)
 
     memset(&pipeline_state_desc, 0, sizeof(pipeline_state_desc));
     pipeline_state_desc.pRootSignature = root_signature;
-    pipeline_state_desc.CS = SHADER_BYTECODE(dxbc_code, spv_code);
+    pipeline_state_desc.CS = shader_bytecode(dxbc_code, sizeof(dxbc_code));
     pipeline_state_desc.NodeMask = 0;
     pipeline_state_desc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
 
