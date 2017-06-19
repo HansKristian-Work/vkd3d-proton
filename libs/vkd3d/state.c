@@ -18,6 +18,9 @@
  */
 
 #include "vkd3d_private.h"
+#include "vkd3d_shader.h"
+
+#include "spirv/1.0/spirv.h"
 
 /* ID3D12RootSignature */
 static inline struct d3d12_root_signature *impl_from_ID3D12RootSignature(ID3D12RootSignature *iface)
@@ -439,12 +442,19 @@ struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12Pipeline
     return impl_from_ID3D12PipelineState(iface);
 }
 
+static bool d3d12_shader_bytecode_is_spirv(const D3D12_SHADER_BYTECODE *code)
+{
+    return *(uint32_t *)code->pShaderBytecode == SpvMagicNumber;
+}
+
 static HRESULT create_shader_stage(struct d3d12_device *device, struct VkPipelineShaderStageCreateInfo *stage_desc,
         enum VkShaderStageFlagBits stage, const D3D12_SHADER_BYTECODE *code)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkShaderModuleCreateInfo shader_desc;
+    struct vkd3d_shader_code spirv = {};
     VkResult vr;
+    HRESULT hr;
 
     stage_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stage_desc->pNext = NULL;
@@ -456,9 +466,27 @@ static HRESULT create_shader_stage(struct d3d12_device *device, struct VkPipelin
     shader_desc.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     shader_desc.pNext = NULL;
     shader_desc.flags = 0;
-    shader_desc.codeSize = code->BytecodeLength;
-    shader_desc.pCode = code->pShaderBytecode;
-    if ((vr = VK_CALL(vkCreateShaderModule(device->vk_device, &shader_desc, NULL, &stage_desc->module))) < 0)
+
+    if (d3d12_shader_bytecode_is_spirv(code))
+    {
+        shader_desc.codeSize = code->BytecodeLength;
+        shader_desc.pCode = code->pShaderBytecode;
+    }
+    else
+    {
+        struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
+        if (FAILED(hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0)))
+        {
+            WARN("Failed to compile shader, hr %#x.\n", hr);
+            return hr;
+        }
+        shader_desc.codeSize = spirv.size;
+        shader_desc.pCode = spirv.code;
+    }
+
+    vr = VK_CALL(vkCreateShaderModule(device->vk_device, &shader_desc, NULL, &stage_desc->module));
+    vkd3d_shader_free_shader_code(&spirv);
+    if (vr < 0)
     {
         WARN("Failed to create Vulkan shader module, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
