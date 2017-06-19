@@ -65,34 +65,6 @@ VkFormat vkd3d_get_vk_format(DXGI_FORMAT format)
     return vkd3d_format->vk_format;
 }
 
-bool vkd3d_array_reserve(void **elements, size_t *capacity, size_t element_count, size_t element_size)
-{
-    size_t new_capacity, max_capacity;
-    void *new_elements;
-
-    if (element_count <= *capacity)
-        return true;
-
-    max_capacity = ~(size_t)0 / element_size;
-    if (max_capacity < element_count)
-        return false;
-
-    new_capacity = max(*capacity, 4);
-    while (new_capacity < element_count && new_capacity <= max_capacity / 2)
-        new_capacity *= 2;
-
-    if (new_capacity < element_count)
-        new_capacity = element_count;
-
-    if (!(new_elements = vkd3d_realloc(*elements, new_capacity * element_size)))
-        return false;
-
-    *elements = new_elements;
-    *capacity = new_capacity;
-
-    return true;
-}
-
 bool is_valid_feature_level(D3D_FEATURE_LEVEL feature_level)
 {
     static const D3D_FEATURE_LEVEL valid_feature_levels[] =

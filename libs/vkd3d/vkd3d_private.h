@@ -422,9 +422,6 @@ const char *debug_vk_memory_heap_flags(VkMemoryHeapFlags flags) DECLSPEC_HIDDEN;
 const char *debug_vk_memory_property_flags(VkMemoryPropertyFlags flags) DECLSPEC_HIDDEN;
 const char *debug_vk_queue_flags(VkQueueFlags flags) DECLSPEC_HIDDEN;
 
-bool vkd3d_array_reserve(void **elements, size_t *capacity,
-        size_t element_count, size_t element_size) DECLSPEC_HIDDEN;
-
 HRESULT hresult_from_vk_result(VkResult vr) DECLSPEC_HIDDEN;
 
 HRESULT vkd3d_load_vk_instance_procs(struct vkd3d_vk_instance_procs *procs,

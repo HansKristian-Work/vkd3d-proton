@@ -54,7 +54,8 @@ CLEANFILES = $(spv_shaders)
 noinst_LTLIBRARIES = libvkd3d-common.la
 libvkd3d_common_la_SOURCES = \
 	include/private/vkd3d_debug.h \
-	libs/vkd3d-common/debug.c
+	libs/vkd3d-common/debug.c \
+	libs/vkd3d-common/memory.c
 
 lib_LTLIBRARIES = libvkd3d-shader.la libvkd3d.la libvkd3d-utils.la
 

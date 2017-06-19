@@ -20,6 +20,8 @@
 #define __VKD3D_MEMORY_H
 
 #include <assert.h>
+#include <stdbool.h>
+
 #include "vkd3d_debug.h"
 
 static inline void *vkd3d_malloc(size_t size)
@@ -50,5 +52,8 @@ static inline void vkd3d_free(void *ptr)
 {
     free(ptr);
 }
+
+bool vkd3d_array_reserve(void **elements, size_t *capacity,
+        size_t element_count, size_t element_size) DECLSPEC_HIDDEN;
 
 #endif  /* __VKD3D_MEMORY_H */
