@@ -123,6 +123,14 @@ typedef struct D3D12_RESOURCE_ALLOCATION_INFO
     UINT64 Alignment;
 } D3D12_RESOURCE_ALLOCATION_INFO;
 
+typedef struct D3D12_DRAW_ARGUMENTS
+{
+    UINT VertexCountPerInstance;
+    UINT InstanceCount;
+    UINT StartVertexLocation;
+    UINT StartInstanceLocation;
+} D3D12_DRAW_ARGUMENTS;
+
 typedef enum D3D12_HEAP_TYPE
 {
     D3D12_HEAP_TYPE_DEFAULT = 1,
