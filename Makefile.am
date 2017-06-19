@@ -69,7 +69,7 @@ libvkd3d_shader_la_SOURCES = \
 	libs/vkd3d-shader/spirv.c \
 	libs/vkd3d-shader/vkd3d_shader_main.c \
 	libs/vkd3d-shader/vkd3d_shader_private.h
-libvkd3d_shader_la_LIBADD = libvkd3d-common.la
+libvkd3d_shader_la_LIBADD = libvkd3d-common.la @SPIRV_TOOLS_LIBS@
 
 libvkd3d_la_SOURCES = \
 	include/d3d12.idl \

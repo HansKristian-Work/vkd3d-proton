@@ -19,9 +19,69 @@
 #include "vkd3d_shader_private.h"
 
 #include "spirv/1.0/spirv.h"
+#ifdef HAVE_SPIRV_TOOLS
+# include "spirv-tools/libspirv.h"
+#endif /* HAVE_SPIRV_TOOLS */
+
+#ifdef HAVE_SPIRV_TOOLS
+
+static void vkd3d_spirv_dump(const struct vkd3d_shader_code *spirv)
+{
+    const static uint32_t options
+            = SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES | SPV_BINARY_TO_TEXT_OPTION_INDENT;
+    spv_diagnostic diagnostic = NULL;
+    spv_text text = NULL;
+    spv_context context;
+    spv_result_t ret;
+
+    context = spvContextCreate(SPV_ENV_VULKAN_1_0);
+
+    if (!(ret = spvBinaryToText(context, spirv->code, spirv->size / sizeof(uint32_t),
+            options, &text, &diagnostic)))
+    {
+        const char *str, *current = text->str;
+        while ((str = strchr(current, '\n')))
+        {
+            TRACE("%.*s\n", (int)(str - current), current);
+            current = str + 1;
+        }
+    }
+    else
+    {
+        TRACE("Failed to convert SPIR-V to binary text, ret %d.\n", ret);
+        TRACE("Diagnostic message: %s.\n", debugstr_a(diagnostic->error));
+    }
+
+    spvTextDestroy(text);
+    spvDiagnosticDestroy(diagnostic);
+    spvContextDestroy(context);
+}
+
+static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv)
+{
+    spv_diagnostic diagnostic = NULL;
+    spv_context context;
+    spv_result_t ret;
+
+    context = spvContextCreate(SPV_ENV_VULKAN_1_0);
+
+    if ((ret = spvValidateBinary(context, spirv->code, spirv->size / sizeof(uint32_t),
+            &diagnostic)))
+    {
+        TRACE("Failed to validate SPIR-V binary, ret %d.\n", ret);
+        TRACE("Diagnostic message: %s.\n", debugstr_a(diagnostic->error));
+    }
+
+    spvDiagnosticDestroy(diagnostic);
+    spvContextDestroy(context);
+}
+
+#else
 
 static void vkd3d_spirv_dump(const struct vkd3d_shader_code *spirv) {}
 static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv) {}
+
+#endif /* HAVE_SPIRV_TOOLS */
 
 struct vkd3d_spirv_stream
 {

@@ -10,6 +10,8 @@ AC_ARG_VAR([WIDL], [widl IDL compiler])
 AC_ARG_VAR([GLSLANG], [glslangValidator GLSL compiler])
 AC_ARG_VAR([CROSSCC32], [32-bit Windows cross compiler])
 AC_ARG_VAR([CROSSCC64], [64-bit Windows cross compiler])
+AC_ARG_WITH([spirv-tools], AS_HELP_STRING([--with-spirv-tools],
+                                          [Build with SPIRV-Tools library (default: disabled)]))
 
 dnl Check for progs
 AM_PROG_AR
@@ -62,8 +64,13 @@ AS_IF([test "x$ac_cv_header_vulkan_vulkan_h" != "xyes"], [AC_MSG_ERROR([vulkan.h
 AS_IF([test "x$ac_cv_header_spirv_1_0_spirv_h" != "xyes"], [AC_MSG_ERROR([spirv.h not found.])])
 AS_IF([test "x$ac_cv_header_spirv_1_0_GLSL_std_450_h" != "xyes"], [AC_MSG_ERROR([GLSL.std.450.h not found.])])
 
+AS_IF([test "x$with_spirv_tools" = "xyes"],
+      [AC_CHECK_HEADERS([spirv-tools/libspirv.h], [], [AC_MSG_ERROR([spirv-tools/libspirv.h not found.])])])
+
 dnl Check for libraries
 m4_ifdef([PKG_PROG_PKG_CONFIG], [PKG_PROG_PKG_CONFIG], [m4_fatal([pkg-config autoconf macros not found.])])
+
+AC_CHECK_LIB([m], [ceilf])
 
 AC_ARG_VAR([PTHREAD_LIBS], [linker flags for pthreads])
 AC_CHECK_LIB([pthread], [pthread_create],
@@ -75,6 +82,12 @@ AC_CHECK_LIB([vulkan], [vkGetInstanceProcAddr],
              [VULKAN_LIBS="-lvulkan"],
              [AC_MSG_ERROR([libvulkan not found.])])
 
+AC_SUBST([SPIRV_TOOLS_LIBS])
+AS_IF([test "x$with_spirv_tools" = "xyes"],
+      [AC_CHECK_LIB([SPIRV-Tools], [spvTextToBinary],
+                    [SPIRV_TOOLS_LIBS="-lstdc++ -lSPIRV-Tools"],
+                    [AC_MSG_ERROR([libSPIRV-Tools not found.])], [-lstdc++])])
+
 PKG_CHECK_MODULES([XCB], [xcb xcb-keysyms])
 
 dnl Check for functions
@@ -83,6 +96,11 @@ VKD3D_CHECK_SYNC_SUB_AND_FETCH_FUNC
 
 AM_CONDITIONAL([HAS_CROSSTARGET32], [test "x$CROSSTARGET32" != "xno"])
 AM_CONDITIONAL([HAS_CROSSTARGET64], [test "x$CROSSTARGET64" != "xno"])
+
+AS_IF([test "x$ac_cv_header_spirv_tools_libspirv_h" = "xyes" -a "x$ac_cv_lib_SPIRV_Tools_spvTextToBinary" = "xyes"],
+      [AC_DEFINE([HAVE_SPIRV_TOOLS], [1], [Define to 1 if you have SPIRV-Tools.])
+      HAVE_SPIRV_TOOLS=yes],
+      [HAVE_SPIRV_TOOLS=no])
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
@@ -93,6 +111,8 @@ AS_IF([test "x$CROSSTARGET32" != "xno" -o "x$CROSSTARGET64" != "xno"],
 
 AS_ECHO(["
   Configuration summary for $PACKAGE $VERSION
+
+  Have SPIRV-Tools: ${HAVE_SPIRV_TOOLS}
 
   Building crosstests: ${HAVE_CROSSTEST}"])
 AS_IF([test "x$CROSSTARGET32" != "xno"], [AS_ECHO(["    Using 32-bit cross compiler: $CROSSCC32"])])
