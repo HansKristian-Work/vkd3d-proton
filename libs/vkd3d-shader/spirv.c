@@ -171,6 +171,16 @@ static void vkd3d_spirv_set_execution_model(struct vkd3d_spirv_builder *builder,
     }
 }
 
+static void vkd3d_spirv_set_local_size(struct vkd3d_spirv_builder *builder,
+        unsigned int x, unsigned int y, unsigned int z)
+{
+    assert(builder->execution_model == SpvExecutionModelGLCompute);
+
+    builder->u.compute.local_size[0] = x;
+    builder->u.compute.local_size[1] = y;
+    builder->u.compute.local_size[2] = z;
+}
+
 static uint32_t vkd3d_spirv_opcode_word(SpvOp op, unsigned int word_count)
 {
     assert(!(op & ~SpvOpCodeMask));
@@ -582,6 +592,15 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
     return compiler;
 }
 
+static void vkd3d_dxbc_compiler_emit_dcl_thread_group(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    const struct vkd3d_shader_thread_group_size *group_size = &instruction->declaration.thread_group_size;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    vkd3d_spirv_set_local_size(builder, group_size->x, group_size->y, group_size->z);
+}
+
 static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -593,6 +612,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
 {
     switch (instruction->handler_idx)
     {
+        case VKD3DSIH_DCL_THREAD_GROUP:
+            vkd3d_dxbc_compiler_emit_dcl_thread_group(compiler, instruction);
+            break;
         case VKD3DSIH_RET:
             vkd3d_dxbc_compiler_emit_return(compiler, instruction);
             break;
