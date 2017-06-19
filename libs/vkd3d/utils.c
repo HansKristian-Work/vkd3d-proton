@@ -33,7 +33,7 @@ static const struct vkd3d_format vkd3d_formats[] =
     {DXGI_FORMAT_D32_FLOAT,           VK_FORMAT_D32_SFLOAT,               4,  VK_IMAGE_ASPECT_DEPTH_BIT},
     {DXGI_FORMAT_R32_FLOAT,           VK_FORMAT_R32_SFLOAT,               4,  VK_IMAGE_ASPECT_COLOR_BIT},
     {DXGI_FORMAT_R16_FLOAT,           VK_FORMAT_R16_SFLOAT,               2,  VK_IMAGE_ASPECT_COLOR_BIT},
-    {DXGI_FORMAT_D16_UNORM,           VK_FORMAT_D16_UNORM,                2,  VK_IMAGE_ASPECT_COLOR_BIT},
+    {DXGI_FORMAT_D16_UNORM,           VK_FORMAT_D16_UNORM,                2,  VK_IMAGE_ASPECT_DEPTH_BIT},
     {DXGI_FORMAT_R16_UNORM,           VK_FORMAT_R16_UNORM,                2,  VK_IMAGE_ASPECT_COLOR_BIT},
     {DXGI_FORMAT_R8_UNORM,            VK_FORMAT_R8_UNORM,                 1,  VK_IMAGE_ASPECT_COLOR_BIT},
     {DXGI_FORMAT_R8_UINT,             VK_FORMAT_R8_UINT,                  1,  VK_IMAGE_ASPECT_COLOR_BIT},
