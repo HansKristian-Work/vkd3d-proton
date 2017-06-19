@@ -37,7 +37,7 @@ static const char *debug_level_names[] =
     /* VKD3D_DBG_LEVEL_TRACE */ "trace",
 };
 
-static enum vkd3d_dbg_level vkd3d_dbg_get_level(void)
+enum vkd3d_dbg_level vkd3d_dbg_get_level(void)
 {
     static unsigned int level = ~0u;
     const char *vkd3d_debug;

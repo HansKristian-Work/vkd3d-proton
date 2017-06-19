@@ -30,6 +30,8 @@ enum vkd3d_dbg_level
     VKD3D_DBG_LEVEL_TRACE,
 };
 
+enum vkd3d_dbg_level vkd3d_dbg_get_level(void) DECLSPEC_HIDDEN;
+
 void vkd3d_dbg_printf(enum vkd3d_dbg_level level, const char *function,
         const char *fmt, ...) VKD3D_PRINTF_FUNC(3, 4) DECLSPEC_HIDDEN;
 
@@ -49,6 +51,8 @@ const char *debugstr_w(const WCHAR *wstr) DECLSPEC_HIDDEN;
 #define WARN  VKD3D_DBG_LOG(WARN)
 #define FIXME VKD3D_DBG_LOG(FIXME)
 #define ERR   VKD3D_DBG_LOG(ERR)
+
+#define TRACE_ON() (vkd3d_dbg_get_level() == VKD3D_DBG_LEVEL_TRACE)
 
 static inline const char *debugstr_guid(const GUID *guid)
 {
