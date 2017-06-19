@@ -93,11 +93,13 @@ libvkd3d_utils_la_SOURCES = \
 	libs/vkd3d-utils/vkd3d_utils_private.h
 libvkd3d_utils_la_LIBADD = libvkd3d-common.la libvkd3d.la
 
+EXTRA_DIST = LICENSE
+
 pkgconfigdir = $(libdir)/pkgconfig
 pkginclude_HEADERS = $(vkd3d_public_headers)
 nodist_pkgconfig_DATA = libvkd3d.pc
 CLEANFILES += libvkd3d.pc
-EXTRA_DIST = libs/vkd3d/libvkd3d.pc.in
+EXTRA_DIST += libs/vkd3d/libvkd3d.pc.in
 
 bin_PROGRAMS = vkd3d-compiler
 vkd3d_compiler_SOURCES = programs/vkd3d-compiler/main.c
