@@ -131,6 +131,15 @@ typedef struct D3D12_DRAW_ARGUMENTS
     UINT StartInstanceLocation;
 } D3D12_DRAW_ARGUMENTS;
 
+typedef struct D3D12_DRAW_INDEXED_ARGUMENTS
+{
+    UINT IndexCountPerInstance;
+    UINT InstanceCount;
+    UINT StartIndexLocation;
+    INT BaseVertexLocation;
+    UINT StartInstanceLocation;
+} D3D12_DRAW_INDEXED_ARGUMENTS;
+
 typedef enum D3D12_HEAP_TYPE
 {
     D3D12_HEAP_TYPE_DEFAULT = 1,
