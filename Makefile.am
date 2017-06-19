@@ -65,6 +65,7 @@ libvkd3d_shader_la_SOURCES = \
 	include/private/vkd3d_debug.h \
 	include/private/vkd3d_memory.h \
 	libs/vkd3d-shader/dxbc.c \
+	libs/vkd3d-shader/spirv.c \
 	libs/vkd3d-shader/vkd3d_shader_main.c \
 	libs/vkd3d-shader/vkd3d_shader_private.h
 libvkd3d_shader_la_LIBADD = libvkd3d-common.la
