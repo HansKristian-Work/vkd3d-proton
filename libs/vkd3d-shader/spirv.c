@@ -17,7 +17,9 @@
  */
 
 #include "vkd3d_shader_private.h"
+#include "rbtree.h"
 
+#include <stdio.h>
 #include "spirv/1.0/spirv.h"
 #ifdef HAVE_SPIRV_TOOLS
 # include "spirv-tools/libspirv.h"
@@ -311,6 +313,13 @@ static uint32_t vkd3d_spirv_build_op_trv(struct vkd3d_spirv_builder *builder,
     return result_id;
 }
 
+static uint32_t vkd3d_spirv_build_op_tr1(struct vkd3d_spirv_builder *builder,
+        struct vkd3d_spirv_stream *stream, SpvOp op, uint32_t result_type,
+        uint32_t operand0)
+{
+    return vkd3d_spirv_build_op_trv(builder, stream, op, result_type, &operand0, 1);
+}
+
 static uint32_t vkd3d_spirv_build_op_tr2(struct vkd3d_spirv_builder *builder,
         struct vkd3d_spirv_stream *stream, SpvOp op, uint32_t result_type,
         uint32_t operand0, uint32_t operand1)
@@ -390,6 +399,20 @@ static uint32_t vkd3d_spirv_build_op_type_function(struct vkd3d_spirv_builder *b
 {
     return vkd3d_spirv_build_op_r1v(builder, &builder->global_stream,
             SpvOpTypeFunction, return_type, param_types, param_count);
+}
+
+static uint32_t vkd3d_spirv_build_op_type_pointer(struct vkd3d_spirv_builder *builder,
+        uint32_t storage_class, uint32_t type_id)
+{
+    return vkd3d_spirv_build_op_r2(builder, &builder->global_stream,
+            SpvOpTypePointer, storage_class, type_id);
+}
+
+/* Initializers are not supported. */
+static uint32_t vkd3d_spirv_build_op_variable(struct vkd3d_spirv_builder *builder,
+        struct vkd3d_spirv_stream *stream, uint32_t type_id, uint32_t storage_class)
+{
+    return vkd3d_spirv_build_op_tr1(builder, stream, SpvOpVariable, type_id, storage_class);
 }
 
 static uint32_t vkd3d_spirv_build_op_function(struct vkd3d_spirv_builder *builder,
@@ -546,11 +569,78 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
     return true;
 }
 
+struct vkd3d_symbol_pointer_type
+{
+    uint32_t type_id;
+    SpvStorageClass storage_class;
+};
+
+struct vkd3d_symbol
+{
+    struct rb_entry entry;
+
+    enum
+    {
+        VKD3D_SYMBOL_POINTER_TYPE,
+    } type;
+
+    union
+    {
+        struct vkd3d_symbol_pointer_type pointer_type;
+    } key;
+
+    uint32_t id;
+    union
+    {
+        SpvStorageClass storage_class;
+    } info;
+};
+
+static int vkd3d_symbol_compare(const void *key, const struct rb_entry *entry)
+{
+    const struct vkd3d_symbol *a = key;
+    const struct vkd3d_symbol *b = RB_ENTRY_VALUE(entry, const struct vkd3d_symbol, entry);
+
+    if (a->type != b->type)
+        return a->type - b->type;
+    return memcmp(&a->key, &b->key, sizeof(a->key));
+}
+
+static void vkd3d_symbol_free(struct rb_entry *entry, void *context)
+{
+    struct vkd3d_symbol *s = RB_ENTRY_VALUE(entry, struct vkd3d_symbol, entry);
+
+    vkd3d_free(s);
+}
+
+static void vkd3d_symbol_make_pointer_type(struct vkd3d_symbol *symbol,
+        uint32_t type_id, SpvStorageClass storage_class)
+{
+    symbol->type = VKD3D_SYMBOL_POINTER_TYPE;
+    memset(&symbol->key, 0, sizeof(symbol->key));
+    symbol->key.pointer_type.type_id = type_id;
+    symbol->key.pointer_type.storage_class = storage_class;
+}
+
+static struct vkd3d_symbol *vkd3d_symbol_dup(const struct vkd3d_symbol *symbol)
+{
+    struct vkd3d_symbol *s;
+
+    if (!(s = vkd3d_malloc(sizeof(*s))))
+        return NULL;
+
+    return memcpy(s, symbol, sizeof(*s));
+}
+
 struct vkd3d_dxbc_compiler
 {
     struct vkd3d_spirv_builder spirv_builder;
 
     uint32_t options;
+
+    struct rb_tree symbol_table;
+    uint32_t temp_id;
+    unsigned int temp_count;
 };
 
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
@@ -564,6 +654,8 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
     memset(compiler, 0, sizeof(*compiler));
     vkd3d_spirv_builder_init(&compiler->spirv_builder);
     compiler->options = compiler_options;
+
+    rb_init(&compiler->symbol_table, vkd3d_symbol_compare);
 
     switch (shader_version->type)
     {
@@ -592,6 +684,60 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
     return compiler;
 }
 
+static void vkd3d_dxbc_compiler_put_symbol(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_symbol *symbol)
+{
+    struct vkd3d_symbol *s;
+
+    s = vkd3d_symbol_dup(symbol);
+    if (rb_put(&compiler->symbol_table, s, &s->entry) == -1)
+    {
+        ERR("Failed to insert symbol entry.\n");
+        vkd3d_free(s);
+    }
+}
+
+static uint32_t vkd3d_dxbc_compiler_get_pointer_type(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t type_id, SpvStorageClass storage_class)
+{
+    struct vkd3d_symbol pointer_type;
+    struct rb_entry *entry;
+
+    vkd3d_symbol_make_pointer_type(&pointer_type, type_id, storage_class);
+    if ((entry = rb_get(&compiler->symbol_table, &pointer_type)))
+        return RB_ENTRY_VALUE(entry, struct vkd3d_symbol, entry)->id;
+
+    pointer_type.id = vkd3d_spirv_build_op_type_pointer(&compiler->spirv_builder, storage_class, type_id);
+    vkd3d_dxbc_compiler_put_symbol(compiler, &pointer_type);
+    return pointer_type.id;
+}
+
+static void vkd3d_dxbc_compiler_emit_dcl_temps(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t type_id, ptr_type_id, id;
+    char debug_name[100];
+    unsigned int i;
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
+    ptr_type_id = vkd3d_dxbc_compiler_get_pointer_type(compiler, type_id, SpvStorageClassFunction);
+
+    assert(!compiler->temp_count);
+    compiler->temp_count = instruction->declaration.count;
+    for (i = 0; i < compiler->temp_count; ++i)
+    {
+        id = vkd3d_spirv_build_op_variable(builder, &builder->function_stream,
+                ptr_type_id, SpvStorageClassFunction);
+        if (!i)
+            compiler->temp_id = id;
+        assert(id == compiler->temp_id + i);
+
+        sprintf(debug_name, "r%u", i);
+        vkd3d_spirv_build_op_name(builder, id, debug_name);
+    }
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_thread_group(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -612,6 +758,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
 {
     switch (instruction->handler_idx)
     {
+        case VKD3DSIH_DCL_TEMPS:
+            vkd3d_dxbc_compiler_emit_dcl_temps(compiler, instruction);
+            break;
         case VKD3DSIH_DCL_THREAD_GROUP:
             vkd3d_dxbc_compiler_emit_dcl_thread_group(compiler, instruction);
             break;
@@ -641,6 +790,8 @@ bool vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
 void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler)
 {
     vkd3d_spirv_builder_free(&compiler->spirv_builder);
+
+    rb_destroy(&compiler->symbol_table, vkd3d_symbol_free, NULL);
 
     vkd3d_free(compiler);
 }
