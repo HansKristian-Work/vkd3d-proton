@@ -827,4 +827,55 @@ bool vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_code *spirv) DECLSPEC_HIDDEN;
 void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler) DECLSPEC_HIDDEN;
 
+static inline enum vkd3d_component_type vkd3d_component_type_from_data_type(
+        enum vkd3d_data_type data_type)
+{
+    switch (data_type)
+    {
+        case VKD3D_DATA_FLOAT:
+            return VKD3D_TYPE_FLOAT;
+        case VKD3D_DATA_UINT:
+            return VKD3D_TYPE_UINT;
+        case VKD3D_DATA_INT:
+            return VKD3D_TYPE_INT;
+        default:
+            FIXME("Unhandled data type %#x.\n", data_type);
+            return VKD3D_TYPE_UINT;
+    }
+}
+
+static inline unsigned int vkd3d_write_mask_get_component_idx(DWORD write_mask)
+{
+    unsigned int i;
+
+    for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
+    {
+        if (write_mask & (VKD3DSP_WRITEMASK_0 << i))
+            return i;
+    }
+
+    FIXME("Invalid write mask %#x.\n", write_mask);
+    return 0;
+}
+
+static inline unsigned int vkd3d_write_mask_component_count(DWORD write_mask)
+{
+    unsigned int i, count = 0;
+
+    for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
+    {
+        if (write_mask & (VKD3DSP_WRITEMASK_0 << i))
+            ++count;
+    }
+
+    return count;
+}
+
+static inline unsigned int vkd3d_swizzle_get_component(DWORD swizzle,
+        unsigned int idx)
+{
+    /* swizzle bits fields: wwzzyyxx */
+    return (swizzle >> (2 * idx)) & 0x3;
+}
+
 #endif  /* __VKD3D_SHADER_PRIVATE_H */
