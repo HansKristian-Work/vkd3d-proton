@@ -878,4 +878,6 @@ static inline unsigned int vkd3d_swizzle_get_component(DWORD swizzle,
     return (swizzle >> (2 * idx)) & 0x3;
 }
 
+#define VKD3D_DXBC_MAX_SOURCE_COUNT 6
+
 #endif  /* __VKD3D_SHADER_PRIVATE_H */

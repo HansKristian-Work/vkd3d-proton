@@ -1358,6 +1358,68 @@ static void vkd3d_dxbc_compiler_emit_dcl_thread_group(struct vkd3d_dxbc_compiler
     vkd3d_spirv_set_local_size(builder, group_size->x, group_size->y, group_size->z);
 }
 
+static SpvOp vkd3d_dxbc_compiler_map_alu_instruction(const struct vkd3d_shader_instruction *instruction)
+{
+    static const struct
+    {
+        enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx;
+        SpvOp spirv_op;
+    }
+    alu_ops[] =
+    {
+        {VKD3DSIH_ADD,  SpvOpFAdd},
+        {VKD3DSIH_AND,  SpvOpBitwiseAnd},
+        {VKD3DSIH_DIV,  SpvOpFDiv},
+        {VKD3DSIH_MUL,  SpvOpFMul},
+        {VKD3DSIH_UTOF, SpvOpConvertUToF},
+    };
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(alu_ops); ++i)
+    {
+        if (alu_ops[i].handler_idx == instruction->handler_idx)
+            return alu_ops[i].spirv_op;
+    }
+
+    return SpvOpMax;
+}
+
+static void vkd3d_dxbc_compiler_emit_alu_instruction(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t src_ids[VKD3D_DXBC_MAX_SOURCE_COUNT];
+    unsigned int component_count;
+    uint32_t type_id, val_id;
+    unsigned int i;
+    SpvOp op;
+
+    op = vkd3d_dxbc_compiler_map_alu_instruction(instruction);
+    if (op == SpvOpMax)
+    {
+        FIXME("Unhandled ALU instruction %#x.\n", instruction->handler_idx);
+        return;
+    }
+
+    assert(instruction->dst_count == 1);
+    assert(instruction->src_count <= VKD3D_DXBC_MAX_SOURCE_COUNT);
+
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    type_id = vkd3d_spirv_get_type_id(builder,
+            vkd3d_component_type_from_data_type(dst->reg.data_type), component_count);
+
+    for (i = 0; i < instruction->src_count; ++i)
+        src_ids[i] = vkd3d_dxbc_compiler_emit_load_reg(compiler,
+                &src[i].reg, src[i].swizzle, dst->write_mask);
+
+    val_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream, op, type_id,
+            src_ids, instruction->src_count);
+
+    vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
+}
+
 static void vkd3d_dxbc_compiler_emit_mov(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -1394,6 +1456,13 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_MOV:
             vkd3d_dxbc_compiler_emit_mov(compiler, instruction);
+            break;
+        case VKD3DSIH_ADD:
+        case VKD3DSIH_AND:
+        case VKD3DSIH_DIV:
+        case VKD3DSIH_MUL:
+        case VKD3DSIH_UTOF:
+            vkd3d_dxbc_compiler_emit_alu_instruction(compiler, instruction);
             break;
         case VKD3DSIH_RET:
             vkd3d_dxbc_compiler_emit_return(compiler, instruction);
