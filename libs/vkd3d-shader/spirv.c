@@ -883,6 +883,13 @@ static void vkd3d_dxbc_compiler_emit_dcl_output(struct vkd3d_dxbc_compiler *comp
     vkd3d_dxbc_compiler_emit_output(compiler, &instruction->declaration.dst, VKD3D_SIV_NONE);
 }
 
+static void vkd3d_dxbc_compiler_emit_dcl_output_siv(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    vkd3d_dxbc_compiler_emit_output(compiler, &instruction->declaration.dst,
+            instruction->declaration.register_semantic.sysval_semantic);
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_thread_group(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -908,6 +915,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL_OUTPUT:
             vkd3d_dxbc_compiler_emit_dcl_output(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_OUTPUT_SIV:
+            vkd3d_dxbc_compiler_emit_dcl_output_siv(compiler, instruction);
             break;
         case VKD3DSIH_DCL_THREAD_GROUP:
             vkd3d_dxbc_compiler_emit_dcl_thread_group(compiler, instruction);
