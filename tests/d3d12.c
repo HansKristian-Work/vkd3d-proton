@@ -540,7 +540,7 @@ static bool init_draw_test_context_(unsigned int line, struct draw_test_context 
         0x0000001c, 0x0000002f, 0x0000002d, 0x0000002e, 0x0000002c, 0x00000029, 0x00050041, 0x00000030,
         0x00000031, 0x00000021, 0x00000022, 0x0003003e, 0x00000031, 0x0000002f, 0x000100fd, 0x00010038,
     };
-    static const DWORD dxbc_ps_code[] =
+    static const DWORD ps_code[] =
     {
 #if 0
         void main(const in float4 position : SV_Position, out float4 target : SV_Target0)
@@ -555,28 +555,6 @@ static bool init_draw_test_context_(unsigned int line, struct draw_test_context 
         0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x0000003c, 0x00000050,
         0x0000000f, 0x0100086a, 0x03000065, 0x001020f2, 0x00000000, 0x08000036, 0x001020f2, 0x00000000,
         0x00004002, 0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000, 0x0100003e,
-    };
-    static const DWORD spv_ps_code[] =
-    {
-#if 0
-        #version 450 core
-
-        layout(location = 0) out vec4 target;
-
-        void main()
-        {
-            target = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-        }
-#endif
-        0x07230203, 0x00010000, 0x00080001, 0x0000000c, 0x00000000, 0x00020011, 0x00000001, 0x0006000b,
-        0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e, 0x00000000, 0x0003000e, 0x00000000, 0x00000001,
-        0x0006000f, 0x00000004, 0x00000004, 0x6e69616d, 0x00000000, 0x00000009, 0x00030010, 0x00000004,
-        0x00000007, 0x00040047, 0x00000009, 0x0000001e, 0x00000000, 0x00020013, 0x00000002, 0x00030021,
-        0x00000003, 0x00000002, 0x00030016, 0x00000006, 0x00000020, 0x00040017, 0x00000007, 0x00000006,
-        0x00000004, 0x00040020, 0x00000008, 0x00000003, 0x00000007, 0x0004003b, 0x00000008, 0x00000009,
-        0x00000003, 0x0004002b, 0x00000006, 0x0000000a, 0x3f800000, 0x0007002c, 0x00000007, 0x0000000b,
-        0x0000000a, 0x0000000a, 0x0000000a, 0x0000000a, 0x00050036, 0x00000002, 0x00000004, 0x00000000,
-        0x00000003, 0x000200f8, 0x00000005, 0x0003003e, 0x00000009, 0x0000000b, 0x000100fd, 0x00010038,
     };
 
     if (!(context->device = create_device()))
@@ -652,7 +630,7 @@ static bool init_draw_test_context_(unsigned int line, struct draw_test_context 
     memset(&pipeline_state_desc, 0, sizeof(pipeline_state_desc));
     pipeline_state_desc.pRootSignature = context->root_signature;
     pipeline_state_desc.VS = SHADER_BYTECODE(dxbc_vs_code, spv_vs_code);
-    pipeline_state_desc.PS = SHADER_BYTECODE(dxbc_ps_code, spv_ps_code);
+    pipeline_state_desc.PS = shader_bytecode(ps_code, sizeof(ps_code));
     pipeline_state_desc.StreamOutput.RasterizedStream = 0;
     pipeline_state_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
     pipeline_state_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
