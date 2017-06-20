@@ -1525,6 +1525,39 @@ static void vkd3d_dxbc_compiler_emit_mov(struct vkd3d_dxbc_compiler *compiler,
     vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
 }
 
+static void vkd3d_dxbc_compiler_emit_dot(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t type_id, val_id, src_ids[2];
+    DWORD write_mask;
+    unsigned int i;
+
+    assert(vkd3d_write_mask_component_count(dst->write_mask) == 1);
+
+    if (instruction->handler_idx == VKD3DSIH_DP4)
+        write_mask = VKD3DSP_WRITEMASK_ALL;
+    else if (instruction->handler_idx == VKD3DSIH_DP3)
+        write_mask = VKD3DSP_WRITEMASK_0 | VKD3DSP_WRITEMASK_1 | VKD3DSP_WRITEMASK_2;
+    else
+        write_mask = VKD3DSP_WRITEMASK_0 | VKD3DSP_WRITEMASK_1;
+
+    assert(instruction->src_count == ARRAY_SIZE(src_ids));
+    for (i = 0; i < instruction->src_count; ++i)
+        src_ids[i] = vkd3d_dxbc_compiler_emit_load_reg(compiler,
+                &src[i].reg, src[i].swizzle, write_mask);
+
+    type_id = vkd3d_spirv_get_type_id(builder,
+            vkd3d_component_type_from_data_type(dst->reg.data_type), 1);
+
+    val_id = vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            SpvOpDot, type_id, src_ids[0], src_ids[1]);
+
+    vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
+}
+
 static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -1561,6 +1594,11 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_MAD:
         case VKD3DSIH_RSQ:
             vkd3d_dxbc_compiler_emit_ext_glsl_instruction(compiler, instruction);
+            break;
+        case VKD3DSIH_DP4:
+        case VKD3DSIH_DP3:
+        case VKD3DSIH_DP2:
+            vkd3d_dxbc_compiler_emit_dot(compiler, instruction);
             break;
         case VKD3DSIH_RET:
             vkd3d_dxbc_compiler_emit_return(compiler, instruction);
