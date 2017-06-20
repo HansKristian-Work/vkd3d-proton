@@ -675,6 +675,8 @@ static void vkd3d_spirv_builder_free(struct vkd3d_spirv_builder *builder)
     vkd3d_spirv_stream_free(&builder->annotation_stream);
     vkd3d_spirv_stream_free(&builder->global_stream);
     vkd3d_spirv_stream_free(&builder->function_stream);
+
+    vkd3d_free(builder->iface);
 }
 
 static void vkd3d_spirv_build_execution_mode_declarations(struct vkd3d_spirv_builder *builder,
