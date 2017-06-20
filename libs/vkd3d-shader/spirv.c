@@ -21,6 +21,7 @@
 
 #include <stdio.h>
 #include "spirv/1.0/spirv.h"
+#include "spirv/1.0/GLSL.std.450.h"
 #ifdef HAVE_SPIRV_TOOLS
 # include "spirv-tools/libspirv.h"
 #endif /* HAVE_SPIRV_TOOLS */
@@ -122,6 +123,7 @@ static bool vkd3d_spirv_stream_append(struct vkd3d_spirv_stream *dst_stream,
 struct vkd3d_spirv_builder
 {
     uint64_t capability_mask;
+    uint32_t ext_instr_set_glsl_450;
     SpvExecutionModel execution_model;
 
     uint32_t current_id;
@@ -152,6 +154,14 @@ static void vkd3d_spirv_enable_capability(struct vkd3d_spirv_builder *builder,
 {
     assert(cap < sizeof(builder->capability_mask) * CHAR_BIT);
     builder->capability_mask |= 1ull << cap;
+}
+
+static uint32_t vkd3d_spirv_get_glsl_std_450_instr_set(struct vkd3d_spirv_builder *builder)
+{
+    if (!builder->ext_instr_set_glsl_450)
+        builder->ext_instr_set_glsl_450 = builder->current_id++;
+
+    return builder->ext_instr_set_glsl_450;
 }
 
 static void vkd3d_spirv_add_iface_variable(struct vkd3d_spirv_builder *builder,
@@ -391,6 +401,23 @@ static void vkd3d_spirv_build_op_capability(struct vkd3d_spirv_stream *stream,
         SpvCapability cap)
 {
     vkd3d_spirv_build_op1(stream, SpvOpCapability, cap);
+}
+
+static void vkd3d_spirv_build_op_ext_inst_import(struct vkd3d_spirv_stream *stream,
+        uint32_t result_id, const char *name)
+{
+    unsigned int name_size = vkd3d_spirv_string_word_count(name);
+    vkd3d_spirv_build_word(stream, vkd3d_spirv_opcode_word(SpvOpExtInstImport, 2 + name_size));
+    vkd3d_spirv_build_word(stream, result_id);
+    vkd3d_spirv_build_string(stream, name, name_size);
+}
+
+static uint32_t vkd3d_spirv_build_op_ext_inst(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t inst_set, uint32_t inst_number,
+        unsigned int operand_count, uint32_t *operands)
+{
+    return vkd3d_spirv_build_op_tr2v(builder, &builder->function_stream,
+            SpvOpExtInst, result_type, inst_set, inst_number, operands, operand_count);
 }
 
 static void vkd3d_spirv_build_op_memory_model(struct vkd3d_spirv_stream *stream,
@@ -685,6 +712,9 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
             vkd3d_spirv_build_op_capability(&stream, i);
         capability_mask >>= 1;
     }
+
+    if (builder->ext_instr_set_glsl_450)
+        vkd3d_spirv_build_op_ext_inst_import(&stream, builder->ext_instr_set_glsl_450, "GLSL.std.450");
 
     vkd3d_spirv_build_op_memory_model(&stream, SpvAddressingModelLogical, SpvMemoryModelGLSL450);
     vkd3d_spirv_build_op_entry_point(&stream, builder->execution_model, builder->main_function_id,
@@ -1420,6 +1450,68 @@ static void vkd3d_dxbc_compiler_emit_alu_instruction(struct vkd3d_dxbc_compiler 
     vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
 }
 
+static enum GLSLstd450 vkd3d_dxbc_compiler_map_ext_glsl_instruction(
+        const struct vkd3d_shader_instruction *instruction)
+{
+    static const struct
+    {
+        enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx;
+        enum GLSLstd450 glsl_inst;
+    }
+    glsl_insts[] =
+    {
+        {VKD3DSIH_MAD, GLSLstd450Fma},
+        {VKD3DSIH_RSQ, GLSLstd450InverseSqrt},
+    };
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(glsl_insts); ++i)
+    {
+        if (glsl_insts[i].handler_idx == instruction->handler_idx)
+            return glsl_insts[i].glsl_inst;
+    }
+
+    return GLSLstd450Bad;
+}
+
+static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t src_id[VKD3D_DXBC_MAX_SOURCE_COUNT];
+    uint32_t instr_set_id, type_id, val_id;
+    unsigned int component_count;
+    enum GLSLstd450 glsl_inst;
+    unsigned int i;
+
+    glsl_inst = vkd3d_dxbc_compiler_map_ext_glsl_instruction(instruction);
+    if (glsl_inst == GLSLstd450Bad)
+    {
+        FIXME("Unhandled GLSLstd450 instruction %#x.\n", instruction->handler_idx);
+        return;
+    }
+
+    instr_set_id = vkd3d_spirv_get_glsl_std_450_instr_set(builder);
+
+    assert(instruction->dst_count == 1);
+    assert(instruction->src_count <= VKD3D_DXBC_MAX_SOURCE_COUNT);
+
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    type_id = vkd3d_spirv_get_type_id(builder,
+            vkd3d_component_type_from_data_type(dst->reg.data_type), component_count);
+
+    for (i = 0; i < instruction->src_count; ++i)
+        src_id[i] = vkd3d_dxbc_compiler_emit_load_reg(compiler,
+                &src[i].reg, src[i].swizzle, dst->write_mask);
+
+    val_id = vkd3d_spirv_build_op_ext_inst(builder, type_id,
+            instr_set_id, glsl_inst, instruction->src_count, src_id);
+
+    vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
+}
+
 static void vkd3d_dxbc_compiler_emit_mov(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -1463,6 +1555,10 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_MUL:
         case VKD3DSIH_UTOF:
             vkd3d_dxbc_compiler_emit_alu_instruction(compiler, instruction);
+            break;
+        case VKD3DSIH_MAD:
+        case VKD3DSIH_RSQ:
+            vkd3d_dxbc_compiler_emit_ext_glsl_instruction(compiler, instruction);
             break;
         case VKD3DSIH_RET:
             vkd3d_dxbc_compiler_emit_return(compiler, instruction);
