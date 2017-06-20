@@ -601,6 +601,13 @@ static void vkd3d_spirv_build_op_return(struct vkd3d_spirv_builder *builder)
     vkd3d_spirv_build_op(&builder->function_stream, SpvOpReturn);
 }
 
+static uint32_t vkd3d_spirv_build_op_and(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t operand0, uint32_t operand1)
+{
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            SpvOpBitwiseAnd, result_type, operand0, operand1);
+}
+
 static uint32_t vkd3d_spirv_build_op_bitcast(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand)
 {
@@ -1629,6 +1636,48 @@ static void vkd3d_dxbc_compiler_emit_dot(struct vkd3d_dxbc_compiler *compiler,
     vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
 }
 
+static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t src_ids[4], result_id, type_id, mask_id;
+    unsigned int i, j, src_count;
+    DWORD write_mask;
+    SpvOp op;
+
+    src_count = instruction->src_count;
+    assert(2 <= src_count && src_count <= ARRAY_SIZE(src_ids));
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    mask_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0x1f);
+
+    op = SpvOpBitFieldInsert;
+
+    for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
+    {
+        if (!(write_mask = dst->write_mask & (VKD3DSP_WRITEMASK_0 << i)))
+            continue;
+
+        for (j = 0; j < src_count; ++j)
+            src_ids[src_count - j - 1] = vkd3d_dxbc_compiler_emit_load_reg(compiler,
+                    &src[j].reg, src[j].swizzle, write_mask);
+
+        for (j = src_count - 2; j < src_count; ++j)
+        {
+            if (instruction->src[src_count - j - 1].reg.type != VKD3DSPR_IMMCONST)
+                src_ids[j] = vkd3d_spirv_build_op_and(builder, type_id, src_ids[j], mask_id);
+        }
+
+        result_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
+                op, type_id, src_ids, src_count);
+
+        vkd3d_dxbc_compiler_emit_store_reg(compiler,
+                &dst->reg, write_mask, result_id);
+    }
+}
+
 static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -1679,6 +1728,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_DP3:
         case VKD3DSIH_DP2:
             vkd3d_dxbc_compiler_emit_dot(compiler, instruction);
+            break;
+        case VKD3DSIH_BFI:
+            vkd3d_dxbc_compiler_emit_bitfield_instruction(compiler, instruction);
             break;
         case VKD3DSIH_RET:
             vkd3d_dxbc_compiler_emit_return(compiler, instruction);
