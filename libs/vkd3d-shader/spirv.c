@@ -886,6 +886,8 @@ struct vkd3d_dxbc_compiler
     uint32_t temp_id;
     unsigned int temp_count;
     uint32_t position_id;
+
+    enum vkd3d_shader_type shader_type;
 };
 
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
@@ -925,6 +927,8 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
         default:
             ERR("Invalid shader type %#x.\n", shader_version->type);
     }
+
+    compiler->shader_type = shader_version->type;
 
     return compiler;
 }
@@ -1321,15 +1325,19 @@ static void vkd3d_dxbc_compiler_emit_store_reg(struct vkd3d_dxbc_compiler *compi
     vkd3d_spirv_build_op_store(builder, reg_id, val_id, SpvMemoryAccessMaskNone);
 }
 
-static void vkd3d_dxbc_compiler_decorate_sysval(struct vkd3d_spirv_builder *builder,
+static void vkd3d_dxbc_compiler_decorate_sysval(struct vkd3d_dxbc_compiler *compiler,
         uint32_t target_id, enum vkd3d_shader_input_sysval_semantic sysval)
 {
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     SpvBuiltIn builtin;
 
     switch (sysval)
     {
         case VKD3D_SIV_POSITION:
-            builtin = SpvBuiltInPosition;
+            if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL)
+                builtin = SpvBuiltInFragCoord;
+            else
+                builtin = SpvBuiltInPosition;
             break;
         case VKD3D_SIV_VERTEX_ID:
             builtin = SpvBuiltInVertexIndex;
@@ -1357,7 +1365,7 @@ static void vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
             storage_class, component_type, component_count);
     vkd3d_spirv_add_iface_variable(builder, var_id);
     if (sysval)
-        vkd3d_dxbc_compiler_decorate_sysval(builder, var_id, sysval);
+        vkd3d_dxbc_compiler_decorate_sysval(compiler, var_id, sysval);
     else
         vkd3d_spirv_build_op_decorate1(builder, var_id, SpvDecorationLocation, dst->reg.idx[0].offset);
 
@@ -1407,7 +1415,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
             storage_class, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
     vkd3d_spirv_add_iface_variable(builder, id);
     if (sysval)
-        vkd3d_dxbc_compiler_decorate_sysval(builder, id, sysval);
+        vkd3d_dxbc_compiler_decorate_sysval(compiler, id, sysval);
     else
         vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationLocation, reg->idx[0].offset);
 

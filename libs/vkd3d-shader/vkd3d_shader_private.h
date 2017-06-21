@@ -833,6 +833,7 @@ static inline enum vkd3d_component_type vkd3d_component_type_for_semantic(
     switch (sysval)
     {
         case VKD3D_SIV_NONE:
+        case VKD3D_SIV_POSITION:
             return VKD3D_TYPE_FLOAT;
         case VKD3D_SIV_VERTEX_ID:
             return VKD3D_TYPE_INT;
