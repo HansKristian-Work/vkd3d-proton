@@ -51,7 +51,7 @@ static void vkd3d_spirv_dump(const struct vkd3d_shader_code *spirv)
     }
     else
     {
-        TRACE("Failed to convert SPIR-V to binary text, ret %d.\n", ret);
+        TRACE("Failed to convert SPIR-V binary to text, ret %d.\n", ret);
         TRACE("Diagnostic message: %s.\n", debugstr_a(diagnostic->error));
     }
 
