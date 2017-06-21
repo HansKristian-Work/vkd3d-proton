@@ -356,6 +356,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     static const char * const extensions[] =
     {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+        VK_KHR_MAINTENANCE1_EXTENSION_NAME,
     };
 
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance.vk_procs;
