@@ -70,7 +70,7 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_level level, const char *function, const ch
     if (vkd3d_dbg_get_level() < level)
         return;
 
-    assert(level <= ARRAY_SIZE(debug_level_names));
+    assert(level < ARRAY_SIZE(debug_level_names));
 
     fprintf(stderr, "%s:%s: ", debug_level_names[level], function);
     va_start(args, fmt);
