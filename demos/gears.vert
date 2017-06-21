@@ -35,6 +35,4 @@ void main()
 
     colour_out.xyz = diffuse_in.xyz * att;
     colour_out.w = 1.0;
-
-    gl_Position.y = -gl_Position.y;
 }

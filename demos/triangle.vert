@@ -8,7 +8,6 @@ layout(location = 0) out vec4 colour_out;
 
 void main(void)
 {
-    gl_Position.xzw = position_in.xzw;
-    gl_Position.y = -position_in.y;
+    gl_Position = position_in;
     colour_out = colour_in;
 }

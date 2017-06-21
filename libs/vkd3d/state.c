@@ -815,22 +815,11 @@ static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentSta
         FIXME("Ignoring LogicOpEnable %#x.\n", d3d12_desc->LogicOpEnable);
 }
 
-static enum VkShaderStageFlagBits get_last_vertex_processing_stage(
-        const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc)
-{
-    if (desc->GS.pShaderBytecode)
-        return VK_SHADER_STAGE_GEOMETRY_BIT;
-    if (desc->DS.pShaderBytecode)
-        return VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
-    return VK_SHADER_STAGE_VERTEX_BIT;
-}
-
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    enum VkShaderStageFlagBits last_vertex_stage;
     struct VkSubpassDescription sub_pass_desc;
     struct VkRenderPassCreateInfo pass_desc;
     const struct vkd3d_format *format;
@@ -858,20 +847,15 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     state->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
     state->refcount = 1;
 
-    last_vertex_stage = get_last_vertex_processing_stage(desc);
     for (i = 0, graphics->stage_count = 0; i < ARRAY_SIZE(shader_stages); ++i)
     {
         const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
-        uint32_t compiler_options = 0;
 
         if (!b->pShaderBytecode)
             continue;
 
-        if (shader_stages[i].stage == last_vertex_stage)
-            compiler_options |= VKD3D_SHADER_FLIP_Y;
-
         if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
-                shader_stages[i].stage, b, compiler_options)))
+                shader_stages[i].stage, b, 0)))
             goto fail;
 
         ++graphics->stage_count;

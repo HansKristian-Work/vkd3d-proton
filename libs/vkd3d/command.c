@@ -1807,14 +1807,27 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(ID3D12Gr
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(ID3D12GraphicsCommandList *iface,
         UINT viewport_count, const D3D12_VIEWPORT *viewports)
 {
+    VkViewport vk_viewports[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs;
+    unsigned int i;
 
     TRACE("iface %p, viewport_count %u, viewports %p.\n", iface, viewport_count, viewports);
 
+    assert(viewport_count <= D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE);
+
+    for (i = 0; i < viewport_count; ++i)
+    {
+        vk_viewports[i].x = viewports[i].TopLeftX;
+        vk_viewports[i].y = viewports[i].TopLeftY + viewports[i].Height;
+        vk_viewports[i].width = viewports[i].Width;
+        vk_viewports[i].height = -viewports[i].Height;
+        vk_viewports[i].minDepth = viewports[i].MinDepth;
+        vk_viewports[i].maxDepth = viewports[i].MaxDepth;
+    }
+
     vk_procs = &list->device->vk_procs;
-    VK_CALL(vkCmdSetViewport(list->vk_command_buffer, 0,
-            viewport_count, (const struct VkViewport *)viewports));
+    VK_CALL(vkCmdSetViewport(list->vk_command_buffer, 0, viewport_count, vk_viewports));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(ID3D12GraphicsCommandList *iface,
