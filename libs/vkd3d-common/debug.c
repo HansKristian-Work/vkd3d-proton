@@ -92,14 +92,12 @@ const char *vkd3d_dbg_sprintf(const char *fmt, ...)
 {
     char *buffer;
     va_list args;
-    int size;
 
     buffer = get_buffer();
     va_start(args, fmt);
-    size = vsnprintf(buffer, VKD3D_DEBUG_BUFFER_SIZE, fmt, args);
+    vsnprintf(buffer, VKD3D_DEBUG_BUFFER_SIZE, fmt, args);
     va_end(args);
-    if (size == -1 || size >= VKD3D_DEBUG_BUFFER_SIZE)
-        buffer[VKD3D_DEBUG_BUFFER_SIZE - 1] = '\0';
+    buffer[VKD3D_DEBUG_BUFFER_SIZE - 1] = '\0';
     return buffer;
 }
 
