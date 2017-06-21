@@ -448,7 +448,7 @@ static bool d3d12_shader_bytecode_is_spirv(const D3D12_SHADER_BYTECODE *code)
 }
 
 static HRESULT create_shader_stage(struct d3d12_device *device, struct VkPipelineShaderStageCreateInfo *stage_desc,
-        enum VkShaderStageFlagBits stage, const D3D12_SHADER_BYTECODE *code)
+        enum VkShaderStageFlagBits stage, const D3D12_SHADER_BYTECODE *code, uint32_t compiler_options)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkShaderModuleCreateInfo shader_desc;
@@ -475,7 +475,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device, struct VkPipelin
     else
     {
         struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
-        if (FAILED(hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0)))
+        if (FAILED(hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, compiler_options)))
         {
             WARN("Failed to compile shader, hr %#x.\n", hr);
             return hr;
@@ -516,7 +516,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = NULL;
     pipeline_info.flags = 0;
-    if (FAILED(hr = create_shader_stage(device, &pipeline_info.stage, VK_SHADER_STAGE_COMPUTE_BIT, &desc->CS)))
+    if (FAILED(hr = create_shader_stage(device, &pipeline_info.stage, VK_SHADER_STAGE_COMPUTE_BIT, &desc->CS, 0)))
         return hr;
     pipeline_info.layout = root_signature->vk_pipeline_layout;
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
@@ -815,11 +815,22 @@ static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentSta
         FIXME("Ignoring LogicOpEnable %#x.\n", d3d12_desc->LogicOpEnable);
 }
 
+static enum VkShaderStageFlagBits get_last_vertex_processing_stage(
+        const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc)
+{
+    if (desc->GS.pShaderBytecode)
+        return VK_SHADER_STAGE_GEOMETRY_BIT;
+    if (desc->DS.pShaderBytecode)
+        return VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+    return VK_SHADER_STAGE_VERTEX_BIT;
+}
+
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    enum VkShaderStageFlagBits last_vertex_stage;
     struct VkSubpassDescription sub_pass_desc;
     struct VkRenderPassCreateInfo pass_desc;
     const struct vkd3d_format *format;
@@ -847,15 +858,20 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     state->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
     state->refcount = 1;
 
+    last_vertex_stage = get_last_vertex_processing_stage(desc);
     for (i = 0, graphics->stage_count = 0; i < ARRAY_SIZE(shader_stages); ++i)
     {
         const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
+        uint32_t compiler_options = 0;
 
         if (!b->pShaderBytecode)
             continue;
 
+        if (shader_stages[i].stage == last_vertex_stage)
+            compiler_options |= VKD3D_SHADER_FLIP_Y;
+
         if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
-                shader_stages[i].stage, b)))
+                shader_stages[i].stage, b, compiler_options)))
             goto fail;
 
         ++graphics->stage_count;
@@ -887,6 +903,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
         }
 
+        /* FIXME: Assign locations based on the vertex shader input signature. */
         graphics->attributes[i].location = i;
         graphics->attributes[i].binding = e->InputSlot;
         graphics->attributes[i].format = format->vk_format;
