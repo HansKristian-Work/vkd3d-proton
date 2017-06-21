@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Józef Kucia for CodeWeavers
+ * Copyright 2016-2017 Józef Kucia for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -37,6 +37,7 @@ typedef int HRESULT;
 #endif
 
 #include <inttypes.h>
+#include <limits.h>
 
 #define COBJMACROS
 #define INITGUID
@@ -49,6 +50,44 @@ typedef int HRESULT;
 # include <pthread.h>
 # include "vkd3d_utils.h"
 #endif
+
+struct vec4
+{
+    float x, y, z, w;
+};
+
+static BOOL compare_float(float f, float g, unsigned int ulps)
+{
+    int x, y;
+    union
+    {
+        float f;
+        int i;
+    } u;
+
+    u.f = f;
+    x = u.i;
+    u.f = g;
+    y = u.i;
+
+    if (x < 0)
+        x = INT_MIN - x;
+    if (y < 0)
+        y = INT_MIN - y;
+
+    if (abs(x - y) > ulps)
+        return FALSE;
+
+    return TRUE;
+}
+
+static BOOL compare_vec4(const struct vec4 *v1, const struct vec4 *v2, unsigned int ulps)
+{
+    return compare_float(v1->x, v2->x, ulps)
+            && compare_float(v1->y, v2->y, ulps)
+            && compare_float(v1->z, v2->z, ulps)
+            && compare_float(v1->w, v2->w, ulps);
+}
 
 static ULONG get_refcount(void *iface)
 {
@@ -313,6 +352,8 @@ static unsigned int format_size(DXGI_FORMAT format)
 {
     switch (format)
     {
+        case DXGI_FORMAT_R32G32B32A32_FLOAT:
+            return 16;
         case DXGI_FORMAT_D32_FLOAT:
         case DXGI_FORMAT_R8G8B8A8_UNORM:
         case DXGI_FORMAT_B8G8R8A8_UNORM:
@@ -422,6 +463,11 @@ static unsigned int get_readback_uint(struct resource_readback *rb, unsigned int
     return *(unsigned int *)get_readback_data(rb, x, y, sizeof(unsigned int));
 }
 
+static const struct vec4 *get_readback_vec4(struct resource_readback *rb, unsigned int x, unsigned int y)
+{
+    return get_readback_data(rb, x, y, sizeof(struct vec4));
+}
+
 static void release_resource_readback(struct resource_readback *rb)
 {
     D3D12_RANGE range = {0, 0};
@@ -439,6 +485,12 @@ static ID3D12Device *create_device(void)
 
     return device;
 }
+
+struct draw_test_context_desc
+{
+    DXGI_FORMAT rt_format;
+    const D3D12_SHADER_BYTECODE *ps;
+};
 
 struct draw_test_context
 {
@@ -458,8 +510,9 @@ struct draw_test_context
     ID3D12PipelineState *pipeline_state;
 };
 
-#define init_draw_test_context(context) init_draw_test_context_(__LINE__, context)
-static bool init_draw_test_context_(unsigned int line, struct draw_test_context *context)
+#define init_draw_test_context(context, ps) init_draw_test_context_(__LINE__, context, ps)
+static bool init_draw_test_context_(unsigned int line, struct draw_test_context *context,
+        const struct draw_test_context_desc *desc)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline_state_desc;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -468,6 +521,7 @@ static bool init_draw_test_context_(unsigned int line, struct draw_test_context 
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
     D3D12_CLEAR_VALUE clear_value;
+    DXGI_FORMAT rt_format;
     ID3D12Device *device;
     HRESULT hr;
 
@@ -518,6 +572,10 @@ static bool init_draw_test_context_(unsigned int line, struct draw_test_context 
     }
     device = context->device;
 
+    rt_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    if (desc && desc->rt_format)
+        rt_format = desc->rt_format;
+
     command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
     command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
@@ -553,12 +611,12 @@ static bool init_draw_test_context_(unsigned int line, struct draw_test_context 
     resource_desc.Height = 32;
     resource_desc.DepthOrArraySize = 1;
     resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.Format = rt_format;
     resource_desc.SampleDesc.Count = 1;
     resource_desc.SampleDesc.Quality = 0;
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-    clear_value.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    clear_value.Format = rt_format;
     clear_value.Color[0] = 0.0f;
     clear_value.Color[1] = 1.0f;
     clear_value.Color[2] = 0.0f;
@@ -584,7 +642,10 @@ static bool init_draw_test_context_(unsigned int line, struct draw_test_context 
     memset(&pipeline_state_desc, 0, sizeof(pipeline_state_desc));
     pipeline_state_desc.pRootSignature = context->root_signature;
     pipeline_state_desc.VS = shader_bytecode(vs_code, sizeof(vs_code));
-    pipeline_state_desc.PS = shader_bytecode(ps_code, sizeof(ps_code));
+    if (desc && desc->ps)
+        pipeline_state_desc.PS = *desc->ps;
+    else
+        pipeline_state_desc.PS = shader_bytecode(ps_code, sizeof(ps_code));
     pipeline_state_desc.StreamOutput.RasterizedStream = 0;
     pipeline_state_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
     pipeline_state_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
@@ -592,7 +653,7 @@ static bool init_draw_test_context_(unsigned int line, struct draw_test_context 
     pipeline_state_desc.SampleMask = ~(UINT)0;
     pipeline_state_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pipeline_state_desc.NumRenderTargets = 1;
-    pipeline_state_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pipeline_state_desc.RTVFormats[0] = rt_format;
     pipeline_state_desc.SampleDesc.Count = 1;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pipeline_state_desc,
             &IID_ID3D12PipelineState, (void **)&context->pipeline_state);
@@ -2442,7 +2503,7 @@ static void test_draw_instanced(void)
     RECT scissor_rect;
     unsigned int x, y;
 
-    if (!init_draw_test_context(&context))
+    if (!init_draw_test_context(&context, NULL))
         return;
     command_list = context.list;
     queue = context.queue;
@@ -2506,7 +2567,7 @@ static void test_draw_indexed_instanced(void)
     HRESULT hr;
     void *ptr;
 
-    if (!init_draw_test_context(&context))
+    if (!init_draw_test_context(&context, NULL))
         return;
     command_list = context.list;
     queue = context.queue;
@@ -2581,6 +2642,92 @@ static void test_draw_indexed_instanced(void)
     release_resource_readback(&rb);
 
     ID3D12Resource_Release(ib);
+    destroy_draw_test_context(&context);
+}
+
+static void test_fragment_coords(void)
+{
+    static const float green[] = {0.0f, 1.0f, 0.0f, 1.0f};
+    ID3D12GraphicsCommandList *command_list;
+    struct draw_test_context_desc desc;
+    struct draw_test_context context;
+    struct resource_readback rb;
+    ID3D12CommandQueue *queue;
+    D3D12_VIEWPORT viewport;
+    unsigned int x, y;
+    RECT scissor_rect;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float4 main(float4 position: sv_position) : sv_target
+        {
+            return position;
+        }
+#endif
+        0x43425844, 0xac408178, 0x2ca4213f, 0x4f2551e1, 0x1626b422, 0x00000001, 0x000000d8, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x00000f0f, 0x705f7673, 0x7469736f, 0x006e6f69,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x745f7673, 0x65677261, 0xabab0074, 0x52444853, 0x0000003c, 0x00000040,
+        0x0000000f, 0x04002064, 0x001010f2, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x05000036, 0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.ps = &ps;
+    if (!init_draw_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = context.render_target_desc.Width;
+    viewport.Height = context.render_target_desc.Height;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 0.0f;
+
+    scissor_rect.left = scissor_rect.top = 0;
+    scissor_rect.right = context.render_target_desc.Width;
+    scissor_rect.bottom = context.render_target_desc.Height;
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    viewport.TopLeftX = 10.0f;
+    viewport.TopLeftY = 10.0f;
+    viewport.Width = 20.0f;
+    viewport.Height = 30.0f;
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (y = 0; y < context.render_target_desc.Height; ++y)
+    {
+        for (x = 0; x < context.render_target_desc.Width; ++x)
+        {
+            const struct vec4 *v = get_readback_vec4(&rb, x, y);
+            struct vec4 expected = {x + 0.5f, y + 0.5f, 0.0f, 1.0f};
+            ok(compare_vec4(v, &expected, 0),
+                    "Got %.8e, %.8e, %.8e, %.8e expected %.8e, %.8e, %.8e, %.8e.\n",
+                    v->x, v->y, v->z, v->w, expected.x, expected.y, expected.z, expected.w);
+        }
+    }
+    release_resource_readback(&rb);
+
     destroy_draw_test_context(&context);
 }
 
@@ -3045,7 +3192,7 @@ static void test_bundle_state_inheritance(void)
     return;
 #endif
 
-    if (!init_draw_test_context(&context))
+    if (!init_draw_test_context(&context, NULL))
         return;
     device = context.device;
     command_list = context.list;
@@ -3263,6 +3410,7 @@ START_TEST(d3d12)
     run_test(test_clear_render_target_view);
     run_test(test_draw_instanced);
     run_test(test_draw_indexed_instanced);
+    run_test(test_fragment_coords);
     run_test(test_texture_resource_barriers);
     run_test(test_invalid_texture_resource_barriers);
     run_test(test_device_removed_reason);
