@@ -1504,10 +1504,19 @@ static void vkd3d_dxbc_compiler_emit_dcl_input_ps(struct vkd3d_dxbc_compiler *co
         FIXME("Unhandled interpolation mode %#x.\n", instruction->flags);
 }
 
+static void vkd3d_dxbc_compiler_emit_dcl_input_ps_siv(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.register_semantic.reg,
+            instruction->declaration.register_semantic.sysval_semantic);
+    if (instruction->flags != VKD3DSIM_LINEAR)
+        FIXME("Unhandled interpolation mode %#x.\n", instruction->flags);
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_input_sgv(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.dst,
+    vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.register_semantic.reg,
             instruction->declaration.register_semantic.sysval_semantic);
 }
 
@@ -1520,7 +1529,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_output(struct vkd3d_dxbc_compiler *comp
 static void vkd3d_dxbc_compiler_emit_dcl_output_siv(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    uint32_t id = vkd3d_dxbc_compiler_emit_output(compiler, &instruction->declaration.dst,
+    uint32_t id = vkd3d_dxbc_compiler_emit_output(compiler, &instruction->declaration.register_semantic.reg,
             instruction->declaration.register_semantic.sysval_semantic);
 
     if (instruction->declaration.register_semantic.sysval_semantic == VKD3D_SIV_POSITION)
@@ -1789,6 +1798,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL_INPUT_PS:
             vkd3d_dxbc_compiler_emit_dcl_input_ps(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_INPUT_PS_SIV:
+            vkd3d_dxbc_compiler_emit_dcl_input_ps_siv(compiler, instruction);
             break;
         case VKD3DSIH_DCL_INPUT_SGV:
             vkd3d_dxbc_compiler_emit_dcl_input_sgv(compiler, instruction);
