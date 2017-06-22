@@ -1362,6 +1362,36 @@ static void vkd3d_dxbc_compiler_emit_store_reg(struct vkd3d_dxbc_compiler *compi
     vkd3d_spirv_build_op_store(builder, reg_id, val_id, SpvMemoryAccessMaskNone);
 }
 
+static unsigned int vkd3d_dxbc_compiler_get_sysval_component_count(
+        enum vkd3d_shader_input_sysval_semantic sysval)
+{
+    switch (sysval)
+    {
+        case VKD3D_SIV_NONE:
+            return 0;
+        case VKD3D_SIV_POSITION:
+            /* The Vulkan spec says:
+             *
+             *   "The variable decorated with FragCoord must be declared as a
+             *   four-component vector of 32-bit floating-point values."
+             *
+             *   "Any variable decorated with Position must be declared as a
+             *   four-component vector of 32-bit floating-point values."
+             */
+            return 4;
+        case VKD3D_SIV_VERTEX_ID:
+            /* The Vulkan spec says:
+             *
+             *   "The variable decorated with VertexIndex must be declared as a
+             *   scalar 32-bit integer."
+             */
+            return 1;
+        default:
+            FIXME("Unhandled semantic %#x.\n", sysval);
+            return 0;
+    }
+}
+
 static void vkd3d_dxbc_compiler_decorate_sysval(struct vkd3d_dxbc_compiler *compiler,
         uint32_t target_id, enum vkd3d_shader_input_sysval_semantic sysval)
 {
@@ -1391,15 +1421,19 @@ static void vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval)
 {
     enum vkd3d_component_type component_type = vkd3d_component_type_for_semantic(sysval);
-    unsigned int component_count = vkd3d_write_mask_component_count(dst->write_mask);
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    unsigned int component_count, input_component_count;
     struct vkd3d_symbol reg_symbol;
     SpvStorageClass storage_class;
     uint32_t val_id, var_id;
 
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    if (!(input_component_count = vkd3d_dxbc_compiler_get_sysval_component_count(sysval)))
+        input_component_count = component_count;
+
     storage_class = SpvStorageClassInput;
     var_id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
-            storage_class, component_type, component_count);
+            storage_class, component_type, input_component_count);
     vkd3d_spirv_add_iface_variable(builder, var_id);
     if (sysval)
         vkd3d_dxbc_compiler_decorate_sysval(compiler, var_id, sysval);
@@ -1408,18 +1442,18 @@ static void vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
 
     if (component_type != VKD3D_TYPE_FLOAT)
     {
-        uint32_t float_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, component_count);
-        assert(component_count == 1);
+        uint32_t float_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, input_component_count);
+        assert(component_count == 1 && input_component_count == 1);
         val_id = vkd3d_spirv_build_op_bitcast(builder, float_type_id, var_id);
     }
-    else if (component_count != 4)
+    else if (component_count != VKD3D_VEC4_SIZE)
     {
-        uint32_t type_id = vkd3d_spirv_get_type_id(builder, component_type, component_count);
+        uint32_t type_id = vkd3d_spirv_get_type_id(builder, component_type, input_component_count);
         val_id = vkd3d_spirv_build_op_load(builder, type_id, var_id, SpvMemoryAccessMaskNone);
     }
 
     /* FIXME: handle multiple inputs packed into a single register */
-    if (component_count != 4 || component_type != VKD3D_TYPE_FLOAT)
+    if (component_count != VKD3D_VEC4_SIZE || component_type != VKD3D_TYPE_FLOAT)
     {
         storage_class = SpvStorageClassPrivate;
         var_id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
@@ -1433,7 +1467,7 @@ static void vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
 
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, &dst->reg);
 
-    if (component_count != 4 || component_type != VKD3D_TYPE_FLOAT)
+    if (component_count != VKD3D_VEC4_SIZE || component_type != VKD3D_TYPE_FLOAT)
         vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
 }
 
