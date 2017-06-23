@@ -1569,6 +1569,7 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
 static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list,
         const struct vkd3d_vk_device_procs *vk_procs)
 {
+    struct d3d12_root_signature *rs = list->root_signature;
     struct VkRenderPassBeginInfo begin_desc;
 
     if (!list->state)
@@ -1583,6 +1584,10 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
         return false;
     if (!d3d12_command_list_update_current_pipeline(list, vk_procs))
         return false;
+
+    if (rs && rs->pool_size_count)
+        VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                rs->vk_pipeline_layout, 0, 1, &list->current_descriptor_set, 0, NULL));
 
     begin_desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     begin_desc.pNext = NULL;
@@ -2138,9 +2143,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
         VK_CALL(vkDestroyDescriptorPool(list->device->vk_device, vk_pool, NULL));
         return;
     }
-
-    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            rs->vk_pipeline_layout, 0, 1, &list->current_descriptor_set, 0, NULL));
 
     list->root_signature = rs;
 }
