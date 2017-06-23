@@ -2144,6 +2144,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
     {
         ERR("Failed to add descriptor pool.\n");
         VK_CALL(vkDestroyDescriptorPool(list->device->vk_device, vk_pool, NULL));
+        list->current_descriptor_set = NULL;
         return;
     }
 
