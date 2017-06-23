@@ -491,45 +491,34 @@ static ID3D12Device *create_device(void)
     return device;
 }
 
-struct draw_test_context_desc
+#define create_empty_root_signature(device, flags) create_empty_root_signature_(__LINE__, device, flags)
+static ID3D12RootSignature *create_empty_root_signature_(unsigned int line,
+        ID3D12Device *device, D3D12_ROOT_SIGNATURE_FLAGS flags)
 {
-    DXGI_FORMAT rt_format;
-    D3D12_INPUT_LAYOUT_DESC input_layout;
-    const D3D12_SHADER_BYTECODE *vs;
-    const D3D12_SHADER_BYTECODE *ps;
-};
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12RootSignature *root_signature = NULL;
+    HRESULT hr;
 
-struct draw_test_context
-{
-    ID3D12Device *device;
+    root_signature_desc.NumParameters = 0;
+    root_signature_desc.pParameters = NULL;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = flags;
 
-    ID3D12CommandQueue *queue;
-    ID3D12CommandAllocator *allocator;
-    ID3D12GraphicsCommandList *list;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok_(line)(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
 
-    D3D12_RESOURCE_DESC render_target_desc;
-    ID3D12Resource *render_target;
+    return root_signature;
+}
 
-    ID3D12DescriptorHeap *rtv_heap;
-    D3D12_CPU_DESCRIPTOR_HANDLE rtv;
-
-    ID3D12RootSignature *root_signature;
-    ID3D12PipelineState *pipeline_state;
-};
-
-#define init_draw_test_context(context, ps) init_draw_test_context_(__LINE__, context, ps)
-static bool init_draw_test_context_(unsigned int line, struct draw_test_context *context,
-        const struct draw_test_context_desc *desc)
+#define create_pipeline_state(a, b, c, d, e, f) create_pipeline_state_(__LINE__, a, b, c, d, e, f)
+static ID3D12PipelineState *create_pipeline_state_(unsigned int line, ID3D12Device *device,
+        ID3D12RootSignature *root_signature, DXGI_FORMAT rt_format,
+        const D3D12_SHADER_BYTECODE *vs, const D3D12_SHADER_BYTECODE *ps,
+        const D3D12_INPUT_LAYOUT_DESC *input_layout)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline_state_desc;
-    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
-    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
-    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc;
-    D3D12_HEAP_PROPERTIES heap_properties;
-    D3D12_RESOURCE_DESC resource_desc;
-    D3D12_CLEAR_VALUE clear_value;
-    DXGI_FORMAT rt_format;
-    ID3D12Device *device;
+    ID3D12PipelineState *pipeline_state;
     HRESULT hr;
 
     static const DWORD vs_code[] =
@@ -576,6 +565,74 @@ static bool init_draw_test_context_(unsigned int line, struct draw_test_context 
         0x0000000f, 0x0100086a, 0x03000065, 0x001020f2, 0x00000000, 0x08000036, 0x001020f2, 0x00000000,
         0x00004002, 0x00000000, 0x3f800000, 0x00000000, 0x3f800000, 0x0100003e,
     };
+
+    memset(&pipeline_state_desc, 0, sizeof(pipeline_state_desc));
+    pipeline_state_desc.pRootSignature = root_signature;
+    if (vs)
+        pipeline_state_desc.VS = *vs;
+    else
+        pipeline_state_desc.VS = shader_bytecode(vs_code, sizeof(vs_code));
+    if (ps)
+        pipeline_state_desc.PS = *ps;
+    else
+        pipeline_state_desc.PS = shader_bytecode(ps_code, sizeof(ps_code));
+    pipeline_state_desc.StreamOutput.RasterizedStream = 0;
+    pipeline_state_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    pipeline_state_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    pipeline_state_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    if (input_layout)
+        pipeline_state_desc.InputLayout = *input_layout;
+    pipeline_state_desc.SampleMask = ~(UINT)0;
+    pipeline_state_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pipeline_state_desc.NumRenderTargets = 1;
+    pipeline_state_desc.RTVFormats[0] = rt_format;
+    pipeline_state_desc.SampleDesc.Count = 1;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pipeline_state_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok_(line)(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+
+    return pipeline_state;
+}
+
+struct draw_test_context_desc
+{
+    DXGI_FORMAT rt_format;
+    BOOL no_root_signature;
+    BOOL no_pipeline;
+};
+
+struct draw_test_context
+{
+    ID3D12Device *device;
+
+    ID3D12CommandQueue *queue;
+    ID3D12CommandAllocator *allocator;
+    ID3D12GraphicsCommandList *list;
+
+    D3D12_RESOURCE_DESC render_target_desc;
+    ID3D12Resource *render_target;
+
+    ID3D12DescriptorHeap *rtv_heap;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv;
+
+    ID3D12RootSignature *root_signature;
+    ID3D12PipelineState *pipeline_state;
+};
+
+#define init_draw_test_context(context, ps) init_draw_test_context_(__LINE__, context, ps)
+static bool init_draw_test_context_(unsigned int line, struct draw_test_context *context,
+        const struct draw_test_context_desc *desc)
+{
+    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
+    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_CLEAR_VALUE clear_value;
+    DXGI_FORMAT rt_format;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    memset(context, 0, sizeof(*context));
 
     if (!(context->device = create_device()))
     {
@@ -643,40 +700,12 @@ static bool init_draw_test_context_(unsigned int line, struct draw_test_context 
 
     ID3D12Device_CreateRenderTargetView(device, context->render_target, NULL, context->rtv);
 
-    root_signature_desc.NumParameters = 0;
-    root_signature_desc.pParameters = NULL;
-    root_signature_desc.NumStaticSamplers = 0;
-    root_signature_desc.pStaticSamplers = NULL;
-    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
-    if (desc && desc->input_layout.NumElements)
-        root_signature_desc.Flags |= D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-    hr = create_root_signature(device, &root_signature_desc, &context->root_signature);
-    ok_(line)(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
-
-    memset(&pipeline_state_desc, 0, sizeof(pipeline_state_desc));
-    pipeline_state_desc.pRootSignature = context->root_signature;
-    if (desc && desc->vs)
-        pipeline_state_desc.VS = *desc->vs;
-    else
-        pipeline_state_desc.VS = shader_bytecode(vs_code, sizeof(vs_code));
-    if (desc && desc->ps)
-        pipeline_state_desc.PS = *desc->ps;
-    else
-        pipeline_state_desc.PS = shader_bytecode(ps_code, sizeof(ps_code));
-    pipeline_state_desc.StreamOutput.RasterizedStream = 0;
-    pipeline_state_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-    pipeline_state_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
-    pipeline_state_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-    if (desc)
-        pipeline_state_desc.InputLayout = desc->input_layout;
-    pipeline_state_desc.SampleMask = ~(UINT)0;
-    pipeline_state_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    pipeline_state_desc.NumRenderTargets = 1;
-    pipeline_state_desc.RTVFormats[0] = rt_format;
-    pipeline_state_desc.SampleDesc.Count = 1;
-    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pipeline_state_desc,
-            &IID_ID3D12PipelineState, (void **)&context->pipeline_state);
-    ok_(line)(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    if (!desc || !desc->no_root_signature)
+        context->root_signature = create_empty_root_signature_(line,
+                device, D3D12_ROOT_SIGNATURE_FLAG_NONE);
+    if (!desc || (!desc->no_root_signature && !desc->no_pipeline))
+        context->pipeline_state = create_pipeline_state_(line, device,
+                context->root_signature, rt_format, NULL, NULL, NULL);
 
     return true;
 }
@@ -686,8 +715,10 @@ static void destroy_draw_test_context_(unsigned int line, struct draw_test_conte
 {
     ULONG refcount;
 
-    ID3D12PipelineState_Release(context->pipeline_state);
-    ID3D12RootSignature_Release(context->root_signature);
+    if (context->pipeline_state)
+        ID3D12PipelineState_Release(context->pipeline_state);
+    if (context->root_signature)
+        ID3D12RootSignature_Release(context->root_signature);
 
     ID3D12DescriptorHeap_Release(context->rtv_heap);
     ID3D12Resource_Release(context->render_target);
@@ -2696,11 +2727,14 @@ static void test_fragment_coords(void)
 
     memset(&desc, 0, sizeof(desc));
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    desc.ps = &ps;
+    desc.no_pipeline = true;
     if (!init_draw_test_context(&context, &desc))
         return;
     command_list = context.list;
     queue = context.queue;
+
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, desc.rt_format, NULL, &ps, NULL);
 
     viewport.TopLeftX = 0.0f;
     viewport.TopLeftY = 0.0f;
@@ -2755,6 +2789,7 @@ static void test_fractional_viewports(void)
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
     D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
     struct draw_test_context_desc desc;
     D3D12_RESOURCE_DESC resource_desc;
     struct draw_test_context context;
@@ -2838,14 +2873,19 @@ static void test_fractional_viewports(void)
 
     memset(&desc, 0, sizeof(desc));
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    desc.input_layout.pInputElementDescs = layout_desc;
-    desc.input_layout.NumElements = ARRAY_SIZE(layout_desc);
-    desc.vs = &vs;
-    desc.ps = &ps;
+    desc.no_root_signature = true;
     if (!init_draw_test_context(&context, &desc))
         return;
     command_list = context.list;
     queue = context.queue;
+
+    context.root_signature = create_empty_root_signature(context.device,
+            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    input_layout.pInputElementDescs = layout_desc;
+    input_layout.NumElements = ARRAY_SIZE(layout_desc);
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, desc.rt_format, &vs, &ps, &input_layout);
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
