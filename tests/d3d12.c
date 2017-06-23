@@ -504,7 +504,31 @@ static ID3D12RootSignature *create_empty_root_signature_(unsigned int line,
     root_signature_desc.NumStaticSamplers = 0;
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = flags;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok_(line)(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
 
+    return root_signature;
+}
+
+#define create_cb_root_signature(a, b, c, e) create_cb_root_signature_(__LINE__, a, b, c, e)
+static ID3D12RootSignature *create_cb_root_signature_(unsigned int line,
+        ID3D12Device *device, unsigned int reg_idx, D3D12_SHADER_VISIBILITY shader_visibility,
+        D3D12_ROOT_SIGNATURE_FLAGS flags)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12RootSignature *root_signature = NULL;
+    D3D12_ROOT_PARAMETER root_parameter;
+    HRESULT hr;
+
+    root_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    root_parameter.Descriptor.ShaderRegister = reg_idx;
+    root_parameter.Descriptor.RegisterSpace = 0;
+    root_parameter.ShaderVisibility = shader_visibility;
+
+    memset(&root_signature_desc, 0, sizeof(root_signature_desc));
+    root_signature_desc.NumParameters = 1;
+    root_signature_desc.pParameters = &root_parameter;
+    root_signature_desc.Flags = flags;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
     ok_(line)(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
 
@@ -3621,6 +3645,153 @@ static void test_bundle_state_inheritance(void)
     destroy_draw_test_context(&context);
 }
 
+static void test_shader_instructions(void)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    struct draw_test_context_desc desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct draw_test_context context;
+    struct resource_readback rb;
+    ID3D12CommandQueue *queue;
+    D3D12_VIEWPORT viewport;
+    unsigned int i, x, y;
+    ID3D12Resource *cb;
+    RECT scissor_rect;
+    HRESULT hr;
+    void *ptr;
+
+    static const DWORD ps_dot2_code[] =
+    {
+#if 0
+        float4 src0;
+        float4 src1;
+
+        void main(out float4 dst : SV_Target)
+        {
+            dst.x = dot(src0.xy, src1.xy);
+            dst.yzw = (float3)0;
+        }
+#endif
+        0x43425844, 0x3621a1c7, 0x79d3be21, 0x9f14138c, 0x9f5506f2, 0x00000001, 0x000000e8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000070, 0x00000050, 0x0000001c,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000002, 0x03000065, 0x001020f2, 0x00000000,
+        0x0900000f, 0x00102012, 0x00000000, 0x00208046, 0x00000000, 0x00000000, 0x00208046, 0x00000000,
+        0x00000001, 0x08000036, 0x001020e2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x0100003e,
+    };
+    const D3D12_SHADER_BYTECODE ps_dot2 = {ps_dot2_code, sizeof(ps_dot2_code)};
+    static const struct
+    {
+        struct
+        {
+            struct vec4 src0;
+            struct vec4 src1;
+        } input;
+        struct vec4 output;
+    }
+    tests[] =
+    {
+        {{{1.0f, 1.0f}, {1.0f, 1.0f}}, {2.0f}},
+        {{{1.0f, 1.0f}, {2.0f, 3.0f}}, {5.0f}},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.no_root_signature = true;
+    if (!init_draw_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_cb_root_signature(context.device,
+            0, D3D12_SHADER_VISIBILITY_PIXEL, D3D12_ROOT_SIGNATURE_FLAG_NONE);
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, desc.rt_format, NULL, &ps_dot2, NULL);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = sizeof(tests->input);
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ,
+            NULL, &IID_ID3D12Resource, (void **)&cb);
+    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = context.render_target_desc.Width;
+    viewport.Height = context.render_target_desc.Height;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+
+    scissor_rect.left = scissor_rect.top = 0;
+    scissor_rect.right = context.render_target_desc.Width;
+    scissor_rect.bottom = context.render_target_desc.Height;
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        hr = ID3D12Resource_Map(cb, 0, NULL, (void **)&ptr);
+        ok(SUCCEEDED(hr), "Failed to map constant buffer, hr %#x.\n", hr);
+        memcpy(ptr, &tests[i].input, sizeof(tests[i].input));
+        ID3D12Resource_Unmap(cb, 0, NULL);
+
+        if (i)
+            transition_resource_state(command_list, context.render_target,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
+                ID3D12Resource_GetGPUVirtualAddress(cb));
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+        for (y = 0; y < context.render_target_desc.Height; ++y)
+        {
+            for (x = 0; x < context.render_target_desc.Width; ++x)
+            {
+                const struct vec4 *v = get_readback_vec4(&rb, x, y);
+                ok(compare_vec4(v, &tests[i].output, 0),
+                        "Got %.8e, %.8e, %.8e, %.8e expected %.8e, %.8e, %.8e, %.8e.\n",
+                        v->x, v->y, v->z, v->w, tests[i].output.x, tests[i].output.y,
+                        tests[i].output.z, tests[i].output.w);
+            }
+        }
+        release_resource_readback(&rb);
+
+        hr = ID3D12CommandAllocator_Reset(context.allocator);
+        ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+        hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
+        ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+    }
+
+    ID3D12Resource_Release(cb);
+    destroy_draw_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     BOOL enable_debug_layer = FALSE;
@@ -3661,4 +3832,5 @@ START_TEST(d3d12)
     run_test(test_device_removed_reason);
     run_test(test_map_resource);
     run_test(test_bundle_state_inheritance);
+    run_test(test_shader_instructions);
 }
