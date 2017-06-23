@@ -1381,6 +1381,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(ID3D12GraphicsCommandL
         list->pipeline_state = initial_state;
     }
 
+    list->root_signature = NULL;
+
     return hr;
 }
 
