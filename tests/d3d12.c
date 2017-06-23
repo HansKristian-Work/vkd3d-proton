@@ -565,16 +565,16 @@ static bool init_draw_test_context_(unsigned int line, struct draw_test_context 
 #if 0
         void main(const in float4 position : SV_Position, out float4 target : SV_Target0)
         {
-            target = float4(1.0f, 1.0f, 1.0f, 1.0f);
+            target = float4(0.0f, 1.0f, 0.0f, 1.0f);
         }
 #endif
-        0x43425844, 0xc1e910e0, 0xe168c974, 0xc32ae666, 0x82f81f71, 0x00000001, 0x000000d8, 0x00000003,
+        0x43425844, 0x8a4a8140, 0x5eba8e0b, 0x714e0791, 0xb4b8eed2, 0x00000001, 0x000000d8, 0x00000003,
         0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
         0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69,
         0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
         0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x0000003c, 0x00000050,
         0x0000000f, 0x0100086a, 0x03000065, 0x001020f2, 0x00000000, 0x08000036, 0x001020f2, 0x00000000,
-        0x00004002, 0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000, 0x0100003e,
+        0x00004002, 0x00000000, 0x3f800000, 0x00000000, 0x3f800000, 0x0100003e,
     };
 
     if (!(context->device = create_device()))
@@ -629,9 +629,9 @@ static bool init_draw_test_context_(unsigned int line, struct draw_test_context 
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     clear_value.Format = rt_format;
-    clear_value.Color[0] = 0.0f;
+    clear_value.Color[0] = 1.0f;
     clear_value.Color[1] = 1.0f;
-    clear_value.Color[2] = 0.0f;
+    clear_value.Color[2] = 1.0f;
     clear_value.Color[3] = 1.0f;
     hr = ID3D12Device_CreateCommittedResource(device,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
@@ -2397,7 +2397,7 @@ static void test_clear_depth_stencil_view(void)
 
 static void test_clear_render_target_view(void)
 {
-    static const float green[] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    static const float green[] = {0.0f, 1.0f, 0.0f, 1.0f};
     D3D12_COMMAND_QUEUE_DESC command_queue_desc;
     ID3D12CommandAllocator *command_allocator;
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc;
@@ -2513,7 +2513,7 @@ static void test_clear_render_target_view(void)
 
 static void test_draw_instanced(void)
 {
-    static const float green[] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
     struct draw_test_context context;
     struct resource_readback rb;
@@ -2538,7 +2538,7 @@ static void test_draw_instanced(void)
     scissor_rect.right = context.render_target_desc.Width;
     scissor_rect.bottom = context.render_target_desc.Height;
 
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
     /* This draw call is ignored. */
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
@@ -2560,7 +2560,7 @@ static void test_draw_instanced(void)
         for (x = 0; x < context.render_target_desc.Width; ++x)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
-           ok(v == 0xffffffff, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
+           ok(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
         }
     }
     release_resource_readback(&rb);
@@ -2570,7 +2570,7 @@ static void test_draw_instanced(void)
 
 static void test_draw_indexed_instanced(void)
 {
-    static const float green[] = {0.0f, 1.0f, 0.0f, 1.0f};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     static const uint16_t indices[] = {0, 1, 2};
     ID3D12GraphicsCommandList *command_list;
     D3D12_RESOURCE_DESC resource_desc;
@@ -2632,7 +2632,7 @@ static void test_draw_indexed_instanced(void)
     ibv.SizeInBytes = sizeof(indices);
     ibv.Format = DXGI_FORMAT_R16_UINT;
 
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
     /* This draw call is ignored. */
     ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, 3, 1, 0, 0, 0);
@@ -2655,7 +2655,7 @@ static void test_draw_indexed_instanced(void)
         for (x = 0; x < context.render_target_desc.Width; ++x)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
-           ok(v == 0xffffffff, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
+           ok(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
         }
     }
     release_resource_readback(&rb);
@@ -2666,7 +2666,7 @@ static void test_draw_indexed_instanced(void)
 
 static void test_fragment_coords(void)
 {
-    static const float green[] = {0.0f, 1.0f, 0.0f, 1.0f};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
     struct draw_test_context_desc desc;
     struct draw_test_context context;
@@ -2713,7 +2713,7 @@ static void test_fragment_coords(void)
     scissor_rect.right = context.render_target_desc.Width;
     scissor_rect.bottom = context.render_target_desc.Height;
 
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -2752,7 +2752,7 @@ static void test_fragment_coords(void)
 
 static void test_fractional_viewports(void)
 {
-    static const float green[] = {0.0f, 1.0f, 0.0f, 1.0f};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
     D3D12_HEAP_PROPERTIES heap_properties;
     struct draw_test_context_desc desc;
@@ -2892,7 +2892,7 @@ static void test_fractional_viewports(void)
             transition_resource_state(command_list, context.render_target,
                     D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
-        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
         ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -3378,7 +3378,7 @@ static void test_map_resource(void)
 
 static void test_bundle_state_inheritance(void)
 {
-    static const float green[] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list, *bundle;
     ID3D12CommandAllocator *bundle_allocator;
     struct draw_test_context context;
@@ -3421,7 +3421,7 @@ static void test_bundle_state_inheritance(void)
     scissor_rect.bottom = context.render_target_desc.Height;
 
     /* A bundle does not inherit the current pipeline state. */
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -3446,7 +3446,7 @@ static void test_bundle_state_inheritance(void)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
            /* This works on AMD. */
-           ok(v == 0xff00ff00 || v == 0xffffffff, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
+           ok(v == 0xffffffff || v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
         }
     }
     release_resource_readback(&rb);
@@ -3463,7 +3463,7 @@ static void test_bundle_state_inheritance(void)
     /* A bundle does not inherit the current primitive topology. */
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -3489,7 +3489,7 @@ static void test_bundle_state_inheritance(void)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
            /* This works on AMD, even though the debug layer says that the primitive topology is undefined. */
-           ok(v == 0xff00ff00 || v == 0xffffffff, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
+           ok(v == 0xffffffff || v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
         }
     }
     release_resource_readback(&rb);
@@ -3506,7 +3506,7 @@ static void test_bundle_state_inheritance(void)
     /* A bundle inherit all other states. */
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -3530,7 +3530,7 @@ static void test_bundle_state_inheritance(void)
         for (x = 0; x < context.render_target_desc.Width; ++x)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
-           todo(v == 0xffffffff, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
+           todo(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
         }
     }
     release_resource_readback(&rb);
@@ -3547,7 +3547,7 @@ static void test_bundle_state_inheritance(void)
     /* All state that is set in a bundle affects a command list. */
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
@@ -3571,7 +3571,7 @@ static void test_bundle_state_inheritance(void)
         for (x = 0; x < context.render_target_desc.Width; ++x)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
-           todo(v == 0xffffffff, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
+           todo(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
         }
     }
     release_resource_readback(&rb);
