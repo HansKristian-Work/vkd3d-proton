@@ -2108,7 +2108,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
     TRACE("iface %p, root_signature %p.\n", iface, root_signature);
 
     if (list->root_signature == rs || !rs->pool_size_count)
+    {
+        list->root_signature = rs;
         return;
+    }
 
     vk_procs = &list->device->vk_procs;
 
