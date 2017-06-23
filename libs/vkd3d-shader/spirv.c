@@ -286,6 +286,19 @@ static void vkd3d_spirv_build_op2v(struct vkd3d_spirv_stream *stream,
         vkd3d_spirv_build_word(stream, operands[i]);
 }
 
+static void vkd3d_spirv_build_op3v(struct vkd3d_spirv_stream *stream,
+        SpvOp op, uint32_t operand0, uint32_t operand1, uint32_t operand2,
+        const uint32_t *operands, unsigned int operand_count)
+{
+    unsigned int i;
+    vkd3d_spirv_build_word(stream, vkd3d_spirv_opcode_word(op, 4 + operand_count));
+    vkd3d_spirv_build_word(stream, operand0);
+    vkd3d_spirv_build_word(stream, operand1);
+    vkd3d_spirv_build_word(stream, operand2);
+    for (i = 0; i < operand_count; ++i)
+        vkd3d_spirv_build_word(stream, operands[i]);
+}
+
 static void vkd3d_spirv_build_op2(struct vkd3d_spirv_stream *stream,
         SpvOp op, uint32_t operand0, uint32_t operand1)
 {
@@ -371,13 +384,7 @@ static uint32_t vkd3d_spirv_build_op_tr1v(struct vkd3d_spirv_builder *builder,
         uint32_t operand0, const uint32_t *operands, unsigned int operand_count)
 {
     uint32_t result_id = builder->current_id++;
-    unsigned int i;
-    vkd3d_spirv_build_word(stream, vkd3d_spirv_opcode_word(op, 4 + operand_count));
-    vkd3d_spirv_build_word(stream, result_type);
-    vkd3d_spirv_build_word(stream, result_id);
-    vkd3d_spirv_build_word(stream, operand0);
-    for (i = 0; i < operand_count; ++i)
-        vkd3d_spirv_build_word(stream, operands[i]);
+    vkd3d_spirv_build_op3v(stream, op, result_type, result_id, operand0, operands, operand_count);
     return result_id;
 }
 
@@ -467,6 +474,20 @@ static void vkd3d_spirv_build_op_decorate1(struct vkd3d_spirv_builder *builder,
         uint32_t target_id, SpvDecoration decoration, uint32_t operand0)
 {
     return vkd3d_spirv_build_op_decorate(builder, target_id, decoration, &operand0, 1);
+}
+
+static void vkd3d_spirv_build_op_member_decorate(struct vkd3d_spirv_builder *builder,
+        uint32_t structure_type_id, uint32_t member_idx, SpvDecoration decoration,
+        uint32_t *literals, uint32_t literal_count)
+{
+    vkd3d_spirv_build_op3v(&builder->annotation_stream, SpvOpMemberDecorate,
+            structure_type_id, member_idx, decoration, literals, literal_count);
+}
+
+static void vkd3d_spirv_build_op_member_decorate1(struct vkd3d_spirv_builder *builder,
+        uint32_t structure_type_id, uint32_t member_idx, SpvDecoration decoration, uint32_t operand0)
+{
+    vkd3d_spirv_build_op_member_decorate(builder, structure_type_id, member_idx, decoration, &operand0, 1);
 }
 
 static uint32_t vkd3d_spirv_build_op_type_void(struct vkd3d_spirv_builder *builder)
@@ -1551,6 +1572,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
 
     struct_id = vkd3d_spirv_build_op_type_struct(builder, &array_type_id, 1);
     vkd3d_spirv_build_op_decorate(builder, struct_id, SpvDecorationBlock, NULL, 0);
+    vkd3d_spirv_build_op_member_decorate1(builder, struct_id, 0, SpvDecorationOffset, 0);
     sprintf(debug_name, "cb%u_struct", cb_size);
     vkd3d_spirv_build_op_name(builder, struct_id, debug_name);
 
