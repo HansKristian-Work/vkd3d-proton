@@ -596,11 +596,6 @@ static void vkd3d_spirv_build_op_function_end(struct vkd3d_spirv_builder *builde
     vkd3d_spirv_build_op(&builder->function_stream, SpvOpFunctionEnd);
 }
 
-static uint32_t vkd3d_spirv_build_op_label(struct vkd3d_spirv_builder *builder)
-{
-    return vkd3d_spirv_build_op_r(builder, &builder->function_stream, SpvOpLabel);
-}
-
 static uint32_t vkd3d_spirv_build_op_undef(struct vkd3d_spirv_builder *builder,
         struct vkd3d_spirv_stream *stream, uint32_t type_id)
 {
@@ -662,6 +657,33 @@ static uint32_t vkd3d_spirv_build_op_select(struct vkd3d_spirv_builder *builder,
 static void vkd3d_spirv_build_op_return(struct vkd3d_spirv_builder *builder)
 {
     vkd3d_spirv_build_op(&builder->function_stream, SpvOpReturn);
+}
+
+static uint32_t vkd3d_spirv_build_op_label(struct vkd3d_spirv_builder *builder,
+        uint32_t label_id)
+{
+    vkd3d_spirv_build_op1(&builder->function_stream, SpvOpLabel, label_id);
+    return label_id;
+}
+
+static void vkd3d_spirv_build_op_selection_merge(struct vkd3d_spirv_builder *builder,
+        uint32_t merge_block, uint32_t selection_control)
+{
+    vkd3d_spirv_build_op2(&builder->function_stream, SpvOpSelectionMerge,
+            merge_block, selection_control);
+}
+
+static void vkd3d_spirv_build_op_branch(struct vkd3d_spirv_builder *builder, uint32_t label)
+{
+    vkd3d_spirv_build_op1(&builder->function_stream, SpvOpBranch, label);
+}
+
+/* Branch weights are not supported. */
+static void vkd3d_spirv_build_op_branch_conditional(struct vkd3d_spirv_builder *builder,
+        uint32_t condition, uint32_t true_label, uint32_t false_label)
+{
+    vkd3d_spirv_build_op3(&builder->function_stream, SpvOpBranchConditional,
+            condition, true_label, false_label);
 }
 
 static uint32_t vkd3d_spirv_build_op_f_negate(struct vkd3d_spirv_builder *builder,
@@ -746,7 +768,7 @@ static void vkd3d_spirv_builder_init(struct vkd3d_spirv_builder *builder)
     builder->main_function_id = vkd3d_spirv_build_op_function(builder, void_id,
             SpvFunctionControlMaskNone, function_type_id);
     vkd3d_spirv_build_op_name(builder, builder->main_function_id, "main");
-    vkd3d_spirv_build_op_label(builder);
+    vkd3d_spirv_build_op_label(builder, vkd3d_spirv_alloc_id(builder));
 }
 
 static void vkd3d_spirv_builder_free(struct vkd3d_spirv_builder *builder)
@@ -928,6 +950,12 @@ static struct vkd3d_symbol *vkd3d_symbol_dup(const struct vkd3d_symbol *symbol)
     return memcpy(s, symbol, sizeof(*s));
 }
 
+struct vkd3d_control_flow_info
+{
+    uint32_t merge_block_id;
+    uint32_t else_block_id;
+};
+
 struct vkd3d_dxbc_compiler
 {
     struct vkd3d_spirv_builder spirv_builder;
@@ -940,6 +968,9 @@ struct vkd3d_dxbc_compiler
     uint32_t position_id;
 
     enum vkd3d_shader_type shader_type;
+
+    unsigned int branch_id;
+    struct vkd3d_control_flow_info control_flow_info;
 };
 
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
@@ -1960,6 +1991,73 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue(struct vkd3d_dxbc_compiler 
     }
 }
 
+static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    uint32_t merge_block_id, type_id, val_id, condition_id, true_label, false_label;
+    struct vkd3d_control_flow_info *cf_info = &compiler->control_flow_info;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    SpvOp op;
+
+    switch (instruction->handler_idx)
+    {
+        case VKD3DSIH_IF:
+            if (cf_info->merge_block_id)
+            {
+                FIXME("Nested control flow not supported yet.\n");
+                return;
+            }
+
+            val_id = vkd3d_dxbc_compiler_emit_load_reg(compiler,
+                    &src->reg, src->swizzle, VKD3DSP_WRITEMASK_0);
+
+            type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, 1);
+            op = instruction->flags & VKD3D_SHADER_CONDITIONAL_OP_Z ? SpvOpIEqual : SpvOpINotEqual;
+            condition_id = vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+                    op, type_id, val_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, 0));
+
+            true_label = vkd3d_spirv_alloc_id(builder);
+            false_label = vkd3d_spirv_alloc_id(builder);
+            merge_block_id = vkd3d_spirv_alloc_id(builder);
+            vkd3d_spirv_build_op_selection_merge(builder, merge_block_id, SpvSelectionControlMaskNone);
+            vkd3d_spirv_build_op_branch_conditional(builder, condition_id, true_label, false_label);
+
+            vkd3d_spirv_build_op_label(builder, true_label);
+
+            cf_info->merge_block_id = merge_block_id;
+            cf_info->else_block_id = false_label;
+
+            vkd3d_spirv_build_op_name(builder, merge_block_id, "branch%u_merge", compiler->branch_id);
+            vkd3d_spirv_build_op_name(builder, true_label, "branch%u_true", compiler->branch_id);
+            vkd3d_spirv_build_op_name(builder, false_label, "branch%u_false", compiler->branch_id);
+            ++compiler->branch_id;
+            break;
+
+        case VKD3DSIH_ELSE:
+            assert(cf_info->merge_block_id);
+
+            vkd3d_spirv_build_op_branch(builder, cf_info->merge_block_id);
+
+            vkd3d_spirv_build_op_label(builder, cf_info->else_block_id);
+            break;
+
+        case VKD3DSIH_ENDIF:
+            assert(cf_info->merge_block_id);
+
+            vkd3d_spirv_build_op_branch(builder, cf_info->merge_block_id);
+
+            vkd3d_spirv_build_op_label(builder, cf_info->merge_block_id);
+
+            memset(cf_info, 0, sizeof(*cf_info));
+            break;
+
+        default:
+            ERR("Unexpected instruction %#x.\n", instruction->handler_idx);
+            break;
+    }
+}
+
 static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -2024,6 +2122,11 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_BFI:
             vkd3d_dxbc_compiler_emit_bitfield_instruction(compiler, instruction);
+            break;
+        case VKD3DSIH_IF:
+        case VKD3DSIH_ELSE:
+        case VKD3DSIH_ENDIF:
+            vkd3d_dxbc_compiler_emit_control_flow_instruction(compiler, instruction);
             break;
         case VKD3DSIH_RET:
             vkd3d_dxbc_compiler_emit_return(compiler, instruction);
