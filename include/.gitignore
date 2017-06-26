@@ -5,5 +5,7 @@ dxgi.h
 dxgi1_2.h
 dxgi1_3.h
 dxgi1_4.h
+dxgibase.h
+dxgiformat.h
 dxgitype.h
 stamp-h1

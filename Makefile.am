@@ -8,6 +8,8 @@ widl_headers = \
 	include/dxgi1_2.h \
 	include/dxgi1_3.h \
 	include/dxgi1_4.h \
+	include/dxgibase.h \
+	include/dxgiformat.h \
 	include/dxgitype.h
 
 vkd3d_public_headers = \
@@ -15,6 +17,7 @@ vkd3d_public_headers = \
 	include/dummy/rpc.h \
 	include/dummy/rpcndr.h \
 	include/dxgibase.h \
+	include/dxgiformat.h \
 	include/vkd3d.h \
 	include/vkd3d_shader.h \
 	include/vkd3d_utils.h \

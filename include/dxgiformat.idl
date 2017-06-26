@@ -16,18 +16,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef __DXGI_BASE_H
-#define __DXGI_BASE_H
-
-#define DXGI_ERROR_INVALID_CALL   _HRESULT_TYPEDEF_(0x887A0001)
-#define DXGI_ERROR_DEVICE_REMOVED _HRESULT_TYPEDEF_(0x887A0005)
-
-typedef struct DXGI_SAMPLE_DESC
-{
-    UINT Count;
-    UINT Quality;
-} DXGI_SAMPLE_DESC;
-
 typedef enum DXGI_FORMAT
 {
     DXGI_FORMAT_UNKNOWN               = 0x00,
@@ -68,5 +56,3 @@ typedef enum DXGI_FORMAT
 
     DXGI_FORMAT_FORCE_DWORD           = 0xffffffff,
 } DXGI_FORMAT;
-
-#endif  /* __DXGI_BASE_H */

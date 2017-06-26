@@ -18,7 +18,7 @@
 
 import "vkd3d_windows.h";
 
-import "dxgibase.h";
+import "dxgibase.idl";
 
 #include "unknown.idl"
 
