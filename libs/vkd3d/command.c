@@ -59,6 +59,39 @@ static HRESULT vkd3d_queue_gpu_fence(struct vkd3d_fence_worker *worker,
     return S_OK;
 }
 
+static void vkd3d_fence_worker_remove_fence(struct vkd3d_fence_worker *worker, ID3D12Fence *fence)
+{
+    struct d3d12_device *device = worker->device;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    unsigned int i, j;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&worker->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return;
+    }
+
+    for (i = 0, j = 0; i < worker->fence_count; ++i)
+    {
+        if (worker->fences[i].fence == fence)
+        {
+            VK_CALL(vkDestroyFence(device->vk_device, worker->vk_fences[i], NULL));
+            continue;
+        }
+
+        if (i != j)
+        {
+            worker->vk_fences[j] = worker->vk_fences[i];
+            worker->fences[j] = worker->fences[i];
+        }
+        ++j;
+    }
+    worker->fence_count = j;
+
+    pthread_mutex_unlock(&worker->mutex);
+}
+
 static void vkd3d_wait_for_gpu_fences(struct vkd3d_fence_worker *worker)
 {
     struct d3d12_device *device = worker->device;
@@ -263,6 +296,8 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_Release(ID3D12Fence *iface)
     if (!refcount)
     {
         struct d3d12_device *device = fence->device;
+
+        vkd3d_fence_worker_remove_fence(&device->fence_worker, iface);
 
         vkd3d_free(fence->events);
         if ((rc = pthread_mutex_destroy(&fence->mutex)))
