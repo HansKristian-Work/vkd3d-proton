@@ -19,6 +19,7 @@
 #include "vkd3d_shader_private.h"
 #include "rbtree.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include "spirv/1.0/spirv.h"
 #include "spirv/1.0/GLSL.std.450.h"
@@ -453,10 +454,19 @@ static void vkd3d_spirv_build_op_execution_mode(struct vkd3d_spirv_stream *strea
 }
 
 static void vkd3d_spirv_build_op_name(struct vkd3d_spirv_builder *builder,
-        uint32_t id, const char *name)
+        uint32_t id, const char *fmt, ...)
 {
-    unsigned int name_size = vkd3d_spirv_string_word_count(name);
     struct vkd3d_spirv_stream *stream = &builder->debug_stream;
+    unsigned int name_size;
+    char name[1024];
+    va_list args;
+
+    va_start(args, fmt);
+    vsnprintf(name, ARRAY_SIZE(name), fmt, args);
+    name[ARRAY_SIZE(name) - 1] = '\0';
+    va_end(args);
+
+    name_size = vkd3d_spirv_string_word_count(name);
     vkd3d_spirv_build_word(stream, vkd3d_spirv_opcode_word(SpvOpName, 2 + name_size));
     vkd3d_spirv_build_word(stream, id);
     vkd3d_spirv_build_string(stream, name, name_size);
@@ -1527,7 +1537,6 @@ static void vkd3d_dxbc_compiler_emit_dcl_temps(struct vkd3d_dxbc_compiler *compi
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t type_id, ptr_type_id, id;
-    char debug_name[100];
     unsigned int i;
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
@@ -1543,8 +1552,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_temps(struct vkd3d_dxbc_compiler *compi
             compiler->temp_id = id;
         assert(id == compiler->temp_id + i);
 
-        sprintf(debug_name, "r%u", i);
-        vkd3d_spirv_build_op_name(builder, id, debug_name);
+        vkd3d_spirv_build_op_name(builder, id, "r%u", i);
     }
 }
 
@@ -1556,7 +1564,6 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     struct vkd3d_symbol reg_symbol;
     unsigned int cb_idx, cb_size;
-    char debug_name[100];
 
     assert(!(instruction->flags & ~VKD3DSI_INDEXED_DYNAMIC));
 
@@ -1574,8 +1581,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
     struct_id = vkd3d_spirv_build_op_type_struct(builder, &array_type_id, 1);
     vkd3d_spirv_build_op_decorate(builder, struct_id, SpvDecorationBlock, NULL, 0);
     vkd3d_spirv_build_op_member_decorate1(builder, struct_id, 0, SpvDecorationOffset, 0);
-    sprintf(debug_name, "cb%u_struct", cb_size);
-    vkd3d_spirv_build_op_name(builder, struct_id, debug_name);
+    vkd3d_spirv_build_op_name(builder, struct_id, "cb%u_struct", cb_size);
 
     pointer_type_id = vkd3d_spirv_build_op_type_pointer(builder, SpvStorageClassUniform, struct_id);
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
