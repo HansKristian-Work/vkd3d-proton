@@ -38,6 +38,7 @@ typedef int HRESULT;
 
 #include <inttypes.h>
 #include <limits.h>
+#include <math.h>
 
 #define COBJMACROS
 #define INITGUID
@@ -59,6 +60,11 @@ struct vec2
 struct vec4
 {
     float x, y, z, w;
+};
+
+struct uvec4
+{
+    unsigned int x, y, z, w;
 };
 
 static BOOL compare_float(float f, float g, unsigned int ulps)
@@ -3685,6 +3691,29 @@ static void test_shader_instructions(void)
         0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_dot2 = {ps_dot2_code, sizeof(ps_dot2_code)};
+    static const DWORD ps_ne_code[] =
+    {
+#if 0
+        float4 src0;
+        float4 src1;
+
+        void main(out float4 dst : SV_Target)
+        {
+            dst = (uint4)0;
+            if (src0.x != src1.x)
+                dst.x = asfloat(0xffffffff);
+        }
+#endif
+        0x43425844, 0x5bbb7f90, 0x1a44971c, 0x4ee3d92e, 0x149ceecf, 0x00000001, 0x000000e8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000070, 0x00000050, 0x0000001c,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000002, 0x03000065, 0x001020f2, 0x00000000,
+        0x09000039, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0020800a, 0x00000000,
+        0x00000001, 0x08000036, 0x001020e2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_ne = {ps_ne_code, sizeof(ps_ne_code)};
     static const DWORD ps_if_code[] =
     {
         /* compiled with /Gfp option */
@@ -3719,15 +3748,27 @@ static void test_shader_instructions(void)
             struct vec4 src0;
             struct vec4 src1;
         } input;
-        struct vec4 output;
+        union
+        {
+            struct vec4 f;
+            struct uvec4 u;
+        } output;
     }
     tests[] =
     {
-        {&ps_dot2, {{1.0f, 1.0f}, {1.0f, 1.0f}}, {2.0f}},
-        {&ps_dot2, {{1.0f, 1.0f}, {2.0f, 3.0f}}, {5.0f}},
+        {&ps_dot2, {{1.0f, 1.0f}, {1.0f, 1.0f}}, {{2.0f}}},
+        {&ps_dot2, {{1.0f, 1.0f}, {2.0f, 3.0f}}, {{5.0f}}},
 
-        {&ps_if, {{0.0f}}, {1.0f, 0.0f, 0.0f, 1.0f}},
-        {&ps_if, {{1.0f}}, {0.0f, 1.0f, 0.0f, 1.0f}},
+        {&ps_ne, {{0.0f}, {0.0f}}, {.u = {0x00000000}}},
+        {&ps_ne, {{1.0f}, {0.0f}}, {.u = {0xffffffff}}},
+        {&ps_ne, {{0.0f}, {1.0f}}, {.u = {0xffffffff}}},
+        {&ps_ne, {{1.0f}, {1.0f}}, {.u = {0x00000000}}},
+        {&ps_ne, {{0.0f},  {NAN}}, {.u = {0xffffffff}}},
+        {&ps_ne, {{1.0f},  {NAN}}, {.u = {0xffffffff}}},
+        {&ps_ne, { {NAN},  {NAN}}, {.u = {0xffffffff}}},
+
+        {&ps_if, {{0.0f}}, {{1.0f, 0.0f, 0.0f, 1.0f}}},
+        {&ps_if, {{1.0f}}, {{0.0f, 1.0f, 0.0f, 1.0f}}},
     };
 
     memset(&desc, 0, sizeof(desc));
@@ -3813,10 +3854,10 @@ static void test_shader_instructions(void)
             for (x = 0; x < context.render_target_desc.Width; ++x)
             {
                 const struct vec4 *v = get_readback_vec4(&rb, x, y);
-                ok(compare_vec4(v, &tests[i].output, 0),
+                ok(compare_vec4(v, &tests[i].output.f, 0),
                         "Got %.8e, %.8e, %.8e, %.8e expected %.8e, %.8e, %.8e, %.8e.\n",
-                        v->x, v->y, v->z, v->w, tests[i].output.x, tests[i].output.y,
-                        tests[i].output.z, tests[i].output.w);
+                        v->x, v->y, v->z, v->w, tests[i].output.f.x, tests[i].output.f.y,
+                        tests[i].output.f.z, tests[i].output.f.w);
             }
         }
         release_resource_readback(&rb);
