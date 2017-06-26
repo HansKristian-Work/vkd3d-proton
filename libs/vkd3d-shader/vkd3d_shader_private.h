@@ -357,6 +357,7 @@ enum vkd3d_component_type
     VKD3D_TYPE_UINT    = 1,
     VKD3D_TYPE_INT     = 2,
     VKD3D_TYPE_FLOAT   = 3,
+    VKD3D_TYPE_BOOL,
     VKD3D_TYPE_COUNT,
 };
 
