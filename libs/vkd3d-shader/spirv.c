@@ -1140,7 +1140,6 @@ static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     struct vkd3d_dxbc_register_info register_info;
-    unsigned int component_count;
 
     switch (reg->type)
     {
@@ -1152,22 +1151,8 @@ static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *
             vkd3d_dxbc_compiler_get_register_info(compiler, reg, &register_info);
             return register_info.id;
         case VKD3DSPR_IMMCONST:
-            if (reg->immconst_type == VKD3D_IMMCONST_SCALAR)
-            {
-                component_count = 1;
-            }
-            else if (reg->immconst_type == VKD3D_IMMCONST_VEC4)
-            {
-                component_count = VKD3D_VEC4_SIZE;
-            }
-            else
-            {
-                FIXME("Unhandled immconst type %#x.\n", reg->immconst_type);
-                component_count = 1;
-            }
-            return vkd3d_dxbc_compiler_get_constant(compiler,
-                    vkd3d_component_type_from_data_type(reg->data_type),
-                    component_count, reg->u.immconst_data);
+            ERR("Unexpected register type %#x.\n", reg->type);
+            return vkd3d_dxbc_compiler_emit_undef(compiler, &builder->global_stream, reg);
         default:
             FIXME("Unhandled register type %#x.\n", reg->type);
             return vkd3d_dxbc_compiler_emit_undef(compiler, &builder->global_stream, reg);
@@ -1183,18 +1168,18 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_constant(struct vkd3d_dxbc_compile
 
     assert(reg->type == VKD3DSPR_IMMCONST);
 
-    if (component_count == 1 || component_count == VKD3D_VEC4_SIZE)
+    if (reg->immconst_type == VKD3D_IMMCONST_SCALAR)
     {
-        assert(component_count != 1 || reg->immconst_type == VKD3D_IMMCONST_SCALAR);
-        return vkd3d_dxbc_compiler_get_register_id(compiler, reg);
+        assert(component_count == 1);
+        values[0] = *reg->u.immconst_data;
     }
-
-    assert(reg->immconst_type == VKD3D_IMMCONST_VEC4);
-
-    for (i = 0, j = 0; i < VKD3D_VEC4_SIZE; ++i)
+    else
     {
-        if (write_mask & (VKD3DSP_WRITEMASK_0 << i))
-            values[j++] = reg->u.immconst_data[vkd3d_swizzle_get_component(swizzle, i)];
+        for (i = 0, j = 0; i < VKD3D_VEC4_SIZE; ++i)
+        {
+            if (write_mask & (VKD3DSP_WRITEMASK_0 << i))
+                values[j++] = reg->u.immconst_data[vkd3d_swizzle_get_component(swizzle, i)];
+        }
     }
 
     return vkd3d_dxbc_compiler_get_constant(compiler,
