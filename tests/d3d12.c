@@ -3648,6 +3648,7 @@ static void test_bundle_state_inheritance(void)
 static void test_shader_instructions(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    const D3D12_SHADER_BYTECODE *current_ps;
     ID3D12GraphicsCommandList *command_list;
     D3D12_HEAP_PROPERTIES heap_properties;
     struct draw_test_context_desc desc;
@@ -3683,9 +3684,36 @@ static void test_shader_instructions(void)
         0x00000001, 0x08000036, 0x001020e2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
         0x00000000, 0x0100003e,
     };
-    const D3D12_SHADER_BYTECODE ps_dot2 = {ps_dot2_code, sizeof(ps_dot2_code)};
+    static const D3D12_SHADER_BYTECODE ps_dot2 = {ps_dot2_code, sizeof(ps_dot2_code)};
+    static const DWORD ps_if_code[] =
+    {
+        /* compiled with /Gfp option */
+#if 0
+        float4 src0;
+
+        void main(out float4 dst : SV_Target)
+        {
+            if (src0.x)
+                dst = float4(0, 1, 0, 1);
+            else
+                dst = float4(1, 0, 0, 1);
+        }
+#endif
+        0x43425844, 0xfe5b6a47, 0x123f8934, 0xfa5910fe, 0x497aad93, 0x00000001, 0x0000012c, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000b4, 0x00000050, 0x0000002d,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x0b000039, 0x00100012, 0x00000000, 0x00004002, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0304001f, 0x0010000a, 0x00000000,
+        0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000, 0x3f800000, 0x00000000, 0x3f800000,
+        0x01000012, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x3f800000, 0x00000000, 0x00000000,
+        0x3f800000, 0x01000015, 0x0100003e
+    };
+    static const D3D12_SHADER_BYTECODE ps_if = {ps_if_code, sizeof(ps_if_code)};
     static const struct
     {
+        const D3D12_SHADER_BYTECODE *ps;
         struct
         {
             struct vec4 src0;
@@ -3695,8 +3723,11 @@ static void test_shader_instructions(void)
     }
     tests[] =
     {
-        {{{1.0f, 1.0f}, {1.0f, 1.0f}}, {2.0f}},
-        {{{1.0f, 1.0f}, {2.0f, 3.0f}}, {5.0f}},
+        {&ps_dot2, {{1.0f, 1.0f}, {1.0f, 1.0f}}, {2.0f}},
+        {&ps_dot2, {{1.0f, 1.0f}, {2.0f, 3.0f}}, {5.0f}},
+
+        {&ps_if, {{0.0f}}, {1.0f, 0.0f, 0.0f, 1.0f}},
+        {&ps_if, {{1.0f}}, {0.0f, 1.0f, 0.0f, 1.0f}},
     };
 
     memset(&desc, 0, sizeof(desc));
@@ -3709,8 +3740,6 @@ static void test_shader_instructions(void)
 
     context.root_signature = create_cb_root_signature(context.device,
             0, D3D12_SHADER_VISIBILITY_PIXEL, D3D12_ROOT_SIGNATURE_FLAG_NONE);
-    context.pipeline_state = create_pipeline_state(context.device,
-            context.root_signature, desc.rt_format, NULL, &ps_dot2, NULL);
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -3742,8 +3771,18 @@ static void test_shader_instructions(void)
     scissor_rect.right = context.render_target_desc.Width;
     scissor_rect.bottom = context.render_target_desc.Height;
 
+    current_ps = NULL;
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        if (current_ps != tests[i].ps)
+        {
+            if (context.pipeline_state)
+                ID3D12PipelineState_Release(context.pipeline_state);
+            current_ps = tests[i].ps;
+            context.pipeline_state = create_pipeline_state(context.device,
+                    context.root_signature, desc.rt_format, NULL, current_ps, NULL);
+        }
+
         hr = ID3D12Resource_Map(cb, 0, NULL, (void **)&ptr);
         ok(SUCCEEDED(hr), "Failed to map constant buffer, hr %#x.\n", hr);
         memcpy(ptr, &tests[i].input, sizeof(tests[i].input));
