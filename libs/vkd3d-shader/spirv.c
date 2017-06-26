@@ -150,6 +150,11 @@ struct vkd3d_spirv_builder
     size_t iface_element_count;
 };
 
+static uint32_t vkd3d_spirv_alloc_id(struct vkd3d_spirv_builder *builder)
+{
+    return builder->current_id++;
+}
+
 static void vkd3d_spirv_enable_capability(struct vkd3d_spirv_builder *builder,
         SpvCapability cap)
 {
@@ -160,7 +165,7 @@ static void vkd3d_spirv_enable_capability(struct vkd3d_spirv_builder *builder,
 static uint32_t vkd3d_spirv_get_glsl_std_450_instr_set(struct vkd3d_spirv_builder *builder)
 {
     if (!builder->ext_instr_set_glsl_450)
-        builder->ext_instr_set_glsl_450 = builder->current_id++;
+        builder->ext_instr_set_glsl_450 = vkd3d_spirv_alloc_id(builder);
 
     return builder->ext_instr_set_glsl_450;
 }
@@ -316,7 +321,7 @@ static uint32_t vkd3d_spirv_build_op_rv(struct vkd3d_spirv_builder *builder,
         struct vkd3d_spirv_stream *stream, SpvOp op,
         const uint32_t *operands, unsigned int operand_count)
 {
-    uint32_t result_id = builder->current_id++;
+    uint32_t result_id = vkd3d_spirv_alloc_id(builder);
     vkd3d_spirv_build_op1v(stream, op, result_id, operands, operand_count);
     return result_id;
 }
@@ -344,7 +349,7 @@ static uint32_t vkd3d_spirv_build_op_r1v(struct vkd3d_spirv_builder *builder,
         struct vkd3d_spirv_stream *stream, SpvOp op, uint32_t operand0,
         const uint32_t *operands, unsigned int operand_count)
 {
-    uint32_t result_id = builder->current_id++;
+    uint32_t result_id = vkd3d_spirv_alloc_id(builder);
     vkd3d_spirv_build_op2v(stream, op, result_id, operand0, operands, operand_count);
     return result_id;
 }
@@ -353,7 +358,7 @@ static uint32_t vkd3d_spirv_build_op_trv(struct vkd3d_spirv_builder *builder,
         struct vkd3d_spirv_stream *stream, SpvOp op, uint32_t result_type,
         const uint32_t *operands, unsigned int operand_count)
 {
-    uint32_t result_id = builder->current_id++;
+    uint32_t result_id = vkd3d_spirv_alloc_id(builder);
     vkd3d_spirv_build_op2v(stream, op, result_type, result_id, operands, operand_count);
     return result_id;
 }
@@ -384,7 +389,7 @@ static uint32_t vkd3d_spirv_build_op_tr1v(struct vkd3d_spirv_builder *builder,
         struct vkd3d_spirv_stream *stream, SpvOp op, uint32_t result_type,
         uint32_t operand0, const uint32_t *operands, unsigned int operand_count)
 {
-    uint32_t result_id = builder->current_id++;
+    uint32_t result_id = vkd3d_spirv_alloc_id(builder);
     vkd3d_spirv_build_op3v(stream, op, result_type, result_id, operand0, operands, operand_count);
     return result_id;
 }
@@ -393,7 +398,7 @@ static uint32_t vkd3d_spirv_build_op_tr2v(struct vkd3d_spirv_builder *builder,
         struct vkd3d_spirv_stream *stream, SpvOp op, uint32_t result_type,
         uint32_t operand0, uint32_t operand1, const uint32_t *operands, unsigned int operand_count)
 {
-    uint32_t result_id = builder->current_id++;
+    uint32_t result_id = vkd3d_spirv_alloc_id(builder);
     unsigned int i;
     vkd3d_spirv_build_word(stream, vkd3d_spirv_opcode_word(op, 5 + operand_count));
     vkd3d_spirv_build_word(stream, result_type);
