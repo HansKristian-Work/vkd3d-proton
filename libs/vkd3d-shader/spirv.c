@@ -1485,39 +1485,39 @@ static void vkd3d_dxbc_compiler_decorate_sysval(struct vkd3d_dxbc_compiler *comp
     vkd3d_spirv_build_op_decorate1(builder, target_id, SpvDecorationBuiltIn, builtin);
 }
 
-static void vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
+static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval)
 {
     enum vkd3d_component_type component_type = vkd3d_component_type_for_semantic(sysval);
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     unsigned int component_count, input_component_count;
+    uint32_t val_id, input_id, var_id;
     struct vkd3d_symbol reg_symbol;
     SpvStorageClass storage_class;
-    uint32_t val_id, var_id;
 
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
     if (!(input_component_count = vkd3d_dxbc_compiler_get_sysval_component_count(sysval)))
         input_component_count = component_count;
 
     storage_class = SpvStorageClassInput;
-    var_id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
+    input_id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
             storage_class, component_type, input_component_count);
-    vkd3d_spirv_add_iface_variable(builder, var_id);
+    vkd3d_spirv_add_iface_variable(builder, input_id);
     if (sysval)
-        vkd3d_dxbc_compiler_decorate_sysval(compiler, var_id, sysval);
+        vkd3d_dxbc_compiler_decorate_sysval(compiler, input_id, sysval);
     else
-        vkd3d_spirv_build_op_decorate1(builder, var_id, SpvDecorationLocation, dst->reg.idx[0].offset);
+        vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationLocation, dst->reg.idx[0].offset);
 
     if (component_type != VKD3D_TYPE_FLOAT)
     {
         uint32_t float_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, input_component_count);
         assert(component_count == 1 && input_component_count == 1);
-        val_id = vkd3d_spirv_build_op_bitcast(builder, float_type_id, var_id);
+        val_id = vkd3d_spirv_build_op_bitcast(builder, float_type_id, input_id);
     }
     else if (component_count != VKD3D_VEC4_SIZE)
     {
         uint32_t type_id = vkd3d_spirv_get_type_id(builder, component_type, input_component_count);
-        val_id = vkd3d_spirv_build_op_load(builder, type_id, var_id, SpvMemoryAccessMaskNone);
+        val_id = vkd3d_spirv_build_op_load(builder, type_id, input_id, SpvMemoryAccessMaskNone);
     }
 
     /* FIXME: handle multiple inputs packed into a single register */
@@ -1526,6 +1526,10 @@ static void vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
         storage_class = SpvStorageClassPrivate;
         var_id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
                 storage_class, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
+    }
+    else
+    {
+        var_id = input_id;
     }
 
     vkd3d_symbol_make_register(&reg_symbol, &dst->reg);
@@ -1537,6 +1541,8 @@ static void vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
 
     if (component_count != VKD3D_VEC4_SIZE || component_type != VKD3D_TYPE_FLOAT)
         vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
+
+    return input_id;
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler,
@@ -1640,21 +1646,42 @@ static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compi
     vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.dst, VKD3D_SIV_NONE);
 }
 
+static void vkd3d_dxbc_compiler_emit_interpolation_decorations(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t id, enum vkd3d_shader_interpolation_mode mode)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    switch (mode)
+    {
+        case VKD3DSIM_CONSTANT:
+            vkd3d_spirv_build_op_decorate(builder, id, SpvDecorationFlat, NULL, 0);
+            break;
+        case VKD3DSIM_LINEAR:
+            break;
+        default:
+            FIXME("Unhandled interpolation mode %#x.\n", mode);
+            break;
+    }
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_input_ps(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.dst, VKD3D_SIV_NONE);
-    if (instruction->flags != VKD3DSIM_LINEAR)
-        FIXME("Unhandled interpolation mode %#x.\n", instruction->flags);
+    uint32_t input_id;
+
+    input_id = vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.dst, VKD3D_SIV_NONE);
+    vkd3d_dxbc_compiler_emit_interpolation_decorations(compiler, input_id, instruction->flags);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_input_ps_siv(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.register_semantic.reg,
+    uint32_t input_id;
+
+    input_id = vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.register_semantic.reg,
             instruction->declaration.register_semantic.sysval_semantic);
-    if (instruction->flags != VKD3DSIM_LINEAR)
-        FIXME("Unhandled interpolation mode %#x.\n", instruction->flags);
+    if (!instruction->declaration.register_semantic.sysval_semantic)
+        vkd3d_dxbc_compiler_emit_interpolation_decorations(compiler, input_id, instruction->flags);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_input_sgv(struct vkd3d_dxbc_compiler *compiler,
