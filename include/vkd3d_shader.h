@@ -42,6 +42,10 @@ HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv, uint32_t compiler_options);
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
 
+HRESULT vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
+        D3D12_ROOT_SIGNATURE_DESC *root_signature);
+void vkd3d_shader_free_root_signature(D3D12_ROOT_SIGNATURE_DESC *root_signature);
+
 #ifdef __cplusplus
 }
 #endif  /* __cplusplus */

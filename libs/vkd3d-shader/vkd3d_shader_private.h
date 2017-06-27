@@ -45,6 +45,7 @@
 #ifndef __VKD3D_SHADER_PRIVATE_H
 #define __VKD3D_SHADER_PRIVATE_H
 
+#define NONAMELESSUNION
 #include "vkd3d_common.h"
 #include "vkd3d_memory.h"
 #include "vkd3d_shader.h"

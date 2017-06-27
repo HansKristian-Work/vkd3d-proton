@@ -1,5 +1,6 @@
 /*
  * Copyright 2008-2009 Henri Verbeet for CodeWeavers
+ * Copyright 2017 Józef Kucia for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -1738,6 +1739,7 @@ BOOL shader_sm4_is_end(void *data, const DWORD **ptr)
 #define TAG_SHDR MAKE_TAG('S', 'H', 'D', 'R')
 #define TAG_SHEX MAKE_TAG('S', 'H', 'E', 'X')
 #define TAG_AON9 MAKE_TAG('A', 'o', 'n', '9')
+#define TAG_RTS0 MAKE_TAG('R', 'T', 'S', '0')
 
 static BOOL require_space(size_t offset, size_t count, size_t size, size_t data_size)
 {
@@ -2018,4 +2020,244 @@ HRESULT shader_extract_from_dxbc(const void *dxbc, SIZE_T dxbc_length,
     }
 
     return hr;
+}
+
+static HRESULT shader_parse_descriptor_ranges(const char *data, DWORD data_size,
+        DWORD offset, DWORD count, D3D12_DESCRIPTOR_RANGE *ranges)
+{
+    DWORD type, descriptor_count, reg_idx, space_idx, table_offset;
+    const char *ptr;
+    unsigned int i;
+
+    if (!require_space(offset, 5 * count, sizeof(DWORD), data_size))
+    {
+        WARN("Invalid data size %#x (offset %u, count %u).\n", data_size, offset, count);
+        return E_INVALIDARG;
+    }
+    ptr = &data[offset];
+
+    for (i = 0; i < count; ++i)
+    {
+        read_dword(&ptr, &type);
+        read_dword(&ptr, &descriptor_count);
+        read_dword(&ptr, &reg_idx);
+        read_dword(&ptr, &space_idx);
+        read_dword(&ptr, &table_offset);
+
+        TRACE("Type %#x, descriptor count %u, base shader register %u, "
+                "register space %u, offset %u.\n",
+                type, descriptor_count, reg_idx, space_idx, table_offset);
+
+        ranges[i].RangeType = type;
+        ranges[i].NumDescriptors = descriptor_count;
+        ranges[i].BaseShaderRegister = reg_idx;
+        ranges[i].RegisterSpace = space_idx;
+        ranges[i].OffsetInDescriptorsFromTableStart = table_offset;
+    }
+
+    return S_OK;
+}
+
+static HRESULT shader_parse_descriptor_table(const char *data, DWORD data_size,
+        DWORD offset, D3D12_ROOT_DESCRIPTOR_TABLE *table)
+{
+    D3D12_DESCRIPTOR_RANGE *ranges;
+    const char *ptr;
+    DWORD count;
+
+    if (!require_space(offset, 2, sizeof(DWORD), data_size))
+    {
+        WARN("Invalid data size %#x (offset %u).\n", data_size, offset);
+        return E_INVALIDARG;
+    }
+    ptr = &data[offset];
+
+    read_dword(&ptr, &count);
+    read_dword(&ptr, &offset);
+
+    TRACE("Descriptor range count %u.\n", count);
+
+    table->NumDescriptorRanges = count;
+
+    if (!(ranges = vkd3d_calloc(count, sizeof(*ranges))))
+        return E_OUTOFMEMORY;
+    table->pDescriptorRanges = ranges;
+    return shader_parse_descriptor_ranges(data, data_size, offset, count, ranges);
+}
+
+static HRESULT shader_parse_root_constants(const char *data, DWORD data_size,
+        DWORD offset, D3D12_ROOT_CONSTANTS *constants)
+{
+    DWORD reg_idx, space_idx, value_count;
+    const char *ptr;
+
+    if (!require_space(offset, 3, sizeof(DWORD), data_size))
+    {
+        WARN("Invalid data size %#x (offset %u).\n", data_size, offset);
+        return E_INVALIDARG;
+    }
+    ptr = &data[offset];
+
+    read_dword(&ptr, &reg_idx);
+    read_dword(&ptr, &space_idx);
+    read_dword(&ptr, &value_count);
+
+    TRACE("Shader register %u, register space %u, 32-bit value count %u.\n",
+            reg_idx, space_idx, value_count);
+
+    constants->ShaderRegister = reg_idx;
+    constants->RegisterSpace = space_idx;
+    constants->Num32BitValues = value_count;
+
+    return S_OK;
+}
+
+static HRESULT shader_parse_root_descriptor(const char *data, DWORD data_size,
+        DWORD offset, D3D12_ROOT_DESCRIPTOR *descriptor)
+{
+    DWORD reg_idx, space_idx;
+    const char *ptr;
+
+    if (!require_space(offset, 2, sizeof(DWORD), data_size))
+    {
+        WARN("Invalid data size %#x (offset %u).\n", data_size, offset);
+        return E_INVALIDARG;
+    }
+    ptr = &data[offset];
+
+    read_dword(&ptr, &reg_idx);
+    read_dword(&ptr, &space_idx);
+
+    TRACE("Shader register %u, register space %u.\n", reg_idx, space_idx);
+
+    descriptor->ShaderRegister = reg_idx;
+    descriptor->RegisterSpace = space_idx;
+
+    return S_OK;
+}
+
+static HRESULT shader_parse_root_parameters(const char *data, DWORD data_size,
+        DWORD offset, DWORD count, D3D12_ROOT_PARAMETER *parameters)
+{
+    DWORD type, shader_visibility;
+    const char *ptr;
+    unsigned int i;
+    HRESULT hr;
+
+    if (!require_space(offset, 3 * count, sizeof(DWORD), data_size))
+    {
+        WARN("Invalid data size %#x (offset %u, count %u).\n", data_size, offset, count);
+        return E_INVALIDARG;
+    }
+    ptr = &data[offset];
+
+    for (i = 0; i < count; ++i)
+    {
+        read_dword(&ptr, &type);
+        read_dword(&ptr, &shader_visibility);
+        read_dword(&ptr, &offset);
+
+        TRACE("Type %#x, shader visibility %#x.\n", type, shader_visibility);
+
+        parameters[i].ParameterType = type;
+        parameters[i].ShaderVisibility = shader_visibility;
+
+        if (type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+        {
+            if (FAILED(hr = shader_parse_descriptor_table(data, data_size,
+                    offset, &parameters[i].u.DescriptorTable)))
+                return hr;
+        }
+        else if (type == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
+        {
+            if (FAILED(hr = shader_parse_root_constants(data, data_size,
+                    offset, &parameters[i].u.Constants)))
+                return hr;
+        }
+        else  if (type <= D3D12_ROOT_PARAMETER_TYPE_UAV)
+        {
+            if (FAILED(hr = shader_parse_root_descriptor(data, data_size,
+                    offset, &parameters[i].u.Descriptor)))
+                return hr;
+        }
+        else
+        {
+            FIXME("Unrecognized type %#x.\n", type);
+            return E_INVALIDARG;
+        }
+    }
+
+    return S_OK;
+}
+
+static HRESULT shader_parse_root_signature(const char *data, DWORD data_size,
+        D3D12_ROOT_SIGNATURE_DESC *desc)
+{
+    DWORD count, offset, flags;
+    const char *ptr = data;
+    HRESULT hr;
+
+    if (!require_space(0, 6, sizeof(DWORD), data_size))
+    {
+        WARN("Invalid data size %#x.\n", data_size);
+        return E_INVALIDARG;
+    }
+
+    skip_dword_unknown(&ptr, 1); /* It seems to always be 0x00000001. */
+
+    read_dword(&ptr, &count);
+    read_dword(&ptr, &offset);
+    TRACE("Parameter count %u, offset %u.\n", count, offset);
+
+    desc->NumParameters = count;
+
+    if (desc->NumParameters)
+    {
+        D3D12_ROOT_PARAMETER *parameters;
+        if (!(parameters = vkd3d_calloc(desc->NumParameters, sizeof(*parameters))))
+            return E_OUTOFMEMORY;
+        desc->pParameters = parameters;
+        if (FAILED(hr = shader_parse_root_parameters(data, data_size, offset, count, parameters)))
+            return hr;
+    }
+
+    read_dword(&ptr, &count);
+    read_dword(&ptr, &offset);
+    TRACE("Static sampler count %u, offset %u.\n", count, offset);
+
+    if (count)
+        FIXME("Static samplers not supported yet.\n");
+
+    read_dword(&ptr, &flags);
+    TRACE("Flags %#x.\n", flags);
+    desc->Flags = flags;
+
+    return S_OK;
+}
+
+static HRESULT rts0_handler(const char *data, DWORD data_size, DWORD tag, void *context)
+{
+    D3D12_ROOT_SIGNATURE_DESC *desc = context;
+
+    if (tag != TAG_RTS0)
+        return S_OK;
+
+    return shader_parse_root_signature(data, data_size, desc);
+}
+
+HRESULT vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
+        D3D12_ROOT_SIGNATURE_DESC *root_signature)
+{
+    HRESULT hr;
+
+    TRACE("dxbc {%p, %zu}, root_signature %p.\n", dxbc->code, dxbc->size, root_signature);
+
+    memset(root_signature, 0, sizeof(*root_signature));
+    if (FAILED(hr = parse_dxbc(dxbc->code, dxbc->size, rts0_handler, root_signature)))
+    {
+        vkd3d_shader_free_root_signature(root_signature);
+        return hr;
+    }
+
+    return S_OK;
 }

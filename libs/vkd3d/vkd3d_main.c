@@ -18,6 +18,7 @@
 
 #define INITGUID
 #include "vkd3d_private.h"
+#include "vkd3d_shader.h"
 
 HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         REFIID riid, void **device)
@@ -100,6 +101,7 @@ static ULONG STDMETHODCALLTYPE d3d12_root_signature_deserializer_Release(ID3D12R
 
     if (!refcount)
     {
+        vkd3d_shader_free_root_signature(&deserializer->desc);
         vkd3d_free(deserializer);
     }
 
@@ -126,26 +128,41 @@ static const struct ID3D12RootSignatureDeserializerVtbl d3d12_root_signature_des
     d3d12_root_signature_deserializer_GetRootSignatureDesc,
 };
 
-static void d3d12_root_signature_deserializer_init(struct d3d12_root_signature_deserializer *deserializer)
+static HRESULT d3d12_root_signature_deserializer_init(struct d3d12_root_signature_deserializer *deserializer,
+        const struct vkd3d_shader_code *dxbc)
 {
+    HRESULT hr;
+
     deserializer->ID3D12RootSignatureDeserializer_iface.lpVtbl = &d3d12_root_signature_deserializer_vtbl;
     deserializer->refcount = 1;
 
-    memset(&deserializer->desc, 0, sizeof(deserializer->desc));
+    if (FAILED(hr = vkd3d_shader_parse_root_signature(dxbc, &deserializer->desc)))
+    {
+        WARN("Failed to parse root signature, hr %#x.\n", hr);
+        return hr;
+    }
+
+    return S_OK;
 }
 
 HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T data_size,
         REFIID riid, void **deserializer)
 {
+    struct vkd3d_shader_code dxbc = {data, data_size};
     struct d3d12_root_signature_deserializer *object;
+    HRESULT hr;
 
-    FIXME("data %p, data_size %lu, riid %s, deserializer %p partial-stub!\n",
+    TRACE("data %p, data_size %lu, riid %s, deserializer %p.\n",
             data, data_size, debugstr_guid(riid), deserializer);
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    d3d12_root_signature_deserializer_init(object);
+    if (FAILED(hr = d3d12_root_signature_deserializer_init(object, &dxbc)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
 
     return return_interface((IUnknown *)&object->ID3D12RootSignatureDeserializer_iface,
             &IID_ID3D12RootSignatureDeserializer, riid, deserializer);
