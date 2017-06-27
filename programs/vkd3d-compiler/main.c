@@ -90,6 +90,7 @@ static const struct
 compiler_options[] =
 {
     {"--flip-y", VKD3D_SHADER_FLIP_Y},
+    {"--strip-debug", VKD3D_SHADER_STRIP_DEBUG},
 };
 
 struct options
@@ -142,7 +143,9 @@ int main(int argc, char **argv)
 
     if (!parse_command_line(argc, argv, &options))
     {
-        fprintf(stderr, "usage: %s [--flip-y] [-o <out_spirv_filename>] <dxbc_filename>\n", argv[0]);
+        fprintf(stderr,
+                "usage: %s [--strip-degug] [--flip-y] [-o <out_spirv_filename>] <dxbc_filename>\n",
+                argv[0]);
         return 1;
     }
 

@@ -107,6 +107,11 @@ static void vkd3d_spirv_stream_free(struct vkd3d_spirv_stream *stream)
     vkd3d_free(stream->words);
 }
 
+static void vkd3d_spirv_stream_clear(struct vkd3d_spirv_stream *stream)
+{
+    stream->word_count = 0;
+}
+
 static bool vkd3d_spirv_stream_append(struct vkd3d_spirv_stream *dst_stream,
         const struct vkd3d_spirv_stream *src_stream)
 {
@@ -2170,7 +2175,12 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
 bool vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_code *spirv)
 {
-    if (!vkd3d_spirv_compile_module(&compiler->spirv_builder, spirv))
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    if (compiler->options & VKD3D_SHADER_STRIP_DEBUG)
+        vkd3d_spirv_stream_clear(&builder->debug_stream);
+
+    if (!vkd3d_spirv_compile_module(builder, spirv))
         return false;
 
     if (TRACE_ON())
