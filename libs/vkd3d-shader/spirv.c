@@ -1746,6 +1746,7 @@ static SpvOp vkd3d_dxbc_compiler_map_alu_instruction(const struct vkd3d_shader_i
         {VKD3DSIH_ADD,  SpvOpFAdd},
         {VKD3DSIH_AND,  SpvOpBitwiseAnd},
         {VKD3DSIH_DIV,  SpvOpFDiv},
+        {VKD3DSIH_IADD, SpvOpIAdd},
         {VKD3DSIH_MUL,  SpvOpFMul},
         {VKD3DSIH_UTOF, SpvOpConvertUToF},
     };
@@ -2133,6 +2134,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_ADD:
         case VKD3DSIH_AND:
         case VKD3DSIH_DIV:
+        case VKD3DSIH_IADD:
         case VKD3DSIH_MUL:
         case VKD3DSIH_UTOF:
             vkd3d_dxbc_compiler_emit_alu_instruction(compiler, instruction);
