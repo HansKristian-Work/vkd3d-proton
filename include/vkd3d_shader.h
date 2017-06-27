@@ -27,8 +27,7 @@ extern "C" {
 
 enum vkd3d_shader_compiler_option
 {
-    VKD3D_SHADER_FLIP_Y = 0x00000001,
-    VKD3D_SHADER_STRIP_DEBUG = 0x00000002,
+    VKD3D_SHADER_STRIP_DEBUG = 0x00000001,
 
     VKD3D_SHADER_COMPILER_OPTIONS_FORCE_32_BIT = 0x7fffffff,
 };
