@@ -1811,6 +1811,15 @@ interface ID3D12Debug : IUnknown
     void EnableDebugLayer();
 };
 
+[uuid(34ab647b-3cc8-46ac-841b-c0965645c046), object, local, pointer_default(unique)]
+interface ID3D12RootSignatureDeserializer : IUnknown
+{
+    const D3D12_ROOT_SIGNATURE_DESC *GetRootSignatureDesc();
+};
+
+cpp_quote("HRESULT WINAPI D3D12CreateRootSignatureDeserializer(")
+cpp_quote("const void *data, SIZE_T data_size, REFIID riid, void **deserializer);")
+
 cpp_quote("HRESULT WINAPI D3D12SerializeRootSignature(")
 cpp_quote("const D3D12_ROOT_SIGNATURE_DESC *root_signature,")
 cpp_quote("D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob);")
