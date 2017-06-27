@@ -3903,6 +3903,336 @@ static void test_shader_instructions(void)
     destroy_draw_test_context(&context);
 }
 
+static void check_descriptor_range_(unsigned int line, const D3D12_DESCRIPTOR_RANGE *range,
+        const D3D12_DESCRIPTOR_RANGE *expected_range)
+{
+    ok_(line)(range->RangeType == expected_range->RangeType,
+            "Got range type %#x, expected %#x.\n", range->RangeType, expected_range->RangeType);
+    ok_(line)(range->NumDescriptors == expected_range->NumDescriptors,
+            "Got descriptor count %u, expected %u.\n", range->NumDescriptors, expected_range->NumDescriptors);
+    ok_(line)(range->BaseShaderRegister == expected_range->BaseShaderRegister,
+            "Got base shader register %u, expected %u.\n",
+            range->BaseShaderRegister, expected_range->BaseShaderRegister);
+    ok_(line)(range->RegisterSpace == expected_range->RegisterSpace,
+            "Got register space %u, expected %u.\n", range->RegisterSpace, expected_range->RegisterSpace);
+    ok_(line)(range->OffsetInDescriptorsFromTableStart == expected_range->OffsetInDescriptorsFromTableStart,
+            "Got offset %u, expected %u.\n", range->OffsetInDescriptorsFromTableStart,
+            expected_range->OffsetInDescriptorsFromTableStart);
+}
+
+static void check_root_parameter_(unsigned int line, const D3D12_ROOT_PARAMETER *parameter,
+        const D3D12_ROOT_PARAMETER *expected_parameter)
+{
+    const D3D12_ROOT_DESCRIPTOR *descriptor, *expected_descriptor;
+    const D3D12_ROOT_DESCRIPTOR_TABLE *table, *expected_table;
+    const D3D12_ROOT_CONSTANTS *constants, *expected_constants;
+    unsigned int i;
+
+    ok_(line)(parameter->ParameterType == expected_parameter->ParameterType,
+            "Got type %#x, expected %#x.\n", parameter->ParameterType, expected_parameter->ParameterType);
+    if (parameter->ParameterType != expected_parameter->ParameterType)
+        return;
+
+    switch (parameter->ParameterType)
+    {
+        case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+            table = &parameter->DescriptorTable;
+            expected_table = &expected_parameter->DescriptorTable;
+            ok_(line)(table->NumDescriptorRanges == expected_table->NumDescriptorRanges,
+                    "Got range count %u, expected %u.\n",
+                    table->NumDescriptorRanges, expected_table->NumDescriptorRanges);
+            if (table->NumDescriptorRanges == expected_table->NumDescriptorRanges)
+            {
+                for (i = 0; i < table->NumDescriptorRanges; ++i)
+                    check_descriptor_range_(line, &table->pDescriptorRanges[i],
+                            &expected_table->pDescriptorRanges[i]);
+            }
+            break;
+        case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+            constants = &parameter->Constants;
+            expected_constants = &expected_parameter->Constants;
+            ok_(line)(constants->ShaderRegister == expected_constants->ShaderRegister,
+                    "Got shader register %u, expected %u.\n",
+                    constants->ShaderRegister, expected_constants->ShaderRegister);
+            ok_(line)(constants->RegisterSpace == expected_constants->RegisterSpace,
+                    "Got register space %u, expected %u.\n",
+                    constants->RegisterSpace, expected_constants->RegisterSpace);
+            ok_(line)(constants->Num32BitValues == expected_constants->Num32BitValues,
+                    "Got 32-bit value count %u, expected %u.\n",
+                    constants->Num32BitValues, expected_constants->Num32BitValues);
+            break;
+        case D3D12_ROOT_PARAMETER_TYPE_CBV:
+        case D3D12_ROOT_PARAMETER_TYPE_SRV:
+        case D3D12_ROOT_PARAMETER_TYPE_UAV:
+            descriptor = &parameter->Descriptor;
+            expected_descriptor = &expected_parameter->Descriptor;
+            ok_(line)(descriptor->ShaderRegister == expected_descriptor->ShaderRegister,
+                    "Got shader register %u, expected %u.\n",
+                    descriptor->ShaderRegister, expected_descriptor->ShaderRegister);
+            ok_(line)(descriptor->RegisterSpace == expected_descriptor->RegisterSpace,
+                    "Got register space %u, expected %u.\n",
+                    descriptor->RegisterSpace, expected_descriptor->RegisterSpace);
+            break;
+        default:
+            trace("Unhandled type %#x.\n", parameter->ParameterType);
+    }
+
+    ok_(line)(parameter->ShaderVisibility == expected_parameter->ShaderVisibility,
+            "Got shader visibility %#x, expected %#x.\n",
+            parameter->ShaderVisibility, expected_parameter->ShaderVisibility);
+}
+
+#define check_root_signature_desc(desc, expected) check_root_signature_desc_(__LINE__, desc, expected)
+static void check_root_signature_desc_(unsigned int line, const D3D12_ROOT_SIGNATURE_DESC *desc,
+        const D3D12_ROOT_SIGNATURE_DESC *expected_desc)
+{
+    unsigned int i;
+
+    ok_(line)(desc->NumParameters == expected_desc->NumParameters,
+            "Got parameter count %u, expected %u.\n",
+            desc->NumParameters, expected_desc->NumParameters);
+    if (!expected_desc->pParameters)
+    {
+        ok_(line)(!desc->pParameters, "Got unexpected parameters %p.\n", desc->pParameters);
+    }
+    else if (desc->NumParameters == expected_desc->NumParameters)
+    {
+        for (i = 0; i < desc->NumParameters; ++i)
+            check_root_parameter_(line, &desc->pParameters[i], &expected_desc->pParameters[i]);
+    }
+    ok_(line)(desc->NumStaticSamplers == expected_desc->NumStaticSamplers,
+            "Got static sampler count %u, expected %u.\n",
+            desc->NumStaticSamplers, expected_desc->NumStaticSamplers);
+    if (!expected_desc->pStaticSamplers)
+        ok_(line)(!desc->pStaticSamplers, "Got unexpected static samplers %p.\n", desc->pStaticSamplers);
+    else
+        trace("Implement samplers comparison!\n");
+    ok_(line)(desc->Flags == expected_desc->Flags, "Got flags %#x, expected %#x.\n",
+            desc->Flags, expected_desc->Flags);
+}
+
+#define test_root_signature_deserialization(a, b, c) test_root_signature_deserialization_(__LINE__, a, b, c)
+static void test_root_signature_deserialization_(unsigned int line, const DWORD *code, size_t code_size,
+        const D3D12_ROOT_SIGNATURE_DESC *expected_desc)
+{
+    ID3D12RootSignatureDeserializer *deserializer;
+    const D3D12_ROOT_SIGNATURE_DESC *desc;
+    ULONG refcount;
+    HRESULT hr;
+
+    hr = D3D12CreateRootSignatureDeserializer(code, code_size,
+            &IID_ID3D12RootSignatureDeserializer, (void **)&deserializer);
+    ok_(line)(hr == S_OK, "Failed to create deserializer, hr %#x.\n", hr);
+
+    desc = ID3D12RootSignatureDeserializer_GetRootSignatureDesc(deserializer);
+    ok(desc, "Got NULL root signature desc.\n");
+    check_root_signature_desc_(line, desc, expected_desc);
+
+    refcount = ID3D12RootSignatureDeserializer_Release(deserializer);
+    ok_(line)(!refcount, "ID3D12RootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
+}
+
+static void test_root_signature_deserializer(void)
+{
+    ID3D12RootSignatureDeserializer *deserializer;
+    ULONG refcount;
+    HRESULT hr;
+
+    /* /T rootsig_1_0 /E RS */
+    static const DWORD empty_rootsig[] =
+    {
+#if 0
+        #define RS ""
+#endif
+        0x43425844, 0xd64afc1d, 0x5dc27735, 0x9edacb4a, 0x6bd8a7fa, 0x00000001, 0x00000044, 0x00000001,
+        0x00000024, 0x30535452, 0x00000018, 0x00000001, 0x00000000, 0x00000018, 0x00000000, 0x00000018,
+        0x00000000,
+    };
+    static const D3D12_ROOT_SIGNATURE_DESC empty_rootsig_desc =
+    {
+        .Flags = 0,
+    };
+    static const DWORD ia_rootsig[] =
+    {
+#if 0
+        #define RS "RootFlags(ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT)"
+#endif
+        0x43425844, 0x05bbd62e, 0xc74d3646, 0xde1407a5, 0x0d99273d, 0x00000001, 0x00000044, 0x00000001,
+        0x00000024, 0x30535452, 0x00000018, 0x00000001, 0x00000000, 0x00000018, 0x00000000, 0x00000018,
+        0x00000001,
+    };
+    static const D3D12_ROOT_SIGNATURE_DESC ia_rootsig_desc =
+    {
+        .Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
+    };
+    static const DWORD deny_ps_rootsig[] =
+    {
+#if 0
+        #define RS "RootFlags(DENY_PIXEL_SHADER_ROOT_ACCESS)"
+#endif
+        0x43425844, 0xfad3a4ce, 0xf246286e, 0xeaa9e176, 0x278d5137, 0x00000001, 0x00000044, 0x00000001,
+        0x00000024, 0x30535452, 0x00000018, 0x00000001, 0x00000000, 0x00000018, 0x00000000, 0x00000018,
+        0x00000020,
+    };
+    static const D3D12_ROOT_SIGNATURE_DESC deny_ps_rootsig_desc =
+    {
+        .Flags = D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS,
+    };
+    static const DWORD cbv_rootsig[] =
+    {
+#if 0
+        #define RS "CBV(b3, space = 0)"
+#endif
+        0x43425844, 0x8dc5087e, 0x5cb9bf0d, 0x2e465ae3, 0x6291e0e0, 0x00000001, 0x00000058, 0x00000001,
+        0x00000024, 0x30535452, 0x0000002c, 0x00000001, 0x00000001, 0x00000018, 0x00000000, 0x0000002c,
+        0x00000000, 0x00000002, 0x00000000, 0x00000024, 0x00000003, 0x00000000,
+
+    };
+    static const D3D12_ROOT_PARAMETER cbv_parameters[] =
+    {
+        {D3D12_ROOT_PARAMETER_TYPE_CBV, .Descriptor = {3, 0}},
+    };
+    static const D3D12_ROOT_SIGNATURE_DESC cbv_rootsig_desc =
+    {
+        .NumParameters = ARRAY_SIZE(cbv_parameters),
+        .pParameters = cbv_parameters,
+    };
+    static const DWORD cbv2_rootsig[] =
+    {
+#if 0
+        #define RS "CBV(b4, space = 1, visibility = SHADER_VISIBILITY_GEOMETRY)"
+#endif
+        0x43425844, 0x6d4cfb48, 0xbfecaa8d, 0x379ff9c3, 0x0cc56997, 0x00000001, 0x00000058, 0x00000001,
+        0x00000024, 0x30535452, 0x0000002c, 0x00000001, 0x00000001, 0x00000018, 0x00000000, 0x0000002c,
+        0x00000000, 0x00000002, 0x00000004, 0x00000024, 0x00000004, 0x00000001,
+    };
+    static const D3D12_ROOT_PARAMETER cbv2_parameters[] =
+    {
+        {D3D12_ROOT_PARAMETER_TYPE_CBV, .Descriptor = {4, 1}, D3D12_SHADER_VISIBILITY_GEOMETRY},
+    };
+    static const D3D12_ROOT_SIGNATURE_DESC cbv2_rootsig_desc =
+    {
+        .NumParameters = ARRAY_SIZE(cbv2_parameters),
+        .pParameters = cbv2_parameters,
+    };
+    static const DWORD srv_rootsig[] =
+    {
+#if 0
+        #define RS "RootFlags(DENY_VERTEX_SHADER_ROOT_ACCESS), SRV(t13)"
+#endif
+        0x43425844, 0xbc00e5e0, 0xffff2fd3, 0x85c2d405, 0xa61db5e5, 0x00000001, 0x00000058, 0x00000001,
+        0x00000024, 0x30535452, 0x0000002c, 0x00000001, 0x00000001, 0x00000018, 0x00000000, 0x0000002c,
+        0x00000002, 0x00000003, 0x00000000, 0x00000024, 0x0000000d, 0x00000000,
+    };
+    static const D3D12_ROOT_PARAMETER srv_parameters[] =
+    {
+        {D3D12_ROOT_PARAMETER_TYPE_SRV, .Descriptor = {13}},
+    };
+    static const D3D12_ROOT_SIGNATURE_DESC srv_rootsig_desc =
+    {
+        .NumParameters = ARRAY_SIZE(srv_parameters),
+        .pParameters = srv_parameters,
+        .Flags = D3D12_ROOT_SIGNATURE_FLAG_DENY_VERTEX_SHADER_ROOT_ACCESS,
+    };
+    static const DWORD uav_rootsig[] =
+    {
+#if 0
+        #define RS "UAV(u6)"
+#endif
+        0x43425844, 0xf873c52c, 0x69f5cbea, 0xaf6bc9f4, 0x2ccf8b54, 0x00000001, 0x00000058, 0x00000001,
+        0x00000024, 0x30535452, 0x0000002c, 0x00000001, 0x00000001, 0x00000018, 0x00000000, 0x0000002c,
+        0x00000000, 0x00000004, 0x00000000, 0x00000024, 0x00000006, 0x00000000,
+    };
+    static const D3D12_ROOT_PARAMETER uav_parameters[] =
+    {
+        {D3D12_ROOT_PARAMETER_TYPE_UAV, .Descriptor = {6}},
+    };
+    static const D3D12_ROOT_SIGNATURE_DESC uav_rootsig_desc =
+    {
+        .NumParameters = ARRAY_SIZE(uav_parameters),
+        .pParameters = uav_parameters,
+    };
+    static const DWORD constants_rootsig[] =
+    {
+#if 0
+        #define RS "RootConstants(num32BitConstants=3, b4), " \
+                "RootConstants(num32BitConstants=4, b5, space = 3)"
+#endif
+        0x43425844, 0xbc015590, 0xa9a4a345, 0x7e446850, 0x2be05281, 0x00000001, 0x00000074, 0x00000001,
+        0x00000024, 0x30535452, 0x00000048, 0x00000001, 0x00000002, 0x00000018, 0x00000000, 0x00000048,
+        0x00000000, 0x00000001, 0x00000000, 0x00000030, 0x00000001, 0x00000000, 0x0000003c, 0x00000004,
+        0x00000000, 0x00000003, 0x00000005, 0x00000003, 0x00000004,
+    };
+    static const D3D12_ROOT_PARAMETER constants_parameters[] =
+    {
+        {D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS, .Constants = {4, 0, 3}},
+        {D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS, .Constants = {5, 3, 4}},
+    };
+    static const D3D12_ROOT_SIGNATURE_DESC constants_rootsig_desc =
+    {
+        .NumParameters = ARRAY_SIZE(constants_parameters),
+        .pParameters = constants_parameters,
+    };
+    static const DWORD descriptor_table_rootsig[] =
+    {
+#if 0
+        #define RS "DescriptorTable(CBV(b1, space = 7), " \
+                "SRV(t16, numDescriptors = 8), " \
+                "UAV(u3, numDescriptors = unbounded, offset = 44))"
+#endif
+        0x43425844, 0x0f92e563, 0x4766993f, 0x2304e283, 0x14f0d8dc, 0x00000001, 0x00000094, 0x00000001,
+        0x00000024, 0x30535452, 0x00000068, 0x00000001, 0x00000001, 0x00000018, 0x00000000, 0x00000068,
+        0x00000000, 0x00000000, 0x00000000, 0x00000024, 0x00000003, 0x0000002c, 0x00000002, 0x00000001,
+        0x00000001, 0x00000007, 0xffffffff, 0x00000000, 0x00000008, 0x00000010, 0x00000000, 0xffffffff,
+        0x00000001, 0xffffffff, 0x00000003, 0x00000000, 0x0000002c,
+    };
+    static const D3D12_DESCRIPTOR_RANGE descriptor_ranges[] =
+    {
+        {D3D12_DESCRIPTOR_RANGE_TYPE_CBV,        1,  1, 7, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_SRV,        8, 16, 0, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, UINT_MAX,  3, 0,                                   44},
+    };
+    static const D3D12_ROOT_PARAMETER descriptor_table_parameters[] =
+    {
+        {D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
+                .DescriptorTable = {ARRAY_SIZE(descriptor_ranges), descriptor_ranges}},
+    };
+    static const D3D12_ROOT_SIGNATURE_DESC descriptor_table_rootsig_desc =
+    {
+        .NumParameters = ARRAY_SIZE(descriptor_table_parameters),
+        .pParameters = descriptor_table_parameters,
+    };
+    /* TODO: static samplers */
+
+    hr = D3D12CreateRootSignatureDeserializer(empty_rootsig, sizeof(empty_rootsig),
+            &IID_IUnknown, (void **)&deserializer);
+    ok(hr == E_NOINTERFACE, "Got unexpected hr %#x.\n", hr);
+
+    hr = D3D12CreateRootSignatureDeserializer(empty_rootsig, sizeof(empty_rootsig),
+            &IID_ID3D12RootSignatureDeserializer, (void **)&deserializer);
+    ok(hr == S_OK, "Failed to create deserializer, hr %#x.\n", hr);
+
+    check_interface(deserializer, &IID_IUnknown, FALSE);
+    check_interface(deserializer, &IID_ID3D12RootSignatureDeserializer, TRUE);
+    check_interface(deserializer, &IID_ID3D12Object, FALSE);
+    check_interface(deserializer, &IID_ID3D12DeviceChild, FALSE);
+    check_interface(deserializer, &IID_ID3D12Pageable, FALSE);
+
+    refcount = ID3D12RootSignatureDeserializer_Release(deserializer);
+    ok(!refcount, "ID3D12RootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
+
+    test_root_signature_deserialization(empty_rootsig, sizeof(empty_rootsig), &empty_rootsig_desc);
+    test_root_signature_deserialization(ia_rootsig, sizeof(ia_rootsig), &ia_rootsig_desc);
+    test_root_signature_deserialization(deny_ps_rootsig, sizeof(deny_ps_rootsig), &deny_ps_rootsig_desc);
+    test_root_signature_deserialization(cbv_rootsig, sizeof(cbv_rootsig), &cbv_rootsig_desc);
+    test_root_signature_deserialization(cbv2_rootsig, sizeof(cbv2_rootsig), &cbv2_rootsig_desc);
+    test_root_signature_deserialization(srv_rootsig, sizeof(srv_rootsig), &srv_rootsig_desc);
+    test_root_signature_deserialization(uav_rootsig, sizeof(uav_rootsig), &uav_rootsig_desc);
+    test_root_signature_deserialization(constants_rootsig, sizeof(constants_rootsig), &constants_rootsig_desc);
+    test_root_signature_deserialization(descriptor_table_rootsig, sizeof(descriptor_table_rootsig),
+            &descriptor_table_rootsig_desc);
+}
+
 START_TEST(d3d12)
 {
     BOOL enable_debug_layer = FALSE;
@@ -3944,4 +4274,5 @@ START_TEST(d3d12)
     run_test(test_map_resource);
     run_test(test_bundle_state_inheritance);
     run_test(test_shader_instructions);
+    run_test(test_root_signature_deserializer);
 }
