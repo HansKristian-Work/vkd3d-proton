@@ -1994,6 +1994,9 @@ static void vkd3d_dxbc_compiler_emit_comparison_instruction(struct vkd3d_dxbc_co
         case VKD3DSIH_EQ:
             op = SpvOpFOrdEqual;
             break;
+        case VKD3DSIH_IEQ:
+            op = SpvOpIEqual;
+            break;
         case VKD3DSIH_NE:
             op = SpvOpFUnordNotEqual;
             break;
@@ -2147,6 +2150,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             vkd3d_dxbc_compiler_emit_dot(compiler, instruction);
             break;
         case VKD3DSIH_EQ:
+        case VKD3DSIH_IEQ:
         case VKD3DSIH_NE:
             vkd3d_dxbc_compiler_emit_comparison_instruction(compiler, instruction);
             break;
