@@ -167,7 +167,7 @@ static void vkd3d_spirv_enable_capability(struct vkd3d_spirv_builder *builder,
     builder->capability_mask |= 1ull << cap;
 }
 
-static uint32_t vkd3d_spirv_get_glsl_std_450_instr_set(struct vkd3d_spirv_builder *builder)
+static uint32_t vkd3d_spirv_get_glsl_std450_instr_set(struct vkd3d_spirv_builder *builder)
 {
     if (!builder->ext_instr_set_glsl_450)
         builder->ext_instr_set_glsl_450 = vkd3d_spirv_alloc_id(builder);
@@ -432,7 +432,7 @@ static void vkd3d_spirv_build_op_ext_inst_import(struct vkd3d_spirv_stream *stre
 
 static uint32_t vkd3d_spirv_build_op_ext_inst(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t inst_set, uint32_t inst_number,
-        unsigned int operand_count, uint32_t *operands)
+        uint32_t *operands, unsigned int operand_count)
 {
     return vkd3d_spirv_build_op_tr2v(builder, &builder->function_stream,
             SpvOpExtInst, result_type, inst_set, inst_number, operands, operand_count);
@@ -710,6 +710,14 @@ static uint32_t vkd3d_spirv_build_op_bitcast(struct vkd3d_spirv_builder *builder
 {
     return vkd3d_spirv_build_op_tr1(builder, &builder->function_stream,
             SpvOpBitcast, result_type, operand);
+}
+
+static uint32_t vkd3d_spirv_build_op_glsl_std450_fabs(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t operand)
+{
+    uint32_t glsl_std450_id = vkd3d_spirv_get_glsl_std450_instr_set(builder);
+    return vkd3d_spirv_build_op_ext_inst(builder, result_type, glsl_std450_id,
+            GLSLstd450FAbs, &operand, 1);
 }
 
 static uint32_t vkd3d_spirv_get_type_id(struct vkd3d_spirv_builder *builder,
@@ -1348,6 +1356,15 @@ static uint32_t vkd3d_dxbc_compiler_emit_src_modifier(struct vkd3d_dxbc_compiler
             }
             type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, component_count);
             return vkd3d_spirv_build_op_f_negate(builder, type_id, val_id);
+        case VKD3DSPSM_ABS:
+            if (reg->data_type != VKD3D_DATA_FLOAT)
+            {
+                FIXME("Unhandled data type %#x.\n", reg->data_type);
+                return val_id;
+            }
+            type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, component_count);
+            return vkd3d_spirv_build_op_glsl_std450_fabs(builder, type_id, val_id);
+            break;
         default:
             FIXME("Unhandled src modifier %#x.\n", modifier);
             break;
@@ -1824,7 +1841,7 @@ static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_comp
         return;
     }
 
-    instr_set_id = vkd3d_spirv_get_glsl_std_450_instr_set(builder);
+    instr_set_id = vkd3d_spirv_get_glsl_std450_instr_set(builder);
 
     assert(instruction->dst_count == 1);
     assert(instruction->src_count <= VKD3D_DXBC_MAX_SOURCE_COUNT);
@@ -1837,7 +1854,7 @@ static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_comp
         src_id[i] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[i], dst->write_mask);
 
     val_id = vkd3d_spirv_build_op_ext_inst(builder, type_id,
-            instr_set_id, glsl_inst, instruction->src_count, src_id);
+            instr_set_id, glsl_inst, src_id, instruction->src_count);
 
     vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
 }
