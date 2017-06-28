@@ -3804,6 +3804,26 @@ static void test_shader_instructions(void)
         0x001020f2, 0x00000000, 0x00004002, 0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_if_return = {ps_if_return_code, sizeof(ps_if_return_code)};
+    static const DWORD ps_ftou_code[] =
+    {
+#if 0
+        float src;
+
+        void main(out float4 dst : SV_Target)
+        {
+            dst = asfloat(uint4(src, -src, 0, 0));
+        }
+#endif
+        0x43425844, 0x7a61c2fa, 0x4f20de14, 0x3492a5ae, 0x0a1fdc98, 0x00000001, 0x000000f8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000080, 0x00000050, 0x00000020,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x0600001c, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0700001c, 0x00102022,
+        0x00000000, 0x8020800a, 0x00000041, 0x00000000, 0x00000000, 0x08000036, 0x001020c2, 0x00000000,
+        0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_ftou = {ps_ftou_code, sizeof(ps_ftou_code)};
     static const struct
     {
         const D3D12_SHADER_BYTECODE *ps;
@@ -3861,6 +3881,13 @@ static void test_shader_instructions(void)
         {&ps_if_return, {{4.0f, 4.0f, 0.0f, 5.0f}}, {{1.0f, 1.0f, 1.0f, 1.0f}}},
         {&ps_if_return, {{5.0f, 4.0f, 0.0f, 5.0f}}, {{1.0f, 1.0f, 1.0f, 0.0f}}},
         {&ps_if_return, {{ NAN,  NAN,  NAN,  NAN}}, {{1.0f, 1.0f, 1.0f, 1.0f}}},
+
+        {&ps_ftou, {{     -NAN}}, {.u = { 0,  0 }}},
+        {&ps_ftou, {{      NAN}}, {.u = { 0,  0 }}},
+        {&ps_ftou, {{-INFINITY}}, {.u = { 0, ~0u}}},
+        {&ps_ftou, {{ INFINITY}}, {.u = {~0u, 0 }}},
+        {&ps_ftou, {{    -1.0f}}, {.u = { 0,  1 }}},
+        {&ps_ftou, {{     1.0f}}, {.u = { 1,  0 }}},
     };
 
     memset(&desc, 0, sizeof(desc));
