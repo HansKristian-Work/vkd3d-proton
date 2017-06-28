@@ -67,6 +67,11 @@ struct uvec4
     unsigned int x, y, z, w;
 };
 
+struct ivec4
+{
+    int x, y, z, w;
+};
+
 static BOOL compare_float(float f, float g, unsigned int ulps)
 {
     int x, y;
@@ -3824,6 +3829,26 @@ static void test_shader_instructions(void)
         0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_ftou = {ps_ftou_code, sizeof(ps_ftou_code)};
+    static const DWORD ps_ftoi_code[] =
+    {
+#if 0
+        float src;
+
+        void main(out float4 dst : SV_Target)
+        {
+            dst = asfloat(int4(src, -src, 0, 0));
+        }
+#endif
+        0x43425844, 0x2737f059, 0x5a2faecc, 0x7eab1956, 0xf96357b5, 0x00000001, 0x000000f8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000080, 0x00000050, 0x00000020,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x0600001b, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0700001b, 0x00102022,
+        0x00000000, 0x8020800a, 0x00000041, 0x00000000, 0x00000000, 0x08000036, 0x001020c2, 0x00000000,
+        0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_ftoi = {ps_ftoi_code, sizeof(ps_ftoi_code)};
     static const struct
     {
         const D3D12_SHADER_BYTECODE *ps;
@@ -3836,6 +3861,7 @@ static void test_shader_instructions(void)
         {
             struct vec4 f;
             struct uvec4 u;
+            struct ivec4 i;
         } output;
     }
     tests[] =
@@ -3888,6 +3914,13 @@ static void test_shader_instructions(void)
         {&ps_ftou, {{ INFINITY}}, {.u = {~0u, 0 }}},
         {&ps_ftou, {{    -1.0f}}, {.u = { 0,  1 }}},
         {&ps_ftou, {{     1.0f}}, {.u = { 1,  0 }}},
+
+        {&ps_ftoi, {{     -NAN}}, {.u = {      0,       0}}},
+        {&ps_ftoi, {{      NAN}}, {.u = {      0,       0}}},
+        {&ps_ftoi, {{-INFINITY}}, {.u = {INT_MIN, INT_MAX}}},
+        {&ps_ftoi, {{ INFINITY}}, {.i = {INT_MAX, INT_MIN}}},
+        {&ps_ftoi, {{    -1.0f}}, {.i = {     -1,       1}}},
+        {&ps_ftoi, {{     1.0f}}, {.i = {      1,      -1}}},
     };
 
     memset(&desc, 0, sizeof(desc));
