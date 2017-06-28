@@ -1751,15 +1751,16 @@ static SpvOp vkd3d_dxbc_compiler_map_alu_instruction(const struct vkd3d_shader_i
     }
     alu_ops[] =
     {
-        {VKD3DSIH_ADD,  SpvOpFAdd},
-        {VKD3DSIH_AND,  SpvOpBitwiseAnd},
-        {VKD3DSIH_DIV,  SpvOpFDiv},
-        {VKD3DSIH_FTOI, SpvOpConvertFToS},
-        {VKD3DSIH_FTOU, SpvOpConvertFToU},
-        {VKD3DSIH_IADD, SpvOpIAdd},
-        {VKD3DSIH_ITOF, SpvOpConvertSToF},
-        {VKD3DSIH_MUL,  SpvOpFMul},
-        {VKD3DSIH_UTOF, SpvOpConvertUToF},
+        {VKD3DSIH_ADD,      SpvOpFAdd},
+        {VKD3DSIH_AND,      SpvOpBitwiseAnd},
+        {VKD3DSIH_BFREV,    SpvOpBitReverse},
+        {VKD3DSIH_DIV,      SpvOpFDiv},
+        {VKD3DSIH_FTOI,     SpvOpConvertFToS},
+        {VKD3DSIH_FTOU,     SpvOpConvertFToU},
+        {VKD3DSIH_IADD,     SpvOpIAdd},
+        {VKD3DSIH_ITOF,     SpvOpConvertSToF},
+        {VKD3DSIH_MUL,      SpvOpFMul},
+        {VKD3DSIH_UTOF,     SpvOpConvertUToF},
     };
     unsigned int i;
 
@@ -1964,7 +1965,15 @@ static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_comp
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
     mask_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0x1f);
 
-    op = SpvOpBitFieldInsert;
+    switch (instruction->handler_idx)
+    {
+        case VKD3DSIH_BFI:  op = SpvOpBitFieldInsert; break;
+        case VKD3DSIH_IBFE: op = SpvOpBitFieldSExtract; break;
+        case VKD3DSIH_UBFE: op = SpvOpBitFieldUExtract; break;
+        default:
+            ERR("Unexpected instruction %#x.\n", instruction->handler_idx);
+            return;
+    }
 
     for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
     {
@@ -2166,6 +2175,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_ADD:
         case VKD3DSIH_AND:
+        case VKD3DSIH_BFREV:
         case VKD3DSIH_DIV:
         case VKD3DSIH_FTOI:
         case VKD3DSIH_FTOU:
@@ -2195,6 +2205,8 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             vkd3d_dxbc_compiler_emit_comparison_instruction(compiler, instruction);
             break;
         case VKD3DSIH_BFI:
+        case VKD3DSIH_IBFE:
+        case VKD3DSIH_UBFE:
             vkd3d_dxbc_compiler_emit_bitfield_instruction(compiler, instruction);
             break;
         case VKD3DSIH_IF:
