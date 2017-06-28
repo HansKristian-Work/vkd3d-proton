@@ -967,6 +967,14 @@ struct vkd3d_control_flow_info
 {
     uint32_t merge_block_id;
     uint32_t else_block_id;
+
+    enum
+    {
+        VKD3D_BLOCK_MAIN,
+        VKD3D_BLOCK_IF,
+        VKD3D_BLOCK_ELSE,
+        VKD3D_BLOCK_NONE,
+    } current_block;
 };
 
 struct vkd3d_dxbc_compiler
@@ -2037,7 +2045,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
     switch (instruction->handler_idx)
     {
         case VKD3DSIH_IF:
-            if (cf_info->merge_block_id)
+            if (cf_info->current_block != VKD3D_BLOCK_MAIN)
             {
                 FIXME("Nested control flow not supported yet.\n");
                 return;
@@ -2061,6 +2069,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
             cf_info->merge_block_id = merge_block_id;
             cf_info->else_block_id = false_label;
+            cf_info->current_block = VKD3D_BLOCK_IF;
 
             vkd3d_spirv_build_op_name(builder, merge_block_id, "branch%u_merge", compiler->branch_id);
             vkd3d_spirv_build_op_name(builder, true_label, "branch%u_true", compiler->branch_id);
@@ -2069,21 +2078,46 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             break;
 
         case VKD3DSIH_ELSE:
-            assert(cf_info->merge_block_id);
-
-            vkd3d_spirv_build_op_branch(builder, cf_info->merge_block_id);
+            if (cf_info->current_block == VKD3D_BLOCK_IF)
+                vkd3d_spirv_build_op_branch(builder, cf_info->merge_block_id);
 
             vkd3d_spirv_build_op_label(builder, cf_info->else_block_id);
+            cf_info->current_block = VKD3D_BLOCK_ELSE;
             break;
 
         case VKD3DSIH_ENDIF:
-            assert(cf_info->merge_block_id);
+            assert(cf_info->current_block != VKD3D_BLOCK_MAIN);
 
-            vkd3d_spirv_build_op_branch(builder, cf_info->merge_block_id);
+            if (cf_info->current_block == VKD3D_BLOCK_IF)
+            {
+                vkd3d_spirv_build_op_branch(builder, cf_info->merge_block_id);
+
+                vkd3d_spirv_build_op_label(builder, cf_info->else_block_id);
+                vkd3d_spirv_build_op_branch(builder, cf_info->merge_block_id);
+
+            }
+            else if (cf_info->current_block == VKD3D_BLOCK_ELSE)
+            {
+                vkd3d_spirv_build_op_branch(builder, cf_info->merge_block_id);
+            }
 
             vkd3d_spirv_build_op_label(builder, cf_info->merge_block_id);
 
             memset(cf_info, 0, sizeof(*cf_info));
+            break;
+
+        case VKD3DSIH_RET:
+            vkd3d_dxbc_compiler_emit_return(compiler, instruction);
+
+            if (cf_info->current_block == VKD3D_BLOCK_IF)
+            {
+                vkd3d_spirv_build_op_label(builder, cf_info->else_block_id);
+                cf_info->current_block = VKD3D_BLOCK_ELSE;
+            }
+            else
+            {
+                cf_info->current_block = VKD3D_BLOCK_NONE;
+            }
             break;
 
         default:
@@ -2160,10 +2194,8 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_IF:
         case VKD3DSIH_ELSE:
         case VKD3DSIH_ENDIF:
-            vkd3d_dxbc_compiler_emit_control_flow_instruction(compiler, instruction);
-            break;
         case VKD3DSIH_RET:
-            vkd3d_dxbc_compiler_emit_return(compiler, instruction);
+            vkd3d_dxbc_compiler_emit_control_flow_instruction(compiler, instruction);
             break;
         default:
             FIXME("Unhandled instruction %#x.\n", instruction->handler_idx);
