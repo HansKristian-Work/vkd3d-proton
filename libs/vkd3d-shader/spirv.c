@@ -1977,7 +1977,8 @@ static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_comp
 
         for (j = src_count - 2; j < src_count; ++j)
         {
-            src_ids[j] = vkd3d_spirv_build_op_and(builder, type_id, src_ids[j], mask_id);
+            uint32_t int_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_INT, 1);
+            src_ids[j] = vkd3d_spirv_build_op_and(builder, int_type_id, src_ids[j], mask_id);
         }
 
         result_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
