@@ -1980,8 +1980,8 @@ static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_comp
 static void vkd3d_dxbc_compiler_emit_comparison_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    static const unsigned int d3d_true[] = {0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff};
-    static const unsigned int d3d_false[] = {0, 0, 0, 0};
+    static const uint32_t d3d_true[] = {0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff};
+    static const uint32_t d3d_false[] = {0, 0, 0, 0};
 
     uint32_t src0_id, src1_id, type_id, result_id, true_id, false_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -1992,15 +1992,11 @@ static void vkd3d_dxbc_compiler_emit_comparison_instruction(struct vkd3d_dxbc_co
 
     switch (instruction->handler_idx)
     {
-        case VKD3DSIH_EQ:
-            op = SpvOpFOrdEqual;
-            break;
-        case VKD3DSIH_IEQ:
-            op = SpvOpIEqual;
-            break;
-        case VKD3DSIH_NE:
-            op = SpvOpFUnordNotEqual;
-            break;
+        case VKD3DSIH_EQ:  op = SpvOpFOrdEqual; break;
+        case VKD3DSIH_GE:  op = SpvOpFOrdGreaterThanEqual; break;
+        case VKD3DSIH_IEQ: op = SpvOpIEqual; break;
+        case VKD3DSIH_LT:  op = SpvOpFOrdLessThan; break;
+        case VKD3DSIH_NE:  op = SpvOpFUnordNotEqual; break;
         default:
             ERR("Unexpected instruction %#x.\n", instruction->handler_idx);
             return;
@@ -2152,7 +2148,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             vkd3d_dxbc_compiler_emit_dot(compiler, instruction);
             break;
         case VKD3DSIH_EQ:
+        case VKD3DSIH_GE:
         case VKD3DSIH_IEQ:
+        case VKD3DSIH_LT:
         case VKD3DSIH_NE:
             vkd3d_dxbc_compiler_emit_comparison_instruction(compiler, instruction);
             break;
