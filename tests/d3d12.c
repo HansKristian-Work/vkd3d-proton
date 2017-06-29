@@ -656,7 +656,7 @@ static ID3D12PipelineState *create_pipeline_state_(unsigned int line, ID3D12Devi
     return pipeline_state;
 }
 
-struct draw_test_context_desc
+struct test_context_desc
 {
     unsigned int rt_width, rt_height;
     DXGI_FORMAT rt_format;
@@ -664,7 +664,7 @@ struct draw_test_context_desc
     BOOL no_pipeline;
 };
 
-struct draw_test_context
+struct test_context
 {
     ID3D12Device *device;
 
@@ -683,8 +683,8 @@ struct draw_test_context
 };
 
 #define create_render_target(context, desc) create_render_target_(__LINE__, context, desc)
-static void create_render_target_(unsigned int line, struct draw_test_context *context,
-        const struct draw_test_context_desc *desc)
+static void create_render_target_(unsigned int line, struct test_context *context,
+        const struct test_context_desc *desc)
 {
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
@@ -721,9 +721,9 @@ static void create_render_target_(unsigned int line, struct draw_test_context *c
     ID3D12Device_CreateRenderTargetView(context->device, context->render_target, NULL, context->rtv);
 }
 
-#define init_draw_test_context(context, ps) init_draw_test_context_(__LINE__, context, ps)
-static bool init_draw_test_context_(unsigned int line, struct draw_test_context *context,
-        const struct draw_test_context_desc *desc)
+#define init_test_context(context, ps) init_test_context_(__LINE__, context, ps)
+static bool init_test_context_(unsigned int line, struct test_context *context,
+        const struct test_context_desc *desc)
 {
     D3D12_COMMAND_QUEUE_DESC command_queue_desc;
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc;
@@ -778,8 +778,8 @@ static bool init_draw_test_context_(unsigned int line, struct draw_test_context 
     return true;
 }
 
-#define destroy_draw_test_context(context) destroy_draw_test_context_(__LINE__, context)
-static void destroy_draw_test_context_(unsigned int line, struct draw_test_context *context)
+#define destroy_test_context(context) destroy_test_context_(__LINE__, context)
+static void destroy_test_context_(unsigned int line, struct test_context *context)
 {
     ULONG refcount;
 
@@ -2614,14 +2614,14 @@ static void test_draw_instanced(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
-    struct draw_test_context context;
+    struct test_context context;
     struct resource_readback rb;
     ID3D12CommandQueue *queue;
     D3D12_VIEWPORT viewport;
     RECT scissor_rect;
     unsigned int x, y;
 
-    if (!init_draw_test_context(&context, NULL))
+    if (!init_test_context(&context, NULL))
         return;
     command_list = context.list;
     queue = context.queue;
@@ -2664,7 +2664,7 @@ static void test_draw_instanced(void)
     }
     release_resource_readback(&rb);
 
-    destroy_draw_test_context(&context);
+    destroy_test_context(&context);
 }
 
 static void test_draw_indexed_instanced(void)
@@ -2673,8 +2673,8 @@ static void test_draw_indexed_instanced(void)
     static const uint16_t indices[] = {0, 1, 2};
     ID3D12GraphicsCommandList *command_list;
     D3D12_RESOURCE_DESC resource_desc;
-    struct draw_test_context context;
     D3D12_HEAP_PROPERTIES heap_desc;
+    struct test_context context;
     struct resource_readback rb;
     D3D12_INDEX_BUFFER_VIEW ibv;
     ID3D12CommandQueue *queue;
@@ -2685,7 +2685,7 @@ static void test_draw_indexed_instanced(void)
     HRESULT hr;
     void *ptr;
 
-    if (!init_draw_test_context(&context, NULL))
+    if (!init_test_context(&context, NULL))
         return;
     command_list = context.list;
     queue = context.queue;
@@ -2760,15 +2760,15 @@ static void test_draw_indexed_instanced(void)
     release_resource_readback(&rb);
 
     ID3D12Resource_Release(ib);
-    destroy_draw_test_context(&context);
+    destroy_test_context(&context);
 }
 
 static void test_fragment_coords(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
-    struct draw_test_context_desc desc;
-    struct draw_test_context context;
+    struct test_context_desc desc;
+    struct test_context context;
     struct resource_readback rb;
     ID3D12CommandQueue *queue;
     D3D12_VIEWPORT viewport;
@@ -2796,7 +2796,7 @@ static void test_fragment_coords(void)
     memset(&desc, 0, sizeof(desc));
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
     desc.no_pipeline = true;
-    if (!init_draw_test_context(&context, &desc))
+    if (!init_test_context(&context, &desc))
         return;
     command_list = context.list;
     queue = context.queue;
@@ -2849,7 +2849,7 @@ static void test_fragment_coords(void)
     }
     release_resource_readback(&rb);
 
-    destroy_draw_test_context(&context);
+    destroy_test_context(&context);
 }
 
 static void test_fractional_viewports(void)
@@ -2858,10 +2858,10 @@ static void test_fractional_viewports(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_INPUT_LAYOUT_DESC input_layout;
-    struct draw_test_context_desc desc;
     D3D12_RESOURCE_DESC resource_desc;
-    struct draw_test_context context;
+    struct test_context_desc desc;
     D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct test_context context;
     struct resource_readback rb;
     ID3D12CommandQueue *queue;
     D3D12_VIEWPORT viewport;
@@ -2942,7 +2942,7 @@ static void test_fractional_viewports(void)
     memset(&desc, 0, sizeof(desc));
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
     desc.no_root_signature = true;
-    if (!init_draw_test_context(&context, &desc))
+    if (!init_test_context(&context, &desc))
         return;
     command_list = context.list;
     queue = context.queue;
@@ -3040,14 +3040,14 @@ static void test_fractional_viewports(void)
     }
 
     ID3D12Resource_Release(vb);
-    destroy_draw_test_context(&context);
+    destroy_test_context(&context);
 }
 
 static void test_scissor(void)
 {
     ID3D12GraphicsCommandList *command_list;
-    struct draw_test_context_desc desc;
-    struct draw_test_context context;
+    struct test_context_desc desc;
+    struct test_context context;
     struct resource_readback rb;
     ID3D12CommandQueue *queue;
     D3D12_VIEWPORT viewport;
@@ -3077,7 +3077,7 @@ static void test_scissor(void)
     desc.rt_width = 640;
     desc.rt_height = 480;
     desc.no_pipeline = true;
-    if (!init_draw_test_context(&context, &desc))
+    if (!init_test_context(&context, &desc))
         return;
     command_list = context.list;
     queue = context.queue;
@@ -3123,7 +3123,7 @@ static void test_scissor(void)
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
     release_resource_readback(&rb);
 
-    destroy_draw_test_context(&context);
+    destroy_test_context(&context);
 }
 
 static void test_texture_resource_barriers(void)
@@ -3572,7 +3572,7 @@ static void test_bundle_state_inheritance(void)
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list, *bundle;
     ID3D12CommandAllocator *bundle_allocator;
-    struct draw_test_context context;
+    struct test_context context;
     struct resource_readback rb;
     ID3D12CommandQueue *queue;
     D3D12_VIEWPORT viewport;
@@ -3587,7 +3587,7 @@ static void test_bundle_state_inheritance(void)
     return;
 #endif
 
-    if (!init_draw_test_context(&context, NULL))
+    if (!init_test_context(&context, NULL))
         return;
     device = context.device;
     command_list = context.list;
@@ -3769,7 +3769,7 @@ static void test_bundle_state_inheritance(void)
 
     ID3D12CommandAllocator_Release(bundle_allocator);
     ID3D12GraphicsCommandList_Release(bundle);
-    destroy_draw_test_context(&context);
+    destroy_test_context(&context);
 }
 
 static void test_shader_instructions(void)
@@ -3778,9 +3778,9 @@ static void test_shader_instructions(void)
     const D3D12_SHADER_BYTECODE *current_ps;
     ID3D12GraphicsCommandList *command_list;
     D3D12_HEAP_PROPERTIES heap_properties;
-    struct draw_test_context_desc desc;
     D3D12_RESOURCE_DESC resource_desc;
-    struct draw_test_context context;
+    struct test_context_desc desc;
+    struct test_context context;
     struct resource_readback rb;
     ID3D12CommandQueue *queue;
     D3D12_VIEWPORT viewport;
@@ -4339,7 +4339,7 @@ static void test_shader_instructions(void)
     memset(&desc, 0, sizeof(desc));
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
     desc.no_root_signature = true;
-    if (!init_draw_test_context(&context, &desc))
+    if (!init_test_context(&context, &desc))
         return;
     command_list = context.list;
     queue = context.queue;
@@ -4493,7 +4493,7 @@ static void test_shader_instructions(void)
     }
 
     ID3D12Resource_Release(cb);
-    destroy_draw_test_context(&context);
+    destroy_test_context(&context);
 }
 
 static void check_descriptor_range_(unsigned int line, const D3D12_DESCRIPTOR_RANGE *range,
