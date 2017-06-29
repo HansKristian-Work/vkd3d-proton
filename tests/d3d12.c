@@ -3951,6 +3951,26 @@ static void test_shader_instructions(void)
         0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_bfrev = {ps_bfrev_code, sizeof(ps_bfrev_code)};
+    static const DWORD ps_ishr_code[] =
+    {
+#if 0
+        int4 src0;
+        int4 src1;
+
+        void main(out uint4 dst : SV_Target)
+        {
+            dst = src0 >> src1;
+        }
+#endif
+        0x43425844, 0x4551d737, 0xd3dcf723, 0xdf387a99, 0xb6d6b00b, 0x00000001, 0x000000c8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000050, 0x00000050, 0x00000014,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000002, 0x03000065, 0x001020f2, 0x00000000,
+        0x0900002a, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x00208e46, 0x00000000,
+        0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_ishr = {ps_ishr_code, sizeof(ps_ishr_code)};
     static const struct
     {
         const D3D12_SHADER_BYTECODE *ps;
@@ -4100,6 +4120,17 @@ static void test_shader_instructions(void)
         {&ps_bfrev, {{0x12345678}}, {{0x1e6a2c48, 0x12345678, 0x1e6a0000, 0x2c480000}}},
         {&ps_bfrev, {{0xffff0000}}, {{0x0000ffff, 0xffff0000, 0x00000000, 0xffff0000}}},
         {&ps_bfrev, {{0xffffffff}}, {{0xffffffff, 0xffffffff, 0xffff0000, 0xffff0000}}},
+
+        {&ps_ishr, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}, {~0x1fu, 0, 32, 64}},
+                   {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+        {&ps_ishr, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}, {~0x1fu, 0, 32, 64}},
+                   {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
+        {&ps_ishr, {{0xfefefefe, 0x0fefefef, 0x0f0f0f0f, 0x12345678}, {~0x1fu, 0, 32, 64}},
+                   {{0xfefefefe, 0x0fefefef, 0x0f0f0f0f, 0x12345678}}},
+        {&ps_ishr, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}, {    31, 7, 15, 11}},
+                   {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+        {&ps_ishr, {{0x80000000, 0x80000000, 0x80000000, 0x80000000}, {    31, 7, 15, 11}},
+                   {{0xffffffff, 0xff000000, 0xffff0000, 0xfff00000}}},
     };
 
     assert(sizeof(tests->input) == sizeof(uint_tests->input));
