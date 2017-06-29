@@ -691,6 +691,13 @@ static void vkd3d_spirv_build_op_branch_conditional(struct vkd3d_spirv_builder *
             condition, true_label, false_label);
 }
 
+static uint32_t vkd3d_spirv_build_op_i_sub(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t operand0, uint32_t operand1)
+{
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            SpvOpISub, result_type, operand0, operand1);
+}
+
 static uint32_t vkd3d_spirv_build_op_f_negate(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand)
 {
@@ -1755,19 +1762,20 @@ static SpvOp vkd3d_dxbc_compiler_map_alu_instruction(const struct vkd3d_shader_i
     }
     alu_ops[] =
     {
-        {VKD3DSIH_ADD,      SpvOpFAdd},
-        {VKD3DSIH_AND,      SpvOpBitwiseAnd},
-        {VKD3DSIH_BFREV,    SpvOpBitReverse},
-        {VKD3DSIH_DIV,      SpvOpFDiv},
-        {VKD3DSIH_FTOI,     SpvOpConvertFToS},
-        {VKD3DSIH_FTOU,     SpvOpConvertFToU},
-        {VKD3DSIH_IADD,     SpvOpIAdd},
-        {VKD3DSIH_ISHL,     SpvOpShiftLeftLogical},
-        {VKD3DSIH_ISHR,     SpvOpShiftRightArithmetic},
-        {VKD3DSIH_ITOF,     SpvOpConvertSToF},
-        {VKD3DSIH_MUL,      SpvOpFMul},
-        {VKD3DSIH_USHR,     SpvOpShiftRightLogical},
-        {VKD3DSIH_UTOF,     SpvOpConvertUToF},
+        {VKD3DSIH_ADD,        SpvOpFAdd},
+        {VKD3DSIH_AND,        SpvOpBitwiseAnd},
+        {VKD3DSIH_BFREV,      SpvOpBitReverse},
+        {VKD3DSIH_COUNTBITS,  SpvOpBitCount},
+        {VKD3DSIH_DIV,        SpvOpFDiv},
+        {VKD3DSIH_FTOI,       SpvOpConvertFToS},
+        {VKD3DSIH_FTOU,       SpvOpConvertFToU},
+        {VKD3DSIH_IADD,       SpvOpIAdd},
+        {VKD3DSIH_ISHL,       SpvOpShiftLeftLogical},
+        {VKD3DSIH_ISHR,       SpvOpShiftRightArithmetic},
+        {VKD3DSIH_ITOF,       SpvOpConvertSToF},
+        {VKD3DSIH_MUL,        SpvOpFMul},
+        {VKD3DSIH_USHR,       SpvOpShiftRightLogical},
+        {VKD3DSIH_UTOF,       SpvOpConvertUToF},
     };
     unsigned int i;
 
@@ -1825,11 +1833,14 @@ static enum GLSLstd450 vkd3d_dxbc_compiler_map_ext_glsl_instruction(
     }
     glsl_insts[] =
     {
-        {VKD3DSIH_MAD,  GLSLstd450Fma},
-        {VKD3DSIH_MAX,  GLSLstd450FMax},
-        {VKD3DSIH_MIN,  GLSLstd450FMin},
-        {VKD3DSIH_RSQ,  GLSLstd450InverseSqrt},
-        {VKD3DSIH_SQRT, GLSLstd450Sqrt},
+        {VKD3DSIH_FIRSTBIT_HI,     GLSLstd450FindUMsb},
+        {VKD3DSIH_FIRSTBIT_LO,     GLSLstd450FindILsb},
+        {VKD3DSIH_FIRSTBIT_SHI,    GLSLstd450FindSMsb},
+        {VKD3DSIH_MAD,             GLSLstd450Fma},
+        {VKD3DSIH_MAX,             GLSLstd450FMax},
+        {VKD3DSIH_MIN,             GLSLstd450FMin},
+        {VKD3DSIH_RSQ,             GLSLstd450InverseSqrt},
+        {VKD3DSIH_SQRT,            GLSLstd450Sqrt},
     };
     unsigned int i;
 
@@ -1875,6 +1886,14 @@ static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_comp
 
     val_id = vkd3d_spirv_build_op_ext_inst(builder, type_id,
             instr_set_id, glsl_inst, src_id, instruction->src_count);
+
+    if (instruction->handler_idx == VKD3DSIH_FIRSTBIT_HI
+            || instruction->handler_idx == VKD3DSIH_FIRSTBIT_SHI)
+    {
+        /* In D3D bits are numbered from the most significant bit. */
+        val_id = vkd3d_spirv_build_op_i_sub(builder, type_id,
+                vkd3d_dxbc_compiler_get_constant_uint(compiler, 31), val_id);
+    }
 
     vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
 }
@@ -2183,6 +2202,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_ADD:
         case VKD3DSIH_AND:
         case VKD3DSIH_BFREV:
+        case VKD3DSIH_COUNTBITS:
         case VKD3DSIH_DIV:
         case VKD3DSIH_FTOI:
         case VKD3DSIH_FTOU:
@@ -2195,6 +2215,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_UTOF:
             vkd3d_dxbc_compiler_emit_alu_instruction(compiler, instruction);
             break;
+        case VKD3DSIH_FIRSTBIT_HI:
+        case VKD3DSIH_FIRSTBIT_LO:
+        case VKD3DSIH_FIRSTBIT_SHI:
         case VKD3DSIH_MAD:
         case VKD3DSIH_MAX:
         case VKD3DSIH_MIN:
