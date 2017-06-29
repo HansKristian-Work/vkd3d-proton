@@ -72,7 +72,7 @@ struct ivec4
     int x, y, z, w;
 };
 
-static BOOL compare_float(float f, float g, unsigned int ulps)
+static bool compare_float(float f, float g, unsigned int ulps)
 {
     int x, y;
     union
@@ -92,12 +92,12 @@ static BOOL compare_float(float f, float g, unsigned int ulps)
         y = INT_MIN - y;
 
     if (abs(x - y) > ulps)
-        return FALSE;
+        return false;
 
-    return TRUE;
+    return true;
 }
 
-static BOOL compare_vec4(const struct vec4 *v1, const struct vec4 *v2, unsigned int ulps)
+static bool compare_vec4(const struct vec4 *v1, const struct vec4 *v2, unsigned int ulps)
 {
     return compare_float(v1->x, v2->x, ulps)
             && compare_float(v1->y, v2->y, ulps)
@@ -105,9 +105,25 @@ static BOOL compare_vec4(const struct vec4 *v1, const struct vec4 *v2, unsigned 
             && compare_float(v1->w, v2->w, ulps);
 }
 
-static BOOL compare_uvec4(const struct uvec4* v1, const struct uvec4 *v2)
+static bool compare_uvec4(const struct uvec4* v1, const struct uvec4 *v2)
 {
     return v1->x == v2->x && v1->y == v2->y && v1->z == v2->z && v1->w == v2->w;
+}
+
+static bool compare_color(DWORD c1, DWORD c2, BYTE max_diff)
+{
+    if (abs((c1 & 0xff) - (c2 & 0xff)) > max_diff)
+        return false;
+    c1 >>= 8; c2 >>= 8;
+    if (abs((c1 & 0xff) - (c2 & 0xff)) > max_diff)
+        return false;
+    c1 >>= 8; c2 >>= 8;
+    if (abs((c1 & 0xff) - (c2 & 0xff)) > max_diff)
+        return false;
+    c1 >>= 8; c2 >>= 8;
+    if (abs((c1 & 0xff) - (c2 & 0xff)) > max_diff)
+        return false;
+    return true;
 }
 
 static ULONG get_refcount(void *iface)
@@ -642,6 +658,7 @@ static ID3D12PipelineState *create_pipeline_state_(unsigned int line, ID3D12Devi
 
 struct draw_test_context_desc
 {
+    unsigned int rt_width, rt_height;
     DXGI_FORMAT rt_format;
     BOOL no_root_signature;
     BOOL no_pipeline;
@@ -672,26 +689,23 @@ static void create_render_target_(unsigned int line, struct draw_test_context *c
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
     D3D12_CLEAR_VALUE clear_value;
-    DXGI_FORMAT rt_format;
     HRESULT hr;
-
-    rt_format = desc && desc->rt_format ? desc->rt_format : DXGI_FORMAT_R8G8B8A8_UNORM;
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     resource_desc.Alignment = 0;
-    resource_desc.Width = 32;
-    resource_desc.Height = 32;
+    resource_desc.Width = desc && desc->rt_width ? desc->rt_width : 32;
+    resource_desc.Height = desc && desc->rt_height ? desc->rt_height : 32;
     resource_desc.DepthOrArraySize = 1;
     resource_desc.MipLevels = 1;
-    resource_desc.Format = rt_format;
+    resource_desc.Format = desc && desc->rt_format ? desc->rt_format : DXGI_FORMAT_R8G8B8A8_UNORM;
     resource_desc.SampleDesc.Count = 1;
     resource_desc.SampleDesc.Quality = 0;
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-    clear_value.Format = rt_format;
+    clear_value.Format = resource_desc.Format;
     clear_value.Color[0] = 1.0f;
     clear_value.Color[1] = 1.0f;
     clear_value.Color[2] = 1.0f;
@@ -3029,6 +3043,89 @@ static void test_fractional_viewports(void)
     destroy_draw_test_context(&context);
 }
 
+static void test_scissor(void)
+{
+    ID3D12GraphicsCommandList *command_list;
+    struct draw_test_context_desc desc;
+    struct draw_test_context context;
+    struct resource_readback rb;
+    ID3D12CommandQueue *queue;
+    D3D12_VIEWPORT viewport;
+    unsigned int color;
+    RECT scissor_rect;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float4 main(float4 position : SV_POSITION) : SV_Target
+        {
+            return float4(0.0, 1.0, 0.0, 1.0);
+        }
+#endif
+        0x43425844, 0x30240e72, 0x012f250c, 0x8673c6ea, 0x392e4cec, 0x00000001, 0x000000d4, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x00000038, 0x00000040,
+        0x0000000e, 0x03000065, 0x001020f2, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002,
+        0x00000000, 0x3f800000, 0x00000000, 0x3f800000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const float red[] = {1.0f, 0.0f, 0.0f, 1.0f};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = 640;
+    desc.rt_height = 480;
+    desc.no_pipeline = true;
+    if (!init_draw_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = context.render_target_desc.Width;
+    viewport.Height = context.render_target_desc.Height;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 0.0f;
+
+    scissor_rect.left = 160;
+    scissor_rect.top = 120;
+    scissor_rect.right = 480;
+    scissor_rect.bottom = 360;
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, red, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    color = get_readback_uint(&rb, 320, 60);
+    ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
+    color = get_readback_uint(&rb, 80, 240);
+    ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
+    color = get_readback_uint(&rb, 320, 240);
+    ok(compare_color(color, 0xff00ff00, 1), "Got unexpected color 0x%08x.\n", color);
+    color = get_readback_uint(&rb, 560, 240);
+    ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
+    color = get_readback_uint(&rb, 320, 420);
+    ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
+    release_resource_readback(&rb);
+
+    destroy_draw_test_context(&context);
+}
+
 static void test_texture_resource_barriers(void)
 {
     D3D12_COMMAND_QUEUE_DESC command_queue_desc;
@@ -4764,6 +4861,7 @@ START_TEST(d3d12)
     run_test(test_draw_indexed_instanced);
     run_test(test_fragment_coords);
     run_test(test_fractional_viewports);
+    run_test(test_scissor);
     run_test(test_texture_resource_barriers);
     run_test(test_invalid_texture_resource_barriers);
     run_test(test_device_removed_reason);
