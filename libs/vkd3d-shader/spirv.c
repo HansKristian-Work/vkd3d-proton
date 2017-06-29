@@ -740,7 +740,7 @@ static uint32_t vkd3d_spirv_build_op_glsl_std450_nclamp(struct vkd3d_spirv_build
     uint32_t glsl_std450_id = vkd3d_spirv_get_glsl_std450_instr_set(builder);
     uint32_t operands[] = {x, min, max};
     return vkd3d_spirv_build_op_ext_inst(builder, result_type, glsl_std450_id,
-            GLSLstd450NClamp, operands, ARRAY_SIZE(operands));
+            GLSLstd450FClamp, operands, ARRAY_SIZE(operands));
 }
 
 static uint32_t vkd3d_spirv_get_type_id(struct vkd3d_spirv_builder *builder,
@@ -1899,8 +1899,8 @@ static enum GLSLstd450 vkd3d_dxbc_compiler_map_ext_glsl_instruction(
         {VKD3DSIH_FIRSTBIT_LO,     GLSLstd450FindILsb},
         {VKD3DSIH_FIRSTBIT_SHI,    GLSLstd450FindSMsb},
         {VKD3DSIH_MAD,             GLSLstd450Fma},
-        {VKD3DSIH_MAX,             GLSLstd450NMax},
-        {VKD3DSIH_MIN,             GLSLstd450NMin},
+        {VKD3DSIH_MAX,             GLSLstd450FMax},
+        {VKD3DSIH_MIN,             GLSLstd450FMin},
         {VKD3DSIH_RSQ,             GLSLstd450InverseSqrt},
         {VKD3DSIH_SQRT,            GLSLstd450Sqrt},
     };
