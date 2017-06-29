@@ -691,21 +691,21 @@ static void vkd3d_spirv_build_op_branch_conditional(struct vkd3d_spirv_builder *
             condition, true_label, false_label);
 }
 
-static uint32_t vkd3d_spirv_build_op_i_sub(struct vkd3d_spirv_builder *builder,
+static uint32_t vkd3d_spirv_build_op_isub(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand0, uint32_t operand1)
 {
     return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
             SpvOpISub, result_type, operand0, operand1);
 }
 
-static uint32_t vkd3d_spirv_build_op_f_negate(struct vkd3d_spirv_builder *builder,
+static uint32_t vkd3d_spirv_build_op_fnegate(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand)
 {
     return vkd3d_spirv_build_op_tr1(builder, &builder->function_stream,
             SpvOpFNegate, result_type, operand);
 }
 
-static uint32_t vkd3d_spirv_build_op_s_negate(struct vkd3d_spirv_builder *builder,
+static uint32_t vkd3d_spirv_build_op_snegate(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand)
 {
     return vkd3d_spirv_build_op_tr1(builder, &builder->function_stream,
@@ -732,6 +732,15 @@ static uint32_t vkd3d_spirv_build_op_glsl_std450_fabs(struct vkd3d_spirv_builder
     uint32_t glsl_std450_id = vkd3d_spirv_get_glsl_std450_instr_set(builder);
     return vkd3d_spirv_build_op_ext_inst(builder, result_type, glsl_std450_id,
             GLSLstd450FAbs, &operand, 1);
+}
+
+static uint32_t vkd3d_spirv_build_op_glsl_std450_nclamp(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t x, uint32_t min, uint32_t max)
+{
+    uint32_t glsl_std450_id = vkd3d_spirv_get_glsl_std450_instr_set(builder);
+    uint32_t operands[] = {x, min, max};
+    return vkd3d_spirv_build_op_ext_inst(builder, result_type, glsl_std450_id,
+            GLSLstd450NClamp, operands, ARRAY_SIZE(operands));
 }
 
 static uint32_t vkd3d_spirv_get_type_id(struct vkd3d_spirv_builder *builder,
@@ -1368,9 +1377,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_neg(struct vkd3d_dxbc_compiler *compile
     type_id = vkd3d_spirv_get_type_id(builder,
             vkd3d_component_type_from_data_type(reg->data_type), component_count);
     if (reg->data_type == VKD3D_DATA_FLOAT)
-        return vkd3d_spirv_build_op_f_negate(builder, type_id, val_id);
+        return vkd3d_spirv_build_op_fnegate(builder, type_id, val_id);
     else if (reg->data_type == VKD3D_DATA_INT)
-        return vkd3d_spirv_build_op_s_negate(builder, type_id, val_id);
+        return vkd3d_spirv_build_op_snegate(builder, type_id, val_id);
 
     FIXME("Unhandled data type %#x.\n", reg->data_type);
     return val_id;
@@ -1483,6 +1492,40 @@ static void vkd3d_dxbc_compiler_emit_store_reg(struct vkd3d_dxbc_compiler *compi
 
     reg_id = vkd3d_dxbc_compiler_get_register_id(compiler, reg);
     vkd3d_spirv_build_op_store(builder, reg_id, val_id, SpvMemoryAccessMaskNone);
+}
+
+static uint32_t vkd3d_dxbc_compiler_emit_sat(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg, DWORD write_mask, uint32_t val_id)
+{
+    static const float zero[] = {0.0f, 0.0f, 0.0f, 0.0f};
+    static const float one[] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+    unsigned int component_count = vkd3d_write_mask_component_count(write_mask);
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t type_id, zero_id, one_id;
+
+    zero_id = vkd3d_dxbc_compiler_get_constant(compiler,
+            VKD3D_TYPE_FLOAT, component_count, (const uint32_t *)zero);
+    one_id = vkd3d_dxbc_compiler_get_constant(compiler,
+            VKD3D_TYPE_FLOAT, component_count, (const uint32_t *)one);
+
+    type_id = vkd3d_spirv_get_type_id(builder,
+            vkd3d_component_type_from_data_type(reg->data_type), component_count);
+    if (reg->data_type == VKD3D_DATA_FLOAT)
+        return vkd3d_spirv_build_op_glsl_std450_nclamp(builder, type_id, val_id, zero_id, one_id);
+
+    FIXME("Unhandled data type %#x.\n", reg->data_type);
+    return val_id;
+}
+
+static void vkd3d_dxbc_compiler_emit_store_dst(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_dst_param *dst, uint32_t val_id)
+{
+    assert(!(dst->modifiers & ~VKD3DSPDM_SATURATE));
+    if (dst->modifiers & VKD3DSPDM_SATURATE)
+        val_id = vkd3d_dxbc_compiler_emit_sat(compiler, &dst->reg, dst->write_mask, val_id);
+
+    vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
 }
 
 static unsigned int vkd3d_dxbc_compiler_get_sysval_component_count(
@@ -1839,7 +1882,7 @@ static void vkd3d_dxbc_compiler_emit_alu_instruction(struct vkd3d_dxbc_compiler 
     val_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream, op, type_id,
             src_ids, instruction->src_count);
 
-    vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
 static enum GLSLstd450 vkd3d_dxbc_compiler_map_ext_glsl_instruction(
@@ -1910,11 +1953,11 @@ static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_comp
             || instruction->handler_idx == VKD3DSIH_FIRSTBIT_SHI)
     {
         /* In D3D bits are numbered from the most significant bit. */
-        val_id = vkd3d_spirv_build_op_i_sub(builder, type_id,
+        val_id = vkd3d_spirv_build_op_isub(builder, type_id,
                 vkd3d_dxbc_compiler_get_constant_uint(compiler, 31), val_id);
     }
 
-    vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
 static void vkd3d_dxbc_compiler_emit_mov(struct vkd3d_dxbc_compiler *compiler,
@@ -1929,10 +1972,10 @@ static void vkd3d_dxbc_compiler_emit_mov(struct vkd3d_dxbc_compiler *compiler,
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
 
     if (component_count == 1 || component_count == VKD3D_VEC4_SIZE
-            || src->modifiers || src->reg.type == VKD3DSPR_IMMCONST)
+            || dst->modifiers || src->modifiers || src->reg.type == VKD3DSPR_IMMCONST)
     {
         val_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst->write_mask);
-        vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
+        vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
     }
     else
     {
@@ -1993,7 +2036,7 @@ static void vkd3d_dxbc_compiler_emit_movc(struct vkd3d_dxbc_compiler *compiler,
             VKD3D_SHADER_CONDITIONAL_OP_NZ, component_count, condition_id);
     val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, src1_id, src2_id);
 
-    vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
 static void vkd3d_dxbc_compiler_emit_dot(struct vkd3d_dxbc_compiler *compiler,
@@ -2026,7 +2069,7 @@ static void vkd3d_dxbc_compiler_emit_dot(struct vkd3d_dxbc_compiler *compiler,
     val_id = vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
             SpvOpDot, type_id, src_ids[0], src_ids[1]);
 
-    vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
 static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_compiler *compiler,
