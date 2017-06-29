@@ -3873,6 +3873,28 @@ static void test_shader_instructions(void)
         0x001020f2, 0x00000000, 0x00004002, 0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_if_return = {ps_if_return_code, sizeof(ps_if_return_code)};
+    static const DWORD ps_src_modifiers_code[] =
+    {
+#if 0
+        float4 src0;
+
+        void main(out float4 dst : SV_Target)
+        {
+            dst.x = -src0.x;
+            dst.y = abs(src0.y);
+            dst.zw = -abs(src0.zw);
+        }
+#endif
+        0x43425844, 0xa5f66fa8, 0xd430e547, 0x1cd28240, 0xaf5bc0f4, 0x00000001, 0x000000f8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000080, 0x00000050, 0x00000020,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x07000036, 0x00102012, 0x00000000, 0x8020800a, 0x00000041, 0x00000000, 0x00000000, 0x07000036,
+        0x00102022, 0x00000000, 0x8020801a, 0x00000081, 0x00000000, 0x00000000, 0x07000036, 0x001020c2,
+        0x00000000, 0x80208ea6, 0x000000c1, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_src_modifiers = {ps_src_modifiers_code, sizeof(ps_src_modifiers_code)};
     static const DWORD ps_sat_code[] =
     {
 #if 0
@@ -4183,6 +4205,9 @@ static void test_shader_instructions(void)
         {&ps_if_return, {{4.0f, 4.0f, 0.0f, 5.0f}}, {{1.0f, 1.0f, 1.0f, 1.0f}}},
         {&ps_if_return, {{5.0f, 4.0f, 0.0f, 5.0f}}, {{1.0f, 1.0f, 1.0f, 0.0f}}},
         {&ps_if_return, {{ NAN,  NAN,  NAN,  NAN}}, {{1.0f, 1.0f, 1.0f, 1.0f}}},
+
+        {&ps_src_modifiers, {{ 1.0f,  1.0f,  1.0f,  2.0f}}, {{-1.0f, 1.0f, -1.0f, -2.0f}}},
+        {&ps_src_modifiers, {{-1.0f, -1.0f, -1.0f, -2.0f}}, {{ 1.0f, 1.0f, -1.0f, -2.0f}}},
 
         {&ps_sat, {{ 0.0f,  1.0f,     2.0f,      3.0f}}, {{0.0f, 1.0f, 1.0f, 1.0f}}},
         {&ps_sat, {{-0.0f, -1.0f,    -2.0f,     -3.0f}}, {{0.0f, 0.0f, 0.0f, 0.0f}}},
