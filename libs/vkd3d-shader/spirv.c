@@ -1901,8 +1901,8 @@ static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_comp
 static void vkd3d_dxbc_compiler_emit_mov(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    const struct vkd3d_shader_dst_param *dst = &instruction->dst[0];
-    const struct vkd3d_shader_src_param *src = &instruction->src[0];
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
     uint32_t val_id, dst_val_id, type_id, dst_id, src_id;
     uint32_t components[VKD3D_VEC4_SIZE];
     unsigned int i, component_count;
@@ -1939,6 +1939,42 @@ static void vkd3d_dxbc_compiler_emit_mov(struct vkd3d_dxbc_compiler *compiler,
 
         vkd3d_spirv_build_op_store(builder, dst_id, val_id, SpvMemoryAccessMaskNone);
     }
+}
+
+static uint32_t vkd3d_dxbc_compiler_emit_int_to_bool(struct vkd3d_dxbc_compiler *compiler,
+        enum vkd3d_shader_conditional_op condition, unsigned int component_count, uint32_t val_id)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t type_id;
+    SpvOp op;
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, component_count);
+    op = condition & VKD3D_SHADER_CONDITIONAL_OP_Z ? SpvOpIEqual : SpvOpINotEqual;
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            op, type_id, val_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, 0));
+}
+
+static void vkd3d_dxbc_compiler_emit_movc(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t condition_id, src1_id, src2_id, type_id, val_id;
+    unsigned int component_count;
+
+    condition_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], dst->write_mask);
+    src1_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], dst->write_mask);
+    src2_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[2], dst->write_mask);
+
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, component_count);
+
+    condition_id = vkd3d_dxbc_compiler_emit_int_to_bool(compiler,
+            VKD3D_SHADER_CONDITIONAL_OP_NZ, component_count, condition_id);
+    val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, src1_id, src2_id);
+
+    vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
 }
 
 static void vkd3d_dxbc_compiler_emit_dot(struct vkd3d_dxbc_compiler *compiler,
@@ -2074,11 +2110,10 @@ static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler
 static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    uint32_t merge_block_id, type_id, val_id, condition_id, true_label, false_label;
     struct vkd3d_control_flow_info *cf_info = &compiler->control_flow_info;
+    uint32_t merge_block_id, val_id, condition_id, true_label, false_label;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    SpvOp op;
 
     switch (instruction->handler_idx)
     {
@@ -2091,11 +2126,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
             val_id = vkd3d_dxbc_compiler_emit_load_reg(compiler,
                     &src->reg, src->swizzle, VKD3DSP_WRITEMASK_0);
-
-            type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, 1);
-            op = instruction->flags & VKD3D_SHADER_CONDITIONAL_OP_Z ? SpvOpIEqual : SpvOpINotEqual;
-            condition_id = vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
-                    op, type_id, val_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, 0));
+            condition_id = vkd3d_dxbc_compiler_emit_int_to_bool(compiler, instruction->flags, 1, val_id);
 
             true_label = vkd3d_spirv_alloc_id(builder);
             false_label = vkd3d_spirv_alloc_id(builder);
@@ -2198,6 +2229,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_MOV:
             vkd3d_dxbc_compiler_emit_mov(compiler, instruction);
+            break;
+        case VKD3DSIH_MOVC:
+            vkd3d_dxbc_compiler_emit_movc(compiler, instruction);
             break;
         case VKD3DSIH_ADD:
         case VKD3DSIH_AND:
