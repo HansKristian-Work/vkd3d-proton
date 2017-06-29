@@ -1856,8 +1856,8 @@ static enum GLSLstd450 vkd3d_dxbc_compiler_map_ext_glsl_instruction(
         {VKD3DSIH_FIRSTBIT_LO,     GLSLstd450FindILsb},
         {VKD3DSIH_FIRSTBIT_SHI,    GLSLstd450FindSMsb},
         {VKD3DSIH_MAD,             GLSLstd450Fma},
-        {VKD3DSIH_MAX,             GLSLstd450FMax},
-        {VKD3DSIH_MIN,             GLSLstd450FMin},
+        {VKD3DSIH_MAX,             GLSLstd450NMax},
+        {VKD3DSIH_MIN,             GLSLstd450NMin},
         {VKD3DSIH_RSQ,             GLSLstd450InverseSqrt},
         {VKD3DSIH_SQRT,            GLSLstd450Sqrt},
     };
