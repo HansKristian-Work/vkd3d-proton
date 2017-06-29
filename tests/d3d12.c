@@ -680,6 +680,9 @@ struct test_context
 
     ID3D12RootSignature *root_signature;
     ID3D12PipelineState *pipeline_state;
+
+    D3D12_VIEWPORT viewport;
+    RECT scissor_rect;
 };
 
 #define create_render_target(context, desc) create_render_target_(__LINE__, context, desc)
@@ -774,6 +777,18 @@ static bool init_test_context_(unsigned int line, struct test_context *context,
         context->pipeline_state = create_pipeline_state_(line, device,
                 context->root_signature, context->render_target_desc.Format,
                 NULL, NULL, NULL);
+
+
+    context->viewport.TopLeftX = 0.0f;
+    context->viewport.TopLeftY = 0.0f;
+    context->viewport.Width = context->render_target_desc.Width;
+    context->viewport.Height = context->render_target_desc.Height;
+    context->viewport.MinDepth = 0.0f;
+    context->viewport.MaxDepth = 0.0f;
+
+    context->scissor_rect.left = context->scissor_rect.top = 0;
+    context->scissor_rect.right = context->render_target_desc.Width;
+    context->scissor_rect.bottom = context->render_target_desc.Height;
 
     return true;
 }
@@ -2617,25 +2632,12 @@ static void test_draw_instanced(void)
     struct test_context context;
     struct resource_readback rb;
     ID3D12CommandQueue *queue;
-    D3D12_VIEWPORT viewport;
-    RECT scissor_rect;
     unsigned int x, y;
 
     if (!init_test_context(&context, NULL))
         return;
     command_list = context.list;
     queue = context.queue;
-
-    viewport.TopLeftX = 0.0f;
-    viewport.TopLeftY = 0.0f;
-    viewport.Width = context.render_target_desc.Width;
-    viewport.Height = context.render_target_desc.Height;
-    viewport.MinDepth = 0.0f;
-    viewport.MaxDepth = 0.0f;
-
-    scissor_rect.left = scissor_rect.top = 0;
-    scissor_rect.right = context.render_target_desc.Width;
-    scissor_rect.bottom = context.render_target_desc.Height;
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -2646,8 +2648,8 @@ static void test_draw_instanced(void)
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
-    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
     transition_resource_state(command_list, context.render_target,
@@ -2678,9 +2680,7 @@ static void test_draw_indexed_instanced(void)
     struct resource_readback rb;
     D3D12_INDEX_BUFFER_VIEW ibv;
     ID3D12CommandQueue *queue;
-    D3D12_VIEWPORT viewport;
     ID3D12Resource *ib;
-    RECT scissor_rect;
     unsigned int x, y;
     HRESULT hr;
     void *ptr;
@@ -2689,17 +2689,6 @@ static void test_draw_indexed_instanced(void)
         return;
     command_list = context.list;
     queue = context.queue;
-
-    viewport.TopLeftX = 0.0f;
-    viewport.TopLeftY = 0.0f;
-    viewport.Width = context.render_target_desc.Width;
-    viewport.Height = context.render_target_desc.Height;
-    viewport.MinDepth = 0.0f;
-    viewport.MaxDepth = 0.0f;
-
-    scissor_rect.left = scissor_rect.top = 0;
-    scissor_rect.right = context.render_target_desc.Width;
-    scissor_rect.bottom = context.render_target_desc.Height;
 
     heap_desc.Type = D3D12_HEAP_TYPE_UPLOAD;
     heap_desc.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
@@ -2741,8 +2730,8 @@ static void test_draw_indexed_instanced(void)
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ID3D12GraphicsCommandList_IASetIndexBuffer(command_list, &ibv);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
-    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
     ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, 3, 1, 0, 0, 0);
 
     transition_resource_state(command_list, context.render_target,
@@ -2771,9 +2760,7 @@ static void test_fragment_coords(void)
     struct test_context context;
     struct resource_readback rb;
     ID3D12CommandQueue *queue;
-    D3D12_VIEWPORT viewport;
     unsigned int x, y;
-    RECT scissor_rect;
 
     static const DWORD ps_code[] =
     {
@@ -2804,32 +2791,21 @@ static void test_fragment_coords(void)
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, desc.rt_format, NULL, &ps, NULL);
 
-    viewport.TopLeftX = 0.0f;
-    viewport.TopLeftY = 0.0f;
-    viewport.Width = context.render_target_desc.Width;
-    viewport.Height = context.render_target_desc.Height;
-    viewport.MinDepth = 0.0f;
-    viewport.MaxDepth = 0.0f;
-
-    scissor_rect.left = scissor_rect.top = 0;
-    scissor_rect.right = context.render_target_desc.Width;
-    scissor_rect.bottom = context.render_target_desc.Height;
-
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
-    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
-    viewport.TopLeftX = 10.0f;
-    viewport.TopLeftY = 10.0f;
-    viewport.Width = 20.0f;
-    viewport.Height = 30.0f;
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
+    context.viewport.TopLeftX = 10.0f;
+    context.viewport.TopLeftY = 10.0f;
+    context.viewport.Width = 20.0f;
+    context.viewport.Height = 30.0f;
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
     transition_resource_state(command_list, context.render_target,
@@ -2867,7 +2843,6 @@ static void test_fractional_viewports(void)
     D3D12_VIEWPORT viewport;
     unsigned int i, x, y;
     ID3D12Resource *vb;
-    RECT scissor_rect;
     HRESULT hr;
     void *ptr;
 
@@ -2983,10 +2958,6 @@ static void test_fractional_viewports(void)
     vbv.StrideInBytes = sizeof(*quad);
     vbv.SizeInBytes = sizeof(quad);
 
-    scissor_rect.left = scissor_rect.top = 0;
-    scissor_rect.right = context.render_target_desc.Width;
-    scissor_rect.bottom = context.render_target_desc.Height;
-
     for (i = 0; i < ARRAY_SIZE(viewport_offsets); ++i)
     {
         viewport.TopLeftX = viewport_offsets[i];
@@ -3008,7 +2979,7 @@ static void test_fractional_viewports(void)
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
         ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
         ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
-        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
         ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 0, 0);
 
         transition_resource_state(command_list, context.render_target,
@@ -3050,7 +3021,6 @@ static void test_scissor(void)
     struct test_context context;
     struct resource_readback rb;
     ID3D12CommandQueue *queue;
-    D3D12_VIEWPORT viewport;
     unsigned int color;
     RECT scissor_rect;
 
@@ -3085,13 +3055,6 @@ static void test_scissor(void)
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
 
-    viewport.TopLeftX = 0.0f;
-    viewport.TopLeftY = 0.0f;
-    viewport.Width = context.render_target_desc.Width;
-    viewport.Height = context.render_target_desc.Height;
-    viewport.MinDepth = 0.0f;
-    viewport.MaxDepth = 0.0f;
-
     scissor_rect.left = 160;
     scissor_rect.top = 120;
     scissor_rect.right = 480;
@@ -3103,7 +3066,7 @@ static void test_scissor(void)
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
@@ -3575,9 +3538,7 @@ static void test_bundle_state_inheritance(void)
     struct test_context context;
     struct resource_readback rb;
     ID3D12CommandQueue *queue;
-    D3D12_VIEWPORT viewport;
     ID3D12Device *device;
-    RECT scissor_rect;
     unsigned int x, y;
     HRESULT hr;
 
@@ -3600,17 +3561,6 @@ static void test_bundle_state_inheritance(void)
             bundle_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&bundle);
     ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
 
-    viewport.TopLeftX = 0.0f;
-    viewport.TopLeftY = 0.0f;
-    viewport.Width = context.render_target_desc.Width;
-    viewport.Height = context.render_target_desc.Height;
-    viewport.MinDepth = 0.0f;
-    viewport.MaxDepth = 0.0f;
-
-    scissor_rect.left = scissor_rect.top = 0;
-    scissor_rect.right = context.render_target_desc.Width;
-    scissor_rect.bottom = context.render_target_desc.Height;
-
     /* A bundle does not inherit the current pipeline state. */
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -3618,8 +3568,8 @@ static void test_bundle_state_inheritance(void)
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
-    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
 
     ID3D12GraphicsCommandList_DrawInstanced(bundle, 3, 1, 0, 0);
     hr = ID3D12GraphicsCommandList_Close(bundle);
@@ -3660,8 +3610,8 @@ static void test_bundle_state_inheritance(void)
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
-    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
 
     ID3D12GraphicsCommandList_SetPipelineState(bundle, context.pipeline_state);
     ID3D12GraphicsCommandList_DrawInstanced(bundle, 3, 1, 0, 0);
@@ -3701,8 +3651,8 @@ static void test_bundle_state_inheritance(void)
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
-    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
 
     ID3D12GraphicsCommandList_SetPipelineState(bundle, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(bundle, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -3740,8 +3690,8 @@ static void test_bundle_state_inheritance(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
-    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
 
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(bundle, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(bundle, context.pipeline_state);
@@ -3783,10 +3733,8 @@ static void test_shader_instructions(void)
     struct test_context context;
     struct resource_readback rb;
     ID3D12CommandQueue *queue;
-    D3D12_VIEWPORT viewport;
     unsigned int i, x, y;
     ID3D12Resource *cb;
-    RECT scissor_rect;
     HRESULT hr;
     void *ptr;
 
@@ -4366,17 +4314,6 @@ static void test_shader_instructions(void)
             NULL, &IID_ID3D12Resource, (void **)&cb);
     ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
 
-    viewport.TopLeftX = 0.0f;
-    viewport.TopLeftY = 0.0f;
-    viewport.Width = context.render_target_desc.Width;
-    viewport.Height = context.render_target_desc.Height;
-    viewport.MinDepth = 0.0f;
-    viewport.MaxDepth = 1.0f;
-
-    scissor_rect.left = scissor_rect.top = 0;
-    scissor_rect.right = context.render_target_desc.Width;
-    scissor_rect.bottom = context.render_target_desc.Height;
-
     current_ps = NULL;
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
@@ -4406,8 +4343,8 @@ static void test_shader_instructions(void)
                 ID3D12Resource_GetGPUVirtualAddress(cb));
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
-        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
         ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
         transition_resource_state(command_list, context.render_target,
@@ -4465,8 +4402,8 @@ static void test_shader_instructions(void)
                 ID3D12Resource_GetGPUVirtualAddress(cb));
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
-        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &scissor_rect);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
         ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
         transition_resource_state(command_list, context.render_target,
