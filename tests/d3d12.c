@@ -3891,6 +3891,30 @@ static void test_shader_instructions(void)
         0x06002036, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_sat = {ps_sat_code, sizeof(ps_sat_code)};
+    static const DWORD ps_min_max_code[] =
+    {
+#if 0
+        float4 src0;
+        float4 src1;
+
+        void main(out float4 dst : SV_Target)
+        {
+            dst = (float4)0;
+            dst.x = min(src0.x, src1.x);
+            dst.y = max(src0.x, src1.x);
+        }
+#endif
+        0x43425844, 0xb570ee39, 0xcf84fe48, 0x7fa59ede, 0x6151def2, 0x00000001, 0x0000010c, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000094, 0x00000050, 0x00000025,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000002, 0x03000065, 0x001020f2, 0x00000000,
+        0x09000033, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0020800a, 0x00000000,
+        0x00000001, 0x09000034, 0x00102022, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0020800a,
+        0x00000000, 0x00000001, 0x08000036, 0x001020c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_min_max = {ps_min_max_code, sizeof(ps_min_max_code)};
     static const DWORD ps_ftou_code[] =
     {
 #if 0
@@ -4163,6 +4187,15 @@ static void test_shader_instructions(void)
         {&ps_sat, {{ 0.0f,  1.0f,     2.0f,      3.0f}}, {{0.0f, 1.0f, 1.0f, 1.0f}}},
         {&ps_sat, {{-0.0f, -1.0f,    -2.0f,     -3.0f}}, {{0.0f, 0.0f, 0.0f, 0.0f}}},
         {&ps_sat, {{  NAN,  -NAN, INFINITY, -INFINITY}}, {{0.0f, 0.0f, 1.0f, 0.0f}}},
+
+        {&ps_min_max, {{0.0f}, {     1.0f}}, {{     0.0f,     1.0f}}},
+        {&ps_min_max, {{0.0f}, {    -1.0f}}, {{    -1.0f,     0.0f}}},
+        {&ps_min_max, {{ NAN}, {     1.0f}}, {{     1.0f,     1.0f}}},
+        {&ps_min_max, {{0.0f}, {      NAN}}, {{     0.0f,     0.0f}}},
+        {&ps_min_max, {{0.0f}, { INFINITY}}, {{     0.0f, INFINITY}}},
+        {&ps_min_max, {{1.0f}, { INFINITY}}, {{     1.0f, INFINITY}}},
+        {&ps_min_max, {{0.0f}, {-INFINITY}}, {{-INFINITY,     0.0f}}},
+        {&ps_min_max, {{1.0f}, {-INFINITY}}, {{-INFINITY,     1.0f}}},
 
         {&ps_ftou, {{     -NAN}}, {.u = { 0,  0 }}},
         {&ps_ftou, {{      NAN}}, {.u = { 0,  0 }}},
