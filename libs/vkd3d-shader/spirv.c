@@ -705,6 +705,13 @@ static uint32_t vkd3d_spirv_build_op_f_negate(struct vkd3d_spirv_builder *builde
             SpvOpFNegate, result_type, operand);
 }
 
+static uint32_t vkd3d_spirv_build_op_s_negate(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t operand)
+{
+    return vkd3d_spirv_build_op_tr1(builder, &builder->function_stream,
+            SpvOpSNegate, result_type, operand);
+}
+
 static uint32_t vkd3d_spirv_build_op_and(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand0, uint32_t operand1)
 {
@@ -1351,6 +1358,24 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *co
     return val_id;
 }
 
+static uint32_t vkd3d_dxbc_compiler_emit_neg(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg, DWORD write_mask, uint32_t val_id)
+{
+    unsigned int component_count = vkd3d_write_mask_component_count(write_mask);
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t type_id;
+
+    type_id = vkd3d_spirv_get_type_id(builder,
+            vkd3d_component_type_from_data_type(reg->data_type), component_count);
+    if (reg->data_type == VKD3D_DATA_FLOAT)
+        return vkd3d_spirv_build_op_f_negate(builder, type_id, val_id);
+    else if (reg->data_type == VKD3D_DATA_INT)
+        return vkd3d_spirv_build_op_s_negate(builder, type_id, val_id);
+
+    FIXME("Unhandled data type %#x.\n", reg->data_type);
+    return val_id;
+}
+
 static uint32_t vkd3d_dxbc_compiler_emit_src_modifier(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, DWORD write_mask,
         enum vkd3d_shader_src_modifier modifier, uint32_t val_id)
@@ -1364,13 +1389,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_src_modifier(struct vkd3d_dxbc_compiler
         case VKD3DSPSM_NONE:
             break;
         case VKD3DSPSM_NEG:
-            if (reg->data_type != VKD3D_DATA_FLOAT)
-            {
-                FIXME("Unhandled data type %#x.\n", reg->data_type);
-                return val_id;
-            }
-            type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, component_count);
-            return vkd3d_spirv_build_op_f_negate(builder, type_id, val_id);
+            return vkd3d_dxbc_compiler_emit_neg(compiler, reg, write_mask, val_id);
         case VKD3DSPSM_ABS:
             if (reg->data_type != VKD3D_DATA_FLOAT)
             {
