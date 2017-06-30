@@ -97,9 +97,9 @@ EXTRA_DIST = LICENSE
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkginclude_HEADERS = $(vkd3d_public_headers)
-nodist_pkgconfig_DATA = libvkd3d.pc
-CLEANFILES += libvkd3d.pc
-EXTRA_DIST += libs/vkd3d/libvkd3d.pc.in
+nodist_pkgconfig_DATA = libvkd3d.pc libvkd3d-utils.pc
+CLEANFILES += libvkd3d.pc libvkd3d-utils.pc
+EXTRA_DIST += libs/vkd3d/libvkd3d.pc.in libs/vkd3d-utils/libvkd3d-utils.pc.in
 
 bin_PROGRAMS = vkd3d-compiler
 vkd3d_compiler_SOURCES = programs/vkd3d-compiler/main.c
@@ -143,6 +143,14 @@ $(spv_shaders): %.spv: %
 	$(VKD3D_V_GLSLANG)$(GLSLANG) -V -o $@ $<
 
 EXTRA_DIST += $(hlsl_shaders)
+
+libvkd3d-utils.pc: $(srcdir)/libs/vkd3d-utils/libvkd3d-utils.pc.in
+	sed -e 's![@]prefix[@]!$(prefix)!g' \
+		-e 's![@]exec_prefix[@]!$(exec_prefix)!g' \
+		-e 's![@]includedir[@]!$(includedir)!g' \
+		-e 's![@]libdir[@]!$(libdir)!g' \
+		-e 's![@]PACKAGE_VERSION[@]!$(PACKAGE_VERSION)!g' \
+		$< > $@
 
 libvkd3d.pc: $(srcdir)/libs/vkd3d/libvkd3d.pc.in
 	sed -e 's![@]prefix[@]!$(prefix)!g' \
