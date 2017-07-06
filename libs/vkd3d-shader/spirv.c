@@ -629,6 +629,13 @@ static uint32_t vkd3d_spirv_build_op_vector_shuffle(struct vkd3d_spirv_builder *
             result_type, vector1_id, vector2_id, components, component_count);
 }
 
+static uint32_t vkd3d_spirv_build_op_composite_construct(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, const uint32_t *constituents, unsigned int constituent_count)
+{
+    return vkd3d_spirv_build_op_trv(builder, &builder->function_stream, SpvOpCompositeConstruct,
+            result_type, constituents, constituent_count);
+}
+
 static uint32_t vkd3d_spirv_build_op_composite_extract(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t composite_id, const uint32_t *indexes, unsigned int index_count)
 {
@@ -1141,6 +1148,12 @@ static uint32_t vkd3d_dxbc_compiler_get_constant_uint(struct vkd3d_dxbc_compiler
         uint32_t value)
 {
     return vkd3d_dxbc_compiler_get_constant(compiler, VKD3D_TYPE_UINT, 1, &value);
+}
+
+static uint32_t vkd3d_dxbc_compiler_get_constant_float(struct vkd3d_dxbc_compiler *compiler,
+        float value)
+{
+    return vkd3d_dxbc_compiler_get_constant(compiler, VKD3D_TYPE_FLOAT, 1, (uint32_t *)&value);
 }
 
 static bool vkd3d_dxbc_compiler_get_register_name(char *buffer,const struct vkd3d_shader_register *reg)
@@ -2170,6 +2183,38 @@ static void vkd3d_dxbc_compiler_emit_f16tof32(struct vkd3d_dxbc_compiler *compil
     }
 }
 
+static void vkd3d_dxbc_compiler_emit_f32tof16(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    uint32_t instr_set_id, type_id, scalar_type_id, src_id, zero_id, constituents[2], result_id;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    DWORD write_mask;
+    unsigned int i;
+
+    instr_set_id = vkd3d_spirv_get_glsl_std450_instr_set(builder);
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 2);
+    scalar_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    zero_id = vkd3d_dxbc_compiler_get_constant_float(compiler, 0.0f);
+
+    /* FIXME: Consider a single PackHalf2x16 intruction per 2 components. */
+    for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
+    {
+        if (!(write_mask = dst->write_mask & (VKD3DSP_WRITEMASK_0 << i)))
+            continue;
+
+        src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, write_mask);
+        constituents[0] = src_id;
+        constituents[1] = zero_id;
+        src_id = vkd3d_spirv_build_op_composite_construct(builder,
+                type_id, constituents, ARRAY_SIZE(constituents));
+        result_id = vkd3d_spirv_build_op_ext_inst(builder, scalar_type_id,
+                instr_set_id, GLSLstd450PackHalf2x16, &src_id, 1);
+        vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, write_mask, result_id);
+    }
+}
+
 static void vkd3d_dxbc_compiler_emit_comparison_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -2392,6 +2437,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_F16TOF32:
             vkd3d_dxbc_compiler_emit_f16tof32(compiler, instruction);
+            break;
+        case VKD3DSIH_F32TOF16:
+            vkd3d_dxbc_compiler_emit_f32tof16(compiler, instruction);
             break;
         case VKD3DSIH_IF:
         case VKD3DSIH_ELSE:
