@@ -4186,6 +4186,24 @@ static void test_shader_instructions(void)
         0x0500001c, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_f16tof32 = {ps_f16tof32_code, sizeof(ps_f16tof32_code)};
+    static const DWORD ps_f32tof16_code[] =
+    {
+#if 0
+        float4 f;
+
+        uint4 main() : SV_Target
+        {
+            return f32tof16(f);
+        }
+#endif
+        0x43425844, 0x523a765c, 0x1a5be3a9, 0xaed69c80, 0xd26fe296, 0x00000001, 0x000000bc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000044, 0x00000050, 0x00000011,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x06000082, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_f32tof16 = {ps_f32tof16_code, sizeof(ps_f32tof16_code)};
     static const struct
     {
         const D3D12_SHADER_BYTECODE *ps;
@@ -4279,10 +4297,18 @@ static void test_shader_instructions(void)
     static const struct
     {
         const D3D12_SHADER_BYTECODE *ps;
-        struct
+        union
         {
-            struct uvec4 src0;
-            struct uvec4 src1;
+            struct
+            {
+                struct uvec4 src0;
+                struct uvec4 src1;
+            } u;
+            struct
+            {
+                struct vec4 src0;
+                struct vec4 src1;
+            } f;
         } input;
         union
         {
@@ -4293,120 +4319,122 @@ static void test_shader_instructions(void)
     }
     uint_tests[] =
     {
-        {&ps_bfi, {{     0,      0,    0,    0}}, {{         0,          0,          0,          0}}},
-        {&ps_bfi, {{     0,      0,    0,    1}}, {{         1,          1,          1,          1}}},
-        {&ps_bfi, {{   ~0u,      0,  ~0u,    0}}, {{0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff}}},
-        {&ps_bfi, {{   ~0u,    ~0u,  ~0u,    0}}, {{0x80000000, 0x80000000, 0x80000000, 0x80000000}}},
-        {&ps_bfi, {{   ~0u,  0x1fu,  ~0u,    0}}, {{0x80000000, 0x80000000, 0x80000000, 0x80000000}}},
-        {&ps_bfi, {{   ~0u, ~0x1fu,  ~0u,    0}}, {{0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff}}},
-        {&ps_bfi, {{     0,      0, 0xff,    1}}, {{         1,          1,          1,          1}}},
-        {&ps_bfi, {{     0,      0, 0xff,    2}}, {{         2,          2,          2,          2}}},
-        {&ps_bfi, {{    16,     16, 0xff, 0xff}}, {{0x00ff00ff, 0x00ff00ff, 0x00ff00ff, 0x00ff00ff}}},
-        {&ps_bfi, {{     0,      0,  ~0u,  ~0u}}, {{       ~0u,        ~0u,        ~0u,        ~0u}}},
-        {&ps_bfi, {{~0x1fu,      0,  ~0u,    0}}, {{         0,          0,          0,          0}}},
-        {&ps_bfi, {{~0x1fu,      0,  ~0u,    1}}, {{         1,          1,          1,          1}}},
-        {&ps_bfi, {{~0x1fu,      0,  ~0u,    2}}, {{         2,          2,          2,          2}}},
-        {&ps_bfi, {{     0, ~0x1fu,  ~0u,    0}}, {{         0,          0,          0,          0}}},
-        {&ps_bfi, {{     0, ~0x1fu,  ~0u,    1}}, {{         1,          1,          1,          1}}},
-        {&ps_bfi, {{     0, ~0x1fu,  ~0u,    2}}, {{         2,          2,          2,          2}}},
-        {&ps_bfi, {{~0x1fu, ~0x1fu,  ~0u,    0}}, {{         0,          0,          0,          0}}},
-        {&ps_bfi, {{~0x1fu, ~0x1fu,  ~0u,    1}}, {{         1,          1,          1,          1}}},
-        {&ps_bfi, {{~0x1fu, ~0x1fu,  ~0u,    2}}, {{         2,          2,          2,          2}}},
+        {&ps_bfi, {{{     0,      0,    0,    0}}}, {{         0,          0,          0,          0}}},
+        {&ps_bfi, {{{     0,      0,    0,    1}}}, {{         1,          1,          1,          1}}},
+        {&ps_bfi, {{{   ~0u,      0,  ~0u,    0}}}, {{0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff}}},
+        {&ps_bfi, {{{   ~0u,    ~0u,  ~0u,    0}}}, {{0x80000000, 0x80000000, 0x80000000, 0x80000000}}},
+        {&ps_bfi, {{{   ~0u,  0x1fu,  ~0u,    0}}}, {{0x80000000, 0x80000000, 0x80000000, 0x80000000}}},
+        {&ps_bfi, {{{   ~0u, ~0x1fu,  ~0u,    0}}}, {{0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff}}},
+        {&ps_bfi, {{{     0,      0, 0xff,    1}}}, {{         1,          1,          1,          1}}},
+        {&ps_bfi, {{{     0,      0, 0xff,    2}}}, {{         2,          2,          2,          2}}},
+        {&ps_bfi, {{{    16,     16, 0xff, 0xff}}}, {{0x00ff00ff, 0x00ff00ff, 0x00ff00ff, 0x00ff00ff}}},
+        {&ps_bfi, {{{     0,      0,  ~0u,  ~0u}}}, {{       ~0u,        ~0u,        ~0u,        ~0u}}},
+        {&ps_bfi, {{{~0x1fu,      0,  ~0u,    0}}}, {{         0,          0,          0,          0}}},
+        {&ps_bfi, {{{~0x1fu,      0,  ~0u,    1}}}, {{         1,          1,          1,          1}}},
+        {&ps_bfi, {{{~0x1fu,      0,  ~0u,    2}}}, {{         2,          2,          2,          2}}},
+        {&ps_bfi, {{{     0, ~0x1fu,  ~0u,    0}}}, {{         0,          0,          0,          0}}},
+        {&ps_bfi, {{{     0, ~0x1fu,  ~0u,    1}}}, {{         1,          1,          1,          1}}},
+        {&ps_bfi, {{{     0, ~0x1fu,  ~0u,    2}}}, {{         2,          2,          2,          2}}},
+        {&ps_bfi, {{{~0x1fu, ~0x1fu,  ~0u,    0}}}, {{         0,          0,          0,          0}}},
+        {&ps_bfi, {{{~0x1fu, ~0x1fu,  ~0u,    1}}}, {{         1,          1,          1,          1}}},
+        {&ps_bfi, {{{~0x1fu, ~0x1fu,  ~0u,    2}}}, {{         2,          2,          2,          2}}},
 
-        {&ps_ibfe, {{ 0,  4, 0x00000000}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ibfe, {{ 0,  4, 0xffffffff}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ibfe, {{ 0,  4, 0x7fffffff}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ibfe, {{ 4,  0, 0x00000000}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ibfe, {{ 4,  0, 0xfffffffa}}, {{0xfffffffa, 0xfffffffa, 0xfffffffa, 0xfffffffa}}},
-        {&ps_ibfe, {{ 4,  0, 0x7ffffffc}}, {{0xfffffffc, 0xfffffffc, 0xfffffffc, 0xfffffffc}}},
-        {&ps_ibfe, {{ 4,  4, 0x00000000}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ibfe, {{ 4,  4, 0xffffffff}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ibfe, {{ 4,  4, 0xffffff1f}}, {{0x00000001, 0x00000001, 0x00000001, 0x00000001}}},
-        {&ps_ibfe, {{ 4,  4, 0x7fffffff}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ibfe, {{23,  8, 0x00000000}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ibfe, {{23,  8, 0xffffffff}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ibfe, {{23,  8, 0x7fffffff}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ibfe, {{30,  1, 0x00000000}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ibfe, {{30,  1, 0xffffffff}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ibfe, {{30,  1, 0x7fffffff}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ibfe, {{15, 15, 0x7fffffff}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ibfe, {{15, 15, 0x3fffffff}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ibfe, {{15, 15, 0x1fffffff}}, {{0x00003fff, 0x00003fff, 0x00003fff, 0x00003fff}}},
-        {&ps_ibfe, {{15, 15, 0xffff00ff}}, {{0xfffffffe, 0xfffffffe, 0xfffffffe, 0xfffffffe}}},
-        {&ps_ibfe, {{16, 15, 0xffffffff}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ibfe, {{16, 15, 0x3fffffff}}, {{0x00007fff, 0x00007fff, 0x00007fff, 0x00007fff}}},
-        {&ps_ibfe, {{20, 15, 0xffffffff}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ibfe, {{31, 31, 0xffffffff}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ibfe, {{31, 31, 0x80000000}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ibfe, {{31, 31, 0x7fffffff}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+        {&ps_ibfe, {{{ 0,  4, 0x00000000}}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+        {&ps_ibfe, {{{ 0,  4, 0xffffffff}}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+        {&ps_ibfe, {{{ 0,  4, 0x7fffffff}}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+        {&ps_ibfe, {{{ 4,  0, 0x00000000}}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+        {&ps_ibfe, {{{ 4,  0, 0xfffffffa}}}, {{0xfffffffa, 0xfffffffa, 0xfffffffa, 0xfffffffa}}},
+        {&ps_ibfe, {{{ 4,  0, 0x7ffffffc}}}, {{0xfffffffc, 0xfffffffc, 0xfffffffc, 0xfffffffc}}},
+        {&ps_ibfe, {{{ 4,  4, 0x00000000}}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+        {&ps_ibfe, {{{ 4,  4, 0xffffffff}}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
+        {&ps_ibfe, {{{ 4,  4, 0xffffff1f}}}, {{0x00000001, 0x00000001, 0x00000001, 0x00000001}}},
+        {&ps_ibfe, {{{ 4,  4, 0x7fffffff}}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
+        {&ps_ibfe, {{{23,  8, 0x00000000}}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+        {&ps_ibfe, {{{23,  8, 0xffffffff}}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
+        {&ps_ibfe, {{{23,  8, 0x7fffffff}}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
+        {&ps_ibfe, {{{30,  1, 0x00000000}}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+        {&ps_ibfe, {{{30,  1, 0xffffffff}}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
+        {&ps_ibfe, {{{30,  1, 0x7fffffff}}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
+        {&ps_ibfe, {{{15, 15, 0x7fffffff}}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
+        {&ps_ibfe, {{{15, 15, 0x3fffffff}}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
+        {&ps_ibfe, {{{15, 15, 0x1fffffff}}}, {{0x00003fff, 0x00003fff, 0x00003fff, 0x00003fff}}},
+        {&ps_ibfe, {{{15, 15, 0xffff00ff}}}, {{0xfffffffe, 0xfffffffe, 0xfffffffe, 0xfffffffe}}},
+        {&ps_ibfe, {{{16, 15, 0xffffffff}}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
+        {&ps_ibfe, {{{16, 15, 0x3fffffff}}}, {{0x00007fff, 0x00007fff, 0x00007fff, 0x00007fff}}},
+        {&ps_ibfe, {{{20, 15, 0xffffffff}}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
+        {&ps_ibfe, {{{31, 31, 0xffffffff}}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
+        {&ps_ibfe, {{{31, 31, 0x80000000}}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
+        {&ps_ibfe, {{{31, 31, 0x7fffffff}}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
 
-        {&ps_ubfe, {{0x00000000}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ubfe, {{0xffffffff}}, {{0x0000000f, 0x007fffff, 0x0000007f, 0x3fffffff}}},
-        {&ps_ubfe, {{0xff000000}}, {{0x00000000, 0x007f0000, 0x00000000, 0x3f800000}}},
-        {&ps_ubfe, {{0x00ff0000}}, {{0x00000000, 0x0000ff00, 0x00000000, 0x007f8000}}},
-        {&ps_ubfe, {{0x000000ff}}, {{0x0000000f, 0x00000000, 0x0000007f, 0x0000007f}}},
-        {&ps_ubfe, {{0x80000001}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ubfe, {{0xc0000003}}, {{0x00000000, 0x00400000, 0x00000001, 0x20000001}}},
+        {&ps_ubfe, {{{0x00000000}}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+        {&ps_ubfe, {{{0xffffffff}}}, {{0x0000000f, 0x007fffff, 0x0000007f, 0x3fffffff}}},
+        {&ps_ubfe, {{{0xff000000}}}, {{0x00000000, 0x007f0000, 0x00000000, 0x3f800000}}},
+        {&ps_ubfe, {{{0x00ff0000}}}, {{0x00000000, 0x0000ff00, 0x00000000, 0x007f8000}}},
+        {&ps_ubfe, {{{0x000000ff}}}, {{0x0000000f, 0x00000000, 0x0000007f, 0x0000007f}}},
+        {&ps_ubfe, {{{0x80000001}}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+        {&ps_ubfe, {{{0xc0000003}}}, {{0x00000000, 0x00400000, 0x00000001, 0x20000001}}},
 
-        {&ps_bfrev, {{0x12345678}}, {{0x1e6a2c48, 0x12345678, 0x1e6a0000, 0x2c480000}}},
-        {&ps_bfrev, {{0xffff0000}}, {{0x0000ffff, 0xffff0000, 0x00000000, 0xffff0000}}},
-        {&ps_bfrev, {{0xffffffff}}, {{0xffffffff, 0xffffffff, 0xffff0000, 0xffff0000}}},
+        {&ps_bfrev, {{{0x12345678}}}, {{0x1e6a2c48, 0x12345678, 0x1e6a0000, 0x2c480000}}},
+        {&ps_bfrev, {{{0xffff0000}}}, {{0x0000ffff, 0xffff0000, 0x00000000, 0xffff0000}}},
+        {&ps_bfrev, {{{0xffffffff}}}, {{0xffffffff, 0xffffffff, 0xffff0000, 0xffff0000}}},
 
-        {&ps_bits, {{         0,          0}}, {{ 0, ~0u, ~0u, ~0u}}},
-        {&ps_bits, {{       ~0u,        ~0u}}, {{32,   0,  31, ~0u}}},
-        {&ps_bits, {{0x7fffffff, 0x7fffffff}}, {{31,   0,  30,  30}}},
-        {&ps_bits, {{0x80000000, 0x80000000}}, {{ 1,  31,  31,  30}}},
-        {&ps_bits, {{0x00000001, 0x00000001}}, {{ 1,   0,   0,   0}}},
-        {&ps_bits, {{0x80000001, 0x80000001}}, {{ 2,   0,  31,  30}}},
-        {&ps_bits, {{0x88888888, 0x88888888}}, {{ 8,   3,  31,  30}}},
-        {&ps_bits, {{0xcccccccc, 0xcccccccc}}, {{16,   2,  31,  29}}},
-        {&ps_bits, {{0x11111111, 0x11111c11}}, {{ 8,   0,  28,  28}}},
-        {&ps_bits, {{0x0000000f, 0x0000000f}}, {{ 4,   0,   3,   3}}},
-        {&ps_bits, {{0x8000000f, 0x8000000f}}, {{ 5,   0,  31,  30}}},
-        {&ps_bits, {{0x00080000, 0x00080000}}, {{ 1,  19,  19,  19}}},
+        {&ps_bits, {{{         0,          0}}}, {{ 0, ~0u, ~0u, ~0u}}},
+        {&ps_bits, {{{       ~0u,        ~0u}}}, {{32,   0,  31, ~0u}}},
+        {&ps_bits, {{{0x7fffffff, 0x7fffffff}}}, {{31,   0,  30,  30}}},
+        {&ps_bits, {{{0x80000000, 0x80000000}}}, {{ 1,  31,  31,  30}}},
+        {&ps_bits, {{{0x00000001, 0x00000001}}}, {{ 1,   0,   0,   0}}},
+        {&ps_bits, {{{0x80000001, 0x80000001}}}, {{ 2,   0,  31,  30}}},
+        {&ps_bits, {{{0x88888888, 0x88888888}}}, {{ 8,   3,  31,  30}}},
+        {&ps_bits, {{{0xcccccccc, 0xcccccccc}}}, {{16,   2,  31,  29}}},
+        {&ps_bits, {{{0x11111111, 0x11111c11}}}, {{ 8,   0,  28,  28}}},
+        {&ps_bits, {{{0x0000000f, 0x0000000f}}}, {{ 4,   0,   3,   3}}},
+        {&ps_bits, {{{0x8000000f, 0x8000000f}}}, {{ 5,   0,  31,  30}}},
+        {&ps_bits, {{{0x00080000, 0x00080000}}}, {{ 1,  19,  19,  19}}},
 
-        {&ps_ishr, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}, {~0x1fu, 0, 32, 64}},
+        {&ps_ishr, {{{0x00000000, 0x00000000, 0x00000000, 0x00000000}, {~0x1fu, 0, 32, 64}}},
                    {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ishr, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}, {~0x1fu, 0, 32, 64}},
+        {&ps_ishr, {{{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}, {~0x1fu, 0, 32, 64}}},
                    {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ishr, {{0xfefefefe, 0x0fefefef, 0x0f0f0f0f, 0x12345678}, {~0x1fu, 0, 32, 64}},
+        {&ps_ishr, {{{0xfefefefe, 0x0fefefef, 0x0f0f0f0f, 0x12345678}, {~0x1fu, 0, 32, 64}}},
                    {{0xfefefefe, 0x0fefefef, 0x0f0f0f0f, 0x12345678}}},
-        {&ps_ishr, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}, {    31, 7, 15, 11}},
+        {&ps_ishr, {{{0x00000000, 0x00000000, 0x00000000, 0x00000000}, {    31, 7, 15, 11}}},
                    {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ishr, {{0x80000000, 0x80000000, 0x80000000, 0x80000000}, {    31, 7, 15, 11}},
+        {&ps_ishr, {{{0x80000000, 0x80000000, 0x80000000, 0x80000000}, {    31, 7, 15, 11}}},
                    {{0xffffffff, 0xff000000, 0xffff0000, 0xfff00000}}},
 
-        {&ps_ushr, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}, {~0x1fu, 0, 32, 64}},
+        {&ps_ushr, {{{0x00000000, 0x00000000, 0x00000000, 0x00000000}, {~0x1fu, 0, 32, 64}}},
                    {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ushr, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}, {~0x1fu, 0, 32, 64}},
+        {&ps_ushr, {{{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}, {~0x1fu, 0, 32, 64}}},
                    {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ushr, {{0xfefefefe, 0x0fefefef, 0x0f0f0f0f, 0x12345678}, {~0x1fu, 0, 32, 64}},
+        {&ps_ushr, {{{0xfefefefe, 0x0fefefef, 0x0f0f0f0f, 0x12345678}, {~0x1fu, 0, 32, 64}}},
                    {{0xfefefefe, 0x0fefefef, 0x0f0f0f0f, 0x12345678}}},
-        {&ps_ushr, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}, {    31, 7, 15, 11}},
+        {&ps_ushr, {{{0x00000000, 0x00000000, 0x00000000, 0x00000000}, {    31, 7, 15, 11}}},
                    {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ushr, {{0x80000000, 0x80000000, 0x80000000, 0x80000000}, {    31, 7, 15, 11}},
+        {&ps_ushr, {{{0x80000000, 0x80000000, 0x80000000, 0x80000000}, {    31, 7, 15, 11}}},
                    {{0x00000001, 0x01000000, 0x00010000, 0x00100000}}},
 
-        {&ps_ishl, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}, {~0x1fu, 0, 32, 64}},
+        {&ps_ishl, {{{0x00000000, 0x00000000, 0x00000000, 0x00000000}, {~0x1fu, 0, 32, 64}}},
                    {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ishl, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}, {~0x1fu, 0, 32, 64}},
+        {&ps_ishl, {{{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}, {~0x1fu, 0, 32, 64}}},
                    {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
-        {&ps_ishl, {{0xfefefefe, 0x0fefefef, 0x0f0f0f0f, 0x12345678}, {~0x1fu, 0, 32, 64}},
+        {&ps_ishl, {{{0xfefefefe, 0x0fefefef, 0x0f0f0f0f, 0x12345678}, {~0x1fu, 0, 32, 64}}},
                    {{0xfefefefe, 0x0fefefef, 0x0f0f0f0f, 0x12345678}}},
-        {&ps_ishl, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}, {    31, 7, 15, 11}},
+        {&ps_ishl, {{{0x00000000, 0x00000000, 0x00000000, 0x00000000}, {    31, 7, 15, 11}}},
                    {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ishl, {{0x80000000, 0x80000000, 0x80000000, 0x80000000}, {    31, 7, 15, 11}},
+        {&ps_ishl, {{{0x80000000, 0x80000000, 0x80000000, 0x80000000}, {    31, 7, 15, 11}}},
                    {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
-        {&ps_ishl, {{0x00000001, 0x00000001, 0x00000001, 0x800feac1}, {    31, 7, 15, 11}},
+        {&ps_ishl, {{{0x00000001, 0x00000001, 0x00000001, 0x800feac1}, {    31, 7, 15, 11}}},
                    {{0x80000000, 0x00000080, 0x00008000, 0x7f560800}}},
 
-        {&ps_not, {{0x00000000, 0xffffffff}}, {{0xffffffff, 0x00000000, 0x00000000, 0xffffffff}}},
-        {&ps_not, {{0xf0f0f0f0, 0x0f0f0f0f}}, {{0x0f0f0f0f, 0xf0f0f0f0, 0xf0f0f0f0, 0x0f0f0f0f}}},
+        {&ps_not, {{{0x00000000, 0xffffffff}}}, {{0xffffffff, 0x00000000, 0x00000000, 0xffffffff}}},
+        {&ps_not, {{{0xf0f0f0f0, 0x0f0f0f0f}}}, {{0x0f0f0f0f, 0xf0f0f0f0, 0xf0f0f0f0, 0x0f0f0f0f}}},
 
-        {&ps_f16tof32, {{0x00000000, 0x00003c00, 0x00005640, 0x00005bd0}}, {{0, 1, 100, 250}}},
-        {&ps_f16tof32, {{0x00010000, 0x00013c00, 0x00015640, 0x00015bd0}}, {{0, 1, 100, 250}}},
-        {&ps_f16tof32, {{0x000f0000, 0x000f3c00, 0x000f5640, 0x000f5bd0}}, {{0, 1, 100, 250}}},
-        {&ps_f16tof32, {{0xffff0000, 0xffff3c00, 0xffff5640, 0xffff5bd0}}, {{0, 1, 100, 250}}},
+        {&ps_f16tof32, {{{0x00000000, 0x00003c00, 0x00005640, 0x00005bd0}}}, {{0, 1, 100, 250}}},
+        {&ps_f16tof32, {{{0x00010000, 0x00013c00, 0x00015640, 0x00015bd0}}}, {{0, 1, 100, 250}}},
+        {&ps_f16tof32, {{{0x000f0000, 0x000f3c00, 0x000f5640, 0x000f5bd0}}}, {{0, 1, 100, 250}}},
+        {&ps_f16tof32, {{{0xffff0000, 0xffff3c00, 0xffff5640, 0xffff5bd0}}}, {{0, 1, 100, 250}}},
+
+        {&ps_f32tof16, {.f = {{0.0f, 1.0f, -1.0f, 666.0f}}}, {{0, 0x3c00, 0xbc00, 0x6134}}},
     };
 
     assert(sizeof(tests->input) == sizeof(uint_tests->input));
