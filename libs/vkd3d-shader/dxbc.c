@@ -1752,6 +1752,12 @@ static void read_dword(const char **ptr, DWORD *d)
     *ptr += sizeof(*d);
 }
 
+static void read_float(const char **ptr, float *f)
+{
+    assert(sizeof(float) == sizeof(DWORD)); /* FIXME: use static assert */
+    read_dword(ptr, (DWORD *)f);
+}
+
 static void skip_dword_unknown(const char **ptr, unsigned int count)
 {
     unsigned int i;
@@ -2190,6 +2196,39 @@ static HRESULT shader_parse_root_parameters(const char *data, DWORD data_size,
     return S_OK;
 }
 
+static HRESULT shader_parse_static_samplers(const char *data, DWORD data_size,
+        DWORD offset, DWORD count, D3D12_STATIC_SAMPLER_DESC *sampler_descs)
+{
+    const char *ptr;
+    unsigned int i;
+
+    if (!require_space(offset, 13 * count, sizeof(DWORD), data_size))
+    {
+        WARN("Invalid data size %#x (offset %u, count %u).\n", data_size, offset, count);
+        return E_INVALIDARG;
+    }
+    ptr = &data[offset];
+
+    for (i = 0; i < count; ++i)
+    {
+        read_dword(&ptr, &sampler_descs[i].Filter);
+        read_dword(&ptr, &sampler_descs[i].AddressU);
+        read_dword(&ptr, &sampler_descs[i].AddressV);
+        read_dword(&ptr, &sampler_descs[i].AddressW);
+        read_float(&ptr, &sampler_descs[i].MipLODBias);
+        read_dword(&ptr, &sampler_descs[i].MaxAnisotropy);
+        read_dword(&ptr, &sampler_descs[i].ComparisonFunc);
+        read_dword(&ptr, &sampler_descs[i].BorderColor);
+        read_float(&ptr, &sampler_descs[i].MinLOD);
+        read_float(&ptr, &sampler_descs[i].MaxLOD);
+        read_dword(&ptr, &sampler_descs[i].ShaderRegister);
+        read_dword(&ptr, &sampler_descs[i].RegisterSpace);
+        read_dword(&ptr, &sampler_descs[i].ShaderVisibility);
+    }
+
+    return S_OK;
+}
+
 static HRESULT shader_parse_root_signature(const char *data, DWORD data_size,
         D3D12_ROOT_SIGNATURE_DESC *desc)
 {
@@ -2210,7 +2249,6 @@ static HRESULT shader_parse_root_signature(const char *data, DWORD data_size,
     TRACE("Parameter count %u, offset %u.\n", count, offset);
 
     desc->NumParameters = count;
-
     if (desc->NumParameters)
     {
         D3D12_ROOT_PARAMETER *parameters;
@@ -2225,8 +2263,16 @@ static HRESULT shader_parse_root_signature(const char *data, DWORD data_size,
     read_dword(&ptr, &offset);
     TRACE("Static sampler count %u, offset %u.\n", count, offset);
 
-    if (count)
-        FIXME("Static samplers not supported yet.\n");
+    desc->NumStaticSamplers = count;
+    if (desc->NumStaticSamplers)
+    {
+        D3D12_STATIC_SAMPLER_DESC *samplers;
+        if (!(samplers = vkd3d_calloc(desc->NumStaticSamplers, sizeof(*samplers))))
+            return E_OUTOFMEMORY;
+        desc->pStaticSamplers = samplers;
+        if (FAILED(hr = shader_parse_static_samplers(data, data_size, offset, count, samplers)))
+            return hr;
+    }
 
     read_dword(&ptr, &flags);
     TRACE("Flags %#x.\n", flags);
