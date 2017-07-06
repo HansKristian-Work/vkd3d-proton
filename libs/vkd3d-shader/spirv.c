@@ -1478,14 +1478,14 @@ static void vkd3d_dxbc_compiler_emit_store_reg(struct vkd3d_dxbc_compiler *compi
     if (component_count == 1)
         return vkd3d_dxbc_compiler_emit_store_scalar(compiler, reg, write_mask, val_id);
 
+    reg_id = vkd3d_dxbc_compiler_get_register_id(compiler, reg);
+
     if (component_count != VKD3D_VEC4_SIZE)
     {
         uint32_t type_id, reg_val_id;
 
         type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
-
-        reg_val_id = vkd3d_dxbc_compiler_emit_load_reg(compiler,
-                reg, VKD3DSP_NOSWIZZLE, VKD3DSP_WRITEMASK_ALL);
+        reg_val_id = vkd3d_spirv_build_op_load(builder, type_id, reg_id, SpvMemoryAccessMaskNone);
 
         for (i = 0, component_idx = 0; i < ARRAY_SIZE(components); ++i)
         {
@@ -1499,7 +1499,6 @@ static void vkd3d_dxbc_compiler_emit_store_reg(struct vkd3d_dxbc_compiler *compi
                 type_id, reg_val_id, val_id, components, ARRAY_SIZE(components));
     }
 
-    reg_id = vkd3d_dxbc_compiler_get_register_id(compiler, reg);
     vkd3d_spirv_build_op_store(builder, reg_id, val_id, SpvMemoryAccessMaskNone);
 }
 
