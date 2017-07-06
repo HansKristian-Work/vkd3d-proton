@@ -623,10 +623,17 @@ static uint32_t vkd3d_spirv_build_op_in_bounds_access_chain(struct vkd3d_spirv_b
 
 static uint32_t vkd3d_spirv_build_op_vector_shuffle(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t vector1_id, uint32_t vector2_id,
-        uint32_t *components, uint32_t component_count)
+        const uint32_t *components, uint32_t component_count)
 {
     return vkd3d_spirv_build_op_tr2v(builder, &builder->function_stream, SpvOpVectorShuffle,
             result_type, vector1_id, vector2_id, components, component_count);
+}
+
+static uint32_t vkd3d_spirv_build_op_composite_extract(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t composite_id, const uint32_t *indexes, unsigned int index_count)
+{
+    return vkd3d_spirv_build_op_tr1v(builder, &builder->function_stream, SpvOpCompositeExtract,
+            result_type, composite_id, indexes, index_count);
 }
 
 static uint32_t vkd3d_spirv_build_op_load(struct vkd3d_spirv_builder *builder,
@@ -2132,6 +2139,37 @@ static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_comp
     }
 }
 
+static void vkd3d_dxbc_compiler_emit_f16tof32(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    static const uint32_t indexes[] = {0};
+
+    uint32_t instr_set_id, type_id, scalar_type_id, src_id, result_id;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    DWORD write_mask;
+    unsigned int i;
+
+    instr_set_id = vkd3d_spirv_get_glsl_std450_instr_set(builder);
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 2);
+    scalar_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 1);
+
+    /* FIXME: Consider a single UnpackHalf2x16 intruction per 2 components. */
+    for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
+    {
+        if (!(write_mask = dst->write_mask & (VKD3DSP_WRITEMASK_0 << i)))
+            continue;
+
+        src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, write_mask);
+        result_id = vkd3d_spirv_build_op_ext_inst(builder, type_id,
+                instr_set_id, GLSLstd450UnpackHalf2x16, &src_id, 1);
+        result_id = vkd3d_spirv_build_op_composite_extract(builder, scalar_type_id,
+                result_id, indexes, ARRAY_SIZE(indexes));
+        vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, write_mask, result_id);
+    }
+}
+
 static void vkd3d_dxbc_compiler_emit_comparison_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -2351,6 +2389,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_IBFE:
         case VKD3DSIH_UBFE:
             vkd3d_dxbc_compiler_emit_bitfield_instruction(compiler, instruction);
+            break;
+        case VKD3DSIH_F16TOF32:
+            vkd3d_dxbc_compiler_emit_f16tof32(compiler, instruction);
             break;
         case VKD3DSIH_IF:
         case VKD3DSIH_ELSE:
