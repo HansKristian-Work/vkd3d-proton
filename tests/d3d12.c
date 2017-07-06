@@ -4167,6 +4167,25 @@ static void test_shader_instructions(void)
         0x00000000, 0x0600003b, 0x00102052, 0x00000000, 0x00208106, 0x00000000, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_not = {ps_not_code, sizeof(ps_not_code)};
+    static const DWORD ps_f16tof32_code[] =
+    {
+#if 0
+        uint4 hf;
+
+        uint4 main() : SV_Target
+        {
+            return f16tof32(hf);
+        }
+#endif
+        0x43425844, 0xc1816e6e, 0x27562d96, 0x56980fa2, 0x421e6640, 0x00000001, 0x000000d8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000060, 0x00000050, 0x00000018,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x06000083, 0x001000f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000,
+        0x0500001c, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_f16tof32 = {ps_f16tof32_code, sizeof(ps_f16tof32_code)};
     static const struct
     {
         const D3D12_SHADER_BYTECODE *ps;
@@ -4383,6 +4402,11 @@ static void test_shader_instructions(void)
 
         {&ps_not, {{0x00000000, 0xffffffff}}, {{0xffffffff, 0x00000000, 0x00000000, 0xffffffff}}},
         {&ps_not, {{0xf0f0f0f0, 0x0f0f0f0f}}, {{0x0f0f0f0f, 0xf0f0f0f0, 0xf0f0f0f0, 0x0f0f0f0f}}},
+
+        {&ps_f16tof32, {{0x00000000, 0x00003c00, 0x00005640, 0x00005bd0}}, {{0, 1, 100, 250}}},
+        {&ps_f16tof32, {{0x00010000, 0x00013c00, 0x00015640, 0x00015bd0}}, {{0, 1, 100, 250}}},
+        {&ps_f16tof32, {{0x000f0000, 0x000f3c00, 0x000f5640, 0x000f5bd0}}, {{0, 1, 100, 250}}},
+        {&ps_f16tof32, {{0xffff0000, 0xffff3c00, 0xffff5640, 0xffff5bd0}}, {{0, 1, 100, 250}}},
     };
 
     assert(sizeof(tests->input) == sizeof(uint_tests->input));
