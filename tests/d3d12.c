@@ -4147,6 +4147,26 @@ static void test_shader_instructions(void)
         0x00000001, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_ishl = {ps_ishl_code, sizeof(ps_ishl_code)};
+    static const DWORD ps_not_code[] =
+    {
+#if 0
+        uint2 bits;
+
+        uint4 main() : SV_Target
+        {
+            return uint4(~bits.x, ~(bits.x ^ ~0u), ~bits.y, ~(bits.y ^ ~0u));
+        }
+#endif
+        0x43425844, 0xaed0fd26, 0xf719a878, 0xc832efd6, 0xba03c264, 0x00000001, 0x00000100, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x00000088, 0x00000040, 0x00000022,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x02000068,
+        0x00000001, 0x0b000057, 0x00100032, 0x00000000, 0x00208046, 0x00000000, 0x00000000, 0x00004002,
+        0xffffffff, 0xffffffff, 0x00000000, 0x00000000, 0x0500003b, 0x001020a2, 0x00000000, 0x00100406,
+        0x00000000, 0x0600003b, 0x00102052, 0x00000000, 0x00208106, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_not = {ps_not_code, sizeof(ps_not_code)};
     static const struct
     {
         const D3D12_SHADER_BYTECODE *ps;
@@ -4360,6 +4380,9 @@ static void test_shader_instructions(void)
                    {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
         {&ps_ishl, {{0x00000001, 0x00000001, 0x00000001, 0x800feac1}, {    31, 7, 15, 11}},
                    {{0x80000000, 0x00000080, 0x00008000, 0x7f560800}}},
+
+        {&ps_not, {{0x00000000, 0xffffffff}}, {{0xffffffff, 0x00000000, 0x00000000, 0xffffffff}}},
+        {&ps_not, {{0xf0f0f0f0, 0x0f0f0f0f}}, {{0x0f0f0f0f, 0xf0f0f0f0, 0xf0f0f0f0, 0x0f0f0f0f}}},
     };
 
     assert(sizeof(tests->input) == sizeof(uint_tests->input));
