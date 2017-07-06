@@ -1876,7 +1876,7 @@ static void vkd3d_dxbc_compiler_emit_alu_instruction(struct vkd3d_dxbc_compiler 
     op = vkd3d_dxbc_compiler_map_alu_instruction(instruction);
     if (op == SpvOpMax)
     {
-        FIXME("Unhandled ALU instruction %#x.\n", instruction->handler_idx);
+        ERR("Unexpected instruction %#x.\n", instruction->handler_idx);
         return;
     }
 
