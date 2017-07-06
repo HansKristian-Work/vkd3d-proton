@@ -1844,8 +1844,11 @@ static SpvOp vkd3d_dxbc_compiler_map_alu_instruction(const struct vkd3d_shader_i
         {VKD3DSIH_ISHR,       SpvOpShiftRightArithmetic},
         {VKD3DSIH_ITOF,       SpvOpConvertSToF},
         {VKD3DSIH_MUL,        SpvOpFMul},
+        {VKD3DSIH_NOT,        SpvOpNot},
+        {VKD3DSIH_OR,         SpvOpBitwiseOr},
         {VKD3DSIH_USHR,       SpvOpShiftRightLogical},
         {VKD3DSIH_UTOF,       SpvOpConvertUToF},
+        {VKD3DSIH_XOR,        SpvOpBitwiseXor},
     };
     unsigned int i;
 
@@ -2315,8 +2318,11 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_ISHR:
         case VKD3DSIH_ITOF:
         case VKD3DSIH_MUL:
+        case VKD3DSIH_NOT:
+        case VKD3DSIH_OR:
         case VKD3DSIH_USHR:
         case VKD3DSIH_UTOF:
+        case VKD3DSIH_XOR:
             vkd3d_dxbc_compiler_emit_alu_instruction(compiler, instruction);
             break;
         case VKD3DSIH_FIRSTBIT_HI:
