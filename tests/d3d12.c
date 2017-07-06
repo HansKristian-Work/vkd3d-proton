@@ -4592,6 +4592,38 @@ static void check_root_parameter_(unsigned int line, const D3D12_ROOT_PARAMETER 
             parameter->ShaderVisibility, expected_parameter->ShaderVisibility);
 }
 
+static void check_static_sampler_(unsigned int line, const D3D12_STATIC_SAMPLER_DESC *sampler,
+        const D3D12_STATIC_SAMPLER_DESC *expected_sampler)
+{
+    ok_(line)(sampler->Filter == expected_sampler->Filter,
+            "Got filter %#x, expected %#x.\n", sampler->Filter, expected_sampler->Filter);
+    ok_(line)(sampler->AddressU == expected_sampler->AddressU,
+            "Got address U %#x, expected %#x.\n", sampler->AddressU, expected_sampler->AddressU);
+    ok_(line)(sampler->AddressV == expected_sampler->AddressV,
+            "Got address V %#x, expected %#x.\n", sampler->AddressV, expected_sampler->AddressV);
+    ok_(line)(sampler->AddressW == expected_sampler->AddressW,
+            "Got address W %#x, expected %#x.\n", sampler->AddressW, expected_sampler->AddressW);
+    ok_(line)(sampler->MipLODBias == expected_sampler->MipLODBias,
+            "Got mip LOD bias %.8e, expected %.8e.\n", sampler->MipLODBias, expected_sampler->MipLODBias);
+    ok_(line)(sampler->MaxAnisotropy == expected_sampler->MaxAnisotropy,
+            "Got max anisotropy %u, expected %u.\n", sampler->MaxAnisotropy, expected_sampler->MaxAnisotropy);
+    ok_(line)(sampler->ComparisonFunc == expected_sampler->ComparisonFunc,
+            "Got comparison func %#x, expected %#x.\n", sampler->ComparisonFunc, expected_sampler->ComparisonFunc);
+    ok_(line)(sampler->BorderColor == expected_sampler->BorderColor,
+            "Got border color %#x, expected %#x.\n", sampler->BorderColor, expected_sampler->BorderColor);
+    ok_(line)(sampler->MinLOD == expected_sampler->MinLOD,
+            "Got min LOD %.8e, expected %.8e.\n", sampler->MinLOD, expected_sampler->MinLOD);
+    ok_(line)(sampler->MaxLOD == expected_sampler->MaxLOD,
+            "Got max LOD %.8e, expected %.8e.\n", sampler->MaxLOD, expected_sampler->MaxLOD);
+    ok_(line)(sampler->ShaderRegister == expected_sampler->ShaderRegister,
+            "Got shader register %u, expected %u.\n", sampler->ShaderRegister, expected_sampler->ShaderRegister);
+    ok_(line)(sampler->RegisterSpace == expected_sampler->RegisterSpace,
+            "Got register space %u, expected %u.\n", sampler->RegisterSpace, expected_sampler->RegisterSpace);
+    ok_(line)(sampler->ShaderVisibility == expected_sampler->ShaderVisibility,
+            "Got shader visibility %#x, expected %#x.\n",
+            sampler->ShaderVisibility, expected_sampler->ShaderVisibility);
+}
+
 #define check_root_signature_desc(desc, expected) check_root_signature_desc_(__LINE__, desc, expected)
 static void check_root_signature_desc_(unsigned int line, const D3D12_ROOT_SIGNATURE_DESC *desc,
         const D3D12_ROOT_SIGNATURE_DESC *expected_desc)
@@ -4614,9 +4646,14 @@ static void check_root_signature_desc_(unsigned int line, const D3D12_ROOT_SIGNA
             "Got static sampler count %u, expected %u.\n",
             desc->NumStaticSamplers, expected_desc->NumStaticSamplers);
     if (!expected_desc->pStaticSamplers)
+    {
         ok_(line)(!desc->pStaticSamplers, "Got unexpected static samplers %p.\n", desc->pStaticSamplers);
-    else
-        trace("Implement samplers comparison!\n");
+    }
+    else if (desc->NumStaticSamplers == expected_desc->NumStaticSamplers)
+    {
+        for (i = 0; i < desc->NumStaticSamplers; ++i)
+            check_static_sampler_(line, &desc->pStaticSamplers[i], &expected_desc->pStaticSamplers[i]);
+    }
     ok_(line)(desc->Flags == expected_desc->Flags, "Got flags %#x, expected %#x.\n",
             desc->Flags, expected_desc->Flags);
 }
@@ -4812,7 +4849,80 @@ static void test_root_signature_deserializer(void)
         .NumParameters = ARRAY_SIZE(descriptor_table_parameters),
         .pParameters = descriptor_table_parameters,
     };
-    /* TODO: static samplers */
+    static const DWORD default_static_sampler_rootsig[] =
+    {
+#if 0
+        #define RS "StaticSampler(s4)"
+#endif
+        0x43425844, 0x2876b8ff, 0x935aaa0d, 0x5d2d344a, 0xe002147c, 0x00000001, 0x00000078, 0x00000001,
+        0x00000024, 0x30535452, 0x0000004c, 0x00000001, 0x00000000, 0x00000018, 0x00000001, 0x00000018,
+        0x00000000, 0x00000055, 0x00000001, 0x00000001, 0x00000001, 0x00000000, 0x00000010, 0x00000004,
+        0x00000002, 0x00000000, 0x7f7fffff, 0x00000004, 0x00000000, 0x00000000,
+    };
+    static const D3D12_STATIC_SAMPLER_DESC default_static_sampler_desc =
+    {
+        .Filter = D3D12_FILTER_ANISOTROPIC,
+        .AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+        .AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+        .AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+        .MaxAnisotropy = 16,
+        .ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL,
+        .BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE,
+        .MaxLOD = D3D12_FLOAT32_MAX,
+        .ShaderRegister = 4,
+    };
+    static const D3D12_ROOT_SIGNATURE_DESC default_static_sampler_rootsig_desc =
+    {
+        .NumStaticSamplers = 1,
+        .pStaticSamplers = &default_static_sampler_desc,
+    };
+    static const DWORD static_samplers_rootsig[] =
+    {
+#if 0
+        #define RS "StaticSampler(s0, filter = FILTER_MIN_MAG_MIP_POINT, " \
+                "addressV = TEXTURE_ADDRESS_CLAMP, visibility = SHADER_VISIBILITY_PIXEL), " \
+                "StaticSampler(s0, filter = FILTER_MIN_MAG_POINT_MIP_LINEAR, " \
+                "AddressW = TEXTURE_ADDRESS_BORDER, MipLODBias = 1, maxLod = 10, " \
+                "borderColor = STATIC_BORDER_COLOR_OPAQUE_BLACK, space = 3)"
+#endif
+        0x43425844, 0x52ed526c, 0x892c2d7c, 0xb8ab1123, 0x7e3a727d, 0x00000001, 0x000000ac, 0x00000001,
+        0x00000024, 0x30535452, 0x00000080, 0x00000001, 0x00000000, 0x00000018, 0x00000002, 0x00000018,
+        0x00000000, 0x00000000, 0x00000001, 0x00000003, 0x00000001, 0x00000000, 0x00000010, 0x00000004,
+        0x00000002, 0x00000000, 0x7f7fffff, 0x00000000, 0x00000000, 0x00000005, 0x00000001, 0x00000001,
+        0x00000001, 0x00000004, 0x3f800000, 0x00000010, 0x00000004, 0x00000001, 0x00000000, 0x41200000,
+        0x00000000, 0x00000003, 0x00000000,
+    };
+    static const D3D12_STATIC_SAMPLER_DESC static_sampler_descs[] =
+    {
+        {
+            .Filter = D3D12_FILTER_MIN_MAG_MIP_POINT,
+            .AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+            .AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+            .AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+            .MaxAnisotropy = 16,
+            .ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL,
+            .BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE,
+            .MaxLOD = D3D12_FLOAT32_MAX,
+            .ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL,
+        },
+        {
+            .Filter = D3D12_FILTER_MIN_MAG_POINT_MIP_LINEAR,
+            .AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+            .AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+            .AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER,
+            .MipLODBias = 1.0f,
+            .MaxAnisotropy = 16,
+            .ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL,
+            .BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK,
+            .MaxLOD = 10.0f,
+            .RegisterSpace = 3,
+        }
+    };
+    static const D3D12_ROOT_SIGNATURE_DESC static_samplers_rootsig_desc =
+    {
+        .NumStaticSamplers = ARRAY_SIZE(static_sampler_descs),
+        .pStaticSamplers = static_sampler_descs,
+    };
 
     hr = D3D12CreateRootSignatureDeserializer(empty_rootsig, sizeof(empty_rootsig),
             &IID_IUnknown, (void **)&deserializer);
@@ -4841,6 +4951,10 @@ static void test_root_signature_deserializer(void)
     test_root_signature_deserialization(constants_rootsig, sizeof(constants_rootsig), &constants_rootsig_desc);
     test_root_signature_deserialization(descriptor_table_rootsig, sizeof(descriptor_table_rootsig),
             &descriptor_table_rootsig_desc);
+    test_root_signature_deserialization(default_static_sampler_rootsig, sizeof(default_static_sampler_rootsig),
+            &default_static_sampler_rootsig_desc);
+    test_root_signature_deserialization(static_samplers_rootsig, sizeof(static_samplers_rootsig),
+            &static_samplers_rootsig_desc);
 }
 
 START_TEST(d3d12)
