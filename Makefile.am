@@ -111,7 +111,7 @@ AM_DEFAULT_SOURCE_EXT = .c
 TESTS = $(vkd3d_tests)
 tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@
 
-DEMOS_LDADD = libvkd3d.la $(LDADD) @XCB_LIBS@ @VULKAN_LIBS@
+DEMOS_LDADD = libvkd3d.la libvkd3d-shader.la $(LDADD) @XCB_LIBS@ @VULKAN_LIBS@
 DEMOS_CFLAGS = @XCB_CFLAGS@
 noinst_PROGRAMS = $(vkd3d_demos)
 EXTRA_DIST += $(vkd3d_demos_headers)
