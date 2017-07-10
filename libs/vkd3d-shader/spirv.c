@@ -2021,7 +2021,7 @@ static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_comp
     glsl_inst = vkd3d_dxbc_compiler_map_ext_glsl_instruction(instruction);
     if (glsl_inst == GLSLstd450Bad)
     {
-        FIXME("Unhandled GLSLstd450 instruction %#x.\n", instruction->handler_idx);
+        ERR("Unexpected instruction %#x.\n", instruction->handler_idx);
         return;
     }
 
