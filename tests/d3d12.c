@@ -4588,6 +4588,197 @@ static void test_shader_instructions(void)
     destroy_test_context(&context);
 }
 
+static void test_shader_interstage_interface(void)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *vb;
+    unsigned int x, y;
+    HRESULT hr;
+    void *ptr;
+
+    static const DWORD vs_code[] =
+    {
+#if 0
+        struct vertex
+        {
+            float4 position : SV_Position;
+            float2 t0 : TEXCOORD0;
+            nointerpolation float t1 : TEXCOORD1;
+            uint t2 : TEXCOORD2;
+            uint t3 : TEXCOORD3;
+            float t4 : TEXCOORD4;
+        };
+
+        void main(in vertex vin, out vertex vout)
+        {
+            vout = vin;
+        }
+#endif
+        0x43425844, 0x561ea178, 0x7b8f454c, 0x69091b4f, 0xf28d9a01, 0x00000001, 0x000002c0, 0x00000003,
+        0x0000002c, 0x000000e4, 0x0000019c, 0x4e475349, 0x000000b0, 0x00000006, 0x00000008, 0x00000098,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x000000a4, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000303, 0x000000a4, 0x00000001, 0x00000000, 0x00000003, 0x00000002,
+        0x00000101, 0x000000a4, 0x00000002, 0x00000000, 0x00000001, 0x00000003, 0x00000101, 0x000000a4,
+        0x00000003, 0x00000000, 0x00000001, 0x00000004, 0x00000101, 0x000000a4, 0x00000004, 0x00000000,
+        0x00000003, 0x00000005, 0x00000101, 0x505f5653, 0x7469736f, 0x006e6f69, 0x43584554, 0x44524f4f,
+        0xababab00, 0x4e47534f, 0x000000b0, 0x00000006, 0x00000008, 0x00000098, 0x00000000, 0x00000001,
+        0x00000003, 0x00000000, 0x0000000f, 0x000000a4, 0x00000000, 0x00000000, 0x00000003, 0x00000001,
+        0x00000c03, 0x000000a4, 0x00000004, 0x00000000, 0x00000003, 0x00000001, 0x00000b04, 0x000000a4,
+        0x00000001, 0x00000000, 0x00000003, 0x00000002, 0x00000e01, 0x000000a4, 0x00000002, 0x00000000,
+        0x00000001, 0x00000002, 0x00000d02, 0x000000a4, 0x00000003, 0x00000000, 0x00000001, 0x00000002,
+        0x00000b04, 0x505f5653, 0x7469736f, 0x006e6f69, 0x43584554, 0x44524f4f, 0xababab00, 0x58454853,
+        0x0000011c, 0x00010050, 0x00000047, 0x0100086a, 0x0300005f, 0x001010f2, 0x00000000, 0x0300005f,
+        0x00101032, 0x00000001, 0x0300005f, 0x00101012, 0x00000002, 0x0300005f, 0x00101012, 0x00000003,
+        0x0300005f, 0x00101012, 0x00000004, 0x0300005f, 0x00101012, 0x00000005, 0x04000067, 0x001020f2,
+        0x00000000, 0x00000001, 0x03000065, 0x00102032, 0x00000001, 0x03000065, 0x00102042, 0x00000001,
+        0x03000065, 0x00102012, 0x00000002, 0x03000065, 0x00102022, 0x00000002, 0x03000065, 0x00102042,
+        0x00000002, 0x05000036, 0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x05000036, 0x00102032,
+        0x00000001, 0x00101046, 0x00000001, 0x05000036, 0x00102042, 0x00000001, 0x0010100a, 0x00000005,
+        0x05000036, 0x00102012, 0x00000002, 0x0010100a, 0x00000002, 0x05000036, 0x00102022, 0x00000002,
+        0x0010100a, 0x00000003, 0x05000036, 0x00102042, 0x00000002, 0x0010100a, 0x00000004, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs = {vs_code, sizeof(vs_code)};
+    static const DWORD ps_code[] =
+    {
+#if 0
+        void main(float4 position : SV_Position, float2 t0 : TEXCOORD0,
+                nointerpolation float t1 : TEXCOORD1, uint t2 : TEXCOORD2,
+                uint t3 : TEXCOORD3, float t4 : TEXCOORD4, out float4 o : SV_Target)
+        {
+            o.x = t0.y + t1;
+            o.y = t2 + t3;
+            o.z = t4;
+            o.w = t0.x;
+        }
+#endif
+        0x43425844, 0x21076b15, 0x493d36f1, 0x0cd125d6, 0x1e92c724, 0x00000001, 0x000001e0, 0x00000003,
+        0x0000002c, 0x000000e4, 0x00000118, 0x4e475349, 0x000000b0, 0x00000006, 0x00000008, 0x00000098,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x000000a4, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000303, 0x000000a4, 0x00000004, 0x00000000, 0x00000003, 0x00000001,
+        0x00000404, 0x000000a4, 0x00000001, 0x00000000, 0x00000003, 0x00000002, 0x00000101, 0x000000a4,
+        0x00000002, 0x00000000, 0x00000001, 0x00000002, 0x00000202, 0x000000a4, 0x00000003, 0x00000000,
+        0x00000001, 0x00000002, 0x00000404, 0x505f5653, 0x7469736f, 0x006e6f69, 0x43584554, 0x44524f4f,
+        0xababab00, 0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000,
+        0x00000003, 0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000c0,
+        0x00000050, 0x00000030, 0x0100086a, 0x03001062, 0x00101032, 0x00000001, 0x03001062, 0x00101042,
+        0x00000001, 0x03000862, 0x00101012, 0x00000002, 0x03000862, 0x00101022, 0x00000002, 0x03000862,
+        0x00101042, 0x00000002, 0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0700001e,
+        0x00100012, 0x00000000, 0x0010101a, 0x00000002, 0x0010102a, 0x00000002, 0x05000056, 0x00102022,
+        0x00000000, 0x0010000a, 0x00000000, 0x07000000, 0x00102012, 0x00000000, 0x0010101a, 0x00000001,
+        0x0010100a, 0x00000002, 0x05000036, 0x001020c2, 0x00000000, 0x001012a6, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
+    {
+        {"SV_POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD",    0, DXGI_FORMAT_R32G32_FLOAT, 0,  8, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD",    1, DXGI_FORMAT_R32_FLOAT,    0, 16, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD",    2, DXGI_FORMAT_R32_UINT,     0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD",    3, DXGI_FORMAT_R32_UINT,     0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD",    4, DXGI_FORMAT_R32_FLOAT,    0, 28, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+    static const struct
+    {
+        struct vec2 position;
+        struct vec2 t0;
+        float t1;
+        unsigned int t2;
+        unsigned int t3;
+        float t4;
+    }
+    quad[] =
+    {
+        {{-1.0f, -1.0f}, {3.0f, 5.0f}, 5.0f, 2, 6, 7.0f},
+        {{-1.0f,  1.0f}, {3.0f, 5.0f}, 5.0f, 2, 6, 7.0f},
+        {{ 1.0f, -1.0f}, {3.0f, 5.0f}, 5.0f, 2, 6, 7.0f},
+        {{ 1.0f,  1.0f}, {3.0f, 5.0f}, 5.0f, 2, 6, 7.0f},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_empty_root_signature(context.device,
+            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    input_layout.pInputElementDescs = layout_desc;
+    input_layout.NumElements = ARRAY_SIZE(layout_desc);
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, desc.rt_format, &vs, &ps, &input_layout);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = sizeof(quad);
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ,
+            NULL, &IID_ID3D12Resource, (void **)&vb);
+    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
+
+    hr = ID3D12Resource_Map(vb, 0, NULL, (void **)&ptr);
+    ok(SUCCEEDED(hr), "Failed to map constant buffer, hr %#x.\n", hr);
+    memcpy(ptr, quad, sizeof(quad));
+    ID3D12Resource_Unmap(vb, 0, NULL);
+
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
+    vbv.StrideInBytes = sizeof(*quad);
+    vbv.SizeInBytes = sizeof(quad);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (y = 0; y < context.render_target_desc.Height; ++y)
+    {
+        for (x = 0; x < context.render_target_desc.Width; ++x)
+        {
+            static const struct vec4 expected = {10.0f, 8.0f, 7.0f, 3.0f};
+            const struct vec4 *v = get_readback_vec4(&rb, x, y);
+            ok(compare_vec4(v, &expected, 0),
+                    "Got %.8e, %.8e, %.8e, %.8e expected %.8e, %.8e, %.8e, %.8e.\n",
+                    v->x, v->y, v->z, v->w, expected.x, expected.y, expected.z, expected.w);
+        }
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(vb);
+    destroy_test_context(&context);
+}
+
 static void check_descriptor_range_(unsigned int line, const D3D12_DESCRIPTOR_RANGE *range,
         const D3D12_DESCRIPTOR_RANGE *expected_range)
 {
@@ -5074,5 +5265,6 @@ START_TEST(d3d12)
     run_test(test_map_resource);
     run_test(test_bundle_state_inheritance);
     run_test(test_shader_instructions);
+    run_test(test_shader_interstage_interface);
     run_test(test_root_signature_deserializer);
 }
