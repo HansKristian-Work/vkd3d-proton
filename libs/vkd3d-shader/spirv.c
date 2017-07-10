@@ -1156,26 +1156,27 @@ static uint32_t vkd3d_dxbc_compiler_get_constant_float(struct vkd3d_dxbc_compile
     return vkd3d_dxbc_compiler_get_constant(compiler, VKD3D_TYPE_FLOAT, 1, (uint32_t *)&value);
 }
 
-static bool vkd3d_dxbc_compiler_get_register_name(char *buffer,const struct vkd3d_shader_register *reg)
+static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buffer_size,
+        const struct vkd3d_shader_register *reg)
 {
     switch (reg->type)
     {
         case VKD3DSPR_CONSTBUFFER:
-            sprintf(buffer, "cb%u_%u", reg->idx[0].offset, reg->idx[1].offset);
+            snprintf(buffer, buffer_size, "cb%u_%u", reg->idx[0].offset, reg->idx[1].offset);
             break;
         case VKD3DSPR_INPUT:
-            sprintf(buffer, "v%u", reg->idx[0].offset);
+            snprintf(buffer, buffer_size, "v%u", reg->idx[0].offset);
             break;
         case VKD3DSPR_OUTPUT:
         case VKD3DSPR_COLOROUT:
-            sprintf(buffer, "o%u", reg->idx[0].offset);
+            snprintf(buffer, buffer_size, "o%u", reg->idx[0].offset);
             break;
         case VKD3DSPR_THREADID:
-            sprintf(buffer, "vThreadID");
+            snprintf(buffer, buffer_size, "vThreadID");
             break;
         default:
             FIXME("Unhandled register %#x.\n", reg->type);
-            sprintf(buffer, "unrecognized_%#x", reg->type);
+            snprintf(buffer, buffer_size, "unrecognized_%#x", reg->type);
             return false;
     }
 
@@ -1186,7 +1187,7 @@ static void vkd3d_dxbc_compiler_emit_register_debug_name(struct vkd3d_spirv_buil
         uint32_t id, const struct vkd3d_shader_register *reg)
 {
     char debug_name[256];
-    if (vkd3d_dxbc_compiler_get_register_name(debug_name, reg))
+    if (vkd3d_dxbc_compiler_get_register_name(debug_name, ARRAY_SIZE(debug_name), reg))
         vkd3d_spirv_build_op_name(builder, id, debug_name);
 }
 
