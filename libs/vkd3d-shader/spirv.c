@@ -1615,8 +1615,8 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval)
 {
     enum vkd3d_component_type component_type = vkd3d_component_type_for_semantic(sysval);
+    unsigned int component_idx, component_count, input_component_count;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    unsigned int component_count, input_component_count;
     uint32_t val_id, input_id, var_id;
     struct vkd3d_symbol reg_symbol;
     SpvStorageClass storage_class;
@@ -1635,9 +1635,16 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
             storage_class, component_type, input_component_count);
     vkd3d_spirv_add_iface_variable(builder, input_id);
     if (sysval)
+    {
         vkd3d_dxbc_compiler_decorate_sysval(compiler, input_id, sysval);
+    }
     else
+    {
         vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationLocation, dst->reg.idx[0].offset);
+        component_idx = vkd3d_write_mask_get_component_idx(dst->write_mask);
+        if (component_idx)
+            vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationComponent, component_idx);
+    }
 
     if (component_type != VKD3D_TYPE_FLOAT)
     {
