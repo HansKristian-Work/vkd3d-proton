@@ -1174,6 +1174,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_THREADID:
             snprintf(buffer, buffer_size, "vThreadID");
             break;
+        case VKD3DSPR_LOCALTHREADID:
+            snprintf(buffer, buffer_size, "vThreadIDInGroup");
+            break;
         default:
             FIXME("Unhandled register %#x.\n", reg->type);
             snprintf(buffer, buffer_size, "unrecognized_%#x", reg->type);
@@ -1563,7 +1566,8 @@ static void vkd3d_dxbc_compiler_emit_store_dst(struct vkd3d_dxbc_compiler *compi
 static enum vkd3d_component_type vkd3d_component_type_for_register(enum vkd3d_shader_register_type reg_type,
         enum vkd3d_shader_input_sysval_semantic sysval)
 {
-    if (reg_type == VKD3DSPR_THREADID)
+    if (reg_type == VKD3DSPR_THREADID
+            || reg_type == VKD3DSPR_LOCALTHREADID)
         return VKD3D_TYPE_INT;
 
     switch (sysval)
@@ -1586,8 +1590,12 @@ static unsigned int vkd3d_component_count_for_register(enum vkd3d_shader_registe
      *
      *   "The variable decorated with GlobalInvocationId must be declared as a
      *   three-component vector of 32-bit integers."
+     *
+     *   "The variable decorated with LocalInvocationId must be declared as a
+     *   three-component vector of 32-bit integers."
      */
-    if (reg_type == VKD3DSPR_THREADID)
+    if (reg_type == VKD3DSPR_THREADID
+            || reg_type == VKD3DSPR_LOCALTHREADID)
         return 3;
 
     switch (sysval)
@@ -1640,6 +1648,10 @@ static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *com
             {
                 builtin = SpvBuiltInGlobalInvocationId;
             }
+            else if (reg_type == VKD3DSPR_LOCALTHREADID)
+            {
+                builtin = SpvBuiltInLocalInvocationId;
+            }
             else
             {
                 FIXME("Unhandled builtin (register type %#x, semantic %#x).\n", reg_type, sysval);
@@ -1678,7 +1690,8 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     input_id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
             storage_class, component_type, input_component_count);
     vkd3d_spirv_add_iface_variable(builder, input_id);
-    if (dst->reg.type == VKD3DSPR_THREADID || sysval)
+    if (dst->reg.type == VKD3DSPR_THREADID || dst->reg.type == VKD3DSPR_LOCALTHREADID
+            || sysval)
     {
         vkd3d_dxbc_compiler_decorate_builtin(compiler, input_id, dst->reg.type, sysval);
         if (component_idx)
