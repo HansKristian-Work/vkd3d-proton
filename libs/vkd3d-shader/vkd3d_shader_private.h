@@ -829,22 +829,6 @@ bool vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_code *spirv) DECLSPEC_HIDDEN;
 void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler) DECLSPEC_HIDDEN;
 
-static inline enum vkd3d_component_type vkd3d_component_type_for_semantic(
-        enum vkd3d_shader_input_sysval_semantic sysval)
-{
-    switch (sysval)
-    {
-        case VKD3D_SIV_NONE:
-        case VKD3D_SIV_POSITION:
-            return VKD3D_TYPE_FLOAT;
-        case VKD3D_SIV_VERTEX_ID:
-            return VKD3D_TYPE_INT;
-        default:
-            FIXME("Unhandled semantic %#x.\n", sysval);
-            return VKD3D_TYPE_FLOAT;
-    }
-}
-
 static inline enum vkd3d_component_type vkd3d_component_type_from_data_type(
         enum vkd3d_data_type data_type)
 {
