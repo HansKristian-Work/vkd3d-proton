@@ -1620,6 +1620,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     uint32_t val_id, input_id, var_id;
     struct vkd3d_symbol reg_symbol;
     SpvStorageClass storage_class;
+    struct rb_entry *entry = NULL;
 
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
     /* vThreadIDInGroupFlattened is declared with no write mask in shader
@@ -1650,8 +1651,10 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         val_id = vkd3d_spirv_build_op_load(builder, type_id, input_id, SpvMemoryAccessMaskNone);
     }
 
-    /* FIXME: handle multiple inputs packed into a single register */
-    if (component_count != VKD3D_VEC4_SIZE || component_type != VKD3D_TYPE_FLOAT)
+    vkd3d_symbol_make_register(&reg_symbol, &dst->reg);
+
+    if ((component_count != VKD3D_VEC4_SIZE || component_type != VKD3D_TYPE_FLOAT)
+            && !(entry = rb_get(&compiler->symbol_table, &reg_symbol)))
     {
         storage_class = SpvStorageClassPrivate;
         var_id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
@@ -1662,12 +1665,14 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         var_id = input_id;
     }
 
-    vkd3d_symbol_make_register(&reg_symbol, &dst->reg);
-    reg_symbol.id = var_id;
-    reg_symbol.info.storage_class = storage_class;
-    vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
+    if (!entry)
+    {
+        reg_symbol.id = var_id;
+        reg_symbol.info.storage_class = storage_class;
+        vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 
-    vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, &dst->reg);
+        vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, &dst->reg);
+    }
 
     if (component_count != VKD3D_VEC4_SIZE || component_type != VKD3D_TYPE_FLOAT)
         vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
