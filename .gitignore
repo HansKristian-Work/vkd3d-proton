@@ -9,7 +9,7 @@ Makefile.in
 test-suite.log
 vkd3d-compiler
 
-vkd3d-*.tar.gz
+vkd3d-*.tar.xz
 
 *.exe
 *.la
