@@ -559,6 +559,37 @@ static void release_resource_readback(struct resource_readback *rb)
     ID3D12Resource_Release(rb->resource);
 }
 
+#define check_sub_resource_vec4(a, b, c, d, e, f) check_sub_resource_vec4_(__LINE__, a, b, c, d, e, f)
+static void check_sub_resource_vec4_(unsigned int line, ID3D12Resource *texture,
+        unsigned int sub_resource_idx, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list,
+        const struct vec4 *expected, unsigned int max_diff)
+{
+    struct resource_readback rb;
+    unsigned int x = 0, y;
+    bool all_match = true;
+    struct vec4 got = {};
+
+    get_texture_readback_with_command_list(texture, 0, &rb, queue, command_list);
+    for (y = 0; y < rb.height; ++y)
+    {
+        for (x = 0; x < rb.width; ++x)
+        {
+            got = *get_readback_vec4(&rb, x, y);
+            if (!compare_vec4(&got, expected, max_diff))
+            {
+                all_match = false;
+                break;
+            }
+        }
+        if (!all_match)
+            break;
+    }
+    release_resource_readback(&rb);
+
+    ok_(line)(all_match, "Got {%.8e, %.8e, %.8e, %.8e} expected {%.8e, %.8e, %.8e, %.8e} at (%u, %u).\n",
+            got.x, got.y, got.z, got.w, expected->x, expected->y, expected->z, expected->w, x, y);
+}
+
 static ID3D12Device *create_device(void)
 {
     ID3D12Device *device;
@@ -2531,9 +2562,9 @@ static void test_clear_depth_stencil_view(void)
     ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
 
     get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
-    for (y = 0; y < resource_desc.Height; ++y)
+    for (y = 0; y < rb.height; ++y)
     {
-        for (x = 0; x < resource_desc.Width; ++x)
+        for (x = 0; x < rb.width; ++x)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
            ok(v == 0x3f400000, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
@@ -2647,9 +2678,9 @@ static void test_clear_render_target_view(void)
     ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
 
     get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
-    for (y = 0; y < resource_desc.Height; ++y)
+    for (y = 0; y < rb.height; ++y)
     {
-        for (x = 0; x < resource_desc.Width; ++x)
+        for (x = 0; x < rb.width; ++x)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
            ok(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
@@ -2697,9 +2728,9 @@ static void test_draw_instanced(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (y = 0; y < context.render_target_desc.Height; ++y)
+    for (y = 0; y < rb.height; ++y)
     {
-        for (x = 0; x < context.render_target_desc.Width; ++x)
+        for (x = 0; x < rb.width; ++x)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
            ok(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
@@ -2751,9 +2782,9 @@ static void test_draw_indexed_instanced(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (y = 0; y < context.render_target_desc.Height; ++y)
+    for (y = 0; y < rb.height; ++y)
     {
-        for (x = 0; x < context.render_target_desc.Width; ++x)
+        for (x = 0; x < rb.width; ++x)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
            ok(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
@@ -2825,9 +2856,9 @@ static void test_fragment_coords(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (y = 0; y < context.render_target_desc.Height; ++y)
+    for (y = 0; y < rb.height; ++y)
     {
-        for (x = 0; x < context.render_target_desc.Width; ++x)
+        for (x = 0; x < rb.width; ++x)
         {
             const struct vec4 *v = get_readback_vec4(&rb, x, y);
             struct vec4 expected = {x + 0.5f, y + 0.5f, 0.0f, 1.0f};
@@ -2974,9 +3005,9 @@ static void test_fractional_viewports(void)
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
         get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-        for (y = 0; y < context.render_target_desc.Height; ++y)
+        for (y = 0; y < rb.height; ++y)
         {
-            for (x = 0; x < context.render_target_desc.Width; ++x)
+            for (x = 0; x < rb.width; ++x)
             {
                 const struct vec4 *v = get_readback_vec4(&rb, x, y);
                 struct vec4 expected = {x + 0.5f, y + 0.5f,
@@ -3569,9 +3600,9 @@ static void test_bundle_state_inheritance(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (y = 0; y < context.render_target_desc.Height; ++y)
+    for (y = 0; y < rb.height; ++y)
     {
-        for (x = 0; x < context.render_target_desc.Width; ++x)
+        for (x = 0; x < rb.width; ++x)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
            /* This works on AMD. */
@@ -3612,9 +3643,9 @@ static void test_bundle_state_inheritance(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (y = 0; y < context.render_target_desc.Height; ++y)
+    for (y = 0; y < rb.height; ++y)
     {
-        for (x = 0; x < context.render_target_desc.Width; ++x)
+        for (x = 0; x < rb.width; ++x)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
            /* This works on AMD, even though the debug layer says that the primitive topology is undefined. */
@@ -3654,9 +3685,9 @@ static void test_bundle_state_inheritance(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (y = 0; y < context.render_target_desc.Height; ++y)
+    for (y = 0; y < rb.height; ++y)
     {
-        for (x = 0; x < context.render_target_desc.Width; ++x)
+        for (x = 0; x < rb.width; ++x)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
            todo(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
@@ -3695,9 +3726,9 @@ static void test_bundle_state_inheritance(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (y = 0; y < context.render_target_desc.Height; ++y)
+    for (y = 0; y < rb.height; ++y)
     {
-        for (x = 0; x < context.render_target_desc.Width; ++x)
+        for (x = 0; x < rb.width; ++x)
         {
            unsigned int v = get_readback_uint(&rb, x, y);
            todo(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
@@ -4474,19 +4505,7 @@ static void test_shader_instructions(void)
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-        get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-        for (y = 0; y < context.render_target_desc.Height; ++y)
-        {
-            for (x = 0; x < context.render_target_desc.Width; ++x)
-            {
-                const struct vec4 *v = get_readback_vec4(&rb, x, y);
-                ok(compare_vec4(v, &tests[i].output.f, 0),
-                        "Got %.8e, %.8e, %.8e, %.8e expected %.8e, %.8e, %.8e, %.8e.\n",
-                        v->x, v->y, v->z, v->w, tests[i].output.f.x, tests[i].output.f.y,
-                        tests[i].output.f.z, tests[i].output.f.w);
-            }
-        }
-        release_resource_readback(&rb);
+        check_sub_resource_vec4(context.render_target, 0, queue, command_list, &tests[i].output.f, 0);
 
         hr = ID3D12CommandAllocator_Reset(context.allocator);
         ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
@@ -4534,9 +4553,9 @@ static void test_shader_instructions(void)
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
         get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-        for (y = 0; y < context.render_target_desc.Height; ++y)
+        for (y = 0; y < rb.height; ++y)
         {
-            for (x = 0; x < context.render_target_desc.Width; ++x)
+            for (x = 0; x < rb.width; ++x)
             {
                 const struct uvec4 *v = get_readback_uvec4(&rb, x, y);
                 ok(compare_uvec4(v, &uint_tests[i].output.u),
@@ -4565,10 +4584,8 @@ static void test_shader_interstage_interface(void)
     struct test_context_desc desc;
     D3D12_VERTEX_BUFFER_VIEW vbv;
     struct test_context context;
-    struct resource_readback rb;
     ID3D12CommandQueue *queue;
     ID3D12Resource *vb;
-    unsigned int x, y;
 
     static const DWORD vs_code[] =
     {
@@ -4667,6 +4684,7 @@ static void test_shader_interstage_interface(void)
         {{ 1.0f, -1.0f}, {3.0f, 5.0f}, 5.0f, 2, 6, 7.0f},
         {{ 1.0f,  1.0f}, {3.0f, 5.0f}, 5.0f, 2, 6, 7.0f},
     };
+    static const struct vec4 expected_result = {10.0f, 8.0f, 7.0f, 3.0f};
 
     memset(&desc, 0, sizeof(desc));
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
@@ -4704,19 +4722,7 @@ static void test_shader_interstage_interface(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (y = 0; y < context.render_target_desc.Height; ++y)
-    {
-        for (x = 0; x < context.render_target_desc.Width; ++x)
-        {
-            static const struct vec4 expected = {10.0f, 8.0f, 7.0f, 3.0f};
-            const struct vec4 *v = get_readback_vec4(&rb, x, y);
-            ok(compare_vec4(v, &expected, 0),
-                    "Got %.8e, %.8e, %.8e, %.8e expected %.8e, %.8e, %.8e, %.8e.\n",
-                    v->x, v->y, v->z, v->w, expected.x, expected.y, expected.z, expected.w);
-        }
-    }
-    release_resource_readback(&rb);
+    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_result, 0);
 
     ID3D12Resource_Release(vb);
     destroy_test_context(&context);
@@ -5172,11 +5178,10 @@ static void test_immediate_constant_buffer(void)
     ID3D12GraphicsCommandList *command_list;
     struct test_context_desc desc;
     struct test_context context;
-    struct resource_readback rb;
     unsigned int index[4] = {};
     ID3D12CommandQueue *queue;
-    unsigned int i, x, y;
     ID3D12Resource *cb;
+    unsigned int i;
     HRESULT hr;
     void *ptr;
 
@@ -5272,19 +5277,7 @@ static void test_immediate_constant_buffer(void)
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-        get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-        for (y = 0; y < context.render_target_desc.Height; ++y)
-        {
-            for (x = 0; x < context.render_target_desc.Width; ++x)
-            {
-                const struct vec4 *v = get_readback_vec4(&rb, x, y);
-                ok(compare_vec4(v, &expected_result[i], 0),
-                        "Got %.8e, %.8e, %.8e, %.8e expected %.8e, %.8e, %.8e, %.8e.\n",
-                        v->x, v->y, v->z, v->w, expected_result[i].x, expected_result[i].y,
-                        expected_result[i].z, expected_result[i].w);
-            }
-        }
-        release_resource_readback(&rb);
+        check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_result[i], 0);
 
         hr = ID3D12CommandAllocator_Reset(context.allocator);
         ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
