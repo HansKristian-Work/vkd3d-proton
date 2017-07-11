@@ -52,8 +52,8 @@ static void vkd3d_spirv_dump(const struct vkd3d_shader_code *spirv)
     }
     else
     {
-        TRACE("Failed to convert SPIR-V binary to text, ret %d.\n", ret);
-        TRACE("Diagnostic message: %s.\n", debugstr_a(diagnostic->error));
+        FIXME("Failed to convert SPIR-V binary to text, ret %d.\n", ret);
+        FIXME("Diagnostic message: %s.\n", debugstr_a(diagnostic->error));
     }
 
     spvTextDestroy(text);
@@ -72,8 +72,8 @@ static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv)
     if ((ret = spvValidateBinary(context, spirv->code, spirv->size / sizeof(uint32_t),
             &diagnostic)))
     {
-        TRACE("Failed to validate SPIR-V binary, ret %d.\n", ret);
-        TRACE("Diagnostic message: %s.\n", debugstr_a(diagnostic->error));
+        FIXME("Failed to validate SPIR-V binary, ret %d.\n", ret);
+        FIXME("Diagnostic message: %s.\n", debugstr_a(diagnostic->error));
     }
 
     spvDiagnosticDestroy(diagnostic);
