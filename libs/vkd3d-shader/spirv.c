@@ -720,6 +720,13 @@ static void vkd3d_spirv_build_op_branch_conditional(struct vkd3d_spirv_builder *
             condition, true_label, false_label);
 }
 
+static uint32_t vkd3d_spirv_build_op_iadd(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t operand0, uint32_t operand1)
+{
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            SpvOpIAdd, result_type, operand0, operand1);
+}
+
 static uint32_t vkd3d_spirv_build_op_isub(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand0, uint32_t operand1)
 {
@@ -1249,6 +1256,28 @@ static uint32_t vkd3d_dxbc_compiler_emit_undef(struct vkd3d_dxbc_compiler *compi
     return vkd3d_spirv_build_op_undef(builder, stream, ptr_type_id);
 }
 
+static uint32_t vkd3d_dxbc_compiler_emit_load_src(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_src_param *src, DWORD write_mask);
+
+static uint32_t vkd3d_dxbc_compiler_emit_register_addressing(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register_index *reg_index)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t type_id, addr_id;
+
+    if (!reg_index->rel_addr)
+        return vkd3d_dxbc_compiler_get_constant_uint(compiler, reg_index->offset);
+
+    addr_id = vkd3d_dxbc_compiler_emit_load_src(compiler, reg_index->rel_addr, VKD3DSP_WRITEMASK_0);
+    if (reg_index->offset)
+    {
+        type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+        addr_id = vkd3d_spirv_build_op_iadd(builder, type_id,
+                addr_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, reg_index->offset));
+    }
+    return addr_id;
+}
+
 struct vkd3d_dxbc_register_info
 {
     uint32_t id;
@@ -1299,7 +1328,7 @@ static void vkd3d_dxbc_compiler_get_register_info(struct vkd3d_dxbc_compiler *co
     }
     else if (reg->type == VKD3DSPR_IMMCONSTBUFFER)
     {
-        uint32_t indexes[] = {vkd3d_dxbc_compiler_get_constant_uint(compiler, reg->idx[0].offset)};
+        uint32_t indexes[] = {vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[0])};
         uint32_t type_id, ptr_type_id;
 
         type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
