@@ -1915,18 +1915,15 @@ static void vkd3d_dxbc_compiler_emit_dcl_temps(struct vkd3d_dxbc_compiler *compi
         const struct vkd3d_shader_instruction *instruction)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    uint32_t type_id, ptr_type_id, id;
     unsigned int i;
-
-    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
-    ptr_type_id = vkd3d_dxbc_compiler_get_pointer_type(compiler, type_id, SpvStorageClassFunction);
+    uint32_t id;
 
     assert(!compiler->temp_count);
     compiler->temp_count = instruction->declaration.count;
     for (i = 0; i < compiler->temp_count; ++i)
     {
-        id = vkd3d_spirv_build_op_variable(builder, &builder->function_stream,
-                ptr_type_id, SpvStorageClassFunction, 0);
+        id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->function_stream,
+                SpvStorageClassFunction, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
         if (!i)
             compiler->temp_id = id;
         assert(id == compiler->temp_id + i);
