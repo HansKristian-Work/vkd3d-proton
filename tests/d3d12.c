@@ -385,6 +385,47 @@ static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12Comm
     ID3D12Fence_Release(fence);
 }
 
+#define create_upload_buffer(a, b, c) create_upload_buffer_(__LINE__, a, b, c)
+static ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Device *device,
+        size_t size, const void *data)
+{
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *buffer;
+    HRESULT hr;
+    void *ptr;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = size;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ,
+            NULL, &IID_ID3D12Resource, (void **)&buffer);
+    ok_(line)(SUCCEEDED(hr), "Failed to create upload buffer, hr %#x.\n", hr);
+
+    if (data)
+    {
+        hr = ID3D12Resource_Map(buffer, 0, NULL, (void **)&ptr);
+        ok_(line)(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
+        memcpy(ptr, data, size);
+        ID3D12Resource_Unmap(buffer, 0, NULL);
+    }
+
+    return buffer;
+}
+
 static unsigned int format_size(DXGI_FORMAT format)
 {
     switch (format)
@@ -2674,47 +2715,19 @@ static void test_draw_indexed_instanced(void)
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     static const uint16_t indices[] = {0, 1, 2};
     ID3D12GraphicsCommandList *command_list;
-    D3D12_RESOURCE_DESC resource_desc;
-    D3D12_HEAP_PROPERTIES heap_desc;
     struct test_context context;
     struct resource_readback rb;
     D3D12_INDEX_BUFFER_VIEW ibv;
     ID3D12CommandQueue *queue;
     ID3D12Resource *ib;
     unsigned int x, y;
-    HRESULT hr;
-    void *ptr;
 
     if (!init_test_context(&context, NULL))
         return;
     command_list = context.list;
     queue = context.queue;
 
-    heap_desc.Type = D3D12_HEAP_TYPE_UPLOAD;
-    heap_desc.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-    heap_desc.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-    heap_desc.CreationNodeMask = 1;
-    heap_desc.VisibleNodeMask = 1;
-
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = sizeof(indices);
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_desc, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &IID_ID3D12Resource, (void **)&ib);
-    ok(SUCCEEDED(hr), "Failed to create index buffer, hr %#x.\n", hr);
-    hr = ID3D12Resource_Map(ib, 0, NULL, (void **)&ptr);
-    ok(SUCCEEDED(hr), "Failed to map index buffer, hr %#x.\n", hr);
-    memcpy(ptr, indices, sizeof(indices));
-    ID3D12Resource_Unmap(ib, 0, NULL);
+    ib = create_upload_buffer(context.device, sizeof(indices), indices);
 
     ibv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(ib);
     ibv.SizeInBytes = sizeof(indices);
@@ -2832,9 +2845,7 @@ static void test_fractional_viewports(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
-    D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_INPUT_LAYOUT_DESC input_layout;
-    D3D12_RESOURCE_DESC resource_desc;
     struct test_context_desc desc;
     D3D12_VERTEX_BUFFER_VIEW vbv;
     struct test_context context;
@@ -2844,7 +2855,6 @@ static void test_fractional_viewports(void)
     unsigned int i, x, y;
     ID3D12Resource *vb;
     HRESULT hr;
-    void *ptr;
 
     static const DWORD vs_code[] =
     {
@@ -2930,29 +2940,7 @@ static void test_fractional_viewports(void)
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, desc.rt_format, &vs, &ps, &input_layout);
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
-
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = sizeof(quad);
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
-            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ,
-            NULL, &IID_ID3D12Resource, (void **)&vb);
-    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
-    hr = ID3D12Resource_Map(vb, 0, NULL, (void **)&ptr);
-    ok(SUCCEEDED(hr), "Failed to map vertex buffer, hr %#x.\n", hr);
-    memcpy(ptr, quad, sizeof(quad));
-    ID3D12Resource_Unmap(vb, 0, NULL);
+    vb = create_upload_buffer(context.device, sizeof(quad), quad);
 
     vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
     vbv.StrideInBytes = sizeof(*quad);
@@ -3727,8 +3715,6 @@ static void test_shader_instructions(void)
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     const D3D12_SHADER_BYTECODE *current_ps;
     ID3D12GraphicsCommandList *command_list;
-    D3D12_HEAP_PROPERTIES heap_properties;
-    D3D12_RESOURCE_DESC resource_desc;
     struct test_context_desc desc;
     struct test_context context;
     struct resource_readback rb;
@@ -4450,24 +4436,7 @@ static void test_shader_instructions(void)
     context.root_signature = create_cb_root_signature(context.device,
             0, D3D12_SHADER_VISIBILITY_PIXEL, D3D12_ROOT_SIGNATURE_FLAG_NONE);
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
-
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = sizeof(tests->input);
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
-            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ,
-            NULL, &IID_ID3D12Resource, (void **)&cb);
-    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
+    cb = create_upload_buffer(context.device, sizeof(tests->input), NULL);
 
     current_ps = NULL;
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
@@ -4592,9 +4561,7 @@ static void test_shader_interstage_interface(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
-    D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_INPUT_LAYOUT_DESC input_layout;
-    D3D12_RESOURCE_DESC resource_desc;
     struct test_context_desc desc;
     D3D12_VERTEX_BUFFER_VIEW vbv;
     struct test_context context;
@@ -4602,8 +4569,6 @@ static void test_shader_interstage_interface(void)
     ID3D12CommandQueue *queue;
     ID3D12Resource *vb;
     unsigned int x, y;
-    HRESULT hr;
-    void *ptr;
 
     static const DWORD vs_code[] =
     {
@@ -4719,29 +4684,7 @@ static void test_shader_interstage_interface(void)
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, desc.rt_format, &vs, &ps, &input_layout);
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
-
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = sizeof(quad);
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
-            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ,
-            NULL, &IID_ID3D12Resource, (void **)&vb);
-    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
-
-    hr = ID3D12Resource_Map(vb, 0, NULL, (void **)&ptr);
-    ok(SUCCEEDED(hr), "Failed to map constant buffer, hr %#x.\n", hr);
-    memcpy(ptr, quad, sizeof(quad));
-    ID3D12Resource_Unmap(vb, 0, NULL);
+    vb = create_upload_buffer(context.device, sizeof(quad), quad);
 
     vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
     vbv.StrideInBytes = sizeof(*quad);
