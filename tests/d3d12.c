@@ -5166,6 +5166,136 @@ static void test_root_signature_deserializer(void)
             &static_samplers_rootsig_desc);
 }
 
+static void test_immediate_constant_buffer(void)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    unsigned int index[4] = {};
+    ID3D12CommandQueue *queue;
+    unsigned int i, x, y;
+    ID3D12Resource *cb;
+    HRESULT hr;
+    void *ptr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        uint index;
+
+        static const int int_array[6] =
+        {
+            310, 111, 212, -513, -318, 0,
+        };
+
+        static const uint uint_array[6] =
+        {
+            2, 7, 0x7f800000, 0xff800000, 0x7fc00000, 0
+        };
+
+        static const float float_array[6] =
+        {
+            76, 83.5f, 0.5f, 0.75f, -0.5f, 0.0f,
+        };
+
+        float4 main() : SV_Target
+        {
+            return float4(int_array[index], uint_array[index], float_array[index], 1.0f);
+        }
+#endif
+        0x43425844, 0xbad068da, 0xd631ea3c, 0x41648374, 0x3ccd0120, 0x00000001, 0x00000184, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x0000010c, 0x00000040, 0x00000043,
+        0x00001835, 0x0000001a, 0x00000136, 0x00000002, 0x42980000, 0x00000000, 0x0000006f, 0x00000007,
+        0x42a70000, 0x00000000, 0x000000d4, 0x7f800000, 0x3f000000, 0x00000000, 0xfffffdff, 0xff800000,
+        0x3f400000, 0x00000000, 0xfffffec2, 0x7fc00000, 0xbf000000, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2,
+        0x00000000, 0x02000068, 0x00000001, 0x05000036, 0x00102082, 0x00000000, 0x00004001, 0x3f800000,
+        0x06000036, 0x00100012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x06000056, 0x00102022,
+        0x00000000, 0x0090901a, 0x0010000a, 0x00000000, 0x0600002b, 0x00102012, 0x00000000, 0x0090900a,
+        0x0010000a, 0x00000000, 0x06000036, 0x00102042, 0x00000000, 0x0090902a, 0x0010000a, 0x00000000,
+        0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static struct vec4 expected_result[] =
+    {
+        { 310.0f,          2.0f, 76.00f, 1.0f},
+        { 111.0f,          7.0f, 83.50f, 1.0f},
+        { 212.0f, 2139095040.0f,  0.50f, 1.0f},
+        {-513.0f, 4286578688.0f,  0.75f, 1.0f},
+        {-318.0f, 2143289344.0f, -0.50f, 1.0f},
+        {   0.0f,          0.0f,  0.0f,  1.0f},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_cb_root_signature(context.device,
+            0, D3D12_SHADER_VISIBILITY_PIXEL, D3D12_ROOT_SIGNATURE_FLAG_NONE);
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, desc.rt_format, NULL, &ps, NULL);
+
+    cb = create_upload_buffer(context.device, sizeof(index), NULL);
+
+    for (i = 0; i < ARRAY_SIZE(expected_result); ++i)
+    {
+        *index = i;
+        hr = ID3D12Resource_Map(cb, 0, NULL, (void **)&ptr);
+        ok(SUCCEEDED(hr), "Failed to map constant buffer, hr %#x.\n", hr);
+        memcpy(ptr, index, sizeof(index));
+        ID3D12Resource_Unmap(cb, 0, NULL);
+
+        if (i)
+            transition_resource_state(command_list, context.render_target,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
+                ID3D12Resource_GetGPUVirtualAddress(cb));
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+        for (y = 0; y < context.render_target_desc.Height; ++y)
+        {
+            for (x = 0; x < context.render_target_desc.Width; ++x)
+            {
+                const struct vec4 *v = get_readback_vec4(&rb, x, y);
+                ok(compare_vec4(v, &expected_result[i], 0),
+                        "Got %.8e, %.8e, %.8e, %.8e expected %.8e, %.8e, %.8e, %.8e.\n",
+                        v->x, v->y, v->z, v->w, expected_result[i].x, expected_result[i].y,
+                        expected_result[i].z, expected_result[i].w);
+            }
+        }
+        release_resource_readback(&rb);
+
+        hr = ID3D12CommandAllocator_Reset(context.allocator);
+        ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
+        hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
+        ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+    }
+
+    ID3D12Resource_Release(cb);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     BOOL enable_debug_layer = FALSE;
@@ -5210,4 +5340,5 @@ START_TEST(d3d12)
     run_test(test_shader_instructions);
     run_test(test_shader_interstage_interface);
     run_test(test_root_signature_deserializer);
+    run_test(test_immediate_constant_buffer);
 }
