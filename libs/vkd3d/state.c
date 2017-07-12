@@ -643,7 +643,7 @@ static enum VkStencilOp vk_stencil_op_from_d3d12(D3D12_STENCIL_OP op)
     }
 }
 
-static enum VkCompareOp vk_compare_op_from_d3d12(D3D12_COMPARISON_FUNC op)
+enum VkCompareOp vk_compare_op_from_d3d12(D3D12_COMPARISON_FUNC op)
 {
     switch (op)
     {

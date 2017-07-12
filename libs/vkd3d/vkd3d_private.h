@@ -34,9 +34,10 @@
 
 #define VK_CALL(f) (vk_procs->f)
 
-#define VKD3D_DESCRIPTOR_MAGIC_FREE 0x00000000u
-#define VKD3D_DESCRIPTOR_MAGIC_DSV  0x00565344u
-#define VKD3D_DESCRIPTOR_MAGIC_RTV  0x00565452u
+#define VKD3D_DESCRIPTOR_MAGIC_FREE    0x00000000u
+#define VKD3D_DESCRIPTOR_MAGIC_SAMPLER 0x504d4153u
+#define VKD3D_DESCRIPTOR_MAGIC_DSV     0x00565344u
+#define VKD3D_DESCRIPTOR_MAGIC_RTV     0x00565452u
 
 #define VKD3D_MAX_SHADER_STAGES     5u
 
@@ -160,7 +161,11 @@ struct d3d12_cbv_srv_uav_desc
 struct d3d12_sampler_desc
 {
     uint32_t magic;
+    VkSampler vk_sampler;
 };
+
+void d3d12_sampler_desc_create_sampler(struct d3d12_sampler_desc *sampler,
+        struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc) DECLSPEC_HIDDEN;
 
 struct d3d12_rtv_desc
 {
@@ -395,6 +400,8 @@ struct vkd3d_format
 };
 
 const struct vkd3d_format *vkd3d_get_format(DXGI_FORMAT dxgi_format) DECLSPEC_HIDDEN;
+
+enum VkCompareOp vk_compare_op_from_d3d12(D3D12_COMPARISON_FUNC op) DECLSPEC_HIDDEN;
 
 bool is_valid_feature_level(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;
 bool check_feature_level_support(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;

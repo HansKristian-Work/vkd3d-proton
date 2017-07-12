@@ -845,8 +845,10 @@ static void STDMETHODCALLTYPE d3d12_device_CreateDepthStencilView(ID3D12Device *
 static void STDMETHODCALLTYPE d3d12_device_CreateSampler(ID3D12Device *iface,
         const D3D12_SAMPLER_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    FIXME("iface %p, desc %p, descriptor %#lx stub!\n",
-            iface, desc, descriptor.ptr);
+    TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
+
+    d3d12_sampler_desc_create_sampler((struct d3d12_sampler_desc *)descriptor.ptr,
+            impl_from_ID3D12Device(iface), desc);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(ID3D12Device *iface,

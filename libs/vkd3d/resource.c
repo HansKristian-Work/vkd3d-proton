@@ -764,6 +764,119 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_D
     return S_OK;
 }
 
+/* samplers */
+static void d3d12_sampler_desc_destroy(struct d3d12_sampler_desc *sampler, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    if (sampler->magic != VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
+        return;
+
+    VK_CALL(vkDestroySampler(device->vk_device, sampler->vk_sampler, NULL));
+    memset(sampler, 0, sizeof(*sampler));
+}
+
+static VkFilter vk_filter_from_d3d12(D3D12_FILTER_TYPE type)
+{
+    switch (type)
+    {
+        case D3D12_FILTER_TYPE_POINT:
+            return VK_FILTER_NEAREST;
+        case D3D12_FILTER_TYPE_LINEAR:
+            return VK_FILTER_LINEAR;
+        default:
+            FIXME("Unhandled filter type %#x.\n", type);
+            return VK_FILTER_NEAREST;
+    }
+}
+
+static VkSamplerMipmapMode vk_mipmap_mode_from_d3d12(D3D12_FILTER_TYPE type)
+{
+    switch (type)
+    {
+        case D3D12_FILTER_TYPE_POINT:
+            return VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        case D3D12_FILTER_TYPE_LINEAR:
+            return VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        default:
+            FIXME("Unhandled filter type %#x.\n", type);
+            return VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    }
+}
+
+static VkSamplerAddressMode vk_address_mode_from_d3d12(D3D12_TEXTURE_ADDRESS_MODE mode)
+{
+    switch (mode)
+    {
+        case D3D12_TEXTURE_ADDRESS_MODE_WRAP:
+            return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        case D3D12_TEXTURE_ADDRESS_MODE_MIRROR:
+            return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+        case D3D12_TEXTURE_ADDRESS_MODE_CLAMP:
+            return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        case D3D12_TEXTURE_ADDRESS_MODE_BORDER:
+            return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+            /* D3D12_TEXTURE_ADDRESS_MODE_MIRROR_ONCE requires VK_KHR_mirror_clamp_to_edge. */
+        default:
+            FIXME("Unhandled address mode %#x.\n", mode);
+            return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    }
+}
+
+void d3d12_sampler_desc_create_sampler(struct d3d12_sampler_desc *sampler,
+        struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc)
+{
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct VkSamplerCreateInfo sampler_desc;
+    VkResult vr;
+
+    vk_procs = &device->vk_procs;
+
+    d3d12_sampler_desc_destroy(sampler, device);
+
+    if (!desc)
+    {
+        WARN("NULL sampler desc.\n");
+        return;
+    }
+
+    if (D3D12_DECODE_FILTER_REDUCTION(desc->Filter) == D3D12_FILTER_REDUCTION_TYPE_MINIMUM
+            || D3D12_DECODE_FILTER_REDUCTION(desc->Filter) == D3D12_FILTER_REDUCTION_TYPE_MAXIMUM)
+        FIXME("Min/max reduction mode not supported.\n");
+
+    if (desc->AddressU == D3D12_TEXTURE_ADDRESS_MODE_BORDER
+            || desc->AddressV == D3D12_TEXTURE_ADDRESS_MODE_BORDER
+            || desc->AddressW == D3D12_TEXTURE_ADDRESS_MODE_BORDER)
+        FIXME("Ignoring border color {%.8e, %.8e, %.8e, %.8e}.\n",
+                desc->BorderColor[0], desc->BorderColor[1], desc->BorderColor[2], desc->BorderColor[3]);
+
+    sampler_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_desc.pNext = NULL;
+    sampler_desc.flags = 0;
+    sampler_desc.magFilter = vk_filter_from_d3d12(D3D12_DECODE_MAG_FILTER(desc->Filter));
+    sampler_desc.minFilter = vk_filter_from_d3d12(D3D12_DECODE_MIN_FILTER(desc->Filter));
+    sampler_desc.mipmapMode = vk_mipmap_mode_from_d3d12(D3D12_DECODE_MIP_FILTER(desc->Filter));
+    sampler_desc.addressModeU = vk_address_mode_from_d3d12(desc->AddressU);
+    sampler_desc.addressModeV = vk_address_mode_from_d3d12(desc->AddressV);
+    sampler_desc.addressModeW = vk_address_mode_from_d3d12(desc->AddressW);
+    sampler_desc.mipLodBias = desc->MipLODBias;
+    sampler_desc.anisotropyEnable = D3D12_DECODE_IS_ANISOTROPIC_FILTER(desc->Filter);
+    sampler_desc.maxAnisotropy = desc->MaxAnisotropy;
+    sampler_desc.compareEnable = D3D12_DECODE_IS_COMPARISON_FILTER(desc->Filter);
+    sampler_desc.compareOp = sampler_desc.compareEnable ? vk_compare_op_from_d3d12(desc->ComparisonFunc) : 0;
+    sampler_desc.minLod = desc->MinLOD;
+    sampler_desc.maxLod = desc->MaxLOD;
+    sampler_desc.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+    sampler_desc.unnormalizedCoordinates = VK_FALSE;
+    if ((vr = VK_CALL(vkCreateSampler(device->vk_device, &sampler_desc, NULL, &sampler->vk_sampler))) < 0)
+    {
+        WARN("Failed to create Vulkan sampler, vr %d.\n", vr);
+        return;
+    }
+
+    sampler->magic = VKD3D_DESCRIPTOR_MAGIC_SAMPLER;
+}
+
 /* RTVs */
 static void d3d12_rtv_desc_destroy(struct d3d12_rtv_desc *rtv, struct d3d12_device *device)
 {
@@ -969,7 +1082,16 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
         struct d3d12_device *device = heap->device;
         unsigned int i;
 
-        if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_RTV)
+        if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+        {
+            struct d3d12_sampler_desc *samplers = (struct d3d12_sampler_desc *)heap->descriptors;
+
+            for (i = 0; i < heap->desc.NumDescriptors; ++i)
+            {
+                d3d12_sampler_desc_destroy(&samplers[i], device);
+            }
+        }
+        else if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_RTV)
         {
             struct d3d12_rtv_desc *rtvs = (struct d3d12_rtv_desc *)heap->descriptors;
 
