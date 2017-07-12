@@ -593,12 +593,27 @@ static void check_sub_resource_vec4_(unsigned int line, ID3D12Resource *texture,
 static ID3D12Device *create_device(void)
 {
     ID3D12Device *device;
-    HRESULT hr;
 
-    if (FAILED(hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device)))
+    if (FAILED(D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device)))
         return NULL;
 
     return device;
+}
+
+static bool is_min_max_filtering_supported(ID3D12Device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    HRESULT hr;
+
+    if (FAILED(hr = ID3D12Device_CheckFeatureSupport(device,
+            D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))))
+    {
+        trace("CheckFeatureSupport failed, hr %#x.\n", hr);
+        return false;
+    }
+
+    /* D3D12 validation layer says tiled resource tier 2+ support implies min/max filtering support. */
+    return options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_2;
 }
 
 #define create_empty_root_signature(device, flags) create_empty_root_signature_(__LINE__, device, flags)
@@ -1512,6 +1527,76 @@ static void test_create_descriptor_heap(void)
     refcount = ID3D12DescriptorHeap_Release(heap);
     ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
 
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
+static void test_create_sampler(void)
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    unsigned int sampler_increment_size;
+    D3D12_SAMPLER_DESC sampler_desc;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Device *device;
+    unsigned int i;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    sampler_increment_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
+            D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+    trace("Sampler descriptor handle increment size: %u.\n", sampler_increment_size);
+    ok(sampler_increment_size, "Got unexpected increment size %#x.\n", sampler_increment_size);
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+    heap_desc.NumDescriptors = 16;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    memset(&sampler_desc, 0, sizeof(sampler_desc));
+    sampler_desc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler_desc.MaxLOD = D3D12_FLOAT32_MAX;
+    ID3D12Device_CreateSampler(device, &sampler_desc, cpu_handle);
+
+    cpu_handle.ptr += sampler_increment_size;
+    sampler_desc.Filter = D3D12_FILTER_MIN_MAG_POINT_MIP_LINEAR;
+    for (i = 1; i < heap_desc.NumDescriptors; ++i)
+    {
+        ID3D12Device_CreateSampler(device, &sampler_desc, cpu_handle);
+        cpu_handle.ptr += sampler_increment_size;
+    }
+
+    trace("MinMaxFiltering: %#x.\n", is_min_max_filtering_supported(device));
+    if (is_min_max_filtering_supported(device))
+    {
+        cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+        sampler_desc.Filter = D3D12_FILTER_MINIMUM_MIN_MAG_MIP_POINT;
+        ID3D12Device_CreateSampler(device, &sampler_desc, cpu_handle);
+
+        cpu_handle.ptr += sampler_increment_size;
+        sampler_desc.Filter = D3D12_FILTER_MAXIMUM_MIN_MAG_MIP_POINT;
+        ID3D12Device_CreateSampler(device, &sampler_desc, cpu_handle);
+    }
+
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    sampler_desc.Filter = D3D12_FILTER_COMPARISON_MIN_MAG_MIP_POINT;
+    sampler_desc.ComparisonFunc = D3D12_COMPARISON_FUNC_LESS;
+    ID3D12Device_CreateSampler(device, &sampler_desc, cpu_handle);
+
+    refcount = ID3D12DescriptorHeap_Release(heap);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
@@ -2522,7 +2607,7 @@ static void test_clear_depth_stencil_view(void)
     dsv_increment_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
             D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
     trace("DSV descriptor handle increment size: %u.\n", dsv_increment_size);
-    ok(dsv_increment_size, "Got unexpectd increment size %#x.\n", dsv_increment_size);
+    ok(dsv_increment_size, "Got unexpected increment size %#x.\n", dsv_increment_size);
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -5311,6 +5396,7 @@ START_TEST(d3d12)
     run_test(test_create_command_queue);
     run_test(test_create_committed_resource);
     run_test(test_create_descriptor_heap);
+    run_test(test_create_sampler);
     run_test(test_create_root_signature);
     run_test(test_create_pipeline_state);
     run_test(test_create_fence);
