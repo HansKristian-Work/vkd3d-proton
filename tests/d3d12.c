@@ -434,6 +434,7 @@ static unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_R32G32B32A32_UINT:
             return 16;
         case DXGI_FORMAT_D32_FLOAT:
+        case DXGI_FORMAT_R32_UINT:
         case DXGI_FORMAT_R8G8B8A8_UNORM:
         case DXGI_FORMAT_B8G8R8A8_UNORM:
             return 4;
@@ -5374,6 +5375,234 @@ static void test_immediate_constant_buffer(void)
     destroy_test_context(&context);
 }
 
+#define check_copyable_footprints(a, b, c, d, e, f, g) \
+        check_copyable_footprints_(__LINE__, a, b, c, d, e, f, g)
+static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_DESC *desc,
+        unsigned int sub_resource_idx, unsigned int sub_resource_count,
+        const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts, const UINT *row_counts,
+        const UINT64 *row_sizes, UINT64 *total_size)
+{
+    unsigned int miplevel, width, height, depth, row_size, row_pitch;
+    UINT64 offset, total;
+    unsigned int i;
+
+    offset = total = 0;
+    for (i = 0; i < sub_resource_count; ++i)
+    {
+        miplevel = (sub_resource_idx + i) % desc->MipLevels;
+        width = max(1, desc->Width >> miplevel);
+        height = max(1, desc->Height >> miplevel);
+        depth = 1;
+        row_size = width * format_size(desc->Format);
+        row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+
+        if (layouts)
+        {
+            const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *l = &layouts[i];
+            const D3D12_SUBRESOURCE_FOOTPRINT *f = &l->Footprint;
+
+            ok_(line)(l->Offset == offset, "Got offset %"PRIu64", expected %"PRIu64".\n", l->Offset, offset);
+            ok_(line)(f->Format == desc->Format, "Got format %#x, expected %#x.\n", f->Format, desc->Format);
+            ok_(line)(f->Width == width, "Got width %u, expected %u.\n", f->Width, width);
+            ok_(line)(f->Height == height, "Got height %u, expected %u.\n", f->Height, height);
+            ok_(line)(f->Depth == depth, "Got depth %u, expected %u.\n", f->Depth, depth);
+            ok_(line)(f->RowPitch == row_pitch, "Got row pitch %u, expected %u.\n", f->RowPitch, row_pitch);
+        }
+
+        if (row_counts)
+            ok_(line)(row_counts[i] == height, "Got row count %u, expected %u.\n", row_counts[i], height);
+
+        if (row_sizes)
+            ok_(line)(row_sizes[i] == row_size, "Got row size %"PRIu64", expected %u.\n", row_sizes[i], row_size);
+
+        total = offset + max(0, height - 1) * row_pitch + row_size;
+        offset = align(total, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+    }
+
+    if (total_size)
+        ok_(line)(*total_size == total, "Got total size %"PRIu64", expected %"PRIu64".\n", *total_size, total);
+}
+
+static void test_get_copyable_footprints(void)
+{
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT layouts[10];
+    D3D12_RESOURCE_DESC resource_desc;
+    UINT64 row_sizes[10], total_size;
+    unsigned int sub_resource_count;
+    unsigned int i, j, k;
+    ID3D12Device *device;
+    UINT row_counts[10];
+    ULONG refcount;
+
+    static const struct
+    {
+        D3D12_RESOURCE_DIMENSION dimension;
+        unsigned int width;
+        unsigned int height;
+        unsigned int depth_or_array_size;
+        unsigned int miplevel_count;
+    }
+    resources[] =
+    {
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 1, 1},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 2, 1},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 1, 2},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 1, 1, 2},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 2, 1, 2},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 1, 1, 1},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 2, 1, 1},
+    };
+    static const DXGI_FORMAT formats[] =
+    {
+        DXGI_FORMAT_R32G32B32A32_FLOAT,
+        DXGI_FORMAT_R32G32B32A32_UINT,
+        DXGI_FORMAT_R32_UINT,
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+    };
+    static const struct
+    {
+        D3D12_RESOURCE_DESC resource_desc;
+        unsigned int sub_resource_idx;
+        unsigned int sub_resource_count;
+    }
+    invalid_descs[] =
+    {
+        {
+            {D3D12_RESOURCE_DIMENSION_BUFFER, 0, 3, 2, 1, 1, DXGI_FORMAT_R32_UINT,
+                {1, 0}, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_RESOURCE_FLAG_NONE}, 0, 1,
+        },
+        {
+            {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 0, 4, 4, 1, 1, DXGI_FORMAT_R32_UINT,
+                {1, 0}, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_RESOURCE_FLAG_NONE}, 0, 2,
+        },
+    };
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    /* TODO: test base offset */
+    /* TODO: test compressed formats */
+    for (i = 0; i < ARRAY_SIZE(resources); ++i)
+    {
+        resource_desc.Dimension = resources[i].dimension;
+        resource_desc.Alignment = 0;
+        resource_desc.Width = resources[i].width;
+        resource_desc.Height = resources[i].height;
+        resource_desc.DepthOrArraySize = resources[i].depth_or_array_size;
+        resource_desc.MipLevels = resources[i].miplevel_count;
+
+        for (j = 0; j < ARRAY_SIZE(formats); ++j)
+        {
+            resource_desc.Format = formats[j];
+
+            resource_desc.SampleDesc.Count = 1;
+            resource_desc.SampleDesc.Quality = 0;
+            resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+            resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+            sub_resource_count = resource_desc.DepthOrArraySize * resource_desc.MipLevels;
+            assert(sub_resource_count <= ARRAY_SIZE(layouts));
+
+            memset(layouts, 0, sizeof(layouts));
+            memset(row_counts, 0, sizeof(row_counts));
+            memset(row_sizes, 0, sizeof(row_sizes));
+            total_size = 0;
+            ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, 0,
+                    layouts, row_counts, row_sizes, &total_size);
+            check_copyable_footprints(&resource_desc, 0, sub_resource_count,
+                    layouts, row_counts, row_sizes, &total_size);
+
+            memset(layouts, 0, sizeof(layouts));
+            ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, 0,
+                    layouts, NULL, NULL, NULL);
+            check_copyable_footprints(&resource_desc, 0, sub_resource_count,
+                    layouts, NULL, NULL, NULL);
+            memset(row_counts, 0, sizeof(row_counts));
+            ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, 0,
+                    NULL, row_counts, NULL, NULL);
+            check_copyable_footprints(&resource_desc, 0, sub_resource_count,
+                    NULL, row_counts, NULL, NULL);
+            memset(row_sizes, 0, sizeof(row_sizes));
+            ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, 0,
+                    NULL, NULL, row_sizes, NULL);
+            check_copyable_footprints(&resource_desc, 0, sub_resource_count,
+                    NULL, NULL, row_sizes, NULL);
+            total_size = 0;
+            ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, 0,
+                    NULL, NULL, NULL, &total_size);
+            check_copyable_footprints(&resource_desc, 0, sub_resource_count,
+                    NULL, NULL, NULL, &total_size);
+
+            for (k = 0; k < sub_resource_count; ++k)
+            {
+                memset(layouts, 0, sizeof(layouts));
+                memset(row_counts, 0, sizeof(row_counts));
+                memset(row_sizes, 0, sizeof(row_sizes));
+                total_size = 0;
+                ID3D12Device_GetCopyableFootprints(device, &resource_desc, k, 1, 0,
+                        layouts, row_counts, row_sizes, &total_size);
+                check_copyable_footprints(&resource_desc, k, 1,
+                        layouts, row_counts, row_sizes, &total_size);
+            }
+        }
+    }
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 512;
+    resource_desc.Height = 512;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.SampleDesc.Count = 4;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    memset(layouts, 0, sizeof(layouts));
+    memset(row_counts, 0, sizeof(row_counts));
+    memset(row_sizes, 0, sizeof(row_sizes));
+    total_size = 0;
+    ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, 1, 0,
+            layouts, row_counts, row_sizes, &total_size);
+    check_copyable_footprints(&resource_desc, 0, 1,
+            layouts, row_counts, row_sizes, &total_size);
+
+    for (i = 0; i < ARRAY_SIZE(invalid_descs); ++i)
+    {
+        resource_desc = invalid_descs[i].resource_desc;
+
+        memset(layouts, 0, sizeof(layouts));
+        memset(row_counts, 0, sizeof(row_counts));
+        memset(row_sizes, 0, sizeof(row_sizes));
+        total_size = 0;
+        ID3D12Device_GetCopyableFootprints(device, &resource_desc,
+                invalid_descs[i].sub_resource_idx, invalid_descs[i].sub_resource_count, 0,
+                layouts, row_counts, row_sizes, &total_size);
+
+        for (j = 0; j < invalid_descs[i].sub_resource_count; ++j)
+        {
+            const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *l = &layouts[j];
+
+            ok(l->Offset == ~(UINT64)0, "Got offset %"PRIu64".\n", l->Offset);
+            ok(l->Footprint.Format == ~(DXGI_FORMAT)0, "Got format %#x.\n", l->Footprint.Format);
+            ok(l->Footprint.Width == ~0u, "Got width %u.\n", l->Footprint.Width);
+            ok(l->Footprint.Height == ~0u, "Got height %u.\n", l->Footprint.Height);
+            ok(l->Footprint.Depth == ~0u, "Got depth %u.\n", l->Footprint.Depth);
+            ok(l->Footprint.RowPitch == ~0u, "Got row pitch %u.\n", l->Footprint.RowPitch);
+
+            ok(row_counts[j] == ~0u, "Got row count %u.\n", row_counts[j]);
+            ok(row_sizes[j] == ~(UINT64)0, "Got row size %"PRIu64".\n", row_sizes[j]);
+        }
+
+        ok(total_size == ~(UINT64)0, "Got total size %"PRIu64".\n", total_size);
+    }
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12)
 {
     BOOL enable_debug_layer = FALSE;
@@ -5420,4 +5649,5 @@ START_TEST(d3d12)
     run_test(test_shader_interstage_interface);
     run_test(test_root_signature_deserializer);
     run_test(test_immediate_constant_buffer);
+    run_test(test_get_copyable_footprints);
 }
