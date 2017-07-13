@@ -1026,19 +1026,79 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_GetDeviceRemovedReason(ID3D12Devic
 }
 
 static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *iface,
-        const D3D12_RESOURCE_DESC *desc,
-        UINT first_sub_resource,
-        UINT sub_resource_count,
-        UINT64 base_offset,
-        D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts,
-        UINT *row_count,
-        UINT64 *row_size,
-        UINT64 *total_bytes)
+        const D3D12_RESOURCE_DESC *desc, UINT first_sub_resource, UINT sub_resource_count,
+        UINT64 base_offset, D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts,
+        UINT *row_counts, UINT64 *row_sizes, UINT64 *total_bytes)
 {
-    FIXME("iface %p, desc %p, first_sub_resource %u, sub_resource_count %u, base_offset %#"PRIx64", "
-            "layouts %p, row_count %p, row_size %p, total_bytes %p stub!\n",
-            iface, desc, first_sub_resource, sub_resource_count, base_offset, layouts,
-            row_count, row_size, total_bytes);
+    unsigned int i, sub_resource_idx, miplevel_idx, width, height, row_size, row_pitch;
+    const struct vkd3d_format *format;
+    UINT64 offset, total;
+
+    TRACE("iface %p, desc %p, first_sub_resource %u, sub_resource_count %u, base_offset %#"PRIx64", "
+            "layouts %p, row_counts %p, row_sizes %p, total_bytes %p.\n",
+            iface, desc, first_sub_resource, sub_resource_count, base_offset,
+            layouts, row_counts, row_sizes, total_bytes);
+
+    if (layouts)
+        memset(layouts, 0xff, sizeof(*layouts) * sub_resource_count);
+    if (row_counts)
+        memset(row_counts, 0xff, sizeof(*row_counts) * sub_resource_count);
+    if (row_sizes)
+        memset(row_sizes, 0xff, sizeof(*row_sizes) * sub_resource_count);
+    if (total_bytes)
+        *total_bytes = ~(UINT64)0;
+    if (!(format = vkd3d_get_format(desc->Format)))
+    {
+        WARN("Invalid format %#x.\n", desc->Format);
+        return;
+    }
+
+    if (desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    {
+        FIXME("Unhandled resource dimension %#x.\n", desc->Dimension);
+        return;
+    }
+
+    if (first_sub_resource >= desc->MipLevels * desc->DepthOrArraySize
+            || sub_resource_count > desc->MipLevels * desc->DepthOrArraySize - first_sub_resource)
+    {
+        WARN("Invalid sub-resource range %u-%u for resource.\n", first_sub_resource, sub_resource_count);
+        return;
+    }
+
+    if (base_offset)
+        FIXME("Ignoring base offset %#"PRIx64".\n", base_offset);
+
+    offset = 0;
+    total = 0;
+    for (i = 0; i < sub_resource_count; ++i)
+    {
+        sub_resource_idx = first_sub_resource + i;
+        miplevel_idx = sub_resource_idx % desc->MipLevels;
+        width = max(1, desc->Width >> miplevel_idx);
+        height = max(1, desc->Height >> miplevel_idx);
+        row_size = width * format->byte_count;
+        row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+
+        if (layouts)
+        {
+            layouts[i].Offset = offset;
+            layouts[i].Footprint.Format = desc->Format;
+            layouts[i].Footprint.Width = width;
+            layouts[i].Footprint.Height = height;
+            layouts[i].Footprint.Depth = 1;
+            layouts[i].Footprint.RowPitch = row_pitch;
+        }
+        if (row_counts)
+            row_counts[i] = height;
+        if (row_sizes)
+            row_sizes[i] = row_size;
+
+        total = offset + max(0, height - 1) * row_pitch + row_size;
+        offset = align(total, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+    }
+    if (total_bytes)
+        *total_bytes = total;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateQueryHeap(ID3D12Device *iface,
