@@ -2404,8 +2404,7 @@ static void vkd3d_dxbc_compiler_emit_dot(struct vkd3d_dxbc_compiler *compiler,
 
     assert(instruction->src_count == ARRAY_SIZE(src_ids));
     for (i = 0; i < instruction->src_count; ++i)
-        src_ids[i] = vkd3d_dxbc_compiler_emit_load_reg(compiler,
-                &src[i].reg, src[i].swizzle, write_mask);
+        src_ids[i] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[i], write_mask);
 
     type_id = vkd3d_spirv_get_type_id(builder,
             vkd3d_component_type_from_data_type(dst->reg.data_type), 1);
