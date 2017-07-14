@@ -325,22 +325,10 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
     if (resource->flags & VKD3D_RESOURCE_EXTERNAL)
         return;
 
-    switch (resource->desc.Dimension)
-    {
-        case D3D12_RESOURCE_DIMENSION_BUFFER:
-            VK_CALL(vkDestroyBuffer(device->vk_device, resource->u.vk_buffer, NULL));
-            break;
-
-        case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
-        case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
-        case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
-            VK_CALL(vkDestroyImage(device->vk_device, resource->u.vk_image, NULL));
-            break;
-
-        default:
-            ERR("Invalid resource dimension %#x.\n", resource->desc.Dimension);
-            break;
-    }
+    if (d3d12_resource_is_buffer(resource))
+        VK_CALL(vkDestroyBuffer(device->vk_device, resource->u.vk_buffer, NULL));
+    else
+        VK_CALL(vkDestroyImage(device->vk_device, resource->u.vk_image, NULL));
 
     if (resource->vk_memory)
         VK_CALL(vkFreeMemory(device->vk_device, resource->vk_memory, NULL));
