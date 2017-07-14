@@ -35,6 +35,9 @@
 #define VK_CALL(f) (vk_procs->f)
 
 #define VKD3D_DESCRIPTOR_MAGIC_FREE    0x00000000u
+#define VKD3D_DESCRIPTOR_MAGIC_CBV     0x00564243u
+#define VKD3D_DESCRIPTOR_MAGIC_SRV     0x00565253u
+#define VKD3D_DESCRIPTOR_MAGIC_UAV     0x00564155u
 #define VKD3D_DESCRIPTOR_MAGIC_SAMPLER 0x504d4153u
 #define VKD3D_DESCRIPTOR_MAGIC_DSV     0x00565344u
 #define VKD3D_DESCRIPTOR_MAGIC_RTV     0x00565452u
@@ -156,7 +159,12 @@ struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface) DE
 struct d3d12_cbv_srv_uav_desc
 {
     uint32_t magic;
+    VkImageView vk_image_view;
 };
+
+void d3d12_cbv_srv_uav_desc_create_srv(struct d3d12_cbv_srv_uav_desc *descriptor,
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        const D3D12_SHADER_RESOURCE_VIEW_DESC *desc) DECLSPEC_HIDDEN;
 
 struct d3d12_sampler_desc
 {

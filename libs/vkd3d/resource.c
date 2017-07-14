@@ -752,6 +752,77 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_D
     return S_OK;
 }
 
+/* CBVs, SRVs, UAVs */
+static void d3d12_cbv_srv_uav_desc_destroy(struct d3d12_cbv_srv_uav_desc *descriptor,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV)
+    {
+        VK_CALL(vkDestroyImageView(device->vk_device, descriptor->vk_image_view, NULL));
+        memset(descriptor, 0, sizeof(*descriptor));
+    }
+}
+
+void d3d12_cbv_srv_uav_desc_create_srv(struct d3d12_cbv_srv_uav_desc *descriptor,
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
+{
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct VkImageViewCreateInfo view_desc;
+    const struct vkd3d_format *format;
+    VkResult vr;
+
+    vk_procs = &device->vk_procs;
+
+    d3d12_cbv_srv_uav_desc_destroy(descriptor, device);
+
+    if (!resource)
+    {
+        FIXME("NULL resource SRV not implemented.\n");
+        return;
+    }
+
+    if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    {
+        FIXME("Resource dimension %#x not implemented.\n", resource->desc.Dimension);
+        return;
+    }
+
+    if (desc)
+        FIXME("Unhandled SRV desc %p.\n", desc);
+
+    if (!(format = vkd3d_get_format(resource->desc.Format)))
+    {
+        ERR("Failed to find format for %#x.\n", resource->desc.Format);
+        return;
+    }
+
+    view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_desc.pNext = NULL;
+    view_desc.flags = 0;
+    view_desc.image = resource->u.vk_image;
+    view_desc.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_desc.format = vkd3d_get_format(resource->desc.Format)->vk_format;
+    view_desc.components.r = VK_COMPONENT_SWIZZLE_R;
+    view_desc.components.g = VK_COMPONENT_SWIZZLE_G;
+    view_desc.components.b = VK_COMPONENT_SWIZZLE_B;
+    view_desc.components.a = VK_COMPONENT_SWIZZLE_A;
+    view_desc.subresourceRange.aspectMask = format->vk_aspect_mask;
+    view_desc.subresourceRange.baseMipLevel = 0;
+    view_desc.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+    view_desc.subresourceRange.baseArrayLayer = 0;
+    view_desc.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &descriptor->vk_image_view))) < 0)
+    {
+        WARN("Failed to create Vulkan image view, vr %d.\n", vr);
+        return;
+    }
+
+    descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
+}
+
 /* samplers */
 static void d3d12_sampler_desc_destroy(struct d3d12_sampler_desc *sampler, struct d3d12_device *device)
 {
@@ -1070,32 +1141,54 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
         struct d3d12_device *device = heap->device;
         unsigned int i;
 
-        if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+        switch (heap->desc.Type)
         {
-            struct d3d12_sampler_desc *samplers = (struct d3d12_sampler_desc *)heap->descriptors;
-
-            for (i = 0; i < heap->desc.NumDescriptors; ++i)
+            case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
             {
-                d3d12_sampler_desc_destroy(&samplers[i], device);
-            }
-        }
-        else if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_RTV)
-        {
-            struct d3d12_rtv_desc *rtvs = (struct d3d12_rtv_desc *)heap->descriptors;
+                struct d3d12_cbv_srv_uav_desc *descriptors = (struct d3d12_cbv_srv_uav_desc *)heap->descriptors;
 
-            for (i = 0; i < heap->desc.NumDescriptors; ++i)
-            {
-                d3d12_rtv_desc_destroy(&rtvs[i], device);
+                for (i = 0; i < heap->desc.NumDescriptors; ++i)
+                {
+                    d3d12_cbv_srv_uav_desc_destroy(&descriptors[i], device);
+                }
+                break;
             }
-        }
-        else if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_DSV)
-        {
-            struct d3d12_dsv_desc *dsvs = (struct d3d12_dsv_desc *)heap->descriptors;
 
-            for (i = 0; i < heap->desc.NumDescriptors; ++i)
+            case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
             {
-                d3d12_dsv_desc_destroy(&dsvs[i], device);
+                struct d3d12_sampler_desc *samplers = (struct d3d12_sampler_desc *)heap->descriptors;
+
+                for (i = 0; i < heap->desc.NumDescriptors; ++i)
+                {
+                    d3d12_sampler_desc_destroy(&samplers[i], device);
+                }
+                break;
             }
+
+            case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
+            {
+                struct d3d12_rtv_desc *rtvs = (struct d3d12_rtv_desc *)heap->descriptors;
+
+                for (i = 0; i < heap->desc.NumDescriptors; ++i)
+                {
+                    d3d12_rtv_desc_destroy(&rtvs[i], device);
+                }
+                break;
+            }
+
+            case D3D12_DESCRIPTOR_HEAP_TYPE_DSV:
+            {
+                struct d3d12_dsv_desc *dsvs = (struct d3d12_dsv_desc *)heap->descriptors;
+
+                for (i = 0; i < heap->desc.NumDescriptors; ++i)
+                {
+                    d3d12_dsv_desc_destroy(&dsvs[i], device);
+                }
+                break;
+            }
+
+            default:
+                break;
         }
 
         vkd3d_free(heap);
