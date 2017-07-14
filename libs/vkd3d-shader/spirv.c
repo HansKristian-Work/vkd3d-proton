@@ -1963,6 +1963,9 @@ static void vkd3d_dxbc_compiler_emit_dcl_temps(struct vkd3d_dxbc_compiler *compi
     unsigned int i;
     uint32_t id;
 
+    /* FIXME: Make sure that function variables are declared at the beginning
+     * of the first block in the function. Otherwise, we'll produce invalid
+     * SPIR-V code. */
     assert(!compiler->temp_count);
     compiler->temp_count = instruction->declaration.count;
     for (i = 0; i < compiler->temp_count; ++i)
