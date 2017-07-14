@@ -1731,6 +1731,26 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(ID3D12Graphics
             src_resource->u.vk_buffer, dst_resource->u.vk_buffer, 1, &buffer_copy));
 }
 
+static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy *buffer_image_copy,
+        const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *footprint, unsigned int sub_resource_idx,
+        const D3D12_RESOURCE_DESC *image_desc, const struct vkd3d_format *format,
+        unsigned int dst_x, unsigned int dst_y, unsigned int dst_z)
+{
+    buffer_image_copy->bufferOffset = footprint->Offset;
+    buffer_image_copy->bufferRowLength = footprint->Footprint.RowPitch / format->byte_count;
+    buffer_image_copy->bufferImageHeight = 0;
+    buffer_image_copy->imageSubresource.aspectMask = format->vk_aspect_mask;
+    buffer_image_copy->imageSubresource.mipLevel = sub_resource_idx % image_desc->MipLevels;
+    buffer_image_copy->imageSubresource.baseArrayLayer = sub_resource_idx / image_desc->MipLevels;
+    buffer_image_copy->imageSubresource.layerCount = 1;
+    buffer_image_copy->imageOffset.x = dst_x;
+    buffer_image_copy->imageOffset.y = dst_y;
+    buffer_image_copy->imageOffset.z = dst_z;
+    buffer_image_copy->imageExtent.width = footprint->Footprint.Width;
+    buffer_image_copy->imageExtent.height = footprint->Footprint.Height;
+    buffer_image_copy->imageExtent.depth = footprint->Footprint.Depth;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12GraphicsCommandList *iface,
         const D3D12_TEXTURE_COPY_LOCATION *dst, UINT dst_x, UINT dst_y, UINT dst_z,
         const D3D12_TEXTURE_COPY_LOCATION *src, const D3D12_BOX *src_box)
@@ -1765,23 +1785,36 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
                 && (format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
             FIXME("Depth-stencil format %#x not fully supported yet.\n", format->dxgi_format);
 
-        buffer_image_copy.bufferOffset = dst->u.PlacedFootprint.Offset;
-        buffer_image_copy.bufferRowLength = dst->u.PlacedFootprint.Footprint.RowPitch / format->byte_count;
-        buffer_image_copy.bufferImageHeight = 0;
-        buffer_image_copy.imageSubresource.aspectMask = format->vk_aspect_mask;
-        buffer_image_copy.imageSubresource.mipLevel = src->u.SubresourceIndex % src_resource->desc.MipLevels;
-        buffer_image_copy.imageSubresource.baseArrayLayer = src->u.SubresourceIndex / src_resource->desc.MipLevels;
-        buffer_image_copy.imageSubresource.layerCount = 1;
-        buffer_image_copy.imageOffset.x = dst_x;
-        buffer_image_copy.imageOffset.y = dst_y;
-        buffer_image_copy.imageOffset.z = dst_z;
-        buffer_image_copy.imageExtent.width = dst->u.PlacedFootprint.Footprint.Width;
-        buffer_image_copy.imageExtent.height = dst->u.PlacedFootprint.Footprint.Height;
-        buffer_image_copy.imageExtent.depth = dst->u.PlacedFootprint.Footprint.Depth;
+        assert(d3d12_resource_is_buffer(dst_resource));
+        assert(!d3d12_resource_is_buffer(src_resource));
 
+        vk_buffer_image_copy_from_d3d12(&buffer_image_copy, &dst->u.PlacedFootprint,
+                src->u.SubresourceIndex, &src_resource->desc, format, dst_x, dst_y, dst_z);
         VK_CALL(vkCmdCopyImageToBuffer(list->vk_command_buffer,
                 src_resource->u.vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 dst_resource->u.vk_buffer, 1, &buffer_image_copy));
+    }
+    else if (src->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT
+            && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
+    {
+        if (!(format = vkd3d_get_format(src->u.PlacedFootprint.Footprint.Format)))
+        {
+            WARN("Invalid format %#x.\n", src->u.PlacedFootprint.Footprint.Format);
+            return;
+        }
+
+        if ((format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                && (format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
+            FIXME("Depth-stencil format %#x not fully supported yet.\n", format->dxgi_format);
+
+        assert(!d3d12_resource_is_buffer(dst_resource));
+        assert(d3d12_resource_is_buffer(src_resource));
+
+        vk_buffer_image_copy_from_d3d12(&buffer_image_copy, &src->u.PlacedFootprint,
+                dst->u.SubresourceIndex, &dst_resource->desc, format, dst_x, dst_y, dst_z);
+        VK_CALL(vkCmdCopyBufferToImage(list->vk_command_buffer,
+                src_resource->u.vk_buffer, dst_resource->u.vk_image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &buffer_image_copy));
     }
     else
     {
