@@ -1266,7 +1266,11 @@ static D3D12_CPU_DESCRIPTOR_HANDLE * STDMETHODCALLTYPE d3d12_descriptor_heap_Get
 static D3D12_GPU_DESCRIPTOR_HANDLE * STDMETHODCALLTYPE d3d12_descriptor_heap_GetGPUDescriptorHandleForHeapStart(
         ID3D12DescriptorHeap *iface, D3D12_GPU_DESCRIPTOR_HANDLE *descriptor)
 {
-    FIXME("iface %p, descriptor %p stub!\n", iface, descriptor);
+    struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
+
+    TRACE("iface %p, descriptor %p.\n", iface, descriptor);
+
+    descriptor->ptr = (UINT64)(intptr_t)heap->descriptors;
 
     return descriptor;
 }
