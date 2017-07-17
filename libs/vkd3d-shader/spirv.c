@@ -136,6 +136,8 @@ struct vkd3d_spirv_builder
     uint32_t main_function_id;
     uint32_t type_id[VKD3D_TYPE_COUNT][VKD3D_VEC4_SIZE];
     uint32_t type_sampler_id;
+    uint32_t type_bool_id;
+    uint32_t type_void_id;
 
     struct vkd3d_spirv_stream debug_stream; /* debug instructions */
     struct vkd3d_spirv_stream annotation_stream; /* decoration instructions */
@@ -526,9 +528,19 @@ static uint32_t vkd3d_spirv_build_op_type_void(struct vkd3d_spirv_builder *build
     return vkd3d_spirv_build_op_r(builder, &builder->global_stream, SpvOpTypeVoid);
 }
 
+static uint32_t vkd3d_spirv_get_op_type_void(struct vkd3d_spirv_builder *builder)
+{
+    return vkd3d_spirv_build_once(builder, &builder->type_void_id, vkd3d_spirv_build_op_type_void);
+}
+
 static uint32_t vkd3d_spirv_build_op_type_bool(struct vkd3d_spirv_builder *builder)
 {
     return vkd3d_spirv_build_op_r(builder, &builder->global_stream, SpvOpTypeBool);
+}
+
+static uint32_t vkd3d_spirv_get_op_type_bool(struct vkd3d_spirv_builder *builder)
+{
+    return vkd3d_spirv_build_once(builder, &builder->type_bool_id, vkd3d_spirv_build_op_type_bool);
 }
 
 static uint32_t vkd3d_spirv_build_op_type_float(struct vkd3d_spirv_builder *builder,
@@ -858,7 +870,7 @@ static uint32_t vkd3d_spirv_get_type_id(struct vkd3d_spirv_builder *builder,
             switch (component_type)
             {
                 case VKD3D_TYPE_VOID:
-                    id = vkd3d_spirv_build_op_type_void(builder);
+                    id = vkd3d_spirv_get_op_type_void(builder);
                     break;
                 case VKD3D_TYPE_FLOAT:
                     id = vkd3d_spirv_build_op_type_float(builder, 32);
@@ -868,7 +880,7 @@ static uint32_t vkd3d_spirv_get_type_id(struct vkd3d_spirv_builder *builder,
                     id = vkd3d_spirv_build_op_type_int(builder, 32, component_type == VKD3D_TYPE_INT);
                     break;
                 case VKD3D_TYPE_BOOL:
-                    id = vkd3d_spirv_build_op_type_bool(builder);
+                    id = vkd3d_spirv_get_op_type_bool(builder);
                     break;
                 default:
                     FIXME("Unhandled component type %#x.\n", component_type);
@@ -899,7 +911,7 @@ static void vkd3d_spirv_builder_init(struct vkd3d_spirv_builder *builder)
 
     builder->current_id = 1;
 
-    void_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_VOID, 1);
+    void_id = vkd3d_spirv_get_op_type_void(builder);
     function_type_id = vkd3d_spirv_build_op_type_function(builder, void_id, NULL, 0);
 
     builder->main_function_id = vkd3d_spirv_build_op_function(builder, void_id,
@@ -2724,7 +2736,7 @@ static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler
 
     if ((function_id = compiler->output_setup_function_id))
     {
-        void_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_VOID, 1);
+        void_id = vkd3d_spirv_get_op_type_void(builder);
         for (i = 0, count = 0; i < ARRAY_SIZE(compiler->private_output_variable); ++i)
         {
             if (compiler->private_output_variable[i])
@@ -3005,7 +3017,7 @@ static void vkd3d_dxbc_compiler_emit_output_setup_function(struct vkd3d_dxbc_com
 
     function_id = compiler->output_setup_function_id;
 
-    void_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_VOID, 1);
+    void_id = vkd3d_spirv_get_op_type_void(builder);
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 4);
     ptr_type_id = vkd3d_dxbc_compiler_get_pointer_type(compiler, type_id, SpvStorageClassPrivate);
     for (i = 0, count = 0; i < ARRAY_SIZE(compiler->private_output_variable); ++i)
