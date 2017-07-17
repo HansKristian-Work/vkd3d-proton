@@ -168,6 +168,50 @@ static VkShaderStageFlags stage_flags_from_visibility(D3D12_SHADER_VISIBILITY vi
     }
 }
 
+static VkDescriptorType vk_descriptor_type_from_d3d12(D3D12_DESCRIPTOR_RANGE_TYPE type)
+{
+    switch (type)
+    {
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
+            return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+            return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+            return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+            return VK_DESCRIPTOR_TYPE_SAMPLER;
+        default:
+            FIXME("Unhandled descriptor type %#x.\n", type);
+            return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    }
+}
+
+static bool vk_binding_from_d3d12_descriptor_range(struct VkDescriptorSetLayoutBinding *binding_desc,
+        const D3D12_DESCRIPTOR_RANGE *descriptor_range)
+{
+    binding_desc->binding = descriptor_range->BaseShaderRegister;
+    binding_desc->descriptorType = vk_descriptor_type_from_d3d12(descriptor_range->RangeType);
+    binding_desc->descriptorCount = 1;
+
+    if (descriptor_range->NumDescriptors != 1)
+    {
+        FIXME("Unhandled descriptor count %u.\n", descriptor_range->NumDescriptors);
+        return false;
+    }
+    if (descriptor_range->RegisterSpace)
+    {
+        FIXME("Unhandled register space %u.\n", descriptor_range->RegisterSpace);
+        return false;
+    }
+    if (descriptor_range->OffsetInDescriptorsFromTableStart)
+    {
+        FIXME("Unhandled offset %u.\n", descriptor_range->OffsetInDescriptorsFromTableStart);
+        return false;
+    }
+
+    return true;
+}
+
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc)
 {
@@ -175,7 +219,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     struct VkPipelineLayoutCreateInfo pipeline_layout_info;
     struct VkDescriptorSetLayoutBinding *binding_desc;
     struct VkDescriptorSetLayoutCreateInfo set_desc;
-    size_t cbv_count = 0;
+    size_t cbv_count = 0, srv_count = 0;
     unsigned int i;
     VkResult vr;
 
@@ -196,6 +240,23 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
         switch (p->ParameterType)
         {
+            case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+                if (p->u.DescriptorTable.NumDescriptorRanges != 1)
+                {
+                    FIXME("Unhandled %u descriptor ranges.\n", p->u.DescriptorTable.NumDescriptorRanges);
+                    vkd3d_free(binding_desc);
+                    return E_NOTIMPL;
+                }
+                if (!vk_binding_from_d3d12_descriptor_range(&binding_desc[i],
+                        p->u.DescriptorTable.pDescriptorRanges))
+                {
+                    vkd3d_free(binding_desc);
+                    return E_NOTIMPL;
+                }
+                binding_desc[i].stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
+                binding_desc[i].pImmutableSamplers = NULL;
+                break;
+
             case D3D12_ROOT_PARAMETER_TYPE_CBV:
                 /* FIXME: Register spaces should map to set layouts. */
                 if (p->u.Descriptor.RegisterSpace)
@@ -209,11 +270,24 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
                 binding_desc[i].descriptorCount = 1;
                 binding_desc[i].stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
                 binding_desc[i].pImmutableSamplers = NULL;
-                ++cbv_count;
                 break;
 
             default:
                 FIXME("Unhandled type %#x for parameter %u.\n", p->ParameterType, i);
+                vkd3d_free(binding_desc);
+                return E_NOTIMPL;
+        }
+
+        switch (binding_desc[i].descriptorType)
+        {
+            case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+                cbv_count += binding_desc[i].descriptorCount;
+                break;
+            case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+                srv_count += binding_desc[i].descriptorCount;
+                break;
+            default:
+                FIXME("Unhandled descriptor type %#x.\n", binding_desc[i].descriptorType);
                 vkd3d_free(binding_desc);
                 return E_NOTIMPL;
         }
@@ -233,17 +307,31 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         return hresult_from_vk_result(vr);
     }
 
-    if (cbv_count)
+    if (cbv_count || srv_count)
     {
-        if (!(root_signature->pool_sizes = vkd3d_calloc(1, sizeof(*root_signature->pool_sizes))))
+        root_signature->pool_size_count = 0;
+        if (cbv_count)
+            ++root_signature->pool_size_count;
+        if (srv_count)
+            ++root_signature->pool_size_count;
+        if (!(root_signature->pool_sizes = vkd3d_calloc(root_signature->pool_size_count,
+                sizeof(*root_signature->pool_sizes))))
         {
             VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
             return E_OUTOFMEMORY;
         }
-        root_signature->pool_size_count = 1;
 
-        root_signature->pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        root_signature->pool_sizes[0].descriptorCount = cbv_count;
+        i = 0;
+        if (cbv_count)
+        {
+            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            root_signature->pool_sizes[i++].descriptorCount = cbv_count;
+        }
+        if (srv_count)
+        {
+            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            root_signature->pool_sizes[i++].descriptorCount = srv_count;
+        }
     }
     else
     {
