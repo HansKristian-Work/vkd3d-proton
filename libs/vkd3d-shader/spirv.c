@@ -568,6 +568,13 @@ static uint32_t vkd3d_spirv_build_op_type_image(struct vkd3d_spirv_builder *buil
             SpvOpTypeImage, operands, ARRAY_SIZE(operands));
 }
 
+static uint32_t vkd3d_spirv_build_op_type_sampled_image(struct vkd3d_spirv_builder *builder,
+        uint32_t image_type_id)
+{
+    return vkd3d_spirv_build_op_r1(builder, &builder->global_stream,
+            SpvOpTypeSampledImage, image_type_id);
+}
+
 static uint32_t vkd3d_spirv_build_op_type_function(struct vkd3d_spirv_builder *builder,
         uint32_t return_type, uint32_t *param_types, unsigned int param_count)
 {
@@ -777,6 +784,33 @@ static uint32_t vkd3d_spirv_build_op_bitcast(struct vkd3d_spirv_builder *builder
             SpvOpBitcast, result_type, operand);
 }
 
+static uint32_t vkd3d_spirv_build_op_sampled_image(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t image_id, uint32_t sampler_id)
+{
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            SpvOpSampledImage, result_type, image_id, sampler_id);
+}
+
+static uint32_t vkd3d_spirv_build_op_image_sample_implicit_lod(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t sampled_image_id, uint32_t coordinate_id,
+        uint32_t image_operands, const uint32_t *operands, unsigned int operand_count)
+{
+    unsigned int i = 0, j;
+    uint32_t w[10];
+
+    w[i++] = sampled_image_id;
+    w[i++] = coordinate_id;
+    if (image_operands)
+    {
+        assert(i + 1 + operand_count <= ARRAY_SIZE(w));
+        w[i++] = image_operands;
+        for (j = 0; j < operand_count; ++j)
+            w[i++] = operands[j];
+    }
+    return vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
+            SpvOpImageSampleImplicitLod, result_type, w, i);
+}
+
 static uint32_t vkd3d_spirv_build_op_glsl_std450_fabs(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand)
 {
@@ -955,6 +989,11 @@ struct vkd3d_symbol_register
     unsigned int idx;
 };
 
+struct vkd3d_symbol_resource
+{
+    unsigned int idx;
+};
+
 struct vkd3d_symbol
 {
     struct rb_entry entry;
@@ -964,6 +1003,7 @@ struct vkd3d_symbol
         VKD3D_SYMBOL_POINTER_TYPE,
         VKD3D_SYMBOL_CONSTANT,
         VKD3D_SYMBOL_REGISTER,
+        VKD3D_SYMBOL_RESOURCE,
     } type;
 
     union
@@ -971,12 +1011,18 @@ struct vkd3d_symbol
         struct vkd3d_symbol_pointer_type pointer_type;
         struct vkd3d_symbol_constant constant;
         struct vkd3d_symbol_register reg;
+        struct vkd3d_symbol_resource resource;
     } key;
 
     uint32_t id;
     union
     {
         SpvStorageClass storage_class;
+        struct
+        {
+            enum vkd3d_component_type sampled_type;
+            uint32_t type_id;
+        } resource;
     } info;
 };
 
@@ -1024,6 +1070,14 @@ static void vkd3d_symbol_make_register(struct vkd3d_symbol *symbol,
     symbol->key.reg.type = reg->type;
     if (reg->type != VKD3DSPR_IMMCONSTBUFFER)
         symbol->key.reg.idx = reg->idx[0].offset;
+}
+
+static void vkd3d_symbol_make_resource(struct vkd3d_symbol *symbol,
+        const struct vkd3d_shader_register *reg)
+{
+    symbol->type = VKD3D_SYMBOL_RESOURCE;
+    memset(&symbol->key, 0, sizeof(symbol->key));
+    symbol->key.resource.idx = reg->idx[0].offset;
 }
 
 static struct vkd3d_symbol *vkd3d_symbol_dup(const struct vkd3d_symbol *symbol)
@@ -1381,6 +1435,7 @@ static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *
         case VKD3DSPR_OUTPUT:
         case VKD3DSPR_COLOROUT:
         case VKD3DSPR_CONSTBUFFER:
+        case VKD3DSPR_SAMPLER:
             vkd3d_dxbc_compiler_get_register_info(compiler, reg, &register_info);
             return register_info.id;
         case VKD3DSPR_IMMCONST:
@@ -2135,7 +2190,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *co
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t sampled_type_id, type_id, ptr_type_id, var_id;
     enum vkd3d_component_type sampled_type;
-    struct vkd3d_symbol reg_symbol;
+    struct vkd3d_symbol resource_symbol;
     uint32_t arrayed, ms;
     unsigned int reg_idx;
     SpvDim dim;
@@ -2159,10 +2214,11 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *co
 
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, &semantic->reg.reg);
 
-    vkd3d_symbol_make_register(&reg_symbol, &semantic->reg.reg);
-    reg_symbol.id = var_id;
-    reg_symbol.info.storage_class = storage_class;
-    vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
+    vkd3d_symbol_make_resource(&resource_symbol, &semantic->reg.reg);
+    resource_symbol.id = var_id;
+    resource_symbol.info.resource.sampled_type = sampled_type;
+    resource_symbol.info.resource.type_id = type_id;
+    vkd3d_dxbc_compiler_put_symbol(compiler, &resource_symbol);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compiler,
@@ -2761,6 +2817,62 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
     }
 }
 
+static uint32_t vkd3d_dxbc_compiler_prepare_sampled_image(struct vkd3d_dxbc_compiler *compiler,
+    const struct vkd3d_shader_register *resource_reg, const struct vkd3d_shader_register *sampler_reg,
+    enum vkd3d_component_type *sampled_type)
+{
+    uint32_t image_id, sampler_var_id, sampler_id, sampled_image_type_id, sampled_image_id;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_symbol *resource_symbol;
+    struct vkd3d_symbol resource_key;
+    struct rb_entry *entry;
+
+    vkd3d_symbol_make_resource(&resource_key, resource_reg);
+    entry = rb_get(&compiler->symbol_table, &resource_key);
+    assert(entry);
+    resource_symbol = RB_ENTRY_VALUE(entry, struct vkd3d_symbol, entry);
+
+    image_id = vkd3d_spirv_build_op_load(builder,
+            resource_symbol->info.resource.type_id, resource_symbol->id, SpvMemoryAccessMaskNone);
+    sampler_var_id = vkd3d_dxbc_compiler_get_register_id(compiler, sampler_reg);
+    sampler_id = vkd3d_spirv_build_op_load(builder,
+            vkd3d_dxbc_compiler_get_sampler_type_id(compiler), sampler_var_id, SpvMemoryAccessMaskNone);
+
+    /* FIXME: Avoid duplicated sampled image types. */
+    sampled_image_type_id = vkd3d_spirv_build_op_type_sampled_image(builder,
+            resource_symbol->info.resource.type_id);
+    sampled_image_id = vkd3d_spirv_build_op_sampled_image(builder,
+            sampled_image_type_id, image_id, sampler_id);
+
+    *sampled_type = resource_symbol->info.resource.sampled_type;
+    return sampled_image_id;
+}
+
+static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    uint32_t sampled_image_id, sampled_type_id, coordinate_id, val_id;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    struct vkd3d_shader_dst_param dst = *instruction->dst;
+    enum vkd3d_component_type sampled_type;
+
+    if (vkd3d_shader_instruction_has_texel_offset(instruction))
+        FIXME("Texel offset not supported.\n");
+
+    sampled_image_id = vkd3d_dxbc_compiler_prepare_sampled_image(compiler,
+            &src[1].reg, &src[2].reg, &sampled_type);
+    sampled_type_id = vkd3d_spirv_get_type_id(builder, sampled_type, VKD3D_VEC4_SIZE);
+    coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_ALL);
+    val_id = vkd3d_spirv_build_op_image_sample_implicit_lod(builder, sampled_type_id,
+            sampled_image_id, coordinate_id, SpvImageOperandsMaskNone, NULL, 0);
+
+    val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler, val_id, src[1].swizzle, dst.write_mask);
+    /* XXX: Fix the result data type. */
+    dst.reg.data_type = vkd3d_data_type_from_component_type(sampled_type);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst, val_id);
+}
+
 void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -2865,6 +2977,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_ENDIF:
         case VKD3DSIH_RET:
             vkd3d_dxbc_compiler_emit_control_flow_instruction(compiler, instruction);
+            break;
+        case VKD3DSIH_SAMPLE:
+            vkd3d_dxbc_compiler_emit_sample(compiler, instruction);
             break;
         default:
             FIXME("Unhandled instruction %#x.\n", instruction->handler_idx);

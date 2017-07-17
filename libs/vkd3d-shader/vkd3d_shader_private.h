@@ -846,6 +846,23 @@ static inline enum vkd3d_component_type vkd3d_component_type_from_data_type(
     }
 }
 
+static inline enum vkd3d_data_type vkd3d_data_type_from_component_type(
+        enum vkd3d_component_type component_type)
+{
+    switch (component_type)
+    {
+        case VKD3D_TYPE_FLOAT:
+            return VKD3D_DATA_FLOAT;
+        case VKD3D_TYPE_UINT:
+            return VKD3D_DATA_UINT;
+        case VKD3D_TYPE_INT:
+            return VKD3D_DATA_INT;
+        default:
+            FIXME("Unhandled component type %#x.\n", component_type);
+            return VKD3D_DATA_FLOAT;
+    }
+}
+
 static inline unsigned int vkd3d_write_mask_get_component_idx(DWORD write_mask)
 {
     unsigned int i;
