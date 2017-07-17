@@ -711,6 +711,13 @@ static uint32_t vkd3d_spirv_build_op_type_sampled_image(struct vkd3d_spirv_build
             SpvOpTypeSampledImage, image_type_id);
 }
 
+static uint32_t vkd3d_spirv_get_op_type_sampled_image(struct vkd3d_spirv_builder *builder,
+        uint32_t image_type_id)
+{
+    return vkd3d_spirv_build_once1(builder, SpvOpTypeSampledImage, image_type_id,
+            vkd3d_spirv_build_op_type_sampled_image);
+}
+
 static uint32_t vkd3d_spirv_build_op_type_function(struct vkd3d_spirv_builder *builder,
         uint32_t return_type, uint32_t *param_types, unsigned int param_count)
 {
@@ -2933,8 +2940,7 @@ static uint32_t vkd3d_dxbc_compiler_prepare_sampled_image(struct vkd3d_dxbc_comp
     sampler_id = vkd3d_spirv_build_op_load(builder,
             vkd3d_spirv_get_op_type_sampler(builder), sampler_var_id, SpvMemoryAccessMaskNone);
 
-    /* FIXME: Avoid duplicated sampled image types. */
-    sampled_image_type_id = vkd3d_spirv_build_op_type_sampled_image(builder,
+    sampled_image_type_id = vkd3d_spirv_get_op_type_sampled_image(builder,
             resource_symbol->info.resource.type_id);
     sampled_image_id = vkd3d_spirv_build_op_sampled_image(builder,
             sampled_image_type_id, image_id, sampler_id);
