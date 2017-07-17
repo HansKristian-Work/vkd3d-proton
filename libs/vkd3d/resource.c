@@ -882,8 +882,11 @@ static VkSamplerAddressMode vk_address_mode_from_d3d12(D3D12_TEXTURE_ADDRESS_MOD
     }
 }
 
-void d3d12_sampler_desc_create_sampler(struct d3d12_sampler_desc *sampler,
-        struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc)
+static VkResult d3d12_create_sampler(struct d3d12_device *device, D3D12_FILTER filter,
+        D3D12_TEXTURE_ADDRESS_MODE address_u, D3D12_TEXTURE_ADDRESS_MODE address_v,
+        D3D12_TEXTURE_ADDRESS_MODE address_w, float mip_lod_bias, unsigned int max_anisotropy,
+        D3D12_COMPARISON_FUNC comparison_func, float min_lod, float max_lod,
+        VkSampler *vk_sampler)
 {
     const struct vkd3d_vk_device_procs *vk_procs;
     struct VkSamplerCreateInfo sampler_desc;
@@ -891,6 +894,37 @@ void d3d12_sampler_desc_create_sampler(struct d3d12_sampler_desc *sampler,
 
     vk_procs = &device->vk_procs;
 
+    if (D3D12_DECODE_FILTER_REDUCTION(filter) == D3D12_FILTER_REDUCTION_TYPE_MINIMUM
+            || D3D12_DECODE_FILTER_REDUCTION(filter) == D3D12_FILTER_REDUCTION_TYPE_MAXIMUM)
+        FIXME("Min/max reduction mode not supported.\n");
+
+    sampler_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_desc.pNext = NULL;
+    sampler_desc.flags = 0;
+    sampler_desc.magFilter = vk_filter_from_d3d12(D3D12_DECODE_MAG_FILTER(filter));
+    sampler_desc.minFilter = vk_filter_from_d3d12(D3D12_DECODE_MIN_FILTER(filter));
+    sampler_desc.mipmapMode = vk_mipmap_mode_from_d3d12(D3D12_DECODE_MIP_FILTER(filter));
+    sampler_desc.addressModeU = vk_address_mode_from_d3d12(address_u);
+    sampler_desc.addressModeV = vk_address_mode_from_d3d12(address_v);
+    sampler_desc.addressModeW = vk_address_mode_from_d3d12(address_w);
+    sampler_desc.mipLodBias = mip_lod_bias;
+    sampler_desc.anisotropyEnable = D3D12_DECODE_IS_ANISOTROPIC_FILTER(filter);
+    sampler_desc.maxAnisotropy = max_anisotropy;
+    sampler_desc.compareEnable = D3D12_DECODE_IS_COMPARISON_FILTER(filter);
+    sampler_desc.compareOp = sampler_desc.compareEnable ? vk_compare_op_from_d3d12(comparison_func) : 0;
+    sampler_desc.minLod = min_lod;
+    sampler_desc.maxLod = max_lod;
+    sampler_desc.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+    sampler_desc.unnormalizedCoordinates = VK_FALSE;
+    if ((vr = VK_CALL(vkCreateSampler(device->vk_device, &sampler_desc, NULL, vk_sampler))) < 0)
+        WARN("Failed to create Vulkan sampler, vr %d.\n", vr);
+
+    return vr;
+}
+
+void d3d12_sampler_desc_create_sampler(struct d3d12_sampler_desc *sampler,
+        struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc)
+{
     d3d12_sampler_desc_destroy(sampler, device);
 
     if (!desc)
@@ -899,41 +933,34 @@ void d3d12_sampler_desc_create_sampler(struct d3d12_sampler_desc *sampler,
         return;
     }
 
-    if (D3D12_DECODE_FILTER_REDUCTION(desc->Filter) == D3D12_FILTER_REDUCTION_TYPE_MINIMUM
-            || D3D12_DECODE_FILTER_REDUCTION(desc->Filter) == D3D12_FILTER_REDUCTION_TYPE_MAXIMUM)
-        FIXME("Min/max reduction mode not supported.\n");
-
     if (desc->AddressU == D3D12_TEXTURE_ADDRESS_MODE_BORDER
             || desc->AddressV == D3D12_TEXTURE_ADDRESS_MODE_BORDER
             || desc->AddressW == D3D12_TEXTURE_ADDRESS_MODE_BORDER)
         FIXME("Ignoring border color {%.8e, %.8e, %.8e, %.8e}.\n",
                 desc->BorderColor[0], desc->BorderColor[1], desc->BorderColor[2], desc->BorderColor[3]);
 
-    sampler_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_desc.pNext = NULL;
-    sampler_desc.flags = 0;
-    sampler_desc.magFilter = vk_filter_from_d3d12(D3D12_DECODE_MAG_FILTER(desc->Filter));
-    sampler_desc.minFilter = vk_filter_from_d3d12(D3D12_DECODE_MIN_FILTER(desc->Filter));
-    sampler_desc.mipmapMode = vk_mipmap_mode_from_d3d12(D3D12_DECODE_MIP_FILTER(desc->Filter));
-    sampler_desc.addressModeU = vk_address_mode_from_d3d12(desc->AddressU);
-    sampler_desc.addressModeV = vk_address_mode_from_d3d12(desc->AddressV);
-    sampler_desc.addressModeW = vk_address_mode_from_d3d12(desc->AddressW);
-    sampler_desc.mipLodBias = desc->MipLODBias;
-    sampler_desc.anisotropyEnable = D3D12_DECODE_IS_ANISOTROPIC_FILTER(desc->Filter);
-    sampler_desc.maxAnisotropy = desc->MaxAnisotropy;
-    sampler_desc.compareEnable = D3D12_DECODE_IS_COMPARISON_FILTER(desc->Filter);
-    sampler_desc.compareOp = sampler_desc.compareEnable ? vk_compare_op_from_d3d12(desc->ComparisonFunc) : 0;
-    sampler_desc.minLod = desc->MinLOD;
-    sampler_desc.maxLod = desc->MaxLOD;
-    sampler_desc.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-    sampler_desc.unnormalizedCoordinates = VK_FALSE;
-    if ((vr = VK_CALL(vkCreateSampler(device->vk_device, &sampler_desc, NULL, &sampler->vk_sampler))) < 0)
-    {
-        WARN("Failed to create Vulkan sampler, vr %d.\n", vr);
+    if (d3d12_create_sampler(device, desc->Filter, desc->AddressU,
+            desc->AddressV, desc->AddressW, desc->MipLODBias, desc->MaxAnisotropy,
+            desc->ComparisonFunc, desc->MinLOD, desc->MaxLOD, &sampler->vk_sampler) < 0)
         return;
-    }
 
     sampler->magic = VKD3D_DESCRIPTOR_MAGIC_SAMPLER;
+}
+
+HRESULT d3d12_device_create_static_sampler(struct d3d12_device *device,
+        const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler)
+{
+    VkResult vr;
+
+    if (desc->AddressU == D3D12_TEXTURE_ADDRESS_MODE_BORDER
+            || desc->AddressV == D3D12_TEXTURE_ADDRESS_MODE_BORDER
+            || desc->AddressW == D3D12_TEXTURE_ADDRESS_MODE_BORDER)
+        FIXME("Ignoring border %#x.\n", desc->BorderColor);
+
+    vr = d3d12_create_sampler(device, desc->Filter, desc->AddressU,
+            desc->AddressV, desc->AddressW, desc->MipLODBias, desc->MaxAnisotropy,
+            desc->ComparisonFunc, desc->MinLOD, desc->MaxLOD, vk_sampler);
+    return hresult_from_vk_result(vr);
 }
 
 /* RTVs */

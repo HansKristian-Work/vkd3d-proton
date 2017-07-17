@@ -174,6 +174,8 @@ struct d3d12_sampler_desc
 
 void d3d12_sampler_desc_create_sampler(struct d3d12_sampler_desc *sampler,
         struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc) DECLSPEC_HIDDEN;
+HRESULT d3d12_device_create_static_sampler(struct d3d12_device *device,
+        const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler) DECLSPEC_HIDDEN;
 
 struct d3d12_rtv_desc
 {
@@ -228,6 +230,9 @@ struct d3d12_root_signature
 
     struct VkDescriptorPoolSize *pool_sizes;
     size_t pool_size_count;
+
+    unsigned int static_sampler_count;
+    VkSampler *static_samplers;
 
     struct d3d12_device *device;
 };

@@ -70,10 +70,15 @@ static ULONG STDMETHODCALLTYPE d3d12_root_signature_Release(ID3D12RootSignature 
     {
         struct d3d12_device *device = root_signature->device;
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+        unsigned int i;
 
         VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->vk_pipeline_layout, NULL));
         vkd3d_free(root_signature->pool_sizes);
         VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
+
+        for (i = 0; i < root_signature->static_sampler_count; ++i)
+            VK_CALL(vkDestroySampler(device->vk_device, root_signature->static_samplers[i], NULL));
+        vkd3d_free(root_signature->static_samplers);
 
         vkd3d_free(root_signature);
 
@@ -220,18 +225,17 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     struct VkDescriptorSetLayoutBinding *binding_desc;
     struct VkDescriptorSetLayoutCreateInfo set_desc;
     size_t cbv_count = 0, srv_count = 0;
-    unsigned int i;
+    unsigned int i, j;
     VkResult vr;
+    HRESULT hr;
 
     root_signature->ID3D12RootSignature_iface.lpVtbl = &d3d12_root_signature_vtbl;
     root_signature->refcount = 1;
 
-    if (desc->NumStaticSamplers)
-        FIXME("Static samplers not implemented yet.\n");
     if (desc->Flags)
         FIXME("Ignoring root signature flags %#x.\n", desc->Flags);
 
-    if (!(binding_desc = vkd3d_calloc(desc->NumParameters, sizeof(*binding_desc))))
+    if (!(binding_desc = vkd3d_calloc(desc->NumParameters + desc->NumStaticSamplers, sizeof(*binding_desc))))
         return E_OUTOFMEMORY;
 
     for (i = 0; i < desc->NumParameters; ++i)
@@ -293,12 +297,42 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         }
     }
 
+    root_signature->static_sampler_count = desc->NumStaticSamplers;
+    if (!(root_signature->static_samplers = vkd3d_calloc(root_signature->static_sampler_count,
+            sizeof(*root_signature->static_samplers))))
+    {
+        vkd3d_free(binding_desc);
+        return E_OUTOFMEMORY;
+    }
+
+    for (j = 0; j < desc->NumStaticSamplers; ++i, ++j)
+    {
+        const D3D12_STATIC_SAMPLER_DESC *s = &desc->pStaticSamplers[j];
+
+        if (s->RegisterSpace)
+            FIXME("Unhandled register space %u for static sampler %u.\n", s->RegisterSpace, j);
+
+        if (FAILED(hr = d3d12_device_create_static_sampler(device, s, &root_signature->static_samplers[j])))
+        {
+            for (i = 0; i < j; ++i)
+                VK_CALL(vkDestroySampler(device->vk_device, root_signature->static_samplers[i], NULL));
+            vkd3d_free(root_signature->static_samplers);
+            vkd3d_free(binding_desc);
+            return hr;
+        }
+
+        binding_desc[i].binding = s->ShaderRegister;
+        binding_desc[i].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+        binding_desc[i].descriptorCount = 1;
+        binding_desc[i].stageFlags = stage_flags_from_visibility(s->ShaderVisibility);
+        binding_desc[i].pImmutableSamplers = &root_signature->static_samplers[j];
+    }
+
     set_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     set_desc.pNext = NULL;
     set_desc.flags = 0;
-    set_desc.bindingCount = desc->NumParameters;
+    set_desc.bindingCount = desc->NumParameters + desc->NumStaticSamplers;
     set_desc.pBindings = binding_desc;
-
     vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device, &set_desc, NULL, &root_signature->vk_set_layout));
     vkd3d_free(binding_desc);
     if (vr < 0)
@@ -318,6 +352,9 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
                 sizeof(*root_signature->pool_sizes))))
         {
             VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
+            for (i = 0; i < root_signature->static_sampler_count; ++i)
+                VK_CALL(vkDestroySampler(device->vk_device, root_signature->static_samplers[i], NULL));
+            vkd3d_free(root_signature->static_samplers);
             return E_OUTOFMEMORY;
         }
 
@@ -346,13 +383,15 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     pipeline_layout_info.pSetLayouts = &root_signature->vk_set_layout;
     pipeline_layout_info.pushConstantRangeCount = 0;
     pipeline_layout_info.pPushConstantRanges = NULL;
-
     if ((vr = VK_CALL(vkCreatePipelineLayout(device->vk_device, &pipeline_layout_info, NULL,
             &root_signature->vk_pipeline_layout))) < 0)
     {
         WARN("Failed to create Vulkan pipeline layout, vr %d.\n", vr);
         vkd3d_free(root_signature->pool_sizes);
         VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
+        for (i = 0; i < root_signature->static_sampler_count; ++i)
+            VK_CALL(vkDestroySampler(device->vk_device, root_signature->static_samplers[i], NULL));
+        vkd3d_free(root_signature->static_samplers);
         return hresult_from_vk_result(vr);
     }
 
