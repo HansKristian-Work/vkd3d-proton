@@ -2231,8 +2231,41 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable(I
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable(ID3D12GraphicsCommandList *iface,
         UINT root_parameter_index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
 {
-    FIXME("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64" stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct VkWriteDescriptorSet descriptor_write;
+    struct d3d12_cbv_srv_uav_desc *descriptor;
+    struct VkDescriptorImageInfo image_info;
+
+    FIXME("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64" partial-stub!\n",
             iface, root_parameter_index, base_descriptor.ptr);
+
+    vk_procs = &list->device->vk_procs;
+
+    /* FIXME: Only a single descriptor is supported currently. */
+    descriptor = (struct d3d12_cbv_srv_uav_desc *)(intptr_t)base_descriptor.ptr;
+
+    if (descriptor->magic != VKD3D_DESCRIPTOR_MAGIC_SRV)
+    {
+        FIXME("Unhandled descriptor %#x.\n", descriptor->magic);
+        return;
+    }
+
+    image_info.sampler = VK_NULL_HANDLE;
+    image_info.imageView = descriptor->vk_image_view;
+    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptor_write.pNext = NULL;
+    descriptor_write.dstSet = list->current_descriptor_set;
+    descriptor_write.dstBinding = root_parameter_index;
+    descriptor_write.dstArrayElement = 0;
+    descriptor_write.descriptorCount = 1;
+    descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    descriptor_write.pImageInfo = &image_info;
+    descriptor_write.pBufferInfo = NULL;
+    descriptor_write.pTexelBufferView = NULL;
+    VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &descriptor_write, 0, NULL));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRoot32BitConstant(ID3D12GraphicsCommandList *iface,
