@@ -2162,7 +2162,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
     vkd3d_spirv_build_op_member_decorate1(builder, struct_id, 0, SpvDecorationOffset, 0);
     vkd3d_spirv_build_op_name(builder, struct_id, "cb%u_struct", cb_size);
 
-    pointer_type_id = vkd3d_spirv_build_op_type_pointer(builder, SpvStorageClassUniform, struct_id);
+    pointer_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassUniform, struct_id);
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
             pointer_type_id, SpvStorageClassUniform, 0);
 
@@ -2196,7 +2196,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_immediate_constant_buffer(struct vkd3d_
     length_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, icb->vec4_count);
     type_id = vkd3d_spirv_build_op_type_array(builder, type_id, length_id);
     const_id = vkd3d_spirv_build_op_constant_composite(builder, type_id, elements, icb->vec4_count);
-    ptr_type_id = vkd3d_spirv_build_op_type_pointer(builder, SpvStorageClassPrivate, type_id);
+    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassPrivate, type_id);
     icb_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
             ptr_type_id, SpvStorageClassPrivate, const_id);
     vkd3d_spirv_build_op_name(builder, icb_id, "icb");
