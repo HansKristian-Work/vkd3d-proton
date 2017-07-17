@@ -558,6 +558,16 @@ static uint32_t vkd3d_spirv_build_op_type_sampler(struct vkd3d_spirv_builder *bu
     return vkd3d_spirv_build_op_r(builder, &builder->global_stream, SpvOpTypeSampler);
 }
 
+/* Access qualifiers are not supported. */
+static uint32_t vkd3d_spirv_build_op_type_image(struct vkd3d_spirv_builder *builder,
+        uint32_t sampled_type_id, SpvDim dim, uint32_t depth, uint32_t arrayed,
+        uint32_t ms, uint32_t sampled, SpvImageFormat format)
+{
+    uint32_t operands[] = {sampled_type_id, dim, depth, arrayed, ms, sampled, format};
+    return vkd3d_spirv_build_op_rv(builder, &builder->global_stream,
+            SpvOpTypeImage, operands, ARRAY_SIZE(operands));
+}
+
 static uint32_t vkd3d_spirv_build_op_type_function(struct vkd3d_spirv_builder *builder,
         uint32_t return_type, uint32_t *param_types, unsigned int param_count)
 {
@@ -1213,6 +1223,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
 {
     switch (reg->type)
     {
+        case VKD3DSPR_RESOURCE:
+            snprintf(buffer, buffer_size, "t%u", reg->idx[0].offset);
+            break;
         case VKD3DSPR_SAMPLER:
             snprintf(buffer, buffer_size, "s%u", reg->idx[0].offset);
             break;
@@ -2075,6 +2088,83 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
+static SpvDim vkd3d_dxbc_compiler_translate_resource_type(struct vkd3d_dxbc_compiler *compiler,
+        enum vkd3d_shader_resource_type resource_type, uint32_t *arrayed, uint32_t *ms)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    *arrayed = 0;
+    *ms = 0;
+
+    switch (resource_type)
+    {
+        case VKD3D_SHADER_RESOURCE_TEXTURE_1D:
+            vkd3d_spirv_enable_capability(builder, SpvCapabilitySampled1D);
+            return SpvDim1D;
+        case VKD3D_SHADER_RESOURCE_TEXTURE_2DMS:
+            *ms = 1;
+            return SpvDim2D;
+        case VKD3D_SHADER_RESOURCE_TEXTURE_2D:
+            return SpvDim2D;
+            case VKD3D_SHADER_RESOURCE_TEXTURE_3D:
+            return SpvDim3D;
+        case VKD3D_SHADER_RESOURCE_TEXTURE_CUBE:
+            return SpvDimCube;
+        case VKD3D_SHADER_RESOURCE_TEXTURE_1DARRAY:
+            vkd3d_spirv_enable_capability(builder, SpvCapabilitySampled1D);
+            *arrayed = 1;
+            return SpvDim1D;
+        case VKD3D_SHADER_RESOURCE_TEXTURE_2DARRAY:
+            *arrayed = 1;
+            return SpvDim2D;
+        case VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY:
+            vkd3d_spirv_enable_capability(builder, SpvCapabilitySampledCubeArray);
+            *arrayed = 1;
+            return SpvDimCube;
+        default:
+            FIXME("Unhandled resource type %#x.\n", resource_type);
+            return SpvDim2D;
+    }
+}
+
+static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    const struct vkd3d_shader_semantic *semantic = &instruction->declaration.semantic;
+    const SpvStorageClass storage_class = SpvStorageClassUniformConstant;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t sampled_type_id, type_id, ptr_type_id, var_id;
+    enum vkd3d_component_type sampled_type;
+    struct vkd3d_symbol reg_symbol;
+    uint32_t arrayed, ms;
+    unsigned int reg_idx;
+    SpvDim dim;
+
+    reg_idx = semantic->reg.reg.idx[0].offset;
+
+    sampled_type = vkd3d_component_type_from_data_type(semantic->resource_data_type);
+    sampled_type_id = vkd3d_spirv_get_type_id(builder, sampled_type, 1);
+
+    /* FIXME: Avoid duplicated image types. */
+    dim = vkd3d_dxbc_compiler_translate_resource_type(compiler, semantic->resource_type, &arrayed, &ms);
+    type_id = vkd3d_spirv_build_op_type_image(builder, sampled_type_id, dim, 0, arrayed, ms, 1,
+            SpvImageFormatUnknown);
+
+    ptr_type_id = vkd3d_dxbc_compiler_get_pointer_type(compiler, type_id, storage_class);
+    var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
+            ptr_type_id, storage_class, 0);
+
+    vkd3d_spirv_build_op_decorate1(builder, var_id, SpvDecorationDescriptorSet, 0);
+    vkd3d_spirv_build_op_decorate1(builder, var_id, SpvDecorationBinding, reg_idx);
+
+    vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, &semantic->reg.reg);
+
+    vkd3d_symbol_make_register(&reg_symbol, &semantic->reg.reg);
+    reg_symbol.id = var_id;
+    reg_symbol.info.storage_class = storage_class;
+    vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -2687,6 +2777,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL_SAMPLER:
             vkd3d_dxbc_compiler_emit_dcl_sampler(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL:
+            vkd3d_dxbc_compiler_emit_dcl_resource(compiler, instruction);
             break;
         case VKD3DSIH_DCL_INPUT:
             vkd3d_dxbc_compiler_emit_dcl_input(compiler, instruction);
