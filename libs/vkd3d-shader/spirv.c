@@ -262,6 +262,9 @@ typedef uint32_t (*vkd3d_spirv_build1_pfn)(struct vkd3d_spirv_builder *builder,
         uint32_t operand0);
 typedef uint32_t (*vkd3d_spirv_build2_pfn)(struct vkd3d_spirv_builder *builder,
         uint32_t operand0, uint32_t operand1);
+typedef uint32_t (*vkd3d_spirv_build7_pfn)(struct vkd3d_spirv_builder *builder,
+        uint32_t operand0, uint32_t operand1, uint32_t operand2, uint32_t operand3,
+        uint32_t operand4, uint32_t operand5, uint32_t operand6);
 
 static uint32_t vkd3d_spirv_build_once(struct vkd3d_spirv_builder *builder,
         uint32_t *id, vkd3d_spirv_build_pfn build_pfn)
@@ -271,7 +274,7 @@ static uint32_t vkd3d_spirv_build_once(struct vkd3d_spirv_builder *builder,
     return *id;
 }
 
-#define MAX_SPIRV_DECLARATION_PARAMETER_COUNT 2
+#define MAX_SPIRV_DECLARATION_PARAMETER_COUNT 7
 
 struct vkd3d_spirv_declaration
 {
@@ -351,6 +354,25 @@ static uint32_t vkd3d_spirv_build_once2(struct vkd3d_spirv_builder *builder,
         return RB_ENTRY_VALUE(entry, struct vkd3d_spirv_declaration, entry)->id;
 
     declaration.id = build_pfn(builder, operand0, operand1);
+    vkd3d_spirv_insert_declaration(builder, &declaration);
+    return declaration.id;
+}
+
+static uint32_t vkd3d_spirv_build_once7(struct vkd3d_spirv_builder *builder,
+        SpvOp op, const uint32_t *operands, vkd3d_spirv_build7_pfn build_pfn)
+{
+    struct vkd3d_spirv_declaration declaration;
+    struct rb_entry *entry;
+
+    declaration.op = op;
+    declaration.parameter_count = 7;
+    memcpy(&declaration.parameters, operands, declaration.parameter_count * sizeof(*operands));
+
+    if ((entry = rb_get(&builder->declarations, &declaration)))
+        return RB_ENTRY_VALUE(entry, struct vkd3d_spirv_declaration, entry)->id;
+
+    declaration.id = build_pfn(builder, operands[0], operands[1], operands[2],
+            operands[3], operands[4], operands[5], operands[6]);
     vkd3d_spirv_insert_declaration(builder, &declaration);
     return declaration.id;
 }
@@ -702,6 +724,15 @@ static uint32_t vkd3d_spirv_build_op_type_image(struct vkd3d_spirv_builder *buil
     uint32_t operands[] = {sampled_type_id, dim, depth, arrayed, ms, sampled, format};
     return vkd3d_spirv_build_op_rv(builder, &builder->global_stream,
             SpvOpTypeImage, operands, ARRAY_SIZE(operands));
+}
+
+static uint32_t vkd3d_spirv_get_op_type_image(struct vkd3d_spirv_builder *builder,
+        uint32_t sampled_type_id, SpvDim dim, uint32_t depth, uint32_t arrayed,
+        uint32_t ms, uint32_t sampled, SpvImageFormat format)
+{
+    uint32_t operands[] = {sampled_type_id, dim, depth, arrayed, ms, sampled, format};
+    return vkd3d_spirv_build_once7(builder, SpvOpTypeImage, operands,
+            vkd3d_spirv_build_op_type_image);
 }
 
 static uint32_t vkd3d_spirv_build_op_type_sampled_image(struct vkd3d_spirv_builder *builder,
@@ -2302,9 +2333,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *co
     sampled_type = vkd3d_component_type_from_data_type(semantic->resource_data_type);
     sampled_type_id = vkd3d_spirv_get_type_id(builder, sampled_type, 1);
 
-    /* FIXME: Avoid duplicated image types. */
     dim = vkd3d_dxbc_compiler_translate_resource_type(compiler, semantic->resource_type, &arrayed, &ms);
-    type_id = vkd3d_spirv_build_op_type_image(builder, sampled_type_id, dim, 0, arrayed, ms, 1,
+    type_id = vkd3d_spirv_get_op_type_image(builder, sampled_type_id, dim, 0, arrayed, ms, 1,
             SpvImageFormatUnknown);
 
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id);
