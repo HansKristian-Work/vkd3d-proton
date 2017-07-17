@@ -135,6 +135,7 @@ struct vkd3d_spirv_builder
     uint32_t current_id;
     uint32_t main_function_id;
     uint32_t type_id[VKD3D_TYPE_COUNT][VKD3D_VEC4_SIZE];
+    uint32_t type_sampler_id;
 
     struct vkd3d_spirv_stream debug_stream; /* debug instructions */
     struct vkd3d_spirv_stream annotation_stream; /* decoration instructions */
@@ -252,6 +253,16 @@ static void vkd3d_spirv_build_string(struct vkd3d_spirv_stream *stream,
             word |= (uint32_t)*ptr++ << (8 * i);
         vkd3d_spirv_build_word(stream, word);
     }
+}
+
+typedef uint32_t (*spirv_build_pfn)(struct vkd3d_spirv_builder *builder);
+
+static uint32_t vkd3d_spirv_build_once(struct vkd3d_spirv_builder *builder,
+        uint32_t *id, spirv_build_pfn build_pfn)
+{
+    if (!(*id))
+        *id = build_pfn(builder);
+    return *id;
 }
 
 /*
@@ -556,6 +567,11 @@ static uint32_t vkd3d_spirv_build_op_type_struct(struct vkd3d_spirv_builder *bui
 static uint32_t vkd3d_spirv_build_op_type_sampler(struct vkd3d_spirv_builder *builder)
 {
     return vkd3d_spirv_build_op_r(builder, &builder->global_stream, SpvOpTypeSampler);
+}
+
+static uint32_t vkd3d_spirv_get_op_type_sampler(struct vkd3d_spirv_builder *builder)
+{
+    return vkd3d_spirv_build_once(builder, &builder->type_sampler_id, vkd3d_spirv_build_op_type_sampler);
 }
 
 /* Access qualifiers are not supported. */
@@ -1111,7 +1127,6 @@ struct vkd3d_dxbc_compiler
     uint32_t options;
 
     struct rb_tree symbol_table;
-    uint32_t sampler_type_id;
     uint32_t temp_id;
     unsigned int temp_count;
 
@@ -1193,13 +1208,6 @@ static void vkd3d_dxbc_compiler_put_symbol(struct vkd3d_dxbc_compiler *compiler,
         ERR("Failed to insert symbol entry.\n");
         vkd3d_free(s);
     }
-}
-
-static uint32_t vkd3d_dxbc_compiler_get_sampler_type_id(struct vkd3d_dxbc_compiler *compiler)
-{
-    if (!compiler->sampler_type_id)
-        compiler->sampler_type_id = vkd3d_spirv_build_op_type_sampler(&compiler->spirv_builder);
-    return compiler->sampler_type_id;
 }
 
 static uint32_t vkd3d_dxbc_compiler_get_pointer_type(struct vkd3d_dxbc_compiler *compiler,
@@ -2127,7 +2135,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
 
     sampler_idx = reg->idx[0].offset;
 
-    type_id = vkd3d_dxbc_compiler_get_sampler_type_id(compiler);
+    type_id = vkd3d_spirv_get_op_type_sampler(builder);
     ptr_type_id = vkd3d_dxbc_compiler_get_pointer_type(compiler, type_id, storage_class);
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
             ptr_type_id, storage_class, 0);
@@ -2836,7 +2844,7 @@ static uint32_t vkd3d_dxbc_compiler_prepare_sampled_image(struct vkd3d_dxbc_comp
             resource_symbol->info.resource.type_id, resource_symbol->id, SpvMemoryAccessMaskNone);
     sampler_var_id = vkd3d_dxbc_compiler_get_register_id(compiler, sampler_reg);
     sampler_id = vkd3d_spirv_build_op_load(builder,
-            vkd3d_dxbc_compiler_get_sampler_type_id(compiler), sampler_var_id, SpvMemoryAccessMaskNone);
+            vkd3d_spirv_get_op_type_sampler(builder), sampler_var_id, SpvMemoryAccessMaskNone);
 
     /* FIXME: Avoid duplicated sampled image types. */
     sampled_image_type_id = vkd3d_spirv_build_op_type_sampled_image(builder,
