@@ -222,9 +222,9 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkPipelineLayoutCreateInfo pipeline_layout_info;
+    size_t cbv_count = 0, srv_count = 0, sampler_count = 0;
     struct VkDescriptorSetLayoutBinding *binding_desc;
     struct VkDescriptorSetLayoutCreateInfo set_desc;
-    size_t cbv_count = 0, srv_count = 0;
     unsigned int i, j;
     VkResult vr;
     HRESULT hr;
@@ -284,6 +284,9 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
         switch (binding_desc[i].descriptorType)
         {
+            case VK_DESCRIPTOR_TYPE_SAMPLER:
+                sampler_count += binding_desc[i].descriptorCount;
+                break;
             case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
                 cbv_count += binding_desc[i].descriptorCount;
                 break;
@@ -305,6 +308,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         return E_OUTOFMEMORY;
     }
 
+    sampler_count += desc->NumStaticSamplers;
     for (j = 0; j < desc->NumStaticSamplers; ++i, ++j)
     {
         const D3D12_STATIC_SAMPLER_DESC *s = &desc->pStaticSamplers[j];
@@ -341,12 +345,14 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         return hresult_from_vk_result(vr);
     }
 
-    if (cbv_count || srv_count)
+    if (cbv_count || srv_count || sampler_count)
     {
         root_signature->pool_size_count = 0;
         if (cbv_count)
             ++root_signature->pool_size_count;
         if (srv_count)
+            ++root_signature->pool_size_count;
+        if (sampler_count)
             ++root_signature->pool_size_count;
         if (!(root_signature->pool_sizes = vkd3d_calloc(root_signature->pool_size_count,
                 sizeof(*root_signature->pool_sizes))))
@@ -368,6 +374,11 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         {
             root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
             root_signature->pool_sizes[i++].descriptorCount = srv_count;
+        }
+        if (sampler_count)
+        {
+            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_SAMPLER;
+            root_signature->pool_sizes[i++].descriptorCount = sampler_count;
         }
     }
     else
