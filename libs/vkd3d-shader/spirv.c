@@ -1875,70 +1875,84 @@ static void vkd3d_dxbc_compiler_emit_store_dst(struct vkd3d_dxbc_compiler *compi
     vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
 }
 
+/* The Vulkan spec says:
+ *
+ *   "The variable decorated with GlobalInvocationId must be declared as a
+ *   three-component vector of 32-bit integers."
+ *
+ *   "The variable decorated with LocalInvocationId must be declared as a
+ *   three-component vector of 32-bit integers."
+ *
+ *   "The variable decorated with FragCoord must be declared as a
+ *   four-component vector of 32-bit floating-point values."
+ *
+ *   "Any variable decorated with Position must be declared as a four-component
+ *   vector of 32-bit floating-point values."
+ *
+ *   "The variable decorated with VertexIndex must be declared as a scalar
+ *   32-bit integer."
+ */
+static const struct vkd3d_spirv_builtin
+{
+    enum vkd3d_shader_input_sysval_semantic sysval;
+    enum vkd3d_shader_register_type reg_type;
+
+    enum vkd3d_component_type component_type;
+    unsigned int component_count;
+    SpvBuiltIn spirv_builtin;
+}
+vkd3d_spirv_builtins[] =
+{
+    {VKD3D_SIV_NONE, VKD3DSPR_THREADID,         VKD3D_TYPE_INT, 3, SpvBuiltInGlobalInvocationId},
+    {VKD3D_SIV_NONE, VKD3DSPR_LOCALTHREADID,    VKD3D_TYPE_INT, 3, SpvBuiltInLocalInvocationId},
+    {VKD3D_SIV_NONE, VKD3DSPR_LOCALTHREADINDEX, VKD3D_TYPE_INT, 1, SpvBuiltInLocalInvocationIndex},
+
+    {VKD3D_SIV_POSITION,  ~0u, VKD3D_TYPE_FLOAT, 4, SpvBuiltInPosition},
+    {VKD3D_SIV_VERTEX_ID, ~0u, VKD3D_TYPE_INT,   1, SpvBuiltInVertexIndex},
+};
+
+static const struct vkd3d_spirv_builtin *vkd3d_get_spirv_builtin(enum vkd3d_shader_register_type reg_type,
+        enum vkd3d_shader_input_sysval_semantic sysval)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(vkd3d_spirv_builtins); ++i)
+    {
+        const struct vkd3d_spirv_builtin* current = &vkd3d_spirv_builtins[i];
+
+        if (current->sysval == VKD3D_SIV_NONE && current->reg_type == reg_type)
+            return current;
+
+        if (current->reg_type == ~0u && current->sysval == sysval)
+            return current;
+    }
+
+    if (sysval != VKD3D_SIV_NONE
+            || (reg_type != VKD3DSPR_INPUT && reg_type != VKD3DSPR_OUTPUT && reg_type != VKD3DSPR_COLOROUT))
+        FIXME("Unhandled builtin (register type %#x, semantic %#x).\n", reg_type, sysval);
+    return NULL;
+}
+
 static enum vkd3d_component_type vkd3d_component_type_for_register(enum vkd3d_shader_register_type reg_type,
         enum vkd3d_shader_input_sysval_semantic sysval)
 {
-    if (reg_type == VKD3DSPR_THREADID
-            || reg_type == VKD3DSPR_LOCALTHREADID
-            || reg_type == VKD3DSPR_LOCALTHREADINDEX)
-        return VKD3D_TYPE_INT;
+    const struct vkd3d_spirv_builtin *builtin;
 
-    switch (sysval)
-    {
-        case VKD3D_SIV_NONE:
-        case VKD3D_SIV_POSITION:
-            return VKD3D_TYPE_FLOAT;
-        case VKD3D_SIV_VERTEX_ID:
-            return VKD3D_TYPE_INT;
-        default:
-            FIXME("Unhandled builtin (register type %#x, semantic %#x).\n", reg_type, sysval);
-            return VKD3D_TYPE_FLOAT;
-    }
+    if ((builtin = vkd3d_get_spirv_builtin(reg_type, sysval)))
+        return builtin->component_type;
+
+    return VKD3D_TYPE_FLOAT;
 }
 
 static unsigned int vkd3d_component_count_for_register(enum vkd3d_shader_register_type reg_type,
         enum vkd3d_shader_input_sysval_semantic sysval)
 {
-    /* The Vulkan spec says:
-     *
-     *   "The variable decorated with GlobalInvocationId must be declared as a
-     *   three-component vector of 32-bit integers."
-     *
-     *   "The variable decorated with LocalInvocationId must be declared as a
-     *   three-component vector of 32-bit integers."
-     */
-    if (reg_type == VKD3DSPR_THREADID
-            || reg_type == VKD3DSPR_LOCALTHREADID)
-        return 3;
+    const struct vkd3d_spirv_builtin *builtin;
 
-    if (reg_type == VKD3DSPR_LOCALTHREADINDEX)
-        return 1;
+    if ((builtin = vkd3d_get_spirv_builtin(reg_type, sysval)))
+        return builtin->component_count;
 
-    switch (sysval)
-    {
-        case VKD3D_SIV_NONE:
-            return 0;
-        case VKD3D_SIV_POSITION:
-            /* The Vulkan spec says:
-             *
-             *   "The variable decorated with FragCoord must be declared as a
-             *   four-component vector of 32-bit floating-point values."
-             *
-             *   "Any variable decorated with Position must be declared as a
-             *   four-component vector of 32-bit floating-point values."
-             */
-            return 4;
-        case VKD3D_SIV_VERTEX_ID:
-            /* The Vulkan spec says:
-             *
-             *   "The variable decorated with VertexIndex must be declared as a
-             *   scalar 32-bit integer."
-             */
-            return 1;
-        default:
-            FIXME("Unhandled builtin (register type %#x, semantic %#x).\n", reg_type, sysval);
-            return 0;
-    }
+    return 0;
 }
 
 static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *compiler,
@@ -1946,39 +1960,15 @@ static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *com
         enum vkd3d_shader_input_sysval_semantic sysval)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_spirv_builtin *builtin_info;
     SpvBuiltIn builtin;
 
-    switch (sysval)
-    {
-        case VKD3D_SIV_POSITION:
-            if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL)
-                builtin = SpvBuiltInFragCoord;
-            else
-                builtin = SpvBuiltInPosition;
-            break;
-        case VKD3D_SIV_VERTEX_ID:
-            builtin = SpvBuiltInVertexIndex;
-            break;
-        default:
-            if (reg_type == VKD3DSPR_THREADID)
-            {
-                builtin = SpvBuiltInGlobalInvocationId;
-            }
-            else if (reg_type == VKD3DSPR_LOCALTHREADID)
-            {
-                builtin = SpvBuiltInLocalInvocationId;
-            }
-            else if (reg_type == VKD3DSPR_LOCALTHREADINDEX)
-            {
-                builtin = SpvBuiltInLocalInvocationIndex;
-            }
-            else
-            {
-                FIXME("Unhandled builtin (register type %#x, semantic %#x).\n", reg_type, sysval);
-                return;
-            }
-            break;
-    }
+    if (!(builtin_info = vkd3d_get_spirv_builtin(reg_type, sysval)))
+        return;
+
+    builtin = builtin_info->spirv_builtin;
+    if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL && builtin == SpvBuiltInPosition)
+        builtin = SpvBuiltInFragCoord;
 
     vkd3d_spirv_build_op_decorate1(builder, target_id, SpvDecorationBuiltIn, builtin);
 }
