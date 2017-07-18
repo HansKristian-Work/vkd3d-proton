@@ -201,13 +201,15 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 #endif  /* DECLSPEC_HIDDEN */
 
 /* Define min() & max() macros */
-#ifndef min
-# define min(a, b) (((a) <= (b)) ? (a) : (b))
-#endif
+#ifndef NOMINMAX
+# ifndef min
+#  define min(a, b) (((a) <= (b)) ? (a) : (b))
+# endif
 
-#ifndef max
-# define max(a, b) (((a) >= (b)) ? (a) : (b))
-#endif
+# ifndef max
+#  define max(a, b) (((a) >= (b)) ? (a) : (b))
+# endif
+#endif /* NOMINMAX */
 
 #ifndef DEFINE_ENUM_FLAG_OPERATORS
 #ifdef __cplusplus
