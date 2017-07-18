@@ -2621,13 +2621,14 @@ static uint32_t vkd3d_dxbc_compiler_emit_int_to_bool(struct vkd3d_dxbc_compiler 
         enum vkd3d_shader_conditional_op condition, unsigned int component_count, uint32_t val_id)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    static const uint32_t zero[VKD3D_VEC4_SIZE];
     uint32_t type_id;
     SpvOp op;
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, component_count);
     op = condition & VKD3D_SHADER_CONDITIONAL_OP_Z ? SpvOpIEqual : SpvOpINotEqual;
-    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
-            op, type_id, val_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, 0));
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream, op, type_id, val_id,
+            vkd3d_dxbc_compiler_get_constant(compiler, VKD3D_TYPE_UINT, component_count, zero));
 }
 
 static void vkd3d_dxbc_compiler_emit_movc(struct vkd3d_dxbc_compiler *compiler,
@@ -2651,6 +2652,33 @@ static void vkd3d_dxbc_compiler_emit_movc(struct vkd3d_dxbc_compiler *compiler,
     val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, src1_id, src2_id);
 
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
+}
+
+static void vkd3d_dxbc_compiler_emit_swapc(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t condition_id, src1_id, src2_id, type_id, val_id;
+    unsigned int component_count;
+
+    assert(dst[0].write_mask == dst[1].write_mask);
+
+    condition_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], dst->write_mask);
+    src1_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], dst->write_mask);
+    src2_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[2], dst->write_mask);
+
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, component_count);
+
+    condition_id = vkd3d_dxbc_compiler_emit_int_to_bool(compiler,
+            VKD3D_SHADER_CONDITIONAL_OP_NZ, component_count, condition_id);
+
+    val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, src2_id, src1_id);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[0], val_id);
+    val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, src1_id, src2_id);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[1], val_id);
 }
 
 static void vkd3d_dxbc_compiler_emit_dot(struct vkd3d_dxbc_compiler *compiler,
@@ -3050,6 +3078,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_MOVC:
             vkd3d_dxbc_compiler_emit_movc(compiler, instruction);
+            break;
+        case VKD3DSIH_SWAPC:
+            vkd3d_dxbc_compiler_emit_swapc(compiler, instruction);
             break;
         case VKD3DSIH_ADD:
         case VKD3DSIH_AND:
