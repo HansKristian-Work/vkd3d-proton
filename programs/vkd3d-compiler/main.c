@@ -92,6 +92,16 @@ compiler_options[] =
     {"--strip-debug", VKD3D_SHADER_STRIP_DEBUG},
 };
 
+static void print_usage(const char *program_name)
+{
+    unsigned int i;
+
+    fprintf(stderr, "usage: %s", program_name);
+    for (i = 0; i < ARRAY_SIZE(compiler_options); ++i)
+        fprintf(stderr, " [%s]", compiler_options[i].name);
+    fprintf(stderr, " [-o <out_spirv_filename>] <dxbc_filename>\n");
+}
+
 struct options
 {
     const char *filename;
@@ -142,9 +152,7 @@ int main(int argc, char **argv)
 
     if (!parse_command_line(argc, argv, &options))
     {
-        fprintf(stderr,
-                "usage: %s [--strip-degug] [-o <out_spirv_filename>] <dxbc_filename>\n",
-                argv[0]);
+        print_usage(argv[0]);
         return 1;
     }
 
