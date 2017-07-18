@@ -2015,6 +2015,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         use_private_var = true;
     }
 
+    if (val_id && input_component_count != component_count)
+        val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler, val_id, VKD3DSP_NOSWIZZLE, dst->write_mask);
+
     vkd3d_symbol_make_register(&reg_symbol, &dst->reg);
 
     if (!use_private_var)
