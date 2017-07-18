@@ -1438,6 +1438,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_LOCALTHREADINDEX:
             snprintf(buffer, buffer_size, "vThreadIDInGroupFlattened");
             break;
+        case VKD3DSPR_THREADGROUPID:
+            snprintf(buffer, buffer_size, "vThreadGroupID");
+            break;
         default:
             FIXME("Unhandled register %#x.\n", reg->type);
             snprintf(buffer, buffer_size, "unrecognized_%#x", reg->type);
@@ -1576,6 +1579,7 @@ static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *
         case VKD3DSPR_THREADID:
         case VKD3DSPR_LOCALTHREADID:
         case VKD3DSPR_LOCALTHREADINDEX:
+        case VKD3DSPR_THREADGROUPID:
             vkd3d_dxbc_compiler_get_register_info(compiler, reg, &register_info);
             return register_info.id;
         case VKD3DSPR_IMMCONST:
@@ -1883,6 +1887,9 @@ static void vkd3d_dxbc_compiler_emit_store_dst(struct vkd3d_dxbc_compiler *compi
  *   "The variable decorated with LocalInvocationId must be declared as a
  *   three-component vector of 32-bit integers."
  *
+ *   "The variable decorated with WorkgroupId must be declared as a
+ *   three-component vector of 32-bit integers."
+ *
  *   "The variable decorated with FragCoord must be declared as a
  *   four-component vector of 32-bit floating-point values."
  *
@@ -1906,6 +1913,7 @@ vkd3d_spirv_builtins[] =
     {VKD3D_SIV_NONE, VKD3DSPR_THREADID,         VKD3D_TYPE_INT, 3, SpvBuiltInGlobalInvocationId},
     {VKD3D_SIV_NONE, VKD3DSPR_LOCALTHREADID,    VKD3D_TYPE_INT, 3, SpvBuiltInLocalInvocationId},
     {VKD3D_SIV_NONE, VKD3DSPR_LOCALTHREADINDEX, VKD3D_TYPE_INT, 1, SpvBuiltInLocalInvocationIndex},
+    {VKD3D_SIV_NONE, VKD3DSPR_THREADGROUPID,    VKD3D_TYPE_INT, 3, SpvBuiltInWorkgroupId},
 
     {VKD3D_SIV_POSITION,  ~0u, VKD3D_TYPE_FLOAT, 4, SpvBuiltInPosition},
     {VKD3D_SIV_VERTEX_ID, ~0u, VKD3D_TYPE_INT,   1, SpvBuiltInVertexIndex},
