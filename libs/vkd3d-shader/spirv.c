@@ -1575,6 +1575,7 @@ static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *
         case VKD3DSPR_OUTPUT:
         case VKD3DSPR_COLOROUT:
         case VKD3DSPR_CONSTBUFFER:
+        case VKD3DSPR_IMMCONSTBUFFER:
         case VKD3DSPR_SAMPLER:
         case VKD3DSPR_THREADID:
         case VKD3DSPR_LOCALTHREADID:
