@@ -4442,6 +4442,27 @@ static void test_shader_instructions(void)
         0x06000082, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_f32tof16 = {ps_f32tof16_code, sizeof(ps_f32tof16_code)};
+    static const DWORD ps_movc_code[] =
+    {
+#if 0
+        ps_5_0
+        dcl_globalFlags refactoringAllowed
+        dcl_constantbuffer cb0[3], immediateIndexed
+        dcl_output o0.xyzw
+        mov o0.xyzw, cb0[0].xyzw
+        movc o0.xyzw, o0.xyzw, cb0[1].xyzw, cb0[2].xyzw
+        ret
+#endif
+        0x43425844, 0x317dec99, 0x3a8928ca, 0x5db9a8ea, 0xb4806d11, 0x00000001, 0x000000e8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000070, 0x00000050, 0x0000001c,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000003, 0x03000065, 0x001020f2, 0x00000000,
+        0x06000036, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0b000037, 0x001020f2,
+        0x00000000, 0x00102e46, 0x00000000, 0x00208e46, 0x00000000, 0x00000001, 0x00208e46, 0x00000000,
+        0x00000002, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_movc = {ps_movc_code, sizeof(ps_movc_code)};
     static const DWORD ps_swapc0_code[] =
     {
 #if 0
@@ -4818,6 +4839,13 @@ static void test_shader_instructions(void)
         {&ps_f16tof32, {{{0xffff0000, 0xffff3c00, 0xffff5640, 0xffff5bd0}}}, {{0, 1, 100, 250}}},
 
         {&ps_f32tof16, {.f = {{0.0f, 1.0f, -1.0f, 666.0f}}}, {{0, 0x3c00, 0xbc00, 0x6134}}},
+
+        {&ps_movc, {{{0, 0, 0, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 6, 7, 8}}},
+        {&ps_movc, {{{0, 0, 0, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 6, 7, 4}}},
+        {&ps_movc, {{{1, 0, 0, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 6, 7, 8}}},
+        {&ps_movc, {{{1, 0, 0, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 6, 7, 4}}},
+        {&ps_movc, {{{0, 1, 1, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 2, 3, 8}}},
+        {&ps_movc, {{{1, 1, 1, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 2, 3, 4}}},
 
         {
             &ps_swapc0,
