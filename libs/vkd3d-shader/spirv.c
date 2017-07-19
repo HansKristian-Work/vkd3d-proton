@@ -2525,6 +2525,7 @@ static enum GLSLstd450 vkd3d_dxbc_compiler_map_ext_glsl_instruction(
         {VKD3DSIH_FIRSTBIT_HI,     GLSLstd450FindUMsb},
         {VKD3DSIH_FIRSTBIT_LO,     GLSLstd450FindILsb},
         {VKD3DSIH_FIRSTBIT_SHI,    GLSLstd450FindSMsb},
+        {VKD3DSIH_FRC,             GLSLstd450Fract},
         {VKD3DSIH_MAD,             GLSLstd450Fma},
         {VKD3DSIH_MAX,             GLSLstd450FMax},
         {VKD3DSIH_MIN,             GLSLstd450FMin},
@@ -3118,6 +3119,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_FIRSTBIT_HI:
         case VKD3DSIH_FIRSTBIT_LO:
         case VKD3DSIH_FIRSTBIT_SHI:
+        case VKD3DSIH_FRC:
         case VKD3DSIH_MAD:
         case VKD3DSIH_MAX:
         case VKD3DSIH_MIN:
