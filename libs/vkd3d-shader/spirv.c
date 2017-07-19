@@ -2889,8 +2889,13 @@ static void vkd3d_dxbc_compiler_emit_comparison_instruction(struct vkd3d_dxbc_co
         case VKD3DSIH_EQ:  op = SpvOpFOrdEqual; break;
         case VKD3DSIH_GE:  op = SpvOpFOrdGreaterThanEqual; break;
         case VKD3DSIH_IEQ: op = SpvOpIEqual; break;
+        case VKD3DSIH_IGE: op = SpvOpSGreaterThanEqual; break;
+        case VKD3DSIH_ILT: op = SpvOpSLessThan; break;
+        case VKD3DSIH_INE: op = SpvOpINotEqual; break;
         case VKD3DSIH_LT:  op = SpvOpFOrdLessThan; break;
         case VKD3DSIH_NE:  op = SpvOpFUnordNotEqual; break;
+        case VKD3DSIH_UGE: op = SpvOpUGreaterThanEqual; break;
+        case VKD3DSIH_ULT: op = SpvOpULessThan; break;
         default:
             ERR("Unexpected instruction %#x.\n", instruction->handler_idx);
             return;
@@ -3174,8 +3179,13 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_EQ:
         case VKD3DSIH_GE:
         case VKD3DSIH_IEQ:
+        case VKD3DSIH_IGE:
+        case VKD3DSIH_ILT:
+        case VKD3DSIH_INE:
         case VKD3DSIH_LT:
         case VKD3DSIH_NE:
+        case VKD3DSIH_UGE:
+        case VKD3DSIH_ULT:
             vkd3d_dxbc_compiler_emit_comparison_instruction(compiler, instruction);
             break;
         case VKD3DSIH_BFI:
