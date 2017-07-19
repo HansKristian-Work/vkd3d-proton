@@ -944,6 +944,13 @@ static uint32_t vkd3d_spirv_build_op_isub(struct vkd3d_spirv_builder *builder,
             SpvOpISub, result_type, operand0, operand1);
 }
 
+static uint32_t vkd3d_spirv_build_op_fdiv(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t operand0, uint32_t operand1)
+{
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            SpvOpFDiv, result_type, operand0, operand1);
+}
+
 static uint32_t vkd3d_spirv_build_op_fnegate(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand)
 {
@@ -2739,6 +2746,25 @@ static void vkd3d_dxbc_compiler_emit_dot(struct vkd3d_dxbc_compiler *compiler,
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
+static void vkd3d_dxbc_compiler_emit_rcp(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t type_id, src_id, val_id;
+    unsigned int component_count;
+
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    type_id = vkd3d_spirv_get_type_id(builder,
+            vkd3d_component_type_from_data_type(dst->reg.data_type), component_count);
+
+    src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst->write_mask);
+    val_id = vkd3d_spirv_build_op_fdiv(builder, type_id,
+            vkd3d_dxbc_compiler_get_constant_float(compiler, 1.0f), src_id);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
+}
+
 static void vkd3d_dxbc_compiler_emit_imul(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -3201,6 +3227,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_DP3:
         case VKD3DSIH_DP2:
             vkd3d_dxbc_compiler_emit_dot(compiler, instruction);
+            break;
+        case VKD3DSIH_RCP:
+            vkd3d_dxbc_compiler_emit_rcp(compiler, instruction);
             break;
         case VKD3DSIH_IMUL:
             vkd3d_dxbc_compiler_emit_imul(compiler, instruction);
