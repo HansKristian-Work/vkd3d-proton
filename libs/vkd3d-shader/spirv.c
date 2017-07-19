@@ -260,6 +260,8 @@ static void vkd3d_spirv_build_string(struct vkd3d_spirv_stream *stream,
 typedef uint32_t (*vkd3d_spirv_build_pfn)(struct vkd3d_spirv_builder *builder);
 typedef uint32_t (*vkd3d_spirv_build1_pfn)(struct vkd3d_spirv_builder *builder,
         uint32_t operand0);
+typedef uint32_t (*vkd3d_spirv_build1v_pfn)(struct vkd3d_spirv_builder *builder,
+        uint32_t operand0, const uint32_t *operands, unsigned int operand_count);
 typedef uint32_t (*vkd3d_spirv_build2_pfn)(struct vkd3d_spirv_builder *builder,
         uint32_t operand0, uint32_t operand1);
 typedef uint32_t (*vkd3d_spirv_build7_pfn)(struct vkd3d_spirv_builder *builder,
@@ -311,6 +313,8 @@ static void vkd3d_spirv_insert_declaration(struct vkd3d_spirv_builder *builder,
 {
     struct vkd3d_spirv_declaration *d;
 
+    assert(declaration->parameter_count <= ARRAY_SIZE(declaration->parameters));
+
     if (!(d = vkd3d_malloc(sizeof(*d))))
         return;
     memcpy(d, declaration, sizeof(*d));
@@ -335,6 +339,28 @@ static uint32_t vkd3d_spirv_build_once1(struct vkd3d_spirv_builder *builder,
         return RB_ENTRY_VALUE(entry, struct vkd3d_spirv_declaration, entry)->id;
 
     declaration.id = build_pfn(builder, operand0);
+    vkd3d_spirv_insert_declaration(builder, &declaration);
+    return declaration.id;
+}
+
+static uint32_t vkd3d_spirv_build_once1v(struct vkd3d_spirv_builder *builder,
+        SpvOp op, uint32_t operand0, const uint32_t *operands, unsigned int operand_count,
+        vkd3d_spirv_build1v_pfn build_pfn)
+{
+    struct vkd3d_spirv_declaration declaration;
+    unsigned int i, param_idx = 0;
+    struct rb_entry *entry;
+
+    declaration.op = op;
+    declaration.parameters[param_idx++] = operand0;
+    for (i = 0; i < operand_count; ++i)
+        declaration.parameters[param_idx++] = operands[i];
+    declaration.parameter_count = param_idx;
+
+    if ((entry = rb_get(&builder->declarations, &declaration)))
+        return RB_ENTRY_VALUE(entry, struct vkd3d_spirv_declaration, entry)->id;
+
+    declaration.id = build_pfn(builder, operand0, operands, operand_count);
     vkd3d_spirv_insert_declaration(builder, &declaration);
     return declaration.id;
 }
@@ -772,17 +798,31 @@ static uint32_t vkd3d_spirv_get_op_type_pointer(struct vkd3d_spirv_builder *buil
 
 /* Types larger than 32-bits are not supported. */
 static uint32_t vkd3d_spirv_build_op_constant(struct vkd3d_spirv_builder *builder,
-        uint32_t result_type, const uint32_t value)
+        uint32_t result_type, uint32_t value)
 {
     return vkd3d_spirv_build_op_tr1(builder, &builder->global_stream,
             SpvOpConstant, result_type, value);
 }
 
+static uint32_t vkd3d_spirv_get_op_constant(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t value)
+{
+    return vkd3d_spirv_build_once2(builder, SpvOpConstant, result_type, value,
+            vkd3d_spirv_build_op_constant);
+}
+
 static uint32_t vkd3d_spirv_build_op_constant_composite(struct vkd3d_spirv_builder *builder,
-        uint32_t result_type, const uint32_t* constituents, unsigned int constituent_count)
+        uint32_t result_type, const uint32_t *constituents, unsigned int constituent_count)
 {
     return vkd3d_spirv_build_op_trv(builder, &builder->global_stream,
             SpvOpConstantComposite, result_type, constituents, constituent_count);
+}
+
+static uint32_t vkd3d_spirv_get_op_constant_composite(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, const uint32_t *constituents, unsigned int constituent_count)
+{
+    return vkd3d_spirv_build_once1v(builder, SpvOpConstantComposite, result_type,
+            constituents, constituent_count, vkd3d_spirv_build_op_constant_composite);
 }
 
 static uint32_t vkd3d_spirv_build_op_variable(struct vkd3d_spirv_builder *builder,
@@ -1156,17 +1196,6 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
     return true;
 }
 
-struct vkd3d_symbol_constant
-{
-    unsigned int component_count;
-    enum vkd3d_component_type component_type;
-    union
-    {
-        float f[VKD3D_VEC4_SIZE];
-        uint32_t u[VKD3D_VEC4_SIZE];
-    } value;
-};
-
 struct vkd3d_symbol_register
 {
     enum vkd3d_shader_register_type type;
@@ -1184,14 +1213,12 @@ struct vkd3d_symbol
 
     enum
     {
-        VKD3D_SYMBOL_CONSTANT,
         VKD3D_SYMBOL_REGISTER,
         VKD3D_SYMBOL_RESOURCE,
     } type;
 
     union
     {
-        struct vkd3d_symbol_constant constant;
         struct vkd3d_symbol_register reg;
         struct vkd3d_symbol_resource resource;
     } key;
@@ -1223,16 +1250,6 @@ static void vkd3d_symbol_free(struct rb_entry *entry, void *context)
     struct vkd3d_symbol *s = RB_ENTRY_VALUE(entry, struct vkd3d_symbol, entry);
 
     vkd3d_free(s);
-}
-
-static void vkd3d_symbol_make_constant(struct vkd3d_symbol *symbol,
-        enum vkd3d_component_type component_type, unsigned int component_count, const uint32_t *values)
-{
-    symbol->type = VKD3D_SYMBOL_CONSTANT;
-    memset(&symbol->key, 0, sizeof(symbol->key));
-    symbol->key.constant.component_type = component_type;
-    symbol->key.constant.component_count = component_count;
-    memcpy(symbol->key.constant.value.u, values, sizeof(*values) * component_count);
 }
 
 static void vkd3d_symbol_make_register(struct vkd3d_symbol *symbol,
@@ -1370,18 +1387,12 @@ static void vkd3d_dxbc_compiler_put_symbol(struct vkd3d_dxbc_compiler *compiler,
 static uint32_t vkd3d_dxbc_compiler_get_constant(struct vkd3d_dxbc_compiler *compiler,
         enum vkd3d_component_type component_type, unsigned int component_count, const uint32_t *values)
 {
+    uint32_t type_id, scalar_type_id, component_ids[VKD3D_VEC4_SIZE];
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    uint32_t type_id = vkd3d_spirv_get_type_id(builder, component_type, component_count);
-    uint32_t component_ids[VKD3D_VEC4_SIZE];
-    struct vkd3d_symbol constant;
-    struct rb_entry *entry;
     unsigned int i;
 
     assert(0 < component_count && component_count <= VKD3D_VEC4_SIZE);
-
-    vkd3d_symbol_make_constant(&constant, component_type, component_count, values);
-    if ((entry = rb_get(&compiler->symbol_table, &constant)))
-        return RB_ENTRY_VALUE(entry, struct vkd3d_symbol, entry)->id;
+    type_id = vkd3d_spirv_get_type_id(builder, component_type, component_count);
 
     switch (component_type)
     {
@@ -1396,18 +1407,15 @@ static uint32_t vkd3d_dxbc_compiler_get_constant(struct vkd3d_dxbc_compiler *com
 
     if (component_count == 1)
     {
-        constant.id = vkd3d_spirv_build_op_constant(builder, type_id, *values);
+        return vkd3d_spirv_get_op_constant(builder, type_id, *values);
     }
     else
     {
+        scalar_type_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
         for (i = 0; i < component_count; ++i)
-            component_ids[i] = vkd3d_dxbc_compiler_get_constant(compiler, component_type, 1, &values[i]);
-        constant.id = vkd3d_spirv_build_op_constant_composite(builder, type_id, component_ids, component_count);
+            component_ids[i] = vkd3d_spirv_get_op_constant(builder, scalar_type_id, values[i]);
+        return vkd3d_spirv_get_op_constant_composite(builder, type_id, component_ids, component_count);
     }
-
-    vkd3d_dxbc_compiler_put_symbol(compiler, &constant);
-
-    return constant.id;
 }
 
 static uint32_t vkd3d_dxbc_compiler_get_constant_uint(struct vkd3d_dxbc_compiler *compiler,
