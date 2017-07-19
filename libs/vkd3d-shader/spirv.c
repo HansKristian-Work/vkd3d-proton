@@ -2533,11 +2533,15 @@ static enum GLSLstd450 vkd3d_dxbc_compiler_map_ext_glsl_instruction(
         {VKD3DSIH_FIRSTBIT_LO,     GLSLstd450FindILsb},
         {VKD3DSIH_FIRSTBIT_SHI,    GLSLstd450FindSMsb},
         {VKD3DSIH_FRC,             GLSLstd450Fract},
+        {VKD3DSIH_IMAX,            GLSLstd450SMax},
+        {VKD3DSIH_IMIN,            GLSLstd450SMin},
         {VKD3DSIH_MAD,             GLSLstd450Fma},
         {VKD3DSIH_MAX,             GLSLstd450FMax},
         {VKD3DSIH_MIN,             GLSLstd450FMin},
         {VKD3DSIH_RSQ,             GLSLstd450InverseSqrt},
         {VKD3DSIH_SQRT,            GLSLstd450Sqrt},
+        {VKD3DSIH_UMAX,            GLSLstd450UMax},
+        {VKD3DSIH_UMIN,            GLSLstd450UMin},
     };
     unsigned int i;
 
@@ -3148,11 +3152,15 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_FIRSTBIT_LO:
         case VKD3DSIH_FIRSTBIT_SHI:
         case VKD3DSIH_FRC:
+        case VKD3DSIH_IMAX:
+        case VKD3DSIH_IMIN:
         case VKD3DSIH_MAD:
         case VKD3DSIH_MAX:
         case VKD3DSIH_MIN:
         case VKD3DSIH_RSQ:
         case VKD3DSIH_SQRT:
+        case VKD3DSIH_UMAX:
+        case VKD3DSIH_UMIN:
             vkd3d_dxbc_compiler_emit_ext_glsl_instruction(compiler, instruction);
             break;
         case VKD3DSIH_DP4:
