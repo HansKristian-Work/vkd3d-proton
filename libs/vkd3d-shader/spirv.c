@@ -2546,6 +2546,8 @@ static enum GLSLstd450 vkd3d_dxbc_compiler_map_ext_glsl_instruction(
         {VKD3DSIH_MAD,             GLSLstd450Fma},
         {VKD3DSIH_MAX,             GLSLstd450FMax},
         {VKD3DSIH_MIN,             GLSLstd450FMin},
+        {VKD3DSIH_ROUND_NI,        GLSLstd450Floor},
+        {VKD3DSIH_ROUND_PI,        GLSLstd450Ceil},
         {VKD3DSIH_RSQ,             GLSLstd450InverseSqrt},
         {VKD3DSIH_SQRT,            GLSLstd450Sqrt},
         {VKD3DSIH_UMAX,            GLSLstd450UMax},
@@ -3217,6 +3219,8 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_MAD:
         case VKD3DSIH_MAX:
         case VKD3DSIH_MIN:
+        case VKD3DSIH_ROUND_NI:
+        case VKD3DSIH_ROUND_PI:
         case VKD3DSIH_RSQ:
         case VKD3DSIH_SQRT:
         case VKD3DSIH_UMAX:
