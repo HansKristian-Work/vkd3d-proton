@@ -943,6 +943,14 @@ static uint32_t vkd3d_spirv_build_op_label(struct vkd3d_spirv_builder *builder,
     return label_id;
 }
 
+/* Loop control parameters are not supported. */
+static void vkd3d_spirv_build_op_loop_merge(struct vkd3d_spirv_builder *builder,
+        uint32_t merge_block, uint32_t continue_target, SpvLoopControlMask loop_control)
+{
+    vkd3d_spirv_build_op3(&builder->function_stream, SpvOpLoopMerge,
+            merge_block, continue_target, loop_control);
+}
+
 static void vkd3d_spirv_build_op_selection_merge(struct vkd3d_spirv_builder *builder,
         uint32_t merge_block, uint32_t selection_control)
 {
@@ -1280,16 +1288,33 @@ static struct vkd3d_symbol *vkd3d_symbol_dup(const struct vkd3d_symbol *symbol)
     return memcpy(s, symbol, sizeof(*s));
 }
 
-struct vkd3d_control_flow_info
+struct vkd3d_if_cf_info
 {
     uint32_t merge_block_id;
     uint32_t else_block_id;
+};
+
+struct vkd3d_loop_cf_info
+{
+    uint32_t header_block_id;
+    uint32_t continue_block_id;
+    uint32_t merge_block_id;
+};
+
+struct vkd3d_control_flow_info
+{
+    union
+    {
+        struct vkd3d_if_cf_info branch;
+        struct vkd3d_loop_cf_info loop;
+    } u;
 
     enum
     {
         VKD3D_BLOCK_MAIN,
         VKD3D_BLOCK_IF,
         VKD3D_BLOCK_ELSE,
+        VKD3D_BLOCK_LOOP,
         VKD3D_BLOCK_NONE,
     } current_block;
 };
@@ -1307,6 +1332,7 @@ struct vkd3d_dxbc_compiler
     enum vkd3d_shader_type shader_type;
 
     unsigned int branch_id;
+    unsigned int loop_id;
     unsigned int control_flow_depth;
     struct vkd3d_control_flow_info *control_flow_info;
     size_t control_flow_info_size;
@@ -3010,6 +3036,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
         const struct vkd3d_shader_instruction *instruction)
 {
     uint32_t merge_block_id, val_id, condition_id, true_label, false_label;
+    uint32_t loop_header_block_id, loop_body_block_id, continue_block_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_src_param *src = instruction->src;
     struct vkd3d_control_flow_info *cf_info;
@@ -3041,8 +3068,8 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
             vkd3d_spirv_build_op_label(builder, true_label);
 
-            cf_info->merge_block_id = merge_block_id;
-            cf_info->else_block_id = false_label;
+            cf_info->u.branch.merge_block_id = merge_block_id;
+            cf_info->u.branch.else_block_id = false_label;
             cf_info->current_block = VKD3D_BLOCK_IF;
 
             vkd3d_spirv_build_op_name(builder, merge_block_id, "branch%u_merge", compiler->branch_id);
@@ -3053,32 +3080,82 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
         case VKD3DSIH_ELSE:
             assert(compiler->control_flow_depth);
+            assert(cf_info->current_block != VKD3D_BLOCK_LOOP);
 
             if (cf_info->current_block == VKD3D_BLOCK_IF)
-                vkd3d_spirv_build_op_branch(builder, cf_info->merge_block_id);
+                vkd3d_spirv_build_op_branch(builder, cf_info->u.branch.merge_block_id);
 
-            vkd3d_spirv_build_op_label(builder, cf_info->else_block_id);
+            vkd3d_spirv_build_op_label(builder, cf_info->u.branch.else_block_id);
             cf_info->current_block = VKD3D_BLOCK_ELSE;
             break;
 
         case VKD3DSIH_ENDIF:
             assert(compiler->control_flow_depth);
             assert(cf_info->current_block != VKD3D_BLOCK_MAIN);
+            assert(cf_info->current_block != VKD3D_BLOCK_LOOP);
 
             if (cf_info->current_block == VKD3D_BLOCK_IF)
             {
-                vkd3d_spirv_build_op_branch(builder, cf_info->merge_block_id);
+                vkd3d_spirv_build_op_branch(builder, cf_info->u.branch.merge_block_id);
 
-                vkd3d_spirv_build_op_label(builder, cf_info->else_block_id);
-                vkd3d_spirv_build_op_branch(builder, cf_info->merge_block_id);
+                vkd3d_spirv_build_op_label(builder, cf_info->u.branch.else_block_id);
+                vkd3d_spirv_build_op_branch(builder, cf_info->u.branch.merge_block_id);
 
             }
             else if (cf_info->current_block == VKD3D_BLOCK_ELSE)
             {
-                vkd3d_spirv_build_op_branch(builder, cf_info->merge_block_id);
+                vkd3d_spirv_build_op_branch(builder, cf_info->u.branch.merge_block_id);
             }
 
-            vkd3d_spirv_build_op_label(builder, cf_info->merge_block_id);
+            vkd3d_spirv_build_op_label(builder, cf_info->u.branch.merge_block_id);
+
+            memset(cf_info, 0, sizeof(*cf_info));
+            --compiler->control_flow_depth;
+            break;
+
+        case VKD3DSIH_LOOP:
+            if (!vkd3d_array_reserve((void **)&compiler->control_flow_info, &compiler->control_flow_info_size,
+                    compiler->control_flow_depth + 1, sizeof(*compiler->control_flow_info)))
+            {
+                ERR("Failed to allocate control flow info structure.\n");
+                return;
+            }
+
+            cf_info = &compiler->control_flow_info[compiler->control_flow_depth++];
+
+            loop_header_block_id = vkd3d_spirv_alloc_id(builder);
+            loop_body_block_id = vkd3d_spirv_alloc_id(builder);
+            continue_block_id = vkd3d_spirv_alloc_id(builder);
+            merge_block_id = vkd3d_spirv_alloc_id(builder);
+
+            vkd3d_spirv_build_op_branch(builder, loop_header_block_id);
+            vkd3d_spirv_build_op_label(builder, loop_header_block_id);
+            vkd3d_spirv_build_op_loop_merge(builder, merge_block_id, continue_block_id, SpvLoopControlMaskNone);
+            vkd3d_spirv_build_op_branch(builder, loop_body_block_id);
+
+            vkd3d_spirv_build_op_label(builder, loop_body_block_id);
+
+            cf_info->u.loop.header_block_id = loop_header_block_id;
+            cf_info->u.loop.continue_block_id = continue_block_id;
+            cf_info->u.loop.merge_block_id = merge_block_id;
+            cf_info->current_block = VKD3D_BLOCK_LOOP;
+
+            vkd3d_spirv_build_op_name(builder, loop_header_block_id, "loop%u_header", compiler->loop_id);
+            vkd3d_spirv_build_op_name(builder, loop_body_block_id, "loop%u_body", compiler->loop_id);
+            vkd3d_spirv_build_op_name(builder, continue_block_id, "loop%u_continue", compiler->loop_id);
+            vkd3d_spirv_build_op_name(builder, merge_block_id, "loop%u_merge", compiler->loop_id);
+            ++compiler->loop_id;
+            break;
+
+        case VKD3DSIH_ENDLOOP:
+            assert(compiler->control_flow_depth);
+            assert(cf_info->current_block == VKD3D_BLOCK_LOOP);
+
+            vkd3d_spirv_build_op_branch(builder, cf_info->u.loop.continue_block_id);
+
+            vkd3d_spirv_build_op_label(builder, cf_info->u.loop.continue_block_id);
+            vkd3d_spirv_build_op_branch(builder, cf_info->u.loop.header_block_id);
+            vkd3d_spirv_build_op_label(builder, cf_info->u.loop.merge_block_id);
 
             memset(cf_info, 0, sizeof(*cf_info));
             --compiler->control_flow_depth;
@@ -3089,7 +3166,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
             if (cf_info && cf_info->current_block == VKD3D_BLOCK_IF)
             {
-                vkd3d_spirv_build_op_label(builder, cf_info->else_block_id);
+                vkd3d_spirv_build_op_label(builder, cf_info->u.branch.else_block_id);
                 cf_info->current_block = VKD3D_BLOCK_ELSE;
             }
             else if (cf_info)
@@ -3284,9 +3361,11 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_F32TOF16:
             vkd3d_dxbc_compiler_emit_f32tof16(compiler, instruction);
             break;
-        case VKD3DSIH_IF:
         case VKD3DSIH_ELSE:
         case VKD3DSIH_ENDIF:
+        case VKD3DSIH_ENDLOOP:
+        case VKD3DSIH_IF:
+        case VKD3DSIH_LOOP:
         case VKD3DSIH_RET:
             vkd3d_dxbc_compiler_emit_control_flow_instruction(compiler, instruction);
             break;
