@@ -394,6 +394,7 @@ struct d3d12_device
 
     unsigned int direct_queue_family_index;
     unsigned int copy_queue_family_index;
+    unsigned int compute_queue_family_index;
     VkPhysicalDeviceMemoryProperties memory_properties;
 
     struct vkd3d_instance vkd3d_instance;

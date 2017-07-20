@@ -360,7 +360,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     };
 
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance.vk_procs;
-    unsigned int direct_queue_family_index, copy_queue_family_index;
+    unsigned int direct_queue_family_index, copy_queue_family_index, compute_queue_family_index;
     VkQueueFamilyProperties *queue_properties;
     VkPhysicalDeviceFeatures device_features;
     VkDeviceQueueCreateInfo *queue_info;
@@ -393,6 +393,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
 
     direct_queue_family_index = ~0u;
     copy_queue_family_index = ~0u;
+    compute_queue_family_index = ~0u;
     for (i = 0; i < queue_family_count; ++i)
     {
         static float priorities[] = {1.0f};
@@ -409,6 +410,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
             direct_queue_family_index = i;
         if (queue_properties[i].queueFlags & VK_QUEUE_TRANSFER_BIT)
             copy_queue_family_index = i;
+        if ((queue_properties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) == VK_QUEUE_COMPUTE_BIT)
+            compute_queue_family_index = i;
     }
     vkd3d_free(queue_properties);
 
@@ -423,6 +426,11 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
         FIXME("Could not find a suitable queue family for a copy command queue.\n");
         vkd3d_free(queue_info);
         return E_FAIL;
+    }
+    if (compute_queue_family_index == ~0u)
+    {
+        /* No compute-only queue family, reuse the direct queue family with graphics and compute. */
+        compute_queue_family_index = direct_queue_family_index;
     }
 
     device->direct_queue_family_index = direct_queue_family_index;

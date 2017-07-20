@@ -3212,6 +3212,9 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
         case D3D12_COMMAND_LIST_TYPE_COPY:
             queue_family_index = device->copy_queue_family_index;
             break;
+        case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+            queue_family_index = device->compute_queue_family_index;
+            break;
         default:
             FIXME("Unhandled command list type %#x.\n", desc->Type);
             return E_NOTIMPL;
