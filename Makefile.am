@@ -108,13 +108,13 @@ bin_PROGRAMS = vkd3d-compiler
 vkd3d_compiler_SOURCES = programs/vkd3d-compiler/main.c
 vkd3d_compiler_LDADD = libvkd3d-shader.la
 
-LDADD = libvkd3d-utils.la
+LDADD = libvkd3d.la libvkd3d-utils.la
 check_PROGRAMS = $(vkd3d_tests)
 AM_DEFAULT_SOURCE_EXT = .c
 TESTS = $(vkd3d_tests)
 tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@
 
-DEMOS_LDADD = libvkd3d.la libvkd3d-shader.la $(LDADD) @XCB_LIBS@ @VULKAN_LIBS@
+DEMOS_LDADD = $(LDADD) libvkd3d-shader.la @XCB_LIBS@ @VULKAN_LIBS@
 DEMOS_CFLAGS = @XCB_CFLAGS@
 noinst_PROGRAMS = $(vkd3d_demos)
 EXTRA_DIST += $(vkd3d_demos_headers)
