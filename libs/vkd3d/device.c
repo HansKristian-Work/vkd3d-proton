@@ -1139,12 +1139,20 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_SetStablePowerState(ID3D12Device *
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandSignature(ID3D12Device *iface,
         const D3D12_COMMAND_SIGNATURE_DESC *desc, ID3D12RootSignature *root_signature,
-        REFIID riid, void **command_signature)
+        REFIID iid, void **command_signature)
 {
-    FIXME("iface %p, desc %p, root_signature %p, riid %s, command_signature %p stub!\n",
-            iface, desc, root_signature, debugstr_guid(riid), command_signature);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_command_signature *object;
+    HRESULT hr;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, desc %p, root_signature %p, iid %s, command_signature %p.\n",
+            iface, desc, root_signature, debugstr_guid(iid), command_signature);
+
+    if (FAILED(hr = d3d12_command_signature_create(device, &object)))
+        return hr;
+
+    return return_interface((IUnknown *)&object->ID3D12CommandSignature_iface,
+            &IID_ID3D12CommandSignature, iid, command_signature);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_GetResourceTiling(ID3D12Device *iface,

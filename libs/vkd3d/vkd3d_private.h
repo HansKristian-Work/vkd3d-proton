@@ -392,6 +392,18 @@ struct d3d12_command_queue
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
         const D3D12_COMMAND_QUEUE_DESC *desc, struct d3d12_command_queue **queue) DECLSPEC_HIDDEN;
 
+/* ID3D12CommandSignature */
+struct d3d12_command_signature
+{
+    ID3D12CommandSignature ID3D12CommandSignature_iface;
+    LONG refcount;
+
+    struct d3d12_device *device;
+};
+
+HRESULT d3d12_command_signature_create(struct d3d12_device *device,
+        struct d3d12_command_signature **signature) DECLSPEC_HIDDEN;
+
 /* ID3D12Device */
 struct d3d12_device
 {

@@ -3341,3 +3341,135 @@ uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue)
 
     return d3d12_queue->vk_queue_family_index;
 }
+
+/* ID3D12CommandSignature */
+static inline struct d3d12_command_signature *impl_from_ID3D12CommandSignature(ID3D12CommandSignature *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d12_command_signature, ID3D12CommandSignature_iface);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_signature_QueryInterface(ID3D12CommandSignature *iface,
+        REFIID iid, void **out)
+{
+    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
+
+    if (IsEqualGUID(iid, &IID_ID3D12CommandSignature)
+            || IsEqualGUID(iid, &IID_ID3D12Pageable)
+            || IsEqualGUID(iid, &IID_ID3D12DeviceChild)
+            || IsEqualGUID(iid, &IID_ID3D12Object)
+            || IsEqualGUID(iid, &IID_IUnknown))
+    {
+        ID3D12CommandSignature_AddRef(iface);
+        *out = iface;
+        return S_OK;
+    }
+
+    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
+
+    *out = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_command_signature_AddRef(ID3D12CommandSignature *iface)
+{
+    struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
+    ULONG refcount = InterlockedIncrement(&signature->refcount);
+
+    TRACE("%p increasing refcount to %u.\n", signature, refcount);
+
+    return refcount;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_command_signature_Release(ID3D12CommandSignature *iface)
+{
+    struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
+    ULONG refcount = InterlockedDecrement(&signature->refcount);
+
+    TRACE("%p decreasing refcount to %u.\n", signature, refcount);
+
+    if (!refcount)
+    {
+        struct d3d12_device *device = signature->device;
+
+        vkd3d_free(signature);
+
+        ID3D12Device_Release(&device->ID3D12Device_iface);
+    }
+
+    return refcount;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_signature_GetPrivateData(ID3D12CommandSignature *iface,
+        REFGUID guid, UINT *data_size, void *data)
+{
+    FIXME("iface %p, guid %s, data_size %p, data %p stub!", iface, debugstr_guid(guid), data_size, data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetPrivateData(ID3D12CommandSignature *iface,
+        REFGUID guid, UINT data_size, const void *data)
+{
+    FIXME("iface %p, guid %s, data_size %u, data %p stub!\n", iface, debugstr_guid(guid), data_size, data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetPrivateDataInterface(ID3D12CommandSignature *iface,
+        REFGUID guid, const IUnknown *data)
+{
+    FIXME("iface %p, guid %s, data %p stub!\n", iface, debugstr_guid(guid), data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetName(ID3D12CommandSignature *iface, const WCHAR *name)
+{
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_signature_GetDevice(ID3D12CommandSignature *iface,
+        REFIID riid, void **device)
+{
+    struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
+
+    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+
+    return ID3D12Device_QueryInterface(&signature->device->ID3D12Device_iface, riid, device);
+}
+
+static const struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl =
+{
+    /* IUnknown methods */
+    d3d12_command_signature_QueryInterface,
+    d3d12_command_signature_AddRef,
+    d3d12_command_signature_Release,
+    /* ID3D12Object methods */
+    d3d12_command_signature_GetPrivateData,
+    d3d12_command_signature_SetPrivateData,
+    d3d12_command_signature_SetPrivateDataInterface,
+    d3d12_command_signature_SetName,
+    /* ID3D12DeviceChild methods */
+    d3d12_command_signature_GetDevice,
+};
+
+HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12_command_signature **signature)
+{
+    struct d3d12_command_signature *object;
+
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    object->ID3D12CommandSignature_iface.lpVtbl = &d3d12_command_signature_vtbl;
+    object->refcount = 1;
+    object->device = device;
+    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+
+    TRACE("Created command signature %p.\n", object);
+
+    *signature = object;
+
+    return S_OK;
+}
