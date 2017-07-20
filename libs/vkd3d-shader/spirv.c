@@ -3104,7 +3104,8 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             if (cf_info->current_block == VKD3D_BLOCK_IF)
                 vkd3d_spirv_build_op_branch(builder, cf_info->u.branch.merge_block_id);
 
-            vkd3d_spirv_build_op_label(builder, cf_info->u.branch.else_block_id);
+            if (cf_info->current_block != VKD3D_BLOCK_ELSE)
+                vkd3d_spirv_build_op_label(builder, cf_info->u.branch.else_block_id);
             cf_info->current_block = VKD3D_BLOCK_ELSE;
             break;
 
