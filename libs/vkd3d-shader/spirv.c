@@ -3181,6 +3181,41 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             --compiler->control_flow_depth;
             break;
 
+        case VKD3DSIH_BREAK:
+        {
+            const struct vkd3d_control_flow_info *loop_cf_info = NULL;
+            int depth;
+
+            for (depth = compiler->control_flow_depth - 1; depth >= 0; --depth)
+            {
+                if (compiler->control_flow_info[depth].current_block == VKD3D_BLOCK_LOOP)
+                {
+                    loop_cf_info = &compiler->control_flow_info[depth];
+                    break;
+                }
+            }
+            if (!loop_cf_info)
+            {
+                FIXME("Unhandled break instruction.\n");
+                return;
+            }
+            assert(compiler->control_flow_depth);
+            assert(loop_cf_info->current_block == VKD3D_BLOCK_LOOP);
+
+            vkd3d_spirv_build_op_branch(builder, loop_cf_info->u.loop.merge_block_id);
+
+            if (cf_info->current_block == VKD3D_BLOCK_IF)
+            {
+                vkd3d_spirv_build_op_label(builder, cf_info->u.branch.else_block_id);
+                cf_info->current_block = VKD3D_BLOCK_ELSE;
+            }
+            else
+            {
+                cf_info->current_block = VKD3D_BLOCK_NONE;
+            }
+            break;
+        }
+
         case VKD3DSIH_BREAKP:
             assert(compiler->control_flow_depth);
             assert(cf_info->current_block == VKD3D_BLOCK_LOOP);
@@ -3388,6 +3423,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_F32TOF16:
             vkd3d_dxbc_compiler_emit_f32tof16(compiler, instruction);
             break;
+        case VKD3DSIH_BREAK:
         case VKD3DSIH_BREAKP:
         case VKD3DSIH_ELSE:
         case VKD3DSIH_ENDIF:
