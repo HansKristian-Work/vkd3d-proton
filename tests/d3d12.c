@@ -4402,6 +4402,26 @@ static void test_shader_instructions(void)
         0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_frc = {ps_frc_code, sizeof(ps_frc_code)};
+    static const DWORD ps_exp_code[] =
+    {
+#if 0
+        float src;
+
+        void main(out float4 dst : SV_Target)
+        {
+            dst = 0;
+            dst.x = exp2(src);
+        }
+#endif
+        0x43425844, 0xa742b300, 0x10b64393, 0x7827fc4a, 0x328b8db5, 0x00000001, 0x000000dc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000064, 0x00000050, 0x00000019,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x06000019, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x08000036, 0x001020e2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_exp = {ps_exp_code, sizeof(ps_exp_code)};
     static const DWORD ps_bfi_code[] =
     {
 #if 0
@@ -4987,6 +5007,13 @@ static void test_shader_instructions(void)
         {&ps_frc, {{-1.0f}}, {{0.0f, 0.0f}}},
         {&ps_frc, {{ 0.5f}}, {{0.5f, 0.5f}}},
         {&ps_frc, {{-0.5f}}, {{0.5f, 0.5f}}},
+
+        {&ps_exp, {{     0.0f}}, {{   1.00f}}},
+        {&ps_exp, {{    -0.0f}}, {{   1.00f}}},
+        {&ps_exp, {{     2.0f}}, {{   4.00f}}},
+        {&ps_exp, {{    -2.0f}}, {{   0.25f}}},
+        {&ps_exp, {{ INFINITY}}, {{INFINITY}}},
+        {&ps_exp, {{-INFINITY}}, {{   0.00f}}},
     };
 
     static const struct
