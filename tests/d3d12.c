@@ -4422,6 +4422,26 @@ static void test_shader_instructions(void)
         0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_exp = {ps_exp_code, sizeof(ps_exp_code)};
+    static const DWORD ps_log_code[] =
+    {
+#if 0
+        float src;
+
+        void main(out float4 dst : SV_Target)
+        {
+            dst = 0;
+            dst.x = log2(src);
+        }
+#endif
+        0x43425844, 0x2f1cc195, 0x6cc7d061, 0xe63df3b1, 0x9c68b968, 0x00000001, 0x000000dc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000064, 0x00000050, 0x00000019,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x0600002f, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x08000036, 0x001020e2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_log = {ps_log_code, sizeof(ps_log_code)};
     static const DWORD ps_bfi_code[] =
     {
 #if 0
@@ -5014,6 +5034,14 @@ static void test_shader_instructions(void)
         {&ps_exp, {{    -2.0f}}, {{   0.25f}}},
         {&ps_exp, {{ INFINITY}}, {{INFINITY}}},
         {&ps_exp, {{-INFINITY}}, {{   0.00f}}},
+
+        {&ps_log, {{  -0.00f}}, {{-INFINITY}}},
+        {&ps_log, {{   0.00f}}, {{-INFINITY}}},
+        {&ps_log, {{INFINITY}}, {{ INFINITY}}},
+        {&ps_log, {{   0.25f}}, {{    -2.0f}}},
+        {&ps_log, {{   0.50f}}, {{    -1.0f}}},
+        {&ps_log, {{   2.00f}}, {{     1.0f}}},
+        {&ps_log, {{   8.00f}}, {{     3.0f}}},
     };
 
     static const struct
@@ -5531,7 +5559,7 @@ static void test_shader_instructions(void)
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-        check_sub_resource_vec4(context.render_target, 0, queue, command_list, &tests[i].output.f, 0);
+        check_sub_resource_vec4(context.render_target, 0, queue, command_list, &tests[i].output.f, 2);
 
         hr = ID3D12CommandAllocator_Reset(context.allocator);
         ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
