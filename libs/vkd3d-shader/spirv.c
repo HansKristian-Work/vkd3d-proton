@@ -2696,6 +2696,8 @@ static uint32_t vkd3d_dxbc_compiler_emit_int_to_bool(struct vkd3d_dxbc_compiler 
     uint32_t type_id;
     SpvOp op;
 
+    assert(!(condition & ~(VKD3D_SHADER_CONDITIONAL_OP_NZ | VKD3D_SHADER_CONDITIONAL_OP_Z)));
+
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, component_count);
     op = condition & VKD3D_SHADER_CONDITIONAL_OP_Z ? SpvOpIEqual : SpvOpINotEqual;
     return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream, op, type_id, val_id,
@@ -3010,6 +3012,23 @@ static void vkd3d_dxbc_compiler_emit_comparison_instruction(struct vkd3d_dxbc_co
     vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, result_id);
 }
 
+static void vkd3d_dxbc_compiler_emit_breakc(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction, uint32_t target_block_id)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t condition_id, merge_block_id;
+
+    condition_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, VKD3DSP_WRITEMASK_0);
+    condition_id = vkd3d_dxbc_compiler_emit_int_to_bool(compiler, instruction->flags, 1, condition_id);
+
+    merge_block_id = vkd3d_spirv_alloc_id(builder);
+
+    vkd3d_spirv_build_op_selection_merge(builder, merge_block_id, SpvSelectionControlMaskNone);
+    vkd3d_spirv_build_op_branch_conditional(builder, condition_id, target_block_id, merge_block_id);
+    vkd3d_spirv_build_op_label(builder, merge_block_id);
+}
+
 static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -3159,6 +3178,13 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
             memset(cf_info, 0, sizeof(*cf_info));
             --compiler->control_flow_depth;
+            break;
+
+        case VKD3DSIH_BREAKP:
+            assert(compiler->control_flow_depth);
+            assert(cf_info->current_block == VKD3D_BLOCK_LOOP);
+
+            vkd3d_dxbc_compiler_emit_breakc(compiler, instruction, cf_info->u.loop.merge_block_id);
             break;
 
         case VKD3DSIH_RET:
@@ -3361,6 +3387,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_F32TOF16:
             vkd3d_dxbc_compiler_emit_f32tof16(compiler, instruction);
             break;
+        case VKD3DSIH_BREAKP:
         case VKD3DSIH_ELSE:
         case VKD3DSIH_ENDIF:
         case VKD3DSIH_ENDLOOP:
