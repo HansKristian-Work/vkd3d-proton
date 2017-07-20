@@ -4570,6 +4570,54 @@ static void test_shader_instructions(void)
         0x00000000, 0x0600003b, 0x00102052, 0x00000000, 0x00208106, 0x00000000, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_not = {ps_not_code, sizeof(ps_not_code)};
+    static const DWORD ps_icmp_code[] =
+    {
+#if 0
+        int2 src;
+
+        void main(out uint4 dst : SV_Target)
+        {
+            dst.x = src.x == src.y ? ~0u : 0;
+            dst.y = src.x >= src.y ? ~0u : 0;
+            dst.z = src.x < src.y  ? ~0u : 0;
+            dst.w = src.x != src.y ? ~0u : 0;
+        }
+#endif
+        0x43425844, 0xa39748f0, 0x39d5c9e4, 0xdf073d48, 0x7946c5c4, 0x00000001, 0x00000134, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000bc, 0x00000050, 0x0000002f,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x09000020, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0020801a, 0x00000000,
+        0x00000000, 0x09000021, 0x00102022, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0020801a,
+        0x00000000, 0x00000000, 0x09000022, 0x00102042, 0x00000000, 0x0020800a, 0x00000000, 0x00000000,
+        0x0020801a, 0x00000000, 0x00000000, 0x09000027, 0x00102082, 0x00000000, 0x0020800a, 0x00000000,
+        0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_icmp = {ps_icmp_code, sizeof(ps_icmp_code)};
+    static const DWORD ps_ucmp_code[] =
+    {
+#if 0
+        uint2 src;
+
+        void main(out uint4 dst : SV_Target)
+        {
+            dst = 0;
+            dst.x = src.x >= src.y ? ~0u : 0;
+            dst.y = src.x < src.y  ? ~0u : 0;
+        }
+#endif
+        0x43425844, 0xe083954f, 0xb55bf642, 0xeb2fa36c, 0x60ee1782, 0x00000001, 0x0000010c, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000094, 0x00000050, 0x00000025,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x09000050, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0020801a, 0x00000000,
+        0x00000000, 0x0900004f, 0x00102022, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0020801a,
+        0x00000000, 0x00000000, 0x08000036, 0x001020c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_ucmp = {ps_ucmp_code, sizeof(ps_ucmp_code)};
     static const DWORD ps_umin_umax_code[] =
     {
 #if 0
@@ -4925,6 +4973,12 @@ static void test_shader_instructions(void)
             } u;
             struct
             {
+                struct ivec4 src0;
+                struct ivec4 src1;
+                struct ivec4 src2;
+            } i;
+            struct
+            {
                 struct vec4 src0;
                 struct vec4 src1;
                 struct vec4 src2;
@@ -5048,6 +5102,23 @@ static void test_shader_instructions(void)
 
         {&ps_not, {{{0x00000000, 0xffffffff}}}, {{0xffffffff, 0x00000000, 0x00000000, 0xffffffff}}},
         {&ps_not, {{{0xf0f0f0f0, 0x0f0f0f0f}}}, {{0x0f0f0f0f, 0xf0f0f0f0, 0xf0f0f0f0, 0x0f0f0f0f}}},
+
+        {&ps_icmp, {.i = {{ 0,  0}}}, {{~0u, ~0u,  0,   0}}},
+        {&ps_icmp, {.i = {{ 1,  0}}}, {{ 0,  ~0u,  0,  ~0u}}},
+        {&ps_icmp, {.i = {{ 0,  1}}}, {{ 0,   0,  ~0u, ~0u}}},
+        {&ps_icmp, {.i = {{ 1,  1}}}, {{~0u, ~0u,  0,   0}}},
+        {&ps_icmp, {.i = {{-1, -1}}}, {{~0u, ~0u,  0,   0}}},
+        {&ps_icmp, {.i = {{ 0, -1}}}, {{ 0,  ~0u,  0,  ~0u}}},
+        {&ps_icmp, {.i = {{-1,  0}}}, {{ 0,   0,  ~0u, ~0u}}},
+        {&ps_icmp, {.i = {{ 1, -1}}}, {{ 0,  ~0u,  0,  ~0u}}},
+        {&ps_icmp, {.i = {{-1,  1}}}, {{ 0,   0,  ~0u, ~0u}}},
+        {&ps_icmp, {.i = {{-2, -1}}}, {{ 0,   0,  ~0u, ~0u}}},
+
+        {&ps_ucmp, {{{0,  0}}}, {{~0u,  0, }}},
+        {&ps_ucmp, {{{1,  0}}}, {{~0u,  0, }}},
+        {&ps_ucmp, {{{0,  1}}}, {{ 0,  ~0u,}}},
+        {&ps_ucmp, {{{1,  1}}}, {{~0u,  0, }}},
+        {&ps_ucmp, {{{1,  2}}}, {{ 0,  ~0u,}}},
 
         {&ps_umin_umax, {{{ 0,   0}}},  {{ 0,   0}}},
         {&ps_umin_umax, {{{ 0,   1}}},  {{ 0,   1}}},
