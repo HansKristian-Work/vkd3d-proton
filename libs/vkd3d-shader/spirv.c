@@ -1307,7 +1307,9 @@ struct vkd3d_dxbc_compiler
     enum vkd3d_shader_type shader_type;
 
     unsigned int branch_id;
-    struct vkd3d_control_flow_info control_flow_info;
+    unsigned int control_flow_depth;
+    struct vkd3d_control_flow_info *control_flow_info;
+    size_t control_flow_info_size;
 
     const struct vkd3d_shader_signature *output_signature;
     struct
@@ -3007,19 +3009,25 @@ static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler
 static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    struct vkd3d_control_flow_info *cf_info = &compiler->control_flow_info;
     uint32_t merge_block_id, val_id, condition_id, true_label, false_label;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_src_param *src = instruction->src;
+    struct vkd3d_control_flow_info *cf_info;
+
+    cf_info = compiler->control_flow_depth
+            ? &compiler->control_flow_info[compiler->control_flow_depth - 1] : NULL;
 
     switch (instruction->handler_idx)
     {
         case VKD3DSIH_IF:
-            if (cf_info->current_block != VKD3D_BLOCK_MAIN)
+            if (!vkd3d_array_reserve((void **)&compiler->control_flow_info, &compiler->control_flow_info_size,
+                    compiler->control_flow_depth + 1, sizeof(*compiler->control_flow_info)))
             {
-                FIXME("Nested control flow not supported yet.\n");
+                ERR("Failed to allocate control flow info structure.\n");
                 return;
             }
+
+            cf_info = &compiler->control_flow_info[compiler->control_flow_depth++];
 
             val_id = vkd3d_dxbc_compiler_emit_load_reg(compiler,
                     &src->reg, src->swizzle, VKD3DSP_WRITEMASK_0);
@@ -3044,6 +3052,8 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             break;
 
         case VKD3DSIH_ELSE:
+            assert(compiler->control_flow_depth);
+
             if (cf_info->current_block == VKD3D_BLOCK_IF)
                 vkd3d_spirv_build_op_branch(builder, cf_info->merge_block_id);
 
@@ -3052,6 +3062,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             break;
 
         case VKD3DSIH_ENDIF:
+            assert(compiler->control_flow_depth);
             assert(cf_info->current_block != VKD3D_BLOCK_MAIN);
 
             if (cf_info->current_block == VKD3D_BLOCK_IF)
@@ -3070,17 +3081,18 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             vkd3d_spirv_build_op_label(builder, cf_info->merge_block_id);
 
             memset(cf_info, 0, sizeof(*cf_info));
+            --compiler->control_flow_depth;
             break;
 
         case VKD3DSIH_RET:
             vkd3d_dxbc_compiler_emit_return(compiler, instruction);
 
-            if (cf_info->current_block == VKD3D_BLOCK_IF)
+            if (cf_info && cf_info->current_block == VKD3D_BLOCK_IF)
             {
                 vkd3d_spirv_build_op_label(builder, cf_info->else_block_id);
                 cf_info->current_block = VKD3D_BLOCK_ELSE;
             }
-            else
+            else if (cf_info)
             {
                 cf_info->current_block = VKD3D_BLOCK_NONE;
             }
@@ -3376,6 +3388,8 @@ bool vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
 
 void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler)
 {
+    vkd3d_free(compiler->control_flow_info);
+
     vkd3d_free(compiler->output_info);
 
     vkd3d_spirv_builder_free(&compiler->spirv_builder);
