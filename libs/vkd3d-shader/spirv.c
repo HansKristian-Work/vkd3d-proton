@@ -3051,6 +3051,43 @@ static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler
     vkd3d_spirv_build_op_return(builder);
 }
 
+static struct vkd3d_control_flow_info *vkd3d_dxbc_compiler_push_control_flow_level(
+        struct vkd3d_dxbc_compiler *compiler)
+{
+    if (!vkd3d_array_reserve((void **)&compiler->control_flow_info, &compiler->control_flow_info_size,
+            compiler->control_flow_depth + 1, sizeof(*compiler->control_flow_info)))
+    {
+        ERR("Failed to allocate control flow info structure.\n");
+        return NULL;
+    }
+
+    return &compiler->control_flow_info[compiler->control_flow_depth++];
+}
+
+static void vkd3d_dxbc_compiler_pop_control_flow_level(struct vkd3d_dxbc_compiler *compiler)
+{
+    struct vkd3d_control_flow_info *cf_info;
+
+    assert(compiler->control_flow_depth);
+
+    cf_info = &compiler->control_flow_info[--compiler->control_flow_depth];
+    memset(cf_info, 0, sizeof(*cf_info));
+}
+
+static struct vkd3d_control_flow_info *vkd3d_dxbc_compiler_find_innermost_loop(
+        struct vkd3d_dxbc_compiler *compiler)
+{
+    int depth;
+
+    for (depth = compiler->control_flow_depth - 1; depth >= 0; --depth)
+    {
+        if (compiler->control_flow_info[depth].current_block == VKD3D_BLOCK_LOOP)
+            return &compiler->control_flow_info[depth];
+    }
+
+    return NULL;
+}
+
 static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -3066,14 +3103,8 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
     switch (instruction->handler_idx)
     {
         case VKD3DSIH_IF:
-            if (!vkd3d_array_reserve((void **)&compiler->control_flow_info, &compiler->control_flow_info_size,
-                    compiler->control_flow_depth + 1, sizeof(*compiler->control_flow_info)))
-            {
-                ERR("Failed to allocate control flow info structure.\n");
+            if (!(cf_info = vkd3d_dxbc_compiler_push_control_flow_level(compiler)))
                 return;
-            }
-
-            cf_info = &compiler->control_flow_info[compiler->control_flow_depth++];
 
             val_id = vkd3d_dxbc_compiler_emit_load_reg(compiler,
                     &src->reg, src->swizzle, VKD3DSP_WRITEMASK_0);
@@ -3129,19 +3160,12 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
             vkd3d_spirv_build_op_label(builder, cf_info->u.branch.merge_block_id);
 
-            memset(cf_info, 0, sizeof(*cf_info));
-            --compiler->control_flow_depth;
+            vkd3d_dxbc_compiler_pop_control_flow_level(compiler);
             break;
 
         case VKD3DSIH_LOOP:
-            if (!vkd3d_array_reserve((void **)&compiler->control_flow_info, &compiler->control_flow_info_size,
-                    compiler->control_flow_depth + 1, sizeof(*compiler->control_flow_info)))
-            {
-                ERR("Failed to allocate control flow info structure.\n");
+            if (!(cf_info = vkd3d_dxbc_compiler_push_control_flow_level(compiler)))
                 return;
-            }
-
-            cf_info = &compiler->control_flow_info[compiler->control_flow_depth++];
 
             loop_header_block_id = vkd3d_spirv_alloc_id(builder);
             loop_body_block_id = vkd3d_spirv_alloc_id(builder);
@@ -3177,30 +3201,20 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             vkd3d_spirv_build_op_branch(builder, cf_info->u.loop.header_block_id);
             vkd3d_spirv_build_op_label(builder, cf_info->u.loop.merge_block_id);
 
-            memset(cf_info, 0, sizeof(*cf_info));
-            --compiler->control_flow_depth;
+            vkd3d_dxbc_compiler_pop_control_flow_level(compiler);
             break;
 
         case VKD3DSIH_BREAK:
         {
-            const struct vkd3d_control_flow_info *loop_cf_info = NULL;
-            int depth;
+            const struct vkd3d_control_flow_info *loop_cf_info;
 
-            for (depth = compiler->control_flow_depth - 1; depth >= 0; --depth)
-            {
-                if (compiler->control_flow_info[depth].current_block == VKD3D_BLOCK_LOOP)
-                {
-                    loop_cf_info = &compiler->control_flow_info[depth];
-                    break;
-                }
-            }
-            if (!loop_cf_info)
+            if (!(loop_cf_info = vkd3d_dxbc_compiler_find_innermost_loop(compiler)))
             {
                 FIXME("Unhandled break instruction.\n");
                 return;
             }
+
             assert(compiler->control_flow_depth);
-            assert(loop_cf_info->current_block == VKD3D_BLOCK_LOOP);
 
             vkd3d_spirv_build_op_branch(builder, loop_cf_info->u.loop.merge_block_id);
 
