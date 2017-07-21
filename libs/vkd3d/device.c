@@ -410,7 +410,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
             direct_queue_family_index = i;
         if (queue_properties[i].queueFlags & VK_QUEUE_TRANSFER_BIT)
             copy_queue_family_index = i;
-        if ((queue_properties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) == VK_QUEUE_COMPUTE_BIT)
+        if ((queue_properties[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
+                == VK_QUEUE_COMPUTE_BIT)
             compute_queue_family_index = i;
     }
     vkd3d_free(queue_properties);
