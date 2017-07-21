@@ -359,8 +359,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
         VK_KHR_MAINTENANCE1_EXTENSION_NAME,
     };
 
-    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance.vk_procs;
     unsigned int direct_queue_family_index, copy_queue_family_index, compute_queue_family_index;
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance.vk_procs;
     VkQueueFamilyProperties *queue_properties;
     VkPhysicalDeviceFeatures device_features;
     VkDeviceQueueCreateInfo *queue_info;
@@ -435,8 +435,10 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
 
     device->direct_queue_family_index = direct_queue_family_index;
     device->copy_queue_family_index = copy_queue_family_index;
+    device->compute_queue_family_index = compute_queue_family_index;
     TRACE("Using queue family %u for direct command queues.\n", direct_queue_family_index);
     TRACE("Using queue family %u for copy command queues.\n", copy_queue_family_index);
+    TRACE("Using queue family %u for compute command queues.\n", compute_queue_family_index);
 
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 
