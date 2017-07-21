@@ -985,6 +985,20 @@ static uint32_t vkd3d_spirv_build_op_imul(struct vkd3d_spirv_builder *builder,
             SpvOpIMul, result_type, operand0, operand1);
 }
 
+static uint32_t vkd3d_spirv_build_op_udiv(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t operand0, uint32_t operand1)
+{
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            SpvOpUDiv, result_type, operand0, operand1);
+}
+
+static uint32_t vkd3d_spirv_build_op_umod(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t operand0, uint32_t operand1)
+{
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            SpvOpUMod, result_type, operand0, operand1);
+}
+
 static uint32_t vkd3d_spirv_build_op_isub(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand0, uint32_t operand1)
 {
@@ -2862,6 +2876,63 @@ static void vkd3d_dxbc_compiler_emit_imad(struct vkd3d_dxbc_compiler *compiler,
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
+static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    static const uint32_t ffffffff[] = {0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff};
+
+    uint32_t type_id, val_id, src0_id, src1_id, condition_id, ffffffff_id;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    unsigned int component_count = 0;
+
+    if (dst[0].reg.type != VKD3DSPR_NULL)
+    {
+        component_count = vkd3d_write_mask_component_count(dst[0].write_mask);
+        type_id = vkd3d_spirv_get_type_id(builder,
+                vkd3d_component_type_from_data_type(dst[0].reg.data_type), component_count);
+
+        src0_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], dst[0].write_mask);
+        src1_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], dst[0].write_mask);
+
+        condition_id = vkd3d_dxbc_compiler_emit_int_to_bool(compiler,
+                VKD3D_SHADER_CONDITIONAL_OP_NZ, component_count, src1_id);
+        ffffffff_id = vkd3d_dxbc_compiler_get_constant(compiler,
+                VKD3D_TYPE_UINT, component_count, ffffffff);
+
+        val_id = vkd3d_spirv_build_op_udiv(builder, type_id, src0_id, src1_id);
+        /* The SPIR-V spec says: "The resulting value is undefined if Operand 2 is 0." */
+        val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, val_id, ffffffff_id);
+
+        vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[0], val_id);
+    }
+
+    if (dst[1].reg.type != VKD3DSPR_NULL)
+    {
+        if (!component_count || dst[0].write_mask != dst[1].write_mask)
+        {
+            component_count = vkd3d_write_mask_component_count(dst[1].write_mask);
+            type_id = vkd3d_spirv_get_type_id(builder,
+                    vkd3d_component_type_from_data_type(dst[1].reg.data_type), component_count);
+
+            src0_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], dst[1].write_mask);
+            src1_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], dst[1].write_mask);
+
+            condition_id = vkd3d_dxbc_compiler_emit_int_to_bool(compiler,
+                    VKD3D_SHADER_CONDITIONAL_OP_NZ, component_count, src1_id);
+            ffffffff_id = vkd3d_dxbc_compiler_get_constant(compiler,
+                    VKD3D_TYPE_UINT, component_count, ffffffff);
+        }
+
+        val_id = vkd3d_spirv_build_op_umod(builder, type_id, src0_id, src1_id);
+        /* The SPIR-V spec says: "The resulting value is undefined if Operand 2 is 0." */
+        val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, val_id, ffffffff_id);
+
+        vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[1], val_id);
+    }
+}
+
 static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -3425,6 +3496,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_IMAD:
             vkd3d_dxbc_compiler_emit_imad(compiler, instruction);
+            break;
+        case VKD3DSIH_UDIV:
+            vkd3d_dxbc_compiler_emit_udiv(compiler, instruction);
             break;
         case VKD3DSIH_EQ:
         case VKD3DSIH_GE:
