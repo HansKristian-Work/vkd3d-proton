@@ -2211,6 +2211,15 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
     return id;
 }
 
+static void vkd3d_dxbc_compiler_emit_dcl_global_flags(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    if (instruction->flags & ~(VKD3DSGF_REFACTORING_ALLOWED | VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS))
+        FIXME("Unrecognized global flags %#x.\n", instruction->flags);
+    else
+        WARN("Unhandled global flags %#x.\n", instruction->flags);
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_temps(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -3317,6 +3326,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
 {
     switch (instruction->handler_idx)
     {
+        case VKD3DSIH_DCL_GLOBAL_FLAGS:
+            vkd3d_dxbc_compiler_emit_dcl_global_flags(compiler, instruction);
+            break;
         case VKD3DSIH_DCL_TEMPS:
             vkd3d_dxbc_compiler_emit_dcl_temps(compiler, instruction);
             break;
