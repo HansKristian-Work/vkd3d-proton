@@ -4442,6 +4442,26 @@ static void test_shader_instructions(void)
         0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_log = {ps_log_code, sizeof(ps_log_code)};
+    static const DWORD ps_rcp_code[] =
+    {
+#if 0
+        float4 src;
+
+        void main(out float4 dst : SV_Target)
+        {
+            dst = 0;
+            dst.x = rcp(src.x);
+        }
+#endif
+        0x43425844, 0x3b0ab43e, 0xff4dcb50, 0x22531bf6, 0xe44bbc8c, 0x00000001, 0x000000dc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000064, 0x00000050, 0x00000019,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x06000081, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x08000036, 0x001020e2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_rcp = {ps_rcp_code, sizeof(ps_rcp_code)};
     static const DWORD ps_bfi_code[] =
     {
 #if 0
@@ -5088,6 +5108,15 @@ static void test_shader_instructions(void)
         {&ps_log, {{   0.50f}}, {{    -1.0f}}},
         {&ps_log, {{   2.00f}}, {{     1.0f}}},
         {&ps_log, {{   8.00f}}, {{     3.0f}}},
+
+        {&ps_rcp, {{-INFINITY}}, {{    -0.0f}}},
+        {&ps_rcp, {{ INFINITY}}, {{     0.0f}}},
+        {&ps_rcp, {{    -0.0f}}, {{-INFINITY}}},
+        {&ps_rcp, {{     0.0f}}, {{ INFINITY}}},
+        {&ps_rcp, {{    -1.0f}}, {{    -1.0f}}},
+        {&ps_rcp, {{     1.0f}}, {{     1.0f}}},
+        {&ps_rcp, {{    -2.0f}}, {{    -0.5f}}},
+        {&ps_rcp, {{     2.0f}}, {{     0.5f}}},
     };
 
     static const struct
