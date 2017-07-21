@@ -1432,6 +1432,19 @@ static void test_create_command_queue(void)
     refcount = ID3D12CommandQueue_Release(queue);
     ok(!refcount, "ID3D12CommandQueue has %u references left.\n", (unsigned int)refcount);
 
+    desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    hr = ID3D12Device_CreateCommandQueue(device, &desc, &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(SUCCEEDED(hr), "CreateCommandQueue failed, hr %#x.\n", hr);
+
+    result_desc = ID3D12CommandQueue_GetDesc(queue);
+    ok(result_desc.Type == desc.Type, "Got unexpected type %#x.\n", result_desc.Type);
+    ok(result_desc.Priority == desc.Priority, "Got unexpected priority %#x.\n", result_desc.Priority);
+    ok(result_desc.Flags == desc.Flags, "Got unexpected flags %#x.\n", result_desc.Flags);
+    ok(result_desc.NodeMask == 0x1, "Got unexpected node mask 0x%08x.\n", result_desc.NodeMask);
+
+    refcount = ID3D12CommandQueue_Release(queue);
+    ok(!refcount, "ID3D12CommandQueue has %u references left.\n", (unsigned int)refcount);
+
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
