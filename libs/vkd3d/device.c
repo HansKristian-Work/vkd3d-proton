@@ -1122,12 +1122,20 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateQueryHeap(ID3D12Device *iface,
-        const D3D12_QUERY_HEAP_DESC *desc, REFIID riid, void **heap)
+        const D3D12_QUERY_HEAP_DESC *desc, REFIID iid, void **heap)
 {
-    FIXME("iface %p, desc %p, riid %s, heap %p stub!\n",
-            iface, desc, debugstr_guid(riid), heap);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_query_heap *object;
+    HRESULT hr;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, desc %p, iid %s, heap %p.\n",
+            iface, desc, debugstr_guid(iid), heap);
+
+    if (FAILED(hr = d3d12_query_heap_create(device, &object)))
+        return hr;
+
+    return return_interface((IUnknown *)&object->ID3D12QueryHeap_iface,
+            &IID_ID3D12QueryHeap, iid, heap);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetStablePowerState(ID3D12Device *iface, BOOL enable)

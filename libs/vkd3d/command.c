@@ -3431,13 +3431,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetName(ID3D12CommandSi
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_signature_GetDevice(ID3D12CommandSignature *iface,
-        REFIID riid, void **device)
+        REFIID iid, void **device)
 {
     struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
 
-    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+    TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
-    return ID3D12Device_QueryInterface(&signature->device->ID3D12Device_iface, riid, device);
+    return ID3D12Device_QueryInterface(&signature->device->ID3D12Device_iface, iid, device);
 }
 
 static const struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl =

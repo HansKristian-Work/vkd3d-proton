@@ -1436,3 +1436,135 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
 
     return S_OK;
 }
+
+/* ID3D12QueryHeap */
+static inline struct d3d12_query_heap *impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d12_query_heap, ID3D12QueryHeap_iface);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_query_heap_QueryInterface(ID3D12QueryHeap *iface,
+        REFIID iid, void **out)
+{
+    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
+
+    if (IsEqualGUID(iid, &IID_ID3D12QueryHeap)
+            || IsEqualGUID(iid, &IID_ID3D12Pageable)
+            || IsEqualGUID(iid, &IID_ID3D12DeviceChild)
+            || IsEqualGUID(iid, &IID_ID3D12Object)
+            || IsEqualGUID(iid, &IID_IUnknown))
+    {
+        ID3D12QueryHeap_AddRef(iface);
+        *out = iface;
+        return S_OK;
+    }
+
+    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
+
+    *out = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_query_heap_AddRef(ID3D12QueryHeap *iface)
+{
+    struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(iface);
+    ULONG refcount = InterlockedIncrement(&heap->refcount);
+
+    TRACE("%p increasing refcount to %u.\n", heap, refcount);
+
+    return refcount;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_query_heap_Release(ID3D12QueryHeap *iface)
+{
+    struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(iface);
+    ULONG refcount = InterlockedDecrement(&heap->refcount);
+
+    TRACE("%p decreasing refcount to %u.\n", heap, refcount);
+
+    if (!refcount)
+    {
+        struct d3d12_device *device = heap->device;
+
+        vkd3d_free(heap);
+
+        ID3D12Device_Release(&device->ID3D12Device_iface);
+    }
+
+    return refcount;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_query_heap_GetPrivateData(ID3D12QueryHeap *iface,
+        REFGUID guid, UINT *data_size, void *data)
+{
+    FIXME("iface %p, guid %s, data_size %p, data %p stub!", iface, debugstr_guid(guid), data_size, data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetPrivateData(ID3D12QueryHeap *iface,
+        REFGUID guid, UINT data_size, const void *data)
+{
+    FIXME("iface %p, guid %s, data_size %u, data %p stub!\n", iface, debugstr_guid(guid), data_size, data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetPrivateDataInterface(ID3D12QueryHeap *iface,
+        REFGUID guid, const IUnknown *data)
+{
+    FIXME("iface %p, guid %s, data %p stub!\n", iface, debugstr_guid(guid), data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetName(ID3D12QueryHeap *iface, const WCHAR *name)
+{
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_query_heap_GetDevice(ID3D12QueryHeap *iface,
+        REFIID iid, void **device)
+{
+    struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(iface);
+
+    TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
+
+    return ID3D12Device_QueryInterface(&heap->device->ID3D12Device_iface, iid, device);
+}
+
+static const struct ID3D12QueryHeapVtbl d3d12_query_heap_vtbl =
+{
+    /* IUnknown methods */
+    d3d12_query_heap_QueryInterface,
+    d3d12_query_heap_AddRef,
+    d3d12_query_heap_Release,
+    /* ID3D12Object methods */
+    d3d12_query_heap_GetPrivateData,
+    d3d12_query_heap_SetPrivateData,
+    d3d12_query_heap_SetPrivateDataInterface,
+    d3d12_query_heap_SetName,
+    /* ID3D12DeviceChild methods */
+    d3d12_query_heap_GetDevice,
+};
+
+HRESULT d3d12_query_heap_create(struct d3d12_device *device, struct d3d12_query_heap **heap)
+{
+    struct d3d12_query_heap *object;
+
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    object->ID3D12QueryHeap_iface.lpVtbl = &d3d12_query_heap_vtbl;
+    object->refcount = 1;
+    object->device = device;
+    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+
+    TRACE("Created query heap %p.\n", object);
+
+    *heap = object;
+
+    return S_OK;
+}
