@@ -1990,7 +1990,7 @@ static const struct vkd3d_spirv_builtin
     unsigned int component_count;
     SpvBuiltIn spirv_builtin;
 }
-vkd3d_spirv_builtins[] =
+vkd3d_spirv_builtin_table[] =
 {
     {VKD3D_SIV_NONE, VKD3DSPR_THREADID,         VKD3D_TYPE_INT, 3, SpvBuiltInGlobalInvocationId},
     {VKD3D_SIV_NONE, VKD3DSPR_LOCALTHREADID,    VKD3D_TYPE_INT, 3, SpvBuiltInLocalInvocationId},
@@ -2006,9 +2006,9 @@ static const struct vkd3d_spirv_builtin *vkd3d_get_spirv_builtin(enum vkd3d_shad
 {
     unsigned int i;
 
-    for (i = 0; i < ARRAY_SIZE(vkd3d_spirv_builtins); ++i)
+    for (i = 0; i < ARRAY_SIZE(vkd3d_spirv_builtin_table); ++i)
     {
-        const struct vkd3d_spirv_builtin* current = &vkd3d_spirv_builtins[i];
+        const struct vkd3d_spirv_builtin* current = &vkd3d_spirv_builtin_table[i];
 
         if (current->sysval == VKD3D_SIV_NONE && current->reg_type == reg_type)
             return current;
@@ -2375,74 +2375,89 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
-static SpvDim vkd3d_dxbc_compiler_translate_resource_type(struct vkd3d_dxbc_compiler *compiler,
-        enum vkd3d_shader_resource_type resource_type, bool uav, uint32_t *arrayed, uint32_t *ms)
+static const struct vkd3d_spirv_resource_type
+{
+    enum vkd3d_shader_resource_type resource_type;
+
+    SpvDim dim;
+    uint32_t arrayed;
+    uint32_t ms;
+
+    SpvCapability capability;
+    SpvCapability uav_capability;
+}
+vkd3d_spirv_resource_type_table[] =
+{
+    {VKD3D_SHADER_RESOURCE_BUFFER,            SpvDimBuffer, 0, 0, SpvCapabilitySampledBuffer, SpvCapabilityImageBuffer},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_1D,        SpvDim1D,     0, 0, SpvCapabilitySampled1D, SpvCapabilityImage1D},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_2DMS,      SpvDim2D,     0, 1},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_2D,        SpvDim2D,     0, 0},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_3D,        SpvDim3D,     0, 0},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBE,      SpvDimCube,   0, 0},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_1DARRAY,   SpvDim1D,     1, 0, SpvCapabilitySampled1D, SpvCapabilityImage1D},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_2DARRAY,   SpvDim2D,     1, 0},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY, SpvDimCube,   1, 0, SpvCapabilitySampledCubeArray, SpvCapabilityImageCubeArray},
+};
+
+static const struct vkd3d_spirv_resource_type *vkd3d_get_spirv_resource_type(
+        enum vkd3d_shader_resource_type resource_type)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(vkd3d_spirv_resource_type_table); ++i)
+    {
+        const struct vkd3d_spirv_resource_type* current = &vkd3d_spirv_resource_type_table[i];
+
+        if (current->resource_type == resource_type)
+            return current;
+    }
+
+    FIXME("Unhandled resource type %#x.\n", resource_type);
+    return NULL;
+}
+
+static const struct vkd3d_spirv_resource_type *vkd3d_dxbc_compiler_enable_resource_type(
+        struct vkd3d_dxbc_compiler *compiler, enum vkd3d_shader_resource_type resource_type, bool is_uav)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_spirv_resource_type *resource_type_info;
 
-    *arrayed = 0;
-    *ms = 0;
+    if (!(resource_type_info = vkd3d_get_spirv_resource_type(resource_type)))
+        return NULL;
 
-    switch (resource_type)
-    {
-        case VKD3D_SHADER_RESOURCE_BUFFER:
-            vkd3d_spirv_enable_capability(builder, SpvCapabilitySampledBuffer);
-            if (uav)
-                vkd3d_spirv_enable_capability(builder, SpvCapabilityImageBuffer);
-            return SpvDimBuffer;
-        case VKD3D_SHADER_RESOURCE_TEXTURE_1D:
-            vkd3d_spirv_enable_capability(builder, SpvCapabilitySampled1D);
-            if (uav)
-                vkd3d_spirv_enable_capability(builder, SpvCapabilityImage1D);
-            return SpvDim1D;
-        case VKD3D_SHADER_RESOURCE_TEXTURE_2DMS:
-            *ms = 1;
-            return SpvDim2D;
-        case VKD3D_SHADER_RESOURCE_TEXTURE_2D:
-            return SpvDim2D;
-            case VKD3D_SHADER_RESOURCE_TEXTURE_3D:
-            return SpvDim3D;
-        case VKD3D_SHADER_RESOURCE_TEXTURE_CUBE:
-            return SpvDimCube;
-        case VKD3D_SHADER_RESOURCE_TEXTURE_1DARRAY:
-            vkd3d_spirv_enable_capability(builder, SpvCapabilitySampled1D);
-            *arrayed = 1;
-            return SpvDim1D;
-        case VKD3D_SHADER_RESOURCE_TEXTURE_2DARRAY:
-            *arrayed = 1;
-            return SpvDim2D;
-        case VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY:
-            vkd3d_spirv_enable_capability(builder, SpvCapabilitySampledCubeArray);
-            if (uav)
-                vkd3d_spirv_enable_capability(builder, SpvCapabilityImageCubeArray);
-            *arrayed = 1;
-            return SpvDimCube;
-        default:
-            FIXME("Unhandled resource type %#x.\n", resource_type);
-            return SpvDim2D;
-    }
+    if (resource_type_info->capability)
+        vkd3d_spirv_enable_capability(builder, resource_type_info->capability);
+    if (is_uav && resource_type_info->uav_capability)
+        vkd3d_spirv_enable_capability(builder, resource_type_info->uav_capability);
+
+    return resource_type_info;
 }
 
 static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_semantic *semantic, bool uav)
+        const struct vkd3d_shader_semantic *semantic, bool is_uav)
 {
     const SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_spirv_resource_type *resource_type_info;
     uint32_t sampled_type_id, type_id, ptr_type_id, var_id;
     enum vkd3d_component_type sampled_type;
     struct vkd3d_symbol resource_symbol;
-    uint32_t arrayed, ms;
     unsigned int reg_idx;
-    SpvDim dim;
+
+    if (!(resource_type_info = vkd3d_dxbc_compiler_enable_resource_type(compiler,
+            semantic->resource_type, is_uav)))
+    {
+        FIXME("Failed to emit resource declaration.\n");
+        return;
+    }
 
     reg_idx = semantic->reg.reg.idx[0].offset;
 
     sampled_type = vkd3d_component_type_from_data_type(semantic->resource_data_type);
     sampled_type_id = vkd3d_spirv_get_type_id(builder, sampled_type, 1);
 
-    dim = vkd3d_dxbc_compiler_translate_resource_type(compiler, semantic->resource_type, uav, &arrayed, &ms);
-    type_id = vkd3d_spirv_get_op_type_image(builder, sampled_type_id, dim, 0, arrayed, ms, uav ? 2 : 1,
-            SpvImageFormatUnknown);
+    type_id = vkd3d_spirv_get_op_type_image(builder, sampled_type_id, resource_type_info->dim,
+            0, resource_type_info->arrayed, resource_type_info->ms, is_uav ? 2 : 1, SpvImageFormatUnknown);
 
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id);
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
