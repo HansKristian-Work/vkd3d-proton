@@ -480,6 +480,75 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     return S_OK;
 }
 
+D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_allocator *allocator,
+        size_t size, void *ptr)
+{
+    D3D12_GPU_VIRTUAL_ADDRESS ceiling = ~(D3D12_GPU_VIRTUAL_ADDRESS)0;
+    struct vkd3d_gpu_va_allocation *allocation;
+
+    if (!vkd3d_array_reserve((void **)&allocator->allocations, &allocator->allocations_size,
+            allocator->allocation_count + 1, sizeof(*allocator->allocations)))
+        return 0;
+
+    if (size > ceiling || ceiling - size < allocator->floor)
+        return 0;
+
+    allocation = &allocator->allocations[allocator->allocation_count++];
+    allocation->base = allocator->floor;
+    allocation->size = size;
+    allocation->ptr = ptr;
+
+    allocator->floor += size;
+
+    return allocation->base;
+}
+
+static int vkd3d_gpu_va_allocation_compare(const void *k, const void *e)
+{
+    const struct vkd3d_gpu_va_allocation *allocation = e;
+    const D3D12_GPU_VIRTUAL_ADDRESS *address = k;
+
+    if (*address < allocation->base)
+        return -1;
+    if (*address - allocation->base >= allocation->size)
+        return 1;
+    return 0;
+}
+
+void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocator, D3D12_GPU_VIRTUAL_ADDRESS address)
+{
+    struct vkd3d_gpu_va_allocation *allocation;
+
+    if (!(allocation = bsearch(&address, allocator->allocations, allocator->allocation_count,
+            sizeof(*allocation), vkd3d_gpu_va_allocation_compare)))
+        return NULL;
+
+    return allocation->ptr;
+}
+
+void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator, D3D12_GPU_VIRTUAL_ADDRESS address)
+{
+    struct vkd3d_gpu_va_allocation *allocation;
+
+    if (!(allocation = bsearch(&address, allocator->allocations, allocator->allocation_count,
+            sizeof(*allocation), vkd3d_gpu_va_allocation_compare)))
+        return;
+
+    if (allocation->base == address)
+        allocation->ptr = NULL;
+}
+
+void vkd3d_gpu_va_allocator_init(struct vkd3d_gpu_va_allocator *allocator)
+{
+    memset(allocator, 0, sizeof(*allocator));
+    allocator->floor = 0x1000;
+}
+
+void vkd3d_gpu_va_allocator_cleanup(struct vkd3d_gpu_va_allocator *allocator)
+{
+    vkd3d_free(allocator->allocations);
+}
+
 /* ID3D12Device */
 static inline struct d3d12_device *impl_from_ID3D12Device(ID3D12Device *iface)
 {
@@ -527,6 +596,7 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
     {
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+        vkd3d_gpu_va_allocator_cleanup(&device->gpu_va_allocator);
         vkd3d_fence_worker_stop(&device->fence_worker);
         VK_CALL(vkDestroyDevice(device->vk_device, NULL));
         vkd3d_instance_destroy(&device->vkd3d_instance);
@@ -1269,6 +1339,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         vkd3d_instance_destroy(&device->vkd3d_instance);
         return hr;
     }
+
+    vkd3d_gpu_va_allocator_init(&device->gpu_va_allocator);
 
     return S_OK;
 }

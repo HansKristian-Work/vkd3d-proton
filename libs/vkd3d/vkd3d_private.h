@@ -92,6 +92,29 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
 HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker) DECLSPEC_HIDDEN;
 
+struct vkd3d_gpu_va_allocator
+{
+    D3D12_GPU_VIRTUAL_ADDRESS floor;
+
+    struct vkd3d_gpu_va_allocation
+    {
+        D3D12_GPU_VIRTUAL_ADDRESS base;
+        SIZE_T size;
+        void *ptr;
+    } *allocations;
+    size_t allocations_size;
+    size_t allocation_count;
+};
+
+D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_allocator *allocator,
+        size_t size, void *ptr) DECLSPEC_HIDDEN;
+void vkd3d_gpu_va_allocator_cleanup(struct vkd3d_gpu_va_allocator *allocator) DECLSPEC_HIDDEN;
+void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocator,
+        D3D12_GPU_VIRTUAL_ADDRESS address) DECLSPEC_HIDDEN;
+void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator,
+        D3D12_GPU_VIRTUAL_ADDRESS address) DECLSPEC_HIDDEN;
+void vkd3d_gpu_va_allocator_init(struct vkd3d_gpu_va_allocator *allocator) DECLSPEC_HIDDEN;
+
 /* ID3D12Fence */
 struct d3d12_fence
 {
@@ -127,9 +150,9 @@ struct d3d12_resource
 
     D3D12_RESOURCE_DESC desc;
 
+    D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
     union
     {
-        D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
         VkBuffer vk_buffer;
         VkImage vk_image;
     } u;
@@ -427,6 +450,7 @@ struct d3d12_device
     struct vkd3d_vk_device_procs vk_procs;
     vkd3d_signal_event_pfn signal_event;
 
+    struct vkd3d_gpu_va_allocator gpu_va_allocator;
     struct vkd3d_fence_worker fence_worker;
 
     unsigned int direct_queue_family_index;

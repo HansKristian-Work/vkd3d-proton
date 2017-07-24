@@ -276,10 +276,20 @@ static HRESULT vkd3d_allocate_buffer_memory(struct d3d12_resource *resource, str
     if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
             &memory_requirements, &resource->vk_memory)))
         return hr;
+    if (!(resource->gpu_address = vkd3d_gpu_va_allocator_allocate(&device->gpu_va_allocator,
+            memory_requirements.size, resource)))
+    {
+        ERR("Failed to allocate GPU VA.\n");
+        VK_CALL(vkFreeMemory(device->vk_device, resource->vk_memory, NULL));
+        resource->vk_memory = VK_NULL_HANDLE;
+        return E_OUTOFMEMORY;
+    }
 
     if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, resource->u.vk_buffer, resource->vk_memory, 0))) < 0)
     {
         WARN("Failed to bind memory, vr %d.\n", vr);
+        vkd3d_gpu_va_allocator_free(&device->gpu_va_allocator, resource->gpu_address);
+        resource->gpu_address = 0;
         VK_CALL(vkFreeMemory(device->vk_device, resource->vk_memory, NULL));
         resource->vk_memory = VK_NULL_HANDLE;
         return hresult_from_vk_result(vr);
@@ -321,6 +331,9 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
 
     if (resource->flags & VKD3D_RESOURCE_EXTERNAL)
         return;
+
+    if (resource->gpu_address)
+        vkd3d_gpu_va_allocator_free(&device->gpu_va_allocator, resource->gpu_address);
 
     if (d3d12_resource_is_buffer(resource))
         VK_CALL(vkDestroyBuffer(device->vk_device, resource->u.vk_buffer, NULL));
@@ -531,13 +544,7 @@ static D3D12_GPU_VIRTUAL_ADDRESS STDMETHODCALLTYPE d3d12_resource_GetGPUVirtualA
 
     TRACE("iface %p.\n", iface);
 
-    if (!d3d12_resource_is_buffer(resource))
-    {
-        WARN("GPU virtual address for textures is always 0.\n");
-        return 0;
-    }
-
-    return resource->u.gpu_address;
+    return resource->gpu_address;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(ID3D12Resource *iface,
@@ -649,6 +656,7 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     if (optimized_clear_value)
         FIXME("Ignoring optimized clear value.\n");
 
+    resource->gpu_address = 0;
     resource->flags = 0;
 
     switch (desc->Dimension)

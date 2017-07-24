@@ -2379,14 +2379,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootConstantBufferVi
     const struct vkd3d_vk_device_procs *vk_procs;
     struct VkWriteDescriptorSet descriptor_write;
     struct VkDescriptorBufferInfo buffer_info;
+    struct d3d12_resource *resource;
 
     TRACE("iface %p, root_parameter_index %u, address %#"PRIx64".\n",
             iface, root_parameter_index, address);
 
     vk_procs = &list->device->vk_procs;
 
-    buffer_info.buffer = (VkBuffer)address;
-    buffer_info.offset = 0;
+    resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, address);
+    buffer_info.buffer = resource->u.vk_buffer;
+    buffer_info.offset = address - resource->gpu_address;
     buffer_info.range = VK_WHOLE_SIZE;
 
     descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2435,6 +2437,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(ID3D12Graphics
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs;
+    struct d3d12_resource *resource;
     enum VkIndexType index_type;
 
     TRACE("iface %p, view %p.\n", iface, view);
@@ -2454,7 +2457,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(ID3D12Graphics
             return;
     }
 
-    VK_CALL(vkCmdBindIndexBuffer(list->vk_command_buffer, (VkBuffer)view->BufferLocation, 0, index_type));
+    resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, view->BufferLocation);
+    VK_CALL(vkCmdBindIndexBuffer(list->vk_command_buffer, resource->u.vk_buffer,
+            view->BufferLocation - resource->gpu_address, index_type));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12GraphicsCommandList *iface,
@@ -2464,6 +2469,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
     VkDeviceSize offsets[ARRAY_SIZE(list->strides)];
     const struct vkd3d_vk_device_procs *vk_procs;
     VkBuffer buffers[ARRAY_SIZE(list->strides)];
+    struct d3d12_resource *resource;
     unsigned int i;
 
     TRACE("iface %p, start_slot %u, view_count %u, views %p.\n", iface, start_slot, view_count, views);
@@ -2478,8 +2484,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
 
     for (i = 0; i < view_count; ++i)
     {
-        offsets[i] = 0;
-        buffers[i] = (VkBuffer)views[i].BufferLocation;
+        resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, views[i].BufferLocation);
+        offsets[i] = views[i].BufferLocation - resource->gpu_address;
+        buffers[i] = resource->u.vk_buffer;
         list->strides[start_slot + i] = views[i].StrideInBytes;
     }
 
