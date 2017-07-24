@@ -2042,6 +2042,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     const struct vkd3d_spirv_builtin *builtin;
     enum vkd3d_component_type component_type;
     uint32_t val_id = 0, input_id, var_id;
+    uint32_t type_id, float_type_id;
     struct vkd3d_symbol reg_symbol;
     SpvStorageClass storage_class;
     struct rb_entry *entry = NULL;
@@ -2087,17 +2088,16 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
             vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationComponent, component_idx);
     }
 
-    if (component_type != VKD3D_TYPE_FLOAT)
+    if (component_type != VKD3D_TYPE_FLOAT || component_count != VKD3D_VEC4_SIZE)
     {
-        uint32_t float_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, input_component_count);
-        val_id = vkd3d_spirv_build_op_bitcast(builder, float_type_id, input_id);
-
-        use_private_var = true;
-    }
-    else if (component_count != VKD3D_VEC4_SIZE)
-    {
-        uint32_t type_id = vkd3d_spirv_get_type_id(builder, component_type, input_component_count);
+        type_id = vkd3d_spirv_get_type_id(builder, component_type, input_component_count);
         val_id = vkd3d_spirv_build_op_load(builder, type_id, input_id, SpvMemoryAccessMaskNone);
+
+        if (component_type != VKD3D_TYPE_FLOAT)
+        {
+            float_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, input_component_count);
+            val_id = vkd3d_spirv_build_op_bitcast(builder, float_type_id, val_id);
+        }
 
         use_private_var = true;
     }
