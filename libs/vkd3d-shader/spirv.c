@@ -1265,6 +1265,7 @@ struct vkd3d_symbol
         {
             enum vkd3d_component_type sampled_type;
             uint32_t type_id;
+            DWORD coordinate_mask;
         } resource;
     } info;
 };
@@ -2383,20 +2384,26 @@ static const struct vkd3d_spirv_resource_type
     uint32_t arrayed;
     uint32_t ms;
 
+    unsigned int coordinate_component_count;
+
     SpvCapability capability;
     SpvCapability uav_capability;
 }
 vkd3d_spirv_resource_type_table[] =
 {
-    {VKD3D_SHADER_RESOURCE_BUFFER,            SpvDimBuffer, 0, 0, SpvCapabilitySampledBuffer, SpvCapabilityImageBuffer},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_1D,        SpvDim1D,     0, 0, SpvCapabilitySampled1D, SpvCapabilityImage1D},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_2DMS,      SpvDim2D,     0, 1},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_2D,        SpvDim2D,     0, 0},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_3D,        SpvDim3D,     0, 0},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBE,      SpvDimCube,   0, 0},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_1DARRAY,   SpvDim1D,     1, 0, SpvCapabilitySampled1D, SpvCapabilityImage1D},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_2DARRAY,   SpvDim2D,     1, 0},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY, SpvDimCube,   1, 0, SpvCapabilitySampledCubeArray, SpvCapabilityImageCubeArray},
+    {VKD3D_SHADER_RESOURCE_BUFFER,            SpvDimBuffer, 0, 0, 1,
+            SpvCapabilitySampledBuffer, SpvCapabilityImageBuffer},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_1D,        SpvDim1D,     0, 0, 1,
+            SpvCapabilitySampled1D, SpvCapabilityImage1D},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_2DMS,      SpvDim2D,     0, 1, 2},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_2D,        SpvDim2D,     0, 0, 2},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_3D,        SpvDim3D,     0, 0, 3},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBE,      SpvDimCube,   0, 0, 3},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_1DARRAY,   SpvDim1D,     1, 0, 2,
+            SpvCapabilitySampled1D, SpvCapabilityImage1D},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_2DARRAY,   SpvDim2D,     1, 0, 3},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY, SpvDimCube,   1, 0, 3,
+            SpvCapabilitySampledCubeArray, SpvCapabilityImageCubeArray},
 };
 
 static const struct vkd3d_spirv_resource_type *vkd3d_get_spirv_resource_type(
@@ -2472,6 +2479,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     resource_symbol.id = var_id;
     resource_symbol.info.resource.sampled_type = sampled_type;
     resource_symbol.info.resource.type_id = type_id;
+    resource_symbol.info.resource.coordinate_mask = (1u << resource_type_info->coordinate_component_count) - 1;
     vkd3d_dxbc_compiler_put_symbol(compiler, &resource_symbol);
 }
 
@@ -3390,7 +3398,8 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 }
 
 static uint32_t vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_register *resource_reg, enum vkd3d_component_type *sampled_type)
+        const struct vkd3d_shader_register *resource_reg, enum vkd3d_component_type *sampled_type,
+        DWORD *coordinate_mask)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_symbol *resource_symbol;
@@ -3407,6 +3416,7 @@ static uint32_t vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *co
             resource_symbol->info.resource.type_id, resource_symbol->id, SpvMemoryAccessMaskNone);
 
     *sampled_type = resource_symbol->info.resource.sampled_type;
+    *coordinate_mask = resource_symbol->info.resource.coordinate_mask;
     return image_id;
 }
 
@@ -3474,11 +3484,12 @@ static void vkd3d_dxbc_compiler_emit_store_uav_typed(struct vkd3d_dxbc_compiler 
     struct vkd3d_shader_src_param texel_param = src[1];
     uint32_t image_id, coordinate_id, texel_id;
     enum vkd3d_component_type sampled_type;
+    DWORD coordinate_mask;
 
     vkd3d_spirv_enable_capability(builder, SpvCapabilityStorageImageWriteWithoutFormat);
 
-    image_id = vkd3d_dxbc_compiler_prepare_image(compiler, &dst->reg, &sampled_type);
-    coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_ALL);
+    image_id = vkd3d_dxbc_compiler_prepare_image(compiler, &dst->reg, &sampled_type, &coordinate_mask);
+    coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], coordinate_mask);
     /* XXX: Fix the data type. */
     texel_param.reg.data_type = vkd3d_data_type_from_component_type(sampled_type);
     texel_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &texel_param, dst->write_mask);
