@@ -1068,6 +1068,17 @@ static uint32_t vkd3d_spirv_build_op_image_sample_implicit_lod(struct vkd3d_spir
             SpvOpImageSampleImplicitLod, result_type, w, i);
 }
 
+static void vkd3d_spirv_build_op_image_write(struct vkd3d_spirv_builder *builder,
+        uint32_t image_id, uint32_t coordinate_id, uint32_t texel_id,
+        uint32_t image_operands, const uint32_t *operands, unsigned int operand_count)
+{
+    if (image_operands)
+        FIXME("Image operands not supported.\n");
+
+    vkd3d_spirv_build_op3(&builder->function_stream, SpvOpImageWrite,
+            image_id, coordinate_id, texel_id);
+}
+
 static uint32_t vkd3d_spirv_build_op_glsl_std450_fabs(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand)
 {
@@ -3365,9 +3376,30 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
     }
 }
 
+static uint32_t vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *resource_reg, enum vkd3d_component_type *sampled_type)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_symbol *resource_symbol;
+    struct vkd3d_symbol resource_key;
+    struct rb_entry *entry;
+    uint32_t image_id;
+
+    vkd3d_symbol_make_resource(&resource_key, resource_reg);
+    entry = rb_get(&compiler->symbol_table, &resource_key);
+    assert(entry);
+    resource_symbol = RB_ENTRY_VALUE(entry, struct vkd3d_symbol, entry);
+
+    image_id = vkd3d_spirv_build_op_load(builder,
+            resource_symbol->info.resource.type_id, resource_symbol->id, SpvMemoryAccessMaskNone);
+
+    *sampled_type = resource_symbol->info.resource.sampled_type;
+    return image_id;
+}
+
 static uint32_t vkd3d_dxbc_compiler_prepare_sampled_image(struct vkd3d_dxbc_compiler *compiler,
-    const struct vkd3d_shader_register *resource_reg, const struct vkd3d_shader_register *sampler_reg,
-    enum vkd3d_component_type *sampled_type)
+        const struct vkd3d_shader_register *resource_reg, const struct vkd3d_shader_register *sampler_reg,
+        enum vkd3d_component_type *sampled_type)
 {
     uint32_t image_id, sampler_var_id, sampler_id, sampled_image_type_id, sampled_image_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -3418,6 +3450,28 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
     /* XXX: Fix the result data type. */
     dst.reg.data_type = vkd3d_data_type_from_component_type(sampled_type);
     vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst, val_id);
+}
+
+static void vkd3d_dxbc_compiler_emit_store_uav_typed(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    struct vkd3d_shader_src_param texel_param = src[1];
+    uint32_t image_id, coordinate_id, texel_id;
+    enum vkd3d_component_type sampled_type;
+
+    vkd3d_spirv_enable_capability(builder, SpvCapabilityStorageImageWriteWithoutFormat);
+
+    image_id = vkd3d_dxbc_compiler_prepare_image(compiler, &dst->reg, &sampled_type);
+    coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_ALL);
+    /* XXX: Fix the data type. */
+    texel_param.reg.data_type = vkd3d_data_type_from_component_type(sampled_type);
+    texel_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &texel_param, dst->write_mask);
+
+    vkd3d_spirv_build_op_image_write(builder, image_id, coordinate_id, texel_id,
+            SpvImageOperandsMaskNone, NULL, 0);
 }
 
 void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
@@ -3566,6 +3620,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_SAMPLE:
             vkd3d_dxbc_compiler_emit_sample(compiler, instruction);
+            break;
+        case VKD3DSIH_STORE_UAV_TYPED:
+            vkd3d_dxbc_compiler_emit_store_uav_typed(compiler, instruction);
             break;
         default:
             FIXME("Unhandled instruction %#x.\n", instruction->handler_idx);
