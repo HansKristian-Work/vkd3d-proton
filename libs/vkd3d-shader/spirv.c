@@ -1226,6 +1226,7 @@ struct vkd3d_symbol_register
 
 struct vkd3d_symbol_resource
 {
+    enum vkd3d_shader_register_type type;
     unsigned int idx;
 };
 
@@ -1289,6 +1290,7 @@ static void vkd3d_symbol_make_resource(struct vkd3d_symbol *symbol,
 {
     symbol->type = VKD3D_SYMBOL_RESOURCE;
     memset(&symbol->key, 0, sizeof(symbol->key));
+    symbol->key.resource.type = reg->type;
     symbol->key.resource.idx = reg->idx[0].offset;
 }
 
@@ -1479,6 +1481,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
     {
         case VKD3DSPR_RESOURCE:
             snprintf(buffer, buffer_size, "t%u", reg->idx[0].offset);
+            break;
+        case VKD3DSPR_UAV:
+            snprintf(buffer, buffer_size, "u%u", reg->idx[0].offset);
             break;
         case VKD3DSPR_SAMPLER:
             snprintf(buffer, buffer_size, "s%u", reg->idx[0].offset);
@@ -2362,7 +2367,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
 }
 
 static SpvDim vkd3d_dxbc_compiler_translate_resource_type(struct vkd3d_dxbc_compiler *compiler,
-        enum vkd3d_shader_resource_type resource_type, uint32_t *arrayed, uint32_t *ms)
+        enum vkd3d_shader_resource_type resource_type, bool uav, uint32_t *arrayed, uint32_t *ms)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
 
@@ -2371,8 +2376,15 @@ static SpvDim vkd3d_dxbc_compiler_translate_resource_type(struct vkd3d_dxbc_comp
 
     switch (resource_type)
     {
+        case VKD3D_SHADER_RESOURCE_BUFFER:
+            vkd3d_spirv_enable_capability(builder, SpvCapabilitySampledBuffer);
+            if (uav)
+                vkd3d_spirv_enable_capability(builder, SpvCapabilityImageBuffer);
+            return SpvDimBuffer;
         case VKD3D_SHADER_RESOURCE_TEXTURE_1D:
             vkd3d_spirv_enable_capability(builder, SpvCapabilitySampled1D);
+            if (uav)
+                vkd3d_spirv_enable_capability(builder, SpvCapabilityImage1D);
             return SpvDim1D;
         case VKD3D_SHADER_RESOURCE_TEXTURE_2DMS:
             *ms = 1;
@@ -2392,6 +2404,8 @@ static SpvDim vkd3d_dxbc_compiler_translate_resource_type(struct vkd3d_dxbc_comp
             return SpvDim2D;
         case VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY:
             vkd3d_spirv_enable_capability(builder, SpvCapabilitySampledCubeArray);
+            if (uav)
+                vkd3d_spirv_enable_capability(builder, SpvCapabilityImageCubeArray);
             *arrayed = 1;
             return SpvDimCube;
         default:
@@ -2400,10 +2414,9 @@ static SpvDim vkd3d_dxbc_compiler_translate_resource_type(struct vkd3d_dxbc_comp
     }
 }
 
-static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_instruction *instruction)
+static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_semantic *semantic, bool uav)
 {
-    const struct vkd3d_shader_semantic *semantic = &instruction->declaration.semantic;
     const SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t sampled_type_id, type_id, ptr_type_id, var_id;
@@ -2418,8 +2431,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *co
     sampled_type = vkd3d_component_type_from_data_type(semantic->resource_data_type);
     sampled_type_id = vkd3d_spirv_get_type_id(builder, sampled_type, 1);
 
-    dim = vkd3d_dxbc_compiler_translate_resource_type(compiler, semantic->resource_type, &arrayed, &ms);
-    type_id = vkd3d_spirv_get_op_type_image(builder, sampled_type_id, dim, 0, arrayed, ms, 1,
+    dim = vkd3d_dxbc_compiler_translate_resource_type(compiler, semantic->resource_type, uav, &arrayed, &ms);
+    type_id = vkd3d_spirv_get_op_type_image(builder, sampled_type_id, dim, 0, arrayed, ms, uav ? 2 : 1,
             SpvImageFormatUnknown);
 
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id);
@@ -2436,6 +2449,21 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *co
     resource_symbol.info.resource.sampled_type = sampled_type;
     resource_symbol.info.resource.type_id = type_id;
     vkd3d_dxbc_compiler_put_symbol(compiler, &resource_symbol);
+}
+
+static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &instruction->declaration.semantic, false);
+}
+
+static void vkd3d_dxbc_compiler_emit_dcl_uav_typed(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    if (instruction->flags)
+        FIXME("Unhandled flags %#x.\n", instruction->flags);
+
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &instruction->declaration.semantic, true);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compiler,
@@ -3414,6 +3442,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL:
             vkd3d_dxbc_compiler_emit_dcl_resource(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_UAV_TYPED:
+            vkd3d_dxbc_compiler_emit_dcl_uav_typed(compiler, instruction);
             break;
         case VKD3DSIH_DCL_INPUT:
             vkd3d_dxbc_compiler_emit_dcl_input(compiler, instruction);
