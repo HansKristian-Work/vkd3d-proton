@@ -2161,6 +2161,56 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(ID3D12Graphi
     FIXME("iface %p, heap_count %u, heaps %p stub!\n", iface, heap_count, heaps);
 }
 
+static VkDescriptorSet d3d12_command_list_allocate_descriptor_set(struct d3d12_command_list *list,
+        struct d3d12_root_signature *root_signature)
+{
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkDevice vk_device = list->device->vk_device;
+    struct VkDescriptorSetAllocateInfo set_desc;
+    struct VkDescriptorPoolCreateInfo pool_desc;
+    VkDescriptorSet vk_descriptor_set;
+    VkDescriptorPool vk_pool;
+    VkResult vr;
+
+    if (!root_signature->pool_size_count)
+        return VK_NULL_HANDLE;
+
+    vk_procs = &list->device->vk_procs;
+
+    pool_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_desc.pNext = NULL;
+    pool_desc.flags = 0;
+    pool_desc.maxSets = 1;
+    pool_desc.poolSizeCount = root_signature->pool_size_count;
+    pool_desc.pPoolSizes = root_signature->pool_sizes;
+    if ((vr = VK_CALL(vkCreateDescriptorPool(vk_device, &pool_desc, NULL, &vk_pool))) < 0)
+    {
+        ERR("Failed to create descriptor pool, vr %d.\n", vr);
+        return VK_NULL_HANDLE;
+    }
+
+    set_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    set_desc.pNext = NULL;
+    set_desc.descriptorPool = vk_pool;
+    set_desc.descriptorSetCount = 1;
+    set_desc.pSetLayouts = &root_signature->vk_set_layout;
+    if ((vr = VK_CALL(vkAllocateDescriptorSets(vk_device, &set_desc, &vk_descriptor_set))) < 0)
+    {
+        ERR("Failed to allocate descriptor set, vr %d.\n", vr);
+        VK_CALL(vkDestroyDescriptorPool(vk_device, vk_pool, NULL));
+        return VK_NULL_HANDLE;
+    }
+
+    if (!(d3d12_command_allocator_add_descriptor_pool(list->allocator, vk_pool)))
+    {
+        ERR("Failed to add descriptor pool.\n");
+        VK_CALL(vkDestroyDescriptorPool(vk_device, vk_pool, NULL));
+        return VK_NULL_HANDLE;
+    }
+
+    return vk_descriptor_set;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootSignature(ID3D12GraphicsCommandList *iface,
         ID3D12RootSignature *root_signature)
 {
@@ -2172,54 +2222,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
 {
     struct d3d12_root_signature *rs = unsafe_impl_from_ID3D12RootSignature(root_signature);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs;
-    struct VkDescriptorSetAllocateInfo set_desc;
-    struct VkDescriptorPoolCreateInfo pool_desc;
-    VkDescriptorPool vk_pool;
-    VkResult vr;
 
     TRACE("iface %p, root_signature %p.\n", iface, root_signature);
 
-    if (list->root_signature == rs || !rs->pool_size_count)
-    {
-        list->root_signature = rs;
+    if (list->root_signature == rs)
         return;
-    }
 
-    vk_procs = &list->device->vk_procs;
-
-    pool_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_desc.pNext = NULL;
-    pool_desc.flags = 0;
-    pool_desc.maxSets = 1;
-    pool_desc.poolSizeCount = rs->pool_size_count;
-    pool_desc.pPoolSizes = rs->pool_sizes;
-    if ((vr = VK_CALL(vkCreateDescriptorPool(list->device->vk_device, &pool_desc, NULL, &vk_pool))) < 0)
-    {
-        ERR("Failed to create descriptor pool, vr %d.\n", vr);
+    if (!(list->graphics_descriptor_set = d3d12_command_list_allocate_descriptor_set(list, rs)))
         return;
-    }
-
-    set_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    set_desc.pNext = NULL;
-    set_desc.descriptorPool = vk_pool;
-    set_desc.descriptorSetCount = 1;
-    set_desc.pSetLayouts = &rs->vk_set_layout;
-    if ((vr = VK_CALL(vkAllocateDescriptorSets(list->device->vk_device,
-            &set_desc, &list->graphics_descriptor_set))) < 0)
-    {
-        ERR("Failed to allocate descriptor set, vr %d.\n", vr);
-        VK_CALL(vkDestroyDescriptorPool(list->device->vk_device, vk_pool, NULL));
-        return;
-    }
-
-    if (!(d3d12_command_allocator_add_descriptor_pool(list->allocator, vk_pool)))
-    {
-        ERR("Failed to add descriptor pool.\n");
-        VK_CALL(vkDestroyDescriptorPool(list->device->vk_device, vk_pool, NULL));
-        list->graphics_descriptor_set = VK_NULL_HANDLE;
-        return;
-    }
 
     list->root_signature = rs;
 }
