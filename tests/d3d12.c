@@ -185,19 +185,26 @@ static D3D12_SHADER_BYTECODE shader_bytecode(const DWORD *code, size_t size)
 # define SHADER_BYTECODE(dxbc, spirv) ((void)dxbc, shader_bytecode(spirv, sizeof(spirv)))
 #endif
 
-static void transition_resource_state(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
-        D3D12_RESOURCE_STATES state_before, D3D12_RESOURCE_STATES state_after)
+static void transition_sub_resource_state(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
+        unsigned int sub_resource_idx, D3D12_RESOURCE_STATES state_before, D3D12_RESOURCE_STATES state_after)
 {
     D3D12_RESOURCE_BARRIER barrier;
 
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
     barrier.Transition.pResource = resource;
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barrier.Transition.Subresource = sub_resource_idx;
     barrier.Transition.StateBefore = state_before;
     barrier.Transition.StateAfter = state_after;
 
     ID3D12GraphicsCommandList_ResourceBarrier(list, 1, &barrier);
+}
+
+static void transition_resource_state(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
+        D3D12_RESOURCE_STATES state_before, D3D12_RESOURCE_STATES state_after)
+{
+    transition_sub_resource_state(list, resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+            state_before, state_after);
 }
 
 static void uav_barrier(ID3D12GraphicsCommandList *list, ID3D12Resource *resource)
@@ -524,11 +531,15 @@ static unsigned int format_size(DXGI_FORMAT format)
 {
     switch (format)
     {
+        case DXGI_FORMAT_UNKNOWN:
+            return 1;
         case DXGI_FORMAT_R32G32B32A32_FLOAT:
         case DXGI_FORMAT_R32G32B32A32_UINT:
             return 16;
         case DXGI_FORMAT_D32_FLOAT:
+        case DXGI_FORMAT_R32_FLOAT:
         case DXGI_FORMAT_R32_UINT:
+        case DXGI_FORMAT_R32_SINT:
         case DXGI_FORMAT_R8G8B8A8_UNORM:
         case DXGI_FORMAT_B8G8R8A8_UNORM:
             return 4;
@@ -546,6 +557,48 @@ struct resource_readback
     unsigned int row_pitch;
     void *data;
 };
+
+static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_FORMAT format,
+        struct resource_readback *rb, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
+{
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    hr = ID3D12Resource_GetDevice(buffer, &IID_ID3D12Device, (void **)&device);
+    ok(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
+
+    resource_desc = ID3D12Resource_GetDesc(buffer);
+    ok(resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER, "Resource %p is not buffer.\n", buffer);
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_READBACK;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "Failed to create readback buffer, hr %#x.\n", hr);
+    rb->resource = resource;
+
+    ID3D12GraphicsCommandList_CopyBufferRegion(command_list, resource, 0, buffer, 0, resource_desc.Width);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+
+    rb->width = resource_desc.Width / format_size(format);
+    rb->height = 1;
+    rb->row_pitch = resource_desc.Width;
+    rb->data = NULL;
+    hr = ID3D12Resource_Map(resource, 0, NULL, &rb->data);
+    ok(SUCCEEDED(hr), "Failed to map readback buffer, hr %#x.\n", hr);
+
+    ID3D12Device_Release(device);
+}
 
 static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsigned int sub_resource,
         struct resource_readback *rb, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
@@ -595,7 +648,7 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
             &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
             D3D12_RESOURCE_STATE_COPY_DEST, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create readback buffer, hr %#x.\n", hr);
     rb->resource = resource;
 
     dst_location.pResource = resource;
@@ -613,7 +666,7 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
 
     ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst_location, 0, 0, 0, &src_location, NULL);
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
 
     exec_command_list(queue, command_list);
     wait_queue_idle(device, queue);
@@ -621,7 +674,7 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
     read_range.Begin = 0;
     read_range.End = resource_desc.Width;
     hr = ID3D12Resource_Map(resource, 0, &read_range, &rb->data);
-    ok(SUCCEEDED(hr), "Map failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to map readback buffer, hr %#x.\n", hr);
 
     ID3D12Device_Release(device);
 }
@@ -635,6 +688,11 @@ static void *get_readback_data(struct resource_readback *rb, unsigned int x, uns
 static unsigned int get_readback_uint(struct resource_readback *rb, unsigned int x, unsigned int y)
 {
     return *(unsigned int *)get_readback_data(rb, x, y, sizeof(unsigned int));
+}
+
+static float get_readback_float(struct resource_readback *rb, unsigned int x, unsigned int y)
+{
+    return *(float *)get_readback_data(rb, x, y, sizeof(float));
 }
 
 static const struct vec4 *get_readback_vec4(struct resource_readback *rb, unsigned int x, unsigned int y)
@@ -799,6 +857,26 @@ static ID3D12RootSignature *create_texture_root_signature_(unsigned int line,
     return root_signature;
 }
 
+#define create_compute_pipeline_state(a, b, c) create_compute_pipeline_state_(__LINE__, a, b, c)
+static ID3D12PipelineState *create_compute_pipeline_state_(unsigned int line, ID3D12Device *device,
+        ID3D12RootSignature *root_signature, const D3D12_SHADER_BYTECODE cs)
+{
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_state_desc;
+    ID3D12PipelineState *pipeline_state;
+    HRESULT hr;
+
+    memset(&pipeline_state_desc, 0, sizeof(pipeline_state_desc));
+    pipeline_state_desc.pRootSignature = root_signature;
+    pipeline_state_desc.CS = cs;
+    pipeline_state_desc.NodeMask = 0;
+    pipeline_state_desc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+    hr = ID3D12Device_CreateComputePipelineState(device, &pipeline_state_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok_(line)(SUCCEEDED(hr), "Failed to create compute pipeline state, hr %#x.\n", hr);
+
+    return pipeline_state;
+}
+
 #define create_pipeline_state(a, b, c, d, e, f) create_pipeline_state_(__LINE__, a, b, c, d, e, f)
 static ID3D12PipelineState *create_pipeline_state_(unsigned int line, ID3D12Device *device,
         ID3D12RootSignature *root_signature, DXGI_FORMAT rt_format,
@@ -950,7 +1028,7 @@ static void create_render_target_(unsigned int line, struct test_context *contex
     ID3D12Device_CreateRenderTargetView(context->device, context->render_target, NULL, context->rtv);
 }
 
-#define init_test_context(context, ps) init_test_context_(__LINE__, context, ps)
+#define init_test_context(context, desc) init_test_context_(__LINE__, context, desc)
 static bool init_test_context_(unsigned int line, struct test_context *context,
         const struct test_context_desc *desc)
 {
@@ -974,15 +1052,15 @@ static bool init_test_context_(unsigned int line, struct test_context *context,
     command_queue_desc.NodeMask = 0;
     hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
             &IID_ID3D12CommandQueue, (void **)&context->queue);
-    ok_(line)(SUCCEEDED(hr), "CreateCommandQueue failed, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", hr);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
             &IID_ID3D12CommandAllocator, (void **)&context->allocator);
-    ok_(line)(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
 
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             context->allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&context->list);
-    ok_(line)(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
 
     rtv_heap_desc.NumDescriptors = 1;
     rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
@@ -990,7 +1068,7 @@ static bool init_test_context_(unsigned int line, struct test_context *context,
     rtv_heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateDescriptorHeap(device, &rtv_heap_desc,
             &IID_ID3D12DescriptorHeap, (void **)&context->rtv_heap);
-    ok_(line)(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
 
     context->rtv = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(context->rtv_heap);
 
@@ -1003,7 +1081,6 @@ static bool init_test_context_(unsigned int line, struct test_context *context,
         context->pipeline_state = create_pipeline_state_(line, device,
                 context->root_signature, context->render_target_desc.Format,
                 NULL, NULL, NULL);
-
 
     context->viewport.TopLeftX = 0.0f;
     context->viewport.TopLeftY = 0.0f;
@@ -1019,6 +1096,41 @@ static bool init_test_context_(unsigned int line, struct test_context *context,
     return true;
 }
 
+#define init_compute_test_context(context) init_compute_test_context_(__LINE__, context)
+static bool init_compute_test_context_(unsigned int line, struct test_context *context)
+{
+    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    memset(context, 0, sizeof(*context));
+
+    if (!(context->device = create_device()))
+    {
+        skip_(line)("Failed to create device.\n");
+        return false;
+    }
+    device = context->device;
+
+    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    command_queue_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
+            &IID_ID3D12CommandQueue, (void **)&context->queue);
+    ok_(line)(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+            &IID_ID3D12CommandAllocator, (void **)&context->allocator);
+    ok_(line)(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+            context->allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&context->list);
+    ok_(line)(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+
+    return true;
+}
+
 #define destroy_test_context(context) destroy_test_context_(__LINE__, context)
 static void destroy_test_context_(unsigned int line, struct test_context *context)
 {
@@ -1029,8 +1141,10 @@ static void destroy_test_context_(unsigned int line, struct test_context *contex
     if (context->root_signature)
         ID3D12RootSignature_Release(context->root_signature);
 
-    ID3D12DescriptorHeap_Release(context->rtv_heap);
-    ID3D12Resource_Release(context->render_target);
+    if (context->rtv_heap)
+        ID3D12DescriptorHeap_Release(context->rtv_heap);
+    if (context->render_target)
+        ID3D12Resource_Release(context->render_target);
 
     ID3D12CommandAllocator_Release(context->allocator);
     ID3D12CommandQueue_Release(context->queue);
@@ -6872,6 +6986,139 @@ static void test_get_copyable_footprints(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_typed_buffer_uav(void)
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor_handle;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_descriptor_handle;
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_ROOT_PARAMETER root_parameters[1];
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3D12DescriptorHeap *descriptor_heap;
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    ID3D12RootSignature *root_signature;
+    ID3D12PipelineState *pipeline_state;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    unsigned int x;
+    HRESULT hr;
+
+    static const DWORD cs_code[] =
+    {
+#if 0
+        RWBuffer<float> buffer;
+
+        [numthreads(32, 1, 1)]
+        void main(uint3 group_id : SV_groupID, uint group_index : SV_GroupIndex)
+        {
+            uint global_index = 32 * group_id.x + group_index;
+            buffer[global_index] = 0.5f;
+        }
+#endif
+        0x43425844, 0xcc416762, 0xde23c7b7, 0x4012ae1f, 0xaed30ba4, 0x00000001, 0x000000e0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x0000008c, 0x00050050, 0x00000023, 0x0100086a,
+        0x0400089c, 0x0011e000, 0x00000000, 0x00005555, 0x0200005f, 0x00024000, 0x0200005f, 0x00021012,
+        0x02000068, 0x00000001, 0x0400009b, 0x00000020, 0x00000001, 0x00000001, 0x07000023, 0x00100012,
+        0x00000000, 0x0002100a, 0x00004001, 0x00000020, 0x0002400a, 0x0a0000a4, 0x0011e0f2, 0x00000000,
+        0x00100006, 0x00000000, 0x00004002, 0x3f000000, 0x3f000000, 0x3f000000, 0x3f000000, 0x0100003e,
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 64 * sizeof(float);
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    descriptor_ranges[0].NumDescriptors = 1;
+    descriptor_ranges[0].BaseShaderRegister = 0;
+    descriptor_ranges[0].RegisterSpace = 0;
+    descriptor_ranges[0].OffsetInDescriptorsFromTableStart = 0;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = descriptor_ranges;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = 1;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    pipeline_state = create_compute_pipeline_state(device, root_signature,
+            shader_bytecode(cs_code, sizeof(cs_code)));
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap_desc.NumDescriptors = 1;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
+    gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
+
+    uav_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Buffer.FirstElement = 0;
+    uav_desc.Buffer.NumElements = resource_desc.Width / sizeof(float);
+    uav_desc.Buffer.StructureByteStride = 0;
+    uav_desc.Buffer.CounterOffsetInBytes = 0;
+    uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+    ID3D12Device_CreateUnorderedAccessView(device, resource, NULL, &uav_desc, cpu_descriptor_handle);
+
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu_descriptor_handle);
+    ID3D12GraphicsCommandList_Dispatch(command_list, 2, 1, 1);
+
+    transition_sub_resource_state(command_list, resource, 0,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(resource, uav_desc.Format, &rb, queue, command_list);
+    for (x = 0; x < rb.width; ++x)
+    {
+        float f = get_readback_float(&rb, x, 0);
+        ok(f == 0.5f, "Got unexpected value %.8e at %u.\n", f, x);
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(resource);
+    ID3D12RootSignature_Release(root_signature);
+    ID3D12PipelineState_Release(pipeline_state);
+    ID3D12DescriptorHeap_Release(descriptor_heap);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     BOOL enable_debug_layer = FALSE;
@@ -6920,4 +7167,5 @@ START_TEST(d3d12)
     run_test(test_immediate_constant_buffer);
     run_test(test_texture);
     run_test(test_get_copyable_footprints);
+    run_test(test_typed_buffer_uav);
 }
