@@ -135,5 +135,5 @@ typedef enum DXGI_FORMAT
     DXGI_FORMAT_A8P8                        = 0x72,
     DXGI_FORMAT_B4G4R4A4_UNORM              = 0x73,
 
-    DXGI_FORMAT_FORCE_DWORD                 = 0xffffffff,
+    DXGI_FORMAT_FORCE_UINT                  = 0xffffffff,
 } DXGI_FORMAT;
