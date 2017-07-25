@@ -2153,23 +2153,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
     bool use_private_variable;
     uint32_t id, var_id;
 
-    builtin = vkd3d_get_spirv_builtin(dst->reg.type, sysval);
-
-    component_idx = vkd3d_write_mask_get_component_idx(dst->write_mask);
-    component_count = vkd3d_write_mask_component_count(dst->write_mask);
-    if (builtin)
-    {
-        component_type = builtin->component_type;
-        output_component_count = builtin->component_count;
-    }
-    else
-    {
-        /* FIXME: Consider output signature when choosing component type for output variable. */
-        component_type = VKD3D_TYPE_FLOAT;
-        output_component_count = component_count;
-    }
-    assert(component_count <= output_component_count);
-
     signature_element = NULL;
     signature = compiler->output_signature;
     for (signature_idx = 0; signature_idx < signature->element_count; ++signature_idx)
@@ -2186,6 +2169,22 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
         FIXME("Could not find shader signature element (register %u, write mask %#x).\n",
                 reg->idx[0].offset, dst->write_mask);
     }
+
+    builtin = vkd3d_get_spirv_builtin(dst->reg.type, sysval);
+
+    component_idx = vkd3d_write_mask_get_component_idx(dst->write_mask);
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    if (builtin)
+    {
+        component_type = builtin->component_type;
+        output_component_count = builtin->component_count;
+    }
+    else
+    {
+        component_type = signature_element ? signature_element->component_type : VKD3D_TYPE_FLOAT;
+        output_component_count = component_count;
+    }
+    assert(component_count <= output_component_count);
 
     storage_class = SpvStorageClassOutput;
     id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
