@@ -180,7 +180,7 @@ static VkDescriptorType vk_descriptor_type_from_d3d12(D3D12_DESCRIPTOR_RANGE_TYP
         case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
             return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
         case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-            return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            return VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER; /* FIXME: Add support for images. */
         case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
             return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
@@ -220,9 +220,9 @@ static bool vk_binding_from_d3d12_descriptor_range(struct VkDescriptorSetLayoutB
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc)
 {
+    size_t cbv_count = 0, srv_count = 0, uav_buffer_count = 0, sampler_count = 0;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkPipelineLayoutCreateInfo pipeline_layout_info;
-    size_t cbv_count = 0, srv_count = 0, sampler_count = 0;
     struct VkDescriptorSetLayoutBinding *binding_desc;
     struct VkDescriptorSetLayoutCreateInfo set_desc;
     unsigned int i, j;
@@ -293,6 +293,9 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
                 srv_count += binding_desc[i].descriptorCount;
                 break;
+            case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
+                uav_buffer_count += binding_desc[i].descriptorCount;
+                break;
             default:
                 FIXME("Unhandled descriptor type %#x.\n", binding_desc[i].descriptorType);
                 vkd3d_free(binding_desc);
@@ -345,15 +348,17 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         return hresult_from_vk_result(vr);
     }
 
-    if (cbv_count || srv_count || sampler_count)
+    root_signature->pool_size_count = 0;
+    if (cbv_count)
+        ++root_signature->pool_size_count;
+    if (srv_count)
+        ++root_signature->pool_size_count;
+    if (uav_buffer_count)
+        ++root_signature->pool_size_count;
+    if (sampler_count)
+        ++root_signature->pool_size_count;
+    if (root_signature->pool_size_count)
     {
-        root_signature->pool_size_count = 0;
-        if (cbv_count)
-            ++root_signature->pool_size_count;
-        if (srv_count)
-            ++root_signature->pool_size_count;
-        if (sampler_count)
-            ++root_signature->pool_size_count;
         if (!(root_signature->pool_sizes = vkd3d_calloc(root_signature->pool_size_count,
                 sizeof(*root_signature->pool_sizes))))
         {
@@ -374,6 +379,11 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         {
             root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
             root_signature->pool_sizes[i++].descriptorCount = srv_count;
+        }
+        if (uav_buffer_count)
+        {
+            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+            root_signature->pool_sizes[i++].descriptorCount = uav_buffer_count;
         }
         if (sampler_count)
         {
