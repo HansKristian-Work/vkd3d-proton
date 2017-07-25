@@ -311,7 +311,10 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (!(binding_desc = vkd3d_calloc(descriptor_count, sizeof(*binding_desc))))
         return E_OUTOFMEMORY;
     if (!(push_constants = vkd3d_calloc(push_count, sizeof(*push_constants))))
+    {
+        vkd3d_free(binding_desc);
         return E_OUTOFMEMORY;
+    }
 
     /* Map root constants to push constants. */
     for (i = 0, j = 0; i < desc->NumParameters; ++i)
@@ -330,9 +333,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         push_constants[j].stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
         push_constants[j].offset = 0;
         push_constants[j].size = 4 * p->u.Constants.Num32BitValues;
-        j++;
-
-        continue;
+        ++j;
     }
 
     cur_binding = binding_desc;
