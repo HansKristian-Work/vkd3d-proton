@@ -1968,6 +1968,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(ID3D12Graphics
     list->state = state;
     d3d12_command_list_invalidate_current_framebuffer(list);
     d3d12_command_list_invalidate_current_pipeline(list);
+
+    if (state && state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
+    {
+        const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, state->vk_bind_point, state->u.compute.vk_pipeline));
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsCommandList *iface,
