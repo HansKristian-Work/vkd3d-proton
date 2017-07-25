@@ -159,12 +159,20 @@ struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface) DE
 struct d3d12_cbv_srv_uav_desc
 {
     uint32_t magic;
-    VkImageView vk_image_view;
+    VkDescriptorType vk_descriptor_type;
+    union
+    {
+        VkBufferView vk_buffer_view;
+        VkImageView vk_image_view;
+    } u;
 };
 
 void d3d12_cbv_srv_uav_desc_create_srv(struct d3d12_cbv_srv_uav_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc) DECLSPEC_HIDDEN;
+void d3d12_cbv_srv_uav_desc_create_uav(struct d3d12_cbv_srv_uav_desc *descriptor,
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc) DECLSPEC_HIDDEN;
 
 struct d3d12_sampler_desc
 {

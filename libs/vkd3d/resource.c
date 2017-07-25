@@ -79,10 +79,7 @@ static HRESULT vkd3d_create_buffer(struct d3d12_resource *resource, struct d3d12
             | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
             | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
-    {
         buffer_info.usage |= VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
-        buffer_info.usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    }
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
         buffer_info.usage |= VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
 
@@ -760,7 +757,12 @@ static void d3d12_cbv_srv_uav_desc_destroy(struct d3d12_cbv_srv_uav_desc *descri
 
     if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV)
     {
-        VK_CALL(vkDestroyImageView(device->vk_device, descriptor->vk_image_view, NULL));
+        VK_CALL(vkDestroyImageView(device->vk_device, descriptor->u.vk_image_view, NULL));
+        memset(descriptor, 0, sizeof(*descriptor));
+    }
+    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
+    {
+        VK_CALL(vkDestroyBufferView(device->vk_device, descriptor->u.vk_buffer_view, NULL));
         memset(descriptor, 0, sizeof(*descriptor));
     }
 }
@@ -814,13 +816,82 @@ void d3d12_cbv_srv_uav_desc_create_srv(struct d3d12_cbv_srv_uav_desc *descriptor
     view_desc.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
     view_desc.subresourceRange.baseArrayLayer = 0;
     view_desc.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
-    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &descriptor->vk_image_view))) < 0)
+    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &descriptor->u.vk_image_view))) < 0)
     {
         WARN("Failed to create Vulkan image view, vr %d.\n", vr);
         return;
     }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
+    descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+}
+
+void d3d12_cbv_srv_uav_desc_create_uav(struct d3d12_cbv_srv_uav_desc *descriptor,
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
+{
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct VkBufferViewCreateInfo view_desc;
+    const struct vkd3d_format *format;
+    VkResult vr;
+
+    vk_procs = &device->vk_procs;
+
+    d3d12_cbv_srv_uav_desc_destroy(descriptor, device);
+
+    if (!resource)
+    {
+        FIXME("NULL resource UAV not implemented.\n");
+        return;
+    }
+
+    if (!d3d12_resource_is_buffer(resource))
+    {
+        FIXME("Resource dimension %#x not implemented.\n", resource->desc.Dimension);
+        return;
+    }
+
+    if (!desc)
+    {
+        FIXME("Default UAV views not supported.\n");
+        return;
+    }
+
+    if (!(format = vkd3d_get_format(desc->Format)))
+    {
+        ERR("Failed to find format for %#x.\n", resource->desc.Format);
+        return;
+    }
+
+    if (desc->ViewDimension != D3D12_UAV_DIMENSION_BUFFER)
+    {
+        WARN("Unexpected view dimension %#x.\n", desc->ViewDimension);
+        return;
+    }
+
+    if (desc->u.Buffer.StructureByteStride)
+        FIXME("Ignoring structure byte stride %u.\n", desc->u.Buffer.StructureByteStride);
+    if (desc->u.Buffer.CounterOffsetInBytes)
+        FIXME("Ignoring counter offset %"PRIu64".\n", desc->u.Buffer.CounterOffsetInBytes);
+    if (desc->u.Buffer.Flags)
+        FIXME("Ignoring buffer view flags %#x.\n", desc->u.Buffer.Flags);
+
+    view_desc.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
+    view_desc.pNext = NULL;
+    view_desc.flags = 0;
+    view_desc.buffer = resource->u.vk_buffer;
+    view_desc.format = format->vk_format;
+    view_desc.offset = desc->u.Buffer.FirstElement * format->byte_count;
+    view_desc.range = desc->u.Buffer.NumElements * format->byte_count;
+    if ((vr = VK_CALL(vkCreateBufferView(device->vk_device, &view_desc, NULL,
+            &descriptor->u.vk_buffer_view))) < 0)
+    {
+        WARN("Failed to create Vulkan buffer view, vr %d.\n", vr);
+        return;
+    }
+
+    descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
+    descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
 }
 
 /* samplers */

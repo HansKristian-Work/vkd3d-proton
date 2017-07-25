@@ -830,8 +830,14 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView(ID3D12Devic
         ID3D12Resource *resource, ID3D12Resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    FIXME("iface %p, resource %p, counter_resource %p, desc %p, descriptor %#lx stub!\n",
+    TRACE("iface %p, resource %p, counter_resource %p, desc %p, descriptor %#lx.\n",
             iface, resource, counter_resource, desc, descriptor.ptr);
+
+    if (counter_resource)
+        FIXME("Counter resources not implemented yet.\n");
+
+    d3d12_cbv_srv_uav_desc_create_uav((struct d3d12_cbv_srv_uav_desc *)descriptor.ptr,
+            impl_from_ID3D12Device(iface), unsafe_impl_from_ID3D12Resource(resource), desc);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateRenderTargetView(ID3D12Device *iface,

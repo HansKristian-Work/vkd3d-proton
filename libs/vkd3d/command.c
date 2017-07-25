@@ -2277,7 +2277,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable(
     }
 
     image_info.sampler = VK_NULL_HANDLE;
-    image_info.imageView = descriptor->vk_image_view;
+    image_info.imageView = descriptor->u.vk_image_view;
     image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
     descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
