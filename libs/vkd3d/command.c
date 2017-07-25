@@ -1627,7 +1627,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
 
     if (rs && rs->pool_size_count)
         VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                rs->vk_pipeline_layout, 0, 1, &list->current_descriptor_set, 0, NULL));
+                rs->vk_pipeline_layout, 0, 1, &list->graphics_descriptor_set, 0, NULL));
 
     begin_desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     begin_desc.pNext = NULL;
@@ -2206,7 +2206,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
     set_desc.descriptorSetCount = 1;
     set_desc.pSetLayouts = &rs->vk_set_layout;
     if ((vr = VK_CALL(vkAllocateDescriptorSets(list->device->vk_device,
-            &set_desc, &list->current_descriptor_set))) < 0)
+            &set_desc, &list->graphics_descriptor_set))) < 0)
     {
         ERR("Failed to allocate descriptor set, vr %d.\n", vr);
         VK_CALL(vkDestroyDescriptorPool(list->device->vk_device, vk_pool, NULL));
@@ -2217,7 +2217,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
     {
         ERR("Failed to add descriptor pool.\n");
         VK_CALL(vkDestroyDescriptorPool(list->device->vk_device, vk_pool, NULL));
-        list->current_descriptor_set = VK_NULL_HANDLE;
+        list->graphics_descriptor_set = VK_NULL_HANDLE;
         return;
     }
 
@@ -2260,7 +2260,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable(
 
     descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptor_write.pNext = NULL;
-    descriptor_write.dstSet = list->current_descriptor_set;
+    descriptor_write.dstSet = list->graphics_descriptor_set;
     descriptor_write.dstBinding = root_parameter_index;
     descriptor_write.dstArrayElement = 0;
     descriptor_write.descriptorCount = 1;
@@ -2325,7 +2325,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootConstantBufferVi
 
     descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptor_write.pNext = NULL;
-    descriptor_write.dstSet = list->current_descriptor_set;
+    descriptor_write.dstSet = list->graphics_descriptor_set;
     descriptor_write.dstBinding = root_parameter_index;
     descriptor_write.dstArrayElement = 0;
     descriptor_write.descriptorCount = 1;
@@ -2843,7 +2843,7 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
 
     list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;
-    list->current_descriptor_set = VK_NULL_HANDLE;
+    list->graphics_descriptor_set = VK_NULL_HANDLE;
 
     list->state = NULL;
     list->root_signature = NULL;

@@ -349,7 +349,7 @@ struct d3d12_command_list
 
     VkFramebuffer current_framebuffer;
     VkPipeline current_pipeline;
-    VkDescriptorSet current_descriptor_set;
+    VkDescriptorSet graphics_descriptor_set;
 
     struct d3d12_pipeline_state *state;
     struct d3d12_root_signature *root_signature;
