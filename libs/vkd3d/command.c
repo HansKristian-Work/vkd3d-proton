@@ -1702,7 +1702,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(ID3D12Grap
 static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(ID3D12GraphicsCommandList *iface,
         UINT x, UINT y, UINT z)
 {
-    FIXME("iface %p, x %u, y %u, z %u stub!\n", iface, x, y, z);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_root_signature *rs = list->compute_root_signature;
+    const struct vkd3d_vk_device_procs *vk_procs;
+
+    TRACE("iface %p, x %u, y %u, z %u.\n", iface, x, y, z);
+
+    if (list->state->vk_bind_point != VK_PIPELINE_BIND_POINT_COMPUTE)
+    {
+        WARN("Pipeline state %p has bind point %#x.\n", list->state, list->state->vk_bind_point);
+        return;
+    }
+
+    vk_procs = &list->device->vk_procs;
+
+    if (rs && rs->pool_size_count)
+        VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                rs->vk_pipeline_layout, 0, 1, &list->compute_descriptor_set, 0, NULL));
+
+    VK_CALL(vkCmdDispatch(list->vk_command_buffer, x, y, z));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(ID3D12GraphicsCommandList *iface,
