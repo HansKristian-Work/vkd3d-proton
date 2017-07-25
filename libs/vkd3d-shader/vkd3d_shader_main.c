@@ -50,7 +50,7 @@ HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     shader_sm4_read_header(parser_data, &ptr, &shader_version);
 
     if (!(spirv_compiler = vkd3d_dxbc_compiler_create(&shader_version,
-            &shader_desc.output_signature, compiler_options)))
+            &shader_desc, compiler_options)))
     {
         ERR("Failed to create DXBC compiler.\n");
         shader_sm4_free(parser_data);
