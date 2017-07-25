@@ -1419,7 +1419,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(ID3D12GraphicsCommandL
         list->pipeline_state = initial_state;
     }
 
-    list->root_signature = NULL;
+    list->graphics_root_signature = NULL;
+    list->compute_root_signature = NULL;
 
     return hr;
 }
@@ -1609,7 +1610,7 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
 static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list,
         const struct vkd3d_vk_device_procs *vk_procs)
 {
-    struct d3d12_root_signature *rs = list->root_signature;
+    struct d3d12_root_signature *rs = list->graphics_root_signature;
     struct VkRenderPassBeginInfo begin_desc;
 
     if (!list->state)
@@ -2214,7 +2215,18 @@ static VkDescriptorSet d3d12_command_list_allocate_descriptor_set(struct d3d12_c
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootSignature(ID3D12GraphicsCommandList *iface,
         ID3D12RootSignature *root_signature)
 {
-    FIXME("iface %p, root_signature %p stub!\n", iface, root_signature);
+    struct d3d12_root_signature *rs = unsafe_impl_from_ID3D12RootSignature(root_signature);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, root_signature %p.\n", iface, root_signature);
+
+    if (list->compute_root_signature == rs)
+        return;
+
+    if (!(list->compute_descriptor_set = d3d12_command_list_allocate_descriptor_set(list, rs)))
+        return;
+
+    list->compute_root_signature = rs;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12GraphicsCommandList *iface,
@@ -2225,13 +2237,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
 
     TRACE("iface %p, root_signature %p.\n", iface, root_signature);
 
-    if (list->root_signature == rs)
+    if (list->graphics_root_signature == rs)
         return;
 
     if (!(list->graphics_descriptor_set = d3d12_command_list_allocate_descriptor_set(list, rs)))
         return;
 
-    list->root_signature = rs;
+    list->graphics_root_signature = rs;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable(ID3D12GraphicsCommandList *iface,
@@ -2854,9 +2866,11 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;
     list->graphics_descriptor_set = VK_NULL_HANDLE;
+    list->compute_descriptor_set = VK_NULL_HANDLE;
 
     list->state = NULL;
-    list->root_signature = NULL;
+    list->graphics_root_signature = NULL;
+    list->compute_root_signature = NULL;
 
     return S_OK;
 }

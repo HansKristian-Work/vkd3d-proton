@@ -350,9 +350,11 @@ struct d3d12_command_list
     VkFramebuffer current_framebuffer;
     VkPipeline current_pipeline;
     VkDescriptorSet graphics_descriptor_set;
+    VkDescriptorSet compute_descriptor_set;
 
     struct d3d12_pipeline_state *state;
-    struct d3d12_root_signature *root_signature;
+    struct d3d12_root_signature *graphics_root_signature;
+    struct d3d12_root_signature *compute_root_signature;
 
     struct d3d12_command_allocator *allocator;
     struct d3d12_device *device;
