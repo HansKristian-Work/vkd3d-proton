@@ -912,6 +912,9 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
         case D3D12_COMMAND_LIST_TYPE_DIRECT:
             command_pool_info.queueFamilyIndex = device->direct_queue_family_index;
             break;
+        case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+            command_pool_info.queueFamilyIndex = device->compute_queue_family_index;
+            break;
         case D3D12_COMMAND_LIST_TYPE_COPY:
             command_pool_info.queueFamilyIndex = device->copy_queue_family_index;
             break;
