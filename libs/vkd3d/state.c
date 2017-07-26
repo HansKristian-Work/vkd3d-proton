@@ -411,11 +411,12 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
                 for (j = 0; j < p->u.DescriptorTable.NumDescriptorRanges; ++j)
                 {
-                    const D3D12_DESCRIPTOR_RANGE *descriptor_range= &p->u.DescriptorTable.pDescriptorRanges[j];
+                    const D3D12_DESCRIPTOR_RANGE *descriptor_range = &p->u.DescriptorTable.pDescriptorRanges[j];
+
                     for (k = 0; k < p->u.DescriptorTable.pDescriptorRanges[j].NumDescriptors; ++k)
                     {
                         uint32_t vk_binding = d3d12_root_signature_assign_vk_binding(root_signature,
-                                vkd3d_descriptor_type_from_d3d12_range_type(p->ParameterType),
+                                vkd3d_descriptor_type_from_d3d12_range_type(descriptor_range->RangeType),
                                 descriptor_range->BaseShaderRegister + k, &descriptor_idx);
 
                         if (!vk_binding_from_d3d12_descriptor_range(cur_binding, descriptor_range, vk_binding))
