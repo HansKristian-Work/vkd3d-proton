@@ -822,7 +822,8 @@ void free_shader_desc(struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
 struct vkd3d_dxbc_compiler;
 
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
-        const struct vkd3d_shader_desc *shader_desc, uint32_t compiler_options) DECLSPEC_HIDDEN;
+        const struct vkd3d_shader_desc *shader_desc, uint32_t compiler_options,
+        const struct vkd3d_shader_resource_binding *bindings, unsigned int binding_count) DECLSPEC_HIDDEN;
 void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction) DECLSPEC_HIDDEN;
 bool vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,

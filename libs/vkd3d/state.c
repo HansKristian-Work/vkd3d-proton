@@ -701,7 +701,7 @@ static bool d3d12_shader_bytecode_is_spirv(const D3D12_SHADER_BYTECODE *code)
 }
 
 static HRESULT create_shader_stage(struct d3d12_device *device, struct VkPipelineShaderStageCreateInfo *stage_desc,
-        enum VkShaderStageFlagBits stage, const D3D12_SHADER_BYTECODE *code, uint32_t compiler_options)
+        enum VkShaderStageFlagBits stage, const D3D12_SHADER_BYTECODE *code)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkShaderModuleCreateInfo shader_desc;
@@ -728,7 +728,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device, struct VkPipelin
     else
     {
         struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
-        if (FAILED(hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, compiler_options)))
+        if (FAILED(hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, NULL, 0)))
         {
             WARN("Failed to compile shader, hr %#x.\n", hr);
             return hr;
@@ -769,7 +769,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = NULL;
     pipeline_info.flags = 0;
-    if (FAILED(hr = create_shader_stage(device, &pipeline_info.stage, VK_SHADER_STAGE_COMPUTE_BIT, &desc->CS, 0)))
+    if (FAILED(hr = create_shader_stage(device, &pipeline_info.stage, VK_SHADER_STAGE_COMPUTE_BIT, &desc->CS)))
         return hr;
     pipeline_info.layout = root_signature->vk_pipeline_layout;
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
@@ -1108,7 +1108,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             continue;
 
         if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
-                shader_stages[i].stage, b, 0)))
+                shader_stages[i].stage, b)))
             goto fail;
 
         ++graphics->stage_count;
