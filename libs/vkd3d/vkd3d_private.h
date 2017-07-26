@@ -239,6 +239,9 @@ struct d3d12_root_signature
     struct VkDescriptorPoolSize *pool_sizes;
     size_t pool_size_count;
 
+    unsigned int descriptor_count;
+    struct vkd3d_shader_resource_binding *descriptor_mapping;
+
     unsigned int static_sampler_count;
     VkSampler *static_samplers;
 
