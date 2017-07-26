@@ -290,13 +290,14 @@ static bool vk_count_descriptor_types(const VkDescriptorSetLayoutBinding *bindin
 static uint32_t d3d12_root_signature_assign_vk_binding(struct d3d12_root_signature *root_signature,
         enum vkd3d_descriptor_type descriptor_type, unsigned int register_idx, uint32_t *descriptor_idx)
 {
-    uint32_t binding = (*descriptor_idx)++;
+    uint32_t binding = *descriptor_idx;
 
     root_signature->descriptor_mapping[binding].type = descriptor_type;
     root_signature->descriptor_mapping[binding].index = register_idx;
     root_signature->descriptor_mapping[binding].descriptor_set = 0;
     root_signature->descriptor_mapping[binding].binding = binding;
 
+    *descriptor_idx += 1;
     return binding;
 }
 
