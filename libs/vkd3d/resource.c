@@ -117,7 +117,7 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.pNext = NULL;
     image_info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
-    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D && desc->Width == desc->Height)
         image_info.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
 
     image_info.imageType = vk_image_type_from_d3d12_resource_dimension(desc->Dimension);
