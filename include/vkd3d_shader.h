@@ -50,15 +50,24 @@ enum vkd3d_descriptor_type
 struct vkd3d_shader_resource_binding
 {
     enum vkd3d_descriptor_type type;
-    unsigned int index;
+    unsigned int register_index;
 
     uint32_t descriptor_set;
     uint32_t binding;
 };
 
+struct vkd3d_shader_push_constant
+{
+    unsigned int register_index;
+
+    unsigned int offset;
+    unsigned int count;
+};
+
 HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv, uint32_t compiler_options,
-        const struct vkd3d_shader_resource_binding *bindings, unsigned int binding_count);
+        const struct vkd3d_shader_resource_binding *bindings, unsigned int binding_count,
+        const struct vkd3d_shader_push_constant *push_constants, unsigned int push_constant_count);
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
 
 HRESULT vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,

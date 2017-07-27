@@ -305,7 +305,7 @@ static uint32_t d3d12_root_signature_assign_vk_binding(struct d3d12_root_signatu
     uint32_t binding = *descriptor_idx;
 
     root_signature->descriptor_mapping[binding].type = descriptor_type;
-    root_signature->descriptor_mapping[binding].index = register_idx;
+    root_signature->descriptor_mapping[binding].register_index = register_idx;
     root_signature->descriptor_mapping[binding].descriptor_set = 0;
     root_signature->descriptor_mapping[binding].binding = binding;
 
@@ -816,7 +816,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     {
         struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
         if (FAILED(hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0,
-                root_signature->descriptor_mapping, root_signature->descriptor_count)))
+                root_signature->descriptor_mapping, root_signature->descriptor_count, NULL, 0)))
         {
             WARN("Failed to compile shader, hr %#x.\n", hr);
             return hr;
