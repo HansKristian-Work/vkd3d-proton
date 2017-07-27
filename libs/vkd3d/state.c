@@ -59,6 +59,31 @@ static ULONG STDMETHODCALLTYPE d3d12_root_signature_AddRef(ID3D12RootSignature *
     return refcount;
 }
 
+static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signature,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    unsigned int i;
+
+    if (root_signature->vk_pipeline_layout)
+        VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->vk_pipeline_layout, NULL));
+    if (root_signature->pool_sizes)
+        vkd3d_free(root_signature->pool_sizes);
+    if (root_signature->vk_set_layout)
+        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
+
+    if (root_signature->descriptor_mapping)
+        vkd3d_free(root_signature->descriptor_mapping);
+
+    for (i = 0; i < root_signature->static_sampler_count; ++i)
+    {
+        if (root_signature->static_samplers[i])
+            VK_CALL(vkDestroySampler(device->vk_device, root_signature->static_samplers[i], NULL));
+    }
+    if (root_signature->static_samplers)
+        vkd3d_free(root_signature->static_samplers);
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_root_signature_Release(ID3D12RootSignature *iface)
 {
     struct d3d12_root_signature *root_signature = impl_from_ID3D12RootSignature(iface);
@@ -69,21 +94,8 @@ static ULONG STDMETHODCALLTYPE d3d12_root_signature_Release(ID3D12RootSignature 
     if (!refcount)
     {
         struct d3d12_device *device = root_signature->device;
-        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-        unsigned int i;
-
-        VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->vk_pipeline_layout, NULL));
-        vkd3d_free(root_signature->pool_sizes);
-        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
-
-        vkd3d_free(root_signature->descriptor_mapping);
-
-        for (i = 0; i < root_signature->static_sampler_count; ++i)
-            VK_CALL(vkDestroySampler(device->vk_device, root_signature->static_samplers[i], NULL));
-        vkd3d_free(root_signature->static_samplers);
-
+        d3d12_root_signature_cleanup(root_signature, device);
         vkd3d_free(root_signature);
-
         ID3D12Device_Release(&device->ID3D12Device_iface);
     }
 
@@ -319,7 +331,12 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     root_signature->ID3D12RootSignature_iface.lpVtbl = &d3d12_root_signature_vtbl;
     root_signature->refcount = 1;
 
+    root_signature->vk_pipeline_layout = VK_NULL_HANDLE;
+    root_signature->pool_sizes = NULL;
+    root_signature->vk_set_layout = VK_NULL_HANDLE;
     root_signature->descriptor_mapping = NULL;
+    root_signature->static_sampler_count = 0;
+    root_signature->static_samplers = NULL;
 
     if (desc->Flags)
         FIXME("Ignoring root signature flags %#x.\n", desc->Flags);
@@ -337,7 +354,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
                     if (p->u.DescriptorTable.pDescriptorRanges[j].NumDescriptors == 0xffffffff)
                     {
                         FIXME("Unhandled unbound descriptor range for parameter %u.\n", i);
-                        goto not_implemented;
+                        return E_NOTIMPL;
                     }
                     descriptor_count += p->u.DescriptorTable.pDescriptorRanges[j].NumDescriptors;
                 }
@@ -355,7 +372,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
             default:
                 FIXME("Unhandled type %#x for parameter %u.\n", p->ParameterType, i);
-                goto not_implemented;
+                return E_NOTIMPL;
         }
 
     }
@@ -363,19 +380,21 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     descriptor_count += desc->NumStaticSamplers;
 
     if (!(binding_desc = vkd3d_calloc(descriptor_count, sizeof(*binding_desc))))
-        return E_OUTOFMEMORY;
+    {
+        hr = E_OUTOFMEMORY;
+        goto fail;
+    }
     if (!(push_constants = vkd3d_calloc(push_count, sizeof(*push_constants))))
     {
-        vkd3d_free(binding_desc);
-        return E_OUTOFMEMORY;
+        hr = E_OUTOFMEMORY;
+        goto fail;
     }
     root_signature->descriptor_count = descriptor_count;
     if (!(root_signature->descriptor_mapping = vkd3d_calloc(root_signature->descriptor_count,
             sizeof(*root_signature->descriptor_mapping))))
     {
-        vkd3d_free(binding_desc);
-        vkd3d_free(push_constants);
-        return E_OUTOFMEMORY;
+        hr = E_OUTOFMEMORY;
+        goto fail;
     }
 
     /* Map root constants to push constants. */
@@ -389,7 +408,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         if (p->u.Constants.RegisterSpace)
         {
             FIXME("Unhandled register space %u for parameter %u.\n", p->u.Constants.RegisterSpace, i);
-            goto not_implemented;
+            hr = E_NOTIMPL;
+            goto fail;
         }
 
         push_constants[j].stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
@@ -420,14 +440,20 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
                                 descriptor_range->BaseShaderRegister + k, &descriptor_idx);
 
                         if (!vk_binding_from_d3d12_descriptor_range(cur_binding, descriptor_range, vk_binding))
-                            goto not_implemented;
+                        {
+                            hr = E_NOTIMPL;
+                            goto fail;
+                        }
 
                         cur_binding->stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
                         cur_binding->pImmutableSamplers = NULL;
 
                         if (!vk_count_descriptor_types(cur_binding, &cbv_count, &uav_buffer_count,
                                 &srv_count, &sampler_count))
-                            goto not_implemented;
+                        {
+                            hr = E_NOTIMPL;
+                            goto fail;
+                        }
 
                         ++cur_binding;
                     }
@@ -441,7 +467,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
                 if (p->u.Descriptor.RegisterSpace)
                 {
                     FIXME("Unhandled register space %u for parameter %u.\n", p->u.Descriptor.RegisterSpace, i);
-                    goto not_implemented;
+                    hr = E_NOTIMPL;
+                    goto fail;
                 }
                 cur_binding->binding = d3d12_root_signature_assign_vk_binding(root_signature,
                         vkd3d_descriptor_type_from_d3d12_root_parameter_type(p->ParameterType),
@@ -453,14 +480,18 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
                 if (!vk_count_descriptor_types(cur_binding, &cbv_count, &uav_buffer_count,
                         &srv_count, &sampler_count))
-                    goto not_implemented;
+                {
+                    hr = E_NOTIMPL;
+                    goto fail;
+                }
 
                 ++cur_binding;
                 break;
 
             default:
                 FIXME("Unhandled type %#x for parameter %u.\n", p->ParameterType, i);
-                goto not_implemented;
+                hr = E_NOTIMPL;
+                goto fail;
         }
     }
 
@@ -468,10 +499,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (!(root_signature->static_samplers = vkd3d_calloc(root_signature->static_sampler_count,
             sizeof(*root_signature->static_samplers))))
     {
-        vkd3d_free(binding_desc);
-        vkd3d_free(push_constants);
-        vkd3d_free(root_signature->descriptor_mapping);
-        return E_OUTOFMEMORY;
+        hr = E_OUTOFMEMORY;
+        goto fail;
     }
 
     sampler_count += desc->NumStaticSamplers;
@@ -483,15 +512,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             FIXME("Unhandled register space %u for static sampler %u.\n", s->RegisterSpace, i);
 
         if (FAILED(hr = d3d12_device_create_static_sampler(device, s, &root_signature->static_samplers[i])))
-        {
-            for (j = 0; j < i; ++j)
-                VK_CALL(vkDestroySampler(device->vk_device, root_signature->static_samplers[j], NULL));
-            vkd3d_free(root_signature->descriptor_mapping);
-            vkd3d_free(root_signature->static_samplers);
-            vkd3d_free(binding_desc);
-            vkd3d_free(push_constants);
-            return hr;
-        }
+            goto fail;
 
         cur_binding->binding = d3d12_root_signature_assign_vk_binding(root_signature,
                 VKD3D_DESCRIPTOR_TYPE_SAMPLER, s->ShaderRegister, &descriptor_idx);
@@ -513,10 +534,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (vr < 0)
     {
         WARN("Failed to create Vulkan descriptor set layout, vr %d.\n", vr);
-        vkd3d_free(root_signature->descriptor_mapping);
-        vkd3d_free(root_signature->static_samplers);
-        vkd3d_free(push_constants);
-        return hresult_from_vk_result(vr);
+        hr = hresult_from_vk_result(vr);
+        goto fail;
     }
 
     root_signature->pool_size_count = 0;
@@ -533,13 +552,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         if (!(root_signature->pool_sizes = vkd3d_calloc(root_signature->pool_size_count,
                 sizeof(*root_signature->pool_sizes))))
         {
-            VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
-            for (i = 0; i < root_signature->static_sampler_count; ++i)
-                VK_CALL(vkDestroySampler(device->vk_device, root_signature->static_samplers[i], NULL));
-            vkd3d_free(root_signature->descriptor_mapping);
-            vkd3d_free(root_signature->static_samplers);
-            vkd3d_free(push_constants);
-            return E_OUTOFMEMORY;
+            hr = E_OUTOFMEMORY;
+            goto fail;
         }
 
         i = 0;
@@ -581,14 +595,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             &root_signature->vk_pipeline_layout))) < 0)
     {
         WARN("Failed to create Vulkan pipeline layout, vr %d.\n", vr);
-        vkd3d_free(root_signature->pool_sizes);
-        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
-        for (i = 0; i < root_signature->static_sampler_count; ++i)
-            VK_CALL(vkDestroySampler(device->vk_device, root_signature->static_samplers[i], NULL));
-        vkd3d_free(root_signature->descriptor_mapping);
-        vkd3d_free(root_signature->static_samplers);
-        vkd3d_free(push_constants);
-        return hresult_from_vk_result(vr);
+        hr = hresult_from_vk_result(vr);
+        goto fail;
     }
 
     vkd3d_free(push_constants);
@@ -598,11 +606,11 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
     return S_OK;
 
-not_implemented:
+fail:
     vkd3d_free(binding_desc);
     vkd3d_free(push_constants);
-    vkd3d_free(root_signature->descriptor_mapping);
-    return E_NOTIMPL;
+    d3d12_root_signature_cleanup(root_signature, device);
+    return hr;
 }
 
 HRESULT d3d12_root_signature_create(struct d3d12_device *device,
