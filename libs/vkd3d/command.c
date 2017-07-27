@@ -2247,9 +2247,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootSignature(ID3D12G
     if (list->compute_root_signature == rs)
         return;
 
-    if (!(list->compute_descriptor_set = d3d12_command_list_allocate_descriptor_set(list, rs)))
-        return;
-
+    list->compute_descriptor_set = d3d12_command_list_allocate_descriptor_set(list, rs);
     list->compute_root_signature = rs;
 }
 
@@ -2264,9 +2262,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
     if (list->graphics_root_signature == rs)
         return;
 
-    if (!(list->graphics_descriptor_set = d3d12_command_list_allocate_descriptor_set(list, rs)))
-        return;
-
+    list->graphics_descriptor_set = d3d12_command_list_allocate_descriptor_set(list, rs);
     list->graphics_root_signature = rs;
 }
 
