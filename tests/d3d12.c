@@ -1878,6 +1878,7 @@ static void test_create_root_signature(void)
         return;
     }
 
+    /* descriptor table */
     descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     descriptor_ranges[0].NumDescriptors = 1;
     descriptor_ranges[0].BaseShaderRegister = 0;
@@ -1912,6 +1913,7 @@ static void test_create_root_signature(void)
     refcount = ID3D12RootSignature_Release(root_signature);
     ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
 
+    /* empty */
     root_signature_desc.NumParameters = 0;
     root_signature_desc.pParameters = NULL;
     root_signature_desc.NumStaticSamplers = 0;
@@ -1922,6 +1924,7 @@ static void test_create_root_signature(void)
     refcount = ID3D12RootSignature_Release(root_signature);
     ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
 
+    /* root constants */
     root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     root_parameters[0].Constants.ShaderRegister = 0;
     root_parameters[0].Constants.RegisterSpace = 0;
@@ -1953,6 +1956,30 @@ static void test_create_root_signature(void)
     root_parameters[2].Constants.Num32BitValues = 3;
     root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     root_signature_desc.NumParameters = 3;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    refcount = ID3D12RootSignature_Release(root_signature);
+    ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
+
+    /* root descriptors */
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[0].Descriptor.ShaderRegister = 0;
+    root_parameters[0].Descriptor.RegisterSpace = 0;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[1].Descriptor.ShaderRegister = 0;
+    root_parameters[1].Descriptor.RegisterSpace = 0;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_signature_desc.NumParameters = 2;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    todo(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12RootSignature_Release(root_signature);
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_GEOMETRY;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
     ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
     refcount = ID3D12RootSignature_Release(root_signature);
