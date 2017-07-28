@@ -76,6 +76,8 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
         vkd3d_free(root_signature->descriptor_mapping);
     if (root_signature->constants)
         vkd3d_free(root_signature->constants);
+    if (root_signature->push_constants)
+        vkd3d_free(root_signature->push_constants);
 
     for (i = 0; i < root_signature->static_sampler_count; ++i)
     {
@@ -406,6 +408,12 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         hr = E_OUTOFMEMORY;
         goto fail;
     }
+    if (!(root_signature->push_constants = vkd3d_calloc(root_signature->constant_count,
+            sizeof(*root_signature->push_constants))))
+    {
+        hr = E_OUTOFMEMORY;
+        goto fail;
+    }
 
     /* Map root constants to push constants. */
     for (i = 0, j = 0; i < desc->NumParameters; ++i)
@@ -429,6 +437,10 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         root_signature->constants[j].root_parameter_index = i;
         root_signature->constants[j].stage_flags = push_constants[j].stageFlags;
         root_signature->constants[j].offset = push_constants[j].offset;
+
+        root_signature->push_constants[j].register_index = p->u.Constants.ShaderRegister;
+        root_signature->push_constants[j].offset = 0;
+        root_signature->push_constants[j].count = p->u.Constants.Num32BitValues;
 
         ++j;
     }
@@ -831,7 +843,8 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     {
         struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
         if (FAILED(hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0,
-                root_signature->descriptor_mapping, root_signature->descriptor_count, NULL, 0)))
+                root_signature->descriptor_mapping, root_signature->descriptor_count,
+                root_signature->push_constants, root_signature->constant_count)))
         {
             WARN("Failed to compile shader, hr %#x.\n", hr);
             return hr;

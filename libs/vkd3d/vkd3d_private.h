@@ -286,6 +286,7 @@ struct d3d12_root_signature
 
     unsigned int constant_count;
     struct d3d12_root_constant *constants;
+    struct vkd3d_shader_push_constant *push_constants;
 
     unsigned int static_sampler_count;
     VkSampler *static_samplers;
