@@ -23,21 +23,14 @@ vkd3d_public_headers = \
 	include/vkd3d_utils.h \
 	include/vkd3d_windows.h
 
-spv_gears_shaders = \
-	demos/gears.vert.spv \
-	demos/gears_flat.frag.spv \
-	demos/gears_smooth.frag.spv
-spv_triangle_shaders = \
-	demos/triangle.vert.spv \
-	demos/triangle.frag.spv
-
-spv_shaders = \
-	$(spv_gears_shaders) \
-	$(spv_triangle_shaders)
-
-hlsl_shaders = \
+vkd3d_demos_shaders = \
 	demos/gears.hlsl \
-	demos/triangle.hlsl
+	demos/gears_ps_flat.h \
+	demos/gears_ps_smooth.h \
+	demos/gears_vs.h \
+	demos/triangle.hlsl \
+	demos/triangle_ps.h \
+	demos/triangle_vs.h
 
 vkd3d_tests = \
 	tests/d3d12
@@ -52,7 +45,6 @@ vkd3d_demos_headers = \
 	demos/demo_xcb.h
 
 BUILT_SOURCES = $(widl_headers)
-CLEANFILES = $(spv_shaders)
 
 noinst_LTLIBRARIES = libvkd3d-common.la
 libvkd3d_common_la_SOURCES = \
@@ -101,7 +93,7 @@ EXTRA_DIST = LICENSE
 pkgconfigdir = $(libdir)/pkgconfig
 pkginclude_HEADERS = $(vkd3d_public_headers)
 nodist_pkgconfig_DATA = libvkd3d.pc libvkd3d-utils.pc
-CLEANFILES += libvkd3d.pc libvkd3d-utils.pc
+CLEANFILES = libvkd3d.pc libvkd3d-utils.pc
 EXTRA_DIST += libs/vkd3d/libvkd3d.pc.in libs/vkd3d-utils/libvkd3d-utils.pc.in
 
 bin_PROGRAMS = vkd3d-compiler
@@ -119,11 +111,9 @@ DEMOS_CFLAGS = @XCB_CFLAGS@
 noinst_PROGRAMS = $(vkd3d_demos)
 EXTRA_DIST += $(vkd3d_demos_headers)
 
-EXTRA_demos_gears_DEPENDENCIES = $(spv_gears_shaders)
 demos_gears_CFLAGS = $(DEMOS_CFLAGS)
 demos_gears_LDADD = $(DEMOS_LDADD) -lm
 
-EXTRA_demos_triangle_DEPENDENCIES = $(spv_triangle_shaders)
 demos_triangle_CFLAGS = $(DEMOS_CFLAGS)
 demos_triangle_LDADD = $(DEMOS_LDADD)
 
@@ -136,16 +126,7 @@ EXTRA_DIST += $(widl_headers) $(widl_headers:.h=.idl)
 $(widl_headers): %.h: %.idl
 	$(VKD3D_V_WIDL)$(WIDL) -o $@ $<
 
-VKD3D_V_GLSLANG = $(vkd3d_v_glslang_@AM_V@)
-vkd3d_v_glslang_ = $(vkd3d_v_glslang_@AM_DEFAULT_V@)
-vkd3d_v_glslang_0 = @echo "  GLSLANG " $@;
-vkd3d_v_glslang_1 =
-
-EXTRA_DIST += $(spv_shaders:.spv=)
-$(spv_shaders): %.spv: %
-	$(VKD3D_V_GLSLANG)$(GLSLANG) -V -o $@ $<
-
-EXTRA_DIST += $(hlsl_shaders)
+EXTRA_DIST += $(vkd3d_demos_shaders)
 
 libvkd3d-utils.pc: $(srcdir)/libs/vkd3d-utils/libvkd3d-utils.pc.in
 	sed -e 's![@]prefix[@]!$(prefix)!g' \

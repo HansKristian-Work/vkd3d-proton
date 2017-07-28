@@ -340,31 +340,3 @@ static inline HRESULT demo_create_root_signature(ID3D12Device *device,
 
     return hr;
 }
-
-static inline bool demo_load_shader(struct demo *demo, const wchar_t *hlsl_name, const char *entry_point,
-        const char *profile, const char *spv_name, D3D12_SHADER_BYTECODE *shader)
-{
-    ID3D10Blob *blob, *errors;
-    HRESULT hr;
-
-    hr = demo->compile_from_file(hlsl_name, NULL, NULL, entry_point, profile, 0, 0, &blob, &errors);
-    if (errors)
-    {
-        fprintf(stderr, "%.*s\n", (int)ID3D10Blob_GetBufferSize(errors), (char *)ID3D10Blob_GetBufferPointer(errors));
-        ID3D10Blob_Release(errors);
-    }
-    if (FAILED(hr))
-        return false;
-
-    shader->BytecodeLength = ID3D10Blob_GetBufferSize(blob);
-    if (!(shader->pShaderBytecode = malloc(shader->BytecodeLength)))
-    {
-        ID3D10Blob_Release(blob);
-        return false;
-    }
-
-    memcpy((void *)shader->pShaderBytecode, ID3D10Blob_GetBufferPointer(blob), shader->BytecodeLength);
-
-    ID3D10Blob_Release(blob);
-    return true;
-}

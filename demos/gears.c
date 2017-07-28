@@ -48,6 +48,10 @@
 #include <math.h>
 #include "demo.h"
 
+#include "gears_vs.h"
+#include "gears_ps_flat.h"
+#include "gears_ps_smooth.h"
+
 struct cxg_fence
 {
     ID3D12Fence *fence;
@@ -655,7 +659,6 @@ static void cxg_load_assets(struct cx_gears *cxg)
     D3D12_RANGE read_range = {0, 0};
     D3D12_CLEAR_VALUE clear_value;
     HRESULT hr;
-    bool ret;
 
     root_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     root_parameter.Descriptor.ShaderRegister = 0;
@@ -677,11 +680,10 @@ static void cxg_load_assets(struct cx_gears *cxg)
     pso_desc.InputLayout.pInputElementDescs = il_desc;
     pso_desc.InputLayout.NumElements = ARRAY_SIZE(il_desc);
     pso_desc.pRootSignature = cxg->root_signature;
-    ret = demo_load_shader(&cxg->demo, L"gears.hlsl", "vs_main", "vs_5_0", "gears.vert.spv", &pso_desc.VS);
-    assert(ret);
-    ret = demo_load_shader(&cxg->demo, L"gears.hlsl", "ps_main_flat",
-            "ps_5_0", "gears_flat.frag.spv", &pso_desc.PS);
-    assert(ret);
+    pso_desc.VS.pShaderBytecode = g_vs_main;
+    pso_desc.VS.BytecodeLength = sizeof(g_vs_main);
+    pso_desc.PS.pShaderBytecode = g_ps_main_flat;
+    pso_desc.PS.BytecodeLength = sizeof(g_ps_main_flat);
 
     demo_rasterizer_desc_init_default(&pso_desc.RasterizerState);
     pso_desc.RasterizerState.FrontCounterClockwise = TRUE;
@@ -700,16 +702,11 @@ static void cxg_load_assets(struct cx_gears *cxg)
             &IID_ID3D12PipelineState, (void **)&cxg->pipeline_state_flat);
     assert(SUCCEEDED(hr));
 
-    free((void *)pso_desc.PS.pShaderBytecode);
-    ret = demo_load_shader(&cxg->demo, L"gears.hlsl", "ps_main_smooth",
-            "ps_5_0", "gears_smooth.frag.spv", &pso_desc.PS);
-    assert(ret);
+    pso_desc.PS.pShaderBytecode = g_ps_main_smooth;
+    pso_desc.PS.BytecodeLength = sizeof(g_ps_main_smooth);
     hr = ID3D12Device_CreateGraphicsPipelineState(cxg->device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&cxg->pipeline_state_smooth);
     assert(SUCCEEDED(hr));
-
-    free((void *)pso_desc.PS.pShaderBytecode);
-    free((void *)pso_desc.VS.pShaderBytecode);
 
     hr = ID3D12Device_CreateCommandList(cxg->device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, cxg->command_allocator[0],
             cxg->pipeline_state_flat, &IID_ID3D12GraphicsCommandList, (void **)&cxg->command_list[0]);

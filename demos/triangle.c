@@ -45,6 +45,9 @@
 #include <assert.h>
 #include "demo.h"
 
+#include "triangle_vs.h"
+#include "triangle_ps.h"
+
 struct cxt_fence
 {
     ID3D12Fence *fence;
@@ -236,16 +239,6 @@ static void cxt_destroy_assets(struct cx_triangle *cxt)
     ID3D12RootSignature_Release(cxt->root_signature);
 }
 
-static void cxt_load_shaders(struct cx_triangle *cxt, D3D12_SHADER_BYTECODE *vs, D3D12_SHADER_BYTECODE *ps)
-{
-    bool ret;
-
-    ret = demo_load_shader(&cxt->demo, L"triangle.hlsl", "vs_main", "vs_5_0", "triangle.vert.spv", vs);
-    assert(ret);
-    ret = demo_load_shader(&cxt->demo, L"triangle.hlsl", "ps_main", "ps_5_0", "triangle.frag.spv", ps);
-    assert(ret);
-}
-
 static void cxt_fence_create(struct cxt_fence *fence, ID3D12Device *device)
 {
     HRESULT hr;
@@ -295,7 +288,10 @@ static void cxt_load_assets(struct cx_triangle *cxt)
     pso_desc.InputLayout.pInputElementDescs = il_desc;
     pso_desc.InputLayout.NumElements = ARRAY_SIZE(il_desc);
     pso_desc.pRootSignature = cxt->root_signature;
-    cxt_load_shaders(cxt, &pso_desc.VS, &pso_desc.PS);
+    pso_desc.VS.pShaderBytecode = g_vs_main;
+    pso_desc.VS.BytecodeLength = sizeof(g_vs_main);
+    pso_desc.PS.pShaderBytecode = g_ps_main;
+    pso_desc.PS.BytecodeLength = sizeof(g_ps_main);
     demo_rasterizer_desc_init_default(&pso_desc.RasterizerState);
     demo_blend_desc_init_default(&pso_desc.BlendState);
     pso_desc.DepthStencilState.DepthEnable = FALSE;
@@ -308,9 +304,6 @@ static void cxt_load_assets(struct cx_triangle *cxt)
     hr = ID3D12Device_CreateGraphicsPipelineState(cxt->device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&cxt->pipeline_state);
     assert(SUCCEEDED(hr));
-
-    free((void *)pso_desc.PS.pShaderBytecode);
-    free((void *)pso_desc.VS.pShaderBytecode);
 
     hr = ID3D12Device_CreateCommandList(cxt->device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, cxt->command_allocator,
             cxt->pipeline_state, &IID_ID3D12GraphicsCommandList, (void **)&cxt->command_list);

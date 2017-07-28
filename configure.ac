@@ -7,7 +7,6 @@ AC_CONFIG_LIBOBJ_DIR([portable])
 AC_CONFIG_HEADERS(include/config.h)
 
 AC_ARG_VAR([WIDL], [widl IDL compiler])
-AC_ARG_VAR([GLSLANG], [glslangValidator GLSL compiler])
 AC_ARG_VAR([CROSSCC32], [32-bit Windows cross compiler])
 AC_ARG_VAR([CROSSCC64], [64-bit Windows cross compiler])
 AC_ARG_WITH([spirv-tools], AS_HELP_STRING([--with-spirv-tools],
@@ -21,8 +20,6 @@ AC_PROG_SED
 AC_PROG_MKDIR_P
 AC_CHECK_PROG([WIDL], [widl], [widl], [no])
 AS_IF([test "x$WIDL" = "xno"], [AC_MSG_WARN([widl is required to build header files.])])
-AC_CHECK_PROG([GLSLANG], [glslangValidator], [glslangValidator], [no])
-AS_IF([test "x$GLSLANG" = "xno"], [AC_MSG_ERROR([glslangValidator is required to compile shaders.])])
 
 AM_INIT_AUTOMAKE([1.11 foreign silent-rules subdir-objects no-dist-gzip dist-xz -Wall -Werror])
 AM_MAINTAINER_MODE([enable])
