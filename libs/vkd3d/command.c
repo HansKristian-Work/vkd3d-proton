@@ -2378,8 +2378,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRoot32BitConstant(ID3
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRoot32BitConstant(ID3D12GraphicsCommandList *iface,
         UINT root_parameter_index, UINT data, UINT dst_offset)
 {
-    FIXME("iface %p, root_parameter_index %u, data 0x%08x, dst_offset %u stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, root_parameter_index %u, data 0x%08x, dst_offset %u.\n",
             iface, root_parameter_index, data, dst_offset);
+
+    d3d12_command_list_set_root_constants(list, list->graphics_root_signature,
+            root_parameter_index, dst_offset, 1, &data);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRoot32BitConstants(ID3D12GraphicsCommandList *iface,
