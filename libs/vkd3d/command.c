@@ -1792,7 +1792,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
     src_resource = unsafe_impl_from_ID3D12Resource(src->pResource);
 
     d3d12_command_list_track_resource_usage(list, dst_resource);
-    d3d12_command_list_track_resource_usage(list, src_resource);;
+    d3d12_command_list_track_resource_usage(list, src_resource);
 
     if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
             && dst->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
