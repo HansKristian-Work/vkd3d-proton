@@ -3391,7 +3391,7 @@ static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t void_id, function_id, arguments[MAX_REG_OUTPUT];
-    unsigned int i, count;;
+    unsigned int i, count;
 
     if ((function_id = compiler->output_setup_function_id))
     {
