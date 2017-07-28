@@ -2337,11 +2337,42 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable(
             root_parameter_index, base_descriptor);
 }
 
+static void d3d12_command_list_set_root_constants(struct d3d12_command_list *list,
+        struct d3d12_root_signature *root_signature, unsigned int root_parameter_index,
+        unsigned int offset, unsigned int count, const void *data)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct d3d12_root_constant *constant = NULL;
+    unsigned int i;
+
+    for (i = 0; i < root_signature->constant_count; ++i)
+    {
+        if (root_signature->constants[i].root_parameter_index == root_parameter_index)
+        {
+            constant = &root_signature->constants[i];
+            break;
+        }
+    }
+    if (!constant)
+    {
+        WARN("Invalid root parameter index %u.\n", root_parameter_index);
+        return;
+    }
+
+    VK_CALL(vkCmdPushConstants(list->vk_command_buffer, root_signature->vk_pipeline_layout,
+            constant->stage_flags, constant->offset + offset * sizeof(uint32_t), count * sizeof(uint32_t), data));
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRoot32BitConstant(ID3D12GraphicsCommandList *iface,
         UINT root_parameter_index, UINT data, UINT dst_offset)
 {
-    FIXME("iface %p, root_parameter_index %u, data 0x%08x, dst_offset %u stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, root_parameter_index %u, data 0x%08x, dst_offset %u.\n",
             iface, root_parameter_index, data, dst_offset);
+
+    d3d12_command_list_set_root_constants(list, list->compute_root_signature,
+            root_parameter_index, dst_offset, 1, &data);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRoot32BitConstant(ID3D12GraphicsCommandList *iface,
