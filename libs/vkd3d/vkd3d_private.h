@@ -509,6 +509,7 @@ struct vkd3d_vulkan_info
     bool KHR_push_descriptor;
 
     VkPhysicalDeviceLimits device_limits;
+    VkPhysicalDeviceSparseProperties sparse_properties;
 };
 
 /* ID3D12Device */
@@ -533,6 +534,8 @@ struct d3d12_device
     uint32_t direct_queue_timestamp_bits;
     uint32_t copy_queue_timestamp_bits;
     uint32_t compute_queue_timestamp_bits;
+
+    D3D12_FEATURE_DATA_D3D12_OPTIONS feature_options;
 
     struct vkd3d_vulkan_info vk_info;
 

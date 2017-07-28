@@ -445,6 +445,7 @@ static void vkd3d_init_device_caps(struct vkd3d_instance *instance,
 
     VK_CALL(vkGetPhysicalDeviceProperties(physical_device, &device_properties));
     vulkan_info->device_limits = device_properties.limits;
+    vulkan_info->sparse_properties = device_properties.sparseProperties;
 
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL,
             &count, NULL))) < 0)
@@ -628,6 +629,40 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
 
     /* Create device */
     VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &device_features));
+    device->feature_options.DoublePrecisionFloatShaderOps = device_features.shaderFloat64;
+    device->feature_options.OutputMergerLogicOp = device_features.logicOp;
+    /* SPV_KHR_16bit_storage */
+    device->feature_options.MinPrecisionSupport = D3D12_SHADER_MIN_PRECISION_SUPPORT_NONE;
+
+    if (!device_features.sparseBinding)
+        device->feature_options.TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
+    else if (!device->vk_info.sparse_properties.residencyNonResidentStrict)
+        device->feature_options.TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_1;
+    else if (!device_features.sparseResidencyImage3D)
+        device->feature_options.TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_2;
+    else
+        device->feature_options.TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_3;
+
+    if (device->vk_info.device_limits.maxPerStageDescriptorSamplers <= 16)
+        device->feature_options.ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_1;
+    else if (device->vk_info.device_limits.maxPerStageDescriptorUniformBuffers <= 14)
+        device->feature_options.ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_2;
+    else
+        device->feature_options.ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_3;
+
+    device->feature_options.PSSpecifiedStencilRefSupported = FALSE;
+    device->feature_options.TypedUAVLoadAdditionalFormats = device_features.shaderStorageImageExtendedFormats;
+    /* GL_INTEL_fragment_shader_ordering, no Vulkan equivalent. */
+    device->feature_options.ROVsSupported = FALSE;
+    /* GL_INTEL_conservative_rasterization, no Vulkan equivalent. */
+    device->feature_options.ConservativeRasterizationTier = D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED;
+    device->feature_options.MaxGPUVirtualAddressBitsPerResource = sizeof(D3D12_GPU_VIRTUAL_ADDRESS) * 8;
+    device->feature_options.StandardSwizzle64KBSupported = FALSE;
+    device->feature_options.CrossNodeSharingTier = D3D12_CROSS_NODE_SHARING_TIER_NOT_SUPPORTED;
+    device->feature_options.CrossAdapterRowMajorTextureSupported = FALSE;
+    /* SPV_EXT_shader_viewport_index_layer */
+    device->feature_options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation = FALSE;
+    device->feature_options.ResourceHeapTier = D3D12_RESOURCE_HEAP_TIER_2;
 
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     device_info.pNext = NULL;
@@ -934,6 +969,21 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
 
     switch (feature)
     {
+        case D3D12_FEATURE_D3D12_OPTIONS:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->feature_options;
+
+            return S_OK;
+        }
+
         case D3D12_FEATURE_ARCHITECTURE:
         {
             D3D12_FEATURE_DATA_ARCHITECTURE *data = feature_data;
