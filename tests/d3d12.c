@@ -6697,6 +6697,83 @@ static void test_immediate_constant_buffer(void)
     destroy_test_context(&context);
 }
 
+static void test_root_constants(void)
+{
+    static const struct vec4 expected_result = {0.0f, 1.0f, 0.0f, 2.0f};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const unsigned int constants[4] = {0, 1, 0, 2};
+
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_ROOT_PARAMETER root_parameters[1];
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    HRESULT hr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        uint4 constants;
+
+        float4 main() : SV_Target
+        {
+            return (float4)constants;
+        }
+#endif
+        0x43425844, 0xf744186d, 0x6805439a, 0x491c3625, 0xe3e4053c, 0x00000001, 0x000000bc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000044, 0x00000050, 0x00000011,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x06000056, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[0].Constants.ShaderRegister = 0;
+    root_parameters[0].Constants.RegisterSpace = 0;
+    root_parameters[0].Constants.Num32BitValues = ARRAY_SIZE(constants);
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = 1;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, desc.rt_format, NULL, &ps, NULL);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0,
+            ARRAY_SIZE(constants), constants, 0);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_result, 0);
+
+    destroy_test_context(&context);
+}
+
 static void test_texture(void)
 {
     ID3D12GraphicsCommandList *command_list;
@@ -7223,6 +7300,7 @@ START_TEST(d3d12)
     run_test(test_shader_interstage_interface);
     run_test(test_root_signature_deserializer);
     run_test(test_immediate_constant_buffer);
+    run_test(test_root_constants);
     run_test(test_texture);
     run_test(test_get_copyable_footprints);
     run_test(test_typed_buffer_uav);
