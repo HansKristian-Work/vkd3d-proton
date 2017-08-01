@@ -141,7 +141,7 @@ static size_t vkd3d_spirv_stream_current_location(struct vkd3d_spirv_stream *str
 static void vkd3d_spirv_stream_insert(struct vkd3d_spirv_stream *stream,
         size_t location, const uint32_t *words, unsigned int word_count)
 {
-    struct vkd3d_spirv_chunk *chunk;
+    struct vkd3d_spirv_chunk *chunk, *current;
 
     if (!(chunk = vkd3d_malloc(offsetof(struct vkd3d_spirv_chunk, words[word_count]))))
         return;
@@ -149,6 +149,15 @@ static void vkd3d_spirv_stream_insert(struct vkd3d_spirv_stream *stream,
     chunk->location = location;
     chunk->word_count = word_count;
     memcpy(chunk->words, words, word_count * sizeof(*words));
+
+    LIST_FOR_EACH_ENTRY(current, &stream->inserted_chunks, struct vkd3d_spirv_chunk, entry)
+    {
+        if (current->location > location)
+        {
+            list_add_before(&current->entry, &chunk->entry);
+            return;
+        }
+    }
 
     list_add_tail(&stream->inserted_chunks, &chunk->entry);
 }
