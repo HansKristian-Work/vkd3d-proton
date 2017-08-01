@@ -3592,14 +3592,15 @@ static void vkd3d_dxbc_compiler_pop_control_flow_level(struct vkd3d_dxbc_compile
     memset(cf_info, 0, sizeof(*cf_info));
 }
 
-static struct vkd3d_control_flow_info *vkd3d_dxbc_compiler_find_innermost_loop(
+static struct vkd3d_control_flow_info *vkd3d_dxbc_compiler_find_innermost_breakable_cf_construct(
         struct vkd3d_dxbc_compiler *compiler)
 {
     int depth;
 
     for (depth = compiler->control_flow_depth - 1; depth >= 0; --depth)
     {
-        if (compiler->control_flow_info[depth].current_block == VKD3D_BLOCK_LOOP)
+        if (compiler->control_flow_info[depth].current_block == VKD3D_BLOCK_LOOP
+                || compiler->control_flow_info[depth].current_block == VKD3D_BLOCK_SWITCH)
             return &compiler->control_flow_info[depth];
     }
 
@@ -3813,19 +3814,9 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
         case VKD3DSIH_BREAK:
         {
-            const struct vkd3d_control_flow_info *loop_cf_info;
+            struct vkd3d_control_flow_info *breakable_cf_info;
 
-            if (cf_info->current_block == VKD3D_BLOCK_SWITCH)
-            {
-                if (cf_info->u.switch_.inside_block)
-                {
-                    vkd3d_spirv_build_op_branch(builder, cf_info->u.switch_.merge_block_id);
-                    cf_info->u.switch_.inside_block = false;
-                }
-                return;
-            }
-
-            if (!(loop_cf_info = vkd3d_dxbc_compiler_find_innermost_loop(compiler)))
+            if (!(breakable_cf_info = vkd3d_dxbc_compiler_find_innermost_breakable_cf_construct(compiler)))
             {
                 FIXME("Unhandled break instruction.\n");
                 return;
@@ -3833,14 +3824,26 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
             assert(compiler->control_flow_depth);
 
-            vkd3d_spirv_build_op_branch(builder, loop_cf_info->u.loop.merge_block_id);
+            if (breakable_cf_info->current_block == VKD3D_BLOCK_LOOP)
+            {
+                vkd3d_spirv_build_op_branch(builder, breakable_cf_info->u.loop.merge_block_id);
+            }
+            else if (breakable_cf_info->current_block == VKD3D_BLOCK_SWITCH)
+            {
+                if (breakable_cf_info->u.switch_.inside_block)
+                {
+                    vkd3d_spirv_build_op_branch(builder, breakable_cf_info->u.switch_.merge_block_id);
+                    if (breakable_cf_info == cf_info)
+                        breakable_cf_info->u.switch_.inside_block = false;
+                }
+            }
 
             if (cf_info->current_block == VKD3D_BLOCK_IF)
             {
                 vkd3d_spirv_build_op_label(builder, cf_info->u.branch.else_block_id);
                 cf_info->current_block = VKD3D_BLOCK_ELSE;
             }
-            else
+            else if (cf_info->current_block != VKD3D_BLOCK_SWITCH)
             {
                 cf_info->current_block = VKD3D_BLOCK_NONE;
             }
