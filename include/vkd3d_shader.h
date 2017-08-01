@@ -32,6 +32,16 @@ enum vkd3d_shader_compiler_option
     VKD3D_SHADER_COMPILER_OPTIONS_FORCE_32_BIT = 0x7fffffff,
 };
 
+enum vkd3d_shader_visibility
+{
+    VKD3D_SHADER_VISIBILITY_ALL,
+    VKD3D_SHADER_VISIBILITY_VERTEX,
+    VKD3D_SHADER_VISIBILITY_HULL,
+    VKD3D_SHADER_VISIBILITY_DOMAIN,
+    VKD3D_SHADER_VISIBILITY_GEOMETRY,
+    VKD3D_SHADER_VISIBILITY_PIXEL,
+};
+
 struct vkd3d_shader_code
 {
     const void *code;
@@ -59,9 +69,10 @@ struct vkd3d_shader_resource_binding
 struct vkd3d_shader_push_constant
 {
     unsigned int register_index;
+    enum vkd3d_shader_visibility shader_visibility;
 
-    unsigned int offset;
-    unsigned int count;
+    unsigned int offset; /* in bytes */
+    unsigned int size;   /* in bytes */
 };
 
 HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,

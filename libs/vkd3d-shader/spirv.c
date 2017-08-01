@@ -1483,6 +1483,28 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
     return compiler;
 }
 
+static bool vkd3d_dxbc_compiler_check_shader_visibility(struct vkd3d_dxbc_compiler *compiler,
+        enum vkd3d_shader_visibility visibility)
+{
+    switch (visibility)
+    {
+        case VKD3D_SHADER_VISIBILITY_ALL:
+            return true;
+        case VKD3D_SHADER_VISIBILITY_VERTEX:
+            return compiler->shader_type == VKD3D_SHADER_TYPE_VERTEX;
+        case VKD3D_SHADER_VISIBILITY_HULL:
+            return compiler->shader_type == VKD3D_SHADER_TYPE_HULL;
+        case VKD3D_SHADER_VISIBILITY_DOMAIN:
+            return compiler->shader_type == VKD3D_SHADER_TYPE_DOMAIN;
+        case VKD3D_SHADER_VISIBILITY_GEOMETRY:
+            return compiler->shader_type == VKD3D_SHADER_TYPE_GEOMETRY;
+        case VKD3D_SHADER_VISIBILITY_PIXEL:
+            return compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL;
+    }
+
+    return false;
+}
+
 static struct vkd3d_push_constant_buffer *vkd3d_dxbc_compiler_find_push_constant(
         struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg)
 {
@@ -1492,6 +1514,9 @@ static struct vkd3d_push_constant_buffer *vkd3d_dxbc_compiler_find_push_constant
     for (i = 0; i < compiler->push_constant_count; ++i)
     {
         struct vkd3d_push_constant_buffer *current = &compiler->push_constants[i];
+
+        if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->pc.shader_visibility))
+            continue;
 
         if (current->pc.register_index == reg_idx)
             return current;
@@ -2472,7 +2497,7 @@ static void vkd3d_dxbc_compiler_emit_push_constants(struct vkd3d_dxbc_compiler *
 
         reg_idx = cb->reg.idx[0].offset;
         vkd3d_spirv_build_op_member_decorate1(builder, struct_id, j,
-                SpvDecorationOffset, cb->pc.offset * sizeof(uint32_t));
+                SpvDecorationOffset, cb->pc.offset);
         vkd3d_spirv_build_op_member_name(builder, struct_id, j, "cb%u", reg_idx);
 
         vkd3d_symbol_make_register(&reg_symbol, &cb->reg);
@@ -2507,9 +2532,9 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
     if ((push_cb = vkd3d_dxbc_compiler_find_push_constant(compiler, reg)))
     {
         push_cb->reg = *reg;
-        if (cb_size * VKD3D_VEC4_SIZE != push_cb->pc.count)
-            FIXME("Push constant size do not match (cb size %u, constant count %u).\n",
-                    cb_size, push_cb->pc.count);
+        if (cb_size * VKD3D_VEC4_SIZE * sizeof(uint32_t) != push_cb->pc.size)
+            FIXME("Push constant size do not match (cb size %u, constant size %u).\n",
+                    cb_size, push_cb->pc.size);
         return;
     }
 

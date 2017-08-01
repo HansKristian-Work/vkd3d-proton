@@ -191,6 +191,28 @@ static VkShaderStageFlags stage_flags_from_visibility(D3D12_SHADER_VISIBILITY vi
     }
 }
 
+static enum vkd3d_shader_visibility vkd3d_shader_visibility_from_d3d12(D3D12_SHADER_VISIBILITY visibility)
+{
+    switch (visibility)
+    {
+        case D3D12_SHADER_VISIBILITY_ALL:
+            return VKD3D_SHADER_VISIBILITY_ALL;
+        case D3D12_SHADER_VISIBILITY_VERTEX:
+            return VKD3D_SHADER_VISIBILITY_VERTEX;
+        case D3D12_SHADER_VISIBILITY_HULL:
+            return VKD3D_SHADER_VISIBILITY_HULL;
+        case D3D12_SHADER_VISIBILITY_DOMAIN:
+            return VKD3D_SHADER_VISIBILITY_DOMAIN;
+        case D3D12_SHADER_VISIBILITY_GEOMETRY:
+            return VKD3D_SHADER_VISIBILITY_GEOMETRY;
+        case D3D12_SHADER_VISIBILITY_PIXEL:
+            return VKD3D_SHADER_VISIBILITY_PIXEL;
+        default:
+            FIXME("Unhandled visibility %#x.\n", visibility);
+            return VKD3D_SHADER_VISIBILITY_ALL;
+    }
+}
+
 static VkDescriptorType vk_descriptor_type_from_d3d12_range_type(D3D12_DESCRIPTOR_RANGE_TYPE type)
 {
     switch (type)
@@ -327,7 +349,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     struct VkDescriptorSetLayoutBinding *binding_desc = NULL, *cur_binding;
     struct VkDescriptorSetLayoutCreateInfo set_desc;
     struct VkPushConstantRange *push_constants = NULL;
-    uint32_t descriptor_idx;
+    uint32_t descriptor_idx, offset;
     unsigned int i, j, k;
     VkResult vr;
     HRESULT hr;
@@ -416,6 +438,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     }
 
     /* Map root constants to push constants. */
+    offset = 0;
     for (i = 0, j = 0; i < desc->NumParameters; ++i)
     {
         const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
@@ -431,7 +454,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         }
 
         push_constants[j].stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
-        push_constants[j].offset = 0;
+        push_constants[j].offset = offset;
         push_constants[j].size = p->u.Constants.Num32BitValues * sizeof(uint32_t);
 
         root_signature->constants[j].root_parameter_index = i;
@@ -439,9 +462,11 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         root_signature->constants[j].offset = push_constants[j].offset;
 
         root_signature->push_constants[j].register_index = p->u.Constants.ShaderRegister;
-        root_signature->push_constants[j].offset = 0;
-        root_signature->push_constants[j].count = p->u.Constants.Num32BitValues;
+        root_signature->push_constants[j].shader_visibility = vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility);
+        root_signature->push_constants[j].offset = push_constants[j].offset;
+        root_signature->push_constants[j].size = push_constants[j].size;
 
+        offset += push_constants[j].size;
         ++j;
     }
 
