@@ -1280,7 +1280,11 @@ struct vkd3d_symbol
     uint32_t id;
     union
     {
-        SpvStorageClass storage_class;
+        struct
+        {
+            SpvStorageClass storage_class;
+            uint32_t member_idx;
+        } reg;
         struct
         {
             enum vkd3d_component_type sampled_type;
@@ -1772,14 +1776,14 @@ static void vkd3d_dxbc_compiler_get_register_info(struct vkd3d_dxbc_compiler *co
     assert(entry);
     symbol = RB_ENTRY_VALUE(entry, struct vkd3d_symbol, entry);
     register_info->id = symbol->id;
-    register_info->storage_class = symbol->info.storage_class;
+    register_info->storage_class = symbol->info.reg.storage_class;
 
     if (reg->type == VKD3DSPR_CONSTBUFFER)
     {
         uint32_t type_id, ptr_type_id;
         uint32_t indexes[] =
         {
-            vkd3d_dxbc_compiler_get_constant_uint(compiler, 0),
+            vkd3d_dxbc_compiler_get_constant_uint(compiler, symbol->info.reg.member_idx),
             vkd3d_dxbc_compiler_get_constant_uint(compiler, reg->idx[1].offset),
         };
 
@@ -2306,7 +2310,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     if (!entry)
     {
         reg_symbol.id = var_id;
-        reg_symbol.info.storage_class = storage_class;
+        reg_symbol.info.reg.storage_class = storage_class;
         vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 
         vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
@@ -2392,7 +2396,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
     if (!entry)
     {
         reg_symbol.id = var_id;
-        reg_symbol.info.storage_class = storage_class;
+        reg_symbol.info.reg.storage_class = storage_class;
         vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 
         vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
@@ -2502,10 +2506,9 @@ static void vkd3d_dxbc_compiler_emit_push_constants(struct vkd3d_dxbc_compiler *
 
         vkd3d_symbol_make_register(&reg_symbol, &cb->reg);
         reg_symbol.id = var_id;
-        reg_symbol.info.storage_class = storage_class;
+        reg_symbol.info.reg.storage_class = storage_class;
+        reg_symbol.info.reg.member_idx = j;
         vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
-        if (j)
-            FIXME("Multiple push constant buffers not supported yet.\n");
 
         ++j;
     }
@@ -2558,7 +2561,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
     reg_symbol.id = var_id;
-    reg_symbol.info.storage_class = storage_class;
+    reg_symbol.info.reg.storage_class = storage_class;
+    reg_symbol.info.reg.member_idx = 0;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
@@ -2591,7 +2595,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_immediate_constant_buffer(struct vkd3d_
     reg.type = VKD3DSPR_IMMCONSTBUFFER;
     vkd3d_symbol_make_register(&reg_symbol, &reg);
     reg_symbol.id = icb_id;
-    reg_symbol.info.storage_class = SpvStorageClassPrivate;
+    reg_symbol.info.reg.storage_class = SpvStorageClassPrivate;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
@@ -2615,7 +2619,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
     reg_symbol.id = var_id;
-    reg_symbol.info.storage_class = storage_class;
+    reg_symbol.info.reg.storage_class = storage_class;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
