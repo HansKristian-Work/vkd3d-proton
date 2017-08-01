@@ -92,6 +92,8 @@ struct vkd3d_spirv_stream
     uint32_t *words;
     size_t capacity;
     size_t word_count;
+
+    struct list inserted_chunks;
 };
 
 static void vkd3d_spirv_stream_init(struct vkd3d_spirv_stream *stream)
@@ -100,29 +102,93 @@ static void vkd3d_spirv_stream_init(struct vkd3d_spirv_stream *stream)
     if (!(stream->words = vkd3d_calloc(stream->capacity, sizeof(*stream->words))))
         stream->capacity = 0;
     stream->word_count = 0;
+
+    list_init(&stream->inserted_chunks);
+}
+
+struct vkd3d_spirv_chunk
+{
+    struct list entry;
+    size_t location;
+    size_t word_count;
+    uint32_t words[];
+};
+
+static void vkd3d_spirv_stream_clear(struct vkd3d_spirv_stream *stream)
+{
+    struct vkd3d_spirv_chunk *c1, *c2;
+
+    stream->word_count = 0;
+
+    LIST_FOR_EACH_ENTRY_SAFE(c1, c2, &stream->inserted_chunks, struct vkd3d_spirv_chunk, entry)
+        vkd3d_free(c1);
+
+    list_init(&stream->inserted_chunks);
 }
 
 static void vkd3d_spirv_stream_free(struct vkd3d_spirv_stream *stream)
 {
     vkd3d_free(stream->words);
+
+    vkd3d_spirv_stream_clear(stream);
 }
 
-static void vkd3d_spirv_stream_clear(struct vkd3d_spirv_stream *stream)
+static size_t vkd3d_spirv_stream_current_location(struct vkd3d_spirv_stream *stream)
 {
-    stream->word_count = 0;
+    return stream->word_count;
+}
+
+static void vkd3d_spirv_stream_insert(struct vkd3d_spirv_stream *stream,
+        size_t location, const uint32_t *words, unsigned int word_count)
+{
+    struct vkd3d_spirv_chunk *chunk;
+
+    if (!(chunk = vkd3d_malloc(offsetof(struct vkd3d_spirv_chunk, words[word_count]))))
+        return;
+
+    chunk->location = location;
+    chunk->word_count = word_count;
+    memcpy(chunk->words, words, word_count * sizeof(*words));
+
+    list_add_tail(&stream->inserted_chunks, &chunk->entry);
 }
 
 static bool vkd3d_spirv_stream_append(struct vkd3d_spirv_stream *dst_stream,
         const struct vkd3d_spirv_stream *src_stream)
 {
+    size_t word_count, src_word_count = src_stream->word_count;
+    struct vkd3d_spirv_chunk *chunk;
+    size_t src_location = 0;
+
+    assert(list_empty(&dst_stream->inserted_chunks));
+
+    LIST_FOR_EACH_ENTRY(chunk, &src_stream->inserted_chunks, struct vkd3d_spirv_chunk, entry)
+        src_word_count += chunk->word_count;
+
     if (!vkd3d_array_reserve((void **)&dst_stream->words, &dst_stream->capacity,
-            dst_stream->word_count + src_stream->word_count, sizeof(*dst_stream->words)))
+            dst_stream->word_count + src_word_count, sizeof(*dst_stream->words)))
         return false;
 
-    assert(dst_stream->word_count + src_stream->word_count <= dst_stream->capacity);
-    memcpy(&dst_stream->words[dst_stream->word_count], src_stream->words,
-            src_stream->word_count * sizeof(*src_stream->words));
-    dst_stream->word_count += src_stream->word_count;
+    assert(dst_stream->word_count + src_word_count <= dst_stream->capacity);
+    LIST_FOR_EACH_ENTRY(chunk, &src_stream->inserted_chunks, struct vkd3d_spirv_chunk, entry)
+    {
+        assert(src_location <= chunk->location);
+        word_count = chunk->location - src_location;
+        memcpy(&dst_stream->words[dst_stream->word_count], &src_stream->words[src_location],
+                word_count * sizeof(*src_stream->words));
+        dst_stream->word_count += word_count;
+        src_location += word_count;
+        assert(src_location == chunk->location);
+
+        memcpy(&dst_stream->words[dst_stream->word_count], chunk->words,
+                chunk->word_count * sizeof(*chunk->words));
+        dst_stream->word_count += chunk->word_count;
+    }
+
+    word_count = src_stream->word_count - src_location;
+    memcpy(&dst_stream->words[dst_stream->word_count], &src_stream->words[src_location],
+            word_count * sizeof(*src_stream->words));
+    dst_stream->word_count += word_count;
     return true;
 }
 
@@ -151,6 +217,10 @@ struct vkd3d_spirv_builder
             uint32_t local_size[3];
         } compute;
     } u;
+
+    struct vkd3d_spirv_stream original_function_stream;
+    struct vkd3d_spirv_stream insertion_stream;
+    size_t insertion_location;
 
     /* entry point interface */
     uint32_t *iface;
@@ -562,6 +632,30 @@ static uint32_t vkd3d_spirv_build_op_tr2v(struct vkd3d_spirv_builder *builder,
     for (i = 0; i < operand_count; ++i)
         vkd3d_spirv_build_word(stream, operands[i]);
     return result_id;
+}
+
+static void vkd3d_spirv_begin_function_stream_insertion(struct vkd3d_spirv_builder *builder,
+        size_t location)
+{
+    assert(builder->insertion_location == ~(size_t)0);
+    builder->original_function_stream = builder->function_stream;
+    builder->function_stream = builder->insertion_stream;
+    builder->insertion_location = location;
+}
+
+static void vkd3d_spirv_end_function_stream_insertion(struct vkd3d_spirv_builder *builder)
+{
+    struct vkd3d_spirv_stream *insertion_stream = &builder->insertion_stream;
+
+    assert(builder->insertion_location != ~(size_t)0);
+
+    builder->insertion_stream = builder->function_stream;
+    builder->function_stream = builder->original_function_stream;
+
+    vkd3d_spirv_stream_insert(&builder->function_stream, builder->insertion_location,
+            insertion_stream->words, insertion_stream->word_count);
+    vkd3d_spirv_stream_clear(insertion_stream);
+    builder->insertion_location = ~(size_t)0;
 }
 
 static void vkd3d_spirv_build_op_capability(struct vkd3d_spirv_stream *stream,
@@ -1160,6 +1254,9 @@ static void vkd3d_spirv_builder_init(struct vkd3d_spirv_builder *builder)
     vkd3d_spirv_stream_init(&builder->global_stream);
     vkd3d_spirv_stream_init(&builder->function_stream);
 
+    vkd3d_spirv_stream_init(&builder->insertion_stream);
+    builder->insertion_location = ~(size_t)0;
+
     builder->current_id = 1;
 
     rb_init(&builder->declarations, vkd3d_spirv_declaration_compare);
@@ -1179,6 +1276,8 @@ static void vkd3d_spirv_builder_free(struct vkd3d_spirv_builder *builder)
     vkd3d_spirv_stream_free(&builder->annotation_stream);
     vkd3d_spirv_stream_free(&builder->global_stream);
     vkd3d_spirv_stream_free(&builder->function_stream);
+
+    vkd3d_spirv_stream_free(&builder->insertion_stream);
 
     rb_destroy(&builder->declarations, vkd3d_spirv_declaration_free, NULL);
 
