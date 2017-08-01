@@ -393,6 +393,100 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
     return S_OK;
 }
 
+static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signature *root_signature,
+        const D3D12_ROOT_SIGNATURE_DESC *desc, const struct d3d12_root_signature_info *info,
+        struct VkPushConstantRange push_constants[D3D12_SHADER_VISIBILITY_PIXEL + 1],
+        uint32_t *push_constant_count)
+{
+    uint32_t push_constants_offset[D3D12_SHADER_VISIBILITY_PIXEL + 1];
+    unsigned int i, j, push_count;
+    uint32_t offset;
+
+    memset(push_constants, 0, (D3D12_SHADER_VISIBILITY_PIXEL + 1) * sizeof(*push_constants));
+    memset(push_constants_offset, 0, sizeof(push_constants_offset));
+    for (i = 0; i < desc->NumParameters; ++i)
+    {
+        const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
+        if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
+            continue;
+
+        assert(p->ShaderVisibility <= D3D12_SHADER_VISIBILITY_PIXEL);
+        push_constants[p->ShaderVisibility].stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
+        push_constants[p->ShaderVisibility].size += p->u.Constants.Num32BitValues * sizeof(uint32_t);
+    }
+    if (push_constants[D3D12_SHADER_VISIBILITY_ALL].size)
+    {
+        /* When D3D12_SHADER_VISIBILITY_ALL is used we use a single push
+         * constants range because the Vulkan spec states:
+         *
+         *   "Any two elements of pPushConstantRanges must not include the same
+         *   stage in stageFlags".
+         */
+        push_count = 1;
+        for (i = 0; i <= D3D12_SHADER_VISIBILITY_PIXEL; ++i)
+        {
+            if (i == D3D12_SHADER_VISIBILITY_ALL)
+                continue;
+
+            push_constants[D3D12_SHADER_VISIBILITY_ALL].size += push_constants[i].size;
+            push_constants[i].size = 0;
+        }
+    }
+    else
+    {
+        offset = 0;
+        for (i = 0, j = 0; i <= D3D12_SHADER_VISIBILITY_PIXEL; ++i)
+        {
+            if (push_constants[i].size)
+            {
+                push_constants[j] = push_constants[i];
+                push_constants[j].offset = offset;
+                push_constants_offset[i] = offset;
+                offset += push_constants[j].size;
+                ++j;
+            }
+        }
+        push_count = j;
+    }
+
+    for (i = 0, j = 0; i < desc->NumParameters; ++i)
+    {
+        const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
+        unsigned int idx;
+
+        if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
+            continue;
+
+        /* FIXME: Register spaces should map to set layouts. */
+        if (p->u.Constants.RegisterSpace)
+        {
+            FIXME("Unhandled register space %u for parameter %u.\n", p->u.Constants.RegisterSpace, i);
+            return E_NOTIMPL;
+        }
+
+        idx = push_count == 1 ? 0 : p->ShaderVisibility;
+        offset = push_constants_offset[idx];
+        push_constants_offset[idx] += p->u.Constants.Num32BitValues * sizeof(uint32_t);
+
+        root_signature->constants[j].root_parameter_index = i;
+        root_signature->constants[j].stage_flags = push_count == 1
+                ? push_constants[0].stageFlags : stage_flags_from_visibility(p->ShaderVisibility);
+        root_signature->constants[j].offset = offset;
+
+        root_signature->push_constants[j].register_index = p->u.Constants.ShaderRegister;
+        root_signature->push_constants[j].shader_visibility
+                = vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility);
+        root_signature->push_constants[j].offset = offset;
+        root_signature->push_constants[j].size = p->u.Constants.Num32BitValues * sizeof(uint32_t);
+
+        ++j;
+    }
+
+    *push_constant_count = push_count;
+
+    return S_OK;
+}
+
 static uint32_t d3d12_root_signature_assign_vk_binding(struct d3d12_root_signature *root_signature,
         enum vkd3d_descriptor_type descriptor_type, unsigned int register_idx, uint32_t *descriptor_idx)
 {
@@ -413,14 +507,13 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     /* Only a single push constant range may include the same stage in Vulkan. */
     struct VkPushConstantRange push_constants[D3D12_SHADER_VISIBILITY_PIXEL + 1];
     struct VkDescriptorSetLayoutBinding *binding_desc = NULL, *cur_binding;
-    uint32_t push_constants_offset[D3D12_SHADER_VISIBILITY_PIXEL + 1];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkPipelineLayoutCreateInfo pipeline_layout_info;
     struct VkDescriptorSetLayoutCreateInfo set_desc;
     struct d3d12_root_signature_info info;
-    uint32_t descriptor_idx, offset;
+    uint32_t push_constant_count;
+    uint32_t descriptor_idx;
     unsigned int i, j, k;
-    size_t push_count;
     VkResult vr;
     HRESULT hr;
 
@@ -467,86 +560,9 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         goto fail;
     }
 
-    /* Map root constants to push constants. */
-    memset(&push_constants, 0, sizeof(push_constants));
-    memset(push_constants_offset, 0, sizeof(push_constants_offset));
-    for (i = 0; i < desc->NumParameters; ++i)
-    {
-        const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
-        if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
-            continue;
-
-        assert(p->ShaderVisibility < ARRAY_SIZE(push_constants));
-        push_constants[p->ShaderVisibility].stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
-        push_constants[p->ShaderVisibility].size += p->u.Constants.Num32BitValues * sizeof(uint32_t);
-    }
-    if (push_constants[D3D12_SHADER_VISIBILITY_ALL].size)
-    {
-        /* When D3D12_SHADER_VISIBILITY_ALL is used we use a single push
-         * constants range because the Vulkan spec states:
-         *
-         *   "Any two elements of pPushConstantRanges must not include the same
-         *   stage in stageFlags".
-         */
-        push_count = 1;
-        for (i = 0; i < ARRAY_SIZE(push_constants); ++i)
-        {
-            if (i == D3D12_SHADER_VISIBILITY_ALL)
-                continue;
-
-            push_constants[D3D12_SHADER_VISIBILITY_ALL].size += push_constants[i].size;
-            push_constants[i].size = 0;
-        }
-    }
-    else
-    {
-        offset = 0;
-        for (i = 0, j = 0; i < ARRAY_SIZE(push_constants); ++i)
-        {
-            if (push_constants[i].size)
-            {
-                push_constants[j] = push_constants[i];
-                push_constants[j].offset = offset;
-                push_constants_offset[i] = offset;
-                offset += push_constants[j].size;
-                ++j;
-            }
-        }
-        push_count = j;
-    }
-
-    for (i = 0, j = 0; i < desc->NumParameters; ++i)
-    {
-        const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
-        unsigned int idx;
-
-        if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
-            continue;
-
-        /* FIXME: Register spaces should map to set layouts. */
-        if (p->u.Constants.RegisterSpace)
-        {
-            FIXME("Unhandled register space %u for parameter %u.\n", p->u.Constants.RegisterSpace, i);
-            hr = E_NOTIMPL;
-            goto fail;
-        }
-
-        idx = push_count == 1 ? 0 : p->ShaderVisibility;
-        offset = push_constants_offset[idx];
-        push_constants_offset[idx] += p->u.Constants.Num32BitValues * sizeof(uint32_t);
-
-        root_signature->constants[j].root_parameter_index = i;
-        root_signature->constants[j].stage_flags = push_count == 1
-                ? push_constants[0].stageFlags : stage_flags_from_visibility(p->ShaderVisibility);
-        root_signature->constants[j].offset = offset;
-
-        root_signature->push_constants[j].register_index = p->u.Constants.ShaderRegister;
-        root_signature->push_constants[j].shader_visibility = vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility);
-        root_signature->push_constants[j].offset = offset;
-        root_signature->push_constants[j].size = p->u.Constants.Num32BitValues * sizeof(uint32_t);
-
-        ++j;
-    }
+    if (FAILED(hr = d3d12_root_signature_init_push_constants(root_signature, desc, &info,
+            push_constants, &push_constant_count)))
+        goto fail;
 
     descriptor_idx = 0;
     cur_binding = binding_desc;
@@ -704,7 +720,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     pipeline_layout_info.flags = 0;
     pipeline_layout_info.setLayoutCount = 1;
     pipeline_layout_info.pSetLayouts = &root_signature->vk_set_layout;
-    pipeline_layout_info.pushConstantRangeCount = push_count;
+    pipeline_layout_info.pushConstantRangeCount = push_constant_count;
     pipeline_layout_info.pPushConstantRanges = push_constants;
     if ((vr = VK_CALL(vkCreatePipelineLayout(device->vk_device, &pipeline_layout_info, NULL,
             &root_signature->vk_pipeline_layout))) < 0)
