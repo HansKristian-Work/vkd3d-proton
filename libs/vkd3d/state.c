@@ -344,11 +344,13 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 {
     size_t push_count = 0, descriptor_count = 0;
     size_t cbv_count = 0, srv_count = 0, uav_buffer_count = 0, sampler_count = 0;
+    /* Only a single push constant range may include the same stage in Vulkan. */
+    struct VkPushConstantRange push_constants[D3D12_SHADER_VISIBILITY_PIXEL + 1];
+    uint32_t push_constants_offset[D3D12_SHADER_VISIBILITY_PIXEL + 1];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkPipelineLayoutCreateInfo pipeline_layout_info;
     struct VkDescriptorSetLayoutBinding *binding_desc = NULL, *cur_binding;
     struct VkDescriptorSetLayoutCreateInfo set_desc;
-    struct VkPushConstantRange *push_constants = NULL;
     uint32_t descriptor_idx, offset;
     unsigned int i, j, k;
     VkResult vr;
@@ -411,11 +413,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         hr = E_OUTOFMEMORY;
         goto fail;
     }
-    if (!(push_constants = vkd3d_calloc(push_count, sizeof(*push_constants))))
-    {
-        hr = E_OUTOFMEMORY;
-        goto fail;
-    }
     root_signature->descriptor_count = descriptor_count;
     if (!(root_signature->descriptor_mapping = vkd3d_calloc(root_signature->descriptor_count,
             sizeof(*root_signature->descriptor_mapping))))
@@ -438,10 +435,58 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     }
 
     /* Map root constants to push constants. */
-    offset = 0;
+    memset(&push_constants, 0, sizeof(push_constants));
+    memset(push_constants_offset, 0, sizeof(push_constants_offset));
+    for (i = 0; i < desc->NumParameters; ++i)
+    {
+        const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
+        if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
+            continue;
+
+        assert(p->ShaderVisibility < ARRAY_SIZE(push_constants));
+        push_constants[p->ShaderVisibility].stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
+        push_constants[p->ShaderVisibility].size += p->u.Constants.Num32BitValues * sizeof(uint32_t);
+    }
+    if (push_constants[D3D12_SHADER_VISIBILITY_ALL].size)
+    {
+        /* When D3D12_SHADER_VISIBILITY_ALL is used we use a single push
+         * constants range because the Vulkan spec states:
+         *
+         *   "Any two elements of pPushConstantRanges must not include the same
+         *   stage in stageFlags".
+         */
+        push_count = 1;
+        for (i = 0; i < ARRAY_SIZE(push_constants); ++i)
+        {
+            if (i == D3D12_SHADER_VISIBILITY_ALL)
+                continue;
+
+            push_constants[D3D12_SHADER_VISIBILITY_ALL].size += push_constants[i].size;
+            push_constants[i].size = 0;
+        }
+    }
+    else
+    {
+        offset = 0;
+        for (i = 0, j = 0; i < ARRAY_SIZE(push_constants); ++i)
+        {
+            if (push_constants[i].size)
+            {
+                push_constants[j] = push_constants[i];
+                push_constants[j].offset = offset;
+                push_constants_offset[i] = offset;
+                offset += push_constants[j].size;
+                ++j;
+            }
+        }
+        push_count = j;
+    }
+
     for (i = 0, j = 0; i < desc->NumParameters; ++i)
     {
         const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
+        unsigned int idx;
+
         if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
             continue;
 
@@ -453,20 +498,20 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             goto fail;
         }
 
-        push_constants[j].stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
-        push_constants[j].offset = offset;
-        push_constants[j].size = p->u.Constants.Num32BitValues * sizeof(uint32_t);
+        idx = push_count == 1 ? 0 : p->ShaderVisibility;
+        offset = push_constants_offset[idx];
+        push_constants_offset[idx] += p->u.Constants.Num32BitValues * sizeof(uint32_t);
 
         root_signature->constants[j].root_parameter_index = i;
-        root_signature->constants[j].stage_flags = push_constants[j].stageFlags;
-        root_signature->constants[j].offset = push_constants[j].offset;
+        root_signature->constants[j].stage_flags = push_count == 1
+                ? push_constants[0].stageFlags : stage_flags_from_visibility(p->ShaderVisibility);
+        root_signature->constants[j].offset = offset;
 
         root_signature->push_constants[j].register_index = p->u.Constants.ShaderRegister;
         root_signature->push_constants[j].shader_visibility = vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility);
-        root_signature->push_constants[j].offset = push_constants[j].offset;
-        root_signature->push_constants[j].size = push_constants[j].size;
+        root_signature->push_constants[j].offset = offset;
+        root_signature->push_constants[j].size = p->u.Constants.Num32BitValues * sizeof(uint32_t);
 
-        offset += push_constants[j].size;
         ++j;
     }
 
@@ -651,8 +696,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         goto fail;
     }
 
-    vkd3d_free(push_constants);
-
     root_signature->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
 
@@ -660,7 +703,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
 fail:
     vkd3d_free(binding_desc);
-    vkd3d_free(push_constants);
     d3d12_root_signature_cleanup(root_signature, device);
     return hr;
 }
