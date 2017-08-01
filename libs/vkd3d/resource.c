@@ -775,16 +775,42 @@ static void d3d12_cbv_srv_uav_desc_destroy(struct d3d12_cbv_srv_uav_desc *descri
     }
 }
 
+static VkResult vkd3d_create_texture_view(struct d3d12_device *device,
+        struct d3d12_resource *resource, const struct vkd3d_format *format,
+        uint32_t miplevel_idx, uint32_t miplevel_count, uint32_t layer_idx, uint32_t layer_count,
+        VkImageView *vk_view)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct VkImageViewCreateInfo view_desc;
+    VkResult vr;
+
+    assert(resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D);
+
+    view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_desc.pNext = NULL;
+    view_desc.flags = 0;
+    view_desc.image = resource->u.vk_image;
+    view_desc.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_desc.format = format->vk_format;
+    view_desc.components.r = VK_COMPONENT_SWIZZLE_R;
+    view_desc.components.g = VK_COMPONENT_SWIZZLE_G;
+    view_desc.components.b = VK_COMPONENT_SWIZZLE_B;
+    view_desc.components.a = VK_COMPONENT_SWIZZLE_A;
+    view_desc.subresourceRange.aspectMask = format->vk_aspect_mask;
+    view_desc.subresourceRange.baseMipLevel = miplevel_idx;
+    view_desc.subresourceRange.levelCount = miplevel_count;
+    view_desc.subresourceRange.baseArrayLayer = layer_idx;
+    view_desc.subresourceRange.layerCount = layer_count;
+    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, vk_view))) < 0)
+        WARN("Failed to create Vulkan image view, vr %d.\n", vr);
+    return vr;
+}
+
 void d3d12_cbv_srv_uav_desc_create_srv(struct d3d12_cbv_srv_uav_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
 {
-    const struct vkd3d_vk_device_procs *vk_procs;
-    struct VkImageViewCreateInfo view_desc;
     const struct vkd3d_format *format;
-    VkResult vr;
-
-    vk_procs = &device->vk_procs;
 
     d3d12_cbv_srv_uav_desc_destroy(descriptor, device);
 
@@ -809,26 +835,9 @@ void d3d12_cbv_srv_uav_desc_create_srv(struct d3d12_cbv_srv_uav_desc *descriptor
         return;
     }
 
-    view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_desc.pNext = NULL;
-    view_desc.flags = 0;
-    view_desc.image = resource->u.vk_image;
-    view_desc.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_desc.format = vkd3d_get_format(resource->desc.Format)->vk_format;
-    view_desc.components.r = VK_COMPONENT_SWIZZLE_R;
-    view_desc.components.g = VK_COMPONENT_SWIZZLE_G;
-    view_desc.components.b = VK_COMPONENT_SWIZZLE_B;
-    view_desc.components.a = VK_COMPONENT_SWIZZLE_A;
-    view_desc.subresourceRange.aspectMask = format->vk_aspect_mask;
-    view_desc.subresourceRange.baseMipLevel = 0;
-    view_desc.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
-    view_desc.subresourceRange.baseArrayLayer = 0;
-    view_desc.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
-    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &descriptor->u.vk_image_view))) < 0)
-    {
-        WARN("Failed to create Vulkan image view, vr %d.\n", vr);
+    if (vkd3d_create_texture_view(device, resource, format,
+            0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS, &descriptor->u.vk_image_view) < 0)
         return;
-    }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -1057,12 +1066,7 @@ static void d3d12_rtv_desc_destroy(struct d3d12_rtv_desc *rtv, struct d3d12_devi
 void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_RENDER_TARGET_VIEW_DESC *desc)
 {
-    const struct vkd3d_vk_device_procs *vk_procs;
-    struct VkImageViewCreateInfo view_desc;
     const struct vkd3d_format *format;
-    VkResult vr;
-
-    vk_procs = &device->vk_procs;
 
     d3d12_rtv_desc_destroy(rtv_desc, device);
 
@@ -1090,28 +1094,12 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
         return;
     }
 
-    view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_desc.pNext = NULL;
-    view_desc.flags = 0;
-    view_desc.image = resource->u.vk_image;
-    view_desc.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_desc.format = format->vk_format;
-    view_desc.components.r = VK_COMPONENT_SWIZZLE_R;
-    view_desc.components.g = VK_COMPONENT_SWIZZLE_G;
-    view_desc.components.b = VK_COMPONENT_SWIZZLE_B;
-    view_desc.components.a = VK_COMPONENT_SWIZZLE_A;
-    view_desc.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    view_desc.subresourceRange.baseMipLevel = desc ? desc->u.Texture2D.MipSlice : 0;
-    view_desc.subresourceRange.levelCount = 1;
-    view_desc.subresourceRange.baseArrayLayer = desc ? desc->u.Texture2D.PlaneSlice : 0;
-    view_desc.subresourceRange.layerCount = 1;
-    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &rtv_desc->vk_view))) < 0)
-    {
-        WARN("Failed to create Vulkan image view, vr %d.\n", vr);
+    if (vkd3d_create_texture_view(device, resource, format,
+            desc ? desc->u.Texture2D.MipSlice : 0, 1, desc ? desc->u.Texture2D.PlaneSlice : 0, 1,
+            &rtv_desc->vk_view) < 0)
         return;
-    }
 
-    rtv_desc->format = view_desc.format;
+    rtv_desc->format = format->vk_format;
     rtv_desc->width = resource->desc.Width;
     rtv_desc->height = resource->desc.Height;
     rtv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_RTV;
@@ -1133,12 +1121,7 @@ static void d3d12_dsv_desc_destroy(struct d3d12_dsv_desc *dsv, struct d3d12_devi
 void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc)
 {
-    const struct vkd3d_vk_device_procs *vk_procs;
-    struct VkImageViewCreateInfo view_desc;
     const struct vkd3d_format *format;
-    VkResult vr;
-
-    vk_procs = &device->vk_procs;
 
     d3d12_dsv_desc_destroy(dsv_desc, device);
 
@@ -1169,28 +1152,11 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
     if (desc && desc->Flags)
         FIXME("Ignoring flags %#x.\n", desc->Flags);
 
-    view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_desc.pNext = NULL;
-    view_desc.flags = 0;
-    view_desc.image = resource->u.vk_image;
-    view_desc.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_desc.format = format->vk_format;
-    view_desc.components.r = VK_COMPONENT_SWIZZLE_R;
-    view_desc.components.g = VK_COMPONENT_SWIZZLE_G;
-    view_desc.components.b = VK_COMPONENT_SWIZZLE_B;
-    view_desc.components.a = VK_COMPONENT_SWIZZLE_A;
-    view_desc.subresourceRange.aspectMask = format->vk_aspect_mask;
-    view_desc.subresourceRange.baseMipLevel = desc ? desc->u.Texture2D.MipSlice : 0;
-    view_desc.subresourceRange.levelCount = 1;
-    view_desc.subresourceRange.baseArrayLayer = 0;
-    view_desc.subresourceRange.layerCount = 1;
-    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &dsv_desc->vk_view))) < 0)
-    {
-        WARN("Failed to create Vulkan image view, vr %d.\n", vr);
+    if (vkd3d_create_texture_view(device, resource, format,
+            desc ? desc->u.Texture2D.MipSlice : 0, 1, 0, 1, &dsv_desc->vk_view) < 0)
         return;
-    }
 
-    dsv_desc->format = view_desc.format;
+    dsv_desc->format = format->vk_format;
     dsv_desc->width = resource->desc.Width;
     dsv_desc->height = resource->desc.Height;
     dsv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_DSV;
