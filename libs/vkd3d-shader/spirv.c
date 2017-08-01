@@ -1459,8 +1459,6 @@ struct vkd3d_loop_cf_info
     uint32_t merge_block_id;
 };
 
-#define MAX_SWITCH_CASES 30
-
 struct vkd3d_switch_cf_info
 {
     unsigned int id;
@@ -1468,7 +1466,8 @@ struct vkd3d_switch_cf_info
     uint32_t selector_id;
     uint32_t merge_block_id;
     uint32_t default_block_id;
-    uint32_t case_blocks[2 * MAX_SWITCH_CASES];
+    uint32_t *case_blocks;
+    size_t case_blocks_size;
     unsigned int case_block_count;
 
     bool inside_block;
@@ -3728,7 +3727,11 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             cf_info->u.switch_.merge_block_id = merge_block_id;
             cf_info->u.switch_.stream_location = vkd3d_spirv_stream_current_location(&builder->function_stream);
             cf_info->u.switch_.selector_id = val_id;
+            cf_info->u.switch_.case_blocks = NULL;
+            cf_info->u.switch_.case_blocks_size = 0;
             cf_info->u.switch_.case_block_count = 0;
+            vkd3d_array_reserve((void **)&cf_info->u.switch_.case_blocks, &cf_info->u.switch_.case_blocks_size,
+                    10, sizeof(*cf_info->u.switch_.case_blocks));
             cf_info->u.switch_.default_block_id = 0;
             cf_info->u.switch_.inside_block = false;
             cf_info->current_block = VKD3D_BLOCK_SWITCH;
@@ -3753,6 +3756,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
                     cf_info->u.switch_.case_block_count);
             vkd3d_spirv_end_function_stream_insertion(builder);
 
+            vkd3d_free(cf_info->u.switch_.case_blocks);
             vkd3d_dxbc_compiler_pop_control_flow_level(compiler);
             break;
 
@@ -3766,9 +3770,12 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             assert(src->swizzle == VKD3DSP_NOSWIZZLE && src->reg.type == VKD3DSPR_IMMCONST);
             value = *src->reg.u.immconst_data;
 
+            if (!vkd3d_array_reserve((void **)&cf_info->u.switch_.case_blocks, &cf_info->u.switch_.case_blocks_size,
+                    2 * (cf_info->u.switch_.case_block_count + 1), sizeof(*cf_info->u.switch_.case_blocks)))
+                return;
+
             label_id = vkd3d_spirv_alloc_id(builder);
 
-            assert(cf_info->u.switch_.case_block_count < MAX_SWITCH_CASES);
             cf_info->u.switch_.case_blocks[2 * cf_info->u.switch_.case_block_count + 0] = value;
             cf_info->u.switch_.case_blocks[2 * cf_info->u.switch_.case_block_count + 1] = label_id;
             ++cf_info->u.switch_.case_block_count;
