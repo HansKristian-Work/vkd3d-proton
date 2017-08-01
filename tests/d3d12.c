@@ -6861,7 +6861,7 @@ static void test_root_constants(void)
     static const unsigned int constants[4] = {0, 1, 0, 2};
 
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
-    D3D12_ROOT_PARAMETER root_parameters[2];
+    D3D12_ROOT_PARAMETER root_parameters[3];
     ID3D12GraphicsCommandList *command_list;
     struct vec4 vs_cb_color, ps_cb_color;
     struct test_context_desc desc;
@@ -6945,6 +6945,100 @@ static void test_root_constants(void)
         0x01000015, 0x05000036, 0x001020f2, 0x00000000, 0x00101e46, 0x00000001, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_color = {ps_color_code, sizeof(ps_color_code)};
+    static const DWORD vs_mix_code[] =
+    {
+#if 0
+        cbuffer shared_cb
+        {
+            uint token;
+            uint op;
+        };
+
+        cbuffer vs_cb
+        {
+            float4 padding;
+            float4 vs_color;
+        };
+
+        void main(uint id : SV_VertexID,
+                out float4 position : SV_Position, out float4 color : COLOR,
+                out uint vs_token : TOKEN)
+        {
+            float2 coords = float2((id << 1) & 2, id & 2);
+            position = float4(coords * float2(2, -2) + float2(-1, 1), 0, 1);
+            color = vs_color;
+            vs_token = token;
+        }
+#endif
+        0x43425844, 0xb5bc00c3, 0x6b5041fe, 0xd55d1d86, 0x34a2a229, 0x00000001, 0x00000230, 0x00000003,
+        0x0000002c, 0x00000060, 0x000000d0, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x65747265, 0x00444978,
+        0x4e47534f, 0x00000068, 0x00000003, 0x00000008, 0x00000050, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x0000005c, 0x00000000, 0x00000000, 0x00000003, 0x00000001, 0x0000000f,
+        0x00000062, 0x00000000, 0x00000000, 0x00000001, 0x00000002, 0x00000e01, 0x505f5653, 0x7469736f,
+        0x006e6f69, 0x4f4c4f43, 0x4f540052, 0x004e454b, 0x58454853, 0x00000158, 0x00010050, 0x00000056,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04000059, 0x00208e46, 0x00000001,
+        0x00000002, 0x04000060, 0x00101012, 0x00000000, 0x00000006, 0x04000067, 0x001020f2, 0x00000000,
+        0x00000001, 0x03000065, 0x001020f2, 0x00000001, 0x03000065, 0x00102012, 0x00000002, 0x02000068,
+        0x00000001, 0x0b00008c, 0x00100012, 0x00000000, 0x00004001, 0x00000001, 0x00004001, 0x00000001,
+        0x0010100a, 0x00000000, 0x00004001, 0x00000000, 0x07000001, 0x00100042, 0x00000000, 0x0010100a,
+        0x00000000, 0x00004001, 0x00000002, 0x05000056, 0x00100032, 0x00000000, 0x00100086, 0x00000000,
+        0x0f000032, 0x00102032, 0x00000000, 0x00100046, 0x00000000, 0x00004002, 0x40000000, 0xc0000000,
+        0x00000000, 0x00000000, 0x00004002, 0xbf800000, 0x3f800000, 0x00000000, 0x00000000, 0x08000036,
+        0x001020c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x3f800000, 0x06000036,
+        0x001020f2, 0x00000001, 0x00208e46, 0x00000001, 0x00000001, 0x06000036, 0x00102012, 0x00000002,
+        0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs_mix = {vs_mix_code, sizeof(vs_mix_code)};
+    static const DWORD ps_mix_code[] =
+    {
+#if 0
+        cbuffer shared_cb
+        {
+            uint token;
+            uint op;
+        };
+
+        cbuffer ps_cb
+        {
+            float4 ps_color;
+        };
+
+        float4 main(float4 position : SV_POSITION, float4 vs_color : COLOR,
+                uint vs_token : TOKEN) : SV_Target
+        {
+            if (token != vs_token)
+                return (float4)1.0f;
+
+            switch (op)
+            {
+                case 0: return vs_color;
+                case 1: return ps_color;
+                case 2: return vs_color * ps_color;
+                default: return (float4)0.0f;
+            }
+        }
+#endif
+        0x43425844, 0x128ef4ce, 0xa1c46517, 0x34ca76f3, 0x3c7d6112, 0x00000001, 0x00000240, 0x00000003,
+        0x0000002c, 0x0000009c, 0x000000d0, 0x4e475349, 0x00000068, 0x00000003, 0x00000008, 0x00000050,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x0000005c, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000f0f, 0x00000062, 0x00000000, 0x00000000, 0x00000001, 0x00000002,
+        0x00000101, 0x505f5653, 0x5449534f, 0x004e4f49, 0x4f4c4f43, 0x4f540052, 0x004e454b, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000168, 0x00000050, 0x0000005a,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04000059, 0x00208e46, 0x00000001,
+        0x00000001, 0x03001062, 0x001010f2, 0x00000001, 0x03000862, 0x00101012, 0x00000002, 0x03000065,
+        0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x08000027, 0x00100012, 0x00000000, 0x0020800a,
+        0x00000000, 0x00000000, 0x0010100a, 0x00000002, 0x0304001f, 0x0010000a, 0x00000000, 0x08000036,
+        0x001020f2, 0x00000000, 0x00004002, 0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000, 0x0100003e,
+        0x01000015, 0x0400004c, 0x0020801a, 0x00000000, 0x00000000, 0x03000006, 0x00004001, 0x00000000,
+        0x05000036, 0x001020f2, 0x00000000, 0x00101e46, 0x00000001, 0x0100003e, 0x03000006, 0x00004001,
+        0x00000001, 0x06000036, 0x001020f2, 0x00000000, 0x00208e46, 0x00000001, 0x00000000, 0x0100003e,
+        0x03000006, 0x00004001, 0x00000002, 0x08000038, 0x001020f2, 0x00000000, 0x00101e46, 0x00000001,
+        0x00208e46, 0x00000001, 0x00000000, 0x0100003e, 0x0100000a, 0x08000036, 0x001020f2, 0x00000000,
+        0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e, 0x01000017, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_mix = {ps_mix_code, sizeof(ps_mix_code)};
 
     memset(&desc, 0, sizeof(desc));
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
@@ -6970,7 +7064,6 @@ static void test_root_constants(void)
             context.root_signature, desc.rt_format, NULL, &ps_uint_constant, NULL);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0,
@@ -7021,7 +7114,6 @@ static void test_root_constants(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     vs_cb_color = ps_cb_color = expected_result = (struct vec4){0.0f, 1.0f, 0.0f, 1.0f};
@@ -7046,7 +7138,6 @@ static void test_root_constants(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     vs_cb_color = (struct vec4){0.0f, 1.0f, 0.0f, 1.0f};
@@ -7054,6 +7145,116 @@ static void test_root_constants(void)
     expected_result = (struct vec4){0.0f, 0.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, &vs_cb_color.x, 0);
     ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 4, &ps_cb_color.x, 0);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_result, 0);
+
+    hr = ID3D12CommandAllocator_Reset(context.allocator);
+    ok(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
+    ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+
+    ID3D12PipelineState_Release(context.pipeline_state);
+    ID3D12RootSignature_Release(context.root_signature);
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[0].Constants.ShaderRegister = 1;
+    root_parameters[0].Constants.RegisterSpace = 0;
+    root_parameters[0].Constants.Num32BitValues = 8;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[1].Constants.ShaderRegister = 1;
+    root_parameters[1].Constants.RegisterSpace = 0;
+    root_parameters[1].Constants.Num32BitValues = 4;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[2].Constants.ShaderRegister = 0;
+    root_parameters[2].Constants.RegisterSpace = 0;
+    root_parameters[2].Constants.Num32BitValues = 2;
+    root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = 3;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, desc.rt_format, &vs_mix, &ps_mix, NULL);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    vs_cb_color = expected_result = (struct vec4){0.0f, 1.0f, 0.0f, 1.0f};
+    ps_cb_color = (struct vec4){1.0f, 1.0f, 1.0f, 1.0f};
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, &vs_cb_color.x, 4);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 4, &ps_cb_color.x, 0);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(command_list, 2, 0xdeadbeef, 0);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(command_list, 2, 0, 1);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_result, 0);
+
+    hr = ID3D12CommandAllocator_Reset(context.allocator);
+    ok(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
+    ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    vs_cb_color = (struct vec4){0.0f, 1.0f, 0.0f, 1.0f};
+    ps_cb_color = expected_result = (struct vec4){1.0f, 1.0f, 1.0f, 1.0f};
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, &vs_cb_color.x, 4);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 4, &ps_cb_color.x, 0);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(command_list, 2, 0xdeadbeef, 0);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(command_list, 2, 1, 1);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_result, 0);
+
+    hr = ID3D12CommandAllocator_Reset(context.allocator);
+    ok(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
+    ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    vs_cb_color = (struct vec4){0.5f, 1.0f, 0.5f, 1.0f};
+    ps_cb_color = (struct vec4){0.5f, 0.7f, 1.0f, 1.0f};
+    expected_result = (struct vec4){0.25f, 0.7f, 0.5f, 1.0f};
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, &vs_cb_color.x, 4);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 4, &ps_cb_color.x, 0);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(command_list, 2, 0xdeadbeef, 0);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(command_list, 2, 2, 1);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
