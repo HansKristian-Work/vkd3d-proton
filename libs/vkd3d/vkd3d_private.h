@@ -488,6 +488,11 @@ struct vkd3d_format
     VkImageAspectFlags vk_aspect_mask;
 };
 
+static inline bool vkd3d_format_is_compressed(const struct vkd3d_format *format)
+{
+    return format->block_byte_count != 1;
+}
+
 const struct vkd3d_format *vkd3d_get_format(DXGI_FORMAT dxgi_format) DECLSPEC_HIDDEN;
 
 enum VkCompareOp vk_compare_op_from_d3d12(D3D12_COMPARISON_FUNC op) DECLSPEC_HIDDEN;
