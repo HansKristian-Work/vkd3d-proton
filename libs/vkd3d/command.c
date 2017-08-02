@@ -1759,7 +1759,8 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy *buffer_image_copy
         unsigned int dst_x, unsigned int dst_y, unsigned int dst_z)
 {
     buffer_image_copy->bufferOffset = footprint->Offset;
-    buffer_image_copy->bufferRowLength = footprint->Footprint.RowPitch / format->byte_count;
+    buffer_image_copy->bufferRowLength = footprint->Footprint.RowPitch /
+            (format->byte_count * format->block_byte_count) * format->block_width;
     buffer_image_copy->bufferImageHeight = 0;
     buffer_image_copy->imageSubresource.aspectMask = format->vk_aspect_mask;
     buffer_image_copy->imageSubresource.mipLevel = sub_resource_idx % image_desc->MipLevels;

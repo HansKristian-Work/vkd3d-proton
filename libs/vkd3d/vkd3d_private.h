@@ -482,6 +482,9 @@ struct vkd3d_format
     DXGI_FORMAT dxgi_format;
     VkFormat vk_format;
     size_t byte_count;
+    size_t block_width;
+    size_t block_height;
+    size_t block_byte_count;
     VkImageAspectFlags vk_aspect_mask;
 };
 

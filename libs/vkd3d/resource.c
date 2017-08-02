@@ -898,8 +898,8 @@ void d3d12_cbv_srv_uav_desc_create_uav(struct d3d12_cbv_srv_uav_desc *descriptor
     view_desc.flags = 0;
     view_desc.buffer = resource->u.vk_buffer;
     view_desc.format = format->vk_format;
-    view_desc.offset = desc->u.Buffer.FirstElement * format->byte_count;
-    view_desc.range = desc->u.Buffer.NumElements * format->byte_count;
+    view_desc.offset = desc->u.Buffer.FirstElement * format->byte_count * format->block_byte_count;
+    view_desc.range = desc->u.Buffer.NumElements * format->byte_count * format->block_byte_count;
     if ((vr = VK_CALL(vkCreateBufferView(device->vk_device, &view_desc, NULL,
             &descriptor->u.vk_buffer_view))) < 0)
     {
