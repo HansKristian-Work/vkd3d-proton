@@ -2412,35 +2412,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRoot32BitConstants(I
             root_parameter_index, dst_offset, constant_count, data);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootConstantBufferView(
-        ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
+static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
+        VkDescriptorSet descriptor_set, unsigned int root_parameter_index,
+        D3D12_GPU_VIRTUAL_ADDRESS gpu_address)
 {
-    FIXME("iface %p, root_parameter_index %u, address %#"PRIx64" stub!\n",
-            iface, root_parameter_index, address);
-}
-
-static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootConstantBufferView(
-        ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
-{
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct VkWriteDescriptorSet descriptor_write;
     struct VkDescriptorBufferInfo buffer_info;
     struct d3d12_resource *resource;
 
-    TRACE("iface %p, root_parameter_index %u, address %#"PRIx64".\n",
-            iface, root_parameter_index, address);
-
-    vk_procs = &list->device->vk_procs;
-
-    resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, address);
+    resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, gpu_address);
     buffer_info.buffer = resource->u.vk_buffer;
-    buffer_info.offset = address - resource->gpu_address;
+    buffer_info.offset = gpu_address - resource->gpu_address;
     buffer_info.range = VK_WHOLE_SIZE;
 
     descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptor_write.pNext = NULL;
-    descriptor_write.dstSet = list->graphics_descriptor_set;
+    descriptor_write.dstSet = descriptor_set;
     descriptor_write.dstBinding = root_parameter_index;
     descriptor_write.dstArrayElement = 0;
     descriptor_write.descriptorCount = 1;
@@ -2449,6 +2437,28 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootConstantBufferVi
     descriptor_write.pBufferInfo = &buffer_info;
     descriptor_write.pTexelBufferView = NULL;
     VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &descriptor_write, 0, NULL));
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootConstantBufferView(
+        ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
+{
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, root_parameter_index %u, address %#"PRIx64".\n",
+            iface, root_parameter_index, address);
+
+    d3d12_command_list_set_root_cbv(list, list->compute_descriptor_set, root_parameter_index, address);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootConstantBufferView(
+        ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
+{
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, root_parameter_index %u, address %#"PRIx64".\n",
+            iface, root_parameter_index, address);
+
+    d3d12_command_list_set_root_cbv(list, list->graphics_descriptor_set, root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootShaderResourceView(
