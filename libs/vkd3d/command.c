@@ -2339,26 +2339,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable(
 }
 
 static void d3d12_command_list_set_root_constants(struct d3d12_command_list *list,
-        struct d3d12_root_signature *root_signature, unsigned int root_parameter_index,
+        struct d3d12_root_signature *root_signature, unsigned int index,
         unsigned int offset, unsigned int count, const void *data)
 {
+    const struct d3d12_root_constant *constant = &root_signature->parameters[index].u.constant;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    struct d3d12_root_constant *constant = NULL;
-    unsigned int i;
-
-    for (i = 0; i < root_signature->constant_count; ++i)
-    {
-        if (root_signature->constants[i].root_parameter_index == root_parameter_index)
-        {
-            constant = &root_signature->constants[i];
-            break;
-        }
-    }
-    if (!constant)
-    {
-        WARN("Invalid root parameter index %u.\n", root_parameter_index);
-        return;
-    }
 
     VK_CALL(vkCmdPushConstants(list->vk_command_buffer, root_signature->vk_pipeline_layout,
             constant->stage_flags, constant->offset + offset * sizeof(uint32_t), count * sizeof(uint32_t), data));
@@ -2413,9 +2398,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRoot32BitConstants(I
 }
 
 static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
-        VkDescriptorSet descriptor_set, unsigned int root_parameter_index,
-        D3D12_GPU_VIRTUAL_ADDRESS gpu_address)
+        struct d3d12_root_signature *root_signature, VkDescriptorSet descriptor_set,
+        unsigned int index, D3D12_GPU_VIRTUAL_ADDRESS gpu_address)
 {
+    const struct d3d12_root_descriptor *root_descriptor = &root_signature->parameters[index].u.descriptor;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct VkWriteDescriptorSet descriptor_write;
     struct VkDescriptorBufferInfo buffer_info;
@@ -2429,7 +2415,7 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
     descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptor_write.pNext = NULL;
     descriptor_write.dstSet = descriptor_set;
-    descriptor_write.dstBinding = root_parameter_index;
+    descriptor_write.dstBinding = root_descriptor->binding;
     descriptor_write.dstArrayElement = 0;
     descriptor_write.descriptorCount = 1;
     descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -2447,7 +2433,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootConstantBufferVie
     TRACE("iface %p, root_parameter_index %u, address %#"PRIx64".\n",
             iface, root_parameter_index, address);
 
-    d3d12_command_list_set_root_cbv(list, list->compute_descriptor_set, root_parameter_index, address);
+    d3d12_command_list_set_root_cbv(list, list->compute_root_signature,
+            list->compute_descriptor_set, root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootConstantBufferView(
@@ -2458,7 +2445,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootConstantBufferVi
     TRACE("iface %p, root_parameter_index %u, address %#"PRIx64".\n",
             iface, root_parameter_index, address);
 
-    d3d12_command_list_set_root_cbv(list, list->graphics_descriptor_set, root_parameter_index, address);
+    d3d12_command_list_set_root_cbv(list, list->graphics_root_signature,
+            list->graphics_descriptor_set, root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootShaderResourceView(

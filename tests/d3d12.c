@@ -7009,11 +7009,12 @@ static void test_cs_constant_buffer(void)
     ID3D12PipelineState *pipeline_state;
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *resource, *cb;
+    unsigned int descriptor_size;
     struct resource_readback rb;
     struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
-    unsigned int x;
+    unsigned int i, x;
     float value;
     HRESULT hr;
     void *ptr;
@@ -7074,7 +7075,7 @@ static void test_cs_constant_buffer(void)
     ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
 
     descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    descriptor_ranges[0].NumDescriptors = 1;
+    descriptor_ranges[0].NumDescriptors = 4;
     descriptor_ranges[0].BaseShaderRegister = 0;
     descriptor_ranges[0].RegisterSpace = 0;
     descriptor_ranges[0].OffsetInDescriptorsFromTableStart = 0;
@@ -7098,12 +7099,15 @@ static void test_cs_constant_buffer(void)
             shader_bytecode(cs_code, sizeof(cs_code)));
 
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 1;
+    heap_desc.NumDescriptors = 4;
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
             &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
     ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
     gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
@@ -7116,6 +7120,12 @@ static void test_cs_constant_buffer(void)
     uav_desc.Buffer.CounterOffsetInBytes = 0;
     uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
     ID3D12Device_CreateUnorderedAccessView(device, resource, NULL, &uav_desc, cpu_descriptor_handle);
+    /* For tier 1 hardware all descriptors must be populated. */
+    for (i = 1; i < heap_desc.NumDescriptors; ++i)
+    {
+        cpu_descriptor_handle.ptr += descriptor_size;
+        ID3D12Device_CreateUnorderedAccessView(device, NULL, NULL, &uav_desc, cpu_descriptor_handle);
+    }
 
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
     ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(command_list, 1,

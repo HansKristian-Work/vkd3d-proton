@@ -72,10 +72,11 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
     if (root_signature->vk_set_layout)
         VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
 
+    if (root_signature->parameters)
+        vkd3d_free(root_signature->parameters);
+
     if (root_signature->descriptor_mapping)
         vkd3d_free(root_signature->descriptor_mapping);
-    if (root_signature->constants)
-        vkd3d_free(root_signature->constants);
     if (root_signature->push_constants)
         vkd3d_free(root_signature->push_constants);
 
@@ -451,6 +452,7 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
 
     for (i = 0, j = 0; i < desc->NumParameters; ++i)
     {
+        struct d3d12_root_constant *root_constant = &root_signature->parameters[i].u.constant;
         const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
         unsigned int idx;
 
@@ -468,10 +470,9 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
         offset = push_constants_offset[idx];
         push_constants_offset[idx] += p->u.Constants.Num32BitValues * sizeof(uint32_t);
 
-        root_signature->constants[j].root_parameter_index = i;
-        root_signature->constants[j].stage_flags = push_count == 1
+        root_constant->stage_flags = push_count == 1
                 ? push_constants[0].stageFlags : stage_flags_from_visibility(p->ShaderVisibility);
-        root_signature->constants[j].offset = offset;
+        root_constant->offset = offset;
 
         root_signature->push_constants[j].register_index = p->u.Constants.ShaderRegister;
         root_signature->push_constants[j].shader_visibility
@@ -523,8 +524,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     root_signature->vk_pipeline_layout = VK_NULL_HANDLE;
     root_signature->pool_sizes = NULL;
     root_signature->vk_set_layout = VK_NULL_HANDLE;
+    root_signature->parameters = NULL;
     root_signature->descriptor_mapping = NULL;
-    root_signature->constants = NULL;
     root_signature->static_sampler_count = 0;
     root_signature->static_samplers = NULL;
 
@@ -533,6 +534,13 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
     if (FAILED(hr = d3d12_root_signature_info_from_desc(&info, desc)))
         return hr;
+
+    if (!(root_signature->parameters = vkd3d_calloc(desc->NumParameters,
+            sizeof(*root_signature->parameters))))
+    {
+        hr = E_OUTOFMEMORY;
+        goto fail;
+    }
 
     if (!(binding_desc = vkd3d_calloc(info.descriptor_count, sizeof(*binding_desc))))
     {
@@ -547,12 +555,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         goto fail;
     }
     root_signature->constant_count = info.root_constant_count;
-    if (!(root_signature->constants = vkd3d_calloc(root_signature->constant_count,
-            sizeof(*root_signature->constants))))
-    {
-        hr = E_OUTOFMEMORY;
-        goto fail;
-    }
     if (!(root_signature->push_constants = vkd3d_calloc(root_signature->constant_count,
             sizeof(*root_signature->push_constants))))
     {
@@ -616,6 +618,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
                 cur_binding->descriptorCount = 1;
                 cur_binding->stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
                 cur_binding->pImmutableSamplers = NULL;
+
+                root_signature->parameters[i].u.descriptor.binding = cur_binding->binding;
 
                 ++cur_binding;
                 break;

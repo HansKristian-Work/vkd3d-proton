@@ -264,9 +264,22 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device,
 
 struct d3d12_root_constant
 {
-    unsigned int root_parameter_index;
     VkShaderStageFlags stage_flags;
     uint32_t offset;
+};
+
+struct d3d12_root_descriptor
+{
+    uint32_t binding;
+};
+
+struct d3d12_root_parameter
+{
+    union
+    {
+        struct d3d12_root_constant constant;
+        struct d3d12_root_descriptor descriptor;
+    } u;
 };
 
 /* ID3D12RootSignature */
@@ -281,11 +294,12 @@ struct d3d12_root_signature
     struct VkDescriptorPoolSize *pool_sizes;
     size_t pool_size_count;
 
+    struct d3d12_root_parameter *parameters;
+
     unsigned int descriptor_count;
     struct vkd3d_shader_resource_binding *descriptor_mapping;
 
     unsigned int constant_count;
-    struct d3d12_root_constant *constants;
     struct vkd3d_shader_push_constant *push_constants;
 
     unsigned int static_sampler_count;
