@@ -775,6 +775,28 @@ static void d3d12_cbv_srv_uav_desc_destroy(struct d3d12_cbv_srv_uav_desc *descri
     }
 }
 
+static VkResult vkd3d_create_buffer_view(struct d3d12_device *device,
+        struct d3d12_resource *resource, const struct vkd3d_format *format,
+        VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct VkBufferViewCreateInfo view_desc;
+    VkResult vr;
+
+    assert(d3d12_resource_is_buffer(resource));
+
+    view_desc.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
+    view_desc.pNext = NULL;
+    view_desc.flags = 0;
+    view_desc.buffer = resource->u.vk_buffer;
+    view_desc.format = format->vk_format;
+    view_desc.offset = offset;
+    view_desc.range = range;
+    if ((vr = VK_CALL(vkCreateBufferView(device->vk_device, &view_desc, NULL, vk_view))) < 0)
+        WARN("Failed to create Vulkan buffer view, vr %d.\n", vr);
+    return vr;
+}
+
 static VkResult vkd3d_create_texture_view(struct d3d12_device *device,
         struct d3d12_resource *resource, const struct vkd3d_format *format,
         uint32_t miplevel_idx, uint32_t miplevel_count, uint32_t layer_idx, uint32_t layer_count,
@@ -847,12 +869,7 @@ void d3d12_cbv_srv_uav_desc_create_uav(struct d3d12_cbv_srv_uav_desc *descriptor
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
-    const struct vkd3d_vk_device_procs *vk_procs;
-    struct VkBufferViewCreateInfo view_desc;
     const struct vkd3d_format *format;
-    VkResult vr;
-
-    vk_procs = &device->vk_procs;
 
     d3d12_cbv_srv_uav_desc_destroy(descriptor, device);
 
@@ -899,19 +916,10 @@ void d3d12_cbv_srv_uav_desc_create_uav(struct d3d12_cbv_srv_uav_desc *descriptor
     if (desc->u.Buffer.Flags)
         FIXME("Ignoring buffer view flags %#x.\n", desc->u.Buffer.Flags);
 
-    view_desc.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
-    view_desc.pNext = NULL;
-    view_desc.flags = 0;
-    view_desc.buffer = resource->u.vk_buffer;
-    view_desc.format = format->vk_format;
-    view_desc.offset = desc->u.Buffer.FirstElement * format->byte_count;
-    view_desc.range = desc->u.Buffer.NumElements * format->byte_count;
-    if ((vr = VK_CALL(vkCreateBufferView(device->vk_device, &view_desc, NULL,
-            &descriptor->u.vk_buffer_view))) < 0)
-    {
-        WARN("Failed to create Vulkan buffer view, vr %d.\n", vr);
+    if (vkd3d_create_buffer_view(device, resource, format,
+            desc->u.Buffer.FirstElement * format->byte_count,
+            desc->u.Buffer.NumElements * format->byte_count, &descriptor->u.vk_buffer_view) < 0)
         return;
-    }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
