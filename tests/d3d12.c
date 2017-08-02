@@ -543,8 +543,72 @@ static unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_R8G8B8A8_UNORM:
         case DXGI_FORMAT_B8G8R8A8_UNORM:
             return 4;
+        case DXGI_FORMAT_BC1_UNORM:
+        case DXGI_FORMAT_BC1_UNORM_SRGB:
+        case DXGI_FORMAT_BC4_UNORM:
+        case DXGI_FORMAT_BC4_SNORM:
+            return 8;
+        case DXGI_FORMAT_BC2_UNORM:
+        case DXGI_FORMAT_BC2_UNORM_SRGB:
+        case DXGI_FORMAT_BC3_UNORM:
+        case DXGI_FORMAT_BC3_UNORM_SRGB:
+        case DXGI_FORMAT_BC5_UNORM:
+        case DXGI_FORMAT_BC5_SNORM:
+        case DXGI_FORMAT_BC6H_UF16:
+        case DXGI_FORMAT_BC6H_SF16:
+        case DXGI_FORMAT_BC7_UNORM:
+        case DXGI_FORMAT_BC7_UNORM_SRGB:
+            return 16;
         default:
             trace("Unhandled format %#x.\n", format);
+            return 1;
+    }
+}
+
+static unsigned int format_block_width(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_BC1_UNORM:
+        case DXGI_FORMAT_BC1_UNORM_SRGB:
+        case DXGI_FORMAT_BC4_UNORM:
+        case DXGI_FORMAT_BC4_SNORM:
+        case DXGI_FORMAT_BC2_UNORM:
+        case DXGI_FORMAT_BC2_UNORM_SRGB:
+        case DXGI_FORMAT_BC3_UNORM:
+        case DXGI_FORMAT_BC3_UNORM_SRGB:
+        case DXGI_FORMAT_BC5_UNORM:
+        case DXGI_FORMAT_BC5_SNORM:
+        case DXGI_FORMAT_BC6H_UF16:
+        case DXGI_FORMAT_BC6H_SF16:
+        case DXGI_FORMAT_BC7_UNORM:
+        case DXGI_FORMAT_BC7_UNORM_SRGB:
+            return 4;
+        default:
+            return 1;
+    }
+}
+
+static unsigned int format_block_height(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_BC1_UNORM:
+        case DXGI_FORMAT_BC1_UNORM_SRGB:
+        case DXGI_FORMAT_BC4_UNORM:
+        case DXGI_FORMAT_BC4_SNORM:
+        case DXGI_FORMAT_BC2_UNORM:
+        case DXGI_FORMAT_BC2_UNORM_SRGB:
+        case DXGI_FORMAT_BC3_UNORM:
+        case DXGI_FORMAT_BC3_UNORM_SRGB:
+        case DXGI_FORMAT_BC5_UNORM:
+        case DXGI_FORMAT_BC5_SNORM:
+        case DXGI_FORMAT_BC6H_UF16:
+        case DXGI_FORMAT_BC6H_SF16:
+        case DXGI_FORMAT_BC7_UNORM:
+        case DXGI_FORMAT_BC7_UNORM_SRGB:
+            return 4;
+        default:
             return 1;
     }
 }
@@ -7511,7 +7575,7 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
         const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts, const UINT *row_counts,
         const UINT64 *row_sizes, UINT64 *total_size)
 {
-    unsigned int miplevel, width, height, depth, row_size, row_pitch;
+    unsigned int miplevel, width, height, depth, row_count, row_size, row_pitch;
     UINT64 offset, total;
     unsigned int i;
 
@@ -7519,10 +7583,11 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
     for (i = 0; i < sub_resource_count; ++i)
     {
         miplevel = (sub_resource_idx + i) % desc->MipLevels;
-        width = max(1, desc->Width >> miplevel);
-        height = max(1, desc->Height >> miplevel);
+        width = align(max(1, desc->Width >> miplevel), format_block_width(desc->Format));
+        height = align(max(1, desc->Height >> miplevel), format_block_height(desc->Format));
         depth = 1;
-        row_size = width * format_size(desc->Format);
+        row_count = height / format_block_height(desc->Format);
+        row_size = (width / format_block_width(desc->Format)) * format_size(desc->Format);
         row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
 
         if (layouts)
@@ -7539,7 +7604,7 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
         }
 
         if (row_counts)
-            ok_(line)(row_counts[i] == height, "Got row count %u, expected %u.\n", row_counts[i], height);
+            ok_(line)(row_counts[i] == row_count, "Got row count %u, expected %u.\n", row_counts[i], row_count);
 
         if (row_sizes)
             ok_(line)(row_sizes[i] == row_size, "Got row size %"PRIu64", expected %u.\n", row_sizes[i], row_size);
@@ -7587,6 +7652,14 @@ static void test_get_copyable_footprints(void)
         DXGI_FORMAT_R32G32B32A32_UINT,
         DXGI_FORMAT_R32_UINT,
         DXGI_FORMAT_R8G8B8A8_UNORM,
+        DXGI_FORMAT_BC1_UNORM,
+        DXGI_FORMAT_BC2_UNORM,
+        DXGI_FORMAT_BC3_UNORM,
+        DXGI_FORMAT_BC4_UNORM,
+        DXGI_FORMAT_BC5_UNORM,
+        DXGI_FORMAT_BC6H_UF16,
+        DXGI_FORMAT_BC6H_SF16,
+        DXGI_FORMAT_BC7_UNORM,
     };
     static const struct
     {
@@ -7613,7 +7686,6 @@ static void test_get_copyable_footprints(void)
     }
 
     /* TODO: test base offset */
-    /* TODO: test compressed formats */
     for (i = 0; i < ARRAY_SIZE(resources); ++i)
     {
         resource_desc.Dimension = resources[i].dimension;
