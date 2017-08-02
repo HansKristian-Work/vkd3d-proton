@@ -1165,9 +1165,9 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
     {
         sub_resource_idx = first_sub_resource + i;
         miplevel_idx = sub_resource_idx % desc->MipLevels;
-        width = max(1, desc->Width >> miplevel_idx);
-        height = max(1, desc->Height >> miplevel_idx);
-        row_size = width * format->byte_count;
+        width = align(max(1, desc->Width >> miplevel_idx), format->block_width);
+        height = align(max(1, desc->Height >> miplevel_idx), format->block_height);
+        row_size = (width / format->block_width) * format->byte_count * format->block_byte_count;
         row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
 
         if (layouts)
@@ -1180,7 +1180,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
             layouts[i].Footprint.RowPitch = row_pitch;
         }
         if (row_counts)
-            row_counts[i] = height;
+            row_counts[i] = height / format->block_height;
         if (row_sizes)
             row_sizes[i] = row_size;
 
