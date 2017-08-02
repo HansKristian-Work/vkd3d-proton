@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 
 #define VKD3D_DEBUG_BUFFER_COUNT 64
 #define VKD3D_DEBUG_BUFFER_SIZE 512
@@ -161,10 +162,10 @@ const char *debugstr_a(const char *str)
     return buffer;
 }
 
-const char *debugstr_w(const WCHAR *wstr)
+static const char *debugstr_w16(const uint16_t *wstr)
 {
     char *buffer, *ptr;
-    WCHAR c;
+    uint16_t c;
 
     if (!wstr)
         return "(null)";
@@ -219,4 +220,71 @@ const char *debugstr_w(const WCHAR *wstr)
     *ptr = '\0';
 
     return buffer;
+}
+
+static const char *debugstr_w32(const uint32_t *wstr)
+{
+    char *buffer, *ptr;
+    uint32_t c;
+
+    if (!wstr)
+        return "(null)";
+
+    ptr = buffer = get_buffer();
+
+    *ptr++ = '"';
+    while ((c = *wstr++) && ptr <= buffer + VKD3D_DEBUG_BUFFER_SIZE - 10)
+    {
+        int escape_char;
+
+        switch (c)
+        {
+            case '"':
+            case '\\':
+            case '\n':
+            case '\r':
+            case '\t':
+                escape_char = c;
+                break;
+            default:
+                escape_char = 0;
+                break;
+        }
+
+        if (escape_char)
+        {
+            *ptr++ = '\\';
+            *ptr++ = escape_char;
+            continue;
+        }
+
+        if (isprint(c))
+        {
+            *ptr++ = c;
+        }
+        else
+        {
+            *ptr++ = '\\';
+            sprintf(ptr, "%04x", c);
+            ptr += 4;
+        }
+    }
+    *ptr++ = '"';
+
+    if (c)
+    {
+        *ptr++ = '.';
+        *ptr++ = '.';
+        *ptr++ = '.';
+    }
+    *ptr = '\0';
+
+    return buffer;
+}
+
+const char *debugstr_w(const WCHAR *wstr, size_t wchar_size)
+{
+    if (wchar_size == 2)
+        return debugstr_w16((const uint16_t *)wstr);
+    return debugstr_w32((const uint32_t *)wstr);
 }

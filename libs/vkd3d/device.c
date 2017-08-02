@@ -818,7 +818,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_SetPrivateDataInterface(ID3D12Devi
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetName(ID3D12Device *iface, const WCHAR *name)
 {
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, device->wchar_size));
 
     return E_NOTIMPL;
 }
@@ -1233,8 +1235,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateSharedHandle(ID3D12Device *i
         ID3D12DeviceChild *object, const SECURITY_ATTRIBUTES *attributes, DWORD access,
         const WCHAR *name, HANDLE *handle)
 {
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
     FIXME("iface %p, object %p, attributes %p, access %#x, name %s, handle %p stub!\n",
-            iface, object, attributes, access, debugstr_w(name), handle);
+            iface, object, attributes, access, debugstr_w(name, device->wchar_size), handle);
 
     return E_NOTIMPL;
 }
@@ -1251,8 +1255,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandle(ID3D12Device *ifa
 static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandleByName(ID3D12Device *iface,
         const WCHAR *name, DWORD access, HANDLE *handle)
 {
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
     FIXME("iface %p, name %s, access %#x, handle %p stub!\n",
-            iface, debugstr_w(name), access, handle);
+            iface, debugstr_w(name, device->wchar_size), access, handle);
 
     return E_NOTIMPL;
 }
@@ -1565,6 +1571,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     }
 
     device->signal_event = create_info->signal_event_pfn;
+    device->wchar_size = create_info->wchar_size;
 
     if (FAILED(hr = vkd3d_fence_worker_start(&device->fence_worker, device)))
     {

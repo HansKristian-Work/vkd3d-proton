@@ -338,7 +338,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetPrivateDataInterface(ID3D12Fence
 
 static HRESULT STDMETHODCALLTYPE d3d12_fence_SetName(ID3D12Fence *iface, const WCHAR *name)
 {
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+    struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, fence->device->wchar_size));
 
     return E_NOTIMPL;
 }
@@ -817,7 +819,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetPrivateDataInterface
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetName(ID3D12CommandAllocator *iface, const WCHAR *name)
 {
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+    struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
+
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, allocator->device->wchar_size));
 
     return E_NOTIMPL;
 }
@@ -1340,7 +1344,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_SetPrivateDataInterface(ID3D
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_SetName(ID3D12GraphicsCommandList *iface, const WCHAR *name)
 {
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, list->device->wchar_size));
 
     return E_NOTIMPL;
 }
@@ -3468,7 +3474,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetPrivateDataInterface(ID3
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetName(ID3D12CommandQueue *iface, const WCHAR *name)
 {
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+    struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
+
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, command_queue->device->wchar_size));
 
     return E_NOTIMPL;
 }
@@ -3865,7 +3873,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetPrivateDataInterface
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetName(ID3D12CommandSignature *iface, const WCHAR *name)
 {
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+    struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
+
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, signature->device->wchar_size));
 
     return E_NOTIMPL;
 }

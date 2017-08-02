@@ -38,6 +38,7 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
 
     create_info.minimum_feature_level = minimum_feature_level;
     create_info.signal_event_pfn = vkd3d_signal_event;
+    create_info.wchar_size = sizeof(WCHAR);
 
     return vkd3d_create_device(&create_info, riid, device);
 }

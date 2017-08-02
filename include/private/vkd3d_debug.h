@@ -37,7 +37,7 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_level level, const char *function,
 
 const char *vkd3d_dbg_sprintf(const char *fmt, ...) VKD3D_PRINTF_FUNC(1, 2) DECLSPEC_HIDDEN;
 const char *debugstr_a(const char *str) DECLSPEC_HIDDEN;
-const char *debugstr_w(const WCHAR *wstr) DECLSPEC_HIDDEN;
+const char *debugstr_w(const WCHAR *wstr, size_t wchar_size) DECLSPEC_HIDDEN;
 
 #define VKD3D_DBG_LOG(level) \
         do { \

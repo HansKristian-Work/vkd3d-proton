@@ -520,6 +520,7 @@ struct d3d12_device
     VkPhysicalDevice vk_physical_device;
     struct vkd3d_vk_device_procs vk_procs;
     vkd3d_signal_event_pfn signal_event;
+    size_t wchar_size;
 
     struct vkd3d_gpu_va_allocator gpu_va_allocator;
     struct vkd3d_fence_worker fence_worker;

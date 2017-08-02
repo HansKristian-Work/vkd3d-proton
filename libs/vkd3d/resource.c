@@ -424,7 +424,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateDataInterface(ID3D12Re
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(ID3D12Resource *iface, const WCHAR *name)
 {
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+    struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
+
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, resource->device->wchar_size));
 
     return E_NOTIMPL;
 }
@@ -1488,7 +1490,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetPrivateDataInterface(I
 
 static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetName(ID3D12DescriptorHeap *iface, const WCHAR *name)
 {
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+    struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
+
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, heap->device->wchar_size));
 
     return E_NOTIMPL;
 }
@@ -1688,7 +1692,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetPrivateDataInterface(ID3D12
 
 static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetName(ID3D12QueryHeap *iface, const WCHAR *name)
 {
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+    struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(iface);
+
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, heap->device->wchar_size));
 
     return E_NOTIMPL;
 }

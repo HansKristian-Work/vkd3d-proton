@@ -34,6 +34,7 @@ struct vkd3d_device_create_info
 {
     D3D_FEATURE_LEVEL minimum_feature_level;
     vkd3d_signal_event_pfn signal_event_pfn;
+    size_t wchar_size;
 };
 
 /* resource flags */

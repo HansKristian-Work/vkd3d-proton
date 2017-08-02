@@ -141,7 +141,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_root_signature_SetPrivateDataInterface(ID
 
 static HRESULT STDMETHODCALLTYPE d3d12_root_signature_SetName(ID3D12RootSignature *iface, const WCHAR *name)
 {
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+    struct d3d12_root_signature *root_signature = impl_from_ID3D12RootSignature(iface);
+
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, root_signature->device->wchar_size));
 
     return E_NOTIMPL;
 }
@@ -1077,7 +1079,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetPrivateDataInterface(ID
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetName(ID3D12PipelineState *iface, const WCHAR *name)
 {
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name));
+    struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
+
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, state->device->wchar_size));
 
     return E_NOTIMPL;
 }

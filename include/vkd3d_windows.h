@@ -21,6 +21,10 @@
 
 #if !defined(_WIN32) || defined(__WIDL__)
 
+# if !defined(__WIDL__) && !defined(VKD3D_WIN32_WCHAR)
+#  include <wchar.h>
+# endif
+
 # ifdef __GNUC__
 #  define DECLSPEC_ALIGN(x) __attribute__((aligned(x)))
 # endif
@@ -72,7 +76,11 @@ typedef unsigned long ULONG_PTR;
 
 typedef ULONG_PTR SIZE_T;
 
+# ifdef VKD3D_WIN32_WCHAR
 typedef unsigned short WCHAR;
+# else
+typedef wchar_t WCHAR;
+# endif /* VKD3D_WIN32_WCHAR */
 typedef void *HANDLE;
 
 /* GUID */
