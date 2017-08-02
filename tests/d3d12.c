@@ -1914,7 +1914,7 @@ static void test_create_sampler(void)
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
 
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
     memset(&sampler_desc, 0, sizeof(sampler_desc));
@@ -1950,6 +1950,80 @@ static void test_create_sampler(void)
     sampler_desc.ComparisonFunc = D3D12_COMPARISON_FUNC_LESS;
     ID3D12Device_CreateSampler(device, &sampler_desc, cpu_handle);
 
+    refcount = ID3D12DescriptorHeap_Release(heap);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
+static void test_create_unordered_access_view(void)
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    unsigned int descriptor_size;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    trace("CBV/SRV/UAV descriptor size: %u.\n", descriptor_size);
+    ok(descriptor_size, "Got unexpected descriptor size %#x.\n", descriptor_size);
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap_desc.NumDescriptors = 16;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 64 * sizeof(float);
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    uav_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Buffer.FirstElement = 0;
+    uav_desc.Buffer.NumElements = resource_desc.Width / sizeof(float);
+    uav_desc.Buffer.StructureByteStride = 0;
+    uav_desc.Buffer.CounterOffsetInBytes = 0;
+    uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+    ID3D12Device_CreateUnorderedAccessView(device, resource, NULL, &uav_desc, cpu_handle);
+
+    cpu_handle.ptr += descriptor_size;
+
+    /* The following call fails. Buffer views cannot be created for compressed formats. */
+    uav_desc.Format = DXGI_FORMAT_BC1_UNORM;
+    ID3D12Device_CreateUnorderedAccessView(device, resource, NULL, &uav_desc, cpu_handle);
+
+    ID3D12Resource_Release(resource);
     refcount = ID3D12DescriptorHeap_Release(heap);
     ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
     refcount = ID3D12Device_Release(device);
@@ -7960,6 +8034,7 @@ START_TEST(d3d12)
     run_test(test_create_committed_resource);
     run_test(test_create_descriptor_heap);
     run_test(test_create_sampler);
+    run_test(test_create_unordered_access_view);
     run_test(test_create_root_signature);
     run_test(test_create_pipeline_state);
     run_test(test_create_fence);
