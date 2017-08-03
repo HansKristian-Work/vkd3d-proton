@@ -1869,14 +1869,14 @@ static void test_create_descriptor_heap(void)
     ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
 
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
     ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
     refcount = ID3D12DescriptorHeap_Release(heap);
     ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
 
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
     ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
     refcount = ID3D12DescriptorHeap_Release(heap);
