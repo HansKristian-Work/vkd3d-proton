@@ -2267,67 +2267,109 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
     list->graphics_root_signature = rs;
 }
 
-static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *list,
-        struct d3d12_root_signature *root_signature, VkDescriptorSet descriptor_set,
-        unsigned int index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
+static bool vk_write_descriptor_set_from_d3d12_cbv_srv_uav_desc(VkWriteDescriptorSet *vk_descriptor_write,
+        VkDescriptorImageInfo *vk_image_info, struct d3d12_cbv_srv_uav_desc *descriptor,
+        VkDescriptorSet vk_descriptor_set, uint32_t vk_binding)
 {
-    struct d3d12_device *device = list->device;
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct VkWriteDescriptorSet descriptor_write;
-    struct d3d12_cbv_srv_uav_desc *descriptor;
-    struct VkDescriptorImageInfo image_info;
-
-    assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE);
-
-    /* FIXME: Only a single descriptor is supported currently. */
-    descriptor = (struct d3d12_cbv_srv_uav_desc *)(intptr_t)base_descriptor.ptr;
-
-    descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptor_write.pNext = NULL;
-    descriptor_write.dstSet = descriptor_set;
-    descriptor_write.dstBinding = index;
-    descriptor_write.dstArrayElement = 0;
-    descriptor_write.descriptorCount = 1;
-    descriptor_write.descriptorType = descriptor->vk_descriptor_type;
-    descriptor_write.pImageInfo = NULL;
-    descriptor_write.pBufferInfo = NULL;
-    descriptor_write.pTexelBufferView = NULL;
+    vk_descriptor_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    vk_descriptor_write->pNext = NULL;
+    vk_descriptor_write->dstSet = vk_descriptor_set;
+    vk_descriptor_write->dstBinding = vk_binding;
+    vk_descriptor_write->dstArrayElement = 0;
+    vk_descriptor_write->descriptorCount = 1;
+    vk_descriptor_write->descriptorType = descriptor->vk_descriptor_type;
+    vk_descriptor_write->pImageInfo = NULL;
+    vk_descriptor_write->pBufferInfo = NULL;
+    vk_descriptor_write->pTexelBufferView = NULL;
 
     if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_CBV)
     {
-        descriptor_write.pBufferInfo = &descriptor->u.vk_cbv_info;
+        vk_descriptor_write->pBufferInfo = &descriptor->u.vk_cbv_info;
     }
     else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV)
     {
-        image_info.sampler = VK_NULL_HANDLE;
-        image_info.imageView = descriptor->u.vk_image_view;
-        image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        vk_image_info->sampler = VK_NULL_HANDLE;
+        vk_image_info->imageView = descriptor->u.vk_image_view;
+        vk_image_info->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        descriptor_write.pImageInfo = &image_info;
+        vk_descriptor_write->pImageInfo = vk_image_info;
     }
     else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
     {
         if (descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
         {
-            descriptor_write.pTexelBufferView = &descriptor->u.vk_buffer_view;
+            vk_descriptor_write->pTexelBufferView = &descriptor->u.vk_buffer_view;
         }
         else
         {
-            image_info.sampler = VK_NULL_HANDLE;
-            image_info.imageView = descriptor->u.vk_image_view;
-            image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            vk_image_info->sampler = VK_NULL_HANDLE;
+            vk_image_info->imageView = descriptor->u.vk_image_view;
+            vk_image_info->imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-            descriptor_write.pImageInfo = &image_info;
+            vk_descriptor_write->pImageInfo = vk_image_info;
         }
     }
     else
     {
-        if (descriptor->magic)
-            FIXME("Unhandled descriptor %#x.\n", descriptor->magic);
+        FIXME("Unhandled descriptor %#x.\n", descriptor->magic);
+        return false;
+    }
+
+    return true;
+}
+
+static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *list,
+        struct d3d12_root_signature *root_signature, VkDescriptorSet descriptor_set,
+        unsigned int index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
+{
+    struct VkWriteDescriptorSet *descriptor_writes, *current_descriptor_write;
+    struct VkDescriptorImageInfo *image_infos, *current_image_info;
+    const struct d3d12_root_descriptor_table *descriptor_table;
+    const struct d3d12_root_descriptor_table_range *range;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct d3d12_device *device = list->device;
+    struct d3d12_cbv_srv_uav_desc *descriptor;
+    unsigned int i, j, descriptor_count;
+
+    assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE);
+    descriptor_table = &root_signature->parameters[index].u.descriptor_table;
+
+    descriptor_count = 0;
+    for (i = 0; i < descriptor_table->range_count; ++i)
+        descriptor_count += descriptor_table->ranges[i].descriptor_count;
+    if (!(descriptor_writes = vkd3d_calloc(descriptor_count, sizeof(*descriptor_writes))))
+        return;
+    if (!(image_infos = vkd3d_calloc(descriptor_count, sizeof(*image_infos))))
+    {
+        vkd3d_free(descriptor_writes);
         return;
     }
 
-    VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &descriptor_write, 0, NULL));
+    descriptor = (struct d3d12_cbv_srv_uav_desc *)(intptr_t)base_descriptor.ptr;
+
+    descriptor_count = 0;
+    current_descriptor_write = descriptor_writes;
+    current_image_info = image_infos;
+    for (i = 0; i < descriptor_table->range_count; ++i)
+    {
+        range = &descriptor_table->ranges[i];
+        for (j = 0; j < range->descriptor_count; ++j, ++descriptor)
+        {
+            if (!vk_write_descriptor_set_from_d3d12_cbv_srv_uav_desc(current_descriptor_write,
+                    current_image_info, descriptor, descriptor_set, range->binding + j))
+                continue;
+
+            ++descriptor_count;
+            ++current_descriptor_write;
+            ++current_image_info;
+        }
+    }
+
+    vk_procs = &device->vk_procs;
+    VK_CALL(vkUpdateDescriptorSets(device->vk_device, descriptor_count, descriptor_writes, 0, NULL));
+
+    vkd3d_free(descriptor_writes);
+    vkd3d_free(image_infos);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable(ID3D12GraphicsCommandList *iface,
@@ -2335,7 +2377,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable(I
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
 
-    FIXME("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64" partial-stub!\n",
+    TRACE("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64".\n",
             iface, root_parameter_index, base_descriptor.ptr);
 
     d3d12_command_list_set_descriptor_table(list, list->compute_root_signature,
@@ -2347,7 +2389,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable(
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
 
-    FIXME("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64" partial-stub!\n",
+    TRACE("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64".\n",
             iface, root_parameter_index, base_descriptor.ptr);
 
     d3d12_command_list_set_descriptor_table(list, list->graphics_root_signature,
