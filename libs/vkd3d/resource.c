@@ -758,22 +758,20 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_D
 }
 
 /* CBVs, SRVs, UAVs */
-static void d3d12_cbv_srv_uav_desc_destroy(struct d3d12_cbv_srv_uav_desc *descriptor,
+static void d3d12_desc_destroy(struct d3d12_desc *descriptor,
         struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
     /* Nothing to do for VKD3D_DESCRIPTOR_MAGIC_CBV. */
     if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV)
-    {
         VK_CALL(vkDestroyImageView(device->vk_device, descriptor->u.vk_image_view, NULL));
-        memset(descriptor, 0, sizeof(*descriptor));
-    }
     else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
-    {
         VK_CALL(vkDestroyBufferView(device->vk_device, descriptor->u.vk_buffer_view, NULL));
-        memset(descriptor, 0, sizeof(*descriptor));
-    }
+    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
+        VK_CALL(vkDestroySampler(device->vk_device, descriptor->u.vk_sampler, NULL));
+
+    memset(descriptor, 0, sizeof(*descriptor));
 }
 
 static VkResult vkd3d_create_buffer_view(struct d3d12_device *device,
@@ -829,13 +827,13 @@ static VkResult vkd3d_create_texture_view(struct d3d12_device *device,
     return vr;
 }
 
-void d3d12_cbv_srv_uav_desc_create_cbv(struct d3d12_cbv_srv_uav_desc *descriptor,
+void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc)
 {
     struct VkDescriptorBufferInfo *buffer_info;
     struct d3d12_resource *resource;
 
-    d3d12_cbv_srv_uav_desc_destroy(descriptor, device);
+    d3d12_desc_destroy(descriptor, device);
 
     if (!desc)
     {
@@ -859,13 +857,13 @@ void d3d12_cbv_srv_uav_desc_create_cbv(struct d3d12_cbv_srv_uav_desc *descriptor
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 }
 
-void d3d12_cbv_srv_uav_desc_create_srv(struct d3d12_cbv_srv_uav_desc *descriptor,
+void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
 {
     const struct vkd3d_format *format;
 
-    d3d12_cbv_srv_uav_desc_destroy(descriptor, device);
+    d3d12_desc_destroy(descriptor, device);
 
     if (!resource)
     {
@@ -896,13 +894,13 @@ void d3d12_cbv_srv_uav_desc_create_srv(struct d3d12_cbv_srv_uav_desc *descriptor
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 }
 
-void d3d12_cbv_srv_uav_desc_create_uav(struct d3d12_cbv_srv_uav_desc *descriptor,
+void d3d12_desc_create_uav(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
     const struct vkd3d_format *format;
 
-    d3d12_cbv_srv_uav_desc_destroy(descriptor, device);
+    d3d12_desc_destroy(descriptor, device);
 
     if (!resource)
     {
@@ -957,17 +955,6 @@ void d3d12_cbv_srv_uav_desc_create_uav(struct d3d12_cbv_srv_uav_desc *descriptor
 }
 
 /* samplers */
-static void d3d12_sampler_desc_destroy(struct d3d12_sampler_desc *sampler, struct d3d12_device *device)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-
-    if (sampler->magic != VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
-        return;
-
-    VK_CALL(vkDestroySampler(device->vk_device, sampler->vk_sampler, NULL));
-    memset(sampler, 0, sizeof(*sampler));
-}
-
 static VkFilter vk_filter_from_d3d12(D3D12_FILTER_TYPE type)
 {
     switch (type)
@@ -1055,10 +1042,10 @@ static VkResult d3d12_create_sampler(struct d3d12_device *device, D3D12_FILTER f
     return vr;
 }
 
-void d3d12_sampler_desc_create_sampler(struct d3d12_sampler_desc *sampler,
+void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc)
 {
-    d3d12_sampler_desc_destroy(sampler, device);
+    d3d12_desc_destroy(sampler, device);
 
     if (!desc)
     {
@@ -1074,10 +1061,11 @@ void d3d12_sampler_desc_create_sampler(struct d3d12_sampler_desc *sampler,
 
     if (d3d12_create_sampler(device, desc->Filter, desc->AddressU,
             desc->AddressV, desc->AddressW, desc->MipLODBias, desc->MaxAnisotropy,
-            desc->ComparisonFunc, desc->MinLOD, desc->MaxLOD, &sampler->vk_sampler) < 0)
+            desc->ComparisonFunc, desc->MinLOD, desc->MaxLOD, &sampler->u.vk_sampler) < 0)
         return;
 
     sampler->magic = VKD3D_DESCRIPTOR_MAGIC_SAMPLER;
+    sampler->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLER;
 }
 
 HRESULT d3d12_device_create_static_sampler(struct d3d12_device *device,
@@ -1261,23 +1249,13 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
         switch (heap->desc.Type)
         {
             case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
-            {
-                struct d3d12_cbv_srv_uav_desc *descriptors = (struct d3d12_cbv_srv_uav_desc *)heap->descriptors;
-
-                for (i = 0; i < heap->desc.NumDescriptors; ++i)
-                {
-                    d3d12_cbv_srv_uav_desc_destroy(&descriptors[i], device);
-                }
-                break;
-            }
-
             case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
             {
-                struct d3d12_sampler_desc *samplers = (struct d3d12_sampler_desc *)heap->descriptors;
+                struct d3d12_desc *descriptors = (struct d3d12_desc *)heap->descriptors;
 
                 for (i = 0; i < heap->desc.NumDescriptors; ++i)
                 {
-                    d3d12_sampler_desc_destroy(&samplers[i], device);
+                    d3d12_desc_destroy(&descriptors[i], device);
                 }
                 break;
             }

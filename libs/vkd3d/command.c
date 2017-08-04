@@ -2267,8 +2267,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
     list->graphics_root_signature = rs;
 }
 
-static bool vk_write_descriptor_set_from_d3d12_cbv_srv_uav_desc(VkWriteDescriptorSet *vk_descriptor_write,
-        VkDescriptorImageInfo *vk_image_info, struct d3d12_cbv_srv_uav_desc *descriptor,
+static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_descriptor_write,
+        VkDescriptorImageInfo *vk_image_info, struct d3d12_desc *descriptor,
         VkDescriptorSet vk_descriptor_set, uint32_t vk_binding)
 {
     vk_descriptor_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2309,6 +2309,14 @@ static bool vk_write_descriptor_set_from_d3d12_cbv_srv_uav_desc(VkWriteDescripto
             vk_descriptor_write->pImageInfo = vk_image_info;
         }
     }
+    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
+    {
+        vk_image_info->sampler = descriptor->u.vk_sampler;
+        vk_image_info->imageView = VK_NULL_HANDLE;
+        vk_image_info->imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        vk_descriptor_write->pImageInfo = vk_image_info;
+    }
     else
     {
         FIXME("Unhandled descriptor %#x.\n", descriptor->magic);
@@ -2328,8 +2336,8 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
     const struct d3d12_root_descriptor_table_range *range;
     const struct vkd3d_vk_device_procs *vk_procs;
     struct d3d12_device *device = list->device;
-    struct d3d12_cbv_srv_uav_desc *descriptor;
     unsigned int i, j, descriptor_count;
+    struct d3d12_desc *descriptor;
 
     assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE);
     descriptor_table = &root_signature->parameters[index].u.descriptor_table;
@@ -2345,7 +2353,7 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
         return;
     }
 
-    descriptor = (struct d3d12_cbv_srv_uav_desc *)(intptr_t)base_descriptor.ptr;
+    descriptor = (struct d3d12_desc *)(intptr_t)base_descriptor.ptr;
 
     descriptor_count = 0;
     current_descriptor_write = descriptor_writes;
@@ -2355,7 +2363,7 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
         range = &descriptor_table->ranges[i];
         for (j = 0; j < range->descriptor_count; ++j, ++descriptor)
         {
-            if (!vk_write_descriptor_set_from_d3d12_cbv_srv_uav_desc(current_descriptor_write,
+            if (!vk_write_descriptor_set_from_d3d12_desc(current_descriptor_write,
                     current_image_info, descriptor, descriptor_set, range->binding + j))
                 continue;
 

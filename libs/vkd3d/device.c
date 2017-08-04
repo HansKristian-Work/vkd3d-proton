@@ -834,10 +834,8 @@ static UINT STDMETHODCALLTYPE d3d12_device_GetDescriptorHandleIncrementSize(ID3D
     switch (descriptor_heap_type)
     {
         case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
-            return sizeof(struct d3d12_cbv_srv_uav_desc);
-
         case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
-            return sizeof(struct d3d12_sampler_desc);
+            return sizeof(struct d3d12_desc);
 
         case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
             return sizeof(struct d3d12_rtv_desc);
@@ -884,7 +882,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateConstantBufferView(ID3D12Device
 {
     TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
 
-    d3d12_cbv_srv_uav_desc_create_cbv((struct d3d12_cbv_srv_uav_desc *)descriptor.ptr,
+    d3d12_desc_create_cbv((struct d3d12_desc *)descriptor.ptr,
             impl_from_ID3D12Device(iface), desc);
 }
 
@@ -895,7 +893,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView(ID3D12Device
     TRACE("iface %p, resource %p, desc %p, descriptor %#lx.\n",
             iface, resource, desc, descriptor.ptr);
 
-    d3d12_cbv_srv_uav_desc_create_srv((struct d3d12_cbv_srv_uav_desc *)descriptor.ptr,
+    d3d12_desc_create_srv((struct d3d12_desc *)descriptor.ptr,
             impl_from_ID3D12Device(iface), unsafe_impl_from_ID3D12Resource(resource), desc);
 }
 
@@ -909,7 +907,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView(ID3D12Devic
     if (counter_resource)
         FIXME("Counter resources not implemented yet.\n");
 
-    d3d12_cbv_srv_uav_desc_create_uav((struct d3d12_cbv_srv_uav_desc *)descriptor.ptr,
+    d3d12_desc_create_uav((struct d3d12_desc *)descriptor.ptr,
             impl_from_ID3D12Device(iface), unsafe_impl_from_ID3D12Resource(resource), desc);
 }
 
@@ -940,7 +938,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateSampler(ID3D12Device *iface,
 {
     TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
 
-    d3d12_sampler_desc_create_sampler((struct d3d12_sampler_desc *)descriptor.ptr,
+    d3d12_desc_create_sampler((struct d3d12_desc *)descriptor.ptr,
             impl_from_ID3D12Device(iface), desc);
 }
 

@@ -179,7 +179,7 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource) DECLSPEC_HIDDEN;
 struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface) DECLSPEC_HIDDEN;
 
-struct d3d12_cbv_srv_uav_desc
+struct d3d12_desc
 {
     uint32_t magic;
     VkDescriptorType vk_descriptor_type;
@@ -188,26 +188,21 @@ struct d3d12_cbv_srv_uav_desc
         VkDescriptorBufferInfo vk_cbv_info;
         VkBufferView vk_buffer_view;
         VkImageView vk_image_view;
+        VkSampler vk_sampler;
     } u;
 };
 
-void d3d12_cbv_srv_uav_desc_create_cbv(struct d3d12_cbv_srv_uav_desc *descriptor,
+void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc) DECLSPEC_HIDDEN;
-void d3d12_cbv_srv_uav_desc_create_srv(struct d3d12_cbv_srv_uav_desc *descriptor,
+void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc) DECLSPEC_HIDDEN;
-void d3d12_cbv_srv_uav_desc_create_uav(struct d3d12_cbv_srv_uav_desc *descriptor,
+void d3d12_desc_create_uav(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc) DECLSPEC_HIDDEN;
-
-struct d3d12_sampler_desc
-{
-    uint32_t magic;
-    VkSampler vk_sampler;
-};
-
-void d3d12_sampler_desc_create_sampler(struct d3d12_sampler_desc *sampler,
+void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc) DECLSPEC_HIDDEN;
+
 HRESULT d3d12_device_create_static_sampler(struct d3d12_device *device,
         const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler) DECLSPEC_HIDDEN;
 
