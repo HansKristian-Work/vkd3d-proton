@@ -1120,7 +1120,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         UINT64 base_offset, D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts,
         UINT *row_counts, UINT64 *row_sizes, UINT64 *total_bytes)
 {
-    unsigned int i, sub_resource_idx, miplevel_idx, width, height, row_size, row_pitch;
+    unsigned int i, sub_resource_idx, miplevel_idx, width, height, row_count, row_size, row_pitch;
     const struct vkd3d_format *format;
     UINT64 offset, total;
 
@@ -1167,6 +1167,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         miplevel_idx = sub_resource_idx % desc->MipLevels;
         width = align(max(1, desc->Width >> miplevel_idx), format->block_width);
         height = align(max(1, desc->Height >> miplevel_idx), format->block_height);
+        row_count = height / format->block_height;
         row_size = (width / format->block_width) * format->byte_count * format->block_byte_count;
         row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
 
@@ -1180,11 +1181,11 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
             layouts[i].Footprint.RowPitch = row_pitch;
         }
         if (row_counts)
-            row_counts[i] = height / format->block_height;
+            row_counts[i] = row_count;
         if (row_sizes)
             row_sizes[i] = row_size;
 
-        total = offset + max(0, height - 1) * row_pitch + row_size;
+        total = offset + max(0, row_count - 1) * row_pitch + row_size;
         offset = align(total, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
     }
     if (total_bytes)
