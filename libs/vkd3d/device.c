@@ -882,7 +882,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignature(ID3D12Device *
 static void STDMETHODCALLTYPE d3d12_device_CreateConstantBufferView(ID3D12Device *iface,
         const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    FIXME("iface %p, desc %p, descriptor %#lx stub!\n", iface, desc, descriptor.ptr);
+    TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
+
+    d3d12_cbv_srv_uav_desc_create_cbv((struct d3d12_cbv_srv_uav_desc *)descriptor.ptr,
+            impl_from_ID3D12Device(iface), desc);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView(ID3D12Device *iface,

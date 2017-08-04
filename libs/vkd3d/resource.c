@@ -763,6 +763,7 @@ static void d3d12_cbv_srv_uav_desc_destroy(struct d3d12_cbv_srv_uav_desc *descri
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+    /* Nothing to do for VKD3D_DESCRIPTOR_MAGIC_CBV. */
     if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV)
     {
         VK_CALL(vkDestroyImageView(device->vk_device, descriptor->u.vk_image_view, NULL));
@@ -826,6 +827,36 @@ static VkResult vkd3d_create_texture_view(struct d3d12_device *device,
     if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, vk_view))) < 0)
         WARN("Failed to create Vulkan image view, vr %d.\n", vr);
     return vr;
+}
+
+void d3d12_cbv_srv_uav_desc_create_cbv(struct d3d12_cbv_srv_uav_desc *descriptor,
+        struct d3d12_device *device, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc)
+{
+    struct VkDescriptorBufferInfo *buffer_info;
+    struct d3d12_resource *resource;
+
+    d3d12_cbv_srv_uav_desc_destroy(descriptor, device);
+
+    if (!desc)
+    {
+        WARN("Constant buffer desc is NULL.\n");
+        return;
+    }
+
+    if (desc->SizeInBytes & (D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT - 1))
+    {
+        WARN("Size is not %u bytes aligned.\n", D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+        return;
+    }
+
+    resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, desc->BufferLocation);
+    buffer_info = &descriptor->u.vk_cbv_info;
+    buffer_info->buffer = resource->u.vk_buffer;
+    buffer_info->offset = desc->BufferLocation - resource->gpu_address;
+    buffer_info->range = min(desc->SizeInBytes, resource->desc.Width - buffer_info->offset);
+
+    descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_CBV;
+    descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 }
 
 void d3d12_cbv_srv_uav_desc_create_srv(struct d3d12_cbv_srv_uav_desc *descriptor,

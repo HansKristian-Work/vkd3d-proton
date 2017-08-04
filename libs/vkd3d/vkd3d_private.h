@@ -185,11 +185,14 @@ struct d3d12_cbv_srv_uav_desc
     VkDescriptorType vk_descriptor_type;
     union
     {
+        VkDescriptorBufferInfo vk_cbv_info;
         VkBufferView vk_buffer_view;
         VkImageView vk_image_view;
     } u;
 };
 
+void d3d12_cbv_srv_uav_desc_create_cbv(struct d3d12_cbv_srv_uav_desc *descriptor,
+        struct d3d12_device *device, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc) DECLSPEC_HIDDEN;
 void d3d12_cbv_srv_uav_desc_create_srv(struct d3d12_cbv_srv_uav_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc) DECLSPEC_HIDDEN;
