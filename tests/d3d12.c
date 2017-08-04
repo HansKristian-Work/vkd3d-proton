@@ -7874,7 +7874,7 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
         if (row_sizes)
             ok_(line)(row_sizes[i] == row_size, "Got row size %"PRIu64", expected %u.\n", row_sizes[i], row_size);
 
-        total = offset + max(0, height - 1) * row_pitch + row_size;
+        total = offset + max(0, row_count - 1) * row_pitch + row_size;
         offset = align(total, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
     }
 
