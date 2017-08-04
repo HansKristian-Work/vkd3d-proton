@@ -1156,6 +1156,13 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         return;
     }
 
+    if (align(desc->Width, format->block_width) != desc->Width
+            || align(desc->Height, format->block_height) != desc->Height)
+    {
+        WARN("Resource size (%"PRIu64"x%u) not aligned to format block size.\n", desc->Width, desc->Height);
+        return;
+    }
+
     if (base_offset)
         FIXME("Ignoring base offset %#"PRIx64".\n", base_offset);
 
