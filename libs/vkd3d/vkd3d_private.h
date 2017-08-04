@@ -265,6 +265,18 @@ struct d3d12_query_heap
 HRESULT d3d12_query_heap_create(struct d3d12_device *device,
         struct d3d12_query_heap **heap) DECLSPEC_HIDDEN;
 
+struct d3d12_root_descriptor_table_range
+{
+    uint32_t binding;
+    unsigned int descriptor_count;
+};
+
+struct d3d12_root_descriptor_table
+{
+    unsigned int range_count;
+    struct d3d12_root_descriptor_table_range *ranges;
+};
+
 struct d3d12_root_constant
 {
     VkShaderStageFlags stage_flags;
@@ -278,10 +290,12 @@ struct d3d12_root_descriptor
 
 struct d3d12_root_parameter
 {
+    D3D12_ROOT_PARAMETER_TYPE parameter_type;
     union
     {
         struct d3d12_root_constant constant;
         struct d3d12_root_descriptor descriptor;
+        struct d3d12_root_descriptor_table descriptor_table;
     } u;
 };
 
@@ -298,6 +312,7 @@ struct d3d12_root_signature
     size_t pool_size_count;
 
     struct d3d12_root_parameter *parameters;
+    unsigned int parameter_count;
 
     unsigned int descriptor_count;
     struct vkd3d_shader_resource_binding *descriptor_mapping;

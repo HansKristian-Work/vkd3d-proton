@@ -2268,13 +2268,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
 }
 
 static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *list,
-        VkDescriptorSet descriptor_set, unsigned int index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
+        struct d3d12_root_signature *root_signature, VkDescriptorSet descriptor_set,
+        unsigned int index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
 {
     struct d3d12_device *device = list->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkWriteDescriptorSet descriptor_write;
     struct d3d12_cbv_srv_uav_desc *descriptor;
     struct VkDescriptorImageInfo image_info;
+
+    assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE);
 
     /* FIXME: Only a single descriptor is supported currently. */
     descriptor = (struct d3d12_cbv_srv_uav_desc *)(intptr_t)base_descriptor.ptr;
@@ -2335,8 +2338,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable(I
     FIXME("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64" partial-stub!\n",
             iface, root_parameter_index, base_descriptor.ptr);
 
-    d3d12_command_list_set_descriptor_table(list, list->compute_descriptor_set,
-            root_parameter_index, base_descriptor);
+    d3d12_command_list_set_descriptor_table(list, list->compute_root_signature,
+            list->compute_descriptor_set, root_parameter_index, base_descriptor);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable(ID3D12GraphicsCommandList *iface,
@@ -2347,8 +2350,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable(
     FIXME("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64" partial-stub!\n",
             iface, root_parameter_index, base_descriptor.ptr);
 
-    d3d12_command_list_set_descriptor_table(list, list->graphics_descriptor_set,
-            root_parameter_index, base_descriptor);
+    d3d12_command_list_set_descriptor_table(list, list->graphics_root_signature,
+            list->graphics_descriptor_set, root_parameter_index, base_descriptor);
 }
 
 static void d3d12_command_list_set_root_constants(struct d3d12_command_list *list,
@@ -2357,6 +2360,8 @@ static void d3d12_command_list_set_root_constants(struct d3d12_command_list *lis
 {
     const struct d3d12_root_constant *constant = &root_signature->parameters[index].u.constant;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+
+    assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS);
 
     VK_CALL(vkCmdPushConstants(list->vk_command_buffer, root_signature->vk_pipeline_layout,
             constant->stage_flags, constant->offset + offset * sizeof(uint32_t), count * sizeof(uint32_t), data));
@@ -2419,6 +2424,8 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
     struct VkWriteDescriptorSet descriptor_write;
     struct VkDescriptorBufferInfo buffer_info;
     struct d3d12_resource *resource;
+
+    assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV);
 
     resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, gpu_address);
     buffer_info.buffer = resource->u.vk_buffer;
