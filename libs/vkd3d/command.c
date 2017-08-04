@@ -2270,7 +2270,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
 static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *list,
         VkDescriptorSet descriptor_set, unsigned int index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct d3d12_device *device = list->device;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkWriteDescriptorSet descriptor_write;
     struct d3d12_cbv_srv_uav_desc *descriptor;
     struct VkDescriptorImageInfo image_info;
@@ -2289,7 +2290,11 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
     descriptor_write.pBufferInfo = NULL;
     descriptor_write.pTexelBufferView = NULL;
 
-    if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV)
+    if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_CBV)
+    {
+        descriptor_write.pBufferInfo = &descriptor->u.vk_cbv_info;
+    }
+    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV)
     {
         image_info.sampler = VK_NULL_HANDLE;
         image_info.imageView = descriptor->u.vk_image_view;
@@ -2308,10 +2313,18 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
             image_info.sampler = VK_NULL_HANDLE;
             image_info.imageView = descriptor->u.vk_image_view;
             image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            descriptor_write.pImageInfo = &image_info;
         }
     }
+    else
+    {
+        if (descriptor->magic)
+            FIXME("Unhandled descriptor %#x.\n", descriptor->magic);
+        return;
+    }
 
-    VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &descriptor_write, 0, NULL));
+    VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &descriptor_write, 0, NULL));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable(ID3D12GraphicsCommandList *iface,
