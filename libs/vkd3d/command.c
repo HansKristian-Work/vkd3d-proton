@@ -2184,7 +2184,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteBundle(ID3D12GraphicsCom
 static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(ID3D12GraphicsCommandList *iface,
         UINT heap_count, ID3D12DescriptorHeap *const *heaps)
 {
-    FIXME("iface %p, heap_count %u, heaps %p stub!\n", iface, heap_count, heaps);
+    TRACE("iface %p, heap_count %u, heaps %p.\n", iface, heap_count, heaps);
+
+    /* Our current implementation does not need this method.
+     *
+     * It could be used to validate descriptor tables but we do not have an
+     * equivalent of the D3D12 Debug Layer. */
 }
 
 static VkDescriptorSet d3d12_command_list_allocate_descriptor_set(struct d3d12_command_list *list,
