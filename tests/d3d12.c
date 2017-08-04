@@ -7900,31 +7900,37 @@ static void test_get_copyable_footprints(void)
         unsigned int height;
         unsigned int depth_or_array_size;
         unsigned int miplevel_count;
+        bool test_with_compressed;
     }
     resources[] =
     {
-        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 1, 1},
-        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 2, 1},
-        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 1, 2},
-        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 1, 1, 2},
-        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 2, 1, 2},
-        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 1, 1, 1},
-        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 2, 1, 1},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 1, 1, true},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 2, 1, true},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 1, 2, true},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 1, 1, 2, false},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 2, 1, 2, false},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 1, 1, 1, false},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 2, 1, 1, false},
     };
-    static const DXGI_FORMAT formats[] =
+    static const struct
     {
-        DXGI_FORMAT_R32G32B32A32_FLOAT,
-        DXGI_FORMAT_R32G32B32A32_UINT,
-        DXGI_FORMAT_R32_UINT,
-        DXGI_FORMAT_R8G8B8A8_UNORM,
-        DXGI_FORMAT_BC1_UNORM,
-        DXGI_FORMAT_BC2_UNORM,
-        DXGI_FORMAT_BC3_UNORM,
-        DXGI_FORMAT_BC4_UNORM,
-        DXGI_FORMAT_BC5_UNORM,
-        DXGI_FORMAT_BC6H_UF16,
-        DXGI_FORMAT_BC6H_SF16,
-        DXGI_FORMAT_BC7_UNORM,
+        DXGI_FORMAT format;
+        bool is_compressed;
+    }
+    formats[] =
+    {
+        {DXGI_FORMAT_R32G32B32A32_FLOAT, false},
+        {DXGI_FORMAT_R32G32B32A32_UINT, false},
+        {DXGI_FORMAT_R32_UINT, false},
+        {DXGI_FORMAT_R8G8B8A8_UNORM, false},
+        {DXGI_FORMAT_BC1_UNORM, true},
+        {DXGI_FORMAT_BC2_UNORM, true},
+        {DXGI_FORMAT_BC3_UNORM, true},
+        {DXGI_FORMAT_BC4_UNORM, true},
+        {DXGI_FORMAT_BC5_UNORM, true},
+        {DXGI_FORMAT_BC6H_UF16, true},
+        {DXGI_FORMAT_BC6H_SF16, true},
+        {DXGI_FORMAT_BC7_UNORM, true},
     };
     static const struct
     {
@@ -7962,7 +7968,10 @@ static void test_get_copyable_footprints(void)
 
         for (j = 0; j < ARRAY_SIZE(formats); ++j)
         {
-            resource_desc.Format = formats[j];
+            if (formats[j].is_compressed && !resources[i].test_with_compressed)
+                continue;
+
+            resource_desc.Format = formats[j].format;
 
             resource_desc.SampleDesc.Count = 1;
             resource_desc.SampleDesc.Quality = 0;
