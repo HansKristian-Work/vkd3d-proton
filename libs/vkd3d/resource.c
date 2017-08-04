@@ -476,7 +476,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
         return E_NOTIMPL;
     }
 
-    FIXME("Ignoring read range %p.\n", read_range);
+    WARN("Ignoring read range %p.\n", read_range);
 
     if (!resource->map_count)
     {
@@ -654,7 +654,7 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     }
 
     if (optimized_clear_value)
-        FIXME("Ignoring optimized clear value.\n");
+        WARN("Ignoring optimized clear value.\n");
 
     resource->gpu_address = 0;
     resource->flags = 0;
