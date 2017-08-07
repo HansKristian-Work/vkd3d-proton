@@ -1144,10 +1144,30 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         return;
     }
 
-    if (desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    switch (desc->Dimension)
     {
-        FIXME("Unhandled resource dimension %#x.\n", desc->Dimension);
-        return;
+        case D3D12_RESOURCE_DIMENSION_BUFFER:
+            if (desc->Format != DXGI_FORMAT_UNKNOWN || desc->Layout != D3D12_TEXTURE_LAYOUT_ROW_MAJOR
+                    || desc->Height != 1 || desc->DepthOrArraySize != 1 || desc->MipLevels != 1
+                    || desc->SampleDesc.Count != 1 || desc->SampleDesc.Quality != 0
+                    || (desc->Alignment != 0 && desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT))
+            {
+                WARN("Invalid parameters for a buffer resource.\n");
+                return;
+            }
+            break;
+
+        case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
+            break;
+
+        case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
+        case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
+            FIXME("Unhandled resource dimension %#x.\n", desc->Dimension);
+            return;
+
+        default:
+            WARN("Invalid resource dimension %#x.\n", desc->Dimension);
+            return;
     }
 
     if (first_sub_resource >= desc->MipLevels * desc->DepthOrArraySize
