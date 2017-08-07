@@ -3142,10 +3142,7 @@ static void test_clear_depth_stencil_view(void)
 
     exec_command_list(queue, command_list);
     wait_queue_idle(device, queue);
-    hr = ID3D12CommandAllocator_Reset(command_allocator);
-    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
-    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+    reset_command_list(command_list, command_allocator);
 
     get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
     for (y = 0; y < rb.height; ++y)
@@ -3258,10 +3255,7 @@ static void test_clear_render_target_view(void)
 
     exec_command_list(queue, command_list);
     wait_queue_idle(device, queue);
-    hr = ID3D12CommandAllocator_Reset(command_allocator);
-    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
-    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+    reset_command_list(command_list, command_allocator);
 
     get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
     for (y = 0; y < rb.height; ++y)
@@ -3599,7 +3593,6 @@ static void test_fractional_viewports(void)
     D3D12_VIEWPORT viewport;
     unsigned int i, x, y;
     ID3D12Resource *vb;
-    HRESULT hr;
 
     static const DWORD vs_code[] =
     {
@@ -3737,10 +3730,7 @@ static void test_fractional_viewports(void)
         }
         release_resource_readback(&rb);
 
-        hr = ID3D12CommandAllocator_Reset(context.allocator);
-        ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-        hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
-        ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+        reset_command_list(command_list, context.allocator);
     }
 
     ID3D12Resource_Release(vb);
@@ -4033,10 +4023,7 @@ static void test_invalid_texture_resource_barriers(void)
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
 
-    hr = ID3D12CommandAllocator_Reset(command_allocator);
-    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
-    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+    reset_command_list(command_list, command_allocator);
 
     /* The before state does not match with the previous state. */
     transition_resource_state(command_list, texture,
@@ -4325,14 +4312,8 @@ static void test_bundle_state_inheritance(void)
     }
     release_resource_readback(&rb);
 
-    hr = ID3D12CommandAllocator_Reset(context.allocator);
-    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
-    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
-    hr = ID3D12CommandAllocator_Reset(bundle_allocator);
-    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(bundle, bundle_allocator, NULL);
-    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+    reset_command_list(command_list, context.allocator);
+    reset_command_list(bundle, bundle_allocator);
 
     /* A bundle does not inherit the current primitive topology. */
     transition_resource_state(command_list, context.render_target,
@@ -4368,14 +4349,8 @@ static void test_bundle_state_inheritance(void)
     }
     release_resource_readback(&rb);
 
-    hr = ID3D12CommandAllocator_Reset(context.allocator);
-    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
-    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
-    hr = ID3D12CommandAllocator_Reset(bundle_allocator);
-    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(bundle, bundle_allocator, NULL);
-    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+    reset_command_list(command_list, context.allocator);
+    reset_command_list(bundle, bundle_allocator);
 
     /* A bundle inherit all other states. */
     transition_resource_state(command_list, context.render_target,
@@ -4409,14 +4384,8 @@ static void test_bundle_state_inheritance(void)
     }
     release_resource_readback(&rb);
 
-    hr = ID3D12CommandAllocator_Reset(context.allocator);
-    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
-    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
-    hr = ID3D12CommandAllocator_Reset(bundle_allocator);
-    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(bundle, bundle_allocator, NULL);
-    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+    reset_command_list(command_list, context.allocator);
+    reset_command_list(bundle, bundle_allocator);
 
     /* All state that is set in a bundle affects a command list. */
     transition_resource_state(command_list, context.render_target,
@@ -6340,10 +6309,7 @@ static void test_shader_instructions(void)
 
         check_sub_resource_vec4(context.render_target, 0, queue, command_list, &tests[i].output.f, 2);
 
-        hr = ID3D12CommandAllocator_Reset(context.allocator);
-        ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-        hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
-        ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+        reset_command_list(command_list, context.allocator);
     }
 
     ID3D12Resource_Release(context.render_target);
@@ -6399,10 +6365,7 @@ static void test_shader_instructions(void)
         }
         release_resource_readback(&rb);
 
-        hr = ID3D12CommandAllocator_Reset(context.allocator);
-        ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-        hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
-        ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+        reset_command_list(command_list, context.allocator);
     }
 
     ID3D12Resource_Release(cb);
@@ -7163,10 +7126,7 @@ static void test_cs_constant_buffer(void)
     memcpy(ptr, &value, sizeof(value));
     ID3D12Resource_Unmap(cb, 0, NULL);
 
-    hr = ID3D12CommandAllocator_Reset(context.allocator);
-    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
-    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+    reset_command_list(command_list, context.allocator);
     transition_sub_resource_state(command_list, resource, 0,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
@@ -7303,10 +7263,7 @@ static void test_immediate_constant_buffer(void)
 
         check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_result[i], 0);
 
-        hr = ID3D12CommandAllocator_Reset(context.allocator);
-        ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-        hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
-        ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+        reset_command_list(command_list, context.allocator);
     }
 
     ID3D12Resource_Release(cb);
@@ -7540,10 +7497,7 @@ static void test_root_constants(void)
     expected_result.w = constants[3];
     check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_result, 0);
 
-    hr = ID3D12CommandAllocator_Reset(context.allocator);
-    ok(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
-    ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+    reset_command_list(command_list, context.allocator);
 
     ID3D12PipelineState_Release(context.pipeline_state);
     ID3D12RootSignature_Release(context.root_signature);
@@ -7587,10 +7541,7 @@ static void test_root_constants(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_result, 0);
 
-    hr = ID3D12CommandAllocator_Reset(context.allocator);
-    ok(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
-    ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+    reset_command_list(command_list, context.allocator);
 
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -7613,10 +7564,7 @@ static void test_root_constants(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_result, 0);
 
-    hr = ID3D12CommandAllocator_Reset(context.allocator);
-    ok(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
-    ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+    reset_command_list(command_list, context.allocator);
 
     ID3D12PipelineState_Release(context.pipeline_state);
     ID3D12RootSignature_Release(context.root_signature);
@@ -7668,10 +7616,7 @@ static void test_root_constants(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_result, 0);
 
-    hr = ID3D12CommandAllocator_Reset(context.allocator);
-    ok(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
-    ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+    reset_command_list(command_list, context.allocator);
 
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -7695,10 +7640,7 @@ static void test_root_constants(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_result, 0);
 
-    hr = ID3D12CommandAllocator_Reset(context.allocator);
-    ok(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
-    ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+    reset_command_list(command_list, context.allocator);
 
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -7803,10 +7745,7 @@ static void test_texture(void)
     texture_data.RowPitch = 4 * sizeof(*bitmap_data);
     texture_data.SlicePitch = texture_data.RowPitch * 4;
     upload_texture_data(texture, &texture_data, queue, command_list);
-    hr = ID3D12CommandAllocator_Reset(context.allocator);
-    ok(SUCCEEDED(hr), "Command allocator reset failed, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(command_list, context.allocator, NULL);
-    ok(SUCCEEDED(hr), "Command list reset failed, hr %#x.\n", hr);
+    reset_command_list(command_list, context.allocator);
 
     transition_resource_state(command_list, texture,
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
