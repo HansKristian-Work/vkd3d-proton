@@ -705,6 +705,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     set_desc.pBindings = binding_desc;
     vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device, &set_desc, NULL, &root_signature->vk_set_layout));
     vkd3d_free(binding_desc);
+    binding_desc = NULL;
     if (vr < 0)
     {
         WARN("Failed to create Vulkan descriptor set layout, vr %d.\n", vr);
