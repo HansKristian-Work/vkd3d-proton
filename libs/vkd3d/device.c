@@ -1157,10 +1157,17 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
             }
             break;
 
+        case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
+            if (desc->Height != 1)
+            {
+                WARN("1D texture with a height of %u.\n", desc->Height);
+                return;
+            }
+            break;
+
         case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
             break;
 
-        case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
         case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
             FIXME("Unhandled resource dimension %#x.\n", desc->Dimension);
             return;
