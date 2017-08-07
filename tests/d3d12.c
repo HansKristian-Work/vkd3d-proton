@@ -8168,6 +8168,22 @@ static void test_get_copyable_footprints(void)
             {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 0, 4, 4, 1, 1, DXGI_FORMAT_R32_UINT,
                 {1, 0}, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_RESOURCE_FLAG_NONE}, 0, 2,
         },
+        {
+            {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 0, 3, 1, 1, 2, DXGI_FORMAT_BC1_UNORM,
+                {1, 0}, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_RESOURCE_FLAG_NONE}, 0, 2,
+        },
+        {
+            {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 0, 3, 1, 1, 1, DXGI_FORMAT_BC1_UNORM,
+                {1, 0}, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_RESOURCE_FLAG_NONE}, 0, 1,
+        },
+        {
+            {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 0, 3, 1, 1, 2, DXGI_FORMAT_BC7_UNORM,
+                {1, 0}, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_RESOURCE_FLAG_NONE}, 0, 2,
+        },
+        {
+            {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 0, 3, 1, 1, 1, DXGI_FORMAT_BC7_UNORM,
+                {1, 0}, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_RESOURCE_FLAG_NONE}, 0, 1,
+        },
     };
 
     if (!(device = create_device()))
