@@ -1164,6 +1164,13 @@ static uint32_t vkd3d_spirv_build_op_and(struct vkd3d_spirv_builder *builder,
             SpvOpBitwiseAnd, result_type, operand0, operand1);
 }
 
+static uint32_t vkd3d_spirv_build_op_convert_utof(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t unsigned_value)
+{
+    return vkd3d_spirv_build_op_tr1(builder, &builder->function_stream,
+            SpvOpConvertUToF, result_type, unsigned_value);
+}
+
 static uint32_t vkd3d_spirv_build_op_bitcast(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand)
 {
@@ -1207,6 +1214,13 @@ static void vkd3d_spirv_build_op_image_write(struct vkd3d_spirv_builder *builder
 
     vkd3d_spirv_build_op3(&builder->function_stream, SpvOpImageWrite,
             image_id, coordinate_id, texel_id);
+}
+
+static uint32_t vkd3d_spirv_build_op_image_query_size(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t image_id)
+{
+    return vkd3d_spirv_build_op_tr1(builder, &builder->function_stream,
+            SpvOpImageQuerySize, result_type, image_id);
 }
 
 static uint32_t vkd3d_spirv_build_op_glsl_std450_fabs(struct vkd3d_spirv_builder *builder,
@@ -1404,7 +1418,7 @@ struct vkd3d_symbol
         {
             enum vkd3d_component_type sampled_type;
             uint32_t type_id;
-            DWORD coordinate_mask;
+            unsigned int coordinate_component_count;
         } resource;
     } info;
 };
@@ -2857,7 +2871,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     resource_symbol.id = var_id;
     resource_symbol.info.resource.sampled_type = sampled_type;
     resource_symbol.info.resource.type_id = type_id;
-    resource_symbol.info.resource.coordinate_mask = (1u << resource_type_info->coordinate_component_count) - 1;
+    resource_symbol.info.resource.coordinate_component_count = resource_type_info->coordinate_component_count;
     vkd3d_dxbc_compiler_put_symbol(compiler, &resource_symbol);
 }
 
@@ -3883,7 +3897,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
 static uint32_t vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *resource_reg, enum vkd3d_component_type *sampled_type,
-        DWORD *coordinate_mask)
+        unsigned int *coordinate_component_count)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_symbol *resource_symbol;
@@ -3899,8 +3913,9 @@ static uint32_t vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *co
     image_id = vkd3d_spirv_build_op_load(builder,
             resource_symbol->info.resource.type_id, resource_symbol->id, SpvMemoryAccessMaskNone);
 
-    *sampled_type = resource_symbol->info.resource.sampled_type;
-    *coordinate_mask = resource_symbol->info.resource.coordinate_mask;
+    if (sampled_type)
+        *sampled_type = resource_symbol->info.resource.sampled_type;
+    *coordinate_component_count = resource_symbol->info.resource.coordinate_component_count;
     return image_id;
 }
 
@@ -3967,12 +3982,15 @@ static void vkd3d_dxbc_compiler_emit_store_uav_typed(struct vkd3d_dxbc_compiler 
     const struct vkd3d_shader_src_param *src = instruction->src;
     struct vkd3d_shader_src_param texel_param = src[1];
     uint32_t image_id, coordinate_id, texel_id;
+    unsigned int coordinate_component_count;
     enum vkd3d_component_type sampled_type;
     DWORD coordinate_mask;
 
     vkd3d_spirv_enable_capability(builder, SpvCapabilityStorageImageWriteWithoutFormat);
 
-    image_id = vkd3d_dxbc_compiler_prepare_image(compiler, &dst->reg, &sampled_type, &coordinate_mask);
+    image_id = vkd3d_dxbc_compiler_prepare_image(compiler, &dst->reg,
+            &sampled_type, &coordinate_component_count);
+    coordinate_mask = (1u << coordinate_component_count) - 1;
     coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], coordinate_mask);
     /* XXX: Fix the data type. */
     texel_param.reg.data_type = vkd3d_data_type_from_component_type(sampled_type);
@@ -3980,6 +3998,62 @@ static void vkd3d_dxbc_compiler_emit_store_uav_typed(struct vkd3d_dxbc_compiler 
 
     vkd3d_spirv_build_op_image_write(builder, image_id, coordinate_id, texel_id,
             SpvImageOperandsMaskNone, NULL, 0);
+}
+
+static void vkd3d_dxbc_compiler_emit_resinfo(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    static const uint32_t miplevel_count[] = {0, 0, 0, 1};
+
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t image_id, type_id, val_id, const_id;
+    unsigned int i, coord_component_count;
+    uint32_t components[VKD3D_VEC4_SIZE];
+
+    if (src[1].reg.type != VKD3DSPR_UAV)
+    {
+        FIXME("Resinfo supported only for UAVs.\n");
+        return;
+    }
+
+    vkd3d_spirv_enable_capability(builder, SpvCapabilityImageQuery);
+
+    image_id = vkd3d_dxbc_compiler_prepare_image(compiler,
+            &src[1].reg, NULL, &coord_component_count);
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, coord_component_count);
+    val_id = vkd3d_spirv_build_op_image_query_size(builder, type_id, image_id);
+
+    /* For UAVs the returned miplevel count is always 1. */
+    const_id = vkd3d_dxbc_compiler_get_constant(compiler,
+            VKD3D_TYPE_UINT, VKD3D_VEC4_SIZE, miplevel_count);
+    for (i = 0; i <  VKD3D_VEC4_SIZE; ++i)
+    {
+        if (i < coord_component_count)
+            components[i] = i;
+        else
+            components[i] = coord_component_count + i;
+    }
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, VKD3D_VEC4_SIZE);
+    val_id = vkd3d_spirv_build_op_vector_shuffle(builder,
+            type_id, val_id, const_id, components, VKD3D_VEC4_SIZE);
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
+    if (instruction->flags == VKD3DSI_RESINFO_UINT)
+    {
+        val_id = vkd3d_spirv_build_op_bitcast(builder, type_id, val_id);
+    }
+    else
+    {
+        if (instruction->flags)
+            FIXME("Unhandled flags %#x.\n", instruction->flags);
+       val_id = vkd3d_spirv_build_op_convert_utof(builder, type_id, val_id);
+    }
+    val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler, val_id, src[1].swizzle, dst->write_mask);
+
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
 /* This function is called after declarations are processed. */
@@ -4152,6 +4226,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_STORE_UAV_TYPED:
             vkd3d_dxbc_compiler_emit_store_uav_typed(compiler, instruction);
+            break;
+        case VKD3DSIH_RESINFO:
+            vkd3d_dxbc_compiler_emit_resinfo(compiler, instruction);
             break;
         default:
             FIXME("Unhandled instruction %#x.\n", instruction->handler_idx);
