@@ -7872,7 +7872,7 @@ static void test_descriptor_tables(void)
             float2 p = float2(position.x / 32.0f, position.y / 32.0f);
 
             return c.x * t0.Sample(s0, p) + c.y * t1.Sample(s0, p)
-                + c.z * t2.Sample(s0, p) + c.w * t3.Sample(s0, p);
+                    + c.z * t2.Sample(s0, p) + c.w * t3.Sample(s0, p);
         }
 #endif
         0x43425844, 0xf848ef5f, 0x4da3fe0c, 0x776883a0, 0x6b3f0297, 0x00000001, 0x0000029c, 0x00000003,
