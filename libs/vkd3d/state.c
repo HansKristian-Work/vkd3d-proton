@@ -719,11 +719,13 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     root_signature->pool_size_count = 0;
     if (info.cbv_count)
         ++root_signature->pool_size_count;
-    if (info.buffer_srv_count)
+    if (info.buffer_srv_count || info.srv_count)
         ++root_signature->pool_size_count;
     if (info.srv_count)
         ++root_signature->pool_size_count;
     if (info.buffer_uav_count || info.uav_count)
+        ++root_signature->pool_size_count;
+    if (info.uav_count)
         ++root_signature->pool_size_count;
     if (info.sampler_count)
         ++root_signature->pool_size_count;
@@ -742,20 +744,31 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             root_signature->pool_sizes[i++].descriptorCount = info.cbv_count;
         }
-        if (info.buffer_srv_count)
+        /* Each D3D12_DESCRIPTOR_RANGE_TYPE_SRV descriptor can be either a
+         * buffer or a texture view. Allocate one buffer view and one image
+         * view Vulkan descriptor for each. */
+        if (info.buffer_srv_count || info.srv_count)
         {
             root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-            root_signature->pool_sizes[i++].descriptorCount = info.buffer_srv_count;
+            root_signature->pool_sizes[i++].descriptorCount = info.buffer_srv_count + info.srv_count;
         }
         if (info.srv_count)
         {
             root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
             root_signature->pool_sizes[i++].descriptorCount = info.srv_count;
         }
+        /* Each D3D12_DESCRIPTOR_RANGE_TYPE_UAV descriptor can be either a
+         * buffer or a texture view. Allocate one buffer view and one image
+         * view Vulkan descriptor for each. */
         if (info.buffer_uav_count || info.uav_count)
         {
             root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
             root_signature->pool_sizes[i++].descriptorCount = info.buffer_uav_count + info.uav_count;
+        }
+        if (info.uav_count)
+        {
+            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            root_signature->pool_sizes[i++].descriptorCount = info.uav_count;
         }
         if (info.sampler_count)
         {
