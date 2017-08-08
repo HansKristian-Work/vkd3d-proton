@@ -52,6 +52,14 @@ typedef int HRESULT;
 # include "vkd3d_utils.h"
 #endif
 
+static void set_rect(RECT *rect, int left, int top, int right, int bottom)
+{
+    rect->left = left;
+    rect->right = right;
+    rect->top = top;
+    rect->bottom = bottom;
+}
+
 struct vec2
 {
     float x, y;
@@ -786,6 +794,47 @@ static void release_resource_readback(struct resource_readback *rb)
     D3D12_RANGE range = {0, 0};
     ID3D12Resource_Unmap(rb->resource, 0, &range);
     ID3D12Resource_Release(rb->resource);
+}
+
+#define check_readback_data_float(a, b, c, d) check_readback_data_float_(__LINE__, a, b, c, d)
+static void check_readback_data_float_(unsigned int line, struct resource_readback *rb,
+        const RECT *rect, float expected, unsigned int max_diff)
+{
+    RECT r = {0, 0, rb->width, rb->height};
+    unsigned int x = 0, y;
+    bool all_match = true;
+    float got = 0;
+
+    if (rect)
+        r = *rect;
+
+    for (y = r.top; y < r.bottom; ++y)
+    {
+        for (x = r.left; x < r.right; ++x)
+        {
+            got = get_readback_float(rb, x, y);
+            if (!compare_float(got, expected, max_diff))
+            {
+                all_match = false;
+                break;
+            }
+        }
+        if (!all_match)
+            break;
+    }
+    ok_(line)(all_match, "Got %.8e, expected %.8e at (%u, %u).\n", got, expected, x, y);
+}
+
+#define check_sub_resource_float(a, b, c, d, e, f) check_sub_resource_float_(__LINE__, a, b, c, d, e, f)
+static void check_sub_resource_float_(unsigned int line, ID3D12Resource *texture,
+        unsigned int sub_resource_idx, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list,
+        float expected, unsigned int max_diff)
+{
+    struct resource_readback rb;
+
+    get_texture_readback_with_command_list(texture, 0, &rb, queue, command_list);
+    check_readback_data_float_(line, &rb, NULL, expected, max_diff);
+    release_resource_readback(&rb);
 }
 
 #define check_sub_resource_uint(a, b, c, d, e, f) check_sub_resource_uint_(__LINE__, a, b, c, d, e, f)
@@ -8386,6 +8435,441 @@ static void test_typed_buffer_uav(void)
     destroy_test_context(&context);
 }
 
+static void test_cs_uav_store(void)
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor_handle;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_descriptor_handle;
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    const D3D12_SHADER_BYTECODE *current_shader;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    ID3D12DescriptorHeap *cpu_descriptor_heap;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3D12DescriptorHeap *descriptor_heap;
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    ID3D12RootSignature *root_signature;
+    ID3D12PipelineState *pipeline_state;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    ID3D12Resource *cb;
+    struct vec4 input;
+    unsigned int i;
+    HRESULT hr;
+    RECT rect;
+    void *ptr;
+
+    static const DWORD cs_1_thread_code[] =
+    {
+#if 0
+        RWTexture2D<float> u;
+
+        float value;
+
+        [numthreads(1, 1, 1)]
+        void main()
+        {
+            uint x, y, width, height;
+            u.GetDimensions(width, height);
+            for (y = 0; y < height; ++y)
+            {
+                for (x = 0; x < width; ++x)
+                    u[uint2(x, y)] = value;
+            }
+        }
+#endif
+        0x43425844, 0x6503503a, 0x4cd524e6, 0x2473915d, 0x93cf1201, 0x00000001, 0x000001c8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000174, 0x00050050, 0x0000005d, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400189c, 0x0011e000, 0x00000000, 0x00005555,
+        0x02000068, 0x00000003, 0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x8900103d, 0x800000c2,
+        0x00155543, 0x00100032, 0x00000000, 0x00004001, 0x00000000, 0x0011ee46, 0x00000000, 0x05000036,
+        0x00100042, 0x00000000, 0x00004001, 0x00000000, 0x01000030, 0x07000050, 0x00100082, 0x00000000,
+        0x0010002a, 0x00000000, 0x0010001a, 0x00000000, 0x03040003, 0x0010003a, 0x00000000, 0x05000036,
+        0x001000e2, 0x00000001, 0x00100aa6, 0x00000000, 0x05000036, 0x00100082, 0x00000000, 0x00004001,
+        0x00000000, 0x01000030, 0x07000050, 0x00100012, 0x00000002, 0x0010003a, 0x00000000, 0x0010000a,
+        0x00000000, 0x03040003, 0x0010000a, 0x00000002, 0x05000036, 0x00100012, 0x00000001, 0x0010003a,
+        0x00000000, 0x080000a4, 0x0011e0f2, 0x00000000, 0x00100e46, 0x00000001, 0x00208006, 0x00000000,
+        0x00000000, 0x0700001e, 0x00100082, 0x00000000, 0x0010003a, 0x00000000, 0x00004001, 0x00000001,
+        0x01000016, 0x0700001e, 0x00100042, 0x00000000, 0x0010002a, 0x00000000, 0x00004001, 0x00000001,
+        0x01000016, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE cs_1_thread = {cs_1_thread_code, sizeof(cs_1_thread_code)};
+    static const DWORD cs_1_group_code[] =
+    {
+#if 0
+        RWTexture2D<float> u;
+
+        float value;
+
+        [numthreads(16, 16, 1)]
+        void main(uint3 threadID : SV_GroupThreadID)
+        {
+            uint2 count, size ;
+            u.GetDimensions(size.x, size.y);
+            count = size / (uint2)16;
+            for (uint y = 0; y < count.y; ++y)
+                for (uint x = 0; x < count.x; ++x)
+                    u[count * threadID.xy + uint2(x, y)] = value;
+        }
+#endif
+        0x43425844, 0x9fb86044, 0x352c196d, 0x92e14094, 0x46bb95a7, 0x00000001, 0x00000218, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000001c4, 0x00050050, 0x00000071, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400189c, 0x0011e000, 0x00000000, 0x00005555,
+        0x0200005f, 0x00022032, 0x02000068, 0x00000004, 0x0400009b, 0x00000010, 0x00000010, 0x00000001,
+        0x8900103d, 0x800000c2, 0x00155543, 0x00100032, 0x00000000, 0x00004001, 0x00000000, 0x0011ee46,
+        0x00000000, 0x0a000055, 0x001000f2, 0x00000000, 0x00100546, 0x00000000, 0x00004002, 0x00000004,
+        0x00000004, 0x00000004, 0x00000004, 0x05000036, 0x00100012, 0x00000001, 0x00004001, 0x00000000,
+        0x01000030, 0x07000050, 0x00100022, 0x00000001, 0x0010000a, 0x00000001, 0x0010003a, 0x00000000,
+        0x03040003, 0x0010001a, 0x00000001, 0x05000036, 0x001000e2, 0x00000002, 0x00100006, 0x00000001,
+        0x05000036, 0x00100022, 0x00000001, 0x00004001, 0x00000000, 0x01000030, 0x07000050, 0x00100042,
+        0x00000001, 0x0010001a, 0x00000001, 0x0010000a, 0x00000000, 0x03040003, 0x0010002a, 0x00000001,
+        0x05000036, 0x00100012, 0x00000002, 0x0010001a, 0x00000001, 0x08000023, 0x001000f2, 0x00000003,
+        0x00100e46, 0x00000000, 0x00022546, 0x00100e46, 0x00000002, 0x080000a4, 0x0011e0f2, 0x00000000,
+        0x00100e46, 0x00000003, 0x00208006, 0x00000000, 0x00000000, 0x0700001e, 0x00100022, 0x00000001,
+        0x0010001a, 0x00000001, 0x00004001, 0x00000001, 0x01000016, 0x0700001e, 0x00100012, 0x00000001,
+        0x0010000a, 0x00000001, 0x00004001, 0x00000001, 0x01000016, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE cs_1_group = {cs_1_group_code, sizeof(cs_1_group_code)};
+    static const DWORD cs_1_store_code[] =
+    {
+#if 0
+        RWTexture2D<float> u;
+
+        float value;
+
+        [numthreads(1, 1, 1)]
+        void main(uint3 groupID : SV_GroupID)
+        {
+            u[groupID.xy] = value;
+        }
+#endif
+        0x43425844, 0xc3add41b, 0x67df51b1, 0x2b887930, 0xcb1ee991, 0x00000001, 0x000000b8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000064, 0x00050050, 0x00000019, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400189c, 0x0011e000, 0x00000000, 0x00005555,
+        0x0200005f, 0x00021032, 0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x070000a4, 0x0011e0f2,
+        0x00000000, 0x00021546, 0x00208006, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE cs_1_store = {cs_1_store_code, sizeof(cs_1_store_code)};
+    static const DWORD cs_dispatch_id_code[] =
+    {
+#if 0
+        RWTexture2D<float> u;
+
+        float value;
+
+        [numthreads(4, 4, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            u[id.xy] = value;
+        }
+#endif
+        0x43425844, 0x60166991, 0x4b595266, 0x7fb67d79, 0x485c4f0d, 0x00000001, 0x000000b8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000064, 0x00050050, 0x00000019, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400189c, 0x0011e000, 0x00000000, 0x00005555,
+        0x0200005f, 0x00020032, 0x0400009b, 0x00000004, 0x00000004, 0x00000001, 0x070000a4, 0x0011e0f2,
+        0x00000000, 0x00020546, 0x00208006, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE cs_dispatch_id = {cs_dispatch_id_code, sizeof(cs_dispatch_id_code)};
+    static const DWORD cs_group_index_code[] =
+    {
+#if 0
+        RWTexture2D<float> u;
+
+        float value;
+
+        [numthreads(32, 1, 1)]
+        void main(uint index : SV_GroupIndex)
+        {
+            uint2 size;
+            u.GetDimensions(size.x, size.y);
+            uint count = size.x * size.y / 32;
+            index *= count;
+            for (uint i = 0; i < count; ++i, ++index)
+                u[uint2(index % size.x, index / size.x)] = value;
+        }
+#endif
+        0x43425844, 0xb685a70f, 0x94c2f263, 0x4f1d8eaa, 0xeab65731, 0x00000001, 0x000001f8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000001a4, 0x00050050, 0x00000069, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400189c, 0x0011e000, 0x00000000, 0x00005555,
+        0x0200005f, 0x00024000, 0x02000068, 0x00000004, 0x0400009b, 0x00000020, 0x00000001, 0x00000001,
+        0x8900103d, 0x800000c2, 0x00155543, 0x00100032, 0x00000000, 0x00004001, 0x00000000, 0x0011ee46,
+        0x00000000, 0x08000026, 0x0000d000, 0x00100022, 0x00000000, 0x0010000a, 0x00000000, 0x0010001a,
+        0x00000000, 0x07000055, 0x00100022, 0x00000000, 0x0010001a, 0x00000000, 0x00004001, 0x00000005,
+        0x07000026, 0x0000d000, 0x00100042, 0x00000000, 0x0002400a, 0x0010001a, 0x00000000, 0x05000036,
+        0x00100012, 0x00000001, 0x0010002a, 0x00000000, 0x05000036, 0x00100022, 0x00000001, 0x00004001,
+        0x00000000, 0x01000030, 0x07000050, 0x00100082, 0x00000000, 0x0010001a, 0x00000001, 0x0010001a,
+        0x00000000, 0x03040003, 0x0010003a, 0x00000000, 0x0900004e, 0x00100012, 0x00000002, 0x00100012,
+        0x00000003, 0x0010000a, 0x00000001, 0x0010000a, 0x00000000, 0x05000036, 0x001000e2, 0x00000003,
+        0x00100006, 0x00000002, 0x080000a4, 0x0011e0f2, 0x00000000, 0x00100e46, 0x00000003, 0x00208006,
+        0x00000000, 0x00000000, 0x0a00001e, 0x00100032, 0x00000001, 0x00100046, 0x00000001, 0x00004002,
+        0x00000001, 0x00000001, 0x00000000, 0x00000000, 0x01000016, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE cs_group_index = {cs_group_index_code, sizeof(cs_group_index_code)};
+    static const float zero[4] = {};
+    static const struct
+    {
+        const D3D12_SHADER_BYTECODE *shader;
+        float value;
+    }
+    tests[] =
+    {
+        {&cs_1_thread,    1.0f},
+        {&cs_1_thread,    0.5f},
+        {&cs_1_group,     2.0f},
+        {&cs_1_group,     4.0f},
+        {&cs_group_index, 0.3f},
+        {&cs_group_index, 0.1f},
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    cb = create_upload_buffer(context.device, sizeof(input), NULL);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 64;
+    resource_desc.Height = 64;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    descriptor_ranges[0].NumDescriptors = 1;
+    descriptor_ranges[0].BaseShaderRegister = 0;
+    descriptor_ranges[0].RegisterSpace = 0;
+    descriptor_ranges[0].OffsetInDescriptorsFromTableStart = 0;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = descriptor_ranges;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    root_parameters[1].Descriptor.ShaderRegister = 0;
+    root_parameters[1].Descriptor.RegisterSpace = 0;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = 2;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap_desc.NumDescriptors = 1;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    heap_desc.Flags = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&cpu_descriptor_heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
+    gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
+
+    uav_desc.Format = resource_desc.Format;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    uav_desc.Texture2D.MipSlice = 0;
+    uav_desc.Texture2D.PlaneSlice = 0;
+    ID3D12Device_CreateUnorderedAccessView(device, resource, NULL, &uav_desc, cpu_descriptor_handle);
+    cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_descriptor_heap);
+    ID3D12Device_CreateUnorderedAccessView(device, resource, NULL, &uav_desc, cpu_descriptor_handle);
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+
+    current_shader = NULL;
+    pipeline_state = NULL;
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        if (current_shader != tests[i].shader)
+        {
+            if (pipeline_state)
+                ID3D12PipelineState_Release(pipeline_state);
+
+            current_shader = tests[i].shader;
+            pipeline_state = create_compute_pipeline_state(device, root_signature, *current_shader);
+        }
+
+        memset(&input, 0, sizeof(input));
+        input.x = tests[i].value;
+        hr = ID3D12Resource_Map(cb, 0, NULL, &ptr);
+        ok(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
+        memcpy(ptr, &input.x, sizeof(input));
+        ID3D12Resource_Unmap(cb, 0, NULL);
+
+        reset_command_list(command_list, context.allocator);
+        transition_sub_resource_state(command_list, resource, 0,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(command_list,
+                gpu_descriptor_handle, cpu_descriptor_handle, resource, zero, 0, NULL);
+
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
+        ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(command_list, 1,
+                ID3D12Resource_GetGPUVirtualAddress(cb));
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu_descriptor_handle);
+        ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
+
+        transition_sub_resource_state(command_list, resource, 0,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_float(resource, 0, queue, command_list, tests[i].value, 2);
+    }
+
+    ID3D12PipelineState_Release(pipeline_state);
+    pipeline_state = create_compute_pipeline_state(device, root_signature, cs_1_store);
+
+    memset(&input, 0, sizeof(input));
+    input.x = 1.0f;
+    hr = ID3D12Resource_Map(cb, 0, NULL, &ptr);
+    ok(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
+    memcpy(ptr, &input.x, sizeof(input));
+    ID3D12Resource_Unmap(cb, 0, NULL);
+
+    reset_command_list(command_list, context.allocator);
+    transition_sub_resource_state(command_list, resource, 0,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(command_list,
+            gpu_descriptor_handle, cpu_descriptor_handle, resource, zero, 0, NULL);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(command_list, 1,
+            ID3D12Resource_GetGPUVirtualAddress(cb));
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu_descriptor_handle);
+    ID3D12GraphicsCommandList_Dispatch(command_list, resource_desc.Width, resource_desc.Height, 1);
+
+    transition_sub_resource_state(command_list, resource, 0,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_float(resource, 0, queue, command_list, 1.0f, 2);
+
+    memset(&input, 0, sizeof(input));
+    input.x = 0.5f;
+    hr = ID3D12Resource_Map(cb, 0, NULL, &ptr);
+    ok(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
+    memcpy(ptr, &input.x, sizeof(input));
+    ID3D12Resource_Unmap(cb, 0, NULL);
+
+    reset_command_list(command_list, context.allocator);
+    transition_sub_resource_state(command_list, resource, 0,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(command_list, 1,
+            ID3D12Resource_GetGPUVirtualAddress(cb));
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu_descriptor_handle);
+    ID3D12GraphicsCommandList_Dispatch(command_list, 16, 32, 1);
+
+    transition_sub_resource_state(command_list, resource, 0,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
+    set_rect(&rect, 0, 0, 16, 32);
+    check_readback_data_float(&rb, &rect, 0.5f, 2);
+    set_rect(&rect, 0, 32, rb.width, rb.height);
+    check_readback_data_float(&rb, &rect, 1.0f, 2);
+    set_rect(&rect, 16, 0, rb.width, rb.height);
+    check_readback_data_float(&rb, &rect, 1.0f, 2);
+    release_resource_readback(&rb);
+
+    ID3D12PipelineState_Release(pipeline_state);
+    pipeline_state = create_compute_pipeline_state(device, root_signature, cs_dispatch_id);
+
+    memset(&input, 0, sizeof(input));
+    input.x = 0.6f;
+    hr = ID3D12Resource_Map(cb, 0, NULL, &ptr);
+    ok(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
+    memcpy(ptr, &input.x, sizeof(input));
+    ID3D12Resource_Unmap(cb, 0, NULL);
+
+    reset_command_list(command_list, context.allocator);
+    transition_sub_resource_state(command_list, resource, 0,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(command_list, 1,
+            ID3D12Resource_GetGPUVirtualAddress(cb));
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu_descriptor_handle);
+    ID3D12GraphicsCommandList_Dispatch(command_list, 15, 15, 1);
+
+    transition_sub_resource_state(command_list, resource, 0,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
+    set_rect(&rect, 0, 0, 60, 60);
+    check_readback_data_float(&rb, &rect, 0.6f, 2);
+    set_rect(&rect, 0, 60, rb.width, rb.height);
+    check_readback_data_float(&rb, &rect, 1.0f, 2);
+    set_rect(&rect, 60, 0, rb.width, rb.height);
+    check_readback_data_float(&rb, &rect, 1.0f, 2);
+    release_resource_readback(&rb);
+
+    memset(&input, 0, sizeof(input));
+    input.x = 0.7f;
+    hr = ID3D12Resource_Map(cb, 0, NULL, &ptr);
+    ok(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
+    memcpy(ptr, &input.x, sizeof(input));
+    ID3D12Resource_Unmap(cb, 0, NULL);
+
+    reset_command_list(command_list, context.allocator);
+    transition_sub_resource_state(command_list, resource, 0,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(command_list, 1,
+            ID3D12Resource_GetGPUVirtualAddress(cb));
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu_descriptor_handle);
+    ID3D12GraphicsCommandList_Dispatch(command_list, 16, 16, 1);
+
+    transition_sub_resource_state(command_list, resource, 0,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_float(resource, 0, queue, command_list, 0.7f, 2);
+
+    ID3D12Resource_Release(cb);
+    ID3D12Resource_Release(resource);
+    ID3D12PipelineState_Release(pipeline_state);
+    ID3D12RootSignature_Release(root_signature);
+    ID3D12DescriptorHeap_Release(cpu_descriptor_heap);
+    ID3D12DescriptorHeap_Release(descriptor_heap);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     BOOL enable_debug_layer = FALSE;
@@ -8440,4 +8924,5 @@ START_TEST(d3d12)
     run_test(test_descriptor_tables);
     run_test(test_get_copyable_footprints);
     run_test(test_typed_buffer_uav);
+    run_test(test_cs_uav_store);
 }
