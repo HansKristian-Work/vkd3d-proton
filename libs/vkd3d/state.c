@@ -243,10 +243,11 @@ static VkDescriptorType vk_descriptor_type_from_d3d12_root_parameter(D3D12_ROOT_
 {
     switch (type)
     {
+        /* SRV and UAV root parameters are buffer views. */
         case D3D12_ROOT_PARAMETER_TYPE_SRV:
-            return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            return VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
         case D3D12_ROOT_PARAMETER_TYPE_UAV:
-            return VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER; /* FIXME: Add support for images. */
+            return VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
         case D3D12_ROOT_PARAMETER_TYPE_CBV:
             return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         default:
@@ -311,7 +312,9 @@ static bool vk_binding_from_d3d12_descriptor_range(struct VkDescriptorSetLayoutB
 struct d3d12_root_signature_info
 {
     size_t cbv_count;
+    size_t buffer_uav_count;
     size_t uav_count;
+    size_t buffer_srv_count;
     size_t srv_count;
     size_t sampler_count;
     size_t descriptor_count;
@@ -377,11 +380,11 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
                 ++info->descriptor_count;
                 break;
             case D3D12_ROOT_PARAMETER_TYPE_SRV:
-                ++info->srv_count;
+                ++info->buffer_srv_count;
                 ++info->descriptor_count;
                 break;
             case D3D12_ROOT_PARAMETER_TYPE_UAV:
-                ++info->uav_count;
+                ++info->buffer_uav_count;
                 ++info->descriptor_count;
                 break;
 
@@ -716,9 +719,11 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     root_signature->pool_size_count = 0;
     if (info.cbv_count)
         ++root_signature->pool_size_count;
+    if (info.buffer_srv_count)
+        ++root_signature->pool_size_count;
     if (info.srv_count)
         ++root_signature->pool_size_count;
-    if (info.uav_count)
+    if (info.buffer_uav_count || info.uav_count)
         ++root_signature->pool_size_count;
     if (info.sampler_count)
         ++root_signature->pool_size_count;
@@ -737,15 +742,20 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             root_signature->pool_sizes[i++].descriptorCount = info.cbv_count;
         }
+        if (info.buffer_srv_count)
+        {
+            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+            root_signature->pool_sizes[i++].descriptorCount = info.buffer_srv_count;
+        }
         if (info.srv_count)
         {
             root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
             root_signature->pool_sizes[i++].descriptorCount = info.srv_count;
         }
-        if (info.uav_count)
+        if (info.buffer_uav_count || info.uav_count)
         {
             root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-            root_signature->pool_sizes[i++].descriptorCount = info.uav_count;
+            root_signature->pool_sizes[i++].descriptorCount = info.buffer_uav_count + info.uav_count;
         }
         if (info.sampler_count)
         {
