@@ -411,6 +411,21 @@ static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12Comm
     ID3D12Fence_Release(fence);
 }
 
+#define update_buffer_data(a, b, c) update_buffer_data_(__LINE__, a, b, c)
+static void update_buffer_data_(unsigned int line, ID3D12Resource *buffer,
+        const void *data, size_t size)
+{
+    D3D12_RANGE range;
+    HRESULT hr;
+    void *ptr;
+
+    range.Begin = range.End = 0;
+    hr = ID3D12Resource_Map(buffer, 0, &range, &ptr);
+    ok_(line)(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
+    memcpy(ptr, data, size);
+    ID3D12Resource_Unmap(buffer, 0, NULL);
+}
+
 #define create_upload_buffer(a, b, c) create_upload_buffer_(__LINE__, a, b, c)
 static ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Device *device,
         size_t size, const void *data)
@@ -419,7 +434,6 @@ static ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Device *de
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *buffer;
     HRESULT hr;
-    void *ptr;
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -442,12 +456,7 @@ static ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Device *de
     ok_(line)(SUCCEEDED(hr), "Failed to create upload buffer, hr %#x.\n", hr);
 
     if (data)
-    {
-        hr = ID3D12Resource_Map(buffer, 0, NULL, (void **)&ptr);
-        ok_(line)(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
-        memcpy(ptr, data, size);
-        ID3D12Resource_Unmap(buffer, 0, NULL);
-    }
+        update_buffer_data_(line, buffer, data, size);
 
     return buffer;
 }
@@ -4484,8 +4493,6 @@ static void test_shader_instructions(void)
     ID3D12CommandQueue *queue;
     unsigned int i, x, y;
     ID3D12Resource *cb;
-    HRESULT hr;
-    void *ptr;
 
     static const DWORD ps_dot2_code[] =
     {
@@ -6332,10 +6339,7 @@ static void test_shader_instructions(void)
                     context.root_signature, desc.rt_format, NULL, current_ps, NULL);
         }
 
-        hr = ID3D12Resource_Map(cb, 0, NULL, (void **)&ptr);
-        ok(SUCCEEDED(hr), "Failed to map constant buffer, hr %#x.\n", hr);
-        memcpy(ptr, &tests[i].input, sizeof(tests[i].input));
-        ID3D12Resource_Unmap(cb, 0, NULL);
+        update_buffer_data(cb, &tests[i].input, sizeof(tests[i].input));
 
         if (i)
             transition_resource_state(command_list, context.render_target,
@@ -6376,10 +6380,7 @@ static void test_shader_instructions(void)
                     context.root_signature, desc.rt_format, NULL, current_ps, NULL);
         }
 
-        hr = ID3D12Resource_Map(cb, 0, NULL, (void **)&ptr);
-        ok(SUCCEEDED(hr), "Failed to map constant buffer, hr %#x.\n", hr);
-        memcpy(ptr, &uint_tests[i].input, sizeof(uint_tests[i].input));
-        ID3D12Resource_Unmap(cb, 0, NULL);
+        update_buffer_data(cb, &uint_tests[i].input, sizeof(uint_tests[i].input));
 
         if (i)
             transition_resource_state(command_list, context.render_target,
@@ -7041,7 +7042,6 @@ static void test_cs_constant_buffer(void)
     unsigned int i, x;
     float value;
     HRESULT hr;
-    void *ptr;
 
     static const DWORD cs_code[] =
     {
@@ -7170,10 +7170,7 @@ static void test_cs_constant_buffer(void)
     release_resource_readback(&rb);
 
     value = 6.0f;
-    hr = ID3D12Resource_Map(cb, 0, NULL, &ptr);
-    ok(SUCCEEDED(hr), "Failed to map constant buffer, hr %#x.\n", hr);
-    memcpy(ptr, &value, sizeof(value));
-    ID3D12Resource_Unmap(cb, 0, NULL);
+    update_buffer_data(cb, &value, sizeof(value));
 
     reset_command_list(command_list, context.allocator);
     transition_sub_resource_state(command_list, resource, 0,
@@ -7215,8 +7212,6 @@ static void test_immediate_constant_buffer(void)
     ID3D12CommandQueue *queue;
     ID3D12Resource *cb;
     unsigned int i;
-    HRESULT hr;
-    void *ptr;
 
     static const DWORD ps_code[] =
     {
@@ -7286,10 +7281,7 @@ static void test_immediate_constant_buffer(void)
     for (i = 0; i < ARRAY_SIZE(expected_result); ++i)
     {
         *index = i;
-        hr = ID3D12Resource_Map(cb, 0, NULL, (void **)&ptr);
-        ok(SUCCEEDED(hr), "Failed to map constant buffer, hr %#x.\n", hr);
-        memcpy(ptr, index, sizeof(index));
-        ID3D12Resource_Unmap(cb, 0, NULL);
+        update_buffer_data(cb, index, sizeof(index));
 
         if (i)
             transition_resource_state(command_list, context.render_target,
@@ -8462,7 +8454,6 @@ static void test_cs_uav_store(void)
     unsigned int i;
     HRESULT hr;
     RECT rect;
-    void *ptr;
 
     static const DWORD cs_1_thread_code[] =
     {
@@ -8722,10 +8713,7 @@ static void test_cs_uav_store(void)
 
         memset(&input, 0, sizeof(input));
         input.x = tests[i].value;
-        hr = ID3D12Resource_Map(cb, 0, NULL, &ptr);
-        ok(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
-        memcpy(ptr, &input.x, sizeof(input));
-        ID3D12Resource_Unmap(cb, 0, NULL);
+        update_buffer_data(cb, &input.x, sizeof(input));
 
         reset_command_list(command_list, context.allocator);
         transition_sub_resource_state(command_list, resource, 0,
@@ -8752,10 +8740,7 @@ static void test_cs_uav_store(void)
 
     memset(&input, 0, sizeof(input));
     input.x = 1.0f;
-    hr = ID3D12Resource_Map(cb, 0, NULL, &ptr);
-    ok(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
-    memcpy(ptr, &input.x, sizeof(input));
-    ID3D12Resource_Unmap(cb, 0, NULL);
+    update_buffer_data(cb, &input.x, sizeof(input));
 
     reset_command_list(command_list, context.allocator);
     transition_sub_resource_state(command_list, resource, 0,
@@ -8777,10 +8762,7 @@ static void test_cs_uav_store(void)
 
     memset(&input, 0, sizeof(input));
     input.x = 0.5f;
-    hr = ID3D12Resource_Map(cb, 0, NULL, &ptr);
-    ok(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
-    memcpy(ptr, &input.x, sizeof(input));
-    ID3D12Resource_Unmap(cb, 0, NULL);
+    update_buffer_data(cb, &input.x, sizeof(input));
 
     reset_command_list(command_list, context.allocator);
     transition_sub_resource_state(command_list, resource, 0,
@@ -8810,10 +8792,7 @@ static void test_cs_uav_store(void)
 
     memset(&input, 0, sizeof(input));
     input.x = 0.6f;
-    hr = ID3D12Resource_Map(cb, 0, NULL, &ptr);
-    ok(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
-    memcpy(ptr, &input.x, sizeof(input));
-    ID3D12Resource_Unmap(cb, 0, NULL);
+    update_buffer_data(cb, &input.x, sizeof(input));
 
     reset_command_list(command_list, context.allocator);
     transition_sub_resource_state(command_list, resource, 0,
@@ -8840,10 +8819,7 @@ static void test_cs_uav_store(void)
 
     memset(&input, 0, sizeof(input));
     input.x = 0.7f;
-    hr = ID3D12Resource_Map(cb, 0, NULL, &ptr);
-    ok(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
-    memcpy(ptr, &input.x, sizeof(input));
-    ID3D12Resource_Unmap(cb, 0, NULL);
+    update_buffer_data(cb, &input.x, sizeof(input));
 
     reset_command_list(command_list, context.allocator);
     transition_sub_resource_state(command_list, resource, 0,
