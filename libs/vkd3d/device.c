@@ -1122,8 +1122,9 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         UINT *row_counts, UINT64 *row_sizes, UINT64 *total_bytes)
 {
     unsigned int i, sub_resource_idx, miplevel_idx, width, height, row_count, row_size, row_pitch;
+    unsigned int array_size, depth;
     const struct vkd3d_format *format;
-    UINT64 offset, total;
+    UINT64 offset, size, total;
 
     TRACE("iface %p, desc %p, first_sub_resource %u, sub_resource_count %u, base_offset %#"PRIx64", "
             "layouts %p, row_counts %p, row_sizes %p, total_bytes %p.\n",
@@ -1166,19 +1167,19 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
             break;
 
         case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
-            break;
-
         case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
-            FIXME("Unhandled resource dimension %#x.\n", desc->Dimension);
-            return;
+            break;
 
         default:
             WARN("Invalid resource dimension %#x.\n", desc->Dimension);
             return;
     }
 
-    if (first_sub_resource >= desc->MipLevels * desc->DepthOrArraySize
-            || sub_resource_count > desc->MipLevels * desc->DepthOrArraySize - first_sub_resource)
+    array_size = desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1 : desc->DepthOrArraySize;
+    depth = desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1 : desc->DepthOrArraySize;
+
+    if (first_sub_resource >= desc->MipLevels * array_size
+            || sub_resource_count > desc->MipLevels * array_size - first_sub_resource)
     {
         WARN("Invalid sub-resource range %u-%u for resource.\n", first_sub_resource, sub_resource_count);
         return;
@@ -1202,6 +1203,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         miplevel_idx = sub_resource_idx % desc->MipLevels;
         width = align(max(1, desc->Width >> miplevel_idx), format->block_width);
         height = align(max(1, desc->Height >> miplevel_idx), format->block_height);
+        depth = max(1, depth >> miplevel_idx);
         row_count = height / format->block_height;
         row_size = (width / format->block_width) * format->byte_count * format->block_byte_count;
         row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
@@ -1212,7 +1214,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
             layouts[i].Footprint.Format = desc->Format;
             layouts[i].Footprint.Width = width;
             layouts[i].Footprint.Height = height;
-            layouts[i].Footprint.Depth = 1;
+            layouts[i].Footprint.Depth = depth;
             layouts[i].Footprint.RowPitch = row_pitch;
         }
         if (row_counts)
@@ -1220,7 +1222,10 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         if (row_sizes)
             row_sizes[i] = row_size;
 
-        total = offset + max(0, row_count - 1) * row_pitch + row_size;
+        size = max(0, row_count - 1) * row_pitch + row_size;
+        size = max(0, depth - 1) * align(size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) + size;
+
+        total = offset + size;
         offset = align(total, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
     }
     if (total_bytes)
