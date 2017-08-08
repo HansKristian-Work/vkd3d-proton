@@ -764,12 +764,18 @@ static void d3d12_desc_destroy(struct d3d12_desc *descriptor,
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
     /* Nothing to do for VKD3D_DESCRIPTOR_MAGIC_CBV. */
-    if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV)
-        VK_CALL(vkDestroyImageView(device->vk_device, descriptor->u.vk_image_view, NULL));
-    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
-        VK_CALL(vkDestroyBufferView(device->vk_device, descriptor->u.vk_buffer_view, NULL));
+    if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
+    {
+        if (descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
+                || descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
+            VK_CALL(vkDestroyBufferView(device->vk_device, descriptor->u.vk_buffer_view, NULL));
+        else
+            VK_CALL(vkDestroyImageView(device->vk_device, descriptor->u.vk_image_view, NULL));
+    }
     else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
+    {
         VK_CALL(vkDestroySampler(device->vk_device, descriptor->u.vk_sampler, NULL));
+    }
 
     memset(descriptor, 0, sizeof(*descriptor));
 }
@@ -894,41 +900,15 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 }
 
-void d3d12_desc_create_uav(struct d3d12_desc *descriptor,
+static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
     const struct vkd3d_format *format;
 
-    d3d12_desc_destroy(descriptor, device);
-
-    if (!resource)
-    {
-        FIXME("NULL resource UAV not implemented.\n");
-        return;
-    }
-
-    if (!d3d12_resource_is_buffer(resource))
-    {
-        FIXME("Resource dimension %#x not implemented.\n", resource->desc.Dimension);
-        return;
-    }
-
-    if (!desc)
-    {
-        FIXME("Default UAV views not supported.\n");
-        return;
-    }
-
     if (!(format = vkd3d_get_format(desc->Format)))
     {
         ERR("Failed to find format for %#x.\n", resource->desc.Format);
-        return;
-    }
-
-    if (vkd3d_format_is_compressed(format))
-    {
-        WARN("Buffer views cannot be created for compressed formats.\n");
         return;
     }
 
@@ -952,6 +932,72 @@ void d3d12_desc_create_uav(struct d3d12_desc *descriptor,
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+}
+
+static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
+{
+    const struct vkd3d_format *format;
+
+    if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    {
+        FIXME("Resource dimension %#x not implemented.\n", resource->desc.Dimension);
+        return;
+    }
+
+    if (!(format = vkd3d_get_format(desc->Format)))
+    {
+        ERR("Failed to find format for %#x.\n", resource->desc.Format);
+        return;
+    }
+
+    if (vkd3d_format_is_compressed(format))
+    {
+        WARN("Buffer views cannot be created for compressed formats.\n");
+        return;
+    }
+
+    if (desc->ViewDimension != D3D12_UAV_DIMENSION_TEXTURE2D)
+    {
+        WARN("Unexpected view dimension %#x.\n", desc->ViewDimension);
+        return;
+    }
+
+    if (desc->u.Texture2D.PlaneSlice)
+        FIXME("Ignoring plane slice %u.\n", desc->u.Texture2D.PlaneSlice);
+
+    if (vkd3d_create_texture_view(device, resource, format,
+            desc->u.Texture2D.MipSlice, 1, 0, 1,
+            &descriptor->u.vk_image_view) < 0)
+        return;
+
+    descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
+    descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+}
+
+void d3d12_desc_create_uav(struct d3d12_desc *descriptor,
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
+{
+    d3d12_desc_destroy(descriptor, device);
+
+    if (!resource)
+    {
+        FIXME("NULL resource UAV not implemented.\n");
+        return;
+    }
+
+    if (!desc)
+    {
+        FIXME("Default UAV views not supported.\n");
+        return;
+    }
+
+    if (d3d12_resource_is_buffer(resource))
+        vkd3d_create_buffer_uav(descriptor, device, resource, desc);
+    else
+        vkd3d_create_texture_uav(descriptor, device, resource, desc);
 }
 
 /* samplers */
