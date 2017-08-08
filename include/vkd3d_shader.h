@@ -61,6 +61,7 @@ struct vkd3d_shader_resource_binding
 {
     enum vkd3d_descriptor_type type;
     unsigned int register_index;
+    bool is_buffer;
 
     uint32_t descriptor_set;
     uint32_t binding;

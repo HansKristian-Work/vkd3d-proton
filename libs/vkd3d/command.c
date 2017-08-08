@@ -2274,18 +2274,29 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
 
 static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_descriptor_write,
         VkDescriptorImageInfo *vk_image_info, struct d3d12_desc *descriptor,
-        VkDescriptorSet vk_descriptor_set, uint32_t vk_binding)
+        VkDescriptorSet vk_descriptor_set, uint32_t vk_binding, unsigned int index)
 {
     vk_descriptor_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     vk_descriptor_write->pNext = NULL;
     vk_descriptor_write->dstSet = vk_descriptor_set;
-    vk_descriptor_write->dstBinding = vk_binding;
+    vk_descriptor_write->dstBinding = vk_binding + index;
     vk_descriptor_write->dstArrayElement = 0;
     vk_descriptor_write->descriptorCount = 1;
     vk_descriptor_write->descriptorType = descriptor->vk_descriptor_type;
     vk_descriptor_write->pImageInfo = NULL;
     vk_descriptor_write->pBufferInfo = NULL;
     vk_descriptor_write->pTexelBufferView = NULL;
+
+    if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
+            || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
+    {
+        /* We use separate bindings for buffer and texture SRVs/UAVs.
+         * See d3d12_root_signature_init(). */
+        vk_descriptor_write->dstBinding = vk_binding + 2 * index;
+        if (descriptor->vk_descriptor_type != VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
+                && descriptor->vk_descriptor_type != VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
+            ++vk_descriptor_write->dstBinding;
+    }
 
     if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_CBV)
     {
@@ -2369,7 +2380,7 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
         for (j = 0; j < range->descriptor_count; ++j, ++descriptor)
         {
             if (!vk_write_descriptor_set_from_d3d12_desc(current_descriptor_write,
-                    current_image_info, descriptor, descriptor_set, range->binding + j))
+                    current_image_info, descriptor, descriptor_set, range->binding, j))
                 continue;
 
             ++descriptor_count;

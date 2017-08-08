@@ -221,14 +221,15 @@ static enum vkd3d_shader_visibility vkd3d_shader_visibility_from_d3d12(D3D12_SHA
     }
 }
 
-static VkDescriptorType vk_descriptor_type_from_d3d12_range_type(D3D12_DESCRIPTOR_RANGE_TYPE type)
+static VkDescriptorType vk_descriptor_type_from_d3d12_range_type(D3D12_DESCRIPTOR_RANGE_TYPE type,
+        bool is_buffer)
 {
     switch (type)
     {
         case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
-            return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            return is_buffer ? VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
         case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-            return VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER; /* FIXME: Add support for images. */
+            return is_buffer ? VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
             return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
@@ -292,10 +293,12 @@ static enum vkd3d_descriptor_type vkd3d_descriptor_type_from_d3d12_root_paramete
 }
 
 static bool vk_binding_from_d3d12_descriptor_range(struct VkDescriptorSetLayoutBinding *binding_desc,
-        const D3D12_DESCRIPTOR_RANGE *descriptor_range, uint32_t vk_binding)
+        const D3D12_DESCRIPTOR_RANGE *descriptor_range, D3D12_SHADER_VISIBILITY shader_visibility,
+        bool is_buffer, uint32_t vk_binding)
 {
     binding_desc->binding = vk_binding;
-    binding_desc->descriptorType = vk_descriptor_type_from_d3d12_range_type(descriptor_range->RangeType);
+    binding_desc->descriptorType
+            = vk_descriptor_type_from_d3d12_range_type(descriptor_range->RangeType, is_buffer);
     binding_desc->descriptorCount = 1;
 
     if (descriptor_range->RegisterSpace)
@@ -305,6 +308,9 @@ static bool vk_binding_from_d3d12_descriptor_range(struct VkDescriptorSetLayoutB
     }
     if (descriptor_range->OffsetInDescriptorsFromTableStart != D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND)
         FIXME("Unhandled offset %#x.\n", descriptor_range->OffsetInDescriptorsFromTableStart);
+
+    binding_desc->stageFlags = stage_flags_from_visibility(shader_visibility);
+    binding_desc->pImmutableSamplers = NULL;
 
     return true;
 }
@@ -500,26 +506,44 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
     return S_OK;
 }
 
+static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *root_signature,
+        enum vkd3d_descriptor_type descriptor_type, unsigned int register_idx,
+        bool buffer_descriptor, uint32_t *descriptor_idx)
+{
+    uint32_t binding = *descriptor_idx;
+
+    root_signature->descriptor_mapping[binding].type = descriptor_type;
+    root_signature->descriptor_mapping[binding].register_index = register_idx;
+    root_signature->descriptor_mapping[binding].is_buffer = buffer_descriptor;
+    root_signature->descriptor_mapping[binding].descriptor_set = 0;
+    root_signature->descriptor_mapping[binding].binding = binding;
+
+    *descriptor_idx += 1;
+}
+
 static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signature *root_signature,
         enum vkd3d_descriptor_type descriptor_type, unsigned int base_register_idx,
-        unsigned int binding_count, uint32_t *descriptor_idx)
+        unsigned int binding_count, bool duplicate_descriptors, uint32_t *descriptor_idx)
 {
-    uint32_t first_binding, binding;
+    bool is_buffer_descriptor;
+    uint32_t first_binding;
     unsigned int i;
+
+    is_buffer_descriptor = descriptor_type == VKD3D_DESCRIPTOR_TYPE_CBV;
+    duplicate_descriptors = (descriptor_type == VKD3D_DESCRIPTOR_TYPE_SRV
+            || descriptor_type == VKD3D_DESCRIPTOR_TYPE_UAV)
+            && duplicate_descriptors;
 
     first_binding = *descriptor_idx;
     for (i = 0; i < binding_count; ++i)
     {
-        binding = *descriptor_idx;
+        if (duplicate_descriptors)
+            d3d12_root_signature_append_vk_binding(root_signature, descriptor_type,
+                    base_register_idx + i, true, descriptor_idx);
 
-        root_signature->descriptor_mapping[binding].type = descriptor_type;
-        root_signature->descriptor_mapping[binding].register_index = base_register_idx + i;
-        root_signature->descriptor_mapping[binding].descriptor_set = 0;
-        root_signature->descriptor_mapping[binding].binding = binding;
-
-        *descriptor_idx += 1;
+        d3d12_root_signature_append_vk_binding(root_signature, descriptor_type,
+                base_register_idx + i, is_buffer_descriptor, descriptor_idx);
     }
-
     return first_binding;
 }
 
@@ -563,6 +587,12 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         hr = E_OUTOFMEMORY;
         goto fail;
     }
+
+    /* XXX: Vulkan buffer and image descriptors have different types. In order
+     * to preserve compatibility between Vulkan resource bindings for the same
+     * root signature, we create descriptor set layouts with two bindings for
+     * each SRV and UAV. */
+    info.descriptor_count += info.srv_count + info.uav_count;
 
     if (!(binding_desc = vkd3d_calloc(info.descriptor_count, sizeof(*binding_desc))))
     {
@@ -619,19 +649,35 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
                     vk_binding = d3d12_root_signature_assign_vk_bindings(root_signature,
                             vkd3d_descriptor_type_from_d3d12_range_type(descriptor_range->RangeType),
                             descriptor_range->BaseShaderRegister, descriptor_range->NumDescriptors,
-                            &descriptor_idx);
+                            true, &descriptor_idx);
 
                     /* Unroll descriptor range. */
                     for (k = 0; k < descriptor_range->NumDescriptors; ++k)
                     {
-                        if (!vk_binding_from_d3d12_descriptor_range(cur_binding, descriptor_range, vk_binding + k))
+                        uint32_t vk_current_binding = vk_binding + k;
+
+                        if (descriptor_range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SRV
+                                || descriptor_range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
+                        {
+                            vk_current_binding = vk_binding + 2 * k;
+
+                            /* Assign binding for image view. */
+                            if (!vk_binding_from_d3d12_descriptor_range(cur_binding,
+                                    descriptor_range, p->ShaderVisibility, false, vk_current_binding + 1))
+                            {
+                                hr = E_NOTIMPL;
+                                goto fail;
+                            }
+
+                            ++cur_binding;
+                        }
+
+                        if (!vk_binding_from_d3d12_descriptor_range(cur_binding,
+                                descriptor_range, p->ShaderVisibility, true, vk_current_binding))
                         {
                             hr = E_NOTIMPL;
                             goto fail;
                         }
-
-                        cur_binding->stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
-                        cur_binding->pImmutableSamplers = NULL;
 
                         ++cur_binding;
                     }
@@ -654,7 +700,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
                 }
                 cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
                         vkd3d_descriptor_type_from_d3d12_root_parameter_type(p->ParameterType),
-                        p->u.Descriptor.ShaderRegister, 1, &descriptor_idx);
+                        p->u.Descriptor.ShaderRegister, 1, false, &descriptor_idx);
                 cur_binding->descriptorType = vk_descriptor_type_from_d3d12_root_parameter(p->ParameterType);
                 cur_binding->descriptorCount = 1;
                 cur_binding->stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
@@ -692,7 +738,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             goto fail;
 
         cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
-                VKD3D_DESCRIPTOR_TYPE_SAMPLER, s->ShaderRegister, 1, &descriptor_idx);
+                VKD3D_DESCRIPTOR_TYPE_SAMPLER, s->ShaderRegister, 1, false, &descriptor_idx);
         cur_binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
         cur_binding->descriptorCount = 1;
         cur_binding->stageFlags = stage_flags_from_visibility(s->ShaderVisibility);

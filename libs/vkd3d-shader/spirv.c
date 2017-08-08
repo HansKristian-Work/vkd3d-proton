@@ -1682,11 +1682,13 @@ struct vkd3d_descriptor_binding
 };
 
 static struct vkd3d_descriptor_binding vkd3d_dxbc_compiler_get_descriptor_binding(
-        struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg)
+        struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg,
+        enum vkd3d_shader_resource_type resource_type)
 {
     enum vkd3d_descriptor_type descriptor_type;
     struct vkd3d_descriptor_binding vk_binding;
     unsigned int reg_idx = reg->idx[0].offset;
+    bool is_buffer_resource;
     unsigned int i;
 
     descriptor_type = VKD3D_DESCRIPTOR_TYPE_UNKNOWN;
@@ -1701,13 +1703,15 @@ static struct vkd3d_descriptor_binding vkd3d_dxbc_compiler_get_descriptor_bindin
     else
         FIXME("Unhandled register type %#x.\n", reg->type);
 
+    is_buffer_resource = resource_type == VKD3D_SHADER_RESOURCE_BUFFER;
     if (descriptor_type != VKD3D_DESCRIPTOR_TYPE_UNKNOWN)
     {
         for (i = 0; i < compiler->binding_count; ++i)
         {
             const struct vkd3d_shader_resource_binding *current = &compiler->bindings[i];
 
-            if (current->type == descriptor_type && current->register_index == reg_idx)
+            if (current->type == descriptor_type && current->register_index == reg_idx
+                    && current->is_buffer == is_buffer_resource)
             {
                 vk_binding.set = current->descriptor_set;
                 vk_binding.binding = current->binding;
@@ -1724,12 +1728,13 @@ static struct vkd3d_descriptor_binding vkd3d_dxbc_compiler_get_descriptor_bindin
 }
 
 static void vkd3d_dxbc_compiler_emit_descriptor_binding(struct vkd3d_dxbc_compiler *compiler,
-        uint32_t variable_id, const struct vkd3d_shader_register *reg)
+        uint32_t variable_id, const struct vkd3d_shader_register *reg,
+        enum vkd3d_shader_resource_type resource_type)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     struct vkd3d_descriptor_binding vk_binding;
 
-    vk_binding = vkd3d_dxbc_compiler_get_descriptor_binding(compiler, reg);
+    vk_binding = vkd3d_dxbc_compiler_get_descriptor_binding(compiler, reg, resource_type);
     vkd3d_spirv_build_op_decorate1(builder, variable_id, SpvDecorationDescriptorSet, vk_binding.set);
     vkd3d_spirv_build_op_decorate1(builder, variable_id, SpvDecorationBinding, vk_binding.binding);
 }
@@ -2701,7 +2706,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
             pointer_type_id, storage_class, 0);
 
-    vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, reg);
+    vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, reg, VKD3D_SHADER_RESOURCE_BUFFER);
 
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
@@ -2759,7 +2764,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
             ptr_type_id, storage_class, 0);
 
-    vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, reg);
+    vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, reg, VKD3D_SHADER_RESOURCE_NONE);
 
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
@@ -2863,7 +2868,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
             ptr_type_id, storage_class, 0);
 
-    vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, reg);
+    vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, reg, semantic->resource_type);
 
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
