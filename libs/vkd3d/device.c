@@ -1124,7 +1124,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
     static const struct vkd3d_format vkd3d_format_unknown = {DXGI_FORMAT_UNKNOWN, VK_FORMAT_UNDEFINED, 1, 1, 1, 1, 0};
 
     unsigned int i, sub_resource_idx, miplevel_idx, width, height, row_count, row_size, row_pitch;
-    unsigned int array_size, depth;
+    unsigned int array_size, base_depth, depth;
     const struct vkd3d_format *format;
     UINT64 offset, size, total;
 
@@ -1184,7 +1184,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
     }
 
     array_size = desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1 : desc->DepthOrArraySize;
-    depth = desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1 : desc->DepthOrArraySize;
+    base_depth = desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1 : desc->DepthOrArraySize;
 
     if (first_sub_resource >= desc->MipLevels * array_size
             || sub_resource_count > desc->MipLevels * array_size - first_sub_resource)
@@ -1211,7 +1211,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         miplevel_idx = sub_resource_idx % desc->MipLevels;
         width = align(max(1, desc->Width >> miplevel_idx), format->block_width);
         height = align(max(1, desc->Height >> miplevel_idx), format->block_height);
-        depth = max(1, depth >> miplevel_idx);
+        depth = max(1, base_depth >> miplevel_idx);
         row_count = height / format->block_height;
         row_size = (width / format->block_width) * format->byte_count * format->block_byte_count;
         row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
