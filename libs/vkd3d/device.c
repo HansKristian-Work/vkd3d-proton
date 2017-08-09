@@ -1142,19 +1142,17 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
     if (total_bytes)
         *total_bytes = ~(UINT64)0;
 
-    if (desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
-    {
-        if (!(format = vkd3d_get_format(desc->Format)))
-        {
-            WARN("Invalid format %#x.\n", desc->Format);
-            return;
-        }
-    }
-    else
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
         format = &vkd3d_format_unknown;
     }
+    else if (!(format = vkd3d_get_format(desc->Format)))
+    {
+        WARN("Invalid format %#x.\n", desc->Format);
+        return;
+    }
 
+    /* FIXME: We should probably share D3D12_RESOURCE_DESC validation with CreateCommittedResource(). */
     switch (desc->Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
