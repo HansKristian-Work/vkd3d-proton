@@ -662,12 +662,82 @@ static bool d3d12_command_allocator_add_descriptor_pool(struct d3d12_command_all
     return true;
 }
 
+static bool d3d12_command_allocator_add_buffer_view(struct d3d12_command_allocator *allocator,
+        VkBufferView view)
+{
+    if (!vkd3d_array_reserve((void **)&allocator->buffer_views, &allocator->buffer_views_size,
+            allocator->buffer_view_count + 1, sizeof(*allocator->buffer_views)))
+        return false;
+
+    allocator->buffer_views[allocator->buffer_view_count++] = view;
+
+    return true;
+}
+
 static void d3d12_command_list_allocator_destroyed(struct d3d12_command_list *list)
 {
     TRACE("list %p.\n", list);
 
     list->allocator = NULL;
     list->vk_command_buffer = VK_NULL_HANDLE;
+}
+
+static void d3d12_command_allocator_free_resources(struct d3d12_command_allocator *allocator,
+        bool should_destroy)
+{
+    struct d3d12_device *device = allocator->device;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    unsigned int i;
+
+    for (i = 0; i < allocator->buffer_view_count; ++i)
+    {
+        VK_CALL(vkDestroyBufferView(device->vk_device, allocator->buffer_views[i], NULL));
+    }
+    allocator->buffer_view_count = 0;
+
+    for (i = 0; i < allocator->descriptor_pool_count; ++i)
+    {
+        VK_CALL(vkDestroyDescriptorPool(device->vk_device, allocator->descriptor_pools[i], NULL));
+    }
+    allocator->descriptor_pool_count = 0;
+
+    for (i = 0; i < allocator->pipeline_count; ++i)
+    {
+        VK_CALL(vkDestroyPipeline(device->vk_device, allocator->pipelines[i], NULL));
+    }
+    allocator->pipeline_count = 0;
+
+    for (i = 0; i < allocator->framebuffer_count; ++i)
+    {
+        VK_CALL(vkDestroyFramebuffer(device->vk_device, allocator->framebuffers[i], NULL));
+    }
+    allocator->framebuffer_count = 0;
+
+    for (i = 0; i < allocator->pass_count; ++i)
+    {
+        VK_CALL(vkDestroyRenderPass(device->vk_device, allocator->passes[i], NULL));
+    }
+    allocator->pass_count = 0;
+
+    if (should_destroy)
+    {
+        vkd3d_free(allocator->buffer_views);
+        vkd3d_free(allocator->descriptor_pools);
+        vkd3d_free(allocator->pipelines);
+        vkd3d_free(allocator->framebuffers);
+        vkd3d_free(allocator->passes);
+
+        /* All command buffers are implicitly freed when a pool is destroyed. */
+        vkd3d_free(allocator->command_buffers);
+        allocator->command_buffer_count = 0;
+        VK_CALL(vkDestroyCommandPool(device->vk_device, allocator->vk_command_pool, NULL));
+    }
+    else if (allocator->command_buffer_count)
+    {
+        VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
+                allocator->command_buffer_count, allocator->command_buffers));
+        allocator->command_buffer_count = 0;
+    }
 }
 
 /* ID3D12CommandAllocator */
@@ -718,40 +788,11 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
     if (!refcount)
     {
         struct d3d12_device *device = allocator->device;
-        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-        unsigned int i;
 
         if (allocator->current_command_list)
             d3d12_command_list_allocator_destroyed(allocator->current_command_list);
 
-        for (i = 0; i < allocator->descriptor_pool_count; ++i)
-        {
-            VK_CALL(vkDestroyDescriptorPool(device->vk_device, allocator->descriptor_pools[i], NULL));
-        }
-        vkd3d_free(allocator->descriptor_pools);
-
-        for (i = 0; i < allocator->pipeline_count; ++i)
-        {
-            VK_CALL(vkDestroyPipeline(device->vk_device, allocator->pipelines[i], NULL));
-        }
-        vkd3d_free(allocator->pipelines);
-
-        for (i = 0; i < allocator->framebuffer_count; ++i)
-        {
-            VK_CALL(vkDestroyFramebuffer(device->vk_device, allocator->framebuffers[i], NULL));
-        }
-        vkd3d_free(allocator->framebuffers);
-
-        for (i = 0; i < allocator->pass_count; ++i)
-        {
-            VK_CALL(vkDestroyRenderPass(device->vk_device, allocator->passes[i], NULL));
-        }
-        vkd3d_free(allocator->passes);
-
-        /* All command buffers are implicitly freed when a pool is destroyed. */
-        vkd3d_free(allocator->command_buffers);
-        VK_CALL(vkDestroyCommandPool(device->vk_device, allocator->vk_command_pool, NULL));
-
+        d3d12_command_allocator_free_resources(allocator, true);
         vkd3d_free(allocator);
 
         ID3D12Device_Release(&device->ID3D12Device_iface);
@@ -807,7 +848,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
     const struct vkd3d_vk_device_procs *vk_procs;
     struct d3d12_command_list *list;
     struct d3d12_device *device;
-    unsigned int i;
     VkResult vr;
 
     TRACE("iface %p.\n", iface);
@@ -826,36 +866,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
     device = allocator->device;
     vk_procs = &device->vk_procs;
 
-    for (i = 0; i < allocator->descriptor_pool_count; ++i)
-    {
-        VK_CALL(vkDestroyDescriptorPool(device->vk_device, allocator->descriptor_pools[i], NULL));
-    }
-    allocator->descriptor_pool_count = 0;
-
-    for (i = 0; i < allocator->pipeline_count; ++i)
-    {
-        VK_CALL(vkDestroyPipeline(device->vk_device, allocator->pipelines[i], NULL));
-    }
-    allocator->pipeline_count = 0;
-
-    for (i = 0; i < allocator->framebuffer_count; ++i)
-    {
-        VK_CALL(vkDestroyFramebuffer(device->vk_device, allocator->framebuffers[i], NULL));
-    }
-    allocator->framebuffer_count = 0;
-
-    for (i = 0; i < allocator->pass_count; ++i)
-    {
-        VK_CALL(vkDestroyRenderPass(device->vk_device, allocator->passes[i], NULL));
-    }
-    allocator->pass_count = 0;
-
-    if (allocator->command_buffer_count)
-    {
-        VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
-                allocator->command_buffer_count, allocator->command_buffers));
-        allocator->command_buffer_count = 0;
-    }
+    d3d12_command_allocator_free_resources(allocator, false);
 
     if ((vr = VK_CALL(vkResetCommandPool(device->vk_device, allocator->vk_command_pool,
             VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT))))
@@ -946,6 +957,10 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     allocator->descriptor_pools = NULL;
     allocator->descriptor_pools_size = 0;
     allocator->descriptor_pool_count = 0;
+
+    allocator->buffer_views = NULL;
+    allocator->buffer_views_size = 0;
+    allocator->buffer_view_count = 0;
 
     allocator->command_buffers = NULL;
     allocator->command_buffers_size = 0;
@@ -2535,6 +2550,45 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootConstantBufferVi
             list->graphics_descriptor_set, root_parameter_index, address);
 }
 
+static void d3d12_command_list_set_root_uav(struct d3d12_command_list *list,
+        struct d3d12_root_signature *root_signature, VkDescriptorSet descriptor_set,
+        unsigned int index, D3D12_GPU_VIRTUAL_ADDRESS gpu_address)
+{
+    const struct d3d12_root_descriptor *root_descriptor = &root_signature->parameters[index].u.descriptor;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct VkWriteDescriptorSet descriptor_write;
+    VkDevice vk_device = list->device->vk_device;
+    VkBufferView vk_buffer_view;
+
+    assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_UAV);
+
+    /* FIXME: Re-use buffer views. */
+    if (!vkd3d_create_raw_buffer_uav(list->device, gpu_address, &vk_buffer_view))
+    {
+        ERR("Failed to create buffer view.\n");
+        return;
+    }
+
+    if (!(d3d12_command_allocator_add_buffer_view(list->allocator, vk_buffer_view)))
+    {
+        ERR("Failed to add buffer view.\n");
+        VK_CALL(vkDestroyBufferView(vk_device, vk_buffer_view, NULL));
+        return;
+    }
+
+    descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptor_write.pNext = NULL;
+    descriptor_write.dstSet = descriptor_set;
+    descriptor_write.dstBinding = root_descriptor->binding;
+    descriptor_write.dstArrayElement = 0;
+    descriptor_write.descriptorCount = 1;
+    descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+    descriptor_write.pImageInfo = NULL;
+    descriptor_write.pBufferInfo = NULL;
+    descriptor_write.pTexelBufferView = &vk_buffer_view;
+    VK_CALL(vkUpdateDescriptorSets(vk_device, 1, &descriptor_write, 0, NULL));
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootShaderResourceView(
         ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
 {
@@ -2552,15 +2606,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootShaderResourceVi
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootUnorderedAccessView(
         ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
 {
-    FIXME("iface %p, root_parameter_index %u, address %#"PRIx64" stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, root_parameter_index %u, address %#"PRIx64".\n",
             iface, root_parameter_index, address);
+
+    d3d12_command_list_set_root_uav(list, list->compute_root_signature,
+            list->compute_descriptor_set, root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootUnorderedAccessView(
         ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
 {
-    FIXME("iface %p, root_parameter_index %u, address %#"PRIx64" stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, root_parameter_index %u, address %#"PRIx64".\n",
             iface, root_parameter_index, address);
+
+    d3d12_command_list_set_root_uav(list, list->graphics_root_signature,
+            list->graphics_descriptor_set, root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(ID3D12GraphicsCommandList *iface,

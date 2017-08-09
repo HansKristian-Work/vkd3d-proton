@@ -734,7 +734,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         if (s->RegisterSpace)
             FIXME("Unhandled register space %u for static sampler %u.\n", s->RegisterSpace, i);
 
-        if (FAILED(hr = d3d12_device_create_static_sampler(device, s, &root_signature->static_samplers[i])))
+        if (FAILED(hr = vkd3d_create_static_sampler(device, s, &root_signature->static_samplers[i])))
             goto fail;
 
         cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,

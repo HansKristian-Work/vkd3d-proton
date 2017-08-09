@@ -1000,6 +1000,18 @@ void d3d12_desc_create_uav(struct d3d12_desc *descriptor,
         vkd3d_create_texture_uav(descriptor, device, resource, desc);
 }
 
+bool vkd3d_create_raw_buffer_uav(struct d3d12_device *device,
+        D3D12_GPU_VIRTUAL_ADDRESS gpu_address, VkBufferView *vk_buffer_view)
+{
+    const struct vkd3d_format *format;
+    struct d3d12_resource *resource;
+
+    format = vkd3d_get_format(DXGI_FORMAT_R32_UINT);
+    resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, gpu_address);
+    return !vkd3d_create_buffer_view(device, resource, format,
+            gpu_address - resource->gpu_address, VK_WHOLE_SIZE, vk_buffer_view);
+}
+
 /* samplers */
 static VkFilter vk_filter_from_d3d12(D3D12_FILTER_TYPE type)
 {
@@ -1114,7 +1126,7 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
     sampler->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLER;
 }
 
-HRESULT d3d12_device_create_static_sampler(struct d3d12_device *device,
+HRESULT vkd3d_create_static_sampler(struct d3d12_device *device,
         const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler)
 {
     VkResult vr;

@@ -203,7 +203,9 @@ void d3d12_desc_create_uav(struct d3d12_desc *descriptor,
 void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc) DECLSPEC_HIDDEN;
 
-HRESULT d3d12_device_create_static_sampler(struct d3d12_device *device,
+bool vkd3d_create_raw_buffer_uav(struct d3d12_device *device,
+        D3D12_GPU_VIRTUAL_ADDRESS gpu_address, VkBufferView *vk_buffer_view) DECLSPEC_HIDDEN;
+HRESULT vkd3d_create_static_sampler(struct d3d12_device *device,
         const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler) DECLSPEC_HIDDEN;
 
 struct d3d12_rtv_desc
@@ -399,6 +401,10 @@ struct d3d12_command_allocator
     VkDescriptorPool *descriptor_pools;
     size_t descriptor_pools_size;
     size_t descriptor_pool_count;
+
+    VkBufferView *buffer_views;
+    size_t buffer_views_size;
+    size_t buffer_view_count;
 
     VkCommandBuffer *command_buffers;
     size_t command_buffers_size;
