@@ -116,6 +116,7 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
 
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.pNext = NULL;
+    /* FIXME: Use mutable formats only for typeless formats. */
     image_info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D && desc->Width == desc->Height)
         image_info.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
@@ -155,15 +156,9 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
 
     image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)
-    {
         image_info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        image_info.usage |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
-    }
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
-    {
         image_info.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-        image_info.usage |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
-    }
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
         image_info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
