@@ -8041,7 +8041,7 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
         const UINT64 *row_sizes, UINT64 *total_size)
 {
     unsigned int miplevel, width, height, depth, row_count, row_size, row_pitch;
-    UINT64 offset, total;
+    UINT64 offset, size, total;
     unsigned int i;
 
     offset = total = 0;
@@ -8050,7 +8050,8 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
         miplevel = (sub_resource_idx + i) % desc->MipLevels;
         width = align(max(1, desc->Width >> miplevel), format_block_width(desc->Format));
         height = align(max(1, desc->Height >> miplevel), format_block_height(desc->Format));
-        depth = 1;
+        depth = desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? desc->DepthOrArraySize : 1;
+        depth = max(1, depth >> miplevel);
         row_count = height / format_block_height(desc->Format);
         row_size = (width / format_block_width(desc->Format)) * format_size(desc->Format);
         row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
@@ -8074,7 +8075,10 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
         if (row_sizes)
             ok_(line)(row_sizes[i] == row_size, "Got row size %"PRIu64", expected %u.\n", row_sizes[i], row_size);
 
-        total = offset + max(0, row_count - 1) * row_pitch + row_size;
+        size = max(0, row_count - 1) * row_pitch + row_size;
+        size = max(0, depth - 1) * align(size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) + size;
+
+        total = offset + size;
         offset = align(total, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
     }
 
@@ -8116,6 +8120,10 @@ static void test_get_copyable_footprints(void)
         {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 2, 1, 2, false},
         {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 1, 1, 1, false},
         {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 3, 2, 1, 1, false},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE3D, 4, 4, 1, 1, true},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE3D, 4, 4, 2, 1, true},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE3D, 4, 4, 2, 2, true},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE3D, 3, 2, 2, 2, false},
     };
     static const struct
     {
@@ -8210,7 +8218,9 @@ static void test_get_copyable_footprints(void)
             resource_desc.Layout = is_buffer ? D3D12_TEXTURE_LAYOUT_ROW_MAJOR : D3D12_TEXTURE_LAYOUT_UNKNOWN;
             resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
-            sub_resource_count = resource_desc.DepthOrArraySize * resource_desc.MipLevels;
+            sub_resource_count = resource_desc.MipLevels;
+            if (resources[i].dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+                sub_resource_count *= resource_desc.DepthOrArraySize;
             assert(sub_resource_count <= ARRAY_SIZE(layouts));
 
             memset(layouts, 0, sizeof(layouts));
