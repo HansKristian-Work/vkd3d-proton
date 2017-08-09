@@ -8104,6 +8104,7 @@ static void test_get_copyable_footprints(void)
     }
     resources[] =
     {
+        {D3D12_RESOURCE_DIMENSION_BUFFER, 4, 1, 1, 1, false},
         {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 1, 1, true},
         {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 2, 1, true},
         {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 1, 2, true},
@@ -8175,6 +8176,8 @@ static void test_get_copyable_footprints(void)
     /* TODO: test base offset */
     for (i = 0; i < ARRAY_SIZE(resources); ++i)
     {
+        const bool is_buffer = resources[i].dimension == D3D12_RESOURCE_DIMENSION_BUFFER;
+
         resource_desc.Dimension = resources[i].dimension;
         resource_desc.Alignment = 0;
         resource_desc.Width = resources[i].width;
@@ -8186,12 +8189,17 @@ static void test_get_copyable_footprints(void)
         {
             if (formats[j].is_compressed && !resources[i].test_with_compressed)
                 continue;
+            if (is_buffer && j > 0)
+                continue;
 
-            resource_desc.Format = formats[j].format;
+            if (is_buffer)
+                resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+            else
+                resource_desc.Format = formats[j].format;
 
             resource_desc.SampleDesc.Count = 1;
             resource_desc.SampleDesc.Quality = 0;
-            resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+            resource_desc.Layout = is_buffer ? D3D12_TEXTURE_LAYOUT_ROW_MAJOR : D3D12_TEXTURE_LAYOUT_UNKNOWN;
             resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
             sub_resource_count = resource_desc.DepthOrArraySize * resource_desc.MipLevels;
