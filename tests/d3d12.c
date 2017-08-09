@@ -657,6 +657,7 @@ static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_F
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *resource;
+    D3D12_RANGE read_range;
     ID3D12Device *device;
     HRESULT hr;
 
@@ -687,7 +688,10 @@ static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_F
     rb->height = 1;
     rb->row_pitch = resource_desc.Width;
     rb->data = NULL;
-    hr = ID3D12Resource_Map(resource, 0, NULL, &rb->data);
+
+    read_range.Begin = 0;
+    read_range.End = resource_desc.Width;
+    hr = ID3D12Resource_Map(resource, 0, &read_range, &rb->data);
     ok(SUCCEEDED(hr), "Failed to map readback buffer, hr %#x.\n", hr);
 
     ID3D12Device_Release(device);
