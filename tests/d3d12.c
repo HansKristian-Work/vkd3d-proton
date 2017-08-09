@@ -7039,7 +7039,7 @@ static void test_cs_constant_buffer(void)
     struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
-    unsigned int i, x;
+    unsigned int i;
     float value;
     HRESULT hr;
 
@@ -7162,11 +7162,7 @@ static void test_cs_constant_buffer(void)
     transition_sub_resource_state(command_list, resource, 0,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(resource, uav_desc.Format, &rb, queue, command_list);
-    for (x = 0; x < rb.width; ++x)
-    {
-        float f = get_readback_float(&rb, x, 0);
-        ok(f == 2.0f, "Got unexpected value %.8e at %u.\n", f, x);
-    }
+    check_readback_data_float(&rb, NULL, 2.0f, 0);
     release_resource_readback(&rb);
 
     value = 6.0f;
@@ -7187,11 +7183,7 @@ static void test_cs_constant_buffer(void)
     transition_sub_resource_state(command_list, resource, 0,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(resource, uav_desc.Format, &rb, queue, command_list);
-    for (x = 0; x < rb.width; ++x)
-    {
-        float f = get_readback_float(&rb, x, 0);
-        ok(f == 6.0f, "Got unexpected value %.8e at %u.\n", f, x);
-    }
+    check_readback_data_float(&rb, NULL, 6.0f, 0);
     release_resource_readback(&rb);
 
     ID3D12Resource_Release(cb);
@@ -8340,7 +8332,6 @@ static void test_typed_buffer_uav(void)
     ID3D12CommandQueue *queue;
     ID3D12Resource *resource;
     ID3D12Device *device;
-    unsigned int x;
     HRESULT hr;
 
     static const DWORD cs_code[] =
@@ -8439,11 +8430,7 @@ static void test_typed_buffer_uav(void)
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_buffer_readback_with_command_list(resource, uav_desc.Format, &rb, queue, command_list);
-    for (x = 0; x < rb.width; ++x)
-    {
-        float f = get_readback_float(&rb, x, 0);
-        ok(f == 0.5f, "Got unexpected value %.8e at %u.\n", f, x);
-    }
+    check_readback_data_float(&rb, NULL, 0.5f, 0);
     release_resource_readback(&rb);
 
     ID3D12Resource_Release(resource);
