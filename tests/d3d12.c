@@ -8105,6 +8105,10 @@ static void test_get_copyable_footprints(void)
     resources[] =
     {
         {D3D12_RESOURCE_DIMENSION_BUFFER, 4, 1, 1, 1, false},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE1D, 4, 1, 1, 1, false},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE1D, 4, 1, 1, 2, false},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE1D, 3, 1, 1, 1, false},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE1D, 4, 1, 2, 1, false},
         {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 1, 1, true},
         {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 2, 1, true},
         {D3D12_RESOURCE_DIMENSION_TEXTURE2D, 4, 4, 1, 2, true},
@@ -8143,6 +8147,10 @@ static void test_get_copyable_footprints(void)
     {
         {
             {D3D12_RESOURCE_DIMENSION_BUFFER, 0, 3, 2, 1, 1, DXGI_FORMAT_R32_UINT,
+                {1, 0}, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_RESOURCE_FLAG_NONE}, 0, 1,
+        },
+        {
+            {D3D12_RESOURCE_DIMENSION_TEXTURE1D, 0, 4, 2, 1, 1, DXGI_FORMAT_R32_UINT,
                 {1, 0}, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_RESOURCE_FLAG_NONE}, 0, 1,
         },
         {
