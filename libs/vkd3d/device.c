@@ -1121,6 +1121,8 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         UINT64 base_offset, D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts,
         UINT *row_counts, UINT64 *row_sizes, UINT64 *total_bytes)
 {
+    static const struct vkd3d_format vkd3d_format_unknown = {DXGI_FORMAT_UNKNOWN, VK_FORMAT_UNDEFINED, 1, 1, 1, 1, 0};
+
     unsigned int i, sub_resource_idx, miplevel_idx, width, height, row_count, row_size, row_pitch;
     unsigned int array_size, depth;
     const struct vkd3d_format *format;
@@ -1139,10 +1141,18 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         memset(row_sizes, 0xff, sizeof(*row_sizes) * sub_resource_count);
     if (total_bytes)
         *total_bytes = ~(UINT64)0;
-    if (!(format = vkd3d_get_format(desc->Format)))
+
+    if (desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
     {
-        WARN("Invalid format %#x.\n", desc->Format);
-        return;
+        if (!(format = vkd3d_get_format(desc->Format)))
+        {
+            WARN("Invalid format %#x.\n", desc->Format);
+            return;
+        }
+    }
+    else
+    {
+        format = &vkd3d_format_unknown;
     }
 
     switch (desc->Dimension)
