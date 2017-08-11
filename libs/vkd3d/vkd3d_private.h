@@ -417,6 +417,13 @@ struct d3d12_command_allocator
 HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_allocator **allocator) DECLSPEC_HIDDEN;
 
+struct vkd3d_pipeline_bindings
+{
+    struct d3d12_root_signature *root_signature;
+
+    VkDescriptorSet descriptor_set;
+};
+
 /* ID3D12CommandList */
 struct d3d12_command_list
 {
@@ -439,12 +446,9 @@ struct d3d12_command_list
 
     VkFramebuffer current_framebuffer;
     VkPipeline current_pipeline;
-    VkDescriptorSet graphics_descriptor_set;
-    VkDescriptorSet compute_descriptor_set;
+    struct vkd3d_pipeline_bindings pipeline_bindings[VK_PIPELINE_BIND_POINT_COMPUTE + 1];
 
     struct d3d12_pipeline_state *state;
-    struct d3d12_root_signature *graphics_root_signature;
-    struct d3d12_root_signature *compute_root_signature;
 
     struct d3d12_command_allocator *allocator;
     struct d3d12_device *device;
