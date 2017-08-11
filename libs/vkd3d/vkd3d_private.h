@@ -491,6 +491,7 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device,
 
 struct vkd3d_vulkan_info
 {
+    bool KHR_get_physical_device_properties2;
     bool KHR_push_descriptor;
 };
 

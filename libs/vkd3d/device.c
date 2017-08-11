@@ -18,33 +18,108 @@
 
 #include "vkd3d_private.h"
 
+struct vkd3d_optional_extension_info
+{
+    const char *extension_name;
+    ptrdiff_t vulkan_info_offset;
+};
+
+static const char * const required_instance_extensions[] =
+{
+    VK_KHR_SURFACE_EXTENSION_NAME,
+    VK_KHR_XCB_SURFACE_EXTENSION_NAME,
+};
+
+static const struct vkd3d_optional_extension_info optional_instance_extensions[] =
+{
+    {VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+            offsetof(struct vkd3d_vulkan_info, KHR_get_physical_device_properties2)},
+};
+
+#define MAX_INSTANCE_EXTENSION_COUNT \
+        (ARRAY_SIZE(required_instance_extensions) + ARRAY_SIZE(optional_instance_extensions))
+
 static const char * const required_device_extensions[] =
 {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
     VK_KHR_MAINTENANCE1_EXTENSION_NAME,
 };
 
-static const struct
-{
-    const char *extension_name;
-    ptrdiff_t vulkan_info_offset;
-}
-optional_device_extensions[] =
+static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 {
     {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_push_descriptor)},
 };
 
-static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance)
-{
-    static const char * const extensions[] =
-    {
-        VK_KHR_SURFACE_EXTENSION_NAME,
-        VK_KHR_XCB_SURFACE_EXTENSION_NAME,
-    };
+#define MAX_DEVICE_EXTENSION_COUNT \
+        (ARRAY_SIZE(required_device_extensions) + ARRAY_SIZE(optional_device_extensions))
 
+static bool has_extension(const VkExtensionProperties *vk_extensions,
+        unsigned int count, const char *extension_name)
+{
+    unsigned int i;
+
+    for (i = 0; i < count; ++i)
+    {
+        if (!strcmp(vk_extensions[i].extensionName, extension_name))
+            return true;
+    }
+    return false;
+}
+
+static void vkd3d_init_instance_caps(struct vkd3d_vulkan_info *vulkan_info)
+{
+    VkExtensionProperties *vk_extensions;
+    unsigned int i;
+    uint32_t count;
+    VkResult vr;
+
+    if ((vr = vkEnumerateInstanceExtensionProperties(NULL, &count, NULL)) < 0)
+    {
+        ERR("Failed to enumerate instance extensions, vr %d.\n", vr);
+        return;
+    }
+    if (!count)
+        return;
+
+    if (!(vk_extensions = vkd3d_calloc(count, sizeof(*vk_extensions))))
+        return;
+
+    TRACE("Enumerating %u instance extensions.\n", count);
+    if ((vr = vkEnumerateInstanceExtensionProperties(NULL, &count, vk_extensions)) < 0)
+    {
+        ERR("Failed to enumerate instance extensions, vr %d.\n", vr);
+        vkd3d_free(vk_extensions);
+        return;
+    }
+
+    for (i = 0; i < ARRAY_SIZE(required_instance_extensions); ++i)
+    {
+        if (!has_extension(vk_extensions, count, required_instance_extensions[i]))
+            ERR("Required instance extension %s is not supported.\n",
+                    debugstr_a(required_instance_extensions[i]));
+    }
+
+    for (i = 0; i < ARRAY_SIZE(optional_instance_extensions); ++i)
+    {
+        const char *extension_name = optional_instance_extensions[i].extension_name;
+        ptrdiff_t offset = optional_instance_extensions[i].vulkan_info_offset;
+        bool *supported = (void *)((uintptr_t)vulkan_info + offset);
+
+        if ((*supported = has_extension(vk_extensions, count, extension_name)))
+            TRACE("Found %s extension.\n", debugstr_a(extension_name));
+    }
+
+    vkd3d_free(vk_extensions);
+}
+
+static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
+        struct vkd3d_vulkan_info *vk_info)
+{
+    const char *extensions[MAX_INSTANCE_EXTENSION_COUNT];
     VkApplicationInfo application_info;
     VkInstanceCreateInfo instance_info;
     VkInstance vk_instance;
+    unsigned int i, j;
     VkResult vr;
     HRESULT hr;
 
@@ -58,13 +133,26 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance)
     application_info.engineVersion = 0;
     application_info.apiVersion = VK_API_VERSION_1_0;
 
+    for (i = 0; i < ARRAY_SIZE(required_instance_extensions); ++i)
+    {
+        extensions[i] = required_instance_extensions[i];
+    }
+    for (j = 0; j < ARRAY_SIZE(optional_instance_extensions); ++j)
+    {
+        ptrdiff_t offset = optional_instance_extensions[j].vulkan_info_offset;
+        bool *supported = (void *)((uintptr_t)&vk_info + offset);
+
+        if (*supported)
+            extensions[i++] = optional_instance_extensions[j].extension_name;
+    }
+
     instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instance_info.pNext = NULL;
     instance_info.flags = 0;
     instance_info.pApplicationInfo = &application_info;
     instance_info.enabledLayerCount = 0;
     instance_info.ppEnabledLayerNames = NULL;
-    instance_info.enabledExtensionCount = ARRAY_SIZE(extensions);
+    instance_info.enabledExtensionCount = i;
     instance_info.ppEnabledExtensionNames = extensions;
 
     if ((vr = vkCreateInstance(&instance_info, NULL, &vk_instance)))
@@ -322,19 +410,6 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
     TRACE("  inheritedQueries: %#x.\n", features.inheritedQueries);
 }
 
-static bool has_extension(const VkExtensionProperties *vk_extensions,
-        unsigned int count, const char *extension_name)
-{
-    unsigned int i;
-
-    for (i = 0; i < count; ++i)
-    {
-        if (!strcmp(vk_extensions[i].extensionName, extension_name))
-            return true;
-    }
-    return false;
-}
-
 static void vkd3d_init_device_caps(struct vkd3d_instance *instance,
         VkPhysicalDevice physical_device, struct vkd3d_vulkan_info *vulkan_info)
 {
@@ -343,8 +418,6 @@ static void vkd3d_init_device_caps(struct vkd3d_instance *instance,
     unsigned int i;
     uint32_t count;
     VkResult vr;
-
-    memset(vulkan_info, 0, sizeof(*vulkan_info));
 
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL,
             &count, NULL))) < 0)
@@ -434,9 +507,9 @@ static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
 
 static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
 {
-    const char *extensions[ARRAY_SIZE(required_device_extensions) + ARRAY_SIZE(optional_device_extensions)];
     unsigned int direct_queue_family_index, copy_queue_family_index, compute_queue_family_index;
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance.vk_procs;
+    const char *extensions[MAX_DEVICE_EXTENSION_COUNT];
     VkQueueFamilyProperties *queue_properties;
     VkPhysicalDeviceFeatures device_features;
     VkDeviceQueueCreateInfo *queue_info;
@@ -1461,7 +1534,9 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl;
     device->refcount = 1;
 
-    if (FAILED(hr = vkd3d_instance_init(&device->vkd3d_instance)))
+    memset(&device->vk_info, 0, sizeof(device->vk_info));
+    vkd3d_init_instance_caps(&device->vk_info);
+    if (FAILED(hr = vkd3d_instance_init(&device->vkd3d_instance, &device->vk_info)))
         return hr;
 
     if (FAILED(hr = vkd3d_create_vk_device(device)))
