@@ -286,14 +286,17 @@ HRESULT vkd3d_load_vk_instance_procs(struct vkd3d_vk_instance_procs *procs,
         ERR("Could not get device proc addr for '" #name "'.\n"); \
         return E_FAIL; \
     }
+#define LOAD_DEVICE_OPTIONAL_PFN(name) \
+    procs->name = (void *)procs->vkGetDeviceProcAddr(device, #name);
 
 HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
         const struct vkd3d_vk_instance_procs *parent_procs, VkDevice device)
 {
     memset(procs, 0, sizeof(*procs));
 
-#define VK_INSTANCE_PFN COPY_PARENT_PFN
-#define VK_DEVICE_PFN   LOAD_DEVICE_PFN
+#define VK_INSTANCE_PFN   COPY_PARENT_PFN
+#define VK_DEVICE_PFN     LOAD_DEVICE_PFN
+#define VK_DEVICE_EXT_PFN LOAD_DEVICE_OPTIONAL_PFN
 #include "vulkan_procs.h"
 
     TRACE("Loaded procs for VkDevice %p.\n", device);

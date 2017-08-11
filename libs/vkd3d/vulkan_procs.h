@@ -24,6 +24,10 @@
 # define VK_DEVICE_PFN(x)
 #endif
 
+#ifndef VK_DEVICE_EXT_PFN
+# define VK_DEVICE_EXT_PFN(x)
+#endif
+
 /* Instance functions (obtained by vkGetInstanceProcAddr). */
 VK_INSTANCE_PFN(vkCreateDevice)
 VK_INSTANCE_PFN(vkDestroyInstance)
@@ -160,6 +164,9 @@ VK_DEVICE_PFN(vkSetEvent)
 VK_DEVICE_PFN(vkUnmapMemory)
 VK_DEVICE_PFN(vkUpdateDescriptorSets)
 VK_DEVICE_PFN(vkWaitForFences)
+/* VK_KHR_push_descriptor */
+VK_DEVICE_EXT_PFN(vkCmdPushDescriptorSetKHR)
 
 #undef VK_INSTANCE_PFN
 #undef VK_DEVICE_PFN
+#undef VK_DEVICE_EXT_PFN

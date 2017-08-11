@@ -56,8 +56,9 @@ struct vkd3d_vk_instance_procs
 
 struct vkd3d_vk_device_procs
 {
-#define VK_INSTANCE_PFN DECLARE_VK_PFN
-#define VK_DEVICE_PFN   DECLARE_VK_PFN
+#define VK_INSTANCE_PFN   DECLARE_VK_PFN
+#define VK_DEVICE_PFN     DECLARE_VK_PFN
+#define VK_DEVICE_EXT_PFN DECLARE_VK_PFN
 #include "vulkan_procs.h"
 };
 #undef DECLARE_VK_PFN
@@ -488,6 +489,11 @@ struct d3d12_command_signature
 HRESULT d3d12_command_signature_create(struct d3d12_device *device,
         struct d3d12_command_signature **signature) DECLSPEC_HIDDEN;
 
+struct vkd3d_vulkan_info
+{
+    bool KHR_push_descriptor;
+};
+
 /* ID3D12Device */
 struct d3d12_device
 {
@@ -506,6 +512,8 @@ struct d3d12_device
     unsigned int copy_queue_family_index;
     unsigned int compute_queue_family_index;
     VkPhysicalDeviceMemoryProperties memory_properties;
+
+    struct vkd3d_vulkan_info vk_info;
 
     struct vkd3d_instance vkd3d_instance;
 };
