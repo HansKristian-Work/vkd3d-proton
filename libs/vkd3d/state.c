@@ -523,13 +523,13 @@ static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *
 
 static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signature *root_signature,
         enum vkd3d_descriptor_type descriptor_type, unsigned int base_register_idx,
-        unsigned int binding_count, bool duplicate_descriptors, uint32_t *descriptor_idx)
+        unsigned int binding_count, bool is_buffer_descriptor, bool duplicate_descriptors,
+        uint32_t *descriptor_idx)
 {
-    bool is_buffer_descriptor;
     uint32_t first_binding;
     unsigned int i;
 
-    is_buffer_descriptor = descriptor_type == VKD3D_DESCRIPTOR_TYPE_CBV;
+    is_buffer_descriptor |= descriptor_type == VKD3D_DESCRIPTOR_TYPE_CBV;
     duplicate_descriptors = (descriptor_type == VKD3D_DESCRIPTOR_TYPE_SRV
             || descriptor_type == VKD3D_DESCRIPTOR_TYPE_UAV)
             && duplicate_descriptors;
@@ -649,7 +649,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
                     vk_binding = d3d12_root_signature_assign_vk_bindings(root_signature,
                             vkd3d_descriptor_type_from_d3d12_range_type(descriptor_range->RangeType),
                             descriptor_range->BaseShaderRegister, descriptor_range->NumDescriptors,
-                            true, &descriptor_idx);
+                            false, true, &descriptor_idx);
 
                     /* Unroll descriptor range. */
                     for (k = 0; k < descriptor_range->NumDescriptors; ++k)
@@ -700,7 +700,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
                 }
                 cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
                         vkd3d_descriptor_type_from_d3d12_root_parameter_type(p->ParameterType),
-                        p->u.Descriptor.ShaderRegister, 1, false, &descriptor_idx);
+                        p->u.Descriptor.ShaderRegister, 1, true, false, &descriptor_idx);
                 cur_binding->descriptorType = vk_descriptor_type_from_d3d12_root_parameter(p->ParameterType);
                 cur_binding->descriptorCount = 1;
                 cur_binding->stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
@@ -738,7 +738,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             goto fail;
 
         cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
-                VKD3D_DESCRIPTOR_TYPE_SAMPLER, s->ShaderRegister, 1, false, &descriptor_idx);
+                VKD3D_DESCRIPTOR_TYPE_SAMPLER, s->ShaderRegister, 1, false, false, &descriptor_idx);
         cur_binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
         cur_binding->descriptorCount = 1;
         cur_binding->stageFlags = stage_flags_from_visibility(s->ShaderVisibility);
