@@ -422,6 +422,7 @@ struct vkd3d_pipeline_bindings
     struct d3d12_root_signature *root_signature;
 
     VkDescriptorSet descriptor_set;
+    bool in_use;
 };
 
 /* ID3D12CommandList */

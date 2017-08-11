@@ -1627,6 +1627,7 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     if (!rs || !rs->pool_size_count)
         return;
 
+    bindings->in_use = true;
     VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
             rs->vk_pipeline_layout, 0, 1, &bindings->descriptor_set, 0, NULL));
 }
@@ -2258,6 +2259,65 @@ static VkDescriptorSet d3d12_command_list_allocate_descriptor_set(struct d3d12_c
     return vk_descriptor_set;
 }
 
+static void d3d12_command_list_copy_descriptors(struct d3d12_command_list *list,
+        struct d3d12_root_signature *root_signature, VkDescriptorSet dst_set, VkDescriptorSet src_set)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    unsigned int count = root_signature->descriptor_count;
+    VkDevice vk_device = list->device->vk_device;
+    VkCopyDescriptorSet *descriptor_copies;
+    unsigned int i;
+
+    if (!(descriptor_copies = vkd3d_calloc(count, sizeof(*descriptor_copies))))
+        return;
+
+    for (i = 0; i < count; ++i)
+    {
+        descriptor_copies[i].sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+        descriptor_copies[i].pNext = NULL;
+        descriptor_copies[i].srcSet = src_set;
+        descriptor_copies[i].srcBinding = i;
+        descriptor_copies[i].srcArrayElement = 0;
+        descriptor_copies[i].dstSet = dst_set;
+        descriptor_copies[i].dstBinding = i;
+        descriptor_copies[i].dstArrayElement = 0;
+        descriptor_copies[i].descriptorCount = 1;
+    }
+    VK_CALL(vkUpdateDescriptorSets(vk_device, 0, NULL, count, descriptor_copies));
+
+    vkd3d_free(descriptor_copies);
+}
+
+static void d3d12_command_list_prepare_descriptors(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point)
+{
+    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    struct d3d12_root_signature *root_signature = bindings->root_signature;
+    VkDescriptorSet previous_descriptor_set = bindings->descriptor_set;
+
+    if (bindings->descriptor_set && !bindings->in_use)
+        return;
+
+    /* We cannot modify bound descriptor sets. We need a new descriptor set if
+     * we are about to update resource bindings.
+     *
+     * The Vulkan spec says:
+     *
+     *   "The descriptor set contents bound by a call to
+     *   vkCmdBindDescriptorSets may be consumed during host execution of the
+     *   command, or during shader execution of the resulting draws, or any
+     *   time in between. Thus, the contents must not be altered (overwritten
+     *   by an update command, or freed) between when the command is recorded
+     *   and when the command completes executing on the queue."
+     */
+    bindings->descriptor_set = d3d12_command_list_allocate_descriptor_set(list, root_signature);
+    bindings->in_use = false;
+
+    if (previous_descriptor_set)
+        d3d12_command_list_copy_descriptors(list, root_signature,
+                bindings->descriptor_set, previous_descriptor_set);
+}
+
 static void d3d12_command_list_set_root_signature(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point, struct d3d12_root_signature *root_signature)
 {
@@ -2267,7 +2327,7 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
         return;
 
     bindings->root_signature = root_signature;
-    bindings->descriptor_set = d3d12_command_list_allocate_descriptor_set(list, root_signature);
+    bindings->descriptor_set = VK_NULL_HANDLE;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootSignature(ID3D12GraphicsCommandList *iface,
@@ -2391,6 +2451,8 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
     }
 
     descriptor = (struct d3d12_desc *)(intptr_t)base_descriptor.ptr;
+
+    d3d12_command_list_prepare_descriptors(list, bind_point);
 
     descriptor_count = 0;
     current_descriptor_write = descriptor_writes;
@@ -2522,6 +2584,8 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
     buffer_info.offset = gpu_address - resource->gpu_address;
     buffer_info.range = VK_WHOLE_SIZE;
 
+    d3d12_command_list_prepare_descriptors(list, bind_point);
+
     descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptor_write.pNext = NULL;
     descriptor_write.dstSet = bindings->descriptor_set;
@@ -2584,6 +2648,8 @@ static void d3d12_command_list_set_root_uav(struct d3d12_command_list *list,
         VK_CALL(vkDestroyBufferView(vk_device, vk_buffer_view, NULL));
         return;
     }
+
+    d3d12_command_list_prepare_descriptors(list, bind_point);
 
     descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptor_write.pNext = NULL;
