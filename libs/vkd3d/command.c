@@ -682,8 +682,7 @@ static void d3d12_command_list_allocator_destroyed(struct d3d12_command_list *li
     list->vk_command_buffer = VK_NULL_HANDLE;
 }
 
-static void d3d12_command_allocator_free_resources(struct d3d12_command_allocator *allocator,
-        bool should_destroy)
+static void d3d12_command_allocator_free_resources(struct d3d12_command_allocator *allocator)
 {
     struct d3d12_device *device = allocator->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -718,26 +717,6 @@ static void d3d12_command_allocator_free_resources(struct d3d12_command_allocato
         VK_CALL(vkDestroyRenderPass(device->vk_device, allocator->passes[i], NULL));
     }
     allocator->pass_count = 0;
-
-    if (should_destroy)
-    {
-        vkd3d_free(allocator->buffer_views);
-        vkd3d_free(allocator->descriptor_pools);
-        vkd3d_free(allocator->pipelines);
-        vkd3d_free(allocator->framebuffers);
-        vkd3d_free(allocator->passes);
-
-        /* All command buffers are implicitly freed when a pool is destroyed. */
-        vkd3d_free(allocator->command_buffers);
-        allocator->command_buffer_count = 0;
-        VK_CALL(vkDestroyCommandPool(device->vk_device, allocator->vk_command_pool, NULL));
-    }
-    else if (allocator->command_buffer_count)
-    {
-        VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
-                allocator->command_buffer_count, allocator->command_buffers));
-        allocator->command_buffer_count = 0;
-    }
 }
 
 /* ID3D12CommandAllocator */
@@ -788,11 +767,22 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
     if (!refcount)
     {
         struct d3d12_device *device = allocator->device;
+        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
         if (allocator->current_command_list)
             d3d12_command_list_allocator_destroyed(allocator->current_command_list);
 
-        d3d12_command_allocator_free_resources(allocator, true);
+        d3d12_command_allocator_free_resources(allocator);
+        vkd3d_free(allocator->buffer_views);
+        vkd3d_free(allocator->descriptor_pools);
+        vkd3d_free(allocator->pipelines);
+        vkd3d_free(allocator->framebuffers);
+        vkd3d_free(allocator->passes);
+
+        /* All command buffers are implicitly freed when a pool is destroyed. */
+        vkd3d_free(allocator->command_buffers);
+        VK_CALL(vkDestroyCommandPool(device->vk_device, allocator->vk_command_pool, NULL));
+
         vkd3d_free(allocator);
 
         ID3D12Device_Release(&device->ID3D12Device_iface);
@@ -866,7 +856,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
     device = allocator->device;
     vk_procs = &device->vk_procs;
 
-    d3d12_command_allocator_free_resources(allocator, false);
+    d3d12_command_allocator_free_resources(allocator);
+    if (allocator->command_buffer_count)
+    {
+        VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
+                allocator->command_buffer_count, allocator->command_buffers));
+        allocator->command_buffer_count = 0;
+    }
 
     if ((vr = VK_CALL(vkResetCommandPool(device->vk_device, allocator->vk_command_pool,
             VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT))))
