@@ -627,6 +627,72 @@ static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signat
     return first_binding;
 }
 
+static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_root_signature *root_signature,
+        const D3D12_ROOT_SIGNATURE_DESC *desc, struct vkd3d_descriptor_set_context *context)
+{
+    VkDescriptorSetLayoutBinding *cur_binding = context->current_binding;
+    const D3D12_DESCRIPTOR_RANGE *descriptor_range;
+    struct d3d12_root_descriptor_table *table;
+    unsigned int i, j, k, range_count;
+    uint32_t vk_binding;
+
+    for (i = 0; i < desc->NumParameters; ++i)
+    {
+        const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
+        if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+            continue;
+
+        table = &root_signature->parameters[i].u.descriptor_table;
+        range_count = p->u.DescriptorTable.NumDescriptorRanges;
+
+        root_signature->parameters[i].parameter_type = p->ParameterType;
+        table->range_count = range_count;
+        if (!(table->ranges = vkd3d_calloc(table->range_count, sizeof(*table->ranges))))
+            return E_OUTOFMEMORY;
+
+        for (j = 0; j < range_count; ++j)
+        {
+            descriptor_range = &p->u.DescriptorTable.pDescriptorRanges[j];
+
+            vk_binding = d3d12_root_signature_assign_vk_bindings(root_signature,
+                    vkd3d_descriptor_type_from_d3d12_range_type(descriptor_range->RangeType),
+                    descriptor_range->BaseShaderRegister, descriptor_range->NumDescriptors,
+                    false, true, context);
+
+            /* Unroll descriptor range. */
+            for (k = 0; k < descriptor_range->NumDescriptors; ++k)
+            {
+                uint32_t vk_current_binding = vk_binding + k;
+
+                if (descriptor_range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SRV
+                        || descriptor_range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
+                {
+                    vk_current_binding = vk_binding + 2 * k;
+
+                    /* Assign binding for image view. */
+                    if (!vk_binding_from_d3d12_descriptor_range(cur_binding,
+                                descriptor_range, p->ShaderVisibility, false, vk_current_binding + 1))
+                        return E_NOTIMPL;
+
+                    ++cur_binding;
+                }
+
+                if (!vk_binding_from_d3d12_descriptor_range(cur_binding,
+                            descriptor_range, p->ShaderVisibility, true, vk_current_binding))
+                    return E_NOTIMPL;
+
+                ++cur_binding;
+            }
+
+            table->ranges[j].binding = vk_binding;
+            table->ranges[j].descriptor_count = descriptor_range->NumDescriptors;
+        }
+    }
+
+    context->current_binding = cur_binding;
+    return S_OK;
+}
+
 static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_signature *root_signature,
         const D3D12_ROOT_SIGNATURE_DESC *desc, struct vkd3d_descriptor_set_context *context)
 {
@@ -706,10 +772,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     struct VkPipelineLayoutCreateInfo pipeline_layout_info;
     struct VkDescriptorSetLayoutCreateInfo set_desc;
     struct vkd3d_descriptor_set_context context;
-    VkDescriptorSetLayoutBinding *cur_binding;
     struct d3d12_root_signature_info info;
     uint32_t push_constant_count;
-    unsigned int i, j, k;
     VkResult vr;
     HRESULT hr;
 
@@ -755,8 +819,10 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (!(root_signature->static_samplers = vkd3d_calloc(root_signature->static_sampler_count,
             sizeof(*root_signature->static_samplers))))
         goto fail;
+
     if (!(context.binding_desc = vkd3d_calloc(info.descriptor_count, sizeof(*context.binding_desc))))
         goto fail;
+    context.current_binding = context.binding_desc;
 
     if (FAILED(hr = d3d12_root_signature_init_descriptor_pool_size(root_signature, &info)))
         goto fail;
@@ -765,90 +831,10 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             push_constants, &push_constant_count)))
         goto fail;
 
-    context.descriptor_index = 0;
-    cur_binding = context.binding_desc;
-    for (i = 0; i < desc->NumParameters; ++i)
-    {
-        const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
-        if (p->ParameterType == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
-            continue;
-
-        switch (p->ParameterType)
-        {
-            case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
-            {
-                struct d3d12_root_descriptor_table *table = &root_signature->parameters[i].u.descriptor_table;
-                unsigned int range_count = p->u.DescriptorTable.NumDescriptorRanges;
-
-                root_signature->parameters[i].parameter_type = p->ParameterType;
-                table->range_count = range_count;
-                if (!(table->ranges = vkd3d_calloc(table->range_count, sizeof(*table->ranges))))
-                {
-                    hr = E_OUTOFMEMORY;
-                    goto fail;
-                }
-
-                for (j = 0; j < range_count; ++j)
-                {
-                    const D3D12_DESCRIPTOR_RANGE *descriptor_range = &p->u.DescriptorTable.pDescriptorRanges[j];
-                    uint32_t vk_binding;
-
-                    vk_binding = d3d12_root_signature_assign_vk_bindings(root_signature,
-                            vkd3d_descriptor_type_from_d3d12_range_type(descriptor_range->RangeType),
-                            descriptor_range->BaseShaderRegister, descriptor_range->NumDescriptors,
-                            false, true, &context);
-
-                    /* Unroll descriptor range. */
-                    for (k = 0; k < descriptor_range->NumDescriptors; ++k)
-                    {
-                        uint32_t vk_current_binding = vk_binding + k;
-
-                        if (descriptor_range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SRV
-                                || descriptor_range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
-                        {
-                            vk_current_binding = vk_binding + 2 * k;
-
-                            /* Assign binding for image view. */
-                            if (!vk_binding_from_d3d12_descriptor_range(cur_binding,
-                                    descriptor_range, p->ShaderVisibility, false, vk_current_binding + 1))
-                            {
-                                hr = E_NOTIMPL;
-                                goto fail;
-                            }
-
-                            ++cur_binding;
-                        }
-
-                        if (!vk_binding_from_d3d12_descriptor_range(cur_binding,
-                                descriptor_range, p->ShaderVisibility, true, vk_current_binding))
-                        {
-                            hr = E_NOTIMPL;
-                            goto fail;
-                        }
-
-                        ++cur_binding;
-                    }
-
-                    table->ranges[j].binding = vk_binding;
-                    table->ranges[j].descriptor_count = descriptor_range->NumDescriptors;
-                }
-                break;
-            }
-
-            case D3D12_ROOT_PARAMETER_TYPE_CBV:
-            case D3D12_ROOT_PARAMETER_TYPE_SRV:
-            case D3D12_ROOT_PARAMETER_TYPE_UAV:
-                break;
-
-            default:
-                FIXME("Unhandled type %#x for parameter %u.\n", p->ParameterType, i);
-                hr = E_NOTIMPL;
-                goto fail;
-        }
-    }
-    context.current_binding = cur_binding;
-
     if (FAILED(hr = d3d12_root_signature_init_root_descriptors(root_signature, desc, &context)))
+        goto fail;
+
+    if (FAILED(hr = d3d12_root_signature_init_root_descriptor_tables(root_signature, desc, &context)))
         goto fail;
 
     if (FAILED(hr = d3d12_root_signature_init_static_samplers(root_signature, device, desc, &context)))
