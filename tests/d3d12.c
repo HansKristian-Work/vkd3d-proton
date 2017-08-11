@@ -8029,6 +8029,141 @@ static void test_descriptor_tables(void)
     destroy_test_context(&context);
 }
 
+static void test_update_root_descriptors(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_GPU_VIRTUAL_ADDRESS cb_va, uav_va;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3D12RootSignature *root_signature;
+    ID3D12PipelineState *pipeline_state;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *resource, *cb;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD cs_code[] =
+    {
+#if 0
+        cbuffer cb
+        {
+            unsigned int offset;
+            unsigned int value;
+        };
+
+        RWByteAddressBuffer b;
+
+        [numthreads(1, 1, 1)]
+        void main()
+        {
+            b.Store(4 * offset, value);
+        }
+#endif
+        0x43425844, 0xaadc5460, 0x88c27e90, 0x2acacf4e, 0x4e06019a, 0x00000001, 0x000000d8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000084, 0x00050050, 0x00000021, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300009d, 0x0011e000, 0x00000000, 0x02000068,
+        0x00000001, 0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x08000029, 0x00100012, 0x00000000,
+        0x0020800a, 0x00000000, 0x00000000, 0x00004001, 0x00000002, 0x080000a6, 0x0011e012, 0x00000000,
+        0x0010000a, 0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    struct
+    {
+        uint32_t offset;
+        uint32_t value;
+        uint32_t uav_offset;
+        uint8_t padding[D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT - 3 * sizeof(uint32_t)];
+    }
+    input[] =
+    {
+        {0, 4,  0},
+        {2, 6,  0},
+        {0, 5, 64},
+        {7, 2, 64},
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    cb = create_upload_buffer(context.device, sizeof(input), input);
+    cb_va = ID3D12Resource_GetGPUVirtualAddress(cb);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 512;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    uav_va = ID3D12Resource_GetGPUVirtualAddress(resource);
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    root_parameters[0].Descriptor.ShaderRegister = 0;
+    root_parameters[0].Descriptor.RegisterSpace = 0;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[1].Descriptor.ShaderRegister = 0;
+    root_parameters[1].Descriptor.RegisterSpace = 0;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    memset(&root_signature_desc, 0, sizeof(root_signature_desc));
+    root_signature_desc.NumParameters = 2;
+    root_signature_desc.pParameters = root_parameters;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    pipeline_state = create_compute_pipeline_state(device, root_signature,
+            shader_bytecode(cs_code, sizeof(cs_code)));
+
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
+    for (i = 0; i < ARRAY_SIZE(input); ++i)
+    {
+        ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(command_list,
+                0, cb_va + i * sizeof(*input));
+        if (!i || input[i - 1].uav_offset != input[i].uav_offset)
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list,
+                    1, uav_va + input[i].uav_offset * sizeof(uint32_t));
+        ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
+    }
+
+    transition_sub_resource_state(command_list, resource, 0,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(resource, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (i = 0; i < ARRAY_SIZE(input); ++i)
+    {
+        unsigned int offset = input[i].uav_offset + input[i].offset;
+        unsigned int value = get_readback_uint(&rb, offset, 0);
+        ok(value == input[i].value, "Got %#x, expected %#x.\n", value, input[i].value);
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(cb);
+    ID3D12Resource_Release(resource);
+    ID3D12RootSignature_Release(root_signature);
+    ID3D12PipelineState_Release(pipeline_state);
+    destroy_test_context(&context);
+}
+
 #define check_copyable_footprints(a, b, c, d, e, f, g) \
         check_copyable_footprints_(__LINE__, a, b, c, d, e, f, g)
 static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_DESC *desc,
@@ -8920,6 +9055,7 @@ START_TEST(d3d12)
     run_test(test_root_constants);
     run_test(test_texture);
     run_test(test_descriptor_tables);
+    run_test(test_update_root_descriptors);
     run_test(test_get_copyable_footprints);
     run_test(test_typed_buffer_uav);
     run_test(test_cs_uav_store);
