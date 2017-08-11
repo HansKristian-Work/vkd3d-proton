@@ -1164,6 +1164,13 @@ static uint32_t vkd3d_spirv_build_op_and(struct vkd3d_spirv_builder *builder,
             SpvOpBitwiseAnd, result_type, operand0, operand1);
 }
 
+static uint32_t vkd3d_spirv_build_op_shift_right_logical(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t base, uint32_t shift)
+{
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            SpvOpShiftRightLogical, result_type, base, shift);
+}
+
 static uint32_t vkd3d_spirv_build_op_convert_utof(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t unsigned_value)
 {
@@ -3935,7 +3942,8 @@ static uint32_t vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *co
 
     if (sampled_type)
         *sampled_type = resource_symbol->info.resource.sampled_type;
-    *coordinate_component_count = resource_symbol->info.resource.coordinate_component_count;
+    if (coordinate_component_count)
+        *coordinate_component_count = resource_symbol->info.resource.coordinate_component_count;
     return image_id;
 }
 
@@ -3992,6 +4000,53 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
     /* XXX: Fix the result data type. */
     dst.reg.data_type = vkd3d_data_type_from_component_type(sampled_type);
     vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst, val_id);
+}
+
+static void vkd3d_dxbc_compiler_emit_store_raw(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    uint32_t image_id, coordinate_id, type_id, val_id, texel_type_id, texel_id;
+    uint32_t base_coordinate_id, component_idx, components[VKD3D_VEC4_SIZE];
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    unsigned int i, component_count;
+
+    if (dst->reg.type == VKD3DSPR_GROUPSHAREDMEM)
+    {
+        FIXME("Compute shared memory not supported.\n");
+        return;
+    }
+
+    assert(src[1].reg.data_type == VKD3D_DATA_UINT);
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    image_id = vkd3d_dxbc_compiler_prepare_image(compiler, &dst->reg, NULL, NULL);
+    coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_0);
+    coordinate_id = vkd3d_spirv_build_op_shift_right_logical(builder, type_id,
+            coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, 2));
+
+    /* Mesa Vulkan drivers require the texel parameter to be a 4-component
+     * vector. */
+    val_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], dst->write_mask);
+    texel_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, VKD3D_VEC4_SIZE);
+
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    base_coordinate_id = coordinate_id;
+    for (component_idx = 0; component_idx < component_count; ++component_idx)
+    {
+        for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
+            components[i] = component_idx;
+        texel_id = vkd3d_spirv_build_op_vector_shuffle(builder,
+                texel_type_id, val_id, val_id, components, VKD3D_VEC4_SIZE);
+
+        if (component_idx)
+            coordinate_id = vkd3d_spirv_build_op_iadd(builder, type_id,
+                    base_coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
+
+        vkd3d_spirv_build_op_image_write(builder, image_id, coordinate_id,
+                texel_id, SpvImageOperandsMaskNone, NULL, 0);
+    }
 }
 
 static void vkd3d_dxbc_compiler_emit_store_uav_typed(struct vkd3d_dxbc_compiler *compiler,
@@ -4246,6 +4301,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_SAMPLE:
             vkd3d_dxbc_compiler_emit_sample(compiler, instruction);
+            break;
+        case VKD3DSIH_STORE_RAW:
+            vkd3d_dxbc_compiler_emit_store_raw(compiler, instruction);
             break;
         case VKD3DSIH_STORE_UAV_TYPED:
             vkd3d_dxbc_compiler_emit_store_uav_typed(compiler, instruction);
