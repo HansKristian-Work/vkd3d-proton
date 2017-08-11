@@ -627,6 +627,44 @@ static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signat
     return first_binding;
 }
 
+static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_signature *root_signature,
+        const D3D12_ROOT_SIGNATURE_DESC *desc, struct vkd3d_descriptor_set_context *context)
+{
+    VkDescriptorSetLayoutBinding *cur_binding = context->current_binding;
+    unsigned int i;
+
+    for (i = 0; i < desc->NumParameters; ++i)
+    {
+        const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
+        if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_CBV
+                && p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_SRV
+                && p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_UAV)
+            continue;
+
+        if (p->u.Descriptor.RegisterSpace)
+        {
+            FIXME("Unhandled register space %u for parameter %u.\n", p->u.Descriptor.RegisterSpace, i);
+            return E_NOTIMPL;
+        }
+
+        cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
+                vkd3d_descriptor_type_from_d3d12_root_parameter_type(p->ParameterType),
+                p->u.Descriptor.ShaderRegister, 1, true, false, context);
+        cur_binding->descriptorType = vk_descriptor_type_from_d3d12_root_parameter(p->ParameterType);
+        cur_binding->descriptorCount = 1;
+        cur_binding->stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
+        cur_binding->pImmutableSamplers = NULL;
+
+        root_signature->parameters[i].parameter_type = p->ParameterType;
+        root_signature->parameters[i].u.descriptor.binding = cur_binding->binding;
+
+        ++cur_binding;
+    }
+
+    context->current_binding = cur_binding;
+    return S_OK;
+}
+
 static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc,
         struct vkd3d_descriptor_set_context *context)
@@ -800,24 +838,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             case D3D12_ROOT_PARAMETER_TYPE_CBV:
             case D3D12_ROOT_PARAMETER_TYPE_SRV:
             case D3D12_ROOT_PARAMETER_TYPE_UAV:
-                if (p->u.Descriptor.RegisterSpace)
-                {
-                    FIXME("Unhandled register space %u for parameter %u.\n", p->u.Descriptor.RegisterSpace, i);
-                    hr = E_NOTIMPL;
-                    goto fail;
-                }
-                cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
-                        vkd3d_descriptor_type_from_d3d12_root_parameter_type(p->ParameterType),
-                        p->u.Descriptor.ShaderRegister, 1, true, false, &context);
-                cur_binding->descriptorType = vk_descriptor_type_from_d3d12_root_parameter(p->ParameterType);
-                cur_binding->descriptorCount = 1;
-                cur_binding->stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
-                cur_binding->pImmutableSamplers = NULL;
-
-                root_signature->parameters[i].parameter_type = p->ParameterType;
-                root_signature->parameters[i].u.descriptor.binding = cur_binding->binding;
-
-                ++cur_binding;
                 break;
 
             default:
@@ -827,6 +847,9 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         }
     }
     context.current_binding = cur_binding;
+
+    if (FAILED(hr = d3d12_root_signature_init_root_descriptors(root_signature, desc, &context)))
+        goto fail;
 
     if (FAILED(hr = d3d12_root_signature_init_static_samplers(root_signature, device, desc, &context)))
         goto fail;
