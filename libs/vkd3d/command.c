@@ -1622,14 +1622,17 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
     struct d3d12_root_signature *rs = bindings->root_signature;
+    uint32_t set;
 
-    if (!rs || !rs->pool_size_count)
+    if (!rs || !rs->pool_size_count || !rs->vk_set_layout)
         return;
 
     bindings->in_use = true;
+    set = vk_info->KHR_push_descriptor ? 1 : 0;
     VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
-            rs->vk_pipeline_layout, 0, 1, &bindings->descriptor_set, 0, NULL));
+            rs->vk_pipeline_layout, set, 1, &bindings->descriptor_set, 0, NULL));
 }
 
 static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list,
@@ -2263,7 +2266,7 @@ static void d3d12_command_list_copy_descriptors(struct d3d12_command_list *list,
         struct d3d12_root_signature *root_signature, VkDescriptorSet dst_set, VkDescriptorSet src_set)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    unsigned int count = root_signature->descriptor_count;
+    unsigned int count = root_signature->copy_descriptor_count;
     VkDevice vk_device = list->device->vk_device;
     VkCopyDescriptorSet *descriptor_copies;
     unsigned int i;
@@ -2571,6 +2574,7 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
     const struct d3d12_root_descriptor *root_descriptor;
     struct VkWriteDescriptorSet descriptor_write;
     struct VkDescriptorBufferInfo buffer_info;
@@ -2584,7 +2588,8 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
     buffer_info.offset = gpu_address - resource->gpu_address;
     buffer_info.range = VK_WHOLE_SIZE;
 
-    d3d12_command_list_prepare_descriptors(list, bind_point);
+    if (!vk_info->KHR_push_descriptor)
+        d3d12_command_list_prepare_descriptors(list, bind_point);
 
     descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptor_write.pNext = NULL;
@@ -2596,7 +2601,16 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
     descriptor_write.pImageInfo = NULL;
     descriptor_write.pBufferInfo = &buffer_info;
     descriptor_write.pTexelBufferView = NULL;
-    VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &descriptor_write, 0, NULL));
+
+    if (vk_info->KHR_push_descriptor)
+    {
+        VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, bind_point,
+                root_signature->vk_pipeline_layout, 0, 1, &descriptor_write));
+    }
+    else
+    {
+        VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &descriptor_write, 0, NULL));
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootConstantBufferView(
@@ -2627,6 +2641,7 @@ static void d3d12_command_list_set_root_uav(struct d3d12_command_list *list,
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
     const struct d3d12_root_descriptor *root_descriptor;
     struct VkWriteDescriptorSet descriptor_write;
     VkDevice vk_device = list->device->vk_device;
@@ -2649,7 +2664,8 @@ static void d3d12_command_list_set_root_uav(struct d3d12_command_list *list,
         return;
     }
 
-    d3d12_command_list_prepare_descriptors(list, bind_point);
+    if (!vk_info->KHR_push_descriptor)
+        d3d12_command_list_prepare_descriptors(list, bind_point);
 
     descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptor_write.pNext = NULL;
@@ -2661,7 +2677,16 @@ static void d3d12_command_list_set_root_uav(struct d3d12_command_list *list,
     descriptor_write.pImageInfo = NULL;
     descriptor_write.pBufferInfo = NULL;
     descriptor_write.pTexelBufferView = &vk_buffer_view;
-    VK_CALL(vkUpdateDescriptorSets(vk_device, 1, &descriptor_write, 0, NULL));
+
+    if (vk_info->KHR_push_descriptor)
+    {
+        VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, bind_point,
+                root_signature->vk_pipeline_layout, 0, 1, &descriptor_write));
+    }
+    else
+    {
+        VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &descriptor_write, 0, NULL));
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootShaderResourceView(
