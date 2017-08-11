@@ -2839,11 +2839,11 @@ static const struct vkd3d_spirv_resource_type *vkd3d_dxbc_compiler_enable_resour
 }
 
 static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_semantic *semantic)
+        const struct vkd3d_shader_register *reg, enum vkd3d_shader_resource_type resource_type,
+        enum vkd3d_data_type resource_data_type)
 {
     const SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    const struct vkd3d_shader_register *reg = &semantic->reg.reg;
     const struct vkd3d_spirv_resource_type *resource_type_info;
     uint32_t sampled_type_id, type_id, ptr_type_id, var_id;
     enum vkd3d_component_type sampled_type;
@@ -2852,13 +2852,13 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
 
     is_uav = reg->type == VKD3DSPR_UAV;
     if (!(resource_type_info = vkd3d_dxbc_compiler_enable_resource_type(compiler,
-            semantic->resource_type, is_uav)))
+            resource_type, is_uav)))
     {
         FIXME("Failed to emit resource declaration.\n");
         return;
     }
 
-    sampled_type = vkd3d_component_type_from_data_type(semantic->resource_data_type);
+    sampled_type = vkd3d_component_type_from_data_type(resource_data_type);
     sampled_type_id = vkd3d_spirv_get_type_id(builder, sampled_type, 1);
 
     type_id = vkd3d_spirv_get_op_type_image(builder, sampled_type_id, resource_type_info->dim,
@@ -2868,7 +2868,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
             ptr_type_id, storage_class, 0);
 
-    vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, reg, semantic->resource_type);
+    vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, reg, resource_type);
 
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
@@ -2883,16 +2883,31 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
 static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &instruction->declaration.semantic);
+    const struct vkd3d_shader_semantic *semantic = &instruction->declaration.semantic;
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &semantic->reg.reg,
+            semantic->resource_type, semantic->resource_data_type);
+}
+
+static void vkd3d_dxbc_compiler_emit_dcl_uav_raw(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    if (instruction->flags)
+        FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
+
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &instruction->declaration.dst.reg,
+            VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_uav_typed(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    if (instruction->flags)
-        FIXME("Unhandled flags %#x.\n", instruction->flags);
+    const struct vkd3d_shader_semantic *semantic = &instruction->declaration.semantic;
 
-    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &instruction->declaration.semantic);
+    if (instruction->flags)
+        FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
+
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &semantic->reg.reg,
+            semantic->resource_type, semantic->resource_data_type);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compiler,
@@ -4100,6 +4115,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL:
             vkd3d_dxbc_compiler_emit_dcl_resource(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_UAV_RAW:
+            vkd3d_dxbc_compiler_emit_dcl_uav_raw(compiler, instruction);
             break;
         case VKD3DSIH_DCL_UAV_TYPED:
             vkd3d_dxbc_compiler_emit_dcl_uav_typed(compiler, instruction);
