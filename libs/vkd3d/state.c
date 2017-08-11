@@ -410,6 +410,80 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
     return S_OK;
 }
 
+static HRESULT d3d12_root_signature_init_descriptor_pool_size(struct d3d12_root_signature *root_signature,
+        const struct d3d12_root_signature_info *info)
+{
+    unsigned int i;
+
+    root_signature->pool_size_count = 0;
+    if (info->cbv_count)
+        ++root_signature->pool_size_count;
+    if (info->buffer_srv_count || info->srv_count)
+        ++root_signature->pool_size_count;
+    if (info->srv_count)
+        ++root_signature->pool_size_count;
+    if (info->buffer_uav_count || info->uav_count)
+        ++root_signature->pool_size_count;
+    if (info->uav_count)
+        ++root_signature->pool_size_count;
+    if (info->sampler_count)
+        ++root_signature->pool_size_count;
+
+    if (root_signature->pool_size_count)
+    {
+        if (!(root_signature->pool_sizes = vkd3d_calloc(root_signature->pool_size_count,
+                sizeof(*root_signature->pool_sizes))))
+        {
+            return E_OUTOFMEMORY;
+        }
+
+        i = 0;
+        if (info->cbv_count)
+        {
+            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            root_signature->pool_sizes[i++].descriptorCount = info->cbv_count;
+        }
+        /* Each D3D12_DESCRIPTOR_RANGE_TYPE_SRV descriptor can be either a
+         * buffer or a texture view. Allocate one buffer view and one image
+         * view Vulkan descriptor for each. */
+        if (info->buffer_srv_count || info->srv_count)
+        {
+            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+            root_signature->pool_sizes[i++].descriptorCount = info->buffer_srv_count + info->srv_count;
+        }
+        if (info->srv_count)
+        {
+            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            root_signature->pool_sizes[i++].descriptorCount = info->srv_count;
+        }
+        /* Each D3D12_DESCRIPTOR_RANGE_TYPE_UAV descriptor can be either a
+         * buffer or a texture view. Allocate one buffer view and one image
+         * view Vulkan descriptor for each. */
+        if (info->buffer_uav_count || info->uav_count)
+        {
+            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+            root_signature->pool_sizes[i++].descriptorCount = info->buffer_uav_count + info->uav_count;
+        }
+        if (info->uav_count)
+        {
+            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            root_signature->pool_sizes[i++].descriptorCount = info->uav_count;
+        }
+        if (info->sampler_count)
+        {
+            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_SAMPLER;
+            root_signature->pool_sizes[i++].descriptorCount = info->sampler_count;
+        }
+    }
+    else
+    {
+        root_signature->pool_sizes = NULL;
+        root_signature->pool_size_count = 0;
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signature *root_signature,
         const D3D12_ROOT_SIGNATURE_DESC *desc, const struct d3d12_root_signature_info *info,
         struct VkPushConstantRange push_constants[D3D12_SHADER_VISIBILITY_PIXEL + 1],
@@ -451,7 +525,8 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
     }
     else
     {
-        /* Move used push constants ranges to front. */
+        /* Move non-empty push constants ranges to front and compute offsets.
+         */
         offset = 0;
         for (i = 0, j = 0; i <= D3D12_SHADER_VISIBILITY_PIXEL; ++i)
         {
@@ -476,7 +551,6 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
         if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
             continue;
 
-        /* FIXME: Register spaces should map to set layouts. */
         if (p->u.Constants.RegisterSpace)
         {
             FIXME("Unhandled register space %u for parameter %u.\n", p->u.Constants.RegisterSpace, i);
@@ -580,39 +654,34 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (FAILED(hr = d3d12_root_signature_info_from_desc(&info, desc)))
         return hr;
 
-    root_signature->parameter_count = desc->NumParameters;
-    if (!(root_signature->parameters = vkd3d_calloc(root_signature->parameter_count,
-            sizeof(*root_signature->parameters))))
-    {
-        hr = E_OUTOFMEMORY;
-        goto fail;
-    }
-
     /* XXX: Vulkan buffer and image descriptors have different types. In order
      * to preserve compatibility between Vulkan resource bindings for the same
      * root signature, we create descriptor set layouts with two bindings for
      * each SRV and UAV. */
     info.descriptor_count += info.srv_count + info.uav_count;
 
-    if (!(binding_desc = vkd3d_calloc(info.descriptor_count, sizeof(*binding_desc))))
-    {
-        hr = E_OUTOFMEMORY;
+    hr = E_OUTOFMEMORY;
+    root_signature->parameter_count = desc->NumParameters;
+    if (!(root_signature->parameters = vkd3d_calloc(root_signature->parameter_count,
+            sizeof(*root_signature->parameters))))
         goto fail;
-    }
     root_signature->descriptor_count = info.descriptor_count;
     if (!(root_signature->descriptor_mapping = vkd3d_calloc(root_signature->descriptor_count,
             sizeof(*root_signature->descriptor_mapping))))
-    {
-        hr = E_OUTOFMEMORY;
         goto fail;
-    }
     root_signature->constant_count = info.root_constant_count;
     if (!(root_signature->push_constants = vkd3d_calloc(root_signature->constant_count,
             sizeof(*root_signature->push_constants))))
-    {
-        hr = E_OUTOFMEMORY;
         goto fail;
-    }
+    root_signature->static_sampler_count = desc->NumStaticSamplers;
+    if (!(root_signature->static_samplers = vkd3d_calloc(root_signature->static_sampler_count,
+            sizeof(*root_signature->static_samplers))))
+        goto fail;
+    if (!(binding_desc = vkd3d_calloc(info.descriptor_count, sizeof(*binding_desc))))
+        goto fail;
+
+    if (FAILED(hr = d3d12_root_signature_init_descriptor_pool_size(root_signature, &info)))
+        goto fail;
 
     if (FAILED(hr = d3d12_root_signature_init_push_constants(root_signature, desc, &info,
             push_constants, &push_constant_count)))
@@ -691,7 +760,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             case D3D12_ROOT_PARAMETER_TYPE_CBV:
             case D3D12_ROOT_PARAMETER_TYPE_SRV:
             case D3D12_ROOT_PARAMETER_TYPE_UAV:
-                /* FIXME: Register spaces should map to set layouts. */
                 if (p->u.Descriptor.RegisterSpace)
                 {
                     FIXME("Unhandled register space %u for parameter %u.\n", p->u.Descriptor.RegisterSpace, i);
@@ -717,14 +785,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
                 hr = E_NOTIMPL;
                 goto fail;
         }
-    }
-
-    root_signature->static_sampler_count = desc->NumStaticSamplers;
-    if (!(root_signature->static_samplers = vkd3d_calloc(root_signature->static_sampler_count,
-            sizeof(*root_signature->static_samplers))))
-    {
-        hr = E_OUTOFMEMORY;
-        goto fail;
     }
 
     for (i = 0; i < desc->NumStaticSamplers; ++i)
@@ -760,72 +820,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         WARN("Failed to create Vulkan descriptor set layout, vr %d.\n", vr);
         hr = hresult_from_vk_result(vr);
         goto fail;
-    }
-
-    root_signature->pool_size_count = 0;
-    if (info.cbv_count)
-        ++root_signature->pool_size_count;
-    if (info.buffer_srv_count || info.srv_count)
-        ++root_signature->pool_size_count;
-    if (info.srv_count)
-        ++root_signature->pool_size_count;
-    if (info.buffer_uav_count || info.uav_count)
-        ++root_signature->pool_size_count;
-    if (info.uav_count)
-        ++root_signature->pool_size_count;
-    if (info.sampler_count)
-        ++root_signature->pool_size_count;
-    if (root_signature->pool_size_count)
-    {
-        if (!(root_signature->pool_sizes = vkd3d_calloc(root_signature->pool_size_count,
-                sizeof(*root_signature->pool_sizes))))
-        {
-            hr = E_OUTOFMEMORY;
-            goto fail;
-        }
-
-        i = 0;
-        if (info.cbv_count)
-        {
-            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            root_signature->pool_sizes[i++].descriptorCount = info.cbv_count;
-        }
-        /* Each D3D12_DESCRIPTOR_RANGE_TYPE_SRV descriptor can be either a
-         * buffer or a texture view. Allocate one buffer view and one image
-         * view Vulkan descriptor for each. */
-        if (info.buffer_srv_count || info.srv_count)
-        {
-            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-            root_signature->pool_sizes[i++].descriptorCount = info.buffer_srv_count + info.srv_count;
-        }
-        if (info.srv_count)
-        {
-            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-            root_signature->pool_sizes[i++].descriptorCount = info.srv_count;
-        }
-        /* Each D3D12_DESCRIPTOR_RANGE_TYPE_UAV descriptor can be either a
-         * buffer or a texture view. Allocate one buffer view and one image
-         * view Vulkan descriptor for each. */
-        if (info.buffer_uav_count || info.uav_count)
-        {
-            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-            root_signature->pool_sizes[i++].descriptorCount = info.buffer_uav_count + info.uav_count;
-        }
-        if (info.uav_count)
-        {
-            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            root_signature->pool_sizes[i++].descriptorCount = info.uav_count;
-        }
-        if (info.sampler_count)
-        {
-            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_SAMPLER;
-            root_signature->pool_sizes[i++].descriptorCount = info.sampler_count;
-        }
-    }
-    else
-    {
-        root_signature->pool_sizes = NULL;
-        root_signature->pool_size_count = 0;
     }
 
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
