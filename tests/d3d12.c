@@ -3129,11 +3129,9 @@ static void test_clear_depth_stencil_view(void)
     unsigned int dsv_increment_size;
     ID3D12DescriptorHeap *dsv_heap;
     D3D12_CLEAR_VALUE clear_value;
-    struct resource_readback rb;
     ID3D12CommandQueue *queue;
     ID3D12Resource *resource;
     ID3D12Device *device;
-    unsigned int x, y;
     ULONG refcount;
     HRESULT hr;
 
@@ -3199,23 +3197,7 @@ static void test_clear_depth_stencil_view(void)
             D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.75f, 0x7, 0, NULL);
     transition_resource_state(command_list, resource,
             D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
-
-    exec_command_list(queue, command_list);
-    wait_queue_idle(device, queue);
-    reset_command_list(command_list, command_allocator);
-
-    get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
-    for (y = 0; y < rb.height; ++y)
-    {
-        for (x = 0; x < rb.width; ++x)
-        {
-           unsigned int v = get_readback_uint(&rb, x, y);
-           ok(v == 0x3f400000, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
-        }
-    }
-    release_resource_readback(&rb);
+    check_sub_resource_uint(resource, 0, queue, command_list, 0x3f400000, 0);
 
     ID3D12GraphicsCommandList_Release(command_list);
     ID3D12CommandAllocator_Release(command_allocator);
@@ -3239,11 +3221,9 @@ static void test_clear_render_target_view(void)
     unsigned int rtv_increment_size;
     ID3D12DescriptorHeap *rtv_heap;
     D3D12_CLEAR_VALUE clear_value;
-    struct resource_readback rb;
     ID3D12CommandQueue *queue;
     ID3D12Resource *resource;
     ID3D12Device *device;
-    unsigned int x, y;
     ULONG refcount;
     HRESULT hr;
 
@@ -3312,23 +3292,7 @@ static void test_clear_render_target_view(void)
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, green, 0, NULL);
     transition_resource_state(command_list, resource,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
-
-    exec_command_list(queue, command_list);
-    wait_queue_idle(device, queue);
-    reset_command_list(command_list, command_allocator);
-
-    get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
-    for (y = 0; y < rb.height; ++y)
-    {
-        for (x = 0; x < rb.width; ++x)
-        {
-           unsigned int v = get_readback_uint(&rb, x, y);
-           ok(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
-        }
-    }
-    release_resource_readback(&rb);
+    check_sub_resource_uint(resource, 0, queue, command_list, 0xff00ff00, 0);
 
     ID3D12GraphicsCommandList_Release(command_list);
     ID3D12CommandAllocator_Release(command_allocator);
@@ -3344,9 +3308,7 @@ static void test_draw_instanced(void)
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
     struct test_context context;
-    struct resource_readback rb;
     ID3D12CommandQueue *queue;
-    unsigned int x, y;
 
     if (!init_test_context(&context, NULL))
         return;
@@ -3369,16 +3331,7 @@ static void test_draw_instanced(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (y = 0; y < rb.height; ++y)
-    {
-        for (x = 0; x < rb.width; ++x)
-        {
-           unsigned int v = get_readback_uint(&rb, x, y);
-           ok(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
-        }
-    }
-    release_resource_readback(&rb);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
 
     destroy_test_context(&context);
 }
@@ -3389,11 +3342,9 @@ static void test_draw_indexed_instanced(void)
     static const uint16_t indices[] = {0, 1, 2};
     ID3D12GraphicsCommandList *command_list;
     struct test_context context;
-    struct resource_readback rb;
     D3D12_INDEX_BUFFER_VIEW ibv;
     ID3D12CommandQueue *queue;
     ID3D12Resource *ib;
-    unsigned int x, y;
 
     if (!init_test_context(&context, NULL))
         return;
@@ -3423,16 +3374,7 @@ static void test_draw_indexed_instanced(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (y = 0; y < rb.height; ++y)
-    {
-        for (x = 0; x < rb.width; ++x)
-        {
-           unsigned int v = get_readback_uint(&rb, x, y);
-           ok(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
-        }
-    }
-    release_resource_readback(&rb);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
 
     ID3D12Resource_Release(ib);
     destroy_test_context(&context);
@@ -4435,16 +4377,7 @@ static void test_bundle_state_inheritance(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (y = 0; y < rb.height; ++y)
-    {
-        for (x = 0; x < rb.width; ++x)
-        {
-           unsigned int v = get_readback_uint(&rb, x, y);
-           todo(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
-        }
-    }
-    release_resource_readback(&rb);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
 
     reset_command_list(command_list, context.allocator);
     reset_command_list(bundle, bundle_allocator);
@@ -4470,16 +4403,7 @@ static void test_bundle_state_inheritance(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (y = 0; y < rb.height; ++y)
-    {
-        for (x = 0; x < rb.width; ++x)
-        {
-           unsigned int v = get_readback_uint(&rb, x, y);
-           todo(v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
-        }
-    }
-    release_resource_readback(&rb);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
 
     ID3D12CommandAllocator_Release(bundle_allocator);
     ID3D12GraphicsCommandList_Release(bundle);
