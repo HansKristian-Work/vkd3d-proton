@@ -37,3 +37,14 @@ interface IDXGISwapChain2 : IDXGISwapChain1
     HRESULT SetMatrixTransform(const DXGI_MATRIX_3X2_F *matrix);
     HRESULT GetMatrixTransform(DXGI_MATRIX_3X2_F *matrix);
 };
+
+[
+    local,
+    object,
+    uuid(25483823-cd46-4c7d-86ca-47aa95b837bd),
+    pointer_default(unique)
+]
+interface IDXGIFactory3 : IDXGIFactory2
+{
+    UINT GetCreationFlags();
+};

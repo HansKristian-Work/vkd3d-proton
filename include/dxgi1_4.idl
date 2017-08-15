@@ -33,3 +33,15 @@ interface IDXGISwapChain3 : IDXGISwapChain2
     HRESULT ResizeBuffers1(UINT buffer_count, UINT width, UINT height, DXGI_FORMAT format,
             UINT flags, const UINT *node_mask, IUnknown *const *present_queue);
 };
+
+[
+    local,
+    object,
+    uuid(1bc6ea02-ef36-464f-bf0c-21ca39e5168a),
+    pointer_default(unique),
+]
+interface IDXGIFactory4 : IDXGIFactory3
+{
+    HRESULT EnumAdapterByLuid(LUID luid, REFIID iid, void **adapter);
+    HRESULT EnumWarpAdapter(REFIID iid, void **adapter);
+};
