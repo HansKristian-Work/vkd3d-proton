@@ -1127,8 +1127,9 @@ struct test_context_desc
 {
     unsigned int rt_width, rt_height;
     DXGI_FORMAT rt_format;
-    BOOL no_root_signature;
-    BOOL no_pipeline;
+    bool no_render_target;
+    bool no_root_signature;
+    bool no_pipeline;
 };
 
 struct test_context
@@ -1225,6 +1226,9 @@ static bool init_test_context_(unsigned int line, struct test_context *context,
             context->allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&context->list);
     ok_(line)(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
 
+    if (desc && desc->no_render_target)
+        return true;
+
     rtv_heap_desc.NumDescriptors = 1;
     rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
@@ -1237,14 +1241,6 @@ static bool init_test_context_(unsigned int line, struct test_context *context,
 
     create_render_target_(line, context, desc);
 
-    if (!desc || !desc->no_root_signature)
-        context->root_signature = create_empty_root_signature_(line,
-                device, D3D12_ROOT_SIGNATURE_FLAG_NONE);
-    if (!desc || (!desc->no_root_signature && !desc->no_pipeline))
-        context->pipeline_state = create_pipeline_state_(line, device,
-                context->root_signature, context->render_target_desc.Format,
-                NULL, NULL, NULL);
-
     context->viewport.TopLeftX = 0.0f;
     context->viewport.TopLeftY = 0.0f;
     context->viewport.Width = context->render_target_desc.Width;
@@ -1255,6 +1251,19 @@ static bool init_test_context_(unsigned int line, struct test_context *context,
     context->scissor_rect.left = context->scissor_rect.top = 0;
     context->scissor_rect.right = context->render_target_desc.Width;
     context->scissor_rect.bottom = context->render_target_desc.Height;
+
+    if (desc && desc->no_root_signature)
+        return true;
+
+    context->root_signature = create_empty_root_signature_(line,
+            device, D3D12_ROOT_SIGNATURE_FLAG_NONE);
+
+    if (desc && desc->no_pipeline)
+        return true;
+
+    context->pipeline_state = create_pipeline_state_(line, device,
+            context->root_signature, context->render_target_desc.Format,
+            NULL, NULL, NULL);
 
     return true;
 }
@@ -3119,8 +3128,6 @@ static void test_multithread_fence_wait(void)
 
 static void test_clear_depth_stencil_view(void)
 {
-    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
-    ID3D12CommandAllocator *command_allocator;
     D3D12_DESCRIPTOR_HEAP_DESC dsv_heap_desc;
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle;
@@ -3129,33 +3136,20 @@ static void test_clear_depth_stencil_view(void)
     unsigned int dsv_increment_size;
     ID3D12DescriptorHeap *dsv_heap;
     D3D12_CLEAR_VALUE clear_value;
+    struct test_context_desc desc;
+    struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Resource *resource;
     ID3D12Device *device;
-    ULONG refcount;
     HRESULT hr;
 
-    if (!(device = create_device()))
-    {
-        skip("Failed to create device.\n");
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
         return;
-    }
-
-    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    command_queue_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
-            &IID_ID3D12CommandQueue, (void **)&queue);
-    ok(SUCCEEDED(hr), "CreateCommandQueue failed, hr %#x.\n", hr);
-
-    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
-            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
-
-    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
-    ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
 
     dsv_heap_desc.NumDescriptors = 1;
     dsv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
@@ -3163,7 +3157,7 @@ static void test_clear_depth_stencil_view(void)
     dsv_heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateDescriptorHeap(device, &dsv_heap_desc,
             &IID_ID3D12DescriptorHeap, (void **)&dsv_heap);
-    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
 
     dsv_increment_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
             D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
@@ -3188,7 +3182,7 @@ static void test_clear_depth_stencil_view(void)
     clear_value.DepthStencil.Stencil = 0x3;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
             D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear_value, &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
 
     dsv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv_heap);
     ID3D12Device_CreateDepthStencilView(device, resource, NULL, dsv_handle);
@@ -3199,13 +3193,9 @@ static void test_clear_depth_stencil_view(void)
             D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_uint(resource, 0, queue, command_list, 0x3f400000, 0);
 
-    ID3D12GraphicsCommandList_Release(command_list);
-    ID3D12CommandAllocator_Release(command_allocator);
     ID3D12Resource_Release(resource);
-    ID3D12CommandQueue_Release(queue);
     ID3D12DescriptorHeap_Release(dsv_heap);
-    refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    destroy_test_context(&context);
 }
 
 static void test_clear_render_target_view(void)
