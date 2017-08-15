@@ -116,8 +116,9 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
 
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.pNext = NULL;
-    /* FIXME: Use mutable formats only for typeless formats. */
-    image_info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+    image_info.flags = 0;
+    if (dxgi_format_is_typeless(desc->Format))
+        image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D && desc->Width == desc->Height)
         image_info.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
 

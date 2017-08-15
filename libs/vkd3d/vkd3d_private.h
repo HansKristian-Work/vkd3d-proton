@@ -545,6 +545,8 @@ static inline bool vkd3d_format_is_compressed(const struct vkd3d_format *format)
 
 const struct vkd3d_format *vkd3d_get_format(DXGI_FORMAT dxgi_format) DECLSPEC_HIDDEN;
 
+bool dxgi_format_is_typeless(DXGI_FORMAT dxgi_format) DECLSPEC_HIDDEN;
+
 enum VkCompareOp vk_compare_op_from_d3d12(D3D12_COMPARISON_FUNC op) DECLSPEC_HIDDEN;
 
 bool is_valid_feature_level(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;
