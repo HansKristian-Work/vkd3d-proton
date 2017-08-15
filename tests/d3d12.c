@@ -571,7 +571,9 @@ static unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_R32_FLOAT:
         case DXGI_FORMAT_R32_UINT:
         case DXGI_FORMAT_R32_SINT:
+        case DXGI_FORMAT_R8G8B8A8_TYPELESS:
         case DXGI_FORMAT_R8G8B8A8_UNORM:
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
         case DXGI_FORMAT_B8G8R8A8_UNORM:
             return 4;
         case DXGI_FORMAT_BC1_UNORM:
@@ -3235,10 +3237,12 @@ static void test_clear_depth_stencil_view(void)
 
 static void test_clear_render_target_view(void)
 {
+    static const float color[] = {0.1f, 0.5f, 0.3f, 0.75f};
     static const float green[] = {0.0f, 1.0f, 0.0f, 1.0f};
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc;
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
     unsigned int rtv_increment_size;
@@ -3281,7 +3285,7 @@ static void test_clear_render_target_view(void)
     resource_desc.Height = 32;
     resource_desc.DepthOrArraySize = 1;
     resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_TYPELESS;
     resource_desc.SampleDesc.Count = 1;
     resource_desc.SampleDesc.Quality = 0;
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -3297,12 +3301,36 @@ static void test_clear_render_target_view(void)
             &IID_ID3D12Resource, (void **)&resource);
     ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
 
-    ID3D12Device_CreateRenderTargetView(device, resource, NULL, rtv_handle);
+    memset(&rtv_desc, 0, sizeof(rtv_desc));
+    rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+    ID3D12Device_CreateRenderTargetView(device, resource, &rtv_desc, rtv_handle);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, green, 0, NULL);
     transition_resource_state(command_list, resource,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_uint(resource, 0, queue, command_list, 0xff00ff00, 0);
+
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, color, 0, NULL);
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(resource, 0, queue, command_list, 0xbf4c7f19, 2);
+
+    /* sRGB view */
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    ID3D12Device_CreateRenderTargetView(device, resource, &rtv_desc, rtv_handle);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, color, 0, NULL);
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(resource, 0, queue, command_list, 0xbf95bc59, 2);
 
     ID3D12Resource_Release(resource);
     ID3D12DescriptorHeap_Release(rtv_heap);
