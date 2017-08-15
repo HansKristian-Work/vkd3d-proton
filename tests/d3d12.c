@@ -3201,8 +3201,6 @@ static void test_clear_depth_stencil_view(void)
 static void test_clear_render_target_view(void)
 {
     static const float green[] = {0.0f, 1.0f, 0.0f, 1.0f};
-    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
-    ID3D12CommandAllocator *command_allocator;
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc;
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle;
@@ -3211,33 +3209,20 @@ static void test_clear_render_target_view(void)
     unsigned int rtv_increment_size;
     ID3D12DescriptorHeap *rtv_heap;
     D3D12_CLEAR_VALUE clear_value;
+    struct test_context_desc desc;
+    struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Resource *resource;
     ID3D12Device *device;
-    ULONG refcount;
     HRESULT hr;
 
-    if (!(device = create_device()))
-    {
-        skip("Failed to create device.\n");
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
         return;
-    }
-
-    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    command_queue_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
-            &IID_ID3D12CommandQueue, (void **)&queue);
-    ok(SUCCEEDED(hr), "CreateCommandQueue failed, hr %#x.\n", hr);
-
-    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
-            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(SUCCEEDED(hr), "CreateCommandAllocator failed, hr %#x.\n", hr);
-
-    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
-    ok(SUCCEEDED(hr), "CreateCommandList failed, hr %#x.\n", hr);
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
 
     rtv_heap_desc.NumDescriptors = 1;
     rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
@@ -3245,7 +3230,7 @@ static void test_clear_render_target_view(void)
     rtv_heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateDescriptorHeap(device, &rtv_heap_desc,
             &IID_ID3D12DescriptorHeap, (void **)&rtv_heap);
-    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
 
     rtv_increment_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
             D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
@@ -3275,7 +3260,7 @@ static void test_clear_render_target_view(void)
             &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
             D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "CreateCommittedResource failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
 
     ID3D12Device_CreateRenderTargetView(device, resource, NULL, rtv_handle);
 
@@ -3284,13 +3269,9 @@ static void test_clear_render_target_view(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_uint(resource, 0, queue, command_list, 0xff00ff00, 0);
 
-    ID3D12GraphicsCommandList_Release(command_list);
-    ID3D12CommandAllocator_Release(command_allocator);
     ID3D12Resource_Release(resource);
-    ID3D12CommandQueue_Release(queue);
     ID3D12DescriptorHeap_Release(rtv_heap);
-    refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    destroy_test_context(&context);
 }
 
 static void test_draw_instanced(void)
