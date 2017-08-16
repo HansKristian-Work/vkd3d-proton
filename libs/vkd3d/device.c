@@ -91,6 +91,29 @@ static void vkd3d_check_extensions(const VkExtensionProperties *extensions, unsi
     }
 }
 
+static unsigned int vkd3d_enable_extensions(const char *extensions[],
+        const char * const *required_extensions, unsigned int required_extension_count,
+        const struct vkd3d_optional_extension_info *optional_extensions, unsigned int optional_extension_count,
+        const struct vkd3d_vulkan_info *vulkan_info)
+{
+    unsigned int i, j;
+
+    for (i = 0; i < required_extension_count; ++i)
+    {
+        extensions[i] = required_extensions[i];
+    }
+    for (j = 0; j < optional_extension_count; ++j)
+    {
+        ptrdiff_t offset = optional_extensions[j].vulkan_info_offset;
+        const bool *supported = (void *)((uintptr_t)vulkan_info + offset);
+
+        if (*supported)
+            extensions[i++] = optional_extensions[j].extension_name;
+    }
+
+    return i;
+}
+
 static void vkd3d_init_instance_caps(struct vkd3d_vulkan_info *vulkan_info)
 {
     VkExtensionProperties *vk_extensions;
@@ -131,7 +154,6 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     VkApplicationInfo application_info;
     VkInstanceCreateInfo instance_info;
     VkInstance vk_instance;
-    unsigned int i, j;
     VkResult vr;
     HRESULT hr;
 
@@ -145,26 +167,16 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     application_info.engineVersion = 0;
     application_info.apiVersion = VK_API_VERSION_1_0;
 
-    for (i = 0; i < ARRAY_SIZE(required_instance_extensions); ++i)
-    {
-        extensions[i] = required_instance_extensions[i];
-    }
-    for (j = 0; j < ARRAY_SIZE(optional_instance_extensions); ++j)
-    {
-        ptrdiff_t offset = optional_instance_extensions[j].vulkan_info_offset;
-        const bool *supported = (void *)((uintptr_t)&vk_info + offset);
-
-        if (*supported)
-            extensions[i++] = optional_instance_extensions[j].extension_name;
-    }
-
     instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instance_info.pNext = NULL;
     instance_info.flags = 0;
     instance_info.pApplicationInfo = &application_info;
     instance_info.enabledLayerCount = 0;
     instance_info.ppEnabledLayerNames = NULL;
-    instance_info.enabledExtensionCount = i;
+    instance_info.enabledExtensionCount = vkd3d_enable_extensions(extensions,
+            required_instance_extensions, ARRAY_SIZE(required_instance_extensions),
+            optional_instance_extensions, ARRAY_SIZE(optional_instance_extensions),
+            vk_info);
     instance_info.ppEnabledExtensionNames = extensions;
 
     if ((vr = vkCreateInstance(&instance_info, NULL, &vk_instance)))
@@ -516,7 +528,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     VkDeviceCreateInfo device_info;
     uint32_t queue_family_count;
     VkDevice vk_device;
-    unsigned int i, j;
+    unsigned int i;
     VkResult vr;
     HRESULT hr;
 
@@ -596,19 +608,6 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     /* Create device */
     VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &device_features));
 
-    for (i = 0; i < ARRAY_SIZE(required_device_extensions); ++i)
-    {
-        extensions[i] = required_device_extensions[i];
-    }
-    for (j = 0; j < ARRAY_SIZE(optional_device_extensions); ++j)
-    {
-        ptrdiff_t offset = optional_device_extensions[j].vulkan_info_offset;
-        const bool *supported = (void *)((uintptr_t)&device->vk_info + offset);
-
-        if (*supported)
-            extensions[i++] = optional_device_extensions[j].extension_name;
-    }
-
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     device_info.pNext = NULL;
     device_info.flags = 0;
@@ -616,7 +615,10 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     device_info.pQueueCreateInfos = queue_info;
     device_info.enabledLayerCount = 0;
     device_info.ppEnabledLayerNames = NULL;
-    device_info.enabledExtensionCount = i;
+    device_info.enabledExtensionCount = vkd3d_enable_extensions(extensions,
+            required_device_extensions, ARRAY_SIZE(required_device_extensions),
+            optional_device_extensions, ARRAY_SIZE(optional_device_extensions),
+            &device->vk_info);
     device_info.ppEnabledExtensionNames = extensions;
     device_info.pEnabledFeatures = &device_features;
 
