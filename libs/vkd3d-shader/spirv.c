@@ -1223,11 +1223,25 @@ static void vkd3d_spirv_build_op_image_write(struct vkd3d_spirv_builder *builder
             image_id, coordinate_id, texel_id);
 }
 
+static uint32_t vkd3d_spirv_build_op_image_query_size_lod(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t image_id, uint32_t lod_id)
+{
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            SpvOpImageQuerySizeLod, result_type, image_id, lod_id);
+}
+
 static uint32_t vkd3d_spirv_build_op_image_query_size(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t image_id)
 {
     return vkd3d_spirv_build_op_tr1(builder, &builder->function_stream,
             SpvOpImageQuerySize, result_type, image_id);
+}
+
+static uint32_t vkd3d_spirv_build_op_image_query_levels(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t image_id)
+{
+    return vkd3d_spirv_build_op_tr1(builder, &builder->function_stream,
+            SpvOpImageQueryLevels, result_type, image_id);
 }
 
 static uint32_t vkd3d_spirv_build_op_glsl_std450_fabs(struct vkd3d_spirv_builder *builder,
@@ -4079,42 +4093,45 @@ static void vkd3d_dxbc_compiler_emit_store_uav_typed(struct vkd3d_dxbc_compiler 
 static void vkd3d_dxbc_compiler_emit_resinfo(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    static const uint32_t miplevel_count[] = {0, 0, 0, 1};
-
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t image_id, type_id, lod_id, val_id, miplevel_count_id;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    uint32_t image_id, type_id, val_id, const_id;
+    uint32_t constituents[VKD3D_VEC4_SIZE];
     unsigned int i, coord_component_count;
-    uint32_t components[VKD3D_VEC4_SIZE];
-
-    if (src[1].reg.type != VKD3DSPR_UAV)
-    {
-        FIXME("Resinfo supported only for UAVs.\n");
-        return;
-    }
 
     vkd3d_spirv_enable_capability(builder, SpvCapabilityImageQuery);
 
     image_id = vkd3d_dxbc_compiler_prepare_image(compiler,
             &src[1].reg, NULL, &coord_component_count);
-
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, coord_component_count);
-    val_id = vkd3d_spirv_build_op_image_query_size(builder, type_id, image_id);
 
-    /* For UAVs the returned miplevel count is always 1. */
-    const_id = vkd3d_dxbc_compiler_get_constant(compiler,
-            VKD3D_TYPE_UINT, VKD3D_VEC4_SIZE, miplevel_count);
-    for (i = 0; i <  VKD3D_VEC4_SIZE; ++i)
+    if (src[1].reg.type == VKD3DSPR_RESOURCE)
     {
-        if (i < coord_component_count)
-            components[i] = i;
-        else
-            components[i] = coord_component_count + i;
+        lod_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_0);
+        val_id = vkd3d_spirv_build_op_image_query_size_lod(builder, type_id, image_id, lod_id);
+        type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+        miplevel_count_id = vkd3d_spirv_build_op_image_query_levels(builder, type_id, image_id);
     }
+    else if (src[1].reg.type == VKD3DSPR_UAV)
+    {
+        val_id = vkd3d_spirv_build_op_image_query_size(builder, type_id, image_id);
+        /* For UAVs the returned miplevel count is always 1. */
+        miplevel_count_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 1);
+    }
+    else
+    {
+        ERR("Unexpected register type %#x.\n", src[1].reg.type);
+        return;
+    }
+
+    constituents[0] = val_id;
+    for (i = 0; i < 3 - coord_component_count; ++i)
+        constituents[i + 1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
+    constituents[i + 1] = miplevel_count_id;
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, VKD3D_VEC4_SIZE);
-    val_id = vkd3d_spirv_build_op_vector_shuffle(builder,
-            type_id, val_id, const_id, components, VKD3D_VEC4_SIZE);
+    val_id = vkd3d_spirv_build_op_composite_construct(builder,
+            type_id, constituents, i + 2);
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
     if (instruction->flags == VKD3DSI_RESINFO_UINT)
