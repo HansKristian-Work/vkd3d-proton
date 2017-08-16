@@ -53,23 +53,47 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 #define MAX_DEVICE_EXTENSION_COUNT \
         (ARRAY_SIZE(required_device_extensions) + ARRAY_SIZE(optional_device_extensions))
 
-static bool has_extension(const VkExtensionProperties *vk_extensions,
+static bool has_extension(const VkExtensionProperties *extensions,
         unsigned int count, const char *extension_name)
 {
     unsigned int i;
 
     for (i = 0; i < count; ++i)
     {
-        if (!strcmp(vk_extensions[i].extensionName, extension_name))
+        if (!strcmp(extensions[i].extensionName, extension_name))
             return true;
     }
     return false;
 }
 
+static void vkd3d_check_extensions(const VkExtensionProperties *extensions, unsigned int count,
+        const char * const *required_extensions, unsigned int required_extension_count,
+        const struct vkd3d_optional_extension_info *optional_extensions, unsigned int optional_extension_count,
+        struct vkd3d_vulkan_info *vulkan_info, const char *extension_type)
+{
+    unsigned int i;
+
+    for (i = 0; i < required_extension_count; ++i)
+    {
+        if (!has_extension(extensions, count, required_extensions[i]))
+            ERR("Required %s extension %s is not supported.\n",
+                    extension_type, debugstr_a(required_extensions[i]));
+    }
+
+    for (i = 0; i < optional_extension_count; ++i)
+    {
+        const char *extension_name = optional_extensions[i].extension_name;
+        ptrdiff_t offset = optional_extensions[i].vulkan_info_offset;
+        bool *supported = (void *)((uintptr_t)vulkan_info + offset);
+
+        if ((*supported = has_extension(extensions, count, extension_name)))
+            TRACE("Found %s extension.\n", debugstr_a(extension_name));
+    }
+}
+
 static void vkd3d_init_instance_caps(struct vkd3d_vulkan_info *vulkan_info)
 {
     VkExtensionProperties *vk_extensions;
-    unsigned int i;
     uint32_t count;
     VkResult vr;
 
@@ -92,22 +116,10 @@ static void vkd3d_init_instance_caps(struct vkd3d_vulkan_info *vulkan_info)
         return;
     }
 
-    for (i = 0; i < ARRAY_SIZE(required_instance_extensions); ++i)
-    {
-        if (!has_extension(vk_extensions, count, required_instance_extensions[i]))
-            ERR("Required instance extension %s is not supported.\n",
-                    debugstr_a(required_instance_extensions[i]));
-    }
-
-    for (i = 0; i < ARRAY_SIZE(optional_instance_extensions); ++i)
-    {
-        const char *extension_name = optional_instance_extensions[i].extension_name;
-        ptrdiff_t offset = optional_instance_extensions[i].vulkan_info_offset;
-        bool *supported = (void *)((uintptr_t)vulkan_info + offset);
-
-        if ((*supported = has_extension(vk_extensions, count, extension_name)))
-            TRACE("Found %s extension.\n", debugstr_a(extension_name));
-    }
+    vkd3d_check_extensions(vk_extensions, count,
+            required_instance_extensions, ARRAY_SIZE(required_instance_extensions),
+            optional_instance_extensions, ARRAY_SIZE(optional_instance_extensions),
+            vulkan_info, "instance");
 
     vkd3d_free(vk_extensions);
 }
@@ -140,7 +152,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     for (j = 0; j < ARRAY_SIZE(optional_instance_extensions); ++j)
     {
         ptrdiff_t offset = optional_instance_extensions[j].vulkan_info_offset;
-        bool *supported = (void *)((uintptr_t)&vk_info + offset);
+        const bool *supported = (void *)((uintptr_t)&vk_info + offset);
 
         if (*supported)
             extensions[i++] = optional_instance_extensions[j].extension_name;
@@ -415,7 +427,6 @@ static void vkd3d_init_device_caps(struct vkd3d_instance *instance,
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
     VkExtensionProperties *vk_extensions;
-    unsigned int i;
     uint32_t count;
     VkResult vr;
 
@@ -440,22 +451,10 @@ static void vkd3d_init_device_caps(struct vkd3d_instance *instance,
         return;
     }
 
-    for (i = 0; i < ARRAY_SIZE(required_device_extensions); ++i)
-    {
-        if (!has_extension(vk_extensions, count, required_device_extensions[i]))
-            ERR("Required device extension %s is not supported.\n",
-                    debugstr_a(required_device_extensions[i]));
-    }
-
-    for (i = 0; i < ARRAY_SIZE(optional_device_extensions); ++i)
-    {
-        const char *extension_name = optional_device_extensions[i].extension_name;
-        ptrdiff_t offset = optional_device_extensions[i].vulkan_info_offset;
-        bool *supported = (void *)((uintptr_t)vulkan_info + offset);
-
-        if ((*supported = has_extension(vk_extensions, count, extension_name)))
-            TRACE("Found %s extension.\n", debugstr_a(extension_name));
-    }
+    vkd3d_check_extensions(vk_extensions, count,
+            required_device_extensions, ARRAY_SIZE(required_device_extensions),
+            optional_device_extensions, ARRAY_SIZE(optional_device_extensions),
+            vulkan_info, "device");
 
     vkd3d_free(vk_extensions);
 }
@@ -604,7 +603,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     for (j = 0; j < ARRAY_SIZE(optional_device_extensions); ++j)
     {
         ptrdiff_t offset = optional_device_extensions[j].vulkan_info_offset;
-        bool *supported = (void *)((uintptr_t)&device->vk_info + offset);
+        const bool *supported = (void *)((uintptr_t)&device->vk_info + offset);
 
         if (*supported)
             extensions[i++] = optional_device_extensions[j].extension_name;
