@@ -18,7 +18,6 @@
 
 #define INITGUID
 #include "vkd3d_private.h"
-#include "vkd3d_shader.h"
 
 HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         REFIID riid, void **device)

@@ -26,6 +26,7 @@
 #define NONAMELESSUNION
 #include "vkd3d.h"
 #include "vkd3d_memory.h"
+#include "vkd3d_shader.h"
 
 #include <assert.h>
 #include <inttypes.h>
@@ -317,6 +318,7 @@ struct d3d12_root_signature
 
     unsigned int descriptor_count;
     struct vkd3d_shader_resource_binding *descriptor_mapping;
+    struct vkd3d_shader_descriptor_binding default_sampler;
 
     unsigned int constant_count;
     struct vkd3d_shader_push_constant *push_constants;

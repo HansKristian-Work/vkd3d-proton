@@ -88,6 +88,12 @@ struct vkd3d_shader_interface
 
     const struct vkd3d_shader_push_constant *push_constants;
     unsigned int push_constant_count;
+
+    /* A sampler used by OpImageFetches generated for SM4 ld instructions.
+     *
+     * In Vulkan OpImageFetch must be used with a sampled image.
+     */
+    struct vkd3d_shader_descriptor_binding default_sampler;
 };
 
 HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,

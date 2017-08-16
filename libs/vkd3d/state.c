@@ -18,7 +18,6 @@
  */
 
 #include "vkd3d_private.h"
-#include "vkd3d_shader.h"
 
 #include "spirv/1.0/spirv.h"
 
@@ -733,6 +732,33 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     return S_OK;
 }
 
+static HRESULT d3d12_root_signature_create_default_sampler(struct d3d12_root_signature *root_signature,
+        struct d3d12_device *device, unsigned int index, struct vkd3d_descriptor_set_context *context,
+        VkDescriptorSetLayoutBinding *binding)
+{
+    D3D12_STATIC_SAMPLER_DESC sampler_desc;
+    HRESULT hr;
+
+    memset(&sampler_desc, 0, sizeof(sampler_desc));
+    sampler_desc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    if (FAILED(hr = vkd3d_create_static_sampler(device, &sampler_desc,
+            &root_signature->static_samplers[index])))
+        return hr;
+
+    root_signature->default_sampler.set = context->set_index;
+    root_signature->default_sampler.binding = context->descriptor_binding++;
+
+    binding->binding = root_signature->default_sampler.binding;
+    binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+    binding->descriptorCount = 1;
+    binding->stageFlags = VK_SHADER_STAGE_ALL;
+    binding->pImmutableSamplers = &root_signature->static_samplers[index];
+    return S_OK;
+}
+
 static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc,
         struct vkd3d_descriptor_set_context *context)
@@ -758,6 +784,14 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
         cur_binding->stageFlags = stage_flags_from_visibility(s->ShaderVisibility);
         cur_binding->pImmutableSamplers = &root_signature->static_samplers[i];
 
+        ++cur_binding;
+    }
+
+    if (i < root_signature->static_sampler_count)
+    {
+        if (FAILED(hr = d3d12_root_signature_create_default_sampler(root_signature, device,
+                i, context, cur_binding)))
+            return hr;
         ++cur_binding;
     }
 
@@ -809,12 +843,22 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
      * each SRV and UAV. */
     info.descriptor_count += info.srv_count + info.uav_count;
 
+    root_signature->descriptor_count = info.descriptor_count;
+    root_signature->static_sampler_count = desc->NumStaticSamplers;
+
+    /* An additional sampler is created for SpvOpImageFetch. */
+    if (info.srv_count || info.buffer_srv_count)
+    {
+        ++info.sampler_count;
+        ++info.descriptor_count;
+        ++root_signature->static_sampler_count;
+    }
+
     hr = E_OUTOFMEMORY;
     root_signature->parameter_count = desc->NumParameters;
     if (!(root_signature->parameters = vkd3d_calloc(root_signature->parameter_count,
             sizeof(*root_signature->parameters))))
         goto fail;
-    root_signature->descriptor_count = info.descriptor_count;
     if (!(root_signature->descriptor_mapping = vkd3d_calloc(root_signature->descriptor_count,
             sizeof(*root_signature->descriptor_mapping))))
         goto fail;
@@ -822,7 +866,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (!(root_signature->push_constants = vkd3d_calloc(root_signature->constant_count,
             sizeof(*root_signature->push_constants))))
         goto fail;
-    root_signature->static_sampler_count = desc->NumStaticSamplers;
     if (!(root_signature->static_samplers = vkd3d_calloc(root_signature->static_sampler_count,
             sizeof(*root_signature->static_samplers))))
         goto fail;
@@ -1121,6 +1164,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
         shader_interface.binding_count = root_signature->descriptor_count;
         shader_interface.push_constants = root_signature->push_constants;
         shader_interface.push_constant_count = root_signature->constant_count;
+        shader_interface.default_sampler = root_signature->default_sampler;
         if (FAILED(hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, &shader_interface)))
         {
             WARN("Failed to compile shader, hr %#x.\n", hr);
