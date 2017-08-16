@@ -1571,7 +1571,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     {
         const D3D12_INPUT_ELEMENT_DESC *e = &desc->InputLayout.pInputElementDescs[i];
 
-        if (!(format = vkd3d_get_format(e->Format)))
+        if (!(format = vkd3d_get_format(e->Format, false)))
         {
             WARN("Invalid DXGI format %#x.\n", e->Format);
             hr = E_FAIL;
@@ -1633,7 +1633,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->rt_idx = 0;
     if (desc->DepthStencilState.DepthEnable || desc->DepthStencilState.StencilEnable)
     {
-        if (!(format = vkd3d_get_format(desc->DSVFormat)))
+        if (!(format = vkd3d_get_format(desc->DSVFormat, true)))
         {
             WARN("Invalid DXGI format %#x.\n", desc->DSVFormat);
             hr = E_FAIL;
@@ -1676,7 +1676,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         unsigned int blend_idx = desc->BlendState.IndependentBlendEnable ? i : 0;
         size_t idx = graphics->rt_idx + i;
 
-        if (!(format = vkd3d_get_format(desc->RTVFormats[i])))
+        if (!(format = vkd3d_get_format(desc->RTVFormats[i], false)))
         {
             WARN("Invalid DXGI format %#x.\n", desc->RTVFormats[i]);
             hr = E_FAIL;

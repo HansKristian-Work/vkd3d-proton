@@ -1311,7 +1311,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
     {
         format = &vkd3d_format_unknown;
     }
-    else if (!(format = vkd3d_get_format(desc->Format)))
+    else if (!(format = vkd3d_format_from_d3d12_resource_desc(desc, 0)))
     {
         WARN("Invalid format %#x.\n", desc->Format);
         return;

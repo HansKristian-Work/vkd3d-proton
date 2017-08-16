@@ -62,9 +62,39 @@ static const struct vkd3d_format vkd3d_formats[] =
     {DXGI_FORMAT_BC7_UNORM_SRGB,      VK_FORMAT_BC7_SRGB_BLOCK,           1,  4, 4, 16, VK_IMAGE_ASPECT_COLOR_BIT},
 };
 
-const struct vkd3d_format *vkd3d_get_format(DXGI_FORMAT dxgi_format)
+/* Each depth/stencil format is only compatible with itself in Vulkan. */
+static const struct vkd3d_format vkd3d_depth_stencil_formats[] =
+{
+    {DXGI_FORMAT_R32_TYPELESS,        VK_FORMAT_D32_SFLOAT,               4,  1, 1,  1, VK_IMAGE_ASPECT_DEPTH_BIT},
+    {DXGI_FORMAT_R32_FLOAT,           VK_FORMAT_D32_SFLOAT,               4,  1, 1,  1, VK_IMAGE_ASPECT_DEPTH_BIT},
+    {DXGI_FORMAT_R16_TYPELESS,        VK_FORMAT_D16_UNORM,                2,  1, 1,  1, VK_IMAGE_ASPECT_DEPTH_BIT},
+    {DXGI_FORMAT_R16_UNORM,           VK_FORMAT_D16_UNORM,                2,  1, 1,  1, VK_IMAGE_ASPECT_DEPTH_BIT},
+};
+
+/* We use overrides for depth/stencil formats. This is required in order to
+ * properly support typeless formats because depth/stencil formats are only
+ * compatible with themselves in Vulkan.
+ */
+static const struct vkd3d_format *vkd3d_get_depth_stencil_format(DXGI_FORMAT dxgi_format)
 {
     unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(vkd3d_depth_stencil_formats); ++i)
+    {
+        if (vkd3d_depth_stencil_formats[i].dxgi_format == dxgi_format)
+            return &vkd3d_depth_stencil_formats[i];
+    }
+
+    return NULL;
+}
+
+const struct vkd3d_format *vkd3d_get_format(DXGI_FORMAT dxgi_format, bool depth_stencil)
+{
+    const struct vkd3d_format *format;
+    unsigned int i;
+
+    if (depth_stencil && (format = vkd3d_get_depth_stencil_format(dxgi_format)))
+        return format;
 
     for (i = 0; i < ARRAY_SIZE(vkd3d_formats); ++i)
     {
@@ -80,7 +110,7 @@ VkFormat vkd3d_get_vk_format(DXGI_FORMAT format)
 {
     const struct vkd3d_format *vkd3d_format;
 
-    if (!(vkd3d_format = vkd3d_get_format(format)))
+    if (!(vkd3d_format = vkd3d_get_format(format, false)))
         return VK_FORMAT_UNDEFINED;
 
     return vkd3d_format->vk_format;

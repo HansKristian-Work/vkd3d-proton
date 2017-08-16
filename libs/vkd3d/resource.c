@@ -108,7 +108,7 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
     VkImageCreateInfo image_info;
     VkResult vr;
 
-    if (!(format = vkd3d_get_format(desc->Format)))
+    if (!(format = vkd3d_format_from_d3d12_resource_desc(desc, 0)))
     {
         WARN("Invalid DXGI format %#x.\n", desc->Format);
         return E_INVALIDARG;
@@ -117,7 +117,7 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.pNext = NULL;
     image_info.flags = 0;
-    if (dxgi_format_is_typeless(desc->Format))
+    if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) && dxgi_format_is_typeless(desc->Format))
         image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D && desc->Width == desc->Height)
         image_info.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
@@ -815,10 +815,20 @@ static VkResult vkd3d_create_texture_view(struct d3d12_device *device,
     view_desc.image = resource->u.vk_image;
     view_desc.viewType = VK_IMAGE_VIEW_TYPE_2D;
     view_desc.format = format->vk_format;
-    view_desc.components.r = VK_COMPONENT_SWIZZLE_R;
-    view_desc.components.g = VK_COMPONENT_SWIZZLE_G;
-    view_desc.components.b = VK_COMPONENT_SWIZZLE_B;
-    view_desc.components.a = VK_COMPONENT_SWIZZLE_A;
+    if (format->vk_aspect_mask == VK_IMAGE_ASPECT_STENCIL_BIT)
+    {
+        view_desc.components.r = VK_COMPONENT_SWIZZLE_ZERO;
+        view_desc.components.g = VK_COMPONENT_SWIZZLE_R;
+        view_desc.components.b = VK_COMPONENT_SWIZZLE_ZERO;
+        view_desc.components.a = VK_COMPONENT_SWIZZLE_ZERO;
+    }
+    else
+    {
+        view_desc.components.r = VK_COMPONENT_SWIZZLE_R;
+        view_desc.components.g = VK_COMPONENT_SWIZZLE_G;
+        view_desc.components.b = VK_COMPONENT_SWIZZLE_B;
+        view_desc.components.a = VK_COMPONENT_SWIZZLE_A;
+    }
     view_desc.subresourceRange.aspectMask = format->vk_aspect_mask;
     view_desc.subresourceRange.baseMipLevel = miplevel_idx;
     view_desc.subresourceRange.levelCount = miplevel_count;
@@ -882,9 +892,9 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
     if (desc)
         FIXME("Unhandled SRV desc %p.\n", desc);
 
-    if (!(format = vkd3d_get_format(resource->desc.Format)))
+    if (!(format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, desc ? desc->Format : 0)))
     {
-        ERR("Failed to find format for %#x.\n", resource->desc.Format);
+        FIXME("Failed to find format for %#x.\n", resource->desc.Format);
         return;
     }
 
@@ -902,7 +912,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor,
 {
     const struct vkd3d_format *format;
 
-    if (!(format = vkd3d_get_format(desc->Format)))
+    if (!(format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, desc->Format)))
     {
         ERR("Failed to find format for %#x.\n", resource->desc.Format);
         return;
@@ -942,7 +952,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         return;
     }
 
-    if (!(format = vkd3d_get_format(desc->Format)))
+    if (!(format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, 0)))
     {
         ERR("Failed to find format for %#x.\n", resource->desc.Format);
         return;
@@ -1002,7 +1012,7 @@ bool vkd3d_create_raw_buffer_uav(struct d3d12_device *device,
     const struct vkd3d_format *format;
     struct d3d12_resource *resource;
 
-    format = vkd3d_get_format(DXGI_FORMAT_R32_UINT);
+    format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
     resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, gpu_address);
     return !vkd3d_create_buffer_view(device, resource, format,
             gpu_address - resource->gpu_address, VK_WHOLE_SIZE, vk_buffer_view);
@@ -1169,7 +1179,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
         return;
     }
 
-    if (!(format = vkd3d_get_format(desc ? desc->Format : resource->desc.Format)))
+    if (!(format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, desc ? desc->Format : 0)))
     {
         WARN("Invalid DXGI format.\n");
         return;
@@ -1224,7 +1234,7 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
         return;
     }
 
-    if (!(format = vkd3d_get_format(desc ? desc->Format : resource->desc.Format)))
+    if (!(format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, desc ? desc->Format : 0)))
     {
         WARN("Invalid DXGI format.\n");
         return;
