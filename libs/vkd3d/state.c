@@ -599,8 +599,8 @@ static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *
     root_signature->descriptor_mapping[i].type = descriptor_type;
     root_signature->descriptor_mapping[i].register_index = register_idx;
     root_signature->descriptor_mapping[i].is_buffer = buffer_descriptor;
-    root_signature->descriptor_mapping[i].descriptor_set = context->set_index;
-    root_signature->descriptor_mapping[i].binding = context->descriptor_binding++;
+    root_signature->descriptor_mapping[i].binding.set = context->set_index;
+    root_signature->descriptor_mapping[i].binding.binding = context->descriptor_binding++;
 }
 
 static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signature *root_signature,
@@ -1115,9 +1115,13 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     else
     {
         struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
-        if (FAILED(hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0,
-                root_signature->descriptor_mapping, root_signature->descriptor_count,
-                root_signature->push_constants, root_signature->constant_count)))
+        struct vkd3d_shader_interface shader_interface;
+
+        shader_interface.bindings = root_signature->descriptor_mapping;
+        shader_interface.binding_count = root_signature->descriptor_count;
+        shader_interface.push_constants = root_signature->push_constants;
+        shader_interface.push_constant_count = root_signature->constant_count;
+        if (FAILED(hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, &shader_interface)))
         {
             WARN("Failed to compile shader, hr %#x.\n", hr);
             return hr;

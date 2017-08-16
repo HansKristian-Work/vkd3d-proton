@@ -20,8 +20,7 @@
 
 HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv, uint32_t compiler_options,
-        const struct vkd3d_shader_resource_binding *bindings, unsigned int binding_count,
-        const struct vkd3d_shader_push_constant *push_constants, unsigned int push_constant_count)
+        const struct vkd3d_shader_interface *shader_interface)
 {
     struct vkd3d_dxbc_compiler *spirv_compiler;
     struct vkd3d_shader_version shader_version;
@@ -32,10 +31,8 @@ HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     HRESULT hr;
     bool ret;
 
-    TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, bindings %p, binding_count %u, "
-            "push_constants %p, push_constant_count %u.\n",
-            dxbc->code, dxbc->size, spirv, compiler_options, bindings, binding_count,
-            push_constants, push_constant_count);
+    TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, shader_interface %p.\n",
+            dxbc->code, dxbc->size, spirv, compiler_options, shader_interface);
 
     if (FAILED(hr = shader_extract_from_dxbc(dxbc->code, dxbc->size, &shader_desc)))
     {
@@ -54,7 +51,7 @@ HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     shader_sm4_read_header(parser_data, &ptr, &shader_version);
 
     if (!(spirv_compiler = vkd3d_dxbc_compiler_create(&shader_version, &shader_desc,
-            compiler_options, bindings, binding_count, push_constants, push_constant_count)))
+            compiler_options, shader_interface)))
     {
         ERR("Failed to create DXBC compiler.\n");
         shader_sm4_free(parser_data);
