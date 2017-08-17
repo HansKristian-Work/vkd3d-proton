@@ -2802,8 +2802,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
     if ((push_cb = vkd3d_dxbc_compiler_find_push_constant(compiler, reg)))
     {
         push_cb->reg = *reg;
-        if (cb_size * VKD3D_VEC4_SIZE * sizeof(uint32_t) != push_cb->pc.size)
-            FIXME("Push constant size do not match (cb size %u, constant size %u).\n",
+        if (cb_size * VKD3D_VEC4_SIZE * sizeof(uint32_t) > push_cb->pc.size)
+            WARN("Constant buffer size %u exceeds push constant size %u.\n",
                     cb_size, push_cb->pc.size);
         return;
     }
