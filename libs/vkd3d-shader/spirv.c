@@ -2509,8 +2509,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
             || reg->type == VKD3DSPR_PRIMID))
         write_mask = VKD3DSP_WRITEMASK_0;
 
-    signature_element = vkd3d_find_signature_element_for_reg(compiler->input_signature,
-            NULL, reg, write_mask);
     builtin = vkd3d_get_spirv_builtin(reg->type, sysval);
 
     component_idx = vkd3d_write_mask_get_component_idx(write_mask);
@@ -2522,6 +2520,8 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     }
     else
     {
+        signature_element = vkd3d_find_signature_element_for_reg(compiler->input_signature,
+                NULL, reg, write_mask);
         component_type = signature_element ? signature_element->component_type : VKD3D_TYPE_FLOAT;
         input_component_count = component_count;
     }
