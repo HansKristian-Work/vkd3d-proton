@@ -776,7 +776,7 @@ static void d3d12_desc_destroy(struct d3d12_desc *descriptor,
     memset(descriptor, 0, sizeof(*descriptor));
 }
 
-static VkResult vkd3d_create_buffer_view(struct d3d12_device *device,
+static bool vkd3d_create_buffer_view(struct d3d12_device *device,
         struct d3d12_resource *resource, const struct vkd3d_format *format,
         VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view)
 {
@@ -785,6 +785,12 @@ static VkResult vkd3d_create_buffer_view(struct d3d12_device *device,
     VkResult vr;
 
     assert(d3d12_resource_is_buffer(resource));
+
+    if (vkd3d_format_is_compressed(format))
+    {
+        WARN("Invalid format for buffer view %#x.\n", format->dxgi_format);
+        return false;
+    }
 
     view_desc.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
     view_desc.pNext = NULL;
@@ -795,7 +801,7 @@ static VkResult vkd3d_create_buffer_view(struct d3d12_device *device,
     view_desc.range = range;
     if ((vr = VK_CALL(vkCreateBufferView(device->vk_device, &view_desc, NULL, vk_view))) < 0)
         WARN("Failed to create Vulkan buffer view, vr %d.\n", vr);
-    return vr;
+    return vr == VK_SUCCESS;
 }
 
 static VkResult vkd3d_create_texture_view(struct d3d12_device *device,
@@ -931,9 +937,9 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor,
     if (desc->u.Buffer.Flags)
         FIXME("Ignoring buffer view flags %#x.\n", desc->u.Buffer.Flags);
 
-    if (vkd3d_create_buffer_view(device, resource, format,
+    if (!vkd3d_create_buffer_view(device, resource, format,
             desc->u.Buffer.FirstElement * format->byte_count,
-            desc->u.Buffer.NumElements * format->byte_count, &descriptor->u.vk_buffer_view) < 0)
+            desc->u.Buffer.NumElements * format->byte_count, &descriptor->u.vk_buffer_view))
         return;
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
@@ -1014,7 +1020,7 @@ bool vkd3d_create_raw_buffer_uav(struct d3d12_device *device,
 
     format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
     resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, gpu_address);
-    return !vkd3d_create_buffer_view(device, resource, format,
+    return vkd3d_create_buffer_view(device, resource, format,
             gpu_address - resource->gpu_address, VK_WHOLE_SIZE, vk_buffer_view);
 }
 
