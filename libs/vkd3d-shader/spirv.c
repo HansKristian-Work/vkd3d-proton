@@ -225,6 +225,10 @@ struct vkd3d_spirv_builder
         {
             uint32_t local_size[3];
         } compute;
+        struct
+        {
+            bool depth_replacing;
+        } fragment;
     } u;
 
     struct vkd3d_spirv_stream original_function_stream;
@@ -299,6 +303,13 @@ static void vkd3d_spirv_set_local_size(struct vkd3d_spirv_builder *builder,
     builder->u.compute.local_size[0] = x;
     builder->u.compute.local_size[1] = y;
     builder->u.compute.local_size[2] = z;
+}
+
+static void vkd3d_spirv_enable_depth_replacing(struct vkd3d_spirv_builder *builder)
+{
+    assert(builder->execution_model == SpvExecutionModelFragment);
+
+    builder->u.fragment.depth_replacing = true;
 }
 
 static uint32_t vkd3d_spirv_opcode_word(SpvOp op, unsigned int word_count)
@@ -1394,10 +1405,22 @@ static void vkd3d_spirv_builder_free(struct vkd3d_spirv_builder *builder)
 static void vkd3d_spirv_build_execution_mode_declarations(struct vkd3d_spirv_builder *builder,
         struct vkd3d_spirv_stream *stream)
 {
-    if (builder->execution_model == SpvExecutionModelGLCompute)
+    switch (builder->execution_model)
     {
-        vkd3d_spirv_build_op_execution_mode(stream, builder->main_function_id, SpvExecutionModeLocalSize,
-                builder->u.compute.local_size, ARRAY_SIZE(builder->u.compute.local_size));
+        case SpvExecutionModelFragment:
+            if (builder->u.fragment.depth_replacing)
+                vkd3d_spirv_build_op_execution_mode(stream, builder->main_function_id,
+                        SpvExecutionModeDepthReplacing, NULL, 0);
+            break;
+
+        case SpvExecutionModelGLCompute:
+            vkd3d_spirv_build_op_execution_mode(stream, builder->main_function_id,
+                    SpvExecutionModeLocalSize, builder->u.compute.local_size,
+                    ARRAY_SIZE(builder->u.compute.local_size));
+            break;
+
+        default:
+            break;
     }
 }
 
@@ -1678,7 +1701,7 @@ struct vkd3d_dxbc_compiler
         uint32_t id;
         enum vkd3d_component_type component_type;
     } *output_info;
-    uint32_t private_output_variable[MAX_REG_OUTPUT];
+    uint32_t private_output_variable[MAX_REG_OUTPUT + 1]; /* 1 entry for oDepth */
     uint32_t output_setup_function_id;
     uint32_t default_sampler_id;
 };
@@ -1935,6 +1958,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_COLOROUT:
             snprintf(buffer, buffer_size, "o%u", reg->idx[0].offset);
             break;
+        case VKD3DSPR_DEPTHOUT:
+            snprintf(buffer, buffer_size, "oDepth");
+            break;
         case VKD3DSPR_THREADID:
             snprintf(buffer, buffer_size, "vThreadID");
             break;
@@ -2080,6 +2106,7 @@ static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *
         case VKD3DSPR_INPUT:
         case VKD3DSPR_OUTPUT:
         case VKD3DSPR_COLOROUT:
+        case VKD3DSPR_DEPTHOUT:
         case VKD3DSPR_CONSTBUFFER:
         case VKD3DSPR_IMMCONSTBUFFER:
         case VKD3DSPR_SAMPLER:
@@ -2402,6 +2429,9 @@ static void vkd3d_dxbc_compiler_emit_store_dst(struct vkd3d_dxbc_compiler *compi
  *   "The variable decorated with FragCoord must be declared as a
  *   four-component vector of 32-bit floating-point values."
  *
+ *   "The variable decorated with FragDepth must be declared as a scalar 32-bit
+ *   floating-point value."
+ *
  *   "Any variable decorated with Position must be declared as a four-component
  *   vector of 32-bit floating-point values."
  *
@@ -2423,6 +2453,8 @@ vkd3d_spirv_builtin_table[] =
     {VKD3D_SIV_NONE, VKD3DSPR_LOCALTHREADID,    VKD3D_TYPE_INT, 3, SpvBuiltInLocalInvocationId},
     {VKD3D_SIV_NONE, VKD3DSPR_LOCALTHREADINDEX, VKD3D_TYPE_INT, 1, SpvBuiltInLocalInvocationIndex},
     {VKD3D_SIV_NONE, VKD3DSPR_THREADGROUPID,    VKD3D_TYPE_INT, 3, SpvBuiltInWorkgroupId},
+
+    {VKD3D_SIV_NONE, VKD3DSPR_DEPTHOUT,         VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth},
 
     {VKD3D_SIV_POSITION,  ~0u, VKD3D_TYPE_FLOAT, 4, SpvBuiltInPosition},
     {VKD3D_SIV_VERTEX_ID, ~0u, VKD3D_TYPE_INT,   1, SpvBuiltInVertexIndex},
@@ -2485,6 +2517,28 @@ static const struct vkd3d_shader_signature_element *vkd3d_find_signature_element
     return NULL;
 }
 
+static bool vkd3d_shader_is_scalar_register(const struct vkd3d_shader_register *reg)
+{
+    switch (reg->type)
+    {
+        case VKD3DSPR_DEPTHOUT:
+        case VKD3DSPR_LOCALTHREADINDEX:
+        case VKD3DSPR_PRIMID:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static DWORD vkd3d_shader_fix_write_mask(const struct vkd3d_shader_register *reg,
+        DWORD write_mask)
+{
+    /* Scalar registers are declared with no write mask in shader bytecode. */
+    if (!write_mask && vkd3d_shader_is_scalar_register(reg))
+        return VKD3DSP_WRITEMASK_0;
+    return write_mask;
+}
+
 static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval)
 {
@@ -2502,15 +2556,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     bool use_private_var = false;
     DWORD write_mask;
 
-    /* vThreadIDInGroupFlattened, vPrim are declared with no write mask in
-     * shader bytecode generated by fxc. */
-    write_mask = dst->write_mask;
-    if (!write_mask && (reg->type == VKD3DSPR_LOCALTHREADINDEX
-            || reg->type == VKD3DSPR_PRIMID))
-        write_mask = VKD3DSP_WRITEMASK_0;
-
     builtin = vkd3d_get_spirv_builtin(reg->type, sysval);
 
+    write_mask = vkd3d_shader_fix_write_mask(reg, dst->write_mask);
     component_idx = vkd3d_write_mask_get_component_idx(write_mask);
     component_count = vkd3d_write_mask_component_count(write_mask);
     if (builtin)
@@ -2592,6 +2640,15 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     return input_id;
 }
 
+static unsigned int vkd3d_dxbc_compiler_get_output_variable_index(
+        struct vkd3d_dxbc_compiler *compiler, unsigned int register_idx)
+{
+    if (register_idx == ~0u) /* oDepth */
+        return ARRAY_SIZE(compiler->private_output_variable) - 1;
+    assert(register_idx < ARRAY_SIZE(compiler->private_output_variable) - 1);
+    return register_idx;
+}
+
 static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval)
 {
@@ -2607,13 +2664,15 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
     unsigned int signature_idx;
     bool use_private_variable;
     uint32_t id, var_id;
+    DWORD write_mask;
 
+    write_mask = vkd3d_shader_fix_write_mask(reg, dst->write_mask);
     signature_element = vkd3d_find_signature_element_for_reg(compiler->output_signature,
-            &signature_idx, reg, dst->write_mask);
+            &signature_idx, reg, write_mask);
     builtin = vkd3d_get_spirv_builtin(dst->reg.type, sysval);
 
-    component_idx = vkd3d_write_mask_get_component_idx(dst->write_mask);
-    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    component_idx = vkd3d_write_mask_get_component_idx(write_mask);
+    component_count = vkd3d_write_mask_component_count(write_mask);
     if (builtin)
     {
         component_type = builtin->component_type;
@@ -2671,10 +2730,14 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
 
     if (use_private_variable)
     {
-        compiler->private_output_variable[reg->idx[0].offset] = var_id;
+        unsigned int idx = vkd3d_dxbc_compiler_get_output_variable_index(compiler, reg->idx[0].offset);
+        compiler->private_output_variable[idx] = var_id;
         if (!compiler->output_setup_function_id)
             compiler->output_setup_function_id = vkd3d_spirv_alloc_id(builder);
     }
+
+    if (builtin && builtin->spirv_builtin == SpvBuiltInFragDepth)
+        vkd3d_spirv_enable_depth_replacing(builder);
 
     return id;
 }
@@ -4514,7 +4577,7 @@ static void vkd3d_dxbc_compiler_emit_output_setup_function(struct vkd3d_dxbc_com
     const struct vkd3d_shader_signature *signature = compiler->output_signature;
     uint32_t param_type_id[MAX_REG_OUTPUT], param_id[MAX_REG_OUTPUT] = {};
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    DWORD write_mask, reg_idx;
+    DWORD write_mask, variable_idx;
     unsigned int i, count;
 
     function_id = compiler->output_setup_function_id;
@@ -4549,14 +4612,15 @@ static void vkd3d_dxbc_compiler_emit_output_setup_function(struct vkd3d_dxbc_com
 
     for (i = 0; i < signature->element_count; ++i)
     {
-        reg_idx = signature->elements[i].register_idx;
-        write_mask = signature->elements[i].mask & 0xff;
+        variable_idx = vkd3d_dxbc_compiler_get_output_variable_index(compiler,
+                signature->elements[i].register_idx);
 
-        if (!param_id[reg_idx])
+        if (!param_id[variable_idx])
             continue;
 
+        write_mask = signature->elements[i].mask & 0xff;
         val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-                param_id[reg_idx], VKD3D_TYPE_FLOAT, VKD3DSP_NOSWIZZLE, write_mask);
+                param_id[variable_idx], VKD3D_TYPE_FLOAT, VKD3DSP_NOSWIZZLE, write_mask);
 
         if (compiler->output_info[i].component_type != VKD3D_TYPE_FLOAT)
         {
