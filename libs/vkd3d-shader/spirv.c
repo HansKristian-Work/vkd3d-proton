@@ -3041,6 +3041,20 @@ static void vkd3d_dxbc_compiler_emit_dcl_uav_raw(struct vkd3d_dxbc_compiler *com
             VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT);
 }
 
+static void vkd3d_dxbc_compiler_emit_dcl_uav_structured(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    if (instruction->flags)
+        FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
+
+    if (instruction->declaration.structured_resource.byte_stride != 4)
+        FIXME("Unhandled stride %#x.\n", instruction->declaration.structured_resource.byte_stride);
+
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler,
+            &instruction->declaration.structured_resource.reg.reg,
+            VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT);
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_uav_typed(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -4396,6 +4410,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL_UAV_RAW:
             vkd3d_dxbc_compiler_emit_dcl_uav_raw(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_UAV_STRUCTURED:
+            vkd3d_dxbc_compiler_emit_dcl_uav_structured(compiler, instruction);
             break;
         case VKD3DSIH_DCL_UAV_TYPED:
             vkd3d_dxbc_compiler_emit_dcl_uav_typed(compiler, instruction);
