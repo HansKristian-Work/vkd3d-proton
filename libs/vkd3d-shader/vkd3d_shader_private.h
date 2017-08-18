@@ -868,6 +868,7 @@ static inline unsigned int vkd3d_write_mask_get_component_idx(DWORD write_mask)
 {
     unsigned int i;
 
+    assert(write_mask);
     for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
     {
         if (write_mask & (VKD3DSP_WRITEMASK_0 << i))
@@ -882,6 +883,7 @@ static inline unsigned int vkd3d_write_mask_component_count(DWORD write_mask)
 {
     unsigned int i, count = 0;
 
+    assert(write_mask);
     for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
     {
         if (write_mask & (VKD3DSP_WRITEMASK_0 << i))

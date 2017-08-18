@@ -2517,28 +2517,6 @@ static const struct vkd3d_shader_signature_element *vkd3d_find_signature_element
     return NULL;
 }
 
-static bool vkd3d_shader_is_scalar_register(const struct vkd3d_shader_register *reg)
-{
-    switch (reg->type)
-    {
-        case VKD3DSPR_DEPTHOUT:
-        case VKD3DSPR_LOCALTHREADINDEX:
-        case VKD3DSPR_PRIMID:
-            return true;
-        default:
-            return false;
-    }
-}
-
-static DWORD vkd3d_shader_fix_write_mask(const struct vkd3d_shader_register *reg,
-        DWORD write_mask)
-{
-    /* Scalar registers are declared with no write mask in shader bytecode. */
-    if (!write_mask && vkd3d_shader_is_scalar_register(reg))
-        return VKD3DSP_WRITEMASK_0;
-    return write_mask;
-}
-
 static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval)
 {
@@ -2554,13 +2532,11 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     SpvStorageClass storage_class;
     struct rb_entry *entry = NULL;
     bool use_private_var = false;
-    DWORD write_mask;
 
     builtin = vkd3d_get_spirv_builtin(reg->type, sysval);
 
-    write_mask = vkd3d_shader_fix_write_mask(reg, dst->write_mask);
-    component_idx = vkd3d_write_mask_get_component_idx(write_mask);
-    component_count = vkd3d_write_mask_component_count(write_mask);
+    component_idx = vkd3d_write_mask_get_component_idx(dst->write_mask);
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
     if (builtin)
     {
         component_type = builtin->component_type;
@@ -2569,7 +2545,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     else
     {
         signature_element = vkd3d_find_signature_element_for_reg(compiler->input_signature,
-                NULL, reg, write_mask);
+                NULL, reg, dst->write_mask);
         component_type = signature_element ? signature_element->component_type : VKD3D_TYPE_FLOAT;
         input_component_count = component_count;
     }
@@ -2608,7 +2584,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
 
     if (val_id && input_component_count != component_count)
         val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-                val_id, VKD3D_TYPE_FLOAT, VKD3DSP_NOSWIZZLE, write_mask);
+                val_id, VKD3D_TYPE_FLOAT, VKD3DSP_NOSWIZZLE, dst->write_mask);
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
 
@@ -2634,7 +2610,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     if (use_private_var)
     {
         assert(val_id);
-        vkd3d_dxbc_compiler_emit_store_reg(compiler, reg, write_mask, val_id);
+        vkd3d_dxbc_compiler_emit_store_reg(compiler, reg, dst->write_mask, val_id);
     }
 
     return input_id;
@@ -2664,15 +2640,13 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
     unsigned int signature_idx;
     bool use_private_variable;
     uint32_t id, var_id;
-    DWORD write_mask;
 
-    write_mask = vkd3d_shader_fix_write_mask(reg, dst->write_mask);
     signature_element = vkd3d_find_signature_element_for_reg(compiler->output_signature,
-            &signature_idx, reg, write_mask);
+            &signature_idx, reg, dst->write_mask);
     builtin = vkd3d_get_spirv_builtin(dst->reg.type, sysval);
 
-    component_idx = vkd3d_write_mask_get_component_idx(write_mask);
-    component_count = vkd3d_write_mask_component_count(write_mask);
+    component_idx = vkd3d_write_mask_get_component_idx(dst->write_mask);
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
     if (builtin)
     {
         component_type = builtin->component_type;

@@ -1552,6 +1552,19 @@ static BOOL shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD *
     return TRUE;
 }
 
+static bool shader_sm4_is_scalar_register(const struct vkd3d_shader_register *reg)
+{
+    switch (reg->type)
+    {
+        case VKD3DSPR_DEPTHOUT:
+        case VKD3DSPR_LOCALTHREADINDEX:
+        case VKD3DSPR_PRIMID:
+            return true;
+        default:
+            return false;
+    }
+}
+
 static BOOL shader_sm4_read_dst_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
         enum vkd3d_data_type data_type, struct vkd3d_shader_dst_param *dst_param)
 {
@@ -1578,6 +1591,9 @@ static BOOL shader_sm4_read_dst_param(struct vkd3d_sm4_data *priv, const DWORD *
     }
 
     dst_param->write_mask = (token & VKD3D_SM4_WRITEMASK_MASK) >> VKD3D_SM4_WRITEMASK_SHIFT;
+    /* Scalar registers are declared with no write mask in shader bytecode. */
+    if (!dst_param->write_mask && shader_sm4_is_scalar_register(&dst_param->reg))
+        dst_param->write_mask = VKD3DSP_WRITEMASK_0;
     dst_param->modifiers = 0;
     dst_param->shift = 0;
 
