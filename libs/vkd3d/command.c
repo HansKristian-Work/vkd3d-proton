@@ -2836,6 +2836,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
 
         d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
 
+        if (dsv_desc->width > list->fb_width)
+            list->fb_width = dsv_desc->width;
+        if (dsv_desc->height > list->fb_height)
+            list->fb_height = dsv_desc->height;
+
         list->views[0] = dsv_desc->vk_view;
     }
 
