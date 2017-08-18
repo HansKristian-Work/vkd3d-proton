@@ -62,6 +62,17 @@ static void set_rect(RECT *rect, int left, int top, int right, int bottom)
     rect->bottom = bottom;
 }
 
+static void set_viewport(D3D12_VIEWPORT *vp, float x, float y,
+        float width, float height, float min_depth, float max_depth)
+{
+    vp->TopLeftX = x;
+    vp->TopLeftY = y;
+    vp->Width = width;
+    vp->Height = height;
+    vp->MinDepth = min_depth;
+    vp->MaxDepth = max_depth;
+}
+
 struct vec2
 {
     float x, y;
@@ -1018,6 +1029,33 @@ static ID3D12RootSignature *create_cb_root_signature_(unsigned int line,
     return root_signature;
 }
 
+#define create_32bit_constants_root_signature(a, b, c, e) \
+        create_32bit_constants_root_signature_(__LINE__, a, b, c, e)
+static ID3D12RootSignature *create_32bit_constants_root_signature_(unsigned int line,
+        ID3D12Device *device, unsigned int reg_idx, unsigned int element_count,
+        D3D12_SHADER_VISIBILITY shader_visibility)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12RootSignature *root_signature = NULL;
+    D3D12_ROOT_PARAMETER root_parameter;
+    HRESULT hr;
+
+    root_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameter.Constants.ShaderRegister = reg_idx;
+    root_parameter.Constants.RegisterSpace = 0;
+    root_parameter.Constants.Num32BitValues = element_count;
+    root_parameter.ShaderVisibility = shader_visibility;
+
+    memset(&root_signature_desc, 0, sizeof(root_signature_desc));
+    root_signature_desc.NumParameters = 1;
+    root_signature_desc.pParameters = &root_parameter;
+    root_signature_desc.Flags = 0;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok_(line)(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    return root_signature;
+}
+
 #define create_texture_root_signature(a, b, c) create_texture_root_signature_(__LINE__, a, b, c)
 static ID3D12RootSignature *create_texture_root_signature_(unsigned int line,
         ID3D12Device *device, D3D12_SHADER_VISIBILITY shader_visibility, D3D12_ROOT_SIGNATURE_FLAGS flags)
@@ -1082,16 +1120,11 @@ static ID3D12PipelineState *create_compute_pipeline_state_(unsigned int line, ID
     return pipeline_state;
 }
 
-#define create_pipeline_state(a, b, c, d, e, f) create_pipeline_state_(__LINE__, a, b, c, d, e, f)
-static ID3D12PipelineState *create_pipeline_state_(unsigned int line, ID3D12Device *device,
+static void init_pipeline_state_desc(D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc,
         ID3D12RootSignature *root_signature, DXGI_FORMAT rt_format,
         const D3D12_SHADER_BYTECODE *vs, const D3D12_SHADER_BYTECODE *ps,
         const D3D12_INPUT_LAYOUT_DESC *input_layout)
 {
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline_state_desc;
-    ID3D12PipelineState *pipeline_state;
-    HRESULT hr;
-
     static const DWORD vs_code[] =
     {
 #if 0
@@ -1132,27 +1165,40 @@ static ID3D12PipelineState *create_pipeline_state_(unsigned int line, ID3D12Devi
         0x00004002, 0x00000000, 0x3f800000, 0x00000000, 0x3f800000, 0x0100003e,
     };
 
-    memset(&pipeline_state_desc, 0, sizeof(pipeline_state_desc));
-    pipeline_state_desc.pRootSignature = root_signature;
+    memset(desc, 0, sizeof(*desc));
+    desc->pRootSignature = root_signature;
     if (vs)
-        pipeline_state_desc.VS = *vs;
+        desc->VS = *vs;
     else
-        pipeline_state_desc.VS = shader_bytecode(vs_code, sizeof(vs_code));
+        desc->VS = shader_bytecode(vs_code, sizeof(vs_code));
     if (ps)
-        pipeline_state_desc.PS = *ps;
+        desc->PS = *ps;
     else
-        pipeline_state_desc.PS = shader_bytecode(ps_code, sizeof(ps_code));
-    pipeline_state_desc.StreamOutput.RasterizedStream = 0;
-    pipeline_state_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-    pipeline_state_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
-    pipeline_state_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+        desc->PS = shader_bytecode(ps_code, sizeof(ps_code));
+    desc->StreamOutput.RasterizedStream = 0;
+    desc->BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    desc->RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    desc->RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
     if (input_layout)
-        pipeline_state_desc.InputLayout = *input_layout;
-    pipeline_state_desc.SampleMask = ~(UINT)0;
-    pipeline_state_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    pipeline_state_desc.NumRenderTargets = 1;
-    pipeline_state_desc.RTVFormats[0] = rt_format;
-    pipeline_state_desc.SampleDesc.Count = 1;
+        desc->InputLayout = *input_layout;
+    desc->SampleMask = ~(UINT)0;
+    desc->PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    desc->NumRenderTargets = 1;
+    desc->RTVFormats[0] = rt_format;
+    desc->SampleDesc.Count = 1;
+}
+
+#define create_pipeline_state(a, b, c, d, e, f) create_pipeline_state_(__LINE__, a, b, c, d, e, f)
+static ID3D12PipelineState *create_pipeline_state_(unsigned int line, ID3D12Device *device,
+        ID3D12RootSignature *root_signature, DXGI_FORMAT rt_format,
+        const D3D12_SHADER_BYTECODE *vs, const D3D12_SHADER_BYTECODE *ps,
+        const D3D12_INPUT_LAYOUT_DESC *input_layout)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline_state_desc;
+    ID3D12PipelineState *pipeline_state;
+    HRESULT hr;
+
+    init_pipeline_state_desc(&pipeline_state_desc, root_signature, rt_format, vs, ps, input_layout);
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pipeline_state_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
     ok_(line)(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
@@ -1278,16 +1324,10 @@ static bool init_test_context_(unsigned int line, struct test_context *context,
 
     create_render_target_(line, context, desc);
 
-    context->viewport.TopLeftX = 0.0f;
-    context->viewport.TopLeftY = 0.0f;
-    context->viewport.Width = context->render_target_desc.Width;
-    context->viewport.Height = context->render_target_desc.Height;
-    context->viewport.MinDepth = 0.0f;
-    context->viewport.MaxDepth = 0.0f;
-
-    context->scissor_rect.left = context->scissor_rect.top = 0;
-    context->scissor_rect.right = context->render_target_desc.Width;
-    context->scissor_rect.bottom = context->render_target_desc.Height;
+    set_viewport(&context->viewport, 0.0f, 0.0f,
+            context->render_target_desc.Width, context->render_target_desc.Height, 0.0f, 1.0f);
+    set_rect(&context->scissor_rect, 0, 0,
+            context->render_target_desc.Width, context->render_target_desc.Height);
 
     if (desc && desc->no_root_signature)
         return true;
@@ -1361,6 +1401,71 @@ static void destroy_test_context_(unsigned int line, struct test_context *contex
 
     refcount = ID3D12Device_Release(context->device);
     ok_(line)(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
+struct depth_stencil_resource
+{
+    ID3D12Resource *texture;
+    ID3D12DescriptorHeap *heap;
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle;
+};
+
+#define init_depth_stencil(a, b, c, d, e, f, g) init_depth_stencil_(__LINE__, a, b, c, d, e, f, g)
+static void init_depth_stencil_(unsigned int line, struct depth_stencil_resource *ds,
+        ID3D12Device *device, unsigned int width, unsigned int height,
+        DXGI_FORMAT format, DXGI_FORMAT view_format, const D3D12_CLEAR_VALUE *clear_value)
+{
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc, *view_desc;
+    D3D12_DESCRIPTOR_HEAP_DESC dsv_heap_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    HRESULT hr;
+
+    memset(ds, 0, sizeof(*ds));
+
+    dsv_heap_desc.NumDescriptors = 1;
+    dsv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    dsv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    dsv_heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &dsv_heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&ds->heap);
+    ok_(line)(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = width;
+    resource_desc.Height = height;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = format;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, clear_value,
+            &IID_ID3D12Resource, (void **)&ds->texture);
+    ok_(line)(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+
+    view_desc = NULL;
+    if (view_format)
+    {
+        memset(&dsv_desc, 0, sizeof(dsv_desc));
+        dsv_desc.Format = view_format;
+        dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+        view_desc = &dsv_desc;
+    }
+    ds->dsv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(ds->heap);
+    ID3D12Device_CreateDepthStencilView(device, ds->texture, view_desc, ds->dsv_handle);
+}
+
+#define destroy_depth_stencil(depth_stencil) destroy_depth_stencil_(__LINE__, depth_stencil)
+static void destroy_depth_stencil_(unsigned int line, struct depth_stencil_resource *ds)
+{
+    ID3D12DescriptorHeap_Release(ds->heap);
+    ID3D12Resource_Release(ds->texture);
 }
 
 static void test_create_device(void)
@@ -3165,20 +3270,14 @@ static void test_multithread_fence_wait(void)
 
 static void test_clear_depth_stencil_view(void)
 {
-    D3D12_DESCRIPTOR_HEAP_DESC dsv_heap_desc;
     ID3D12GraphicsCommandList *command_list;
-    D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle;
-    D3D12_HEAP_PROPERTIES heap_properties;
-    D3D12_RESOURCE_DESC resource_desc;
+    struct depth_stencil_resource ds;
     unsigned int dsv_increment_size;
-    ID3D12DescriptorHeap *dsv_heap;
     D3D12_CLEAR_VALUE clear_value;
     struct test_context_desc desc;
     struct test_context context;
     ID3D12CommandQueue *queue;
-    ID3D12Resource *resource;
     ID3D12Device *device;
-    HRESULT hr;
 
     memset(&desc, 0, sizeof(desc));
     desc.no_render_target = true;
@@ -3188,50 +3287,23 @@ static void test_clear_depth_stencil_view(void)
     command_list = context.list;
     queue = context.queue;
 
-    dsv_heap_desc.NumDescriptors = 1;
-    dsv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-    dsv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    dsv_heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &dsv_heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&dsv_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
-
     dsv_increment_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
             D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
     trace("DSV descriptor handle increment size: %u.\n", dsv_increment_size);
     ok(dsv_increment_size, "Got unexpected increment size %#x.\n", dsv_increment_size);
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = 32;
-    resource_desc.Height = 32;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_D32_FLOAT;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
     clear_value.Format = DXGI_FORMAT_D32_FLOAT;
     clear_value.DepthStencil.Depth = 0.5f;
     clear_value.DepthStencil.Stencil = 0x3;
-    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear_value, &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    init_depth_stencil(&ds, device, 32, 32, DXGI_FORMAT_D32_FLOAT, 0, &clear_value);
 
-    dsv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv_heap);
-    ID3D12Device_CreateDepthStencilView(device, resource, NULL, dsv_handle);
-
-    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, dsv_handle,
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
             D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.75f, 0x7, 0, NULL);
-    transition_resource_state(command_list, resource,
+    transition_resource_state(command_list, ds.texture,
             D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    check_sub_resource_uint(resource, 0, queue, command_list, 0x3f400000, 0);
+    check_sub_resource_uint(ds.texture, 0, queue, command_list, 0x3f400000, 0);
 
-    ID3D12Resource_Release(resource);
-    ID3D12DescriptorHeap_Release(dsv_heap);
+    destroy_depth_stencil(&ds);
     destroy_test_context(&context);
 }
 
@@ -3591,10 +3663,7 @@ static void test_fragment_coords(void)
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
-    context.viewport.TopLeftX = 10.0f;
-    context.viewport.TopLeftY = 10.0f;
-    context.viewport.Width = 20.0f;
-    context.viewport.Height = 30.0f;
+    set_viewport(&context.viewport, 10.0f, 10.0f, 20.0f, 30.0f, 0.0f, 1.0f);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
@@ -3724,12 +3793,8 @@ static void test_fractional_viewports(void)
 
     for (i = 0; i < ARRAY_SIZE(viewport_offsets); ++i)
     {
-        viewport.TopLeftX = viewport_offsets[i];
-        viewport.TopLeftY = viewport_offsets[i];
-        viewport.Width = context.render_target_desc.Width;
-        viewport.Height = context.render_target_desc.Height;
-        viewport.MinDepth = 0.0f;
-        viewport.MaxDepth = 1.0f;
+        set_viewport(&viewport, viewport_offsets[i], viewport_offsets[i],
+                context.render_target_desc.Width, context.render_target_desc.Height, 0.0f, 1.0f);
 
         if (i)
             transition_resource_state(command_list, context.render_target,
@@ -3847,6 +3912,144 @@ static void test_scissor(void)
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
     release_resource_readback(&rb);
 
+    destroy_test_context(&context);
+}
+
+static void test_draw_depth_only(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList *command_list;
+    struct depth_stencil_resource ds;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    unsigned int i, j;
+    HRESULT hr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float depth;
+
+        float main() : SV_Depth
+        {
+            return depth;
+        }
+#endif
+        0x43425844, 0x91af6cd0, 0x7e884502, 0xcede4f54, 0x6f2c9326, 0x00000001, 0x000000b0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0xffffffff,
+        0x00000e01, 0x445f5653, 0x68747065, 0xababab00, 0x52444853, 0x00000038, 0x00000040, 0x0000000e,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x02000065, 0x0000c001, 0x05000036, 0x0000c001,
+        0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const struct
+    {
+        float clear_depth;
+        float depth;
+        float expected_depth;
+    }
+    tests[] =
+    {
+        {0.0f, 0.0f, 0.0f},
+        {0.0f, 0.7f, 0.0f},
+        {0.0f, 0.8f, 0.0f},
+        {0.0f, 0.5f, 0.0f},
+
+        {1.0f, 0.0f, 0.0f},
+        {1.0f, 0.7f, 0.7f},
+        {1.0f, 0.8f, 0.8f},
+        {1.0f, 0.5f, 0.5f},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    init_depth_stencil(&ds, context.device, 640, 480, DXGI_FORMAT_D32_FLOAT, 0, NULL);
+    set_viewport(&context.viewport, 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f);
+    set_rect(&context.scissor_rect, 0, 0, 640, 480);
+
+    context.root_signature = create_32bit_constants_root_signature(context.device,
+            0, 1, D3D12_SHADER_VISIBILITY_PIXEL);
+    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
+    pso_desc.NumRenderTargets = 0;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+                D3D12_CLEAR_FLAG_DEPTH, tests[i].clear_depth, 0, 0, NULL);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &ds.dsv_handle);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 1, &tests[i].depth, 0);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_resource_state(command_list, ds.texture,
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_float(ds.texture, 0, queue, command_list, tests[i].expected_depth, 1);
+
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, ds.texture,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    }
+
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+            D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    for (i = 0; i < 4; ++i)
+    {
+        for (j = 0; j < 4; ++j)
+        {
+            float depth = 1.0f / 16.0f * (j + 4 * i);
+            ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 1, &depth, 0);
+
+            set_viewport(&context.viewport, 160.0f * j, 120.0f * i, 160.0f, 120.0f, 0.0f, 1.0f);
+            ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+
+            ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+        }
+    }
+    transition_resource_state(command_list, ds.texture,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(ds.texture, 0, &rb, queue, command_list);
+    for (i = 0; i < 4; ++i)
+    {
+        for (j = 0; j < 4; ++j)
+        {
+            float obtained_depth, expected_depth;
+
+            obtained_depth = get_readback_float(&rb, 80 + j * 160, 60 + i * 120);
+            expected_depth = 1.0f / 16.0f * (j + 4 * i);
+            ok(compare_float(obtained_depth, expected_depth, 1),
+                    "Got unexpected depth %.8e at (%u, %u), expected %.8e.\n",
+                    obtained_depth, j, i, expected_depth);
+        }
+    }
+    release_resource_readback(&rb);
+
+    destroy_depth_stencil(&ds);
     destroy_test_context(&context);
 }
 
@@ -7458,18 +7661,8 @@ static void test_root_constants(void)
     command_list = context.list;
     queue = context.queue;
 
-    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    root_parameters[0].Constants.ShaderRegister = 0;
-    root_parameters[0].Constants.RegisterSpace = 0;
-    root_parameters[0].Constants.Num32BitValues = ARRAY_SIZE(constants);
-    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    root_signature_desc.NumParameters = 1;
-    root_signature_desc.pParameters = root_parameters;
-    root_signature_desc.NumStaticSamplers = 0;
-    root_signature_desc.pStaticSamplers = NULL;
-    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
-    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    context.root_signature = create_32bit_constants_root_signature(context.device,
+            0, ARRAY_SIZE(constants), D3D12_SHADER_VISIBILITY_ALL);
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, desc.rt_format, NULL, &ps_uint_constant, NULL);
 
@@ -8469,15 +8662,13 @@ static void test_depth_stencil_sampling(void)
     D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle, srv_cpu_handle;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_STATIC_SAMPLER_DESC sampler_desc[2];
-    ID3D12DescriptorHeap *srv_heap, *dsv_heap;
     D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
     D3D12_DESCRIPTOR_RANGE descriptor_range;
     D3D12_ROOT_PARAMETER root_parameters[2];
     ID3D12GraphicsCommandList *command_list;
-    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
-    D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
-    D3D12_RESOURCE_DESC texture_desc;
+    struct depth_stencil_resource ds;
+    ID3D12DescriptorHeap *srv_heap;
     struct test_context_desc desc;
     ID3D12Resource *cb, *texture;
     unsigned int descriptor_size;
@@ -8681,13 +8872,6 @@ static void test_depth_stencil_sampling(void)
             context.root_signature, context.render_target_desc.Format, NULL, &ps_depth_stencil, NULL);
 
     memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-    heap_desc.NumDescriptors = 1;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&dsv_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
-    dsv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv_heap);
-
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     heap_desc.NumDescriptors = 2;
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
@@ -8708,23 +8892,11 @@ static void test_depth_stencil_sampling(void)
     {
         reset_command_list(command_list, context.allocator);
 
-        memset(&heap_properties, 0, sizeof(heap_properties));
-        heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-        texture_desc = context.render_target_desc;
-        texture_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
-
-        texture_desc.Format = tests[i].typeless_format;
-        hr = ID3D12Device_CreateCommittedResource(device,
-                &heap_properties, D3D12_HEAP_FLAG_NONE, &texture_desc,
-                D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL,
-                &IID_ID3D12Resource, (void **)&texture);
-        ok(SUCCEEDED(hr), "Failed to create texture for format %#x, hr %#x.\n",
-                texture_desc.Format, hr);
-
-        memset(&dsv_desc, 0, sizeof(dsv_desc));
-        dsv_desc.Format = tests[i].dsv_format;
-        dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-        ID3D12Device_CreateDepthStencilView(device, texture, &dsv_desc, dsv_handle);
+        init_depth_stencil(&ds, device, context.render_target_desc.Width,
+                context.render_target_desc.Height, tests[i].typeless_format,
+                tests[i].dsv_format, NULL);
+        texture = ds.texture;
+        dsv_handle = ds.dsv_handle;
 
         srv_cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(srv_heap);
 
@@ -8779,7 +8951,7 @@ static void test_depth_stencil_sampling(void)
 
         if (!tests[i].stencil_view_format)
         {
-            ID3D12Resource_Release(texture);
+            destroy_depth_stencil(&ds);
             continue;
         }
         srv_desc.Format = tests[i].stencil_view_format;
@@ -8818,11 +8990,10 @@ static void test_depth_stencil_sampling(void)
                 D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.0f, 0, 0, NULL);
         check_depth_stencil_sampling(&context, pso_depth_stencil, cb, texture, dsv_handle, srv_heap, 0.0f);
 
-        ID3D12Resource_Release(texture);
+        destroy_depth_stencil(&ds);
     }
 
     ID3D12Resource_Release(cb);
-    ID3D12DescriptorHeap_Release(dsv_heap);
     ID3D12DescriptorHeap_Release(srv_heap);
     ID3D12PipelineState_Release(pso_compare);
     ID3D12PipelineState_Release(pso_depth);
@@ -9423,6 +9594,7 @@ START_TEST(d3d12)
     run_test(test_fragment_coords);
     run_test(test_fractional_viewports);
     run_test(test_scissor);
+    run_test(test_draw_depth_only);
     run_test(test_texture_resource_barriers);
     run_test(test_invalid_texture_resource_barriers);
     run_test(test_device_removed_reason);
