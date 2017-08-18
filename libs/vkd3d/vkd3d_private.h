@@ -498,6 +498,8 @@ struct vkd3d_vulkan_info
 {
     bool KHR_get_physical_device_properties2;
     bool KHR_push_descriptor;
+
+    VkPhysicalDeviceLimits device_limits;
 };
 
 /* ID3D12Device */

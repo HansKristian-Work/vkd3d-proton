@@ -1443,9 +1443,26 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_ClearState(ID3D12GraphicsCom
     return E_NOTIMPL;
 }
 
+static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
+        uint32_t *width, uint32_t *height)
+{
+    struct d3d12_device *device = list->device;
+
+    if (!list->state->u.graphics.attachment_count)
+    {
+        *width = device->vk_info.device_limits.maxFramebufferWidth;
+        *height = device->vk_info.device_limits.maxFramebufferHeight;
+        return;
+    }
+
+    *width = list->fb_width;
+    *height = list->fb_height;
+}
+
 static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_list *list,
         const struct vkd3d_vk_device_procs *vk_procs)
 {
+    struct d3d12_device *device = list->device;
     struct VkFramebufferCreateInfo fb_desc;
     VkFramebuffer vk_framebuffer;
     size_t start_idx = 0;
@@ -1463,10 +1480,9 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
     fb_desc.renderPass = list->state->u.graphics.render_pass;
     fb_desc.attachmentCount = list->state->u.graphics.attachment_count;
     fb_desc.pAttachments = &list->views[start_idx];
-    fb_desc.width = list->fb_width;
-    fb_desc.height = list->fb_height;
+    d3d12_command_list_get_fb_extent(list, &fb_desc.width, &fb_desc.height);
     fb_desc.layers = 1;
-    if ((vr = VK_CALL(vkCreateFramebuffer(list->device->vk_device, &fb_desc, NULL, &vk_framebuffer))) < 0)
+    if ((vr = VK_CALL(vkCreateFramebuffer(device->vk_device, &fb_desc, NULL, &vk_framebuffer))) < 0)
     {
         WARN("Failed to create Vulkan framebuffer, vr %d.\n", vr);
         return false;
@@ -1475,7 +1491,7 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
     if (!d3d12_command_allocator_add_framebuffer(list->allocator, vk_framebuffer))
     {
         WARN("Failed to add framebuffer.\n");
-        VK_CALL(vkDestroyFramebuffer(list->device->vk_device, vk_framebuffer, NULL));
+        VK_CALL(vkDestroyFramebuffer(device->vk_device, vk_framebuffer, NULL));
         return false;
     }
 
@@ -1659,8 +1675,8 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     begin_desc.framebuffer = list->current_framebuffer;
     begin_desc.renderArea.offset.x = 0;
     begin_desc.renderArea.offset.y = 0;
-    begin_desc.renderArea.extent.width = list->fb_width;
-    begin_desc.renderArea.extent.height = list->fb_height;
+    d3d12_command_list_get_fb_extent(list,
+            &begin_desc.renderArea.extent.width, &begin_desc.renderArea.extent.height);
     begin_desc.clearValueCount = 0;
     begin_desc.pClearValues = NULL;
     VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer, &begin_desc, VK_SUBPASS_CONTENTS_INLINE));

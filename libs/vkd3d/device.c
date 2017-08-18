@@ -438,9 +438,13 @@ static void vkd3d_init_device_caps(struct vkd3d_instance *instance,
         VkPhysicalDevice physical_device, struct vkd3d_vulkan_info *vulkan_info)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
+    VkPhysicalDeviceProperties device_properties;
     VkExtensionProperties *vk_extensions;
     uint32_t count;
     VkResult vr;
+
+    VK_CALL(vkGetPhysicalDeviceProperties(physical_device, &device_properties));
+    vulkan_info->device_limits = device_properties.limits;
 
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL,
             &count, NULL))) < 0)
