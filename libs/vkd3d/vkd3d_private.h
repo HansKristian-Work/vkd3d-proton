@@ -315,6 +315,7 @@ struct d3d12_root_signature
 
     struct d3d12_root_parameter *parameters;
     unsigned int parameter_count;
+    uint32_t main_set;
 
     unsigned int descriptor_count;
     struct vkd3d_shader_resource_binding *descriptor_mapping;

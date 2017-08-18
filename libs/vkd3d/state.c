@@ -881,7 +881,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         goto fail;
 
     /* We use KHR_push_descriptor for root descriptor parameters. */
-    if (vk_info->KHR_push_descriptor)
+    if (vk_info->KHR_push_descriptor && context.descriptor_binding)
     {
         set_desc[context.set_index].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         set_desc[context.set_index].pNext = NULL;
@@ -910,6 +910,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (FAILED(hr = d3d12_root_signature_init_static_samplers(root_signature, device, desc, &context)))
         goto fail;
 
+    root_signature->main_set = context.set_index;
     if (context.descriptor_binding)
     {
         set_desc[context.set_index].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;

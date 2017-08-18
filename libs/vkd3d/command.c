@@ -1638,17 +1638,14 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
     struct d3d12_root_signature *rs = bindings->root_signature;
-    uint32_t set;
 
     if (!rs || !rs->pool_size_count || !rs->vk_set_layout)
         return;
 
     bindings->in_use = true;
-    set = vk_info->KHR_push_descriptor ? 1 : 0;
     VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
-            rs->vk_pipeline_layout, set, 1, &bindings->descriptor_set, 0, NULL));
+            rs->vk_pipeline_layout, rs->main_set, 1, &bindings->descriptor_set, 0, NULL));
 }
 
 static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list,
