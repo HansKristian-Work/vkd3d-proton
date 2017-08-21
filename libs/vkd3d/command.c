@@ -3042,16 +3042,24 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
         D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, ID3D12Resource *resource,
         const UINT values[4], UINT rect_count, const D3D12_RECT *rects)
 {
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
     FIXME("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p stub!\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
+
+    d3d12_command_list_track_resource_usage(list, unsafe_impl_from_ID3D12Resource(resource));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(ID3D12GraphicsCommandList *iface,
         D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, ID3D12Resource *resource,
         const float values[4], UINT rect_count, const D3D12_RECT *rects)
 {
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
     FIXME("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p stub!\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
+
+    d3d12_command_list_track_resource_usage(list, unsafe_impl_from_ID3D12Resource(resource));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(ID3D12GraphicsCommandList *iface,
