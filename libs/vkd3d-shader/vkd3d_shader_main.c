@@ -62,6 +62,7 @@ HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
 {
     struct vkd3d_shader_instruction instruction;
     struct vkd3d_dxbc_compiler *spirv_compiler;
+    struct vkd3d_shader_scan_info scan_info;
     struct vkd3d_shader_parser parser;
     HRESULT hr;
     bool ret;
@@ -69,11 +70,14 @@ HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, shader_interface %p.\n",
             dxbc->code, dxbc->size, spirv, compiler_options, shader_interface);
 
+    if (FAILED(hr = vkd3d_shader_scan_dxbc(dxbc, &scan_info)))
+        return hr;
+
     if (FAILED(hr = vkd3d_shader_parser_init(&parser, dxbc)))
         return hr;
 
     if (!(spirv_compiler = vkd3d_dxbc_compiler_create(&parser.shader_version,
-            &parser.shader_desc, compiler_options, shader_interface)))
+            &parser.shader_desc, compiler_options, shader_interface, &scan_info)))
     {
         ERR("Failed to create DXBC compiler.\n");
         vkd3d_shader_parser_destroy(&parser);

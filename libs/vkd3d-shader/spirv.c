@@ -1704,11 +1704,14 @@ struct vkd3d_dxbc_compiler
     uint32_t private_output_variable[MAX_REG_OUTPUT + 1]; /* 1 entry for oDepth */
     uint32_t output_setup_function_id;
     uint32_t default_sampler_id;
+
+    const struct vkd3d_shader_scan_info *scan_info;
 };
 
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
         const struct vkd3d_shader_desc *shader_desc, uint32_t compiler_options,
-        const struct vkd3d_shader_interface *shader_interface)
+        const struct vkd3d_shader_interface *shader_interface,
+        const struct vkd3d_shader_scan_info *scan_info)
 {
     const struct vkd3d_shader_signature *output_signature = &shader_desc->output_signature;
     struct vkd3d_dxbc_compiler *compiler;
@@ -1774,6 +1777,8 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
                 compiler->push_constants[i].pc = shader_interface->push_constants[i];
         }
     }
+
+    compiler->scan_info = scan_info;
 
     return compiler;
 }
@@ -2970,17 +2975,43 @@ static const struct vkd3d_spirv_resource_type *vkd3d_dxbc_compiler_enable_resour
     return resource_type_info;
 }
 
+static SpvImageFormat image_format_for_image_read(enum vkd3d_component_type data_type)
+{
+    /* The following formats are supported by Direct3D 11 hardware for UAV
+     * typed loads. A newer hardware may support more formats for UAV typed
+     * loads (see StorageImageReadWithoutFormat SPIR-V capability).
+     */
+    switch (data_type)
+    {
+        case VKD3D_TYPE_FLOAT:
+            return SpvImageFormatR32f;
+        case VKD3D_TYPE_INT:
+            return SpvImageFormatR32i;
+        case VKD3D_TYPE_UINT:
+            return SpvImageFormatR32ui;
+        default:
+            FIXME("Unhandled type %#x.\n", data_type);
+            return SpvImageFormatUnknown;
+    }
+}
+
 static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, const struct vkd3d_spirv_resource_type *resource_type_info,
         enum vkd3d_component_type data_type, uint32_t depth)
 {
+    const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t sampled_type_id;
+    SpvImageFormat format;
+
+    format = SpvImageFormatUnknown;
+    if (reg->type == VKD3DSPR_UAV && (scan_info->uav_read_mask & 1u << reg->idx[0].offset))
+        format = image_format_for_image_read(data_type);
 
     sampled_type_id = vkd3d_spirv_get_type_id(builder, data_type, 1);
     return vkd3d_spirv_get_op_type_image(builder, sampled_type_id, resource_type_info->dim,
             depth, resource_type_info->arrayed, resource_type_info->ms,
-            reg->type == VKD3DSPR_UAV ? 2 : 1, SpvImageFormatUnknown);
+            reg->type == VKD3DSPR_UAV ? 2 : 1, format);
 }
 
 static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_compiler *compiler,
