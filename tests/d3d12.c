@@ -3881,10 +3881,7 @@ static void test_scissor(void)
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
 
-    scissor_rect.left = 160;
-    scissor_rect.top = 120;
-    scissor_rect.right = 480;
-    scissor_rect.bottom = 360;
+    set_rect(&scissor_rect, 160, 120, 480, 360);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, red, 0, NULL);
 
@@ -4050,6 +4047,139 @@ static void test_draw_depth_only(void)
     release_resource_readback(&rb);
 
     destroy_depth_stencil(&ds);
+    destroy_test_context(&context);
+}
+
+static void test_draw_uav_only(void)
+{
+    ID3D12DescriptorHeap *cpu_descriptor_heap, *descriptor_heap;
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_DESCRIPTOR_RANGE descriptor_range;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    D3D12_ROOT_PARAMETER root_parameter;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *resource;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        RWTexture2D<int> u;
+
+        void main()
+        {
+            InterlockedAdd(u[uint2(0, 0)], 1);
+        }
+#endif
+        0x43425844, 0x237a8398, 0xe7b34c17, 0xa28c91a4, 0xb3614d73, 0x00000001, 0x0000009c, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000048, 0x00000050, 0x00000012, 0x0100086a,
+        0x0400189c, 0x0011e000, 0x00000000, 0x00003333, 0x0a0000ad, 0x0011e000, 0x00000000, 0x00004002,
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00004001, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const float zero[4] = {};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    descriptor_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    descriptor_range.NumDescriptors = 1;
+    descriptor_range.BaseShaderRegister = 0;
+    descriptor_range.RegisterSpace = 0;
+    descriptor_range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    root_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameter.DescriptorTable.NumDescriptorRanges = 1;
+    root_parameter.DescriptorTable.pDescriptorRanges = &descriptor_range;
+    root_parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = 1;
+    root_signature_desc.pParameters = &root_parameter;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
+    pso_desc.NumRenderTargets = 0;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 1;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R32_SINT;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    hr = ID3D12Device_CreateCommittedResource(context.device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap_desc.NumDescriptors = 1;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    heap_desc.Flags = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&cpu_descriptor_heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
+    gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
+    ID3D12Device_CreateUnorderedAccessView(context.device, resource, NULL, NULL, cpu_handle);
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_descriptor_heap);
+    ID3D12Device_CreateUnorderedAccessView(context.device, resource, NULL, NULL, cpu_handle);
+
+    ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(command_list,
+            gpu_handle, cpu_handle, resource, zero, 0, NULL);
+
+    set_rect(&context.scissor_rect, 0, 0, 1000, 1000);
+    set_viewport(&context.viewport, 0.0f, 0.0f, 1.0f, 100.0f, 0.0f, 0.0f);
+
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+
+    for (i = 0; i < 5; ++i)
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(resource, 0, queue, command_list, 500, 0);
+
+    ID3D12DescriptorHeap_Release(cpu_descriptor_heap);
+    ID3D12DescriptorHeap_Release(descriptor_heap);
+    ID3D12Resource_Release(resource);
     destroy_test_context(&context);
 }
 
@@ -9595,6 +9725,7 @@ START_TEST(d3d12)
     run_test(test_fractional_viewports);
     run_test(test_scissor);
     run_test(test_draw_depth_only);
+    run_test(test_draw_uav_only);
     run_test(test_texture_resource_barriers);
     run_test(test_invalid_texture_resource_barriers);
     run_test(test_device_removed_reason);
