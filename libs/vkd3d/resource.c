@@ -918,6 +918,12 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor,
 {
     const struct vkd3d_format *format;
 
+    if (!desc)
+    {
+        FIXME("Default UAV views not supported.\n");
+        return;
+    }
+
     if (!(format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, desc->Format)))
     {
         ERR("Failed to find format for %#x.\n", resource->desc.Format);
@@ -951,6 +957,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
     const struct vkd3d_format *format;
+    uint32_t miplevel_idx;
 
     if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
     {
@@ -958,7 +965,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         return;
     }
 
-    if (!(format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, 0)))
+    if (!(format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, desc ? desc->Format : 0)))
     {
         ERR("Failed to find format for %#x.\n", resource->desc.Format);
         return;
@@ -970,17 +977,25 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         return;
     }
 
-    if (desc->ViewDimension != D3D12_UAV_DIMENSION_TEXTURE2D)
+    if (desc)
     {
-        WARN("Unexpected view dimension %#x.\n", desc->ViewDimension);
-        return;
+        if (desc->ViewDimension != D3D12_UAV_DIMENSION_TEXTURE2D)
+        {
+            WARN("Unexpected view dimension %#x.\n", desc->ViewDimension);
+            return;
+        }
+
+        if (desc->u.Texture2D.PlaneSlice)
+            FIXME("Ignoring plane slice %u.\n", desc->u.Texture2D.PlaneSlice);
+
+        miplevel_idx = desc->u.Texture2D.MipSlice;
+    }
+    else
+    {
+        miplevel_idx = 0;
     }
 
-    if (desc->u.Texture2D.PlaneSlice)
-        FIXME("Ignoring plane slice %u.\n", desc->u.Texture2D.PlaneSlice);
-
-    if (vkd3d_create_texture_view(device, resource, format,
-            desc->u.Texture2D.MipSlice, 1, 0, 1,
+    if (vkd3d_create_texture_view(device, resource, format, miplevel_idx, 1, 0, 1,
             &descriptor->u.vk_image_view) < 0)
         return;
 
@@ -997,12 +1012,6 @@ void d3d12_desc_create_uav(struct d3d12_desc *descriptor,
     if (!resource)
     {
         FIXME("NULL resource UAV not implemented.\n");
-        return;
-    }
-
-    if (!desc)
-    {
-        FIXME("Default UAV views not supported.\n");
         return;
     }
 
