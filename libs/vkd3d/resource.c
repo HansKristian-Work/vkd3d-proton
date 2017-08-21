@@ -917,16 +917,11 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
     const struct vkd3d_format *format;
+    unsigned int element_size;
 
     if (!desc)
     {
         FIXME("Default UAV views not supported.\n");
-        return;
-    }
-
-    if (!(format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, desc->Format)))
-    {
-        ERR("Failed to find format for %#x.\n", resource->desc.Format);
         return;
     }
 
@@ -936,16 +931,29 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor,
         return;
     }
 
-    if (desc->u.Buffer.StructureByteStride)
-        FIXME("Ignoring structure byte stride %u.\n", desc->u.Buffer.StructureByteStride);
+    if (desc->Format == DXGI_FORMAT_UNKNOWN && desc->u.Buffer.StructureByteStride)
+    {
+        format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
+        element_size = desc->u.Buffer.StructureByteStride;
+    }
+    else if ((format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, desc->Format)))
+    {
+        element_size = format->byte_count;
+    }
+    else
+    {
+        ERR("Failed to find format for %#x.\n", resource->desc.Format);
+        return;
+    }
+
     if (desc->u.Buffer.CounterOffsetInBytes)
         FIXME("Ignoring counter offset %"PRIu64".\n", desc->u.Buffer.CounterOffsetInBytes);
     if (desc->u.Buffer.Flags)
         FIXME("Ignoring buffer view flags %#x.\n", desc->u.Buffer.Flags);
 
     if (!vkd3d_create_buffer_view(device, resource, format,
-            desc->u.Buffer.FirstElement * format->byte_count,
-            desc->u.Buffer.NumElements * format->byte_count, &descriptor->u.vk_buffer_view))
+            desc->u.Buffer.FirstElement * element_size,
+            desc->u.Buffer.NumElements * element_size, &descriptor->u.vk_buffer_view))
         return;
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
