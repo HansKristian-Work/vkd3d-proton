@@ -336,9 +336,9 @@ HRESULT hresult_from_vk_result(VkResult vr)
         case VK_ERROR_OUT_OF_HOST_MEMORY:
         case VK_ERROR_OUT_OF_DEVICE_MEMORY:
             return E_OUTOFMEMORY;
-
         default:
             FIXME("Unhandled VkResult %d.\n", vr);
+        case VK_ERROR_DEVICE_LOST:
             return E_FAIL;
     }
 }
