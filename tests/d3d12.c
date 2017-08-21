@@ -9260,6 +9260,210 @@ static void test_typed_buffer_uav(void)
     destroy_test_context(&context);
 }
 
+static void test_compute_shader_registers(void)
+{
+    struct data
+    {
+        unsigned int group_id[3];
+        unsigned int group_index;
+        unsigned int dispatch_id[3];
+        unsigned int thread_id[3];
+    };
+
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor_handle;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_descriptor_handle;
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    unsigned int i, x, y, group_x, group_y;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3D12DescriptorHeap *descriptor_heap;
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *resource;
+    const struct data *data;
+    struct uvec4 dimensions;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    static const DWORD cs_code[] =
+    {
+#if 0
+        struct data
+        {
+            uint3 group_id;
+            uint group_index;
+            uint3 dispatch_id;
+            uint3 group_thread_id;
+        };
+
+        RWStructuredBuffer<data> u;
+
+        uint2 dim;
+
+        [numthreads(3, 2, 1)]
+        void main(uint3 group_id : SV_GroupID,
+                uint group_index : SV_GroupIndex,
+                uint3 dispatch_id : SV_DispatchThreadID,
+                uint3 group_thread_id : SV_GroupThreadID)
+        {
+            uint i = dispatch_id.x + dispatch_id.y * 3 * dim.x;
+            u[i].group_id = group_id;
+            u[i].group_index = group_index;
+            u[i].dispatch_id = dispatch_id;
+            u[i].group_thread_id = group_thread_id;
+        }
+#endif
+        0x43425844, 0xf0bce218, 0xfc1e8267, 0xe6d57544, 0x342df592, 0x00000001, 0x000001a4, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000150, 0x00050050, 0x00000054, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400009e, 0x0011e000, 0x00000000, 0x00000028,
+        0x0200005f, 0x00024000, 0x0200005f, 0x00021072, 0x0200005f, 0x00022072, 0x0200005f, 0x00020072,
+        0x02000068, 0x00000002, 0x0400009b, 0x00000003, 0x00000002, 0x00000001, 0x04000036, 0x00100072,
+        0x00000000, 0x00021246, 0x04000036, 0x00100082, 0x00000000, 0x0002400a, 0x08000026, 0x0000d000,
+        0x00100012, 0x00000001, 0x0002001a, 0x0020800a, 0x00000000, 0x00000000, 0x08000023, 0x00100012,
+        0x00000001, 0x0010000a, 0x00000001, 0x00004001, 0x00000003, 0x0002000a, 0x090000a8, 0x0011e0f2,
+        0x00000000, 0x0010000a, 0x00000001, 0x00004001, 0x00000000, 0x00100e46, 0x00000000, 0x04000036,
+        0x00100072, 0x00000000, 0x00020246, 0x04000036, 0x00100082, 0x00000000, 0x0002200a, 0x090000a8,
+        0x0011e0f2, 0x00000000, 0x0010000a, 0x00000001, 0x00004001, 0x00000010, 0x00100e46, 0x00000000,
+        0x080000a8, 0x0011e032, 0x00000000, 0x0010000a, 0x00000001, 0x00004001, 0x00000020, 0x00022596,
+        0x0100003e,
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    descriptor_ranges[0].NumDescriptors = 1;
+    descriptor_ranges[0].BaseShaderRegister = 0;
+    descriptor_ranges[0].RegisterSpace = 0;
+    descriptor_ranges[0].OffsetInDescriptorsFromTableStart = 0;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = descriptor_ranges;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[1].Constants.ShaderRegister = 0;
+    root_parameters[1].Constants.RegisterSpace = 0;
+    root_parameters[1].Constants.Num32BitValues = 4;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = 2;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
+            shader_bytecode(cs_code, sizeof(cs_code)));
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 10240;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap_desc.NumDescriptors = 1;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
+    gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.Format = DXGI_FORMAT_UNKNOWN;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Buffer.FirstElement = 0;
+    uav_desc.Buffer.NumElements = 256;
+    uav_desc.Buffer.StructureByteStride = 40;
+    ID3D12Device_CreateUnorderedAccessView(device, resource, NULL, &uav_desc, cpu_descriptor_handle);
+
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu_descriptor_handle);
+    dimensions.x = 2;
+    dimensions.y = 3;
+    dimensions.z = 1;
+    dimensions.w = 0;
+    ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(command_list, 1, 4, &dimensions, 0);
+    ID3D12GraphicsCommandList_Dispatch(command_list, dimensions.x, dimensions.y, dimensions.z);
+
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(resource, uav_desc.Format, &rb, queue, command_list);
+    i = 0;
+    data = rb.data;
+    for (y = 0; y < dimensions.y; ++y)
+    {
+        for (group_y = 0; group_y < 2; ++group_y)
+        {
+            for (x = 0; x < dimensions.x; ++x)
+            {
+                for (group_x = 0; group_x < 3; ++group_x)
+                {
+                    const unsigned int dispatch_id[2] = {x * 3 + group_x, y * 2 + group_y};
+                    const unsigned int group_index = group_y * 3 + group_x;
+                    const struct data *d = &data[i];
+
+                    ok(d->group_id[0] == x && d->group_id[1] == y && !d->group_id[2],
+                            "Got group id (%u, %u, %u), expected (%u, %u, %u) at %u (%u, %u, %u, %u).\n",
+                            d->group_id[0], d->group_id[1], d->group_id[2], x, y, 0,
+                            i, x, y, group_x, group_y);
+                    ok(d->group_index == group_index,
+                            "Got group index %u, expected %u at %u (%u, %u, %u, %u).\n",
+                            d->group_index, group_index, i, x, y, group_x, group_y);
+                    ok(d->dispatch_id[0] == dispatch_id[0] && d->dispatch_id[1] == dispatch_id[1]
+                            && !d->dispatch_id[2],
+                            "Got dispatch id (%u, %u, %u), expected (%u, %u, %u) "
+                            "at %u (%u, %u, %u, %u).\n",
+                            d->dispatch_id[0], d->dispatch_id[1], d->dispatch_id[2],
+                            dispatch_id[0], dispatch_id[1], 0,
+                            i, x, y, group_x, group_y);
+                    ok(d->thread_id[0] == group_x && d->thread_id[1] == group_y && !d->thread_id[2],
+                            "Got group thread id (%u, %u, %u), expected (%u, %u, %u) "
+                            "at %u (%u, %u, %u, %u).\n",
+                            d->thread_id[0], d->thread_id[1], d->thread_id[2], group_x, group_y, 0,
+                            i, x, y, group_x, group_y);
+                    ++i;
+                }
+            }
+        }
+    }
+    release_resource_readback(&rb);
+
+    ID3D12DescriptorHeap_Release(descriptor_heap);
+    ID3D12Resource_Release(resource);
+    destroy_test_context(&context);
+}
+
 static void test_cs_uav_store(void)
 {
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor_handle;
@@ -9743,5 +9947,6 @@ START_TEST(d3d12)
     run_test(test_get_copyable_footprints);
     run_test(test_depth_stencil_sampling);
     run_test(test_typed_buffer_uav);
+    run_test(test_compute_shader_registers);
     run_test(test_cs_uav_store);
 }
