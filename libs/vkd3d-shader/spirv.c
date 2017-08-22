@@ -1720,6 +1720,7 @@ struct vkd3d_dxbc_compiler
     uint32_t output_setup_function_id;
     uint32_t default_sampler_id;
     unsigned int uav_stride[MAX_UNORDERED_ACCESS_VIEWS];
+    unsigned int resource_stride[MAX_SHADER_RESOURCE_VIEWS];
 
     const struct vkd3d_shader_scan_info *scan_info;
 };
@@ -3095,19 +3096,36 @@ static void vkd3d_dxbc_compiler_emit_dcl_uav_raw(struct vkd3d_dxbc_compiler *com
             VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT);
 }
 
+static void vkd3d_dxbc_compiler_emit_dcl_resource_structured(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    const struct vkd3d_shader_register *reg = &instruction->declaration.structured_resource.reg.reg;
+    unsigned int stride = instruction->declaration.structured_resource.byte_stride;
+    unsigned int resource_index = reg->idx[0].offset;
+
+    if (resource_index < ARRAY_SIZE(compiler->resource_stride))
+        compiler->resource_stride[resource_index] = stride / 4;
+    else
+        FIXME("Unexpected resource register index %u.\n", resource_index);
+
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, reg,
+            VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT);
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_uav_structured(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     const struct vkd3d_shader_register *reg = &instruction->declaration.structured_resource.reg.reg;
+    unsigned int stride = instruction->declaration.structured_resource.byte_stride;
     unsigned int uav_index = reg->idx[0].offset;
 
     if (instruction->flags)
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
     if (uav_index < ARRAY_SIZE(compiler->uav_stride))
-        compiler->uav_stride[uav_index] = instruction->declaration.structured_resource.byte_stride / 4;
+        compiler->uav_stride[uav_index] = stride / 4;
     else
-        FIXME("Unexpected UAV register index %u.\n", reg->idx[0].offset);
+        FIXME("Unexpected UAV register index %u.\n", uav_index);
 
     vkd3d_dxbc_compiler_emit_resource_declaration(compiler, reg,
             VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT);
@@ -4555,6 +4573,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL_UAV_RAW:
             vkd3d_dxbc_compiler_emit_dcl_uav_raw(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_RESOURCE_STRUCTURED:
+            vkd3d_dxbc_compiler_emit_dcl_resource_structured(compiler, instruction);
             break;
         case VKD3DSIH_DCL_UAV_STRUCTURED:
             vkd3d_dxbc_compiler_emit_dcl_uav_structured(compiler, instruction);
