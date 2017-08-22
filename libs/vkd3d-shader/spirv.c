@@ -4325,15 +4325,14 @@ static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compil
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_buffer_addressing(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_register *uav_reg, uint32_t type_id,
-        const struct vkd3d_shader_src_param *structure, const struct vkd3d_shader_src_param *offset)
+        uint32_t type_id, unsigned int stride, const struct vkd3d_shader_src_param *structure,
+        const struct vkd3d_shader_src_param *offset)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t structure_id, offset_id;
 
     if (structure)
     {
-        unsigned int stride = compiler->uav_stride[uav_reg->idx[0].offset];
         structure_id = vkd3d_dxbc_compiler_emit_load_src(compiler, structure, VKD3DSP_WRITEMASK_0);
         structure_id = vkd3d_spirv_build_op_imul(builder, type_id,
                 structure_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, stride));
@@ -4349,6 +4348,81 @@ static uint32_t vkd3d_dxbc_compiler_emit_buffer_addressing(struct vkd3d_dxbc_com
         return offset_id;
 }
 
+static void vkd3d_dxbc_compiler_emit_ld_structured_srv(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    uint32_t coordinate_id, type_id, val_id, image_id, texel_type_id;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    const struct vkd3d_shader_src_param *resource;
+    uint32_t base_coordinate_id, component_idx;
+    uint32_t constituents[VKD3D_VEC4_SIZE];
+    struct vkd3d_shader_image image;
+    unsigned int i, component_count;
+    unsigned int stride;
+    uint32_t zero = 0;
+
+    resource = &src[instruction->src_count - 1];
+    stride = compiler->resource_stride[resource->reg.idx[0].offset];
+
+    /* OpImageFetch must be used with a sampled image. */
+    vkd3d_dxbc_compiler_prepare_default_sampled_image(compiler, &image, &resource->reg);
+    image_id = vkd3d_spirv_build_op_image(builder, image.image_type_id, image.sampled_image_id);
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    coordinate_id = vkd3d_dxbc_compiler_emit_buffer_addressing(compiler,
+            type_id, stride, &src[0], &src[1]);
+
+    texel_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    base_coordinate_id = coordinate_id;
+    for (i = 0; i < component_count; ++i)
+    {
+        component_idx = vkd3d_swizzle_get_component(resource->swizzle, i);
+        if (component_idx)
+            coordinate_id = vkd3d_spirv_build_op_iadd(builder, type_id,
+                    base_coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
+
+        val_id = vkd3d_spirv_build_op_image_fetch(builder, texel_type_id,
+                image_id, coordinate_id, SpvImageOperandsMaskNone, NULL, 0);
+        constituents[i] = vkd3d_spirv_build_op_composite_extract(builder, type_id,
+                val_id, &zero, 1);
+    }
+    if (component_count > 1)
+    {
+        type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, component_count);
+        val_id = vkd3d_spirv_build_op_composite_construct(builder,
+                type_id, constituents, component_count);
+    }
+    else
+    {
+        val_id = constituents[0];
+    }
+    assert(dst->reg.data_type == VKD3D_DATA_UINT);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
+}
+
+static void vkd3d_dxbc_compiler_emit_ld_structured(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    enum vkd3d_shader_register_type reg_type = instruction->src[instruction->src_count - 1].reg.type;
+    switch (reg_type)
+    {
+        case VKD3DSPR_RESOURCE:
+            vkd3d_dxbc_compiler_emit_ld_structured_srv(compiler, instruction);
+            break;
+        case VKD3DSPR_UAV:
+            FIXME("Not implemented for UAVs.\n");
+            break;
+        case VKD3DSPR_GROUPSHAREDMEM:
+            FIXME("Compute shared memory not supported.\n");
+            break;
+        default:
+            FIXME("Unexpected register type %#x.\n", reg_type);
+    }
+}
+
 static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -4360,6 +4434,7 @@ static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_comp
     const struct vkd3d_shader_src_param *texel;
     struct vkd3d_shader_image image;
     unsigned int i, component_count;
+    unsigned int stride;
 
     if (dst->reg.type == VKD3DSPR_GROUPSHAREDMEM)
     {
@@ -4368,16 +4443,17 @@ static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_comp
     }
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    stride = compiler->uav_stride[dst->reg.idx[0].offset];
     vkd3d_dxbc_compiler_prepare_image(compiler, &image, &dst->reg, VKD3D_IMAGE_FLAG_NONE);
     if (instruction->handler_idx == VKD3DSIH_STORE_STRUCTURED)
     {
         coordinate_id = vkd3d_dxbc_compiler_emit_buffer_addressing(compiler,
-                &dst->reg, type_id, &src[0], &src[1]);
+                type_id, stride, &src[0], &src[1]);
     }
     else
     {
         coordinate_id = vkd3d_dxbc_compiler_emit_buffer_addressing(compiler,
-                &dst->reg, type_id, NULL, &src[0]);
+                type_id, stride, NULL, &src[0]);
     }
 
     /* Mesa Vulkan drivers require the texel parameter to be a 4-component
@@ -4714,6 +4790,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_SAMPLE_C:
             vkd3d_dxbc_compiler_emit_sample_c(compiler, instruction);
+            break;
+        case VKD3DSIH_LD_STRUCTURED:
+            vkd3d_dxbc_compiler_emit_ld_structured(compiler, instruction);
             break;
         case VKD3DSIH_STORE_RAW:
         case VKD3DSIH_STORE_STRUCTURED:
