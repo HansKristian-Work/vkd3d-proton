@@ -776,7 +776,7 @@ static void d3d12_desc_destroy(struct d3d12_desc *descriptor,
     memset(descriptor, 0, sizeof(*descriptor));
 }
 
-static bool vkd3d_create_buffer_view(struct d3d12_device *device,
+static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
         struct d3d12_resource *resource, const struct vkd3d_format *format,
         VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view)
 {
@@ -802,6 +802,40 @@ static bool vkd3d_create_buffer_view(struct d3d12_device *device,
     if ((vr = VK_CALL(vkCreateBufferView(device->vk_device, &view_desc, NULL, vk_view))) < 0)
         WARN("Failed to create Vulkan buffer view, vr %d.\n", vr);
     return vr == VK_SUCCESS;
+}
+
+#define VKD3D_VIEW_RAW_BUFFER 0x1
+
+static bool vkd3d_create_buffer_view(struct d3d12_device *device,
+        struct d3d12_resource *resource, DXGI_FORMAT view_format,
+        unsigned int offset, unsigned int size, unsigned int structure_stride,
+        unsigned int flags, VkBufferView *vk_view)
+{
+    const struct vkd3d_format *format;
+    unsigned int element_size;
+
+    if (view_format == DXGI_FORMAT_R32_TYPELESS && (flags & VKD3D_VIEW_RAW_BUFFER))
+    {
+        format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
+        element_size = format->byte_count;
+    }
+    else if (view_format == DXGI_FORMAT_UNKNOWN && structure_stride)
+    {
+        format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
+        element_size = structure_stride;
+    }
+    else if ((format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, view_format)))
+    {
+        element_size = format->byte_count;
+    }
+    else
+    {
+        WARN("Failed to find format for %#x.\n", resource->desc.Format);
+        return false;
+    }
+
+    return vkd3d_create_vk_buffer_view(device, resource, format,
+            offset * element_size, size * element_size, vk_view);
 }
 
 static VkResult vkd3d_create_texture_view(struct d3d12_device *device,
@@ -875,6 +909,42 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 }
 
+static unsigned int vkd3d_view_flags_from_d3d12_buffer_srv_flags(D3D12_BUFFER_SRV_FLAGS flags)
+{
+    if (flags == D3D12_BUFFER_SRV_FLAG_RAW)
+        return VKD3D_VIEW_RAW_BUFFER;
+    if (flags)
+        FIXME("Unhandled buffer SRV flags %#x.\n", flags);
+    return 0;
+}
+
+static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
+{
+    if (!desc)
+    {
+        FIXME("Default SRV views not supported.\n");
+        return;
+    }
+
+    if (desc->ViewDimension != D3D12_SRV_DIMENSION_BUFFER)
+    {
+        WARN("Unexpected view dimension %#x.\n", desc->ViewDimension);
+        return;
+    }
+
+    if (!vkd3d_create_buffer_view(device, resource, desc->Format,
+            desc->u.Buffer.FirstElement, desc->u.Buffer.NumElements,
+            desc->u.Buffer.StructureByteStride,
+            vkd3d_view_flags_from_d3d12_buffer_srv_flags(desc->u.Buffer.Flags),
+            &descriptor->u.vk_buffer_view))
+        return;
+
+    descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
+    descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+}
+
 void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
@@ -886,6 +956,12 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
     if (!resource)
     {
         FIXME("NULL resource SRV not implemented.\n");
+        return;
+    }
+
+    if (d3d12_resource_is_buffer(resource))
+    {
+        vkd3d_create_buffer_srv(descriptor, device, resource, desc);
         return;
     }
 
@@ -912,13 +988,19 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 }
 
+static unsigned int vkd3d_view_flags_from_d3d12_buffer_uav_flags(D3D12_BUFFER_UAV_FLAGS flags)
+{
+    if (flags == D3D12_BUFFER_UAV_FLAG_RAW)
+        return VKD3D_VIEW_RAW_BUFFER;
+    if (flags)
+        FIXME("Unhandled buffer UAV flags %#x.\n", flags);
+    return 0;
+}
+
 static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
-    const struct vkd3d_format *format;
-    unsigned int element_size;
-
     if (!desc)
     {
         FIXME("Default UAV views not supported.\n");
@@ -931,29 +1013,14 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor,
         return;
     }
 
-    if (desc->Format == DXGI_FORMAT_UNKNOWN && desc->u.Buffer.StructureByteStride)
-    {
-        format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
-        element_size = desc->u.Buffer.StructureByteStride;
-    }
-    else if ((format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, desc->Format)))
-    {
-        element_size = format->byte_count;
-    }
-    else
-    {
-        ERR("Failed to find format for %#x.\n", resource->desc.Format);
-        return;
-    }
-
     if (desc->u.Buffer.CounterOffsetInBytes)
         FIXME("Ignoring counter offset %"PRIu64".\n", desc->u.Buffer.CounterOffsetInBytes);
-    if (desc->u.Buffer.Flags)
-        FIXME("Ignoring buffer view flags %#x.\n", desc->u.Buffer.Flags);
 
-    if (!vkd3d_create_buffer_view(device, resource, format,
-            desc->u.Buffer.FirstElement * element_size,
-            desc->u.Buffer.NumElements * element_size, &descriptor->u.vk_buffer_view))
+    if (!vkd3d_create_buffer_view(device, resource, desc->Format,
+            desc->u.Buffer.FirstElement, desc->u.Buffer.NumElements,
+            desc->u.Buffer.StructureByteStride,
+            vkd3d_view_flags_from_d3d12_buffer_uav_flags(desc->u.Buffer.Flags),
+            &descriptor->u.vk_buffer_view))
         return;
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
@@ -981,7 +1048,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
 
     if (vkd3d_format_is_compressed(format))
     {
-        WARN("Buffer views cannot be created for compressed formats.\n");
+        WARN("UAVs cannot be created for compressed formats.\n");
         return;
     }
 
@@ -1037,7 +1104,7 @@ bool vkd3d_create_raw_buffer_uav(struct d3d12_device *device,
 
     format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
     resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, gpu_address);
-    return vkd3d_create_buffer_view(device, resource, format,
+    return vkd3d_create_vk_buffer_view(device, resource, format,
             gpu_address - resource->gpu_address, VK_WHOLE_SIZE, vk_buffer_view);
 }
 

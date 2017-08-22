@@ -2402,11 +2402,18 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
     }
     else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV)
     {
-        vk_image_info->sampler = VK_NULL_HANDLE;
-        vk_image_info->imageView = descriptor->u.vk_image_view;
-        vk_image_info->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        if (descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER)
+        {
+            vk_descriptor_write->pTexelBufferView = &descriptor->u.vk_buffer_view;
+        }
+        else
+        {
+            vk_image_info->sampler = VK_NULL_HANDLE;
+            vk_image_info->imageView = descriptor->u.vk_image_view;
+            vk_image_info->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        vk_descriptor_write->pImageInfo = vk_image_info;
+            vk_descriptor_write->pImageInfo = vk_image_info;
+        }
     }
     else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
     {
