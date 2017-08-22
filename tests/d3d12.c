@@ -517,6 +517,31 @@ static void copy_sub_resource_data(const D3D12_MEMCPY_DEST *dst, const D3D12_SUB
     }
 }
 
+#define upload_buffer_data(a, b, c, d, e, f) upload_buffer_data_(__LINE__, a, b, c, d, e, f)
+static void upload_buffer_data_(unsigned int line, ID3D12Resource *buffer, size_t offset,
+        size_t size, const void *data, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
+{
+    ID3D12Resource *upload_buffer;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    hr = ID3D12Resource_GetDevice(buffer, &IID_ID3D12Device, (void **)&device);
+    ok_(line)(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
+
+    upload_buffer = create_upload_buffer_(line, device, size, data);
+
+    ID3D12GraphicsCommandList_CopyBufferRegion(command_list, buffer, offset,
+            upload_buffer, 0, size);
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok_(line)(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+
+    ID3D12Resource_Release(upload_buffer);
+    ID3D12Device_Release(device);
+}
+
 #define upload_texture_data(a, b, c, d) upload_texture_data_(__LINE__, a, b, c, d)
 static void upload_texture_data_(unsigned int line, ID3D12Resource *texture,
         D3D12_SUBRESOURCE_DATA *data, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
@@ -9883,6 +9908,330 @@ static void test_cs_uav_store(void)
     destroy_test_context(&context);
 }
 
+static void test_buffer_srv(void)
+{
+    struct buffer
+    {
+        unsigned int byte_count;
+        unsigned int data_offset;
+        const void *data;
+        unsigned int structure_byte_stride;
+    };
+
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    const D3D12_SHADER_BYTECODE *current_shader;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3D12DescriptorHeap *descriptor_heap;
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    const struct buffer *current_buffer;
+    unsigned int color, expected_color;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *buffer;
+    ID3D12Device *device;
+    unsigned int i, x, y;
+    HRESULT hr;
+
+    static const DWORD ps_float4_code[] =
+    {
+#if 0
+        Buffer<float4> b;
+
+        float2 size;
+
+        float4 main(float4 position : SV_POSITION) : SV_Target
+        {
+            float2 p;
+            int2 coords;
+            p.x = position.x / 640.0f;
+            p.y = position.y / 480.0f;
+            coords = int2(p.x * size.x, p.y * size.y);
+            return b.Load(coords.y * size.x + coords.x);
+        }
+#endif
+        0x43425844, 0xf10ea650, 0x311f5c38, 0x3a888b7f, 0x58230334, 0x00000001, 0x000001a0, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x00000104, 0x00000040,
+        0x00000041, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04000858, 0x00107000, 0x00000000,
+        0x00005555, 0x04002064, 0x00101032, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x08000038, 0x00100032, 0x00000000, 0x00101516, 0x00000000, 0x00208516,
+        0x00000000, 0x00000000, 0x0a000038, 0x00100032, 0x00000000, 0x00100046, 0x00000000, 0x00004002,
+        0x3b088889, 0x3acccccd, 0x00000000, 0x00000000, 0x05000043, 0x00100032, 0x00000000, 0x00100046,
+        0x00000000, 0x0a000032, 0x00100012, 0x00000000, 0x0010000a, 0x00000000, 0x0020800a, 0x00000000,
+        0x00000000, 0x0010001a, 0x00000000, 0x0500001b, 0x00100012, 0x00000000, 0x0010000a, 0x00000000,
+        0x0700002d, 0x001020f2, 0x00000000, 0x00100006, 0x00000000, 0x00107e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_float4 = {ps_float4_code, sizeof(ps_float4_code)};
+    static const DWORD ps_structured_code[] =
+    {
+#if 0
+        StructuredBuffer<float4> b;
+
+        float2 size;
+
+        float4 main(float4 position : SV_POSITION) : SV_Target
+        {
+            float2 p;
+            int2 coords;
+            p.x = position.x / 640.0f;
+            p.y = position.y / 480.0f;
+            coords = int2(p.x * size.x, p.y * size.y);
+            return b[coords.y * size.x + coords.x];
+        }
+#endif
+        0x43425844, 0x246caabb, 0xf1e7d6b9, 0xcbe720dc, 0xcdc23036, 0x00000001, 0x000001c0, 0x00000004,
+        0x00000030, 0x00000064, 0x00000098, 0x000001b0, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008,
+        0x00000020, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x5449534f,
+        0x004e4f49, 0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000,
+        0x00000003, 0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000110,
+        0x00000040, 0x00000044, 0x0100486a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x040000a2,
+        0x00107000, 0x00000000, 0x00000010, 0x04002064, 0x00101032, 0x00000000, 0x00000001, 0x03000065,
+        0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x08000038, 0x00100032, 0x00000000, 0x00101516,
+        0x00000000, 0x00208516, 0x00000000, 0x00000000, 0x0a000038, 0x00100032, 0x00000000, 0x00100046,
+        0x00000000, 0x00004002, 0x3b088889, 0x3acccccd, 0x00000000, 0x00000000, 0x05000043, 0x00100032,
+        0x00000000, 0x00100046, 0x00000000, 0x0a000032, 0x00100012, 0x00000000, 0x0010000a, 0x00000000,
+        0x0020800a, 0x00000000, 0x00000000, 0x0010001a, 0x00000000, 0x0500001c, 0x00100012, 0x00000000,
+        0x0010000a, 0x00000000, 0x090000a7, 0x001020f2, 0x00000000, 0x0010000a, 0x00000000, 0x00004001,
+        0x00000000, 0x00107e46, 0x00000000, 0x0100003e, 0x30494653, 0x00000008, 0x00000002, 0x00000000,
+    };
+    static const D3D12_SHADER_BYTECODE ps_structured = {ps_structured_code, sizeof(ps_structured_code)};
+    static const unsigned int rgba16[] =
+    {
+        0xff0000ff, 0xff00ffff, 0xff00ff00, 0xffffff00,
+        0xffff0000, 0xffff00ff, 0xff000000, 0xff7f7f7f,
+        0xffffffff, 0xffffffff, 0xffffffff, 0xff000000,
+        0xffffffff, 0xff000000, 0xff000000, 0xff000000,
+    };
+    static const unsigned int rgba4[] =
+    {
+        0xffffffff, 0xff0000ff,
+        0xff000000, 0xff00ff00,
+    };
+    static const BYTE r4[] =
+    {
+        0xde, 0xad,
+        0xba, 0xbe,
+    };
+    static const struct vec4 rgba_float[] =
+    {
+        {1.0f, 1.0f, 1.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f},
+        {0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f},
+    };
+    static const struct buffer rgba16_buffer = {sizeof(rgba16), 0, &rgba16};
+    static const struct buffer rgba16_offset_buffer = {256 + sizeof(rgba16), 256, &rgba16};
+    static const struct buffer rgba4_buffer  = {sizeof(rgba4), 0, &rgba4};
+    static const struct buffer r4_buffer = {sizeof(r4), 0, &r4};
+    static const struct buffer r4_offset_buffer = {256 + sizeof(r4), 256, &r4};
+    static const struct buffer float_buffer = {sizeof(rgba_float), 0, &rgba_float, sizeof(*rgba_float)};
+    static const struct buffer float_offset_buffer = {256 + sizeof(rgba_float), 256,
+            &rgba_float, sizeof(*rgba_float)};
+    static const unsigned int rgba16_colors2x2[] =
+    {
+        0xff0000ff, 0xff0000ff, 0xff00ffff, 0xff00ffff,
+        0xff0000ff, 0xff0000ff, 0xff00ffff, 0xff00ffff,
+        0xff00ff00, 0xff00ff00, 0xffffff00, 0xffffff00,
+        0xff00ff00, 0xff00ff00, 0xffffff00, 0xffffff00,
+    };
+    static const unsigned int rgba16_colors1x1[] =
+    {
+        0xff0000ff, 0xff0000ff, 0xff0000ff, 0xff0000ff,
+        0xff0000ff, 0xff0000ff, 0xff0000ff, 0xff0000ff,
+        0xff0000ff, 0xff0000ff, 0xff0000ff, 0xff0000ff,
+        0xff0000ff, 0xff0000ff, 0xff0000ff, 0xff0000ff,
+    };
+    static const unsigned int rgba4_colors[] =
+    {
+        0xffffffff, 0xffffffff, 0xff0000ff, 0xff0000ff,
+        0xffffffff, 0xffffffff, 0xff0000ff, 0xff0000ff,
+        0xff000000, 0xff000000, 0xff00ff00, 0xff00ff00,
+        0xff000000, 0xff000000, 0xff00ff00, 0xff00ff00,
+    };
+    static const unsigned int r4_colors[] =
+    {
+        0xff0000de, 0xff0000de, 0xff0000ad, 0xff0000ad,
+        0xff0000de, 0xff0000de, 0xff0000ad, 0xff0000ad,
+        0xff0000ba, 0xff0000ba, 0xff0000be, 0xff0000be,
+        0xff0000ba, 0xff0000ba, 0xff0000be, 0xff0000be,
+    };
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+    static const struct test
+    {
+        const D3D12_SHADER_BYTECODE *shader;
+        const struct buffer *buffer;
+        DXGI_FORMAT srv_format;
+        unsigned int srv_first_element;
+        unsigned int srv_element_count;
+        struct vec2 size;
+        const unsigned int *expected_colors;
+    }
+    tests[] =
+    {
+        {&ps_float4,     &rgba16_buffer,        DXGI_FORMAT_R8G8B8A8_UNORM,   0, 16, {4.0f, 4.0f}, rgba16},
+        {&ps_float4,     &rgba16_offset_buffer, DXGI_FORMAT_R8G8B8A8_UNORM,  64, 16, {4.0f, 4.0f}, rgba16},
+        {&ps_float4,     &rgba16_buffer,        DXGI_FORMAT_R8G8B8A8_UNORM,   0,  4, {2.0f, 2.0f}, rgba16_colors2x2},
+        {&ps_float4,     &rgba16_buffer,        DXGI_FORMAT_R8G8B8A8_UNORM,   0,  1, {1.0f, 1.0f}, rgba16_colors1x1},
+        {&ps_float4,     &rgba4_buffer,         DXGI_FORMAT_R8G8B8A8_UNORM,   0,  4, {2.0f, 2.0f}, rgba4_colors},
+        {&ps_float4,     &r4_buffer,            DXGI_FORMAT_R8_UNORM,         0,  4, {2.0f, 2.0f}, r4_colors},
+        {&ps_float4,     &r4_offset_buffer,     DXGI_FORMAT_R8_UNORM,       256,  4, {2.0f, 2.0f}, r4_colors},
+        {&ps_structured, &float_buffer,         DXGI_FORMAT_UNKNOWN,          0,  4, {2.0f, 2.0f}, rgba4_colors},
+        {&ps_structured, &float_offset_buffer,  DXGI_FORMAT_UNKNOWN,         16,  4, {2.0f, 2.0f}, rgba4_colors},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = 640;
+    desc.rt_height = 480;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    descriptor_ranges[0].NumDescriptors = 1;
+    descriptor_ranges[0].BaseShaderRegister = 0;
+    descriptor_ranges[0].RegisterSpace = 0;
+    descriptor_ranges[0].OffsetInDescriptorsFromTableStart = 0;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = descriptor_ranges;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[1].Constants.ShaderRegister = 0;
+    root_parameters[1].Constants.RegisterSpace = 0;
+    root_parameters[1].Constants.Num32BitValues = 2;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_signature_desc.NumParameters = 2;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap_desc.NumDescriptors = 1;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
+    gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
+
+    buffer = NULL;
+    current_shader = NULL;
+    current_buffer = NULL;
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        const struct test *test = &tests[i];
+
+        if (current_shader != test->shader)
+        {
+            if (context.pipeline_state)
+                ID3D12PipelineState_Release(context.pipeline_state);
+            current_shader = tests[i].shader;
+            context.pipeline_state = create_pipeline_state(context.device,
+                    context.root_signature, context.render_target_desc.Format,
+                    NULL, current_shader, NULL);
+        }
+
+        if (current_buffer != test->buffer)
+        {
+            if (buffer)
+                ID3D12Resource_Release(buffer);
+
+            current_buffer = test->buffer;
+
+            memset(&heap_properties, 0, sizeof(heap_properties));
+            heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+            resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            resource_desc.Alignment = 0;
+            resource_desc.Width = current_buffer->byte_count;
+            resource_desc.Height = 1;
+            resource_desc.DepthOrArraySize = 1;
+            resource_desc.MipLevels = 1;
+            resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+            resource_desc.SampleDesc.Count = 1;
+            resource_desc.SampleDesc.Quality = 0;
+            resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+            hr = ID3D12Device_CreateCommittedResource(device,
+                    &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+                    D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+                    &IID_ID3D12Resource, (void **)&buffer);
+            ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+
+            upload_buffer_data(buffer, current_buffer->data_offset,
+                    current_buffer->byte_count - current_buffer->data_offset,
+                    current_buffer->data, queue, command_list);
+            reset_command_list(command_list, context.allocator);
+
+            transition_sub_resource_state(command_list, buffer, 0,
+                    D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        }
+
+        memset(&srv_desc, 0, sizeof(srv_desc));
+        srv_desc.Format = test->srv_format;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.Buffer.FirstElement = test->srv_first_element;
+        srv_desc.Buffer.NumElements = test->srv_element_count;
+        srv_desc.Buffer.StructureByteStride = current_buffer->structure_byte_stride;
+        ID3D12Device_CreateShaderResourceView(device, buffer, &srv_desc, cpu_handle);
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+        ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 2, &test->size.x, 0);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_sub_resource_state(command_list, context.render_target, 0,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+        for (y = 0; y < 4; ++y)
+        {
+            for (x = 0; x < 4; ++x)
+            {
+                color = get_readback_uint(&rb, 80 + x * 160, 60 + y * 120);
+                expected_color = test->expected_colors[y * 4 + x];
+                ok(compare_color(color, expected_color, 1),
+                        "Test %u: Got 0x%08x, expected 0x%08x at (%u, %u).\n",
+                        i, color, expected_color, x, y);
+            }
+        }
+        release_resource_readback(&rb);
+
+        reset_command_list(command_list, context.allocator);
+        transition_sub_resource_state(command_list, context.render_target, 0,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+
+    ID3D12DescriptorHeap_Release(descriptor_heap);
+    ID3D12Resource_Release(buffer);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     bool enable_debug_layer = false;
@@ -9949,4 +10298,5 @@ START_TEST(d3d12)
     run_test(test_typed_buffer_uav);
     run_test(test_compute_shader_registers);
     run_test(test_cs_uav_store);
+    run_test(test_buffer_srv);
 }
