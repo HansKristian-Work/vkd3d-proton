@@ -3078,6 +3078,13 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *co
             semantic->resource_type, semantic->resource_data_type);
 }
 
+static void vkd3d_dxbc_compiler_emit_dcl_resource_raw(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &instruction->declaration.dst.reg,
+            VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT);
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_uav_raw(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -4542,6 +4549,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL:
             vkd3d_dxbc_compiler_emit_dcl_resource(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_RESOURCE_RAW:
+            vkd3d_dxbc_compiler_emit_dcl_resource_raw(compiler, instruction);
             break;
         case VKD3DSIH_DCL_UAV_RAW:
             vkd3d_dxbc_compiler_emit_dcl_uav_raw(compiler, instruction);
