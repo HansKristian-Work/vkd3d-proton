@@ -201,12 +201,6 @@ static D3D12_SHADER_BYTECODE shader_bytecode(const DWORD *code, size_t size)
     return shader_bytecode;
 }
 
-#if _WIN32
-# define SHADER_BYTECODE(dxbc, spirv) ((void)spirv, shader_bytecode(dxbc, sizeof(dxbc)))
-#else
-# define SHADER_BYTECODE(dxbc, spirv) ((void)dxbc, shader_bytecode(spirv, sizeof(spirv)))
-#endif
-
 static void transition_sub_resource_state(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
         unsigned int sub_resource_idx, D3D12_RESOURCE_STATES state_before, D3D12_RESOURCE_STATES state_after)
 {
