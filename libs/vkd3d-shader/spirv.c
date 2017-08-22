@@ -1552,11 +1552,18 @@ struct vkd3d_symbol_resource
     unsigned int idx;
 };
 
+struct vkd3d_symbol_register_data
+{
+    SpvStorageClass storage_class;
+    uint32_t member_idx;
+};
+
 struct vkd3d_symbol_resource_data
 {
     enum vkd3d_component_type sampled_type;
     uint32_t type_id;
     const struct vkd3d_spirv_resource_type *resource_type_info;
+    unsigned int structure_stride;
 };
 
 struct vkd3d_symbol
@@ -1578,11 +1585,7 @@ struct vkd3d_symbol
     uint32_t id;
     union
     {
-        struct
-        {
-            SpvStorageClass storage_class;
-            uint32_t member_idx;
-        } reg;
+        struct vkd3d_symbol_register_data reg;
         struct vkd3d_symbol_resource_data resource;
     } info;
 };
@@ -1719,8 +1722,6 @@ struct vkd3d_dxbc_compiler
     uint32_t private_output_variable[MAX_REG_OUTPUT + 1]; /* 1 entry for oDepth */
     uint32_t output_setup_function_id;
     uint32_t default_sampler_id;
-    unsigned int uav_stride[MAX_UNORDERED_ACCESS_VIEWS];
-    unsigned int resource_stride[MAX_SHADER_RESOURCE_VIEWS];
 
     const struct vkd3d_shader_scan_info *scan_info;
 };
@@ -3033,7 +3034,7 @@ static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler
 
 static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, enum vkd3d_shader_resource_type resource_type,
-        enum vkd3d_data_type resource_data_type)
+        enum vkd3d_data_type resource_data_type, unsigned int structure_stride)
 {
     const SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -3068,6 +3069,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     resource_symbol.info.resource.sampled_type = sampled_type;
     resource_symbol.info.resource.type_id = type_id;
     resource_symbol.info.resource.resource_type_info = resource_type_info;
+    resource_symbol.info.resource.structure_stride = structure_stride;
     vkd3d_dxbc_compiler_put_symbol(compiler, &resource_symbol);
 }
 
@@ -3076,14 +3078,14 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *co
 {
     const struct vkd3d_shader_semantic *semantic = &instruction->declaration.semantic;
     vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &semantic->reg.reg,
-            semantic->resource_type, semantic->resource_data_type);
+            semantic->resource_type, semantic->resource_data_type, 0);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_resource_raw(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &instruction->declaration.dst.reg,
-            VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT);
+            VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, 0);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_uav_raw(struct vkd3d_dxbc_compiler *compiler,
@@ -3093,7 +3095,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_uav_raw(struct vkd3d_dxbc_compiler *com
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
     vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &instruction->declaration.dst.reg,
-            VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT);
+            VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, 0);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_resource_structured(struct vkd3d_dxbc_compiler *compiler,
@@ -3101,15 +3103,9 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource_structured(struct vkd3d_dxbc_c
 {
     const struct vkd3d_shader_register *reg = &instruction->declaration.structured_resource.reg.reg;
     unsigned int stride = instruction->declaration.structured_resource.byte_stride;
-    unsigned int resource_index = reg->idx[0].offset;
-
-    if (resource_index < ARRAY_SIZE(compiler->resource_stride))
-        compiler->resource_stride[resource_index] = stride / 4;
-    else
-        FIXME("Unexpected resource register index %u.\n", resource_index);
 
     vkd3d_dxbc_compiler_emit_resource_declaration(compiler, reg,
-            VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT);
+            VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, stride / 4);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_uav_structured(struct vkd3d_dxbc_compiler *compiler,
@@ -3117,18 +3113,12 @@ static void vkd3d_dxbc_compiler_emit_dcl_uav_structured(struct vkd3d_dxbc_compil
 {
     const struct vkd3d_shader_register *reg = &instruction->declaration.structured_resource.reg.reg;
     unsigned int stride = instruction->declaration.structured_resource.byte_stride;
-    unsigned int uav_index = reg->idx[0].offset;
 
     if (instruction->flags)
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
-    if (uav_index < ARRAY_SIZE(compiler->uav_stride))
-        compiler->uav_stride[uav_index] = stride / 4;
-    else
-        FIXME("Unexpected UAV register index %u.\n", uav_index);
-
     vkd3d_dxbc_compiler_emit_resource_declaration(compiler, reg,
-            VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT);
+            VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, stride / 4);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_uav_typed(struct vkd3d_dxbc_compiler *compiler,
@@ -3140,7 +3130,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_uav_typed(struct vkd3d_dxbc_compiler *c
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
     vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &semantic->reg.reg,
-            semantic->resource_type, semantic->resource_data_type);
+            semantic->resource_type, semantic->resource_data_type, 0);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compiler,
@@ -4159,6 +4149,7 @@ struct vkd3d_shader_image
     enum vkd3d_component_type sampled_type;
     uint32_t image_type_id;
     const struct vkd3d_spirv_resource_type *resource_type_info;
+    unsigned int structure_stride;
 };
 
 #define VKD3D_IMAGE_FLAG_NONE    0x0
@@ -4186,6 +4177,7 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
     image->sampled_type = resource_symbol->info.resource.sampled_type;
     image->image_type_id = resource_symbol->info.resource.type_id;
     image->resource_type_info = resource_symbol->info.resource.resource_type_info;
+    image->structure_stride = resource_symbol->info.resource.structure_stride;
 
     image->id = resource_symbol->id;
     image->image_id = load ? vkd3d_spirv_build_op_load(builder,
@@ -4360,11 +4352,9 @@ static void vkd3d_dxbc_compiler_emit_ld_structured_srv(struct vkd3d_dxbc_compile
     uint32_t constituents[VKD3D_VEC4_SIZE];
     struct vkd3d_shader_image image;
     unsigned int i, component_count;
-    unsigned int stride;
     uint32_t zero = 0;
 
     resource = &src[instruction->src_count - 1];
-    stride = compiler->resource_stride[resource->reg.idx[0].offset];
 
     /* OpImageFetch must be used with a sampled image. */
     vkd3d_dxbc_compiler_prepare_default_sampled_image(compiler, &image, &resource->reg);
@@ -4372,7 +4362,7 @@ static void vkd3d_dxbc_compiler_emit_ld_structured_srv(struct vkd3d_dxbc_compile
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
     coordinate_id = vkd3d_dxbc_compiler_emit_buffer_addressing(compiler,
-            type_id, stride, &src[0], &src[1]);
+            type_id, image.structure_stride, &src[0], &src[1]);
 
     texel_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
@@ -4434,7 +4424,6 @@ static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_comp
     const struct vkd3d_shader_src_param *texel;
     struct vkd3d_shader_image image;
     unsigned int i, component_count;
-    unsigned int stride;
 
     if (dst->reg.type == VKD3DSPR_GROUPSHAREDMEM)
     {
@@ -4443,17 +4432,16 @@ static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_comp
     }
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-    stride = compiler->uav_stride[dst->reg.idx[0].offset];
     vkd3d_dxbc_compiler_prepare_image(compiler, &image, &dst->reg, VKD3D_IMAGE_FLAG_NONE);
     if (instruction->handler_idx == VKD3DSIH_STORE_STRUCTURED)
     {
         coordinate_id = vkd3d_dxbc_compiler_emit_buffer_addressing(compiler,
-                type_id, stride, &src[0], &src[1]);
+                type_id, image.structure_stride, &src[0], &src[1]);
     }
     else
     {
         coordinate_id = vkd3d_dxbc_compiler_emit_buffer_addressing(compiler,
-                type_id, stride, NULL, &src[0]);
+                type_id, 0, NULL, &src[0]);
     }
 
     /* Mesa Vulkan drivers require the texel parameter to be a 4-component

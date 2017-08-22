@@ -819,7 +819,6 @@ struct vkd3d_shader_signature_element *shader_find_signature_element(const struc
         const char *semantic_name, unsigned int semantic_idx, unsigned int stream_idx) DECLSPEC_HIDDEN;
 void free_shader_desc(struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
 
-#define MAX_SHADER_RESOURCE_VIEWS  128
 #define MAX_UNORDERED_ACCESS_VIEWS 8
 
 struct vkd3d_shader_scan_info
