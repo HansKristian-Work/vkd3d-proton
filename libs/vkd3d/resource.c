@@ -1752,7 +1752,7 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, struct d3d12_query_
             break;
 
         case D3D12_QUERY_HEAP_TYPE_SO_STATISTICS:
-            WARN("Unsupported query heap type SO_STATISTICS.\n");
+            FIXME("Unsupported query heap type SO_STATISTICS.\n");
             vkd3d_free(object);
             return E_NOTIMPL;
 
