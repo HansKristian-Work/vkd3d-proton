@@ -10261,7 +10261,7 @@ static void test_create_query_heap(void)
         heap_desc.NodeMask = 0;
 
         hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
-        ok(hr == S_OK, "D3D12CreateQueryHeap failed, type %u, hr %#x.\n", types[i], hr);
+        ok(hr == S_OK, "ID3D12Device_CreateQueryHeap failed, type %u, hr %#x.\n", types[i], hr);
 
         ID3D12QueryHeap_Release(query_heap);
     }
@@ -10271,7 +10271,7 @@ static void test_create_query_heap(void)
     heap_desc.NodeMask = 0;
 
     hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
-    ok(hr == S_OK || hr == E_NOTIMPL, "D3D12CreateQueryHeap failed, type %u, hr %#x.\n", heap_desc.Type, hr);
+    todo(hr == S_OK, "ID3D12Device_CreateQueryHeap failed, type %u, hr %#x.\n", heap_desc.Type, hr);
 
     if (hr == S_OK)
         ID3D12QueryHeap_Release(query_heap);
