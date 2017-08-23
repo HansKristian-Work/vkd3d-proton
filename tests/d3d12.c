@@ -10232,6 +10232,54 @@ static void test_buffer_srv(void)
     destroy_test_context(&context);
 }
 
+static void test_create_query_heap(void)
+{
+    ID3D12Device *device;
+    D3D12_QUERY_HEAP_DESC heap_desc;
+    ID3D12QueryHeap *query_heap;
+    ULONG refcount;
+    HRESULT hr;
+    int i;
+
+    static const D3D12_QUERY_HEAP_TYPE types[] =
+    {
+        D3D12_QUERY_HEAP_TYPE_OCCLUSION,
+        D3D12_QUERY_HEAP_TYPE_TIMESTAMP,
+        D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS,
+    };
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    for (i = 0; i < ARRAY_SIZE(types); ++i)
+    {
+        heap_desc.Type = types[i];
+        heap_desc.Count = 1;
+        heap_desc.NodeMask = 0;
+
+        hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
+        ok(hr == S_OK, "D3D12CreateQueryHeap failed, type %u, hr %#x.\n", types[i], hr);
+
+        ID3D12QueryHeap_Release(query_heap);
+    }
+
+    heap_desc.Type = D3D12_QUERY_HEAP_TYPE_SO_STATISTICS;
+    heap_desc.Count = 1;
+    heap_desc.NodeMask = 0;
+
+    hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
+    ok(hr == S_OK || hr == E_NOTIMPL, "D3D12CreateQueryHeap failed, type %u, hr %#x.\n", heap_desc.Type, hr);
+
+    if (hr == S_OK)
+        ID3D12QueryHeap_Release(query_heap);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12)
 {
     bool enable_debug_layer = false;
@@ -10299,4 +10347,5 @@ START_TEST(d3d12)
     run_test(test_compute_shader_registers);
     run_test(test_cs_uav_store);
     run_test(test_buffer_srv);
+    run_test(test_create_query_heap);
 }
