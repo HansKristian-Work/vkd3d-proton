@@ -1636,6 +1636,9 @@ static ULONG STDMETHODCALLTYPE d3d12_query_heap_Release(ID3D12QueryHeap *iface)
     if (!refcount)
     {
         struct d3d12_device *device = heap->device;
+        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+        VK_CALL(vkDestroyQueryPool(device->vk_device, heap->vk_query_pool, NULL));
 
         vkd3d_free(heap);
 
@@ -1701,9 +1704,13 @@ static const struct ID3D12QueryHeapVtbl d3d12_query_heap_vtbl =
     d3d12_query_heap_GetDevice,
 };
 
-HRESULT d3d12_query_heap_create(struct d3d12_device *device, struct d3d12_query_heap **heap)
+HRESULT d3d12_query_heap_create(struct d3d12_device *device, struct d3d12_query_heap **heap,
+        const D3D12_QUERY_HEAP_DESC *desc)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct d3d12_query_heap *object;
+    VkQueryPoolCreateInfo pool_info;
+    VkResult vr;
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
@@ -1711,6 +1718,57 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, struct d3d12_query_
     object->ID3D12QueryHeap_iface.lpVtbl = &d3d12_query_heap_vtbl;
     object->refcount = 1;
     object->device = device;
+
+    pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+    pool_info.pNext = NULL;
+    pool_info.flags = 0;
+    pool_info.queryCount = desc->Count;
+
+    switch (desc->Type)
+    {
+        case D3D12_QUERY_HEAP_TYPE_OCCLUSION:
+            pool_info.queryType = VK_QUERY_TYPE_OCCLUSION;
+            pool_info.pipelineStatistics = 0;
+            break;
+
+        case D3D12_QUERY_HEAP_TYPE_TIMESTAMP:
+            pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+            pool_info.pipelineStatistics = 0;
+            break;
+
+        case D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS:
+            pool_info.queryType = VK_QUERY_TYPE_PIPELINE_STATISTICS;
+            pool_info.pipelineStatistics = VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_VERTICES_BIT
+                    | VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_PRIMITIVES_BIT
+                    | VK_QUERY_PIPELINE_STATISTIC_VERTEX_SHADER_INVOCATIONS_BIT
+                    | VK_QUERY_PIPELINE_STATISTIC_GEOMETRY_SHADER_INVOCATIONS_BIT
+                    | VK_QUERY_PIPELINE_STATISTIC_GEOMETRY_SHADER_PRIMITIVES_BIT
+                    | VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT
+                    | VK_QUERY_PIPELINE_STATISTIC_CLIPPING_PRIMITIVES_BIT
+                    | VK_QUERY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS_BIT
+                    | VK_QUERY_PIPELINE_STATISTIC_TESSELLATION_CONTROL_SHADER_PATCHES_BIT
+                    | VK_QUERY_PIPELINE_STATISTIC_TESSELLATION_EVALUATION_SHADER_INVOCATIONS_BIT
+                    | VK_QUERY_PIPELINE_STATISTIC_COMPUTE_SHADER_INVOCATIONS_BIT;
+            break;
+
+        case D3D12_QUERY_HEAP_TYPE_SO_STATISTICS:
+            WARN("Unsupported query heap type SO_STATISTICS.\n");
+            vkd3d_free(object);
+            return E_NOTIMPL;
+
+        default:
+            WARN("Invalid query heap type %u.\n", desc->Type);
+            vkd3d_free(object);
+            return E_INVALIDARG;
+    }
+
+    if ((vr = VK_CALL(vkCreateQueryPool(device->vk_device, &pool_info, NULL, &object->vk_query_pool))) < 0)
+    {
+        WARN("Failed to create Vulkan query pool, vr %d.\n", vr);
+        vkd3d_free(object);
+        return hresult_from_vk_result(vr);
+    }
+
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
 
     TRACE("Created query heap %p.\n", object);

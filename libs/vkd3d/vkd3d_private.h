@@ -257,12 +257,13 @@ struct d3d12_query_heap
 {
     ID3D12QueryHeap ID3D12QueryHeap_iface;
     LONG refcount;
+    VkQueryPool vk_query_pool;
 
     struct d3d12_device *device;
 };
 
 HRESULT d3d12_query_heap_create(struct d3d12_device *device,
-        struct d3d12_query_heap **heap) DECLSPEC_HIDDEN;
+        struct d3d12_query_heap **heap, const D3D12_QUERY_HEAP_DESC *desc) DECLSPEC_HIDDEN;
 
 struct d3d12_root_descriptor_table_range
 {
