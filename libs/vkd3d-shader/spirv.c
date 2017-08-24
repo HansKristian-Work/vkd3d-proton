@@ -1326,6 +1326,20 @@ static uint32_t vkd3d_spirv_build_op_image_query_levels(struct vkd3d_spirv_build
             SpvOpImageQueryLevels, result_type, image_id);
 }
 
+static void vkd3d_spirv_build_op_control_barrier(struct vkd3d_spirv_builder *builder,
+        uint32_t execution_id, uint32_t memory_id, uint32_t memory_semantics_id)
+{
+    vkd3d_spirv_build_op3(&builder->function_stream,
+            SpvOpControlBarrier, execution_id, memory_id, memory_semantics_id);
+}
+
+static void vkd3d_spirv_build_op_memory_barrier(struct vkd3d_spirv_builder *builder,
+        uint32_t memory_id, uint32_t memory_semantics_id)
+{
+    vkd3d_spirv_build_op2(&builder->function_stream,
+            SpvOpMemoryBarrier, memory_id, memory_semantics_id);
+}
+
 static uint32_t vkd3d_spirv_build_op_glsl_std450_fabs(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand)
 {
@@ -4592,6 +4606,63 @@ static void vkd3d_dxbc_compiler_emit_resinfo(struct vkd3d_dxbc_compiler *compile
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
+/* From the Vulkan spec:
+ *
+ *   "Scope for execution must be limited to: * Workgroup * Subgroup"
+ *
+ *   "Scope for memory must be limited to: * Device * Workgroup * Invocation"
+ */
+static void vkd3d_dxbc_compiler_emit_sync(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t execution_id, memory_id, semantics_id;
+    unsigned int flags = instruction->flags;
+    SpvScope execution_scope = SpvScopeMax;
+    SpvScope memory_scope = SpvScopeDevice;
+    unsigned int memory_semantics = 0;
+
+    if (flags & VKD3DSSF_GROUP_SHARED_MEMORY)
+    {
+        memory_scope = SpvScopeWorkgroup;
+        memory_semantics |= SpvMemorySemanticsWorkgroupMemoryMask;
+        flags &= ~VKD3DSSF_GROUP_SHARED_MEMORY;
+    }
+
+    if (flags & VKD3DSSF_THREAD_GROUP)
+    {
+        execution_scope = SpvScopeWorkgroup;
+        flags &= ~VKD3DSSF_THREAD_GROUP;
+    }
+
+    if (flags)
+    {
+        FIXME("Unhandled sync flags %#x.\n", flags);
+        memory_scope = SpvScopeDevice;
+        execution_scope = SpvScopeWorkgroup;
+        memory_semantics |= SpvMemorySemanticsSequentiallyConsistentMask
+                | SpvMemorySemanticsUniformMemoryMask
+                | SpvMemorySemanticsSubgroupMemoryMask
+                | SpvMemorySemanticsWorkgroupMemoryMask
+                | SpvMemorySemanticsCrossWorkgroupMemoryMask
+                | SpvMemorySemanticsAtomicCounterMemoryMask
+                | SpvMemorySemanticsImageMemoryMask;
+    }
+
+    memory_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, memory_scope);
+    semantics_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, memory_semantics);
+    if (execution_scope != SpvScopeMax)
+    {
+        execution_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, execution_scope);
+        vkd3d_spirv_build_op_control_barrier(builder,
+                execution_id, memory_id, semantics_id);
+    }
+    else
+    {
+        vkd3d_spirv_build_op_memory_barrier(builder, memory_id, semantics_id);
+    }
+}
+
 /* This function is called after declarations are processed. */
 static void vkd3d_dxbc_compiler_emit_main_prolog(struct vkd3d_dxbc_compiler *compiler)
 {
@@ -4794,6 +4865,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_RESINFO:
             vkd3d_dxbc_compiler_emit_resinfo(compiler, instruction);
+            break;
+        case VKD3DSIH_SYNC:
+            vkd3d_dxbc_compiler_emit_sync(compiler, instruction);
             break;
         default:
             FIXME("Unhandled instruction %#x.\n", instruction->handler_idx);
