@@ -4682,6 +4682,7 @@ static SpvOp vkd3d_dxbc_compiler_map_atomic_instruction(const struct vkd3d_shade
     {
         {VKD3DSIH_ATOMIC_IADD,     SpvOpAtomicIAdd},
         {VKD3DSIH_ATOMIC_OR,       SpvOpAtomicOr},
+        {VKD3DSIH_ATOMIC_UMAX,     SpvOpAtomicUMax},
         {VKD3DSIH_ATOMIC_UMIN,     SpvOpAtomicUMin},
         {VKD3DSIH_IMM_ATOMIC_EXCH, SpvOpAtomicExchange},
     };
@@ -5112,6 +5113,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_ATOMIC_IADD:
         case VKD3DSIH_ATOMIC_OR:
+        case VKD3DSIH_ATOMIC_UMAX:
         case VKD3DSIH_ATOMIC_UMIN:
         case VKD3DSIH_IMM_ATOMIC_EXCH:
             vkd3d_dxbc_compiler_emit_atomic_instruction(compiler, instruction);
