@@ -1051,6 +1051,12 @@ static uint32_t vkd3d_spirv_build_op_composite_extract(struct vkd3d_spirv_builde
             result_type, composite_id, indexes, index_count);
 }
 
+static uint32_t vkd3d_spirv_build_op_composite_extract1(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t composite_id, uint32_t index)
+{
+    return vkd3d_spirv_build_op_composite_extract(builder, result_type, composite_id, &index, 1);
+}
+
 static uint32_t vkd3d_spirv_build_op_composite_insert(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t object_id, uint32_t composite_id,
         const uint32_t *indexes, unsigned int index_count)
@@ -2190,7 +2196,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_swizzle(struct vkd3d_dxbc_compiler *com
     {
         component_idx = vkd3d_write_mask_get_component_idx(write_mask);
         component_idx = vkd3d_swizzle_get_component(swizzle, component_idx);
-        return vkd3d_spirv_build_op_composite_extract(builder, type_id, val_id, &component_idx, 1);
+        return vkd3d_spirv_build_op_composite_extract1(builder, type_id, val_id, component_idx);
     }
 
     for (i = 0, component_idx = 0; i < VKD3D_VEC4_SIZE; ++i)
@@ -3749,8 +3755,6 @@ static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_comp
 static void vkd3d_dxbc_compiler_emit_f16tof32(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    static const uint32_t indexes[] = {0};
-
     uint32_t instr_set_id, type_id, scalar_type_id, src_id, result_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
@@ -3771,8 +3775,8 @@ static void vkd3d_dxbc_compiler_emit_f16tof32(struct vkd3d_dxbc_compiler *compil
         src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, write_mask);
         result_id = vkd3d_spirv_build_op_ext_inst(builder, type_id,
                 instr_set_id, GLSLstd450UnpackHalf2x16, &src_id, 1);
-        result_id = vkd3d_spirv_build_op_composite_extract(builder, scalar_type_id,
-                result_id, indexes, ARRAY_SIZE(indexes));
+        result_id = vkd3d_spirv_build_op_composite_extract1(builder,
+                scalar_type_id, result_id, 0);
         vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, write_mask, result_id);
     }
 }
@@ -4420,7 +4424,6 @@ static void vkd3d_dxbc_compiler_emit_ld_structured_srv(struct vkd3d_dxbc_compile
     uint32_t constituents[VKD3D_VEC4_SIZE];
     struct vkd3d_shader_image image;
     unsigned int i, component_count;
-    uint32_t zero = 0;
 
     resource = &src[instruction->src_count - 1];
 
@@ -4444,8 +4447,8 @@ static void vkd3d_dxbc_compiler_emit_ld_structured_srv(struct vkd3d_dxbc_compile
 
         val_id = vkd3d_spirv_build_op_image_fetch(builder, texel_type_id,
                 image_id, coordinate_id, SpvImageOperandsMaskNone, NULL, 0);
-        constituents[i] = vkd3d_spirv_build_op_composite_extract(builder, type_id,
-                val_id, &zero, 1);
+        constituents[i] = vkd3d_spirv_build_op_composite_extract1(builder,
+                type_id, val_id, 0);
     }
     if (component_count > 1)
     {
