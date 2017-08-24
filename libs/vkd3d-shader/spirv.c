@@ -4681,6 +4681,7 @@ static SpvOp vkd3d_dxbc_compiler_map_atomic_instruction(const struct vkd3d_shade
     atomic_ops[] =
     {
         {VKD3DSIH_ATOMIC_IADD,     SpvOpAtomicIAdd},
+        {VKD3DSIH_ATOMIC_OR,       SpvOpAtomicOr},
         {VKD3DSIH_IMM_ATOMIC_EXCH, SpvOpAtomicExchange},
     };
     unsigned int i;
@@ -5109,6 +5110,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             vkd3d_dxbc_compiler_emit_store_uav_typed(compiler, instruction);
             break;
         case VKD3DSIH_ATOMIC_IADD:
+        case VKD3DSIH_ATOMIC_OR:
         case VKD3DSIH_IMM_ATOMIC_EXCH:
             vkd3d_dxbc_compiler_emit_atomic_instruction(compiler, instruction);
             break;
