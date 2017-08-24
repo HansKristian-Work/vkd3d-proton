@@ -868,6 +868,13 @@ static uint32_t vkd3d_spirv_build_op_type_array(struct vkd3d_spirv_builder *buil
             SpvOpTypeArray, element_type, length_id);
 }
 
+static uint32_t vkd3d_spirv_get_op_type_array(struct vkd3d_spirv_builder *builder,
+        uint32_t element_type, uint32_t length_id)
+{
+    return vkd3d_spirv_build_once2(builder, SpvOpTypeArray, element_type, length_id,
+            vkd3d_spirv_build_op_type_array);
+}
+
 static uint32_t vkd3d_spirv_build_op_type_struct(struct vkd3d_spirv_builder *builder,
         uint32_t *members, unsigned int member_count)
 {
@@ -1570,6 +1577,7 @@ struct vkd3d_symbol_register_data
 {
     SpvStorageClass storage_class;
     uint32_t member_idx;
+    unsigned int structure_stride;
 };
 
 struct vkd3d_symbol_resource_data
@@ -2009,6 +2017,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
             break;
         case VKD3DSPR_THREADGROUPID:
             snprintf(buffer, buffer_size, "vThreadGroupID");
+            break;
+        case VKD3DSPR_GROUPSHAREDMEM:
+            snprintf(buffer, buffer_size, "g%u", reg->idx[0].offset);
             break;
         default:
             FIXME("Unhandled register %#x.\n", reg->type);
@@ -3145,6 +3156,40 @@ static void vkd3d_dxbc_compiler_emit_dcl_uav_typed(struct vkd3d_dxbc_compiler *c
 
     vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &semantic->reg.reg,
             semantic->resource_type, semantic->resource_data_type, 0);
+}
+
+static void vkd3d_dxbc_compiler_emit_workgroup_memory(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg, unsigned int size, unsigned int structure_stride)
+{
+    uint32_t type_id, array_type_id, length_id, pointer_type_id, var_id;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const SpvStorageClass storage_class = SpvStorageClassWorkgroup;
+    struct vkd3d_symbol reg_symbol;
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    length_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, size);
+    array_type_id = vkd3d_spirv_get_op_type_array(builder, type_id, length_id);
+
+    pointer_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, array_type_id);
+    var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
+            pointer_type_id, storage_class, 0);
+
+    vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
+
+    vkd3d_symbol_make_register(&reg_symbol, reg);
+    reg_symbol.id = var_id;
+    reg_symbol.info.reg.storage_class = storage_class;
+    reg_symbol.info.reg.member_idx = 0;
+    reg_symbol.info.reg.structure_stride = structure_stride;
+    vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
+}
+
+static void vkd3d_dxbc_compiler_emit_dcl_tgsm_raw(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    const struct vkd3d_shader_tgsm_raw *tgsm_raw = &instruction->declaration.tgsm_raw;
+    vkd3d_dxbc_compiler_emit_workgroup_memory(compiler, &tgsm_raw->reg.reg,
+            tgsm_raw->byte_count / 4, 0);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compiler,
@@ -4717,6 +4762,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL_UAV_TYPED:
             vkd3d_dxbc_compiler_emit_dcl_uav_typed(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_TGSM_RAW:
+            vkd3d_dxbc_compiler_emit_dcl_tgsm_raw(compiler, instruction);
             break;
         case VKD3DSIH_DCL_INPUT:
             vkd3d_dxbc_compiler_emit_dcl_input(compiler, instruction);
