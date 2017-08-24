@@ -1444,7 +1444,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandSignature(ID3D12Devic
     TRACE("iface %p, desc %p, root_signature %p, iid %s, command_signature %p.\n",
             iface, desc, root_signature, debugstr_guid(iid), command_signature);
 
-    if (FAILED(hr = d3d12_command_signature_create(device, &object)))
+    if (FAILED(hr = d3d12_command_signature_create(device, desc, &object)))
         return hr;
 
     return return_interface((IUnknown *)&object->ID3D12CommandSignature_iface,

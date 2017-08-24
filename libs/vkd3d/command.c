@@ -3282,14 +3282,52 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndEvent(ID3D12GraphicsCommandL
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(ID3D12GraphicsCommandList *iface,
-        ID3D12CommandSignature *command_signature,
-        UINT max_command_count, ID3D12Resource *arg_buffer,
+        ID3D12CommandSignature *command_signature, UINT max_command_count, ID3D12Resource *arg_buffer,
         UINT64 arg_buffer_offset, ID3D12Resource *count_buffer, UINT64 count_buffer_offset)
 {
-    FIXME("iface %p, command_signature %p, max_command_count %u, arg_buffer %p, "
-            "arg_buffer_offset %#"PRIx64", count_buffer %p, count_buffer_offset %#"PRIx64" stub!\n",
+    struct d3d12_command_signature *sig_impl = unsafe_impl_from_ID3D12CommandSignature(command_signature);
+    struct d3d12_resource *arg_impl = unsafe_impl_from_ID3D12Resource(arg_buffer);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const D3D12_COMMAND_SIGNATURE_DESC *signature_desc;
+    unsigned int i;
+
+    TRACE("iface %p, command_signature %p, max_command_count %u, arg_buffer %p, "
+            "arg_buffer_offset %#"PRIx64", count_buffer %p, count_buffer_offset %#"PRIx64".\n",
             iface, command_signature, max_command_count, arg_buffer, arg_buffer_offset,
             count_buffer, count_buffer_offset);
+
+    if (count_buffer)
+    {
+        FIXME("Count buffers not implemented.\n");
+        return;
+    }
+
+    signature_desc = &sig_impl->desc;
+    for (i = 0; i < signature_desc->NumArgumentDescs; ++i)
+    {
+        const D3D12_INDIRECT_ARGUMENT_DESC *arg_desc = &signature_desc->pArgumentDescs[i];
+
+        switch (arg_desc->Type)
+        {
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
+                if (!d3d12_command_list_begin_render_pass(list, vk_procs))
+                {
+                    WARN("Failed to begin render pass, ignoring draw.\n");
+                    break;
+                }
+
+                VK_CALL(vkCmdDrawIndirect(list->vk_command_buffer, arg_impl->u.vk_buffer,
+                        arg_buffer_offset, max_command_count, signature_desc->ByteStride));
+
+                VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
+                break;
+
+            default:
+                FIXME("Ignoring unhandled argument type %#x.\n", arg_desc->Type);
+                break;
+        }
+    }
 }
 
 static const struct ID3D12GraphicsCommandListVtbl d3d12_command_list_vtbl =
@@ -3888,6 +3926,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_signature_Release(ID3D12CommandSign
     {
         struct d3d12_device *device = signature->device;
 
+        vkd3d_free((void *)signature->desc.pArgumentDescs);
         vkd3d_free(signature);
 
         ID3D12Device_Release(&device->ID3D12Device_iface);
@@ -3952,7 +3991,16 @@ static const struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl =
     d3d12_command_signature_GetDevice,
 };
 
-HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12_command_signature **signature)
+struct d3d12_command_signature *unsafe_impl_from_ID3D12CommandSignature(ID3D12CommandSignature *iface)
+{
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_command_signature_vtbl);
+    return CONTAINING_RECORD(iface, struct d3d12_command_signature, ID3D12CommandSignature_iface);
+}
+
+HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_COMMAND_SIGNATURE_DESC *desc,
+        struct d3d12_command_signature **signature)
 {
     struct d3d12_command_signature *object;
 
@@ -3961,6 +4009,16 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
 
     object->ID3D12CommandSignature_iface.lpVtbl = &d3d12_command_signature_vtbl;
     object->refcount = 1;
+
+    object->desc = *desc;
+    if (!(object->desc.pArgumentDescs = vkd3d_calloc(desc->NumArgumentDescs, sizeof(*desc->pArgumentDescs))))
+    {
+        vkd3d_free(object);
+        return E_OUTOFMEMORY;
+    }
+    memcpy((void *)object->desc.pArgumentDescs, desc->pArgumentDescs,
+            desc->NumArgumentDescs * sizeof(*desc->pArgumentDescs));
+
     object->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
 

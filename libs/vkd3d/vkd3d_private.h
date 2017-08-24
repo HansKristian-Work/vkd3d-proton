@@ -494,11 +494,14 @@ struct d3d12_command_signature
     ID3D12CommandSignature ID3D12CommandSignature_iface;
     LONG refcount;
 
+    D3D12_COMMAND_SIGNATURE_DESC desc;
+
     struct d3d12_device *device;
 };
 
-HRESULT d3d12_command_signature_create(struct d3d12_device *device,
+HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_COMMAND_SIGNATURE_DESC *desc,
         struct d3d12_command_signature **signature) DECLSPEC_HIDDEN;
+struct d3d12_command_signature *unsafe_impl_from_ID3D12CommandSignature(ID3D12CommandSignature *iface) DECLSPEC_HIDDEN;
 
 struct vkd3d_vulkan_info
 {

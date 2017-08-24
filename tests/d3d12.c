@@ -11488,6 +11488,56 @@ static void test_query_pipeline_statistics(void)
     destroy_test_context(&context);
 }
 
+static void test_execute_indirect(void)
+{
+    D3D12_COMMAND_SIGNATURE_DESC signature_desc;
+    D3D12_INDIRECT_ARGUMENT_DESC argument_desc;
+    ID3D12CommandSignature *command_signature;
+    ID3D12GraphicsCommandList *command_list;
+    ID3D12Resource *argument_buffer;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    HRESULT hr;
+
+    static const D3D12_DRAW_ARGUMENTS argument_data = {3, 1, 0, 0};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+    if (!init_test_context(&context, NULL))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    argument_buffer = create_upload_buffer(context.device, sizeof(argument_data), &argument_data);
+
+    argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+
+    signature_desc.ByteStride = sizeof(D3D12_DRAW_ARGUMENTS);
+    signature_desc.NumArgumentDescs = 1;
+    signature_desc.pArgumentDescs = &argument_desc;
+    signature_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateCommandSignature(context.device, &signature_desc,
+            NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
+    ok(SUCCEEDED(hr), "Failed to create command signature, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1, argument_buffer, 0, NULL, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+
+    ID3D12CommandSignature_Release(command_signature);
+    ID3D12Resource_Release(argument_buffer);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     bool enable_debug_layer = false;
@@ -11561,4 +11611,5 @@ START_TEST(d3d12)
     run_test(test_create_query_heap);
     run_test(test_query_timestamp);
     run_test(test_query_pipeline_statistics);
+    run_test(test_execute_indirect);
 }
