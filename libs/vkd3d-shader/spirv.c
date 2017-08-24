@@ -4427,8 +4427,8 @@ static void vkd3d_dxbc_compiler_emit_ld_structured_srv(struct vkd3d_dxbc_compile
     const struct vkd3d_shader_src_param *resource;
     uint32_t base_coordinate_id, component_idx;
     uint32_t constituents[VKD3D_VEC4_SIZE];
+    unsigned int i, j, component_count;
     struct vkd3d_shader_image image;
-    unsigned int i, component_count;
 
     resource = &src[instruction->src_count - 1];
 
@@ -4437,22 +4437,25 @@ static void vkd3d_dxbc_compiler_emit_ld_structured_srv(struct vkd3d_dxbc_compile
     image_id = vkd3d_spirv_build_op_image(builder, image.image_type_id, image.sampled_image_id);
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-    coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
+    base_coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
             type_id, image.structure_stride, &src[0], VKD3DSP_WRITEMASK_0, &src[1], VKD3DSP_WRITEMASK_0);
 
     texel_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
-    base_coordinate_id = coordinate_id;
-    for (i = 0; i < component_count; ++i)
+    for (i = 0, j = 0; i < VKD3D_VEC4_SIZE; ++i)
     {
+        if (!(dst->write_mask & (VKD3DSP_WRITEMASK_0 << i)))
+            continue;
+
         component_idx = vkd3d_swizzle_get_component(resource->swizzle, i);
+        coordinate_id = base_coordinate_id;
         if (component_idx)
             coordinate_id = vkd3d_spirv_build_op_iadd(builder, type_id,
-                    base_coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
+                    coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
 
         val_id = vkd3d_spirv_build_op_image_fetch(builder, texel_type_id,
                 image_id, coordinate_id, SpvImageOperandsMaskNone, NULL, 0);
-        constituents[i] = vkd3d_spirv_build_op_composite_extract1(builder,
+        constituents[j++] = vkd3d_spirv_build_op_composite_extract1(builder,
                 type_id, val_id, 0);
     }
     if (component_count > 1)
@@ -4510,7 +4513,7 @@ static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_comp
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
     vkd3d_dxbc_compiler_prepare_image(compiler, &image, &dst->reg, VKD3D_IMAGE_FLAG_NONE);
     assert((instruction->handler_idx == VKD3DSIH_STORE_STRUCTURED) != !image.structure_stride);
-    coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
+    base_coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
             type_id, image.structure_stride, &src[0], VKD3DSP_WRITEMASK_0, &src[1], VKD3DSP_WRITEMASK_0);
 
     /* Mesa Vulkan drivers require the texel parameter to be a 4-component
@@ -4521,7 +4524,6 @@ static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_comp
     texel_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, VKD3D_VEC4_SIZE);
 
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
-    base_coordinate_id = coordinate_id;
     for (component_idx = 0; component_idx < component_count; ++component_idx)
     {
         for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
@@ -4529,9 +4531,10 @@ static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_comp
         texel_id = vkd3d_spirv_build_op_vector_shuffle(builder,
                 texel_type_id, val_id, val_id, components, VKD3D_VEC4_SIZE);
 
+        coordinate_id = base_coordinate_id;
         if (component_idx)
             coordinate_id = vkd3d_spirv_build_op_iadd(builder, type_id,
-                    base_coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
+                    coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
 
         vkd3d_spirv_build_op_image_write(builder, image.image_id, coordinate_id,
                 texel_id, SpvImageOperandsMaskNone, NULL, 0);
