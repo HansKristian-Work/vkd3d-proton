@@ -3192,6 +3192,15 @@ static void vkd3d_dxbc_compiler_emit_dcl_tgsm_raw(struct vkd3d_dxbc_compiler *co
             tgsm_raw->byte_count / 4, 0);
 }
 
+static void vkd3d_dxbc_compiler_emit_dcl_tgsm_structured(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    const struct vkd3d_shader_tgsm_structured *tgsm_structured = &instruction->declaration.tgsm_structured;
+    unsigned int stride = tgsm_structured->byte_stride / 4;
+    vkd3d_dxbc_compiler_emit_workgroup_memory(compiler, &tgsm_structured->reg.reg,
+            tgsm_structured->structure_count * stride, stride);
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -4765,6 +4774,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL_TGSM_RAW:
             vkd3d_dxbc_compiler_emit_dcl_tgsm_raw(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_TGSM_STRUCTURED:
+            vkd3d_dxbc_compiler_emit_dcl_tgsm_structured(compiler, instruction);
             break;
         case VKD3DSIH_DCL_INPUT:
             vkd3d_dxbc_compiler_emit_dcl_input(compiler, instruction);
