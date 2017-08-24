@@ -4616,6 +4616,34 @@ static void vkd3d_dxbc_compiler_emit_store_uav_typed(struct vkd3d_dxbc_compiler 
             SpvImageOperandsMaskNone, NULL, 0);
 }
 
+static SpvOp vkd3d_dxbc_compiler_map_atomic_instruction(const struct vkd3d_shader_instruction *instruction)
+{
+    static const struct
+    {
+        enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx;
+        SpvOp spirv_op;
+    }
+    atomic_ops[] =
+    {
+        {VKD3DSIH_ATOMIC_IADD,     SpvOpAtomicIAdd},
+        {VKD3DSIH_IMM_ATOMIC_EXCH, SpvOpAtomicExchange},
+    };
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(atomic_ops); ++i)
+    {
+        if (atomic_ops[i].handler_idx == instruction->handler_idx)
+            return atomic_ops[i].spirv_op;
+    }
+
+    return SpvOpMax;
+}
+
+static bool is_imm_atomic_instruction(enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx)
+{
+    return VKD3DSIH_IMM_ATOMIC_ALLOC <= handler_idx && handler_idx <= VKD3DSIH_IMM_ATOMIC_XOR;
+}
+
 static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -4623,13 +4651,24 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
     uint32_t coordinate_id, sample_id, texel_pointer_id;
-    uint32_t ptr_type_id, type_id, val_id;
+    uint32_t ptr_type_id, type_id, val_id, result_id;
+    const struct vkd3d_shader_dst_param *resource;
     struct vkd3d_shader_image image;
     DWORD coordinate_mask;
     uint32_t operands[4];
     unsigned int i = 0;
+    SpvOp op;
 
-    if (dst->reg.type == VKD3DSPR_GROUPSHAREDMEM)
+    resource = is_imm_atomic_instruction(instruction->handler_idx) ? &dst[1] : &dst[0];
+
+    op = vkd3d_dxbc_compiler_map_atomic_instruction(instruction);
+    if (op == SpvOpMax)
+    {
+        ERR("Unexpected instruction %#x.\n", instruction->handler_idx);
+        return;
+    }
+
+    if (resource->reg.type == VKD3DSPR_GROUPSHAREDMEM)
     {
         FIXME("Compute shared memory not supported.\n");
         return;
@@ -4650,8 +4689,11 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
     operands[i++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvScopeDevice);
     operands[i++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvMemorySemanticsMaskNone);
     operands[i++] = val_id;
-    vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
-            SpvOpAtomicIAdd, type_id, operands, i);
+    result_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
+            op, type_id, operands, i);
+
+    if (is_imm_atomic_instruction(instruction->handler_idx))
+        vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, result_id);
 }
 
 static void vkd3d_dxbc_compiler_emit_resinfo(struct vkd3d_dxbc_compiler *compiler,
@@ -4976,6 +5018,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             vkd3d_dxbc_compiler_emit_store_uav_typed(compiler, instruction);
             break;
         case VKD3DSIH_ATOMIC_IADD:
+        case VKD3DSIH_IMM_ATOMIC_EXCH:
             vkd3d_dxbc_compiler_emit_atomic_instruction(compiler, instruction);
             break;
         case VKD3DSIH_RESINFO:
