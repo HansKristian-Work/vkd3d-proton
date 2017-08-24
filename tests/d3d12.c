@@ -9489,6 +9489,397 @@ static void test_compute_shader_registers(void)
     destroy_test_context(&context);
 }
 
+static void test_tgsm(void)
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor_handle;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_descriptor_handle;
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    ID3D12DescriptorHeap *cpu_descriptor_heap;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_ROOT_PARAMETER root_parameters[1];
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3D12DescriptorHeap *descriptor_heap;
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *buffer, *buffer2;
+    unsigned int descriptor_size;
+    unsigned int data, expected;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    float float_data;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD raw_tgsm_code[] =
+    {
+#if 0
+        RWByteAddressBuffer u;
+        groupshared uint m;
+
+        [numthreads(32, 1, 1)]
+        void main(uint local_idx : SV_GroupIndex, uint group_id : SV_GroupID)
+        {
+            if (!local_idx)
+                m = group_id.x;
+            GroupMemoryBarrierWithGroupSync();
+            InterlockedAdd(m, group_id.x);
+            GroupMemoryBarrierWithGroupSync();
+            if (!local_idx)
+                u.Store(4 * group_id.x, m);
+        }
+#endif
+        0x43425844, 0x467df6d9, 0x5f56edda, 0x5c96b787, 0x60c91fb8, 0x00000001, 0x00000148, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000f4, 0x00050050, 0x0000003d, 0x0100086a,
+        0x0300009d, 0x0011e000, 0x00000000, 0x0200005f, 0x00024000, 0x0200005f, 0x00021012, 0x02000068,
+        0x00000001, 0x0400009f, 0x0011f000, 0x00000000, 0x00000004, 0x0400009b, 0x00000020, 0x00000001,
+        0x00000001, 0x0200001f, 0x0002400a, 0x060000a6, 0x0011f012, 0x00000000, 0x00004001, 0x00000000,
+        0x0002100a, 0x01000015, 0x010018be, 0x060000ad, 0x0011f000, 0x00000000, 0x00004001, 0x00000000,
+        0x0002100a, 0x010018be, 0x0200001f, 0x0002400a, 0x06000029, 0x00100012, 0x00000000, 0x0002100a,
+        0x00004001, 0x00000002, 0x070000a5, 0x00100022, 0x00000000, 0x00004001, 0x00000000, 0x0011f006,
+        0x00000000, 0x070000a6, 0x0011e012, 0x00000000, 0x0010000a, 0x00000000, 0x0010001a, 0x00000000,
+        0x01000015, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE cs_raw_tgsm = {raw_tgsm_code, sizeof(raw_tgsm_code)};
+    static const DWORD structured_tgsm_code[] =
+    {
+#if 0
+        #define GROUP_SIZE 32
+
+        RWByteAddressBuffer u;
+        RWByteAddressBuffer u2;
+        groupshared uint m[GROUP_SIZE];
+
+        [numthreads(GROUP_SIZE, 1, 1)]
+        void main(uint local_idx : SV_GroupIndex, uint group_id : SV_GroupID)
+        {
+            uint sum, original, i;
+
+            if (!local_idx)
+            {
+                for (i = 0; i < GROUP_SIZE; ++i)
+                    m[i] = 2 * group_id.x;
+            }
+            GroupMemoryBarrierWithGroupSync();
+            InterlockedAdd(m[local_idx], 1);
+            GroupMemoryBarrierWithGroupSync();
+            for (i = 0, sum = 0; i < GROUP_SIZE; sum += m[i++]);
+            u.InterlockedExchange(4 * group_id.x, sum, original);
+            u2.Store(4 * group_id.x, original);
+        }
+#endif
+        0x43425844, 0x9d906c94, 0x81f5ad92, 0x11e860b2, 0x3623c824, 0x00000001, 0x000002c0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x0000026c, 0x00050050, 0x0000009b, 0x0100086a,
+        0x0300009d, 0x0011e000, 0x00000000, 0x0300009d, 0x0011e000, 0x00000001, 0x0200005f, 0x00024000,
+        0x0200005f, 0x00021012, 0x02000068, 0x00000002, 0x050000a0, 0x0011f000, 0x00000000, 0x00000004,
+        0x00000020, 0x0400009b, 0x00000020, 0x00000001, 0x00000001, 0x0200001f, 0x0002400a, 0x06000029,
+        0x00100012, 0x00000000, 0x0002100a, 0x00004001, 0x00000001, 0x05000036, 0x00100022, 0x00000000,
+        0x00004001, 0x00000000, 0x01000030, 0x07000050, 0x00100042, 0x00000000, 0x0010001a, 0x00000000,
+        0x00004001, 0x00000020, 0x03040003, 0x0010002a, 0x00000000, 0x090000a8, 0x0011f012, 0x00000000,
+        0x0010001a, 0x00000000, 0x00004001, 0x00000000, 0x0010000a, 0x00000000, 0x0700001e, 0x00100022,
+        0x00000000, 0x0010001a, 0x00000000, 0x00004001, 0x00000001, 0x01000016, 0x01000015, 0x010018be,
+        0x04000036, 0x00100012, 0x00000000, 0x0002400a, 0x05000036, 0x00100022, 0x00000000, 0x00004001,
+        0x00000000, 0x070000ad, 0x0011f000, 0x00000000, 0x00100046, 0x00000000, 0x00004001, 0x00000001,
+        0x010018be, 0x08000036, 0x00100032, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x01000030, 0x07000050, 0x00100042, 0x00000000, 0x0010001a, 0x00000000, 0x00004001,
+        0x00000020, 0x03040003, 0x0010002a, 0x00000000, 0x0700001e, 0x00100022, 0x00000001, 0x0010001a,
+        0x00000000, 0x00004001, 0x00000001, 0x090000a7, 0x00100042, 0x00000000, 0x0010001a, 0x00000000,
+        0x00004001, 0x00000000, 0x0011f006, 0x00000000, 0x0700001e, 0x00100012, 0x00000001, 0x0010000a,
+        0x00000000, 0x0010002a, 0x00000000, 0x05000036, 0x00100032, 0x00000000, 0x00100046, 0x00000001,
+        0x01000016, 0x06000029, 0x00100022, 0x00000000, 0x0002100a, 0x00004001, 0x00000002, 0x090000b8,
+        0x00100012, 0x00000001, 0x0011e000, 0x00000000, 0x0010001a, 0x00000000, 0x0010000a, 0x00000000,
+        0x070000a6, 0x0011e012, 0x00000001, 0x0010001a, 0x00000000, 0x0010000a, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE cs_structured_tgsm = {structured_tgsm_code, sizeof(structured_tgsm_code)};
+    static const DWORD structured_tgsm_float_code[] =
+    {
+#if 0
+        #define GROUP_SIZE 32
+
+        struct data
+        {
+            float f;
+            uint u;
+        };
+
+        RWBuffer<float> u;
+        RWBuffer<uint> u2;
+        groupshared data m[GROUP_SIZE];
+
+        [numthreads(GROUP_SIZE, 1, 1)]
+        void main(uint local_idx : SV_GroupIndex, uint group_id : SV_GroupID,
+                uint thread_id : SV_DispatchThreadID)
+        {
+            uint i;
+            if (!local_idx)
+            {
+                for (i = 0; i < GROUP_SIZE; ++i)
+                {
+                    m[i].f = group_id.x;
+                    m[i].u = group_id.x;
+                }
+            }
+            GroupMemoryBarrierWithGroupSync();
+            for (i = 0; i < local_idx; ++i)
+            {
+                m[local_idx].f += group_id.x;
+                m[local_idx].u += group_id.x;
+            }
+            u[thread_id.x] = m[local_idx].f;
+            u2[thread_id.x] = m[local_idx].u;
+        }
+#endif
+        0x43425844, 0xaadf1a71, 0x16f60224, 0x89b6ce76, 0xb66fb96f, 0x00000001, 0x000002ac, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000258, 0x00050050, 0x00000096, 0x0100086a,
+        0x0400089c, 0x0011e000, 0x00000000, 0x00005555, 0x0400089c, 0x0011e000, 0x00000001, 0x00004444,
+        0x0200005f, 0x00024000, 0x0200005f, 0x00021012, 0x0200005f, 0x00020012, 0x02000068, 0x00000002,
+        0x050000a0, 0x0011f000, 0x00000000, 0x00000008, 0x00000020, 0x0400009b, 0x00000020, 0x00000001,
+        0x00000001, 0x0200001f, 0x0002400a, 0x04000056, 0x00100012, 0x00000000, 0x0002100a, 0x04000036,
+        0x00100022, 0x00000000, 0x0002100a, 0x05000036, 0x00100042, 0x00000000, 0x00004001, 0x00000000,
+        0x01000030, 0x07000050, 0x00100082, 0x00000000, 0x0010002a, 0x00000000, 0x00004001, 0x00000020,
+        0x03040003, 0x0010003a, 0x00000000, 0x090000a8, 0x0011f032, 0x00000000, 0x0010002a, 0x00000000,
+        0x00004001, 0x00000000, 0x00100046, 0x00000000, 0x0700001e, 0x00100042, 0x00000000, 0x0010002a,
+        0x00000000, 0x00004001, 0x00000001, 0x01000016, 0x01000015, 0x010018be, 0x04000056, 0x00100012,
+        0x00000000, 0x0002100a, 0x05000036, 0x00100022, 0x00000000, 0x00004001, 0x00000000, 0x01000030,
+        0x06000050, 0x00100042, 0x00000000, 0x0010001a, 0x00000000, 0x0002400a, 0x03040003, 0x0010002a,
+        0x00000000, 0x080000a7, 0x001000c2, 0x00000000, 0x0002400a, 0x00004001, 0x00000000, 0x0011f406,
+        0x00000000, 0x07000000, 0x00100012, 0x00000001, 0x0010000a, 0x00000000, 0x0010002a, 0x00000000,
+        0x0600001e, 0x00100022, 0x00000001, 0x0010003a, 0x00000000, 0x0002100a, 0x080000a8, 0x0011f032,
+        0x00000000, 0x0002400a, 0x00004001, 0x00000000, 0x00100046, 0x00000001, 0x0700001e, 0x00100022,
+        0x00000000, 0x0010001a, 0x00000000, 0x00004001, 0x00000001, 0x01000016, 0x080000a7, 0x00100032,
+        0x00000000, 0x0002400a, 0x00004001, 0x00000000, 0x0011f046, 0x00000000, 0x060000a4, 0x0011e0f2,
+        0x00000000, 0x00020006, 0x00100006, 0x00000000, 0x060000a4, 0x0011e0f2, 0x00000001, 0x00020006,
+        0x00100556, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE cs_structured_tgsm_float
+            = {structured_tgsm_float_code, sizeof(structured_tgsm_float_code)};
+    static const unsigned int zero[4] = {0};
+
+    if (!init_compute_test_context(&context))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    descriptor_ranges[0].NumDescriptors = 2;
+    descriptor_ranges[0].BaseShaderRegister = 0;
+    descriptor_ranges[0].RegisterSpace = 0;
+    descriptor_ranges[0].OffsetInDescriptorsFromTableStart = 0;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = descriptor_ranges;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = 1;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 1024;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
+            &IID_ID3D12Resource, (void **)&buffer);
+    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap_desc.NumDescriptors = 2;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    heap_desc.Flags = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&cpu_descriptor_heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
+    gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Buffer.FirstElement = 0;
+    uav_desc.Buffer.NumElements = 256;
+    uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc, cpu_descriptor_handle);
+    cpu_descriptor_handle.ptr += descriptor_size;
+    ID3D12Device_CreateUnorderedAccessView(device, NULL, NULL, &uav_desc, cpu_descriptor_handle);
+
+    /* cs_raw_tgsm */
+    context.pipeline_state = create_compute_pipeline_state(device, context.root_signature, cs_raw_tgsm);
+
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu_descriptor_handle);
+    ID3D12GraphicsCommandList_Dispatch(command_list, 64, 1, 1);
+
+    transition_resource_state(command_list, buffer,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (i = 0; i < 64; ++i)
+    {
+        data = get_readback_uint(&rb, i, 0);
+        expected = 33 * i;
+        ok(data == expected, "Got %u, expected %u (index %u).\n", data, expected, i);
+    }
+    release_resource_readback(&rb);
+
+    ID3D12PipelineState_Release(context.pipeline_state);
+
+    /* cs_structured_tgsm */
+    reset_command_list(command_list, context.allocator);
+
+    context.pipeline_state = create_compute_pipeline_state(device, context.root_signature, cs_structured_tgsm);
+
+    /* FIXME: Re-creating the buffer should not be needed when
+     * ClearUnorderedAccessViewUint() is implemented.
+     */
+    ID3D12Resource_Release(buffer);
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
+            &IID_ID3D12Resource, (void **)&buffer);
+    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
+            &IID_ID3D12Resource, (void **)&buffer2);
+    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+
+    cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
+    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc, cpu_descriptor_handle);
+    cpu_descriptor_handle.ptr += descriptor_size;
+    ID3D12Device_CreateUnorderedAccessView(device, buffer2, NULL, &uav_desc, cpu_descriptor_handle);
+
+    cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_descriptor_heap);
+    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc, cpu_descriptor_handle);
+    cpu_descriptor_handle.ptr += descriptor_size;
+    ID3D12Device_CreateUnorderedAccessView(device, buffer2, NULL, &uav_desc, cpu_descriptor_handle);
+
+    cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_descriptor_heap);
+    gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
+    ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list,
+            gpu_descriptor_handle, cpu_descriptor_handle, buffer, zero, 0, NULL);
+    gpu_descriptor_handle.ptr += descriptor_size;
+    cpu_descriptor_handle.ptr += descriptor_size;
+    ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list,
+            gpu_descriptor_handle, cpu_descriptor_handle, buffer2, zero, 0, NULL);
+
+    gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu_descriptor_handle);
+    ID3D12GraphicsCommandList_Dispatch(command_list, 32, 1, 1);
+
+    transition_resource_state(command_list, buffer,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(command_list, buffer2,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (i = 0; i < 32; ++i)
+    {
+        expected = 64 * i + 32;
+        data = get_readback_uint(&rb, i, 0);
+        ok(data == expected, "Got %u, expected %u (index %u).\n", data, expected, i);
+    }
+    release_resource_readback(&rb);
+    reset_command_list(command_list, context.allocator);
+    get_buffer_readback_with_command_list(buffer2, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (i = 0; i < 32; ++i)
+    {
+        expected = 64 * i + 32;
+        data = get_readback_uint(&rb, i, 0);
+        ok(data == expected || !data, "Got %u, expected %u (index %u).\n", data, expected, i);
+    }
+    release_resource_readback(&rb);
+
+    ID3D12PipelineState_Release(context.pipeline_state);
+
+    /* cs_structured_tgsm_float */
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, buffer,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    transition_resource_state(command_list, buffer2,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    context.pipeline_state = create_compute_pipeline_state(device,
+            context.root_signature, cs_structured_tgsm_float);
+
+    cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
+    uav_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    uav_desc.Buffer.Flags = 0;
+    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc, cpu_descriptor_handle);
+    cpu_descriptor_handle.ptr += descriptor_size;
+    uav_desc.Format = DXGI_FORMAT_R32_UINT;
+    ID3D12Device_CreateUnorderedAccessView(device, buffer2, NULL, &uav_desc, cpu_descriptor_handle);
+
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu_descriptor_handle);
+    ID3D12GraphicsCommandList_Dispatch(command_list, 3, 1, 1);
+
+    transition_resource_state(command_list, buffer,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(command_list, buffer2,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (i = 0; i < 96; ++i)
+    {
+        expected = (i % 32 + 1) * (i / 32);
+        float_data = get_readback_float(&rb, i, 0);
+        ok(float_data == expected, "Got %.8e, expected %u (index %u).\n", float_data, expected, i);
+    }
+    release_resource_readback(&rb);
+    reset_command_list(command_list, context.allocator);
+    get_buffer_readback_with_command_list(buffer2, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (i = 0; i < 96; ++i)
+    {
+        expected = (i % 32 + 1) * (i / 32);
+        data = get_readback_uint(&rb, i, 0);
+        ok(data == expected, "Got %u, expected %u (index %u).\n", data, expected, i);
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(buffer);
+    ID3D12Resource_Release(buffer2);
+    ID3D12DescriptorHeap_Release(cpu_descriptor_heap);
+    ID3D12DescriptorHeap_Release(descriptor_heap);
+    destroy_test_context(&context);
+}
+
 static void test_cs_uav_store(void)
 {
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor_handle;
@@ -10345,6 +10736,7 @@ START_TEST(d3d12)
     run_test(test_depth_stencil_sampling);
     run_test(test_typed_buffer_uav);
     run_test(test_compute_shader_registers);
+    run_test(test_tgsm);
     run_test(test_cs_uav_store);
     run_test(test_buffer_srv);
     run_test(test_create_query_heap);
