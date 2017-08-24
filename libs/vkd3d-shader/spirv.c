@@ -4444,7 +4444,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_raw_structured_addressing(
         return offset_id;
 }
 
-static void vkd3d_dxbc_compiler_emit_ld_structured_srv(struct vkd3d_dxbc_compiler *compiler,
+static void vkd3d_dxbc_compiler_emit_ld_srv(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     uint32_t coordinate_id, type_id, val_id, image_id, texel_type_id;
@@ -4527,14 +4527,14 @@ static void vkd3d_dxbc_compiler_emit_ld_tgsm(struct vkd3d_dxbc_compiler *compile
     vkd3d_dxbc_compiler_emit_store_dst_components(compiler, dst, VKD3D_TYPE_UINT, constituents);
 }
 
-static void vkd3d_dxbc_compiler_emit_ld_structured(struct vkd3d_dxbc_compiler *compiler,
+static void vkd3d_dxbc_compiler_emit_ld_raw_structured(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     enum vkd3d_shader_register_type reg_type = instruction->src[instruction->src_count - 1].reg.type;
     switch (reg_type)
     {
         case VKD3DSPR_RESOURCE:
-            vkd3d_dxbc_compiler_emit_ld_structured_srv(compiler, instruction);
+            vkd3d_dxbc_compiler_emit_ld_srv(compiler, instruction);
             break;
         case VKD3DSPR_UAV:
             FIXME("Not implemented for UAVs.\n");
@@ -5046,8 +5046,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_SAMPLE_C:
             vkd3d_dxbc_compiler_emit_sample_c(compiler, instruction);
             break;
+        case VKD3DSIH_LD_RAW:
         case VKD3DSIH_LD_STRUCTURED:
-            vkd3d_dxbc_compiler_emit_ld_structured(compiler, instruction);
+            vkd3d_dxbc_compiler_emit_ld_raw_structured(compiler, instruction);
             break;
         case VKD3DSIH_STORE_RAW:
         case VKD3DSIH_STORE_STRUCTURED:
