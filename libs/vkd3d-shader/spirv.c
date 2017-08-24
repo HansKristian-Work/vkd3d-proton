@@ -4388,25 +4388,30 @@ static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compil
     vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst, val_id);
 }
 
-static uint32_t vkd3d_dxbc_compiler_emit_buffer_addressing(struct vkd3d_dxbc_compiler *compiler,
-        uint32_t type_id, unsigned int stride, const struct vkd3d_shader_src_param *structure,
-        const struct vkd3d_shader_src_param *offset)
+static uint32_t vkd3d_dxbc_compiler_emit_raw_structured_addressing(
+        struct vkd3d_dxbc_compiler *compiler, uint32_t type_id, unsigned int stride,
+        const struct vkd3d_shader_src_param *src0, DWORD src0_mask,
+        const struct vkd3d_shader_src_param *src1, DWORD src1_mask)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    uint32_t structure_id, offset_id;
+    const struct vkd3d_shader_src_param *offset;
+    uint32_t structure_id = 0, offset_id;
+    DWORD offset_write_mask;
 
-    if (structure)
+    if (stride)
     {
-        structure_id = vkd3d_dxbc_compiler_emit_load_src(compiler, structure, VKD3DSP_WRITEMASK_0);
+        structure_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src0, src0_mask);
         structure_id = vkd3d_spirv_build_op_imul(builder, type_id,
                 structure_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, stride));
     }
+    offset = stride ? src1 : src0;
+    offset_write_mask = stride ? src1_mask : src0_mask;
 
-    offset_id = vkd3d_dxbc_compiler_emit_load_src(compiler, offset, VKD3DSP_WRITEMASK_0);
+    offset_id = vkd3d_dxbc_compiler_emit_load_src(compiler, offset, offset_write_mask);
     offset_id = vkd3d_spirv_build_op_shift_right_logical(builder, type_id,
             offset_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, 2));
 
-    if (structure)
+    if (structure_id)
         return vkd3d_spirv_build_op_iadd(builder, type_id, structure_id, offset_id);
     else
         return offset_id;
@@ -4432,8 +4437,8 @@ static void vkd3d_dxbc_compiler_emit_ld_structured_srv(struct vkd3d_dxbc_compile
     image_id = vkd3d_spirv_build_op_image(builder, image.image_type_id, image.sampled_image_id);
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-    coordinate_id = vkd3d_dxbc_compiler_emit_buffer_addressing(compiler,
-            type_id, image.structure_stride, &src[0], &src[1]);
+    coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
+            type_id, image.structure_stride, &src[0], VKD3DSP_WRITEMASK_0, &src[1], VKD3DSP_WRITEMASK_0);
 
     texel_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
@@ -4504,16 +4509,9 @@ static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_comp
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
     vkd3d_dxbc_compiler_prepare_image(compiler, &image, &dst->reg, VKD3D_IMAGE_FLAG_NONE);
-    if (instruction->handler_idx == VKD3DSIH_STORE_STRUCTURED)
-    {
-        coordinate_id = vkd3d_dxbc_compiler_emit_buffer_addressing(compiler,
-                type_id, image.structure_stride, &src[0], &src[1]);
-    }
-    else
-    {
-        coordinate_id = vkd3d_dxbc_compiler_emit_buffer_addressing(compiler,
-                type_id, 0, NULL, &src[0]);
-    }
+    assert((instruction->handler_idx == VKD3DSIH_STORE_STRUCTURED) != !image.structure_stride);
+    coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
+            type_id, image.structure_stride, &src[0], VKD3DSP_WRITEMASK_0, &src[1], VKD3DSP_WRITEMASK_0);
 
     /* Mesa Vulkan drivers require the texel parameter to be a 4-component
      * vector. */
