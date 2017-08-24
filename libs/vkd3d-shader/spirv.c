@@ -4543,11 +4543,11 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured(struct vkd3d_dxbc_compile
             vkd3d_dxbc_compiler_emit_ld_tgsm(compiler, instruction);
             break;
         default:
-            FIXME("Unexpected register type %#x.\n", reg_type);
+            ERR("Unexpected register type %#x.\n", reg_type);
     }
 }
 
-static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_compiler *compiler,
+static void vkd3d_dxbc_compiler_emit_store_uav(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     uint32_t base_coordinate_id, component_idx, components[VKD3D_VEC4_SIZE];
@@ -4558,12 +4558,6 @@ static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_comp
     const struct vkd3d_shader_src_param *texel;
     struct vkd3d_shader_image image;
     unsigned int i, component_count;
-
-    if (dst->reg.type == VKD3DSPR_GROUPSHAREDMEM)
-    {
-        FIXME("Compute shared memory not supported.\n");
-        return;
-    }
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
     vkd3d_dxbc_compiler_prepare_image(compiler, &image, &dst->reg, VKD3D_IMAGE_FLAG_NONE);
@@ -4593,6 +4587,63 @@ static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_comp
 
         vkd3d_spirv_build_op_image_write(builder, image.image_id, coordinate_id,
                 texel_id, SpvImageOperandsMaskNone, NULL, 0);
+    }
+}
+
+static void vkd3d_dxbc_compiler_emit_store_tgsm(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    uint32_t coordinate_id, type_id, val_id, ptr_type_id, ptr_id, data_id;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t base_coordinate_id, component_idx;
+    const struct vkd3d_shader_src_param *data;
+    struct vkd3d_shader_register_info reg_info;
+    unsigned int component_count;
+
+    vkd3d_dxbc_compiler_get_register_info(compiler, &dst->reg, &reg_info);
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, reg_info.storage_class, type_id);
+    assert((instruction->handler_idx == VKD3DSIH_STORE_STRUCTURED) != !reg_info.structure_stride);
+    base_coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
+            type_id, reg_info.structure_stride, &src[0], VKD3DSP_WRITEMASK_0, &src[1], VKD3DSP_WRITEMASK_0);
+
+    data = &src[instruction->src_count - 1];
+    assert(data->reg.data_type == VKD3D_DATA_UINT);
+    val_id = vkd3d_dxbc_compiler_emit_load_src(compiler, data, dst->write_mask);
+
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    for (component_idx = 0; component_idx < component_count; ++component_idx)
+    {
+        data_id = component_count > 1 ?
+                vkd3d_spirv_build_op_composite_extract1(builder, type_id, val_id, component_idx) : val_id;
+
+        coordinate_id = base_coordinate_id;
+        if (component_idx)
+            coordinate_id = vkd3d_spirv_build_op_iadd(builder, type_id,
+                    coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
+
+        ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
+                reg_info.id, &coordinate_id, 1);
+        vkd3d_spirv_build_op_store(builder, ptr_id, data_id, SpvMemoryAccessMaskNone);
+    }
+}
+
+static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    enum vkd3d_shader_register_type reg_type = instruction->dst[0].reg.type;
+    switch (reg_type)
+    {
+        case VKD3DSPR_UAV:
+            vkd3d_dxbc_compiler_emit_store_uav(compiler, instruction);
+            break;
+        case VKD3DSPR_GROUPSHAREDMEM:
+            vkd3d_dxbc_compiler_emit_store_tgsm(compiler, instruction);
+            break;
+        default:
+            ERR("Unexpected register type %#x.\n", reg_type);
     }
 }
 
