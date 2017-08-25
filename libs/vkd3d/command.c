@@ -3133,10 +3133,49 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
         ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT start_index, UINT query_count,
         ID3D12Resource *dst_buffer, UINT64 aligned_dst_buffer_offset)
 {
-    FIXME("iface %p, heap %p, type %#x, start_index %u, query_count %u, "
-            "dst_buffer %p, aligned_dst_buffer_offset %#"PRIx64" stub!\n",
-            iface, heap, type, start_index, query_count,
-            dst_buffer, aligned_dst_buffer_offset);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
+    struct d3d12_resource *buffer = unsafe_impl_from_ID3D12Resource(dst_buffer);
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+
+    if (query_heap->desc.Type != vkd3d_query_heap_type_from_query_type(type))
+    {
+        WARN("Query type %u not supported by query heap.\n", type);
+        return;
+    }
+    if ((start_index + query_count) > query_heap->desc.Count)
+    {
+        WARN("Query indices out of range (%u + %u > %u).\n", start_index, query_count, query_heap->desc.Count);
+        return;
+    }
+    if ((aligned_dst_buffer_offset % 8) != 0)
+    {
+        WARN("Buffer offset is not a multiple of eight (%"PRIu64".\n", aligned_dst_buffer_offset);
+        return;
+    }
+    if (buffer->desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+    {
+        WARN("Destination resource is not a buffer.\n");
+        return;
+    }
+    if ((aligned_dst_buffer_offset + 8) > buffer->desc.Width)
+    {
+        WARN("Would overflow destination buffer (%"PRIu64" + 8 > %"PRIu64").\n",
+                aligned_dst_buffer_offset, buffer->desc.Width);
+    }
+
+    if (type != D3D12_QUERY_TYPE_TIMESTAMP)
+    {
+        FIXME("iface %p, heap %p, type %#x, start_index %u, query_count %u, "
+                "dst_buffer %p, aligned_dst_buffer_offset %#"PRIx64" stub!\n",
+                iface, heap, type, start_index, query_count,
+                dst_buffer, aligned_dst_buffer_offset);
+        return;
+    }
+
+    VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer, query_heap->vk_query_pool, start_index,
+            query_count, buffer->u.vk_buffer, aligned_dst_buffer_offset, 8,
+            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(ID3D12GraphicsCommandList *iface,
