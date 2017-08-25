@@ -1718,6 +1718,7 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, struct d3d12_query_
     object->ID3D12QueryHeap_iface.lpVtbl = &d3d12_query_heap_vtbl;
     object->refcount = 1;
     object->device = device;
+    object->desc = *desc;
 
     pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
     pool_info.pNext = NULL;
