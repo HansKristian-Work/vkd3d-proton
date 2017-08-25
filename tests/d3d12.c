@@ -39,6 +39,7 @@ typedef int HRESULT;
 #include <inttypes.h>
 #include <limits.h>
 #include <math.h>
+#include <time.h>
 
 #define COBJMACROS
 #define INITGUID
@@ -840,6 +841,11 @@ static const struct vec4 *get_readback_vec4(struct resource_readback *rb, unsign
 static const struct uvec4 *get_readback_uvec4(struct resource_readback *rb, unsigned int x, unsigned int y)
 {
     return get_readback_data(rb, x, y, sizeof(struct uvec4));
+}
+
+static UINT64 get_readback_uint64(struct resource_readback *rb, unsigned int x, unsigned int y)
+{
+    return *(UINT64 *)get_readback_data(rb, x, y, sizeof(UINT64));
 }
 
 static void release_resource_readback(struct resource_readback *rb)
@@ -10671,6 +10677,109 @@ static void test_create_query_heap(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_query_timestamp(void)
+{
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    D3D12_QUERY_HEAP_DESC heap_desc;
+    ID3D12QueryHeap *query_heap;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *resource;
+    D3D12_RANGE read_range;
+    struct resource_readback rb;
+    UINT64 timestamps[4], timestamp_frequency, timestamp_diff, time_diff;
+    time_t time_start, time_end;
+    HRESULT hr;
+    int i;
+
+    time_start = time(NULL);
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    hr = ID3D12CommandQueue_GetTimestampFrequency(queue, &timestamp_frequency);
+    ok(SUCCEEDED(hr), "ID3D12CommandQueue_GetTimestampFrequency failed, hr %#x.\n", hr);
+
+    heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    heap_desc.Count = ARRAY_SIZE(timestamps);
+    heap_desc.NodeMask = 0;
+
+    hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
+    ok(SUCCEEDED(hr), "ID3D12Device_CreateQueryHeap failed, type %u, hr %#x.\n", heap_desc.Type, hr);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_READBACK;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = ARRAY_SIZE(timestamps) * sizeof(UINT64);
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "Failed to create readback buffer, hr %#x.\n", hr);
+    rb.resource = resource;
+
+    for (i = 0; i < ARRAY_SIZE(timestamps); ++i)
+    {
+        ID3D12GraphicsCommandList_EndQuery(command_list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, i);
+        ID3D12GraphicsCommandList_ResolveQueryData(command_list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, i, 1,
+                resource, i * sizeof(UINT64));
+    }
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+
+    time_end = time(NULL) + 1;
+
+    rb.width = resource_desc.Width / format_size(resource_desc.Format);
+    rb.height = 1;
+    rb.row_pitch = resource_desc.Width;
+    rb.data = NULL;
+
+    read_range.Begin = 0;
+    read_range.End = resource_desc.Width;
+    hr = ID3D12Resource_Map(resource, 0, &read_range, &rb.data);
+    ok(SUCCEEDED(hr), "Failed to map readback buffer, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(timestamps); ++i)
+        timestamps[i] = get_readback_uint64(&rb, i, 0);
+
+    for (i = 0; i < ARRAY_SIZE(timestamps) - 1; ++i)
+        ok(timestamps[i] <= timestamps[i + 1], "Expected timestamps to monotonically increase, "
+                "but got %"PRIu64" > %"PRIu64".\n", timestamps[i], timestamps[i + 1]);
+
+    time_diff = (UINT64)difftime(time_end, time_start) * timestamp_frequency;
+    timestamp_diff = timestamps[ARRAY_SIZE(timestamps) - 1] - timestamps[0];
+
+    ok(timestamp_diff <= time_diff, "Expected timestamp difference to be bounded by CPU time difference, "
+            "but got  %"PRIu64" > %"PRIu64".\n", timestamp_diff, time_diff);
+
+    release_resource_readback(&rb);
+    ID3D12QueryHeap_Release(query_heap);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     bool enable_debug_layer = false;
@@ -10740,4 +10849,5 @@ START_TEST(d3d12)
     run_test(test_cs_uav_store);
     run_test(test_buffer_srv);
     run_test(test_create_query_heap);
+    run_test(test_query_timestamp);
 }
