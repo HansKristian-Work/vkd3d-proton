@@ -3323,6 +3323,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(ID3D12GraphicsC
                 VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
                 break;
 
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
+                if (list->state->vk_bind_point != VK_PIPELINE_BIND_POINT_COMPUTE)
+                {
+                    WARN("Pipeline state %p has bind point %#x, ignoring dispatch.\n",
+                            list->state, list->state->vk_bind_point);
+                    break;
+                }
+
+                d3d12_command_list_update_descriptors(list, VK_PIPELINE_BIND_POINT_COMPUTE);
+
+                VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer,
+                        arg_impl->u.vk_buffer, arg_buffer_offset));
+                break;
+
             default:
                 FIXME("Ignoring unhandled argument type %#x.\n", arg_desc->Type);
                 break;

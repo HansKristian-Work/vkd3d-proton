@@ -11490,16 +11490,55 @@ static void test_query_pipeline_statistics(void)
 
 static void test_execute_indirect(void)
 {
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_COMMAND_SIGNATURE_DESC signature_desc;
     D3D12_INDIRECT_ARGUMENT_DESC argument_desc;
     ID3D12CommandSignature *command_signature;
     ID3D12GraphicsCommandList *command_list;
-    ID3D12Resource *argument_buffer;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3D12Resource *argument_buffer, *uav;
+    D3D12_ROOT_PARAMETER root_parameter;
+    ID3D12PipelineState *pipeline_state;
+    ID3D12RootSignature *root_signature;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct resource_readback rb;
     struct test_context context;
     ID3D12CommandQueue *queue;
+    unsigned int i;
     HRESULT hr;
 
-    static const D3D12_DRAW_ARGUMENTS argument_data = {3, 1, 0, 0};
+    static const DWORD cs_code[] =
+    {
+#if 0
+        RWByteAddressBuffer o;
+
+        [numthreads(1, 1, 1)]
+        void main(uint3 group_id : SV_groupID)
+        {
+            uint idx = group_id.x + group_id.y * 2 + group_id.z * 6;
+            o.Store(idx * 4, idx);
+        }
+#endif
+        0x43425844, 0xfdd6a339, 0xf3b8096e, 0xb5977014, 0xcdb26cfd, 0x00000001, 0x00000118, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000c4, 0x00050050, 0x00000031, 0x0100086a,
+        0x0300009d, 0x0011e000, 0x00000000, 0x0200005f, 0x00021072, 0x02000068, 0x00000001, 0x0400009b,
+        0x00000001, 0x00000001, 0x00000001, 0x06000029, 0x00100012, 0x00000000, 0x0002101a, 0x00004001,
+        0x00000001, 0x0600001e, 0x00100012, 0x00000000, 0x0010000a, 0x00000000, 0x0002100a, 0x08000023,
+        0x00100012, 0x00000000, 0x0002102a, 0x00004001, 0x00000006, 0x0010000a, 0x00000000, 0x07000029,
+        0x00100022, 0x00000000, 0x0010000a, 0x00000000, 0x00004001, 0x00000002, 0x070000a6, 0x0011e012,
+        0x00000000, 0x0010001a, 0x00000000, 0x0010000a, 0x00000000, 0x0100003e,
+    };
+    static const struct argument_data
+    {
+        D3D12_DRAW_ARGUMENTS draw;
+        D3D12_DISPATCH_ARGUMENTS dispatch;
+    }
+    argument_data =
+    {
+        {3, 1, 0, 0},
+        {2, 3, 4},
+    };
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
     if (!init_test_context(&context, NULL))
@@ -11533,6 +11572,69 @@ static void test_execute_indirect(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
 
+    reset_command_list(command_list, context.allocator);
+
+    ID3D12CommandSignature_Release(command_signature);
+    argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    signature_desc.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS);
+    hr = ID3D12Device_CreateCommandSignature(context.device, &signature_desc,
+            NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
+    ok(SUCCEEDED(hr), "Failed to create command signature, hr %#x.\n", hr);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 2 * 3 * 4 * sizeof(UINT);
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            NULL, &IID_ID3D12Resource, (void **)&uav);
+    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+
+    root_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameter.Descriptor.ShaderRegister = 0;
+    root_parameter.Descriptor.RegisterSpace = 0;
+    root_parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = 1;
+    root_signature_desc.pParameters = &root_parameter;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(context.device, &root_signature_desc, &root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
+    pipeline_state = create_compute_pipeline_state(context.device, root_signature,
+            shader_bytecode(cs_code, sizeof(cs_code)));
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list,
+            0, ID3D12Resource_GetGPUVirtualAddress(uav));
+    ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1, argument_buffer,
+            offsetof(struct argument_data, dispatch), NULL, 0);
+
+    transition_sub_resource_state(command_list, uav, 0,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(uav, resource_desc.Format, &rb, queue, command_list);
+    for (i = 0; i < 2 * 3 * 4; ++i)
+    {
+        unsigned int ret = get_readback_uint(&rb, i, 0);
+        ok(ret == i, "Got unexpected result %#x at index %u.\n", ret, i);
+    }
+    release_resource_readback(&rb);
+
+    ID3D12PipelineState_Release(pipeline_state);
+    ID3D12RootSignature_Release(root_signature);
+    ID3D12Resource_Release(uav);
     ID3D12CommandSignature_Release(command_signature);
     ID3D12Resource_Release(argument_buffer);
     destroy_test_context(&context);
