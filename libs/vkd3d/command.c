@@ -3542,9 +3542,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Wait(ID3D12CommandQueue *if
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetTimestampFrequency(ID3D12CommandQueue *iface,
         UINT64 *frequency)
 {
-    FIXME("iface %p, frequency %p stub!\n", iface, frequency);
+    struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
+    struct d3d12_device *device = command_queue->device;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkPhysicalDeviceProperties properties;
 
-    return E_NOTIMPL;
+    VK_CALL(vkGetPhysicalDeviceProperties(device->vk_physical_device, &properties));
+
+    *frequency = 1000000000 / properties.limits.timestampPeriod;
+
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetClockCalibration(ID3D12CommandQueue *iface,
