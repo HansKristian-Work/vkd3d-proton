@@ -3075,6 +3075,31 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(ID3D12GraphicsC
     FIXME("iface %p, resource %p, region %p stub!\n", iface, resource, region);
 }
 
+static D3D12_QUERY_HEAP_TYPE vkd3d_query_heap_type_from_query_type(D3D12_QUERY_TYPE type)
+{
+    switch (type)
+    {
+        case D3D12_QUERY_TYPE_OCCLUSION:
+        case D3D12_QUERY_TYPE_BINARY_OCCLUSION:
+            return D3D12_QUERY_HEAP_TYPE_OCCLUSION;
+
+        case D3D12_QUERY_TYPE_TIMESTAMP:
+            return D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+
+        case D3D12_QUERY_TYPE_PIPELINE_STATISTICS:
+            return D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS;
+
+        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0:
+        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM1:
+        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM2:
+        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM3:
+            return D3D12_QUERY_HEAP_TYPE_SO_STATISTICS;
+
+        default:
+            return (D3D12_QUERY_HEAP_TYPE)-1;
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(ID3D12GraphicsCommandList *iface,
         ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT index)
 {
@@ -3084,6 +3109,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(ID3D12GraphicsComman
 static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(ID3D12GraphicsCommandList *iface,
         ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT index)
 {
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+
+    if (query_heap->desc.Type != vkd3d_query_heap_type_from_query_type(type))
+    {
+        WARN("Query type %u not supported by query heap.\n", type);
+        return;
+    }
+
+    if (type == D3D12_QUERY_TYPE_TIMESTAMP)
+    {
+        VK_CALL(vkCmdWriteTimestamp(list->vk_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                query_heap->vk_query_pool, index));
+        return;
+    }
+
     FIXME("iface %p, heap %p, type %#x, index %u stub!\n", iface, heap, type, index);
 }
 

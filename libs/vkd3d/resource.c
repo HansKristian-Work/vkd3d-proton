@@ -1704,6 +1704,14 @@ static const struct ID3D12QueryHeapVtbl d3d12_query_heap_vtbl =
     d3d12_query_heap_GetDevice,
 };
 
+struct d3d12_query_heap *unsafe_impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface)
+{
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_query_heap_vtbl);
+    return impl_from_ID3D12QueryHeap(iface);
+}
+
 HRESULT d3d12_query_heap_create(struct d3d12_device *device, struct d3d12_query_heap **heap,
         const D3D12_QUERY_HEAP_DESC *desc)
 {
