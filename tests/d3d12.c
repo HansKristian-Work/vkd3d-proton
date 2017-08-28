@@ -569,47 +569,64 @@ static void upload_buffer_data_(unsigned int line, ID3D12Resource *buffer, size_
     ID3D12Device_Release(device);
 }
 
-#define upload_texture_data(a, b, c, d) upload_texture_data_(__LINE__, a, b, c, d)
+#define upload_texture_data(a, b, c, d, e) upload_texture_data_(__LINE__, a, b, c, d, e)
 static void upload_texture_data_(unsigned int line, ID3D12Resource *texture,
-        D3D12_SUBRESOURCE_DATA *data, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
+        const D3D12_SUBRESOURCE_DATA *data, unsigned int sub_resource_count,
+        ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
 {
     D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
-    D3D12_PLACED_SUBRESOURCE_FOOTPRINT layout;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts;
     D3D12_RESOURCE_DESC resource_desc;
-    UINT64 row_size, required_size;
+    UINT64 *row_sizes, required_size;
     ID3D12Resource *upload_buffer;
     D3D12_MEMCPY_DEST dst_data;
     ID3D12Device *device;
-    UINT row_count;
+    UINT *row_counts;
+    unsigned int i;
     HRESULT hr;
     void *ptr;
+
+    layouts = calloc(sub_resource_count, sizeof(*layouts));
+    ok(layouts, "Failed to allocate memory.\n");
+    row_counts = calloc(sub_resource_count, sizeof(*row_counts));
+    ok(row_counts, "Failed to allocate memory.\n");
+    row_sizes = calloc(sub_resource_count, sizeof(*row_sizes));
+    ok(row_sizes, "Failed to allocate memory.\n");
 
     resource_desc = ID3D12Resource_GetDesc(texture);
     hr = ID3D12Resource_GetDevice(texture, &IID_ID3D12Device, (void **)&device);
     ok_(line)(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
 
-    ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, 1, 0, &layout,
-            &row_count, &row_size, &required_size);
+    ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count,
+            0, layouts, row_counts, row_sizes, &required_size);
 
     upload_buffer = create_upload_buffer_(line, device, required_size, NULL);
 
     hr = ID3D12Resource_Map(upload_buffer, 0, NULL, (void **)&ptr);
     ok_(line)(SUCCEEDED(hr), "Failed to map upload buffer, hr %#x.\n", hr);
-    dst_data.pData = (BYTE *)ptr + layout.Offset;
-    dst_data.RowPitch = layout.Footprint.RowPitch;
-    dst_data.SlicePitch = layout.Footprint.RowPitch * row_count;
-    copy_sub_resource_data(&dst_data, data, row_count, layout.Footprint.Depth, row_size);
+    for (i = 0; i < sub_resource_count; ++i)
+    {
+        dst_data.pData = (BYTE *)ptr + layouts[i].Offset;
+        dst_data.RowPitch = layouts[i].Footprint.RowPitch;
+        dst_data.SlicePitch = layouts[i].Footprint.RowPitch * row_counts[i];
+        copy_sub_resource_data(&dst_data, &data[i],
+                row_counts[i], layouts[i].Footprint.Depth, row_sizes[i]);
+    }
     ID3D12Resource_Unmap(upload_buffer, 0, NULL);
 
-    dst_location.pResource = texture;
-    dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-    dst_location.SubresourceIndex = 0;
+    for (i = 0; i < sub_resource_count; ++i)
+    {
+        dst_location.pResource = texture;
+        dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dst_location.SubresourceIndex = i;
 
-    src_location.pResource = upload_buffer;
-    src_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    src_location.PlacedFootprint = layout;
+        src_location.pResource = upload_buffer;
+        src_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        src_location.PlacedFootprint = layouts[i];
 
-    ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst_location, 0, 0, 0, &src_location, NULL);
+        ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+                &dst_location, 0, 0, 0, &src_location, NULL);
+    }
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok_(line)(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
@@ -619,6 +636,10 @@ static void upload_texture_data_(unsigned int line, ID3D12Resource *texture,
 
     ID3D12Resource_Release(upload_buffer);
     ID3D12Device_Release(device);
+
+    free(layouts);
+    free(row_counts);
+    free(row_sizes);
 }
 
 static unsigned int format_size(DXGI_FORMAT format)
@@ -8088,7 +8109,7 @@ static void test_texture(void)
     texture_data.pData = bitmap_data;
     texture_data.RowPitch = 4 * sizeof(*bitmap_data);
     texture_data.SlicePitch = texture_data.RowPitch * 4;
-    upload_texture_data(texture, &texture_data, queue, command_list);
+    upload_texture_data(texture, &texture_data, 1, queue, command_list);
     reset_command_list(command_list, context.allocator);
 
     transition_resource_state(command_list, texture,
@@ -8280,7 +8301,7 @@ static void test_descriptor_tables(void)
         data.pData = &texture_data[i];
         data.RowPitch = sizeof(texture_data[i]);
         data.SlicePitch = data.RowPitch;
-        upload_texture_data(textures[i], &data, queue, command_list);
+        upload_texture_data(textures[i], &data, 1, queue, command_list);
         reset_command_list(command_list, context.allocator);
     }
 
