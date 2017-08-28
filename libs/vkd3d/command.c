@@ -3104,7 +3104,37 @@ static D3D12_QUERY_HEAP_TYPE vkd3d_query_heap_type_from_query_type(D3D12_QUERY_T
 static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(ID3D12GraphicsCommandList *iface,
         ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT index)
 {
-    FIXME("iface %p, heap %p, type %#x, index %u stub!\n", iface, heap, type, index);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+
+    TRACE("iface %p, heap %p, type %#x, index %u.\n", iface, heap, type, index);
+
+    if (query_heap->desc.Type != vkd3d_query_heap_type_from_query_type(type))
+    {
+        WARN("Query type %u not supported by query heap.\n", type);
+        return;
+    }
+
+    switch (type)
+    {
+        case D3D12_QUERY_TYPE_TIMESTAMP:
+            WARN("BeginQuery does not work with timestamp queries");
+            return;
+
+        case D3D12_QUERY_TYPE_PIPELINE_STATISTICS:
+            VK_CALL(vkCmdBeginQuery(list->vk_command_buffer, query_heap->vk_query_pool, index, 0));
+            return;
+
+        case D3D12_QUERY_TYPE_OCCLUSION:
+        case D3D12_QUERY_TYPE_BINARY_OCCLUSION:
+        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0:
+        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM1:
+        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM2:
+        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM3:
+            FIXME("Unhandled query type %#x.\n", type);
+            return;
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(ID3D12GraphicsCommandList *iface,
