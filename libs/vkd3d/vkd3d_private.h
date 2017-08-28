@@ -265,8 +265,8 @@ struct d3d12_query_heap
     struct d3d12_device *device;
 };
 
-HRESULT d3d12_query_heap_create(struct d3d12_device *device,
-        struct d3d12_query_heap **heap, const D3D12_QUERY_HEAP_DESC *desc) DECLSPEC_HIDDEN;
+HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_HEAP_DESC *desc,
+        struct d3d12_query_heap **heap) DECLSPEC_HIDDEN;
 struct d3d12_query_heap *unsafe_impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface) DECLSPEC_HIDDEN;
 
 struct d3d12_root_descriptor_table_range

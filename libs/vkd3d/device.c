@@ -1419,7 +1419,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateQueryHeap(ID3D12Device *ifac
     TRACE("iface %p, desc %p, iid %s, heap %p.\n",
             iface, desc, debugstr_guid(iid), heap);
 
-    if (FAILED(hr = d3d12_query_heap_create(device, &object, desc)))
+    if (FAILED(hr = d3d12_query_heap_create(device, desc, &object)))
         return hr;
 
     return return_interface((IUnknown *)&object->ID3D12QueryHeap_iface,

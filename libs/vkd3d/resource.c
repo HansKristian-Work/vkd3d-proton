@@ -1726,8 +1726,8 @@ struct d3d12_query_heap *unsafe_impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface
     return impl_from_ID3D12QueryHeap(iface);
 }
 
-HRESULT d3d12_query_heap_create(struct d3d12_device *device, struct d3d12_query_heap **heap,
-        const D3D12_QUERY_HEAP_DESC *desc)
+HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_HEAP_DESC *desc,
+        struct d3d12_query_heap **heap)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct d3d12_query_heap *object;
