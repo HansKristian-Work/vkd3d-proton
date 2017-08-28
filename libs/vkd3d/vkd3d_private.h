@@ -258,8 +258,6 @@ struct d3d12_query_heap
     ID3D12QueryHeap ID3D12QueryHeap_iface;
     LONG refcount;
 
-    D3D12_QUERY_HEAP_DESC desc;
-
     VkQueryPool vk_query_pool;
 
     struct d3d12_device *device;

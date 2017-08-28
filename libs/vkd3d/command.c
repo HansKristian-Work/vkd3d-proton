@@ -3075,32 +3075,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(ID3D12GraphicsC
     FIXME("iface %p, resource %p, region %p stub!\n", iface, resource, region);
 }
 
-static D3D12_QUERY_HEAP_TYPE vkd3d_query_heap_type_from_query_type(D3D12_QUERY_TYPE type)
-{
-    switch (type)
-    {
-        case D3D12_QUERY_TYPE_OCCLUSION:
-        case D3D12_QUERY_TYPE_BINARY_OCCLUSION:
-            return D3D12_QUERY_HEAP_TYPE_OCCLUSION;
-
-        case D3D12_QUERY_TYPE_TIMESTAMP:
-            return D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
-
-        case D3D12_QUERY_TYPE_PIPELINE_STATISTICS:
-            return D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS;
-
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM1:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM2:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM3:
-            return D3D12_QUERY_HEAP_TYPE_SO_STATISTICS;
-
-        default:
-            WARN("Invalid query type %#x.\n", type);
-            return (D3D12_QUERY_HEAP_TYPE)-1;
-    }
-}
-
 static UINT64 vkd3d_query_type_result_size(D3D12_QUERY_TYPE type)
 {
     switch (type)
@@ -3132,12 +3106,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(ID3D12GraphicsComman
 
     TRACE("iface %p, heap %p, type %#x, index %u.\n", iface, heap, type, index);
 
-    if (query_heap->desc.Type != vkd3d_query_heap_type_from_query_type(type))
-    {
-        WARN("Query type %u not supported by query heap.\n", type);
-        return;
-    }
-
     switch (type)
     {
         case D3D12_QUERY_TYPE_TIMESTAMP:
@@ -3167,12 +3135,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(ID3D12GraphicsCommandL
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
     TRACE("iface %p, heap %p, type %#x, index %u.\n", iface, heap, type, index);
-
-    if (query_heap->desc.Type != vkd3d_query_heap_type_from_query_type(type))
-    {
-        WARN("Query type %u not supported by query heap.\n", type);
-        return;
-    }
 
     switch (type)
     {
@@ -3210,30 +3172,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
             iface, heap, type, start_index, query_count,
             dst_buffer, aligned_dst_buffer_offset);
 
-    if (query_heap->desc.Type != vkd3d_query_heap_type_from_query_type(type))
-    {
-        WARN("Query type %u not supported by query heap.\n", type);
-        return;
-    }
-    if ((start_index + query_count) > query_heap->desc.Count)
-    {
-        WARN("Query indices out of range (%u + %u > %u).\n", start_index, query_count, query_heap->desc.Count);
-        return;
-    }
-    if ((aligned_dst_buffer_offset % 8) != 0)
-    {
-        WARN("Buffer offset is not a multiple of eight (%"PRIu64".\n", aligned_dst_buffer_offset);
-        return;
-    }
     if (buffer->desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
     {
         WARN("Destination resource is not a buffer.\n");
-        return;
-    }
-    if ((aligned_dst_buffer_offset + vkd3d_query_type_result_size(type)) > buffer->desc.Width)
-    {
-        WARN("Would overflow destination buffer (%"PRIu64" + %"PRIu64" > %"PRIu64").\n",
-                aligned_dst_buffer_offset, vkd3d_query_type_result_size(type), buffer->desc.Width);
         return;
     }
 
