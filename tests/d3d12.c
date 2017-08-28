@@ -11393,7 +11393,6 @@ static void test_query_pipeline_statistics(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
-    struct test_context_desc desc;
     struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
@@ -11405,8 +11404,7 @@ static void test_query_pipeline_statistics(void)
     HRESULT hr;
     int i;
 
-    memset(&desc, 0, sizeof(desc));
-    if (!init_test_context(&context, &desc))
+    if (!init_test_context(&context, NULL))
         return;
     device = context.device;
     command_list = context.list;
