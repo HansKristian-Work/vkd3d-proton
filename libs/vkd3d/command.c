@@ -3631,14 +3631,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetTimestampFrequency(ID3D1
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     struct d3d12_device *device = command_queue->device;
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkPhysicalDeviceProperties properties;
 
     TRACE("iface %p, frequency %p.\n", iface, frequency);
 
-    VK_CALL(vkGetPhysicalDeviceProperties(device->vk_physical_device, &properties));
-
-    *frequency = 1000000000 / properties.limits.timestampPeriod;
+    *frequency = 1000000000 / device->vk_info.device_limits.timestampPeriod;
 
     return S_OK;
 }
