@@ -4680,12 +4680,23 @@ static SpvOp vkd3d_dxbc_compiler_map_atomic_instruction(const struct vkd3d_shade
     }
     atomic_ops[] =
     {
+        {VKD3DSIH_ATOMIC_AND,      SpvOpAtomicAnd},
         {VKD3DSIH_ATOMIC_IADD,     SpvOpAtomicIAdd},
+        {VKD3DSIH_ATOMIC_IMAX,     SpvOpAtomicSMax},
+        {VKD3DSIH_ATOMIC_IMIN,     SpvOpAtomicSMin},
         {VKD3DSIH_ATOMIC_OR,       SpvOpAtomicOr},
         {VKD3DSIH_ATOMIC_UMAX,     SpvOpAtomicUMax},
         {VKD3DSIH_ATOMIC_UMIN,     SpvOpAtomicUMin},
+        {VKD3DSIH_ATOMIC_XOR,      SpvOpAtomicXor},
+        {VKD3DSIH_IMM_ATOMIC_AND,  SpvOpAtomicAnd},
         {VKD3DSIH_IMM_ATOMIC_EXCH, SpvOpAtomicExchange},
         {VKD3DSIH_IMM_ATOMIC_IADD, SpvOpAtomicIAdd},
+        {VKD3DSIH_IMM_ATOMIC_IMAX, SpvOpAtomicSMax},
+        {VKD3DSIH_IMM_ATOMIC_IMIN, SpvOpAtomicSMin},
+        {VKD3DSIH_IMM_ATOMIC_OR,   SpvOpAtomicOr},
+        {VKD3DSIH_IMM_ATOMIC_UMAX, SpvOpAtomicUMax},
+        {VKD3DSIH_IMM_ATOMIC_UMIN, SpvOpAtomicUMin},
+        {VKD3DSIH_IMM_ATOMIC_XOR,  SpvOpAtomicXor},
     };
     unsigned int i;
 
@@ -5112,12 +5123,23 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_STORE_UAV_TYPED:
             vkd3d_dxbc_compiler_emit_store_uav_typed(compiler, instruction);
             break;
+        case VKD3DSIH_ATOMIC_AND:
         case VKD3DSIH_ATOMIC_IADD:
+        case VKD3DSIH_ATOMIC_IMAX:
+        case VKD3DSIH_ATOMIC_IMIN:
         case VKD3DSIH_ATOMIC_OR:
         case VKD3DSIH_ATOMIC_UMAX:
         case VKD3DSIH_ATOMIC_UMIN:
+        case VKD3DSIH_ATOMIC_XOR:
+        case VKD3DSIH_IMM_ATOMIC_AND:
         case VKD3DSIH_IMM_ATOMIC_EXCH:
         case VKD3DSIH_IMM_ATOMIC_IADD:
+        case VKD3DSIH_IMM_ATOMIC_IMAX:
+        case VKD3DSIH_IMM_ATOMIC_IMIN:
+        case VKD3DSIH_IMM_ATOMIC_OR:
+        case VKD3DSIH_IMM_ATOMIC_UMAX:
+        case VKD3DSIH_IMM_ATOMIC_UMIN:
+        case VKD3DSIH_IMM_ATOMIC_XOR:
             vkd3d_dxbc_compiler_emit_atomic_instruction(compiler, instruction);
             break;
         case VKD3DSIH_RESINFO:
