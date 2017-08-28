@@ -3096,6 +3096,7 @@ static D3D12_QUERY_HEAP_TYPE vkd3d_query_heap_type_from_query_type(D3D12_QUERY_T
             return D3D12_QUERY_HEAP_TYPE_SO_STATISTICS;
 
         default:
+            WARN("Invalid query type %#x.\n", type);
             return (D3D12_QUERY_HEAP_TYPE)-1;
     }
 }
@@ -3113,6 +3114,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(ID3D12GraphicsCommandL
     struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
+    TRACE("iface %p, heap %p, type %#x, index %u.\n", iface, heap, type, index);
+
     if (query_heap->desc.Type != vkd3d_query_heap_type_from_query_type(type))
     {
         WARN("Query type %u not supported by query heap.\n", type);
@@ -3126,7 +3129,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(ID3D12GraphicsCommandL
         return;
     }
 
-    FIXME("iface %p, heap %p, type %#x, index %u stub!\n", iface, heap, type, index);
+    FIXME("Unhandled query type %#x.\n", type);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12GraphicsCommandList *iface,
@@ -3137,6 +3140,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
     struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
     struct d3d12_resource *buffer = unsafe_impl_from_ID3D12Resource(dst_buffer);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+
+    TRACE("iface %p, heap %p, type %#x, start_index %u, query_count %u, "
+            "dst_buffer %p, aligned_dst_buffer_offset %#"PRIx64".\n",
+            iface, heap, type, start_index, query_count,
+            dst_buffer, aligned_dst_buffer_offset);
 
     if (query_heap->desc.Type != vkd3d_query_heap_type_from_query_type(type))
     {
@@ -3166,10 +3174,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
 
     if (type != D3D12_QUERY_TYPE_TIMESTAMP)
     {
-        FIXME("iface %p, heap %p, type %#x, start_index %u, query_count %u, "
-                "dst_buffer %p, aligned_dst_buffer_offset %#"PRIx64" stub!\n",
-                iface, heap, type, start_index, query_count,
-                dst_buffer, aligned_dst_buffer_offset);
+        FIXME("Unhandled query type %#x.\n", type);
         return;
     }
 
@@ -3627,6 +3632,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetTimestampFrequency(ID3D1
     struct d3d12_device *device = command_queue->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkPhysicalDeviceProperties properties;
+
+    TRACE("iface %p, frequency %p.\n", iface, frequency);
 
     VK_CALL(vkGetPhysicalDeviceProperties(device->vk_physical_device, &properties));
 
