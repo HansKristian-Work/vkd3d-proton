@@ -475,6 +475,37 @@ static ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Device *de
     return buffer;
 }
 
+#define create_readback_buffer(a, b) create_readback_buffer_(__LINE__, a, b)
+static ID3D12Resource *create_readback_buffer_(unsigned int line, ID3D12Device *device,
+        size_t size)
+{
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *buffer;
+    HRESULT hr;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_READBACK;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = size;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+            NULL, &IID_ID3D12Resource, (void **)&buffer);
+    ok_(line)(SUCCEEDED(hr), "Failed to create readback buffer, hr %#x.\n", hr);
+    return buffer;
+}
+
 #define create_texture(a, b, c, d, e) create_texture_(__LINE__, a, b, c, d, e)
 static ID3D12Resource *create_texture_(unsigned int line, ID3D12Device *device,
         unsigned int width, unsigned int height, DXGI_FORMAT format, D3D12_RESOURCE_STATES initial_state)
@@ -695,9 +726,15 @@ struct resource_readback
 static void init_buffer_readback(struct resource_readback *rb, ID3D12Resource *rb_buffer,
         DXGI_FORMAT format, D3D12_RESOURCE_DESC *resource_desc)
 {
+    D3D12_RESOURCE_DESC desc;
     D3D12_RANGE read_range;
     HRESULT hr;
 
+    if (!resource_desc)
+    {
+        desc = ID3D12Resource_GetDesc(rb_buffer);
+        resource_desc = &desc;
+    }
     assert(resource_desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER);
 
     rb->width = resource_desc->Width / format_size(format);
@@ -715,9 +752,8 @@ static void init_buffer_readback(struct resource_readback *rb, ID3D12Resource *r
 static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_FORMAT format,
         struct resource_readback *rb, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
 {
-    D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
-    ID3D12Resource *resource;
+    ID3D12Resource *rb_buffer;
     ID3D12Device *device;
     HRESULT hr;
 
@@ -728,15 +764,9 @@ static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_F
     assert(resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER);
     resource_desc.Flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_READBACK;
-    hr = ID3D12Device_CreateCommittedResource(device,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_COPY_DEST, NULL,
-            &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create readback buffer, hr %#x.\n", hr);
+    rb_buffer = create_readback_buffer(device, resource_desc.Width);
 
-    ID3D12GraphicsCommandList_CopyBufferRegion(command_list, resource, 0, buffer, 0, resource_desc.Width);
+    ID3D12GraphicsCommandList_CopyBufferRegion(command_list, rb_buffer, 0, buffer, 0, resource_desc.Width);
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
 
@@ -744,16 +774,14 @@ static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_F
     wait_queue_idle(device, queue);
     ID3D12Device_Release(device);
 
-    init_buffer_readback(rb, resource, format, &resource_desc);
+    init_buffer_readback(rb, rb_buffer, format, &resource_desc);
 }
 
 static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsigned int sub_resource,
         struct resource_readback *rb, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
 {
     D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
-    D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
-    ID3D12Resource *resource;
     D3D12_RANGE read_range;
     unsigned int miplevel;
     ID3D12Device *device;
@@ -777,28 +805,9 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
 
     format = resource_desc.Format;
 
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = rb->row_pitch * rb->height;
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+    rb->resource = create_readback_buffer(device, rb->row_pitch * rb->height);
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_READBACK;
-    hr = ID3D12Device_CreateCommittedResource(device,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_COPY_DEST, NULL,
-            &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create readback buffer, hr %#x.\n", hr);
-    rb->resource = resource;
-
-    dst_location.pResource = resource;
+    dst_location.pResource = rb->resource;
     dst_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
     dst_location.PlacedFootprint.Offset = 0;
     dst_location.PlacedFootprint.Footprint.Format = format;
@@ -817,13 +826,12 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
 
     exec_command_list(queue, command_list);
     wait_queue_idle(device, queue);
+    ID3D12Device_Release(device);
 
     read_range.Begin = 0;
     read_range.End = resource_desc.Width;
-    hr = ID3D12Resource_Map(resource, 0, &read_range, &rb->data);
+    hr = ID3D12Resource_Map(rb->resource, 0, &read_range, &rb->data);
     ok(SUCCEEDED(hr), "Failed to map readback buffer, hr %#x.\n", hr);
-
-    ID3D12Device_Release(device);
 }
 
 static void *get_readback_data(struct resource_readback *rb, unsigned int x, unsigned int y,
@@ -11013,8 +11021,6 @@ static void test_query_timestamp(void)
     ID3D12Device *device;
     D3D12_QUERY_HEAP_DESC heap_desc;
     ID3D12QueryHeap *query_heap;
-    D3D12_HEAP_PROPERTIES heap_properties;
-    D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *resource;
     struct resource_readback rb;
     UINT64 timestamps[4], timestamp_frequency, timestamp_diff, time_diff;
@@ -11038,31 +11044,10 @@ static void test_query_timestamp(void)
     heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
     heap_desc.Count = ARRAY_SIZE(timestamps);
     heap_desc.NodeMask = 0;
-
     hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
     ok(SUCCEEDED(hr), "ID3D12Device_CreateQueryHeap failed, type %u, hr %#x.\n", heap_desc.Type, hr);
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_READBACK;
-
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = ARRAY_SIZE(timestamps) * sizeof(UINT64);
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-    hr = ID3D12Device_CreateCommittedResource(device,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_COPY_DEST, NULL,
-            &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create readback buffer, hr %#x.\n", hr);
-    rb.resource = resource;
+    resource = create_readback_buffer(device, sizeof(timestamps));
 
     for (i = 0; i < ARRAY_SIZE(timestamps); ++i)
     {
@@ -11078,7 +11063,7 @@ static void test_query_timestamp(void)
 
     time_end = time(NULL) + 1;
 
-    init_buffer_readback(&rb, resource, resource_desc.Format, &resource_desc);
+    init_buffer_readback(&rb, resource, DXGI_FORMAT_UNKNOWN, NULL);
 
     for (i = 0; i < ARRAY_SIZE(timestamps); ++i)
         timestamps[i] = get_readback_uint64(&rb, i, 0);
