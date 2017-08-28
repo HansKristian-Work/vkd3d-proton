@@ -3448,8 +3448,11 @@ static void test_draw_instanced(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    /* This draw call is ignored. */
-    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    if (!use_warp_device)
+    {
+        /* This draw call is ignored. */
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    }
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -3490,8 +3493,11 @@ static void test_draw_indexed_instanced(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    /* This draw call is ignored. */
-    ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, 3, 1, 0, 0, 0);
+    if (!use_warp_device)
+    {
+        /* This draw call is ignored. */
+        ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, 3, 1, 0, 0, 0);
+    }
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -4663,6 +4669,12 @@ static void test_bundle_state_inheritance(void)
     skip("Bundles are not implemented yet.\n");
     return;
 #endif
+
+    if (use_warp_device)
+    {
+        skip("Bundle state inheritance test crashes on WARP.\n");
+        return;
+    }
 
     if (!init_test_context(&context, NULL))
         return;
@@ -6141,6 +6153,7 @@ static void test_shader_instructions(void)
             struct ivec4 i;
             struct vec4 f;
         } output;
+        bool skip_on_warp;
     }
     uint_tests[] =
     {
@@ -6342,12 +6355,12 @@ static void test_shader_instructions(void)
         {&ps_nested_switch, {{{ 4u, 7, 3, 1}, {1}}}, {{  1,   1,   1,   1}}},
         {&ps_nested_switch, {{{ 4u, 8, 3, 1}, {1}}}, {{  1,   1,   1,   1}}},
 
-        {&ps_movc, {{{0, 0, 0, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 6, 7, 8}}},
-        {&ps_movc, {{{0, 0, 0, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 6, 7, 4}}},
-        {&ps_movc, {{{1, 0, 0, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 6, 7, 8}}},
-        {&ps_movc, {{{1, 0, 0, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 6, 7, 4}}},
-        {&ps_movc, {{{0, 1, 1, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 2, 3, 8}}},
-        {&ps_movc, {{{1, 1, 1, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 2, 3, 4}}},
+        {&ps_movc, {{{0, 0, 0, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 6, 7, 8}}, true},
+        {&ps_movc, {{{0, 0, 0, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 6, 7, 4}}, true},
+        {&ps_movc, {{{1, 0, 0, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 6, 7, 8}}, true},
+        {&ps_movc, {{{1, 0, 0, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 6, 7, 4}}, true},
+        {&ps_movc, {{{0, 1, 1, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 2, 3, 8}}, true},
+        {&ps_movc, {{{1, 1, 1, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 2, 3, 4}}, true},
 
         {
             &ps_swapc0,
@@ -6691,6 +6704,12 @@ static void test_shader_instructions(void)
 
     for (i = 0; i < ARRAY_SIZE(uint_tests); ++i)
     {
+        if (uint_tests[i].skip_on_warp && use_warp_device)
+        {
+            skip("Skipping shader test on WARP.\n");
+            continue;
+        }
+
         if (current_ps != uint_tests[i].ps)
         {
             if (context.pipeline_state)
