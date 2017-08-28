@@ -3170,6 +3170,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
     {
         WARN("Would overflow destination buffer (%"PRIu64" + 8 > %"PRIu64").\n",
                 aligned_dst_buffer_offset, buffer->desc.Width);
+        return;
     }
 
     if (type != D3D12_QUERY_TYPE_TIMESTAMP)
