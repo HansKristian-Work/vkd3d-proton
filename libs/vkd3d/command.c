@@ -3118,26 +3118,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(ID3D12GraphicsCommandL
 
     TRACE("iface %p, heap %p, type %#x, index %u.\n", iface, heap, type, index);
 
-    switch (type)
+    if (type == D3D12_QUERY_TYPE_TIMESTAMP)
     {
-        case D3D12_QUERY_TYPE_TIMESTAMP:
-            VK_CALL(vkCmdWriteTimestamp(list->vk_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                    query_heap->vk_query_pool, index));
-            return;
-
-        case D3D12_QUERY_TYPE_PIPELINE_STATISTICS:
-            VK_CALL(vkCmdEndQuery(list->vk_command_buffer, query_heap->vk_query_pool, index));
-            return;
-
-        case D3D12_QUERY_TYPE_OCCLUSION:
-        case D3D12_QUERY_TYPE_BINARY_OCCLUSION:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM1:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM2:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM3:
-            FIXME("Unhandled query type %#x.\n", type);
-            return;
+        VK_CALL(vkCmdWriteTimestamp(list->vk_command_buffer,
+                VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_heap->vk_query_pool, index));
+        return;
     }
+
+    VK_CALL(vkCmdEndQuery(list->vk_command_buffer, query_heap->vk_query_pool, index));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12GraphicsCommandList *iface,
