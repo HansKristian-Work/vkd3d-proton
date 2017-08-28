@@ -440,9 +440,10 @@ static void update_buffer_data_(unsigned int line, ID3D12Resource *buffer,
     ID3D12Resource_Unmap(buffer, 0, NULL);
 }
 
-#define create_upload_buffer(a, b, c) create_upload_buffer_(__LINE__, a, b, c)
-static ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Device *device,
-        size_t size, const void *data)
+#define create_buffer(a, b, c, d, e) create_buffer_(__LINE__, a, b, c, d, e)
+static ID3D12Resource *create_buffer_(unsigned int line, ID3D12Device *device,
+        D3D12_HEAP_TYPE heap_type, size_t size, D3D12_RESOURCE_FLAGS resource_flags,
+        D3D12_RESOURCE_STATES initial_resource_state)
 {
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
@@ -450,7 +451,7 @@ static ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Device *de
     HRESULT hr;
 
     memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+    heap_properties.Type = heap_type;
 
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
     resource_desc.Alignment = 0;
@@ -462,16 +463,33 @@ static ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Device *de
     resource_desc.SampleDesc.Count = 1;
     resource_desc.SampleDesc.Quality = 0;
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    resource_desc.Flags = resource_flags;
 
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties,
-            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, initial_resource_state,
             NULL, &IID_ID3D12Resource, (void **)&buffer);
-    ok_(line)(SUCCEEDED(hr), "Failed to create upload buffer, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    return buffer;
+}
 
+#define create_default_buffer(a, b, c, d) create_default_buffer_(__LINE__, a, b, c, d)
+static ID3D12Resource *create_default_buffer_(unsigned int line, ID3D12Device *device,
+        size_t size, D3D12_RESOURCE_FLAGS resource_flags, D3D12_RESOURCE_STATES initial_resource_state)
+{
+    return create_buffer_(line, device, D3D12_HEAP_TYPE_DEFAULT, size,
+            resource_flags, initial_resource_state);
+}
+
+#define create_upload_buffer(a, b, c) create_upload_buffer_(__LINE__, a, b, c)
+static ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Device *device,
+        size_t size, const void *data)
+{
+    ID3D12Resource *buffer;
+
+    buffer = create_buffer_(line, device, D3D12_HEAP_TYPE_UPLOAD, size,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
     if (data)
         update_buffer_data_(line, buffer, data, size);
-
     return buffer;
 }
 
@@ -479,31 +497,8 @@ static ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Device *de
 static ID3D12Resource *create_readback_buffer_(unsigned int line, ID3D12Device *device,
         size_t size)
 {
-    D3D12_HEAP_PROPERTIES heap_properties;
-    D3D12_RESOURCE_DESC resource_desc;
-    ID3D12Resource *buffer;
-    HRESULT hr;
-
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_READBACK;
-
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = size;
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
-
-    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties,
-            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST,
-            NULL, &IID_ID3D12Resource, (void **)&buffer);
-    ok_(line)(SUCCEEDED(hr), "Failed to create readback buffer, hr %#x.\n", hr);
-    return buffer;
+    return create_buffer_(line, device, D3D12_HEAP_TYPE_READBACK, size,
+            D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
 }
 
 #define create_texture(a, b, c, d, e) create_texture_(__LINE__, a, b, c, d, e)
@@ -2233,9 +2228,7 @@ static void test_create_unordered_access_view(void)
 {
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
-    D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
-    D3D12_RESOURCE_DESC resource_desc;
     unsigned int descriptor_size;
     ID3D12DescriptorHeap *heap;
     ID3D12Resource *resource;
@@ -2261,30 +2254,14 @@ static void test_create_unordered_access_view(void)
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
     ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = 64 * sizeof(float);
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    hr = ID3D12Device_CreateCommittedResource(device,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
-            &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    resource = create_default_buffer(device, 64 * sizeof(float),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
     uav_desc.Format = DXGI_FORMAT_R32_FLOAT;
     uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
     uav_desc.Buffer.FirstElement = 0;
-    uav_desc.Buffer.NumElements = resource_desc.Width / sizeof(float);
+    uav_desc.Buffer.NumElements = 64;
     uav_desc.Buffer.StructureByteStride = 0;
     uav_desc.Buffer.CounterOffsetInBytes = 0;
     uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
@@ -7370,12 +7347,10 @@ static void test_cs_constant_buffer(void)
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[2];
-    D3D12_HEAP_PROPERTIES heap_properties;
     ID3D12DescriptorHeap *descriptor_heap;
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     ID3D12RootSignature *root_signature;
     ID3D12PipelineState *pipeline_state;
-    D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *resource, *cb;
     unsigned int descriptor_size;
     struct resource_readback rb;
@@ -7422,25 +7397,6 @@ static void test_cs_constant_buffer(void)
     value = 2.0f;
     cb = create_upload_buffer(context.device, sizeof(value), &value);
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = 64 * sizeof(float);
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    hr = ID3D12Device_CreateCommittedResource(device,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
-            &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
-
     descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
     descriptor_ranges[0].NumDescriptors = 4;
     descriptor_ranges[0].BaseShaderRegister = 0;
@@ -7479,10 +7435,13 @@ static void test_cs_constant_buffer(void)
     cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
     gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
 
+    resource = create_default_buffer(device, 64 * sizeof(float),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
     uav_desc.Format = DXGI_FORMAT_R32_FLOAT;
     uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
     uav_desc.Buffer.FirstElement = 0;
-    uav_desc.Buffer.NumElements = resource_desc.Width / sizeof(float);
+    uav_desc.Buffer.NumElements = 64;
     uav_desc.Buffer.StructureByteStride = 0;
     uav_desc.Buffer.CounterOffsetInBytes = 0;
     uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
@@ -8364,10 +8323,8 @@ static void test_update_root_descriptors(void)
     D3D12_GPU_VIRTUAL_ADDRESS cb_va, uav_va;
     D3D12_ROOT_PARAMETER root_parameters[2];
     ID3D12GraphicsCommandList *command_list;
-    D3D12_HEAP_PROPERTIES heap_properties;
     ID3D12RootSignature *root_signature;
     ID3D12PipelineState *pipeline_state;
-    D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *resource, *cb;
     struct resource_readback rb;
     struct test_context context;
@@ -8425,24 +8382,8 @@ static void test_update_root_descriptors(void)
     cb = create_upload_buffer(context.device, sizeof(input), input);
     cb_va = ID3D12Resource_GetGPUVirtualAddress(cb);
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = 512;
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    hr = ID3D12Device_CreateCommittedResource(device,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
-            &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    resource = create_default_buffer(device, 512,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     uav_va = ID3D12Resource_GetGPUVirtualAddress(resource);
 
     root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -9189,12 +9130,10 @@ static void test_typed_buffer_uav(void)
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[1];
-    D3D12_HEAP_PROPERTIES heap_properties;
     ID3D12DescriptorHeap *descriptor_heap;
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     ID3D12RootSignature *root_signature;
     ID3D12PipelineState *pipeline_state;
-    D3D12_RESOURCE_DESC resource_desc;
     struct resource_readback rb;
     struct test_context context;
     ID3D12CommandQueue *queue;
@@ -9229,25 +9168,6 @@ static void test_typed_buffer_uav(void)
     command_list = context.list;
     queue = context.queue;
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = 64 * sizeof(float);
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    hr = ID3D12Device_CreateCommittedResource(device,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
-            &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
-
     descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
     descriptor_ranges[0].NumDescriptors = 1;
     descriptor_ranges[0].BaseShaderRegister = 0;
@@ -9279,10 +9199,13 @@ static void test_typed_buffer_uav(void)
     cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
     gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
 
+    resource = create_default_buffer(device, 64 * sizeof(float),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
     uav_desc.Format = DXGI_FORMAT_R32_FLOAT;
     uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
     uav_desc.Buffer.FirstElement = 0;
-    uav_desc.Buffer.NumElements = resource_desc.Width / sizeof(float);
+    uav_desc.Buffer.NumElements = 64;
     uav_desc.Buffer.StructureByteStride = 0;
     uav_desc.Buffer.CounterOffsetInBytes = 0;
     uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
@@ -9326,10 +9249,8 @@ static void test_compute_shader_registers(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[2];
     unsigned int i, x, y, group_x, group_y;
-    D3D12_HEAP_PROPERTIES heap_properties;
     ID3D12DescriptorHeap *descriptor_heap;
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
-    D3D12_RESOURCE_DESC resource_desc;
     struct resource_readback rb;
     struct test_context context;
     ID3D12CommandQueue *queue;
@@ -9414,24 +9335,8 @@ static void test_compute_shader_registers(void)
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
             shader_bytecode(cs_code, sizeof(cs_code)));
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = 10240;
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    hr = ID3D12Device_CreateCommittedResource(device,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
-            &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    resource = create_default_buffer(device, 10240,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     heap_desc.NumDescriptors = 1;
@@ -9522,10 +9427,8 @@ static void test_tgsm(void)
     ID3D12DescriptorHeap *cpu_descriptor_heap;
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[1];
-    D3D12_HEAP_PROPERTIES heap_properties;
     ID3D12DescriptorHeap *descriptor_heap;
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
-    D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *buffer, *buffer2;
     unsigned int descriptor_size;
     unsigned int data, expected;
@@ -9707,24 +9610,8 @@ static void test_tgsm(void)
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
     ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = 1024;
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    hr = ID3D12Device_CreateCommittedResource(device,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
-            &IID_ID3D12Resource, (void **)&buffer);
-    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    buffer = create_default_buffer(device, 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     heap_desc.NumDescriptors = 2;
@@ -9787,16 +9674,10 @@ static void test_tgsm(void)
      * ClearUnorderedAccessViewUint() is implemented.
      */
     ID3D12Resource_Release(buffer);
-    hr = ID3D12Device_CreateCommittedResource(device,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
-            &IID_ID3D12Resource, (void **)&buffer);
-    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
-    hr = ID3D12Device_CreateCommittedResource(device,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
-            &IID_ID3D12Resource, (void **)&buffer2);
-    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    buffer = create_default_buffer(device, 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    buffer2 = create_default_buffer(device, 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
     ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc, cpu_descriptor_handle);
@@ -10329,9 +10210,7 @@ static void test_atomic_instructions(void)
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[3];
-    D3D12_HEAP_PROPERTIES heap_properties;
     ID3D12PipelineState *pipeline_state;
-    D3D12_RESOURCE_DESC resource_desc;
     struct test_context_desc desc;
     struct resource_readback rb;
     struct test_context context;
@@ -10487,34 +10366,12 @@ static void test_atomic_instructions(void)
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
     ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = sizeof(tests->input);
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    hr = ID3D12Device_CreateCommittedResource(device,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_COPY_DEST, NULL,
-            &IID_ID3D12Resource, (void **)&ps_buffer);
-    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
-    hr = ID3D12Device_CreateCommittedResource(device,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_COPY_DEST, NULL,
-            &IID_ID3D12Resource, (void **)&cs_buffer);
-    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
-    hr = ID3D12Device_CreateCommittedResource(device,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-            D3D12_RESOURCE_STATE_COPY_DEST, NULL,
-            &IID_ID3D12Resource, (void **)&cs_buffer2);
-    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    ps_buffer = create_default_buffer(device, sizeof(tests->input),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+    cs_buffer = create_default_buffer(device, sizeof(tests->input),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+    cs_buffer2 = create_default_buffer(device, sizeof(tests->input),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
 
     init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps_atomics, NULL);
     pso_desc.NumRenderTargets = 0;
@@ -10658,12 +10515,10 @@ static void test_buffer_srv(void)
     D3D12_ROOT_PARAMETER root_parameters[2];
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
-    D3D12_HEAP_PROPERTIES heap_properties;
     ID3D12DescriptorHeap *descriptor_heap;
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     const struct buffer *current_buffer;
     unsigned int color, expected_color;
-    D3D12_RESOURCE_DESC resource_desc;
     struct test_context_desc desc;
     struct test_context context;
     struct resource_readback rb;
@@ -10887,24 +10742,8 @@ static void test_buffer_srv(void)
 
             current_buffer = test->buffer;
 
-            memset(&heap_properties, 0, sizeof(heap_properties));
-            heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-            resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-            resource_desc.Alignment = 0;
-            resource_desc.Width = current_buffer->byte_count;
-            resource_desc.Height = 1;
-            resource_desc.DepthOrArraySize = 1;
-            resource_desc.MipLevels = 1;
-            resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-            resource_desc.SampleDesc.Count = 1;
-            resource_desc.SampleDesc.Quality = 0;
-            resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-            resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-            hr = ID3D12Device_CreateCommittedResource(device,
-                    &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
-                    D3D12_RESOURCE_STATE_COPY_DEST, NULL,
-                    &IID_ID3D12Resource, (void **)&buffer);
-            ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+            buffer = create_default_buffer(device, current_buffer->byte_count,
+                    D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
 
             upload_buffer_data(buffer, current_buffer->data_offset,
                     current_buffer->byte_count - current_buffer->data_offset,
