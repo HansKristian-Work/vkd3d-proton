@@ -4680,23 +4680,25 @@ static SpvOp vkd3d_dxbc_compiler_map_atomic_instruction(const struct vkd3d_shade
     }
     atomic_ops[] =
     {
-        {VKD3DSIH_ATOMIC_AND,      SpvOpAtomicAnd},
-        {VKD3DSIH_ATOMIC_IADD,     SpvOpAtomicIAdd},
-        {VKD3DSIH_ATOMIC_IMAX,     SpvOpAtomicSMax},
-        {VKD3DSIH_ATOMIC_IMIN,     SpvOpAtomicSMin},
-        {VKD3DSIH_ATOMIC_OR,       SpvOpAtomicOr},
-        {VKD3DSIH_ATOMIC_UMAX,     SpvOpAtomicUMax},
-        {VKD3DSIH_ATOMIC_UMIN,     SpvOpAtomicUMin},
-        {VKD3DSIH_ATOMIC_XOR,      SpvOpAtomicXor},
-        {VKD3DSIH_IMM_ATOMIC_AND,  SpvOpAtomicAnd},
-        {VKD3DSIH_IMM_ATOMIC_EXCH, SpvOpAtomicExchange},
-        {VKD3DSIH_IMM_ATOMIC_IADD, SpvOpAtomicIAdd},
-        {VKD3DSIH_IMM_ATOMIC_IMAX, SpvOpAtomicSMax},
-        {VKD3DSIH_IMM_ATOMIC_IMIN, SpvOpAtomicSMin},
-        {VKD3DSIH_IMM_ATOMIC_OR,   SpvOpAtomicOr},
-        {VKD3DSIH_IMM_ATOMIC_UMAX, SpvOpAtomicUMax},
-        {VKD3DSIH_IMM_ATOMIC_UMIN, SpvOpAtomicUMin},
-        {VKD3DSIH_IMM_ATOMIC_XOR,  SpvOpAtomicXor},
+        {VKD3DSIH_ATOMIC_AND,          SpvOpAtomicAnd},
+        {VKD3DSIH_ATOMIC_CMP_STORE,    SpvOpAtomicCompareExchange},
+        {VKD3DSIH_ATOMIC_IADD,         SpvOpAtomicIAdd},
+        {VKD3DSIH_ATOMIC_IMAX,         SpvOpAtomicSMax},
+        {VKD3DSIH_ATOMIC_IMIN,         SpvOpAtomicSMin},
+        {VKD3DSIH_ATOMIC_OR,           SpvOpAtomicOr},
+        {VKD3DSIH_ATOMIC_UMAX,         SpvOpAtomicUMax},
+        {VKD3DSIH_ATOMIC_UMIN,         SpvOpAtomicUMin},
+        {VKD3DSIH_ATOMIC_XOR,          SpvOpAtomicXor},
+        {VKD3DSIH_IMM_ATOMIC_AND,      SpvOpAtomicAnd},
+        {VKD3DSIH_IMM_ATOMIC_CMP_EXCH, SpvOpAtomicCompareExchange},
+        {VKD3DSIH_IMM_ATOMIC_EXCH,     SpvOpAtomicExchange},
+        {VKD3DSIH_IMM_ATOMIC_IADD,     SpvOpAtomicIAdd},
+        {VKD3DSIH_IMM_ATOMIC_IMAX,     SpvOpAtomicSMax},
+        {VKD3DSIH_IMM_ATOMIC_IMIN,     SpvOpAtomicSMin},
+        {VKD3DSIH_IMM_ATOMIC_OR,       SpvOpAtomicOr},
+        {VKD3DSIH_IMM_ATOMIC_UMAX,     SpvOpAtomicUMax},
+        {VKD3DSIH_IMM_ATOMIC_UMIN,     SpvOpAtomicUMin},
+        {VKD3DSIH_IMM_ATOMIC_XOR,      SpvOpAtomicXor},
     };
     unsigned int i;
 
@@ -4727,7 +4729,7 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
     struct vkd3d_shader_image image;
     unsigned int structure_stride;
     DWORD coordinate_mask;
-    uint32_t operands[4];
+    uint32_t operands[6];
     unsigned int i = 0;
     SpvScope scope;
     bool raw;
@@ -4793,6 +4795,11 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
     operands[i++] = pointer_id;
     operands[i++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, scope);
     operands[i++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvMemorySemanticsMaskNone);
+    if (instruction->src_count >= 3)
+    {
+        operands[i++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvMemorySemanticsMaskNone);
+        operands[i++] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[2], VKD3DSP_WRITEMASK_0);
+    }
     operands[i++] = val_id;
     result_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
             op, type_id, operands, i);
@@ -5124,6 +5131,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             vkd3d_dxbc_compiler_emit_store_uav_typed(compiler, instruction);
             break;
         case VKD3DSIH_ATOMIC_AND:
+        case VKD3DSIH_ATOMIC_CMP_STORE:
         case VKD3DSIH_ATOMIC_IADD:
         case VKD3DSIH_ATOMIC_IMAX:
         case VKD3DSIH_ATOMIC_IMIN:
@@ -5132,6 +5140,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_ATOMIC_UMIN:
         case VKD3DSIH_ATOMIC_XOR:
         case VKD3DSIH_IMM_ATOMIC_AND:
+        case VKD3DSIH_IMM_ATOMIC_CMP_EXCH:
         case VKD3DSIH_IMM_ATOMIC_EXCH:
         case VKD3DSIH_IMM_ATOMIC_IADD:
         case VKD3DSIH_IMM_ATOMIC_IMAX:
