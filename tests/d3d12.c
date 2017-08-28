@@ -10941,6 +10941,113 @@ static void test_query_timestamp(void)
     destroy_test_context(&context);
 }
 
+static void test_query_pipeline_statistics(void)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    D3D12_QUERY_HEAP_DESC heap_desc;
+    ID3D12QueryHeap *query_heap;
+    ID3D12Resource *resource;
+    struct resource_readback rb;
+    struct D3D12_QUERY_DATA_PIPELINE_STATISTICS pipeline_statistics;
+    HRESULT hr;
+    int i;
+
+    memset(&desc, 0, sizeof(desc));
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    heap_desc.Type = D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS;
+    heap_desc.Count = 2;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
+    ok(SUCCEEDED(hr), "ID3D12Device_CreateQueryHeap failed, type %u, hr %#x.\n", heap_desc.Type, hr);
+
+    resource = create_readback_buffer(device, 2 * sizeof(struct D3D12_QUERY_DATA_PIPELINE_STATISTICS));
+
+    /* First query: do nothing. */
+    ID3D12GraphicsCommandList_BeginQuery(command_list, query_heap, D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 0);
+    ID3D12GraphicsCommandList_EndQuery(command_list, query_heap, D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 0);
+    ID3D12GraphicsCommandList_ResolveQueryData(command_list, query_heap, D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 0, 1,
+            resource, 0);
+
+    /* Second query: draw something simple. */
+    ID3D12GraphicsCommandList_BeginQuery(command_list, query_heap, D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 1);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    ID3D12GraphicsCommandList_EndQuery(command_list, query_heap, D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 1);
+    ID3D12GraphicsCommandList_ResolveQueryData(command_list, query_heap, D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 1, 1,
+            resource, sizeof(struct D3D12_QUERY_DATA_PIPELINE_STATISTICS));
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+
+    init_buffer_readback(&rb, resource, DXGI_FORMAT_UNKNOWN, NULL);
+
+    for (i = 0; i < sizeof(struct D3D12_QUERY_DATA_PIPELINE_STATISTICS) / sizeof(UINT64); ++i)
+    {
+        UINT64 value = get_readback_uint64(&rb, i, 0);
+        ok (value == 0, "Element %d: Got %"PRIu64", expected 0.\n", i, value);
+    }
+
+    memcpy(&pipeline_statistics, get_readback_data(&rb, 1, 0, sizeof(pipeline_statistics)),
+            sizeof(pipeline_statistics));
+
+    /* We read 3 vertices that formed one primitive. */
+    ok(pipeline_statistics.IAVertices == 3, "IAVertices: Got %"PRIu64", expected 3.\n",
+            pipeline_statistics.IAVertices);
+    ok(pipeline_statistics.IAPrimitives == 1, "IAPrimitives: Got %"PRIu64", expected 1.\n",
+            pipeline_statistics.IAPrimitives);
+    ok(pipeline_statistics.VSInvocations == 3, "VSInvocations: Got %"PRIu64", expected 3.\n",
+            pipeline_statistics.VSInvocations);
+
+    /* No geometry shader output primitives.
+     * Depending on the graphics card, the geometry shader might still have been invoked, so
+     * GSInvocations might be whatever. */
+    ok(pipeline_statistics.GSPrimitives == 0, "GSPrimitives: Got %"PRIu64", expected 0.\n",
+            pipeline_statistics.GSPrimitives);
+
+    /* One primitive sent to the rasterizer, but it might have been broken up into smaller pieces then. */
+    ok(pipeline_statistics.CInvocations == 1, "CInvocations: Got %"PRIu64", expected 1.\n",
+            pipeline_statistics.CInvocations);
+    ok(pipeline_statistics.CPrimitives > 0, "CPrimitives: Got %"PRIu64", expected > 0.\n",
+            pipeline_statistics.CPrimitives);
+
+    /* Exact number of pixel shader invocations depends on the graphics card. */
+    ok(pipeline_statistics.PSInvocations > 0, "PSInvocations: Got %"PRIu64", expected > 0.\n",
+            pipeline_statistics.PSInvocations);
+
+    /* We used no tessellation or compute shaders at all. */
+    ok(pipeline_statistics.HSInvocations == 0, "HSInvocations: Got %"PRIu64", expected 0.\n",
+            pipeline_statistics.HSInvocations);
+    ok(pipeline_statistics.DSInvocations == 0, "DSInvocations: Got %"PRIu64", expected 0.\n",
+            pipeline_statistics.DSInvocations);
+    ok(pipeline_statistics.CSInvocations == 0, "CSInvocations: Got %"PRIu64", expected 0.\n",
+            pipeline_statistics.CSInvocations);
+
+    release_resource_readback(&rb);
+    ID3D12QueryHeap_Release(query_heap);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     bool enable_debug_layer = false;
@@ -11012,4 +11119,5 @@ START_TEST(d3d12)
     run_test(test_buffer_srv);
     run_test(test_create_query_heap);
     run_test(test_query_timestamp);
+    run_test(test_query_pipeline_statistics);
 }
