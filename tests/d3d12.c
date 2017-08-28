@@ -692,13 +692,32 @@ struct resource_readback
     void *data;
 };
 
+static void init_buffer_readback(struct resource_readback *rb, ID3D12Resource *rb_buffer,
+        DXGI_FORMAT format, D3D12_RESOURCE_DESC *resource_desc)
+{
+    D3D12_RANGE read_range;
+    HRESULT hr;
+
+    assert(resource_desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER);
+
+    rb->width = resource_desc->Width / format_size(format);
+    rb->height = 1;
+    rb->resource = rb_buffer;
+    rb->row_pitch = resource_desc->Width;
+    rb->data = NULL;
+
+    read_range.Begin = 0;
+    read_range.End = resource_desc->Width;
+    hr = ID3D12Resource_Map(rb_buffer, 0, &read_range, &rb->data);
+    ok(SUCCEEDED(hr), "Failed to map readback buffer, hr %#x.\n", hr);
+}
+
 static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_FORMAT format,
         struct resource_readback *rb, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
 {
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *resource;
-    D3D12_RANGE read_range;
     ID3D12Device *device;
     HRESULT hr;
 
@@ -706,7 +725,7 @@ static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_F
     ok(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
 
     resource_desc = ID3D12Resource_GetDesc(buffer);
-    ok(resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER, "Resource %p is not buffer.\n", buffer);
+    assert(resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER);
     resource_desc.Flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
 
     memset(&heap_properties, 0, sizeof(heap_properties));
@@ -716,7 +735,6 @@ static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_F
             D3D12_RESOURCE_STATE_COPY_DEST, NULL,
             &IID_ID3D12Resource, (void **)&resource);
     ok(SUCCEEDED(hr), "Failed to create readback buffer, hr %#x.\n", hr);
-    rb->resource = resource;
 
     ID3D12GraphicsCommandList_CopyBufferRegion(command_list, resource, 0, buffer, 0, resource_desc.Width);
     hr = ID3D12GraphicsCommandList_Close(command_list);
@@ -724,18 +742,9 @@ static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_F
 
     exec_command_list(queue, command_list);
     wait_queue_idle(device, queue);
-
-    rb->width = resource_desc.Width / format_size(format);
-    rb->height = 1;
-    rb->row_pitch = resource_desc.Width;
-    rb->data = NULL;
-
-    read_range.Begin = 0;
-    read_range.End = resource_desc.Width;
-    hr = ID3D12Resource_Map(resource, 0, &read_range, &rb->data);
-    ok(SUCCEEDED(hr), "Failed to map readback buffer, hr %#x.\n", hr);
-
     ID3D12Device_Release(device);
+
+    init_buffer_readback(rb, resource, format, &resource_desc);
 }
 
 static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsigned int sub_resource,
@@ -11007,7 +11016,6 @@ static void test_query_timestamp(void)
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *resource;
-    D3D12_RANGE read_range;
     struct resource_readback rb;
     UINT64 timestamps[4], timestamp_frequency, timestamp_diff, time_diff;
     time_t time_start, time_end;
@@ -11070,15 +11078,7 @@ static void test_query_timestamp(void)
 
     time_end = time(NULL) + 1;
 
-    rb.width = resource_desc.Width / format_size(resource_desc.Format);
-    rb.height = 1;
-    rb.row_pitch = resource_desc.Width;
-    rb.data = NULL;
-
-    read_range.Begin = 0;
-    read_range.End = resource_desc.Width;
-    hr = ID3D12Resource_Map(resource, 0, &read_range, &rb.data);
-    ok(SUCCEEDED(hr), "Failed to map readback buffer, hr %#x.\n", hr);
+    init_buffer_readback(&rb, resource, resource_desc.Format, &resource_desc);
 
     for (i = 0; i < ARRAY_SIZE(timestamps); ++i)
         timestamps[i] = get_readback_uint64(&rb, i, 0);
