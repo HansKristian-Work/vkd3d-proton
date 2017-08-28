@@ -3075,28 +3075,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(ID3D12GraphicsC
     FIXME("iface %p, resource %p, region %p stub!\n", iface, resource, region);
 }
 
-static UINT64 vkd3d_query_type_result_size(D3D12_QUERY_TYPE type)
-{
-    switch (type)
-    {
-        case D3D12_QUERY_TYPE_OCCLUSION:
-        case D3D12_QUERY_TYPE_BINARY_OCCLUSION:
-        case D3D12_QUERY_TYPE_TIMESTAMP:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM1:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM2:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM3:
-            return 8;
-
-        case D3D12_QUERY_TYPE_PIPELINE_STATISTICS:
-            return sizeof(struct D3D12_QUERY_DATA_PIPELINE_STATISTICS);
-
-        default:
-            WARN("Invalid query type %#x.\n", type);
-            return 0;
-    }
-}
-
 static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(ID3D12GraphicsCommandList *iface,
         ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT index)
 {
@@ -3136,6 +3114,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
     struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
     struct d3d12_resource *buffer = unsafe_impl_from_ID3D12Resource(dst_buffer);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkDeviceSize stride = sizeof(uint64_t);
 
     TRACE("iface %p, heap %p, type %#x, start_index %u, query_count %u, "
             "dst_buffer %p, aligned_dst_buffer_offset %#"PRIx64".\n",
@@ -3148,24 +3127,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
         return;
     }
 
-    switch (type)
-    {
-        case D3D12_QUERY_TYPE_TIMESTAMP:
-        case D3D12_QUERY_TYPE_PIPELINE_STATISTICS:
-            VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer, query_heap->vk_query_pool,
-                    start_index, query_count, buffer->u.vk_buffer, aligned_dst_buffer_offset,
-                    vkd3d_query_type_result_size(type), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
-            return;
+    if (type == D3D12_QUERY_TYPE_PIPELINE_STATISTICS)
+        stride = sizeof(struct D3D12_QUERY_DATA_PIPELINE_STATISTICS);
 
-        case D3D12_QUERY_TYPE_OCCLUSION:
-        case D3D12_QUERY_TYPE_BINARY_OCCLUSION:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM1:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM2:
-        case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM3:
-            FIXME("Unhandled query type %#x.\n", type);
-            return;
-    }
+    VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer, query_heap->vk_query_pool,
+            start_index, query_count, buffer->u.vk_buffer, aligned_dst_buffer_offset,
+            stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(ID3D12GraphicsCommandList *iface,
