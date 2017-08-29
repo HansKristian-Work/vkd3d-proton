@@ -3641,6 +3641,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetTimestampFrequency(ID3D1
 
     TRACE("iface %p, frequency %p.\n", iface, frequency);
 
+    if (command_queue->vk_queue_timestamp_bits == 0)
+        return E_FAIL;
+
     *frequency = 1000000000 / device->vk_info.device_limits.timestampPeriod;
 
     return S_OK;
