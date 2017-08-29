@@ -3066,10 +3066,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(ID3D12GraphicsComman
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkQueryControlFlags flags = 0;
 
     TRACE("iface %p, heap %p, type %#x, index %u.\n", iface, heap, type, index);
 
-    VK_CALL(vkCmdBeginQuery(list->vk_command_buffer, query_heap->vk_query_pool, index, 0));
+    if (type == D3D12_QUERY_TYPE_OCCLUSION)
+        flags = VK_QUERY_CONTROL_PRECISE_BIT;
+
+    VK_CALL(vkCmdBeginQuery(list->vk_command_buffer, query_heap->vk_query_pool, index, flags));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(ID3D12GraphicsCommandList *iface,
