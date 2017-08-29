@@ -3073,6 +3073,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(ID3D12GraphicsComman
     if (type == D3D12_QUERY_TYPE_OCCLUSION)
         flags = VK_QUERY_CONTROL_PRECISE_BIT;
 
+    VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
     VK_CALL(vkCmdBeginQuery(list->vk_command_buffer, query_heap->vk_query_pool, index, flags));
 }
 
@@ -3087,6 +3088,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(ID3D12GraphicsCommandL
 
     if (type == D3D12_QUERY_TYPE_TIMESTAMP)
     {
+        VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
         VK_CALL(vkCmdWriteTimestamp(list->vk_command_buffer,
                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_heap->vk_query_pool, index));
         return;
