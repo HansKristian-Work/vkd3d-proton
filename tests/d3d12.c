@@ -11495,12 +11495,10 @@ static void test_execute_indirect(void)
     D3D12_INDIRECT_ARGUMENT_DESC argument_desc;
     ID3D12CommandSignature *command_signature;
     ID3D12GraphicsCommandList *command_list;
-    D3D12_HEAP_PROPERTIES heap_properties;
     ID3D12Resource *argument_buffer, *uav;
     D3D12_ROOT_PARAMETER root_parameter;
     ID3D12PipelineState *pipeline_state;
     ID3D12RootSignature *root_signature;
-    D3D12_RESOURCE_DESC resource_desc;
     struct resource_readback rb;
     struct test_context context;
     ID3D12CommandQueue *queue;
@@ -11581,25 +11579,8 @@ static void test_execute_indirect(void)
             NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
     ok(SUCCEEDED(hr), "Failed to create command signature, hr %#x.\n", hr);
 
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = 2 * 3 * 4 * sizeof(UINT);
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-
-    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
-            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-            NULL, &IID_ID3D12Resource, (void **)&uav);
-    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    uav = create_default_buffer(context.device, 2 * 3 * 4 * sizeof(UINT),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     root_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
     root_parameter.Descriptor.ShaderRegister = 0;
@@ -11624,8 +11605,8 @@ static void test_execute_indirect(void)
 
     transition_sub_resource_state(command_list, uav, 0,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    get_buffer_readback_with_command_list(uav, resource_desc.Format, &rb, queue, command_list);
-    for (i = 0; i < 2 * 3 * 4; ++i)
+    get_buffer_readback_with_command_list(uav, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (i = 0; i < rb.width; ++i)
     {
         unsigned int ret = get_readback_uint(&rb, i, 0);
         ok(ret == i, "Got unexpected result %#x at index %u.\n", ret, i);
