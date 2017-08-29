@@ -479,6 +479,7 @@ struct d3d12_command_queue
 
     VkQueue vk_queue;
     uint32_t vk_queue_family_index;
+    uint32_t vk_queue_timestamp_bits;
 
     struct d3d12_device *device;
 };
@@ -527,6 +528,9 @@ struct d3d12_device
     unsigned int copy_queue_family_index;
     unsigned int compute_queue_family_index;
     VkPhysicalDeviceMemoryProperties memory_properties;
+    uint32_t direct_queue_timestamp_bits;
+    uint32_t copy_queue_timestamp_bits;
+    uint32_t compute_queue_timestamp_bits;
 
     struct vkd3d_vulkan_info vk_info;
 

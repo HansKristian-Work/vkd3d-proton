@@ -523,6 +523,7 @@ static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
 static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
 {
     unsigned int direct_queue_family_index, copy_queue_family_index, compute_queue_family_index;
+    uint32_t direct_queue_timestamp_bits, copy_queue_timestamp_bits, compute_queue_timestamp_bits;
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance.vk_procs;
     const char *extensions[MAX_DEVICE_EXTENSION_COUNT];
     VkQueueFamilyProperties *queue_properties;
@@ -571,12 +572,21 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
 
         if ((queue_properties[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
                 == (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
+        {
             direct_queue_family_index = i;
+            direct_queue_timestamp_bits = queue_properties[i].timestampValidBits;
+        }
         if (queue_properties[i].queueFlags & VK_QUEUE_TRANSFER_BIT)
+        {
             copy_queue_family_index = i;
+            copy_queue_timestamp_bits = queue_properties[i].timestampValidBits;
+        }
         if ((queue_properties[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
                 == VK_QUEUE_COMPUTE_BIT)
+        {
             compute_queue_family_index = i;
+            compute_queue_timestamp_bits = queue_properties[i].timestampValidBits;
+        }
     }
     vkd3d_free(queue_properties);
 
@@ -596,11 +606,15 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     {
         /* No compute-only queue family, reuse the direct queue family with graphics and compute. */
         compute_queue_family_index = direct_queue_family_index;
+        compute_queue_timestamp_bits = direct_queue_timestamp_bits;
     }
 
     device->direct_queue_family_index = direct_queue_family_index;
     device->copy_queue_family_index = copy_queue_family_index;
     device->compute_queue_family_index = compute_queue_family_index;
+    device->direct_queue_timestamp_bits = direct_queue_timestamp_bits;
+    device->copy_queue_timestamp_bits = copy_queue_timestamp_bits;
+    device->compute_queue_timestamp_bits = compute_queue_timestamp_bits;
     TRACE("Using queue family %u for direct command queues.\n", direct_queue_family_index);
     TRACE("Using queue family %u for copy command queues.\n", copy_queue_family_index);
     TRACE("Using queue family %u for compute command queues.\n", compute_queue_family_index);

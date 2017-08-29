@@ -3698,6 +3698,7 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     unsigned int queue_family_index;
+    uint32_t timestamp_bits;
 
     queue->ID3D12CommandQueue_iface.lpVtbl = &d3d12_command_queue_vtbl;
     queue->refcount = 1;
@@ -3710,12 +3711,15 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     {
         case D3D12_COMMAND_LIST_TYPE_DIRECT:
             queue_family_index = device->direct_queue_family_index;
+            timestamp_bits = device->direct_queue_timestamp_bits;
             break;
         case D3D12_COMMAND_LIST_TYPE_COPY:
             queue_family_index = device->copy_queue_family_index;
+            timestamp_bits = device->copy_queue_timestamp_bits;
             break;
         case D3D12_COMMAND_LIST_TYPE_COMPUTE:
             queue_family_index = device->compute_queue_family_index;
+            timestamp_bits = device->compute_queue_timestamp_bits;
             break;
         default:
             FIXME("Unhandled command list type %#x.\n", desc->Type);
@@ -3730,6 +3734,7 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     /* FIXME: Access to VkQueue must be externally synchronized. */
     VK_CALL(vkGetDeviceQueue(device->vk_device, queue_family_index, 0, &queue->vk_queue));
     queue->vk_queue_family_index = queue_family_index;
+    queue->vk_queue_timestamp_bits = timestamp_bits;
 
     queue->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
