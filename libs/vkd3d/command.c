@@ -2385,7 +2385,11 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
     vk_descriptor_write->pBufferInfo = NULL;
     vk_descriptor_write->pTexelBufferView = NULL;
 
-    if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
+    if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_CBV)
+    {
+        vk_descriptor_write->pBufferInfo = &descriptor->u.vk_cbv_info;
+    }
+    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
             || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
     {
         /* We use separate bindings for buffer and texture SRVs/UAVs.
@@ -2394,15 +2398,9 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
         if (descriptor->vk_descriptor_type != VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
                 && descriptor->vk_descriptor_type != VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
             ++vk_descriptor_write->dstBinding;
-    }
 
-    if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_CBV)
-    {
-        vk_descriptor_write->pBufferInfo = &descriptor->u.vk_cbv_info;
-    }
-    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV)
-    {
-        if (descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER)
+        if (descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
+                || descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
         {
             vk_descriptor_write->pTexelBufferView = &descriptor->u.vk_buffer_view;
         }
@@ -2410,22 +2408,8 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
         {
             vk_image_info->sampler = VK_NULL_HANDLE;
             vk_image_info->imageView = descriptor->u.vk_image_view;
-            vk_image_info->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            vk_descriptor_write->pImageInfo = vk_image_info;
-        }
-    }
-    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
-    {
-        if (descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
-        {
-            vk_descriptor_write->pTexelBufferView = &descriptor->u.vk_buffer_view;
-        }
-        else
-        {
-            vk_image_info->sampler = VK_NULL_HANDLE;
-            vk_image_info->imageView = descriptor->u.vk_image_view;
-            vk_image_info->imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            vk_image_info->imageLayout = descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
+                    ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL;
 
             vk_descriptor_write->pImageInfo = vk_image_info;
         }
