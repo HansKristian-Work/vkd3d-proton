@@ -3110,6 +3110,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
             iface, heap, type, start_index, query_count,
             dst_buffer, aligned_dst_buffer_offset);
 
+    /* Vulkan is less strict than D3D12 here. Vulkan implementations are free
+     * to return any non-zero result for binary occlusion with at least one
+     * sample passing, while D3D12 guarantees that the result is 1 then.
+     *
+     * For example, the Nvidia binary blob drivers on Linux seem to always
+     * count precisely, even when it was signalled that non-precise is enough.
+     */
+    if (type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)
+        FIXME("D3D12 guarantees binary occlusion queries result in only 0 and 1.\n");
+
     if (buffer->desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
     {
         WARN("Destination resource is not a buffer.\n");
