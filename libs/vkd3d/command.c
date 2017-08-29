@@ -3202,6 +3202,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(ID3D12GraphicsC
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
+                if (max_command_count != 1)
+                    FIXME("Ignoring command count %u.\n", max_command_count);
+
                 if (list->state->vk_bind_point != VK_PIPELINE_BIND_POINT_COMPUTE)
                 {
                     WARN("Pipeline state %p has bind point %#x, ignoring dispatch.\n",
