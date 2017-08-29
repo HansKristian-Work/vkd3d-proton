@@ -11488,6 +11488,138 @@ static void test_query_pipeline_statistics(void)
     destroy_test_context(&context);
 }
 
+static void test_query_occlusion(void)
+{
+    struct test_context_desc desc;
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    struct depth_stencil_resource ds;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_QUERY_HEAP_DESC heap_desc;
+    ID3D12QueryHeap *query_heap;
+    ID3D12Resource *resource;
+    struct resource_readback rb;
+    HRESULT hr;
+    int i;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float depth;
+
+        float main() : SV_Depth
+        {
+            return depth;
+        }
+#endif
+        0x43425844, 0x91af6cd0, 0x7e884502, 0xcede4f54, 0x6f2c9326, 0x00000001, 0x000000b0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0xffffffff,
+        0x00000e01, 0x445f5653, 0x68747065, 0xababab00, 0x52444853, 0x00000038, 0x00000040, 0x0000000e,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x02000065, 0x0000c001, 0x05000036, 0x0000c001,
+        0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const struct
+    {
+        D3D12_QUERY_TYPE type;
+        bool draw;
+        float clear_depth;
+        float depth;
+        bool result_is_zero;
+    }
+    tests[] =
+    {
+        {D3D12_QUERY_TYPE_OCCLUSION,        false, 1.0f, 0.5f, true},
+        {D3D12_QUERY_TYPE_OCCLUSION,        true,  1.0f, 0.5f, false},
+        {D3D12_QUERY_TYPE_BINARY_OCCLUSION, false, 1.0f, 0.5f, true},
+        {D3D12_QUERY_TYPE_BINARY_OCCLUSION, true,  1.0f, 0.5f, false},
+        {D3D12_QUERY_TYPE_OCCLUSION,        false, 0.0f, 0.5f, true},
+        {D3D12_QUERY_TYPE_OCCLUSION,        true,  0.0f, 0.5f, true},
+        {D3D12_QUERY_TYPE_BINARY_OCCLUSION, false, 0.0f, 0.5f, true},
+        {D3D12_QUERY_TYPE_BINARY_OCCLUSION, true,  0.0f, 0.5f, true},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    init_depth_stencil(&ds, context.device, 640, 480, DXGI_FORMAT_D32_FLOAT, 0, NULL);
+    set_viewport(&context.viewport, 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f);
+    set_rect(&context.scissor_rect, 0, 0, 640, 480);
+
+    context.root_signature = create_32bit_constants_root_signature(context.device,
+            0, 1, D3D12_SHADER_VISIBILITY_PIXEL);
+    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
+    pso_desc.NumRenderTargets = 0;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+
+    heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
+    heap_desc.Count = ARRAY_SIZE(tests);
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
+    ok(SUCCEEDED(hr), "ID3D12Device_CreateQueryHeap failed, type %u, hr %#x.\n", heap_desc.Type, hr);
+
+    resource = create_readback_buffer(device, ARRAY_SIZE(tests) * sizeof(UINT64));
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        ID3D12GraphicsCommandList_BeginQuery(command_list, query_heap, tests[i].type, i);
+
+        if (tests[i].draw)
+        {
+            ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+                    D3D12_CLEAR_FLAG_DEPTH, tests[i].clear_depth, 0, 0, NULL);
+
+            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &ds.dsv_handle);
+            ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+            ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+            ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+            ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+
+            ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 1, &tests[i].depth, 0);
+            ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+        }
+
+        ID3D12GraphicsCommandList_EndQuery(command_list, query_heap, tests[i].type, i);
+        ID3D12GraphicsCommandList_ResolveQueryData(command_list, query_heap, tests[i].type, i, 1,
+                resource, i * sizeof(UINT64));
+    }
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+
+    init_buffer_readback(&rb, resource, DXGI_FORMAT_UNKNOWN, NULL);
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        const UINT64 result = get_readback_uint64(&rb, i, 0);
+
+        ok((result == 0) == tests[i].result_is_zero, "Test %d: Got %"PRIu64", expected %s 0.\n",
+                i, result, tests[i].result_is_zero ? "==" : "!=");
+    }
+
+    release_resource_readback(&rb);
+    ID3D12QueryHeap_Release(query_heap);
+    destroy_depth_stencil(&ds);
+    destroy_test_context(&context);
+}
+
 static void test_execute_indirect(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -11694,5 +11826,6 @@ START_TEST(d3d12)
     run_test(test_create_query_heap);
     run_test(test_query_timestamp);
     run_test(test_query_pipeline_statistics);
+    run_test(test_query_occlusion);
     run_test(test_execute_indirect);
 }
