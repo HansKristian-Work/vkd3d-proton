@@ -2385,47 +2385,48 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
     vk_descriptor_write->pBufferInfo = NULL;
     vk_descriptor_write->pTexelBufferView = NULL;
 
-    if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_CBV)
+    switch (descriptor->magic)
     {
-        vk_descriptor_write->pBufferInfo = &descriptor->u.vk_cbv_info;
-    }
-    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
-            || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
-    {
-        /* We use separate bindings for buffer and texture SRVs/UAVs.
-         * See d3d12_root_signature_init(). */
-        vk_descriptor_write->dstBinding = vk_binding + 2 * index;
-        if (descriptor->vk_descriptor_type != VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
-                && descriptor->vk_descriptor_type != VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
-            ++vk_descriptor_write->dstBinding;
+        case VKD3D_DESCRIPTOR_MAGIC_CBV:
+            vk_descriptor_write->pBufferInfo = &descriptor->u.vk_cbv_info;
+            break;
 
-        if (descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
-                || descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
-        {
-            vk_descriptor_write->pTexelBufferView = &descriptor->u.vk_buffer_view;
-        }
-        else
-        {
-            vk_image_info->sampler = VK_NULL_HANDLE;
-            vk_image_info->imageView = descriptor->u.vk_image_view;
-            vk_image_info->imageLayout = descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
-                    ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL;
+        case VKD3D_DESCRIPTOR_MAGIC_SRV:
+        case VKD3D_DESCRIPTOR_MAGIC_UAV:
+            /* We use separate bindings for buffer and texture SRVs/UAVs.
+             * See d3d12_root_signature_init(). */
+            vk_descriptor_write->dstBinding = vk_binding + 2 * index;
+            if (descriptor->vk_descriptor_type != VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
+                    && descriptor->vk_descriptor_type != VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
+                ++vk_descriptor_write->dstBinding;
+
+            if (descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
+                    || descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
+            {
+                vk_descriptor_write->pTexelBufferView = &descriptor->u.vk_buffer_view;
+            }
+            else
+            {
+                vk_image_info->sampler = VK_NULL_HANDLE;
+                vk_image_info->imageView = descriptor->u.vk_image_view;
+                vk_image_info->imageLayout = descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
+                        ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL;
+
+                vk_descriptor_write->pImageInfo = vk_image_info;
+            }
+            break;
+
+        case VKD3D_DESCRIPTOR_MAGIC_SAMPLER:
+            vk_image_info->sampler = descriptor->u.vk_sampler;
+            vk_image_info->imageView = VK_NULL_HANDLE;
+            vk_image_info->imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
             vk_descriptor_write->pImageInfo = vk_image_info;
-        }
-    }
-    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
-    {
-        vk_image_info->sampler = descriptor->u.vk_sampler;
-        vk_image_info->imageView = VK_NULL_HANDLE;
-        vk_image_info->imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            break;
 
-        vk_descriptor_write->pImageInfo = vk_image_info;
-    }
-    else
-    {
-        FIXME("Unhandled descriptor %#x.\n", descriptor->magic);
-        return false;
+        default:
+            FIXME("Unhandled descriptor %#x.\n", descriptor->magic);
+            return false;
     }
 
     return true;
