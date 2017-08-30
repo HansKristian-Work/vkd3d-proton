@@ -1094,6 +1094,11 @@ static uint32_t vkd3d_spirv_build_op_select(struct vkd3d_spirv_builder *builder,
             SpvOpSelect, result_type, condition_id, object0_id, object1_id);
 }
 
+static void vkd3d_spirv_build_op_kill(struct vkd3d_spirv_builder *builder)
+{
+    vkd3d_spirv_build_op(&builder->function_stream, SpvOpKill);
+}
+
 static void vkd3d_spirv_build_op_return(struct vkd3d_spirv_builder *builder)
 {
     vkd3d_spirv_build_op(&builder->function_stream, SpvOpReturn);
@@ -3954,6 +3959,27 @@ static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler
     vkd3d_spirv_build_op_return(builder);
 }
 
+static void vkd3d_dxbc_compiler_emit_kill(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t condition_id, target_block_id, merge_block_id;
+
+    condition_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, VKD3DSP_WRITEMASK_0);
+    condition_id = vkd3d_dxbc_compiler_emit_int_to_bool(compiler,
+            VKD3D_SHADER_CONDITIONAL_OP_NZ, 1, condition_id);
+
+    merge_block_id = vkd3d_spirv_alloc_id(builder);
+    target_block_id = vkd3d_spirv_alloc_id(builder);
+
+    vkd3d_spirv_build_op_selection_merge(builder, merge_block_id, SpvSelectionControlMaskNone);
+    vkd3d_spirv_build_op_branch_conditional(builder, condition_id, target_block_id, merge_block_id);
+    vkd3d_spirv_build_op_label(builder, target_block_id);
+    vkd3d_spirv_build_op_kill(builder);
+    vkd3d_spirv_build_op_label(builder, merge_block_id);
+}
+
 static struct vkd3d_control_flow_info *vkd3d_dxbc_compiler_push_control_flow_level(
         struct vkd3d_dxbc_compiler *compiler)
 {
@@ -4258,6 +4284,10 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             {
                 cf_info->current_block = VKD3D_BLOCK_NONE;
             }
+            break;
+
+        case VKD3DSIH_TEXKILL:
+            vkd3d_dxbc_compiler_emit_kill(compiler, instruction);
             break;
 
         default:
@@ -5200,6 +5230,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_LOOP:
         case VKD3DSIH_RET:
         case VKD3DSIH_SWITCH:
+        case VKD3DSIH_TEXKILL:
             vkd3d_dxbc_compiler_emit_control_flow_instruction(compiler, instruction);
             break;
         case VKD3DSIH_LD:
