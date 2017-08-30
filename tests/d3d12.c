@@ -11753,6 +11753,109 @@ static void test_execute_indirect(void)
     destroy_test_context(&context);
 }
 
+static void test_texture_copy_region(void)
+{
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12Device *device;
+    ID3D12GraphicsCommandList *command_list;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *texture_src, *texture_dst;
+    D3D12_SUBRESOURCE_DATA texture_data;
+    D3D12_TEXTURE_COPY_LOCATION location_src, location_dst;
+    D3D12_BOX copy_box;
+    struct resource_readback rb;
+    HRESULT hr;
+    int i, j;
+
+    static const unsigned int clear_data[] =
+    {
+        0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x00000000, 0x00000000,
+    };
+    static const unsigned int bitmap_data[] =
+    {
+        0xff00ff00, 0xff00ff01, 0xff00ff02, 0xff00ff03,
+        0xff00ff10, 0xff00ff12, 0xff00ff12, 0xff00ff13,
+        0xff00ff20, 0xff00ff21, 0xff00ff22, 0xff00ff23,
+        0xff00ff30, 0xff00ff31, 0xff00ff32, 0xff00ff33,
+    };
+    static const unsigned int result_data[] = {
+        0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0xff00ff00, 0xff00ff01, 0x00000000,
+        0x00000000, 0xff00ff10, 0xff00ff12, 0x00000000,
+        0x00000000, 0x00000000, 0x00000000, 0x00000000,
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    texture_src = create_texture(device, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_STATE_COPY_DEST);
+    texture_data.pData = bitmap_data;
+    texture_data.RowPitch = 4 * sizeof(*bitmap_data);
+    texture_data.SlicePitch = texture_data.RowPitch * 4;
+    upload_texture_data(texture_src, &texture_data, 1, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+
+    texture_dst = create_texture(device, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_STATE_COPY_DEST);
+    texture_data.pData = clear_data;
+    texture_data.RowPitch = 4 * sizeof(*bitmap_data);
+    texture_data.SlicePitch = texture_data.RowPitch * 4;
+    upload_texture_data(texture_dst, &texture_data, 1, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+
+    transition_resource_state(command_list, texture_src,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    location_src.pResource = texture_src;
+    location_src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    location_src.SubresourceIndex = 0;
+    location_dst.pResource = texture_dst;
+    location_dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    location_dst.SubresourceIndex = 0;
+
+    copy_box.left = 0;
+    copy_box.top = 0;
+    copy_box.right = 2;
+    copy_box.bottom = 2;
+    copy_box.front = 0;
+    copy_box.back = 1;
+
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &location_dst, 1, 1, 0, &location_src, &copy_box);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+
+    transition_resource_state(command_list, texture_dst,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    reset_command_list(command_list, context.allocator);
+    get_texture_readback_with_command_list(texture_dst, 0, &rb, queue, command_list);
+    for (i = 0; i < 4; ++i)
+    {
+        for (j = 0; j < 4; ++j)
+        {
+            unsigned int color = get_readback_uint(&rb, j, i);
+            unsigned int expected = result_data[i * 4 + j];
+
+            ok(color == expected, "Got unexpected color 0x%08x at (%u, %u), expected 0x%08x\n", color, j, i, expected);
+        }
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(texture_src);
+    ID3D12Resource_Release(texture_dst);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     bool enable_debug_layer = false;
@@ -11828,4 +11931,5 @@ START_TEST(d3d12)
     run_test(test_query_pipeline_statistics);
     run_test(test_query_occlusion);
     run_test(test_execute_indirect);
+    run_test(test_texture_copy_region);
 }
