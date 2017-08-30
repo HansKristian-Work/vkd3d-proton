@@ -1148,10 +1148,13 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple(ID3D12Device *i
         const D3D12_CPU_DESCRIPTOR_HANDLE src_descriptor_range_offset,
         D3D12_DESCRIPTOR_HEAP_TYPE descriptor_heap_type)
 {
-    FIXME("iface %p, descriptor_count %u, dst_descriptor_range_offset %#lx, "
-            "src_descriptor_range_offset %#lx, descriptor_heap_type %#x stub!\n",
+    TRACE("iface %p, descriptor_count %u, dst_descriptor_range_offset %#lx, "
+            "src_descriptor_range_offset %#lx, descriptor_heap_type %#x.\n",
             iface, descriptor_count, dst_descriptor_range_offset.ptr, src_descriptor_range_offset.ptr,
             descriptor_heap_type);
+
+    d3d12_device_CopyDescriptors(iface, 1, &dst_descriptor_range_offset, &descriptor_count,
+            1, &src_descriptor_range_offset, &descriptor_count, descriptor_heap_type);
 }
 
 static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo(
