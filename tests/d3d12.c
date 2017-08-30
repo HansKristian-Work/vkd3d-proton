@@ -419,9 +419,9 @@ static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12Comm
     ID3D12Fence_Release(fence);
 }
 
-#define update_buffer_data(a, b, c) update_buffer_data_(__LINE__, a, b, c)
+#define update_buffer_data(a, b, c, d) update_buffer_data_(__LINE__, a, b, c, d)
 static void update_buffer_data_(unsigned int line, ID3D12Resource *buffer,
-        const void *data, size_t size)
+        size_t offset, size_t size, const void *data)
 {
     D3D12_RANGE range;
     HRESULT hr;
@@ -430,7 +430,7 @@ static void update_buffer_data_(unsigned int line, ID3D12Resource *buffer,
     range.Begin = range.End = 0;
     hr = ID3D12Resource_Map(buffer, 0, &range, &ptr);
     ok_(line)(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
-    memcpy(ptr, data, size);
+    memcpy((BYTE *)ptr + offset, data, size);
     ID3D12Resource_Unmap(buffer, 0, NULL);
 }
 
@@ -483,7 +483,7 @@ static ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Device *de
     buffer = create_buffer_(line, device, D3D12_HEAP_TYPE_UPLOAD, size,
             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
     if (data)
-        update_buffer_data_(line, buffer, data, size);
+        update_buffer_data_(line, buffer, 0, size, data);
     return buffer;
 }
 
@@ -6688,7 +6688,7 @@ static void test_shader_instructions(void)
                     context.root_signature, desc.rt_format, NULL, current_ps, NULL);
         }
 
-        update_buffer_data(cb, &tests[i].input, sizeof(tests[i].input));
+        update_buffer_data(cb, 0, sizeof(tests[i].input), &tests[i].input);
 
         if (i)
             transition_resource_state(command_list, context.render_target,
@@ -6735,7 +6735,7 @@ static void test_shader_instructions(void)
                     context.root_signature, desc.rt_format, NULL, current_ps, NULL);
         }
 
-        update_buffer_data(cb, &uint_tests[i].input, sizeof(uint_tests[i].input));
+        update_buffer_data(cb, 0, sizeof(uint_tests[i].input), &uint_tests[i].input);
 
         if (i)
             transition_resource_state(command_list, context.render_target,
@@ -7503,7 +7503,7 @@ static void test_cs_constant_buffer(void)
     release_resource_readback(&rb);
 
     value = 6.0f;
-    update_buffer_data(cb, &value, sizeof(value));
+    update_buffer_data(cb, 0, sizeof(value), &value);
 
     reset_command_list(command_list, context.allocator);
     transition_sub_resource_state(command_list, resource, 0,
@@ -7610,7 +7610,7 @@ static void test_immediate_constant_buffer(void)
     for (i = 0; i < ARRAY_SIZE(expected_result); ++i)
     {
         *index = i;
-        update_buffer_data(cb, index, sizeof(index));
+        update_buffer_data(cb, 0, sizeof(index), index);
 
         if (i)
             transition_resource_state(command_list, context.render_target,
@@ -9064,7 +9064,7 @@ static void test_depth_stencil_sampling(void)
         ID3D12Device_CreateShaderResourceView(device, NULL, &srv_desc, srv_cpu_handle);
 
         ps_constant.x = 0.5f;
-        update_buffer_data(cb, &ps_constant, sizeof(ps_constant));
+        update_buffer_data(cb, 0, sizeof(ps_constant), &ps_constant);
 
         /* pso_compare */
         ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, dsv_handle,
@@ -9087,7 +9087,7 @@ static void test_depth_stencil_sampling(void)
         check_depth_stencil_sampling(&context, pso_compare, cb, texture, dsv_handle, srv_heap, 0.0f);
 
         ps_constant.x = 0.7f;
-        update_buffer_data(cb, &ps_constant, sizeof(ps_constant));
+        update_buffer_data(cb, 0, sizeof(ps_constant), &ps_constant);
 
         reset_command_list(command_list, context.allocator);
         check_depth_stencil_sampling(&context, pso_compare, cb, texture, dsv_handle, srv_heap, 1.0f);
@@ -10531,7 +10531,7 @@ static void test_cs_uav_store(void)
 
         memset(&input, 0, sizeof(input));
         input.x = tests[i].value;
-        update_buffer_data(cb, &input.x, sizeof(input));
+        update_buffer_data(cb, 0, sizeof(input), &input.x);
 
         reset_command_list(command_list, context.allocator);
         transition_sub_resource_state(command_list, resource, 0,
@@ -10558,7 +10558,7 @@ static void test_cs_uav_store(void)
 
     memset(&input, 0, sizeof(input));
     input.x = 1.0f;
-    update_buffer_data(cb, &input.x, sizeof(input));
+    update_buffer_data(cb, 0, sizeof(input), &input.x);
 
     reset_command_list(command_list, context.allocator);
     transition_sub_resource_state(command_list, resource, 0,
@@ -10580,7 +10580,7 @@ static void test_cs_uav_store(void)
 
     memset(&input, 0, sizeof(input));
     input.x = 0.5f;
-    update_buffer_data(cb, &input.x, sizeof(input));
+    update_buffer_data(cb, 0, sizeof(input), &input.x);
 
     reset_command_list(command_list, context.allocator);
     transition_sub_resource_state(command_list, resource, 0,
@@ -10610,7 +10610,7 @@ static void test_cs_uav_store(void)
 
     memset(&input, 0, sizeof(input));
     input.x = 0.6f;
-    update_buffer_data(cb, &input.x, sizeof(input));
+    update_buffer_data(cb, 0, sizeof(input), &input.x);
 
     reset_command_list(command_list, context.allocator);
     transition_sub_resource_state(command_list, resource, 0,
@@ -10637,7 +10637,7 @@ static void test_cs_uav_store(void)
 
     memset(&input, 0, sizeof(input));
     input.x = 0.7f;
-    update_buffer_data(cb, &input.x, sizeof(input));
+    update_buffer_data(cb, 0, sizeof(input), &input.x);
 
     reset_command_list(command_list, context.allocator);
     transition_sub_resource_state(command_list, resource, 0,
