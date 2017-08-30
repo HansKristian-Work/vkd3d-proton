@@ -4541,7 +4541,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_raw_structured_addressing(
         return offset_id;
 }
 
-static void vkd3d_dxbc_compiler_emit_ld_srv(struct vkd3d_dxbc_compiler *compiler,
+static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     uint32_t coordinate_id, type_id, val_id, image_id, texel_type_id;
@@ -4553,12 +4553,23 @@ static void vkd3d_dxbc_compiler_emit_ld_srv(struct vkd3d_dxbc_compiler *compiler
     uint32_t constituents[VKD3D_VEC4_SIZE];
     struct vkd3d_shader_image image;
     unsigned int i, j;
+    SpvOp op;
 
     resource = &src[instruction->src_count - 1];
 
-    /* OpImageFetch must be used with a sampled image. */
-    vkd3d_dxbc_compiler_prepare_default_sampled_image(compiler, &image, &resource->reg);
-    image_id = vkd3d_spirv_build_op_image(builder, image.image_type_id, image.sampled_image_id);
+    if (resource->reg.type == VKD3DSPR_RESOURCE)
+    {
+        /* OpImageFetch must be used with a sampled image. */
+        op = SpvOpImageFetch;
+        vkd3d_dxbc_compiler_prepare_default_sampled_image(compiler, &image, &resource->reg);
+        image_id = vkd3d_spirv_build_op_image(builder, image.image_type_id, image.sampled_image_id);
+    }
+    else
+    {
+        op = SpvOpImageRead;
+        vkd3d_dxbc_compiler_prepare_image(compiler, &image, &resource->reg, VKD3D_IMAGE_FLAG_NONE);
+        image_id = image.image_id;
+    }
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
     base_coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
@@ -4576,8 +4587,8 @@ static void vkd3d_dxbc_compiler_emit_ld_srv(struct vkd3d_dxbc_compiler *compiler
             coordinate_id = vkd3d_spirv_build_op_iadd(builder, type_id,
                     coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
 
-        val_id = vkd3d_spirv_build_op_image_fetch(builder, texel_type_id,
-                image_id, coordinate_id, SpvImageOperandsMaskNone, NULL, 0);
+        val_id = vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+                op, texel_type_id, image_id, coordinate_id);
         constituents[j++] = vkd3d_spirv_build_op_composite_extract1(builder,
                 type_id, val_id, 0);
     }
@@ -4631,10 +4642,8 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured(struct vkd3d_dxbc_compile
     switch (reg_type)
     {
         case VKD3DSPR_RESOURCE:
-            vkd3d_dxbc_compiler_emit_ld_srv(compiler, instruction);
-            break;
         case VKD3DSPR_UAV:
-            FIXME("Not implemented for UAVs.\n");
+            vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(compiler, instruction);
             break;
         case VKD3DSPR_GROUPSHAREDMEM:
             vkd3d_dxbc_compiler_emit_ld_tgsm(compiler, instruction);
