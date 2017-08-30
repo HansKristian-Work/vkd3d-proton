@@ -1205,7 +1205,7 @@ static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12
     const struct vkd3d_format *format;
     VkImageMemoryBarrier barrier;
 
-    assert(!d3d12_resource_is_buffer(resource));
+    assert(d3d12_resource_is_texture(resource));
 
     if (!(format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, 0)))
     {
@@ -1864,7 +1864,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
             && dst->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
     {
         assert(d3d12_resource_is_buffer(dst_resource));
-        assert(!d3d12_resource_is_buffer(src_resource));
+        assert(d3d12_resource_is_texture(src_resource));
 
         if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(&src_resource->desc,
                 dst->u.PlacedFootprint.Footprint.Format)))
@@ -1886,7 +1886,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
     else if (src->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT
             && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
     {
-        assert(!d3d12_resource_is_buffer(dst_resource));
+        assert(d3d12_resource_is_texture(dst_resource));
         assert(d3d12_resource_is_buffer(src_resource));
 
         if (!(src_format = vkd3d_format_from_d3d12_resource_desc(&dst_resource->desc,
@@ -1909,8 +1909,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
     else if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
             && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
     {
-        assert(!d3d12_resource_is_buffer(dst_resource));
-        assert(!d3d12_resource_is_buffer(src_resource));
+        assert(d3d12_resource_is_texture(dst_resource));
+        assert(d3d12_resource_is_texture(src_resource));
 
         if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(&dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
         {

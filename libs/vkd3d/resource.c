@@ -461,7 +461,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
         return E_INVALIDARG;
     }
 
-    if (!d3d12_resource_is_buffer(resource))
+    if (d3d12_resource_is_texture(resource))
     {
         /* Textures seem to be mappable only on UMA adapters. */
         FIXME("Not implemented for textures.\n");
@@ -505,7 +505,7 @@ static void STDMETHODCALLTYPE d3d12_resource_Unmap(ID3D12Resource *iface, UINT s
     device = resource->device;
     vk_procs = &device->vk_procs;
 
-    if (!d3d12_resource_is_buffer(resource))
+    if (d3d12_resource_is_texture(resource))
     {
         FIXME("Not implemented for textures.\n");
         return;
@@ -628,8 +628,9 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
 
     resource->desc = *desc;
 
-    if (!d3d12_resource_is_buffer(resource)
-            && (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD || heap_properties->Type == D3D12_HEAP_TYPE_READBACK))
+    if (d3d12_resource_is_texture(resource)
+            && (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD
+            || heap_properties->Type == D3D12_HEAP_TYPE_READBACK))
     {
         WARN("Texture cannot be created on a UPLOAD/READBACK heap.\n");
         return E_INVALIDARG;
