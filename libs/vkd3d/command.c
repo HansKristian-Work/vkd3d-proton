@@ -1813,6 +1813,31 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy *buffer_image_copy
     buffer_image_copy->imageExtent.depth = footprint->Footprint.Depth;
 }
 
+static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
+        unsigned int src_sub_resource_idx, unsigned int dst_sub_resource_idx,
+        const D3D12_RESOURCE_DESC *src_desc, const D3D12_RESOURCE_DESC *dst_desc,
+        const struct vkd3d_format *src_format, const struct vkd3d_format *dst_format,
+        const D3D12_BOX *src_box, unsigned int dst_x, unsigned int dst_y, unsigned int dst_z)
+{
+    image_copy->srcSubresource.aspectMask = src_format->vk_aspect_mask;
+    image_copy->srcSubresource.mipLevel = src_sub_resource_idx % src_desc->MipLevels;
+    image_copy->srcSubresource.baseArrayLayer = src_sub_resource_idx / src_desc->MipLevels;
+    image_copy->srcSubresource.layerCount = 1;
+    image_copy->srcOffset.x = src_box ? src_box->left : 0;
+    image_copy->srcOffset.y = src_box ? src_box->top : 0;
+    image_copy->srcOffset.z = src_box ? src_box->front : 0;
+    image_copy->dstSubresource.aspectMask = dst_format->vk_aspect_mask;
+    image_copy->dstSubresource.mipLevel = dst_sub_resource_idx % dst_desc->MipLevels;
+    image_copy->dstSubresource.baseArrayLayer = dst_sub_resource_idx / dst_desc->MipLevels;
+    image_copy->dstSubresource.layerCount = 1;
+    image_copy->dstOffset.x = dst_x;
+    image_copy->dstOffset.y = dst_y;
+    image_copy->dstOffset.z = dst_z;
+    image_copy->extent.width = src_box ? (src_box->right - src_box->left) : src_desc->Width;
+    image_copy->extent.height = src_box ? (src_box->bottom - src_box->top) : src_desc->Height;
+    image_copy->extent.depth = src_box ? (src_box->back - src_box->front) : src_desc->DepthOrArraySize;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12GraphicsCommandList *iface,
         const D3D12_TEXTURE_COPY_LOCATION *dst, UINT dst_x, UINT dst_y, UINT dst_z,
         const D3D12_TEXTURE_COPY_LOCATION *src, const D3D12_BOX *src_box)
@@ -1821,7 +1846,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
     struct d3d12_resource *dst_resource, *src_resource;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkBufferImageCopy buffer_image_copy;
-    const struct vkd3d_format *format;
+    VkImageCopy image_copy;
+    const struct vkd3d_format *src_format, *dst_format;
 
     TRACE("iface %p, dst %p, dst_x %u, dst_y %u, dst_z %u, src %p, src_box %p.\n",
             iface, dst, dst_x, dst_y, dst_z, src, src_box);
@@ -1840,19 +1866,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
         assert(d3d12_resource_is_buffer(dst_resource));
         assert(!d3d12_resource_is_buffer(src_resource));
 
-        if (!(format = vkd3d_format_from_d3d12_resource_desc(&src_resource->desc,
+        if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(&src_resource->desc,
                 dst->u.PlacedFootprint.Footprint.Format)))
         {
             WARN("Invalid format %#x.\n", dst->u.PlacedFootprint.Footprint.Format);
             return;
         }
 
-        if ((format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
-                && (format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
-            FIXME("Depth-stencil format %#x not fully supported yet.\n", format->dxgi_format);
+        if ((dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                && (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
+            FIXME("Depth-stencil format %#x not fully supported yet.\n", dst_format->dxgi_format);
 
         vk_buffer_image_copy_from_d3d12(&buffer_image_copy, &dst->u.PlacedFootprint,
-                src->u.SubresourceIndex, &src_resource->desc, format, dst_x, dst_y, dst_z);
+                src->u.SubresourceIndex, &src_resource->desc, dst_format, dst_x, dst_y, dst_z);
         VK_CALL(vkCmdCopyImageToBuffer(list->vk_command_buffer,
                 src_resource->u.vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 dst_resource->u.vk_buffer, 1, &buffer_image_copy));
@@ -1863,22 +1889,53 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
         assert(!d3d12_resource_is_buffer(dst_resource));
         assert(d3d12_resource_is_buffer(src_resource));
 
-        if (!(format = vkd3d_format_from_d3d12_resource_desc(&dst_resource->desc,
+        if (!(src_format = vkd3d_format_from_d3d12_resource_desc(&dst_resource->desc,
                 src->u.PlacedFootprint.Footprint.Format)))
         {
             WARN("Invalid format %#x.\n", src->u.PlacedFootprint.Footprint.Format);
             return;
         }
 
-        if ((format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
-                && (format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
-            FIXME("Depth-stencil format %#x not fully supported yet.\n", format->dxgi_format);
+        if ((src_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                && (src_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
+            FIXME("Depth-stencil format %#x not fully supported yet.\n", src_format->dxgi_format);
 
         vk_buffer_image_copy_from_d3d12(&buffer_image_copy, &src->u.PlacedFootprint,
-                dst->u.SubresourceIndex, &dst_resource->desc, format, dst_x, dst_y, dst_z);
+                dst->u.SubresourceIndex, &dst_resource->desc, src_format, dst_x, dst_y, dst_z);
         VK_CALL(vkCmdCopyBufferToImage(list->vk_command_buffer,
                 src_resource->u.vk_buffer, dst_resource->u.vk_image,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &buffer_image_copy));
+    }
+    else if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
+            && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
+    {
+        assert(!d3d12_resource_is_buffer(dst_resource));
+        assert(!d3d12_resource_is_buffer(src_resource));
+
+        if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(&dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
+        {
+            WARN("Invalid format %#x.\n", dst_resource->desc.Format);
+            return;
+        }
+        if (!(src_format = vkd3d_format_from_d3d12_resource_desc(&src_resource->desc, DXGI_FORMAT_UNKNOWN)))
+        {
+            WARN("Invalid format %#x.\n", src_resource->desc.Format);
+            return;
+        }
+
+        if ((dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                && (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
+            FIXME("Depth-stencil format %#x not fully supported yet.\n", dst_format->dxgi_format);
+        if ((src_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                && (src_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
+            FIXME("Depth-stencil format %#x not fully supported yet.\n", src_format->dxgi_format);
+
+        vk_image_copy_from_d3d12(&image_copy, src->u.SubresourceIndex, dst->u.SubresourceIndex,
+                 &src_resource->desc, &dst_resource->desc, src_format, dst_format,
+                 src_box, dst_x, dst_y, dst_z);
+        VK_CALL(vkCmdCopyImage(list->vk_command_buffer, src_resource->u.vk_image,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->u.vk_image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &image_copy));
     }
     else
     {
