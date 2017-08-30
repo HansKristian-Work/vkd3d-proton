@@ -1266,12 +1266,17 @@ static uint32_t vkd3d_spirv_build_op_image_sample_implicit_lod(struct vkd3d_spir
             SpvOpImageSampleImplicitLod, result_type, w, i);
 }
 
-static uint32_t vkd3d_spirv_build_op_image_sample_dref_implicit_lod(struct vkd3d_spirv_builder *builder,
-        uint32_t result_type, uint32_t sampled_image_id, uint32_t coordinate_id, uint32_t dref_id,
-        uint32_t image_operands, const uint32_t *operands, unsigned int operand_count)
+static uint32_t vkd3d_spirv_build_op_image_sample_dref(struct vkd3d_spirv_builder *builder,
+        SpvOp op, uint32_t result_type, uint32_t sampled_image_id, uint32_t coordinate_id,
+        uint32_t dref_id, uint32_t image_operands, const uint32_t *operands, unsigned int operand_count)
 {
     unsigned int i = 0, j;
     uint32_t w[10];
+
+    if (op == SpvOpImageSampleDrefExplicitLod)
+        assert(image_operands & SpvImageOperandsLodMask);
+    else
+        assert(op == SpvOpImageSampleDrefImplicitLod);
 
     w[i++] = sampled_image_id;
     w[i++] = coordinate_id;
@@ -1284,7 +1289,7 @@ static uint32_t vkd3d_spirv_build_op_image_sample_dref_implicit_lod(struct vkd3d
             w[i++] = operands[j];
     }
     return vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
-            SpvOpImageSampleDrefImplicitLod, result_type, w, i);
+            op, result_type, w, i);
 }
 
 static uint32_t vkd3d_spirv_build_op_image_fetch(struct vkd3d_spirv_builder *builder,
@@ -4411,10 +4416,26 @@ static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compil
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_src_param *src = instruction->src;
     struct vkd3d_shader_dst_param dst = *instruction->dst;
+    SpvImageOperandsMask operands_mask = 0;
+    unsigned int image_operand_count = 0;
     struct vkd3d_shader_image image;
+    uint32_t image_operands[1];
+    SpvOp op;
 
     if (vkd3d_shader_instruction_has_texel_offset(instruction))
         FIXME("Texel offset not supported.\n");
+
+    if (instruction->handler_idx == VKD3DSIH_SAMPLE_C_LZ)
+    {
+        op = SpvOpImageSampleDrefExplicitLod;
+        operands_mask |= SpvImageOperandsLodMask;
+        image_operands[image_operand_count++]
+                = vkd3d_dxbc_compiler_get_constant_float(compiler, 0.0f);
+    }
+    else
+    {
+        op = SpvOpImageSampleDrefImplicitLod;
+    }
 
     vkd3d_dxbc_compiler_prepare_sampled_image(compiler,
             &image, &src[1].reg, &src[2].reg, VKD3D_IMAGE_FLAG_DEPTH);
@@ -4425,8 +4446,9 @@ static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compil
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
     coordinate_id = vkd3d_spirv_build_op_composite_insert(builder,
             type_id, ref_id, coordinate_id, &image.resource_type_info->coordinate_component_count, 1);
-    val_id = vkd3d_spirv_build_op_image_sample_dref_implicit_lod(builder, sampled_type_id,
-            image.sampled_image_id, coordinate_id, ref_id, SpvImageOperandsMaskNone, NULL, 0);
+    val_id = vkd3d_spirv_build_op_image_sample_dref(builder, op, sampled_type_id,
+            image.sampled_image_id, coordinate_id, ref_id, operands_mask,
+            image_operands, image_operand_count);
 
     val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
             val_id, image.sampled_type, src[1].swizzle, dst.write_mask);
@@ -5162,6 +5184,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             vkd3d_dxbc_compiler_emit_sample(compiler, instruction);
             break;
         case VKD3DSIH_SAMPLE_C:
+        case VKD3DSIH_SAMPLE_C_LZ:
             vkd3d_dxbc_compiler_emit_sample_c(compiler, instruction);
             break;
         case VKD3DSIH_LD_RAW:
