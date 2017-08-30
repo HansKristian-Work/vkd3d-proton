@@ -557,8 +557,11 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     }
 
     direct_queue_family_index = ~0u;
+    direct_queue_timestamp_bits = 0;
     copy_queue_family_index = ~0u;
+    copy_queue_timestamp_bits = 0;
     compute_queue_family_index = ~0u;
+    compute_queue_timestamp_bits = 0;
     for (i = 0; i < queue_family_count; ++i)
     {
         static float priorities[] = {1.0f};
