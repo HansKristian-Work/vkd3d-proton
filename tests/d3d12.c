@@ -734,37 +734,13 @@ struct resource_readback
     void *data;
 };
 
-static void init_buffer_readback(struct resource_readback *rb, ID3D12Resource *rb_buffer,
-        DXGI_FORMAT format, D3D12_RESOURCE_DESC *resource_desc)
-{
-    D3D12_RESOURCE_DESC desc;
-    D3D12_RANGE read_range;
-    HRESULT hr;
-
-    if (!resource_desc)
-    {
-        desc = ID3D12Resource_GetDesc(rb_buffer);
-        resource_desc = &desc;
-    }
-    assert(resource_desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER);
-
-    rb->width = resource_desc->Width / format_size(format);
-    rb->height = 1;
-    rb->resource = rb_buffer;
-    rb->row_pitch = resource_desc->Width;
-    rb->data = NULL;
-
-    read_range.Begin = 0;
-    read_range.End = resource_desc->Width;
-    hr = ID3D12Resource_Map(rb_buffer, 0, &read_range, &rb->data);
-    ok(SUCCEEDED(hr), "Failed to map readback buffer, hr %#x.\n", hr);
-}
-
 static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_FORMAT format,
         struct resource_readback *rb, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
 {
+    D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *rb_buffer;
+    D3D12_RANGE read_range;
     ID3D12Device *device;
     HRESULT hr;
 
@@ -775,9 +751,20 @@ static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_F
     assert(resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER);
     resource_desc.Flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
 
-    rb_buffer = create_readback_buffer(device, resource_desc.Width);
+    hr = ID3D12Resource_GetHeapProperties(buffer, &heap_properties, NULL);
+    ok(SUCCEEDED(hr), "Failed to get heap properties.\n");
+    if (heap_properties.Type == D3D12_HEAP_TYPE_READBACK)
+    {
+        rb_buffer = buffer;
+        ID3D12Resource_AddRef(rb_buffer);
+    }
+    else
+    {
+        rb_buffer = create_readback_buffer(device, resource_desc.Width);
+        ID3D12GraphicsCommandList_CopyBufferRegion(command_list, rb_buffer, 0,
+                buffer, 0, resource_desc.Width);
+    }
 
-    ID3D12GraphicsCommandList_CopyBufferRegion(command_list, rb_buffer, 0, buffer, 0, resource_desc.Width);
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
 
@@ -785,7 +772,16 @@ static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_F
     wait_queue_idle(device, queue);
     ID3D12Device_Release(device);
 
-    init_buffer_readback(rb, rb_buffer, format, &resource_desc);
+    rb->width = resource_desc.Width / format_size(format);
+    rb->height = 1;
+    rb->resource = rb_buffer;
+    rb->row_pitch = resource_desc.Width;
+    rb->data = NULL;
+
+    read_range.Begin = 0;
+    read_range.End = resource_desc.Width;
+    hr = ID3D12Resource_Map(rb_buffer, 0, &read_range, &rb->data);
+    ok(SUCCEEDED(hr), "Failed to map readback buffer, hr %#x.\n", hr);
 }
 
 static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsigned int sub_resource,
@@ -11356,14 +11352,9 @@ static void test_query_timestamp(void)
                 resource, i * sizeof(UINT64));
     }
 
-    hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
-    exec_command_list(queue, command_list);
-    wait_queue_idle(device, queue);
+    get_buffer_readback_with_command_list(resource, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
 
     time_end = time(NULL) + 1;
-
-    init_buffer_readback(&rb, resource, DXGI_FORMAT_UNKNOWN, NULL);
 
     for (i = 0; i < ARRAY_SIZE(timestamps); ++i)
         timestamps[i] = get_readback_uint64(&rb, i, 0);
@@ -11380,6 +11371,7 @@ static void test_query_timestamp(void)
 
     release_resource_readback(&rb);
     ID3D12QueryHeap_Release(query_heap);
+    ID3D12Resource_Release(resource);
     destroy_test_context(&context);
 }
 
@@ -11435,12 +11427,7 @@ static void test_query_pipeline_statistics(void)
     ID3D12GraphicsCommandList_ResolveQueryData(command_list, query_heap, D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 1, 1,
             resource, sizeof(struct D3D12_QUERY_DATA_PIPELINE_STATISTICS));
 
-    hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
-    exec_command_list(queue, command_list);
-    wait_queue_idle(device, queue);
-
-    init_buffer_readback(&rb, resource, DXGI_FORMAT_UNKNOWN, NULL);
+    get_buffer_readback_with_command_list(resource, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
 
     for (i = 0; i < sizeof(struct D3D12_QUERY_DATA_PIPELINE_STATISTICS) / sizeof(UINT64); ++i)
     {
@@ -11485,6 +11472,7 @@ static void test_query_pipeline_statistics(void)
 
     release_resource_readback(&rb);
     ID3D12QueryHeap_Release(query_heap);
+    ID3D12Resource_Release(resource);
     destroy_test_context(&context);
 }
 
@@ -11599,13 +11587,7 @@ static void test_query_occlusion(void)
                 resource, i * sizeof(UINT64));
     }
 
-    hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(SUCCEEDED(hr), "Close failed, hr %#x.\n", hr);
-    exec_command_list(queue, command_list);
-    wait_queue_idle(device, queue);
-
-    init_buffer_readback(&rb, resource, DXGI_FORMAT_UNKNOWN, NULL);
-
+    get_buffer_readback_with_command_list(resource, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
         const UINT64 result = get_readback_uint64(&rb, i, 0);
@@ -11613,9 +11595,10 @@ static void test_query_occlusion(void)
         ok((result == 0) == tests[i].result_is_zero, "Test %d: Got %"PRIu64", expected %s 0.\n",
                 i, result, tests[i].result_is_zero ? "==" : "!=");
     }
-
     release_resource_readback(&rb);
+
     ID3D12QueryHeap_Release(query_heap);
+    ID3D12Resource_Release(resource);
     destroy_depth_stencil(&ds);
     destroy_test_context(&context);
 }
