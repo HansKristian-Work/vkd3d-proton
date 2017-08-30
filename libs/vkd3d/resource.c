@@ -572,10 +572,17 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(ID3D12Resour
 static HRESULT STDMETHODCALLTYPE d3d12_resource_GetHeapProperties(ID3D12Resource *iface,
         D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS *flags)
 {
-    FIXME("iface %p, heap_properties %p, flags %p stub!\n",
+    struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
+
+    TRACE("iface %p, heap_properties %p, flags %p.\n",
             iface, heap_properties, flags);
 
-    return E_NOTIMPL;
+    if (heap_properties)
+        *heap_properties = resource->heap_properties;
+    if (flags)
+        *flags = resource->heap_flags;
+
+    return S_OK;
 }
 
 static const struct ID3D12ResourceVtbl d3d12_resource_vtbl =
@@ -691,6 +698,7 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     resource->map_data = NULL;
 
     resource->heap_properties = *heap_properties;
+    resource->heap_flags = heap_flags;
     resource->initial_state = initial_state;
 
     resource->device = device;

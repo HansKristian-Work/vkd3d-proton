@@ -165,6 +165,7 @@ struct d3d12_resource
     void *map_data;
 
     D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_HEAP_FLAGS heap_flags;
     D3D12_RESOURCE_STATES initial_state;
 
     struct d3d12_device *device;
