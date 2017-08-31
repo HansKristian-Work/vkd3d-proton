@@ -3185,7 +3185,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
     if (type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)
         FIXME("D3D12 guarantees binary occlusion queries result in only 0 and 1.\n");
 
-    if (buffer->desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+    if (!d3d12_resource_is_buffer(buffer))
     {
         WARN("Destination resource is not a buffer.\n");
         return;
