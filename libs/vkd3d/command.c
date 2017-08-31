@@ -1833,9 +1833,18 @@ static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
     image_copy->dstOffset.x = dst_x;
     image_copy->dstOffset.y = dst_y;
     image_copy->dstOffset.z = dst_z;
-    image_copy->extent.width = src_box ? (src_box->right - src_box->left) : src_desc->Width;
-    image_copy->extent.height = src_box ? (src_box->bottom - src_box->top) : src_desc->Height;
-    image_copy->extent.depth = src_box ? (src_box->back - src_box->front) : src_desc->DepthOrArraySize;
+    if (src_box)
+    {
+        image_copy->extent.width = src_box->right - src_box->left;
+        image_copy->extent.height = src_box->bottom - src_box->top;
+        image_copy->extent.depth = src_box->back - src_box->front;
+    }
+    else
+    {
+        image_copy->extent.width = src_desc->Width;
+        image_copy->extent.height = src_desc->Height;
+        image_copy->extent.depth = d3d12_resource_desc_get_depth(src_desc);
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12GraphicsCommandList *iface,
