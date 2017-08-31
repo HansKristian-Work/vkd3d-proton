@@ -11489,8 +11489,8 @@ static void test_query_occlusion(void)
     ID3D12QueryHeap *query_heap;
     ID3D12Resource *resource;
     struct resource_readback rb;
+    unsigned int i;
     HRESULT hr;
-    int i;
 
     static const DWORD ps_code[] =
     {
@@ -11516,18 +11516,17 @@ static void test_query_occlusion(void)
         bool draw;
         float clear_depth;
         float depth;
-        bool result_is_zero;
     }
     tests[] =
     {
-        {D3D12_QUERY_TYPE_OCCLUSION,        false, 1.0f, 0.5f, true},
-        {D3D12_QUERY_TYPE_OCCLUSION,        true,  1.0f, 0.5f, false},
-        {D3D12_QUERY_TYPE_BINARY_OCCLUSION, false, 1.0f, 0.5f, true},
-        {D3D12_QUERY_TYPE_BINARY_OCCLUSION, true,  1.0f, 0.5f, false},
-        {D3D12_QUERY_TYPE_OCCLUSION,        false, 0.0f, 0.5f, true},
-        {D3D12_QUERY_TYPE_OCCLUSION,        true,  0.0f, 0.5f, true},
-        {D3D12_QUERY_TYPE_BINARY_OCCLUSION, false, 0.0f, 0.5f, true},
-        {D3D12_QUERY_TYPE_BINARY_OCCLUSION, true,  0.0f, 0.5f, true},
+        {D3D12_QUERY_TYPE_OCCLUSION,        false, 1.0f, 0.5f},
+        {D3D12_QUERY_TYPE_OCCLUSION,        true,  1.0f, 0.5f},
+        {D3D12_QUERY_TYPE_BINARY_OCCLUSION, false, 1.0f, 0.5f},
+        {D3D12_QUERY_TYPE_BINARY_OCCLUSION, true,  1.0f, 0.5f},
+        {D3D12_QUERY_TYPE_OCCLUSION,        false, 0.0f, 0.5f},
+        {D3D12_QUERY_TYPE_OCCLUSION,        true,  0.0f, 0.5f},
+        {D3D12_QUERY_TYPE_BINARY_OCCLUSION, false, 0.0f, 0.5f},
+        {D3D12_QUERY_TYPE_BINARY_OCCLUSION, true,  0.0f, 0.5f},
     };
 
     memset(&desc, 0, sizeof(desc));
@@ -11562,22 +11561,22 @@ static void test_query_occlusion(void)
 
     resource = create_readback_buffer(device, ARRAY_SIZE(tests) * sizeof(UINT64));
 
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+                D3D12_CLEAR_FLAG_DEPTH, tests[i].clear_depth, 0, 0, NULL);
+
         ID3D12GraphicsCommandList_BeginQuery(command_list, query_heap, tests[i].type, i);
 
         if (tests[i].draw)
         {
-            ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
-                    D3D12_CLEAR_FLAG_DEPTH, tests[i].clear_depth, 0, 0, NULL);
-
-            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &ds.dsv_handle);
-            ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
-            ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-            ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
-            ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
-
             ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 1, &tests[i].depth, 0);
             ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
         }
@@ -11590,10 +11589,17 @@ static void test_query_occlusion(void)
     get_buffer_readback_with_command_list(resource, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        const bool samples_passed = tests[i].draw && tests[i].clear_depth > tests[i].depth;
         const UINT64 result = get_readback_uint64(&rb, i, 0);
+        UINT64 expected_result;
 
-        ok((result == 0) == tests[i].result_is_zero, "Test %d: Got %"PRIu64", expected %s 0.\n",
-                i, result, tests[i].result_is_zero ? "==" : "!=");
+        if (tests[i].type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)
+            expected_result = samples_passed ? 1 : 0;
+        else
+            expected_result = samples_passed ? 640 * 480 : 0;
+
+        ok(result == expected_result || (expected_result && result >= expected_result),
+                "Test %u: Got unexpected result %"PRIu64".\n", i, result);
     }
     release_resource_readback(&rb);
 
