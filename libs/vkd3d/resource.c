@@ -1338,6 +1338,7 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
         struct d3d12_resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc)
 {
     const struct vkd3d_format *format;
+    uint32_t miplevel_idx;
 
     d3d12_dsv_desc_destroy(dsv_desc, device);
 
@@ -1368,13 +1369,14 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
     if (desc && desc->Flags)
         FIXME("Ignoring flags %#x.\n", desc->Flags);
 
+    miplevel_idx = desc ? desc->u.Texture2D.MipSlice : 0;
     if (vkd3d_create_texture_view(device, resource, format, VK_IMAGE_VIEW_TYPE_2D,
-            desc ? desc->u.Texture2D.MipSlice : 0, 1, 0, 1, &dsv_desc->vk_view) < 0)
+            miplevel_idx, 1, 0, 1, &dsv_desc->vk_view) < 0)
         return;
 
     dsv_desc->format = format->vk_format;
-    dsv_desc->width = resource->desc.Width;
-    dsv_desc->height = resource->desc.Height;
+    dsv_desc->width = d3d12_resource_desc_get_width(&resource->desc, miplevel_idx);
+    dsv_desc->height = d3d12_resource_desc_get_height(&resource->desc, miplevel_idx);
     dsv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_DSV;
     dsv_desc->resource = resource;
 }
