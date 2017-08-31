@@ -33,6 +33,7 @@ struct demo
     xcb_atom_t wm_protocols_atom;
     xcb_atom_t wm_delete_window_atom;
     xcb_key_symbols_t *xcb_keysyms;
+    int screen;
 
     struct demo_window **windows;
     size_t windows_size;
@@ -130,6 +131,20 @@ static inline struct demo_window *demo_find_window(struct demo *demo, xcb_window
     return NULL;
 }
 
+static inline xcb_screen_t *demo_get_screen(xcb_connection_t *c, int idx)
+{
+    xcb_screen_iterator_t iter;
+
+    iter = xcb_setup_roots_iterator(xcb_get_setup(c));
+    for (; iter.rem; xcb_screen_next(&iter), --idx)
+    {
+        if (!idx)
+            return iter.data;
+    }
+
+    return NULL;
+}
+
 static inline struct demo_window *demo_window_create(struct demo *demo, const char *title,
         unsigned int width, unsigned int height, void *user_data)
 {
@@ -138,6 +153,9 @@ static inline struct demo_window *demo_window_create(struct demo *demo, const ch
     struct demo_window *window;
     xcb_size_hints_t hints;
     xcb_screen_t *screen;
+
+    if (!(screen = demo_get_screen(demo->connection, demo->screen)))
+        return NULL;
 
     if (!(window = malloc(sizeof(*window))))
         return NULL;
@@ -153,7 +171,6 @@ static inline struct demo_window *demo_window_create(struct demo *demo, const ch
     window->user_data = user_data;
     window->expose_func = NULL;
     window->key_press_func = NULL;
-    screen = xcb_setup_roots_iterator(xcb_get_setup(demo->connection)).data;
     xcb_create_window(demo->connection, XCB_COPY_FROM_PARENT, window->window, screen->root, 0, 0,
             width, height, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual,
             XCB_CW_EVENT_MASK, &window_events);
@@ -250,7 +267,7 @@ static inline void demo_process_events(struct demo *demo)
 
 static inline bool demo_init(struct demo *demo, void *user_data)
 {
-    if (!(demo->connection = xcb_connect(NULL, NULL)))
+    if (!(demo->connection = xcb_connect(NULL, &demo->screen)))
         return false;
     if (xcb_connection_has_error(demo->connection) > 0)
         goto fail;
