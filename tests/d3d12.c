@@ -11377,6 +11377,7 @@ static void test_query_timestamp(void)
 
 static void test_query_pipeline_statistics(void)
 {
+    D3D12_QUERY_DATA_PIPELINE_STATISTICS *pipeline_statistics;
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
     struct test_context context;
@@ -11386,7 +11387,6 @@ static void test_query_pipeline_statistics(void)
     ID3D12QueryHeap *query_heap;
     ID3D12Resource *resource;
     struct resource_readback rb;
-    struct D3D12_QUERY_DATA_PIPELINE_STATISTICS pipeline_statistics;
     HRESULT hr;
     int i;
 
@@ -11432,43 +11432,42 @@ static void test_query_pipeline_statistics(void)
     for (i = 0; i < sizeof(struct D3D12_QUERY_DATA_PIPELINE_STATISTICS) / sizeof(UINT64); ++i)
     {
         UINT64 value = get_readback_uint64(&rb, i, 0);
-        ok (value == 0, "Element %d: Got %"PRIu64", expected 0.\n", i, value);
+        ok(!value, "Element %d: Got %"PRIu64", expected 0.\n", i, value);
     }
 
-    memcpy(&pipeline_statistics, get_readback_data(&rb, 1, 0, sizeof(pipeline_statistics)),
-            sizeof(pipeline_statistics));
+    pipeline_statistics = get_readback_data(&rb, 1, 0, sizeof(*pipeline_statistics));
 
     /* We read 3 vertices that formed one primitive. */
-    ok(pipeline_statistics.IAVertices == 3, "IAVertices: Got %"PRIu64", expected 3.\n",
-            pipeline_statistics.IAVertices);
-    ok(pipeline_statistics.IAPrimitives == 1, "IAPrimitives: Got %"PRIu64", expected 1.\n",
-            pipeline_statistics.IAPrimitives);
-    ok(pipeline_statistics.VSInvocations == 3, "VSInvocations: Got %"PRIu64", expected 3.\n",
-            pipeline_statistics.VSInvocations);
+    ok(pipeline_statistics->IAVertices == 3, "IAVertices: Got %"PRIu64", expected 3.\n",
+            pipeline_statistics->IAVertices);
+    ok(pipeline_statistics->IAPrimitives == 1, "IAPrimitives: Got %"PRIu64", expected 1.\n",
+            pipeline_statistics->IAPrimitives);
+    ok(pipeline_statistics->VSInvocations == 3, "VSInvocations: Got %"PRIu64", expected 3.\n",
+            pipeline_statistics->VSInvocations);
 
     /* No geometry shader output primitives.
      * Depending on the graphics card, the geometry shader might still have been invoked, so
      * GSInvocations might be whatever. */
-    ok(pipeline_statistics.GSPrimitives == 0, "GSPrimitives: Got %"PRIu64", expected 0.\n",
-            pipeline_statistics.GSPrimitives);
+    ok(pipeline_statistics->GSPrimitives == 0, "GSPrimitives: Got %"PRIu64", expected 0.\n",
+            pipeline_statistics->GSPrimitives);
 
     /* One primitive sent to the rasterizer, but it might have been broken up into smaller pieces then. */
-    ok(pipeline_statistics.CInvocations == 1, "CInvocations: Got %"PRIu64", expected 1.\n",
-            pipeline_statistics.CInvocations);
-    ok(pipeline_statistics.CPrimitives > 0, "CPrimitives: Got %"PRIu64", expected > 0.\n",
-            pipeline_statistics.CPrimitives);
+    ok(pipeline_statistics->CInvocations == 1, "CInvocations: Got %"PRIu64", expected 1.\n",
+            pipeline_statistics->CInvocations);
+    ok(pipeline_statistics->CPrimitives > 0, "CPrimitives: Got %"PRIu64", expected > 0.\n",
+            pipeline_statistics->CPrimitives);
 
     /* Exact number of pixel shader invocations depends on the graphics card. */
-    ok(pipeline_statistics.PSInvocations > 0, "PSInvocations: Got %"PRIu64", expected > 0.\n",
-            pipeline_statistics.PSInvocations);
+    ok(pipeline_statistics->PSInvocations > 0, "PSInvocations: Got %"PRIu64", expected > 0.\n",
+            pipeline_statistics->PSInvocations);
 
     /* We used no tessellation or compute shaders at all. */
-    ok(pipeline_statistics.HSInvocations == 0, "HSInvocations: Got %"PRIu64", expected 0.\n",
-            pipeline_statistics.HSInvocations);
-    ok(pipeline_statistics.DSInvocations == 0, "DSInvocations: Got %"PRIu64", expected 0.\n",
-            pipeline_statistics.DSInvocations);
-    ok(pipeline_statistics.CSInvocations == 0, "CSInvocations: Got %"PRIu64", expected 0.\n",
-            pipeline_statistics.CSInvocations);
+    ok(pipeline_statistics->HSInvocations == 0, "HSInvocations: Got %"PRIu64", expected 0.\n",
+            pipeline_statistics->HSInvocations);
+    ok(pipeline_statistics->DSInvocations == 0, "DSInvocations: Got %"PRIu64", expected 0.\n",
+            pipeline_statistics->DSInvocations);
+    ok(pipeline_statistics->CSInvocations == 0, "CSInvocations: Got %"PRIu64", expected 0.\n",
+            pipeline_statistics->CSInvocations);
 
     release_resource_readback(&rb);
     ID3D12QueryHeap_Release(query_heap);
