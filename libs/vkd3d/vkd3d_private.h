@@ -463,7 +463,7 @@ struct d3d12_command_list
 
     VkFramebuffer current_framebuffer;
     VkPipeline current_pipeline;
-    struct vkd3d_pipeline_bindings pipeline_bindings[VK_PIPELINE_BIND_POINT_COMPUTE + 1];
+    struct vkd3d_pipeline_bindings pipeline_bindings[VK_PIPELINE_BIND_POINT_RANGE_SIZE];
 
     struct d3d12_pipeline_state *state;
 
