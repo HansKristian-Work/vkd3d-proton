@@ -1841,9 +1841,10 @@ static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
     }
     else
     {
-        image_copy->extent.width = src_desc->Width;
-        image_copy->extent.height = src_desc->Height;
-        image_copy->extent.depth = d3d12_resource_desc_get_depth(src_desc);
+        unsigned int miplevel = image_copy->srcSubresource.mipLevel;
+        image_copy->extent.width = d3d12_resource_desc_get_width(src_desc, miplevel);
+        image_copy->extent.height = d3d12_resource_desc_get_height(src_desc, miplevel);
+        image_copy->extent.depth = d3d12_resource_desc_get_depth(src_desc, miplevel);
     }
 }
 
