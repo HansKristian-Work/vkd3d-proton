@@ -1306,9 +1306,11 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
         return;
     }
 
+    if (desc && desc->u.Texture2D.PlaneSlice)
+        FIXME("Ignoring plane slice %u.\n", desc->u.Texture2D.PlaneSlice);
+
     if (vkd3d_create_texture_view(device, resource, format, VK_IMAGE_VIEW_TYPE_2D,
-            desc ? desc->u.Texture2D.MipSlice : 0, 1, desc ? desc->u.Texture2D.PlaneSlice : 0, 1,
-            &rtv_desc->vk_view) < 0)
+            desc ? desc->u.Texture2D.MipSlice : 0, 1, 0, 1, &rtv_desc->vk_view) < 0)
         return;
 
     rtv_desc->format = format->vk_format;
