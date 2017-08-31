@@ -1251,95 +1251,75 @@ static uint32_t vkd3d_spirv_build_op_image(struct vkd3d_spirv_builder *builder,
             SpvOpImage, result_type, sampled_image_id);
 }
 
-static uint32_t vkd3d_spirv_build_op_image_sample(struct vkd3d_spirv_builder *builder,
-        SpvOp op, uint32_t result_type, uint32_t sampled_image_id, uint32_t coordinate_id,
-        uint32_t image_operands, const uint32_t *operands, unsigned int operand_count)
+static uint32_t vkd3d_spirv_build_image_instruction(struct vkd3d_spirv_builder *builder,
+        SpvOp op, uint32_t result_type, const uint32_t *operands, unsigned int operand_count,
+        uint32_t image_operands_mask, const uint32_t *image_operands, unsigned int image_operand_count)
 {
-    unsigned int i = 0, j;
+    unsigned int index = 0, i;
     uint32_t w[10];
 
+    assert(operand_count <= ARRAY_SIZE(w));
+    for (i = 0; i < operand_count; ++i)
+        w[index++] = operands[i];
+
+    if (image_operands_mask)
+    {
+        assert(index + 1 + image_operand_count <= ARRAY_SIZE(w));
+        w[index++] = image_operands_mask;
+        for (i = 0; i < image_operand_count; ++i)
+            w[index++] = image_operands[i];
+    }
+
+    return vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
+            op, result_type, w, index);
+}
+
+static uint32_t vkd3d_spirv_build_op_image_sample(struct vkd3d_spirv_builder *builder,
+        SpvOp op, uint32_t result_type, uint32_t sampled_image_id, uint32_t coordinate_id,
+        uint32_t image_operands_mask, const uint32_t *image_operands, unsigned int image_operand_count)
+{
+    const uint32_t operands[] = {sampled_image_id, coordinate_id};
+
     if (op == SpvOpImageSampleExplicitLod)
-        assert(image_operands & SpvImageOperandsLodMask);
+        assert(image_operands_mask & SpvImageOperandsLodMask);
     else
         assert(op == SpvOpImageSampleImplicitLod);
 
-    w[i++] = sampled_image_id;
-    w[i++] = coordinate_id;
-    if (image_operands)
-    {
-        assert(i + 1 + operand_count <= ARRAY_SIZE(w));
-        w[i++] = image_operands;
-        for (j = 0; j < operand_count; ++j)
-            w[i++] = operands[j];
-    }
-    return vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
-            op, result_type, w, i);
+    return vkd3d_spirv_build_image_instruction(builder, op, result_type,
+            operands, ARRAY_SIZE(operands), image_operands_mask, image_operands, image_operand_count);
 }
 
 static uint32_t vkd3d_spirv_build_op_image_sample_dref(struct vkd3d_spirv_builder *builder,
-        SpvOp op, uint32_t result_type, uint32_t sampled_image_id, uint32_t coordinate_id,
-        uint32_t dref_id, uint32_t image_operands, const uint32_t *operands, unsigned int operand_count)
+        SpvOp op, uint32_t result_type, uint32_t sampled_image_id, uint32_t coordinate_id, uint32_t dref_id,
+        uint32_t image_operands_mask, const uint32_t *image_operands, unsigned int image_operand_count)
 {
-    unsigned int i = 0, j;
-    uint32_t w[10];
+    const uint32_t operands[] = {sampled_image_id, coordinate_id, dref_id};
 
     if (op == SpvOpImageSampleDrefExplicitLod)
-        assert(image_operands & SpvImageOperandsLodMask);
+        assert(image_operands_mask & SpvImageOperandsLodMask);
     else
         assert(op == SpvOpImageSampleDrefImplicitLod);
 
-    w[i++] = sampled_image_id;
-    w[i++] = coordinate_id;
-    w[i++] = dref_id;
-    if (image_operands)
-    {
-        assert(i + 1 + operand_count <= ARRAY_SIZE(w));
-        w[i++] = image_operands;
-        for (j = 0; j < operand_count; ++j)
-            w[i++] = operands[j];
-    }
-    return vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
-            op, result_type, w, i);
+    return vkd3d_spirv_build_image_instruction(builder, op, result_type,
+            operands, ARRAY_SIZE(operands), image_operands_mask, image_operands, image_operand_count);
 }
 
 static uint32_t vkd3d_spirv_build_op_image_fetch(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t image_id, uint32_t coordinate_id,
-        uint32_t image_operands, const uint32_t *operands, unsigned int operand_count)
+        uint32_t image_operands_mask, const uint32_t *image_operands, unsigned int image_operand_count)
 {
-    unsigned int i = 0, j;
-    uint32_t w[10];
-
-    w[i++] = image_id;
-    w[i++] = coordinate_id;
-    if (image_operands)
-    {
-        assert(i + 1 + operand_count <= ARRAY_SIZE(w));
-        w[i++] = image_operands;
-        for (j = 0; j < operand_count; ++j)
-            w[i++] = operands[j];
-    }
-    return vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
-            SpvOpImageFetch, result_type, w, i);
+    const uint32_t operands[] = {image_id, coordinate_id};
+    return vkd3d_spirv_build_image_instruction(builder, SpvOpImageFetch, result_type,
+            operands, ARRAY_SIZE(operands), image_operands_mask, image_operands, image_operand_count);
 }
 
 static uint32_t vkd3d_spirv_build_op_image_read(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t image_id, uint32_t coordinate_id,
-        uint32_t image_operands, const uint32_t *operands, unsigned int operand_count)
+        uint32_t image_operands_mask, const uint32_t *image_operands, unsigned int image_operand_count)
 {
-    unsigned int i = 0, j;
-    uint32_t w[10];
-
-    w[i++] = image_id;
-    w[i++] = coordinate_id;
-    if (image_operands)
-    {
-        assert(i + 1 + operand_count <= ARRAY_SIZE(w));
-        w[i++] = image_operands;
-        for (j = 0; j < operand_count; ++j)
-            w[i++] = operands[j];
-    }
-    return vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
-            SpvOpImageRead, result_type, w, i);
+    const uint32_t operands[] = {image_id, coordinate_id};
+    return vkd3d_spirv_build_image_instruction(builder, SpvOpImageRead, result_type,
+            operands, ARRAY_SIZE(operands), image_operands_mask, image_operands, image_operand_count);
 }
 
 static void vkd3d_spirv_build_op_image_write(struct vkd3d_spirv_builder *builder,
