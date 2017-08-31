@@ -275,8 +275,9 @@ struct d3d12_query_heap *unsafe_impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface
 
 struct d3d12_root_descriptor_table_range
 {
-    uint32_t binding;
+    unsigned int offset;
     unsigned int descriptor_count;
+    uint32_t binding;
 };
 
 struct d3d12_root_descriptor_table

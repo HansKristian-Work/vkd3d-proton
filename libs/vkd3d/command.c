@@ -2543,6 +2543,13 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
     for (i = 0; i < descriptor_table->range_count; ++i)
     {
         range = &descriptor_table->ranges[i];
+
+        if (range->offset != D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND)
+        {
+            descriptor = (struct d3d12_desc *)(intptr_t)base_descriptor.ptr;
+            descriptor += range->offset;
+        }
+
         for (j = 0; j < range->descriptor_count; ++j, ++descriptor)
         {
             if (!vk_write_descriptor_set_from_d3d12_desc(current_descriptor_write,

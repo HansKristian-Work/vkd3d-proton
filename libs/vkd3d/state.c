@@ -309,8 +309,6 @@ static bool vk_binding_from_d3d12_descriptor_range(struct VkDescriptorSetLayoutB
         FIXME("Unhandled register space %u.\n", descriptor_range->RegisterSpace);
         return false;
     }
-    if (descriptor_range->OffsetInDescriptorsFromTableStart != D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND)
-        FIXME("Unhandled offset %#x.\n", descriptor_range->OffsetInDescriptorsFromTableStart);
 
     binding_desc->stageFlags = stage_flags_from_visibility(shader_visibility);
     binding_desc->pImmutableSamplers = NULL;
@@ -687,8 +685,9 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
                 ++cur_binding;
             }
 
-            table->ranges[j].binding = vk_binding;
+            table->ranges[j].offset = descriptor_range->OffsetInDescriptorsFromTableStart;
             table->ranges[j].descriptor_count = descriptor_range->NumDescriptors;
+            table->ranges[j].binding = vk_binding;
         }
     }
 

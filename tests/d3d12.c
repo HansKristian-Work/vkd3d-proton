@@ -8222,7 +8222,7 @@ static void test_descriptor_tables(void)
     descriptor_range[0].NumDescriptors = 2;
     descriptor_range[0].BaseShaderRegister = 0;
     descriptor_range[0].RegisterSpace = 0;
-    descriptor_range[0].OffsetInDescriptorsFromTableStart = 0;
+    descriptor_range[0].OffsetInDescriptorsFromTableStart = 1;
     root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
     root_parameters[0].DescriptorTable.pDescriptorRanges = &descriptor_range[0];
@@ -8232,7 +8232,7 @@ static void test_descriptor_tables(void)
     descriptor_range[1].NumDescriptors = 1;
     descriptor_range[1].BaseShaderRegister = 0;
     descriptor_range[1].RegisterSpace = 0;
-    descriptor_range[1].OffsetInDescriptorsFromTableStart = 0;
+    descriptor_range[1].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
     root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     root_parameters[1].DescriptorTable.NumDescriptorRanges = 1;
     root_parameters[1].DescriptorTable.pDescriptorRanges = &descriptor_range[1];
@@ -8270,7 +8270,7 @@ static void test_descriptor_tables(void)
 
     memset(&heap_desc, 0, sizeof(heap_desc));
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 5;
+    heap_desc.NumDescriptors = 6;
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
             &IID_ID3D12DescriptorHeap, (void **)&heap);
@@ -8301,6 +8301,7 @@ static void test_descriptor_tables(void)
                 D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    cpu_handle.ptr += descriptor_size;
     /* t0-t3 */
     for (i = 0; i < ARRAY_SIZE(textures); ++i)
     {
@@ -8326,9 +8327,9 @@ static void test_descriptor_tables(void)
     heaps[0] = heap; heaps[1] = sampler_heap;
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, ARRAY_SIZE(heaps), heaps);
     ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
-    gpu_handle.ptr += 2 * descriptor_size;
     ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 1,
             ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(sampler_heap));
+    gpu_handle.ptr += 3 * descriptor_size;
     ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 2, gpu_handle);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
@@ -8337,7 +8338,6 @@ static void test_descriptor_tables(void)
 
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-
     check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xb2664c19, 2);
 
     ID3D12Resource_Release(cb);
