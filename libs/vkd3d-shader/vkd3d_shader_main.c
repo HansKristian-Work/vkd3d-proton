@@ -124,6 +124,20 @@ static void vkd3d_shader_scan_record_uav_read(struct vkd3d_shader_scan_info *sca
     scan_info->uav_read_mask |= 1u << reg->idx[0].offset;
 }
 
+static bool vkd3d_shader_instruction_is_uav_counter(const struct vkd3d_shader_instruction *instruction)
+{
+    enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx = instruction->handler_idx;
+    return handler_idx == VKD3DSIH_IMM_ATOMIC_ALLOC
+            || handler_idx == VKD3DSIH_IMM_ATOMIC_CONSUME;
+}
+
+static void vkd3d_shader_scan_record_uav_counter(struct vkd3d_shader_scan_info *scan_info,
+        const struct vkd3d_shader_register *reg)
+{
+    assert(reg->idx[0].offset < MAX_UNORDERED_ACCESS_VIEWS);
+    scan_info->uav_counter_mask |= 1u << reg->idx[0].offset;
+}
+
 static void vkd3d_shader_scan_handle_instruction(struct vkd3d_shader_scan_info *scan_info,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -142,6 +156,9 @@ static void vkd3d_shader_scan_handle_instruction(struct vkd3d_shader_scan_info *
                 vkd3d_shader_scan_record_uav_read(scan_info, &instruction->src[i].reg);
         }
     }
+
+    if (vkd3d_shader_instruction_is_uav_counter(instruction))
+        vkd3d_shader_scan_record_uav_counter(scan_info, &instruction->src[0].reg);
 }
 
 HRESULT vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,

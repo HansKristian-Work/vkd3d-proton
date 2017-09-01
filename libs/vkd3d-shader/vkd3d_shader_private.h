@@ -824,6 +824,7 @@ void free_shader_desc(struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
 struct vkd3d_shader_scan_info
 {
     unsigned int uav_read_mask : MAX_UNORDERED_ACCESS_VIEWS;
+    unsigned int uav_counter_mask : MAX_UNORDERED_ACCESS_VIEWS;
 };
 
 HRESULT vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
