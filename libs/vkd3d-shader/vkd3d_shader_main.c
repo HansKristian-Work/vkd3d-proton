@@ -120,7 +120,7 @@ static bool vkd3d_shader_instruction_is_uav_read(const struct vkd3d_shader_instr
 static void vkd3d_shader_scan_record_uav_read(struct vkd3d_shader_scan_info *scan_info,
         const struct vkd3d_shader_register *reg)
 {
-    assert(reg->idx[0].offset < MAX_UNORDERED_ACCESS_VIEWS);
+    assert(reg->idx[0].offset < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
     scan_info->uav_read_mask |= 1u << reg->idx[0].offset;
 }
 
@@ -134,7 +134,7 @@ static bool vkd3d_shader_instruction_is_uav_counter(const struct vkd3d_shader_in
 static void vkd3d_shader_scan_record_uav_counter(struct vkd3d_shader_scan_info *scan_info,
         const struct vkd3d_shader_register *reg)
 {
-    assert(reg->idx[0].offset < MAX_UNORDERED_ACCESS_VIEWS);
+    assert(reg->idx[0].offset < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
     scan_info->uav_counter_mask |= 1u << reg->idx[0].offset;
 }
 

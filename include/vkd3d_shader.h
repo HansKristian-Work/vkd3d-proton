@@ -105,6 +105,17 @@ HRESULT vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         D3D12_ROOT_SIGNATURE_DESC *root_signature);
 void vkd3d_shader_free_root_signature(D3D12_ROOT_SIGNATURE_DESC *root_signature);
 
+#define VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS 8
+
+struct vkd3d_shader_scan_info
+{
+    unsigned int uav_read_mask : VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS;
+    unsigned int uav_counter_mask : VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS;
+};
+
+HRESULT vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_shader_scan_info *scan_info);
+
 #ifdef __cplusplus
 }
 #endif  /* __cplusplus */
