@@ -961,6 +961,7 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
 {
     const struct vkd3d_format *format;
+    VkImageViewType vk_view_type;
 
     d3d12_desc_destroy(descriptor, device);
 
@@ -991,7 +992,9 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
         return;
     }
 
-    if (vkd3d_create_texture_view(device, resource, format, VK_IMAGE_VIEW_TYPE_2D,
+    vk_view_type = resource->desc.DepthOrArraySize > 1
+            ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+    if (vkd3d_create_texture_view(device, resource, format, vk_view_type,
             0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS, &descriptor->u.vk_image_view) < 0)
         return;
 
