@@ -1553,24 +1553,25 @@ static const struct vkd3d_spirv_resource_type
     uint32_t ms;
 
     unsigned int coordinate_component_count;
+    unsigned int offset_component_count;
 
     SpvCapability capability;
     SpvCapability uav_capability;
 }
 vkd3d_spirv_resource_type_table[] =
 {
-    {VKD3D_SHADER_RESOURCE_BUFFER,            SpvDimBuffer, 0, 0, 1,
+    {VKD3D_SHADER_RESOURCE_BUFFER,            SpvDimBuffer, 0, 0, 1, 0,
             SpvCapabilitySampledBuffer, SpvCapabilityImageBuffer},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_1D,        SpvDim1D,     0, 0, 1,
+    {VKD3D_SHADER_RESOURCE_TEXTURE_1D,        SpvDim1D,     0, 0, 1, 1,
             SpvCapabilitySampled1D, SpvCapabilityImage1D},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_2DMS,      SpvDim2D,     0, 1, 2},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_2D,        SpvDim2D,     0, 0, 2},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_3D,        SpvDim3D,     0, 0, 3},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBE,      SpvDimCube,   0, 0, 3},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_1DARRAY,   SpvDim1D,     1, 0, 2,
+    {VKD3D_SHADER_RESOURCE_TEXTURE_2DMS,      SpvDim2D,     0, 1, 2, 2},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_2D,        SpvDim2D,     0, 0, 2, 2},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_3D,        SpvDim3D,     0, 0, 3, 3},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBE,      SpvDimCube,   0, 0, 3, 0},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_1DARRAY,   SpvDim1D,     1, 0, 2, 1,
             SpvCapabilitySampled1D, SpvCapabilityImage1D},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_2DARRAY,   SpvDim2D,     1, 0, 3},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY, SpvDimCube,   1, 0, 3,
+    {VKD3D_SHADER_RESOURCE_TEXTURE_2DARRAY,   SpvDim2D,     1, 0, 3, 2},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY, SpvDimCube,   1, 0, 3, 0,
             SpvCapabilitySampledCubeArray, SpvCapabilityImageCubeArray},
 };
 
@@ -4501,6 +4502,17 @@ static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compil
     vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst, val_id);
 }
 
+static uint32_t vkd3d_dxbc_compiler_emit_texel_offset(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction,
+        const struct vkd3d_spirv_resource_type *resource_type_info)
+{
+    const struct vkd3d_shader_texel_offset *offset = &instruction->texel_offset;
+    int32_t data[4] = {offset->u, offset->v, offset->w, 0};
+    unsigned int component_count = resource_type_info->offset_component_count;
+    return vkd3d_dxbc_compiler_get_constant(compiler,
+            VKD3D_TYPE_INT, component_count, (const uint32_t *)data);
+}
+
 static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -4509,12 +4521,12 @@ static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compile
     const struct vkd3d_shader_src_param *src = instruction->src;
     const struct vkd3d_shader_src_param *resource, *sampler;
     struct vkd3d_shader_dst_param dst = *instruction->dst;
+    SpvImageOperandsMask operands_mask = 0;
+    unsigned int image_operand_count = 0;
     struct vkd3d_shader_image image;
     unsigned int component_idx;
+    uint32_t image_operands[1];
     DWORD coordinate_mask;
-
-    if (vkd3d_shader_instruction_has_texel_offset(instruction))
-        FIXME("Texel offset not supported.\n");
 
     resource = &src[1];
     sampler = &src[2];
@@ -4525,12 +4537,20 @@ static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compile
 
     vkd3d_dxbc_compiler_prepare_sampled_image(compiler, &image,
             &resource->reg, &sampler->reg, VKD3D_IMAGE_FLAG_NONE);
+
+    if (vkd3d_shader_instruction_has_texel_offset(instruction))
+    {
+        operands_mask |= SpvImageOperandsConstOffsetMask;
+        image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_texel_offset(compiler,
+                instruction, image.resource_type_info);
+    }
+
     sampled_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
     coordinate_mask = (1u << image.resource_type_info->coordinate_component_count) - 1;
     coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], coordinate_mask);
     val_id = vkd3d_spirv_build_op_image_gather(builder, sampled_type_id,
             image.sampled_image_id, coordinate_id, component_id,
-            SpvImageOperandsMaskNone, NULL, 0);
+            operands_mask, image_operands, image_operand_count);
 
     val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
             val_id, image.sampled_type, resource->swizzle, dst.write_mask);
