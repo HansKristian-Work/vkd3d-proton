@@ -2497,6 +2497,20 @@ static void vkd3d_dxbc_compiler_emit_store_dst(struct vkd3d_dxbc_compiler *compi
     vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
 }
 
+static void vkd3d_dxbc_compiler_emit_store_dst_swizzled(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_dst_param *dst, uint32_t val_id,
+        enum vkd3d_component_type component_type, DWORD swizzle)
+{
+    struct vkd3d_shader_dst_param typed_dst = *dst;
+    val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
+            val_id, component_type, swizzle, dst->write_mask);
+    /* XXX: The register data type could be fixed by the shader parser. For SM5
+     * shaders the data types are stored in instructions modifiers.
+     */
+    typed_dst.reg.data_type = vkd3d_data_type_from_component_type(component_type);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, &typed_dst, val_id);
+}
+
 static void vkd3d_dxbc_compiler_emit_store_dst_components(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_dst_param *dst, enum vkd3d_component_type component_type,
         uint32_t *component_ids)
@@ -4373,8 +4387,8 @@ static void vkd3d_dxbc_compiler_emit_ld(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    struct vkd3d_shader_dst_param dst = *instruction->dst;
     uint32_t image_id, type_id, coordinate_id, val_id;
     SpvImageOperandsMask operands_mask = 0;
     unsigned int image_operand_count = 0;
@@ -4401,19 +4415,16 @@ static void vkd3d_dxbc_compiler_emit_ld(struct vkd3d_dxbc_compiler *compiler,
     val_id = vkd3d_spirv_build_op_image_fetch(builder, type_id,
             image_id, coordinate_id, operands_mask, image_operands, image_operand_count);
 
-    val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-            val_id, image.sampled_type, src[1].swizzle, dst.write_mask);
-    /* XXX: Fix the result data type. */
-    dst.reg.data_type = vkd3d_data_type_from_component_type(image.sampled_type);
-    vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst, val_id);
+    vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
+            dst, val_id, image.sampled_type, src[1].swizzle);
 }
 
 static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    struct vkd3d_shader_dst_param dst = *instruction->dst;
     uint32_t sampled_type_id, coordinate_id, val_id;
     SpvImageOperandsMask operands_mask = 0;
     unsigned int image_operand_count = 0;
@@ -4447,11 +4458,8 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
     val_id = vkd3d_spirv_build_op_image_sample(builder, op, sampled_type_id,
             image.sampled_image_id, coordinate_id, operands_mask, image_operands, image_operand_count);
 
-    val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-            val_id, image.sampled_type, src[1].swizzle, dst.write_mask);
-    /* XXX: Fix the result data type. */
-    dst.reg.data_type = vkd3d_data_type_from_component_type(image.sampled_type);
-    vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst, val_id);
+    vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
+            dst, val_id, image.sampled_type, src[1].swizzle);
 }
 
 static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compiler,
@@ -4459,8 +4467,8 @@ static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compil
 {
     uint32_t sampled_type_id, coordinate_id, ref_id, val_id, type_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    struct vkd3d_shader_dst_param dst = *instruction->dst;
     SpvImageOperandsMask operands_mask = 0;
     unsigned int image_operand_count = 0;
     struct vkd3d_shader_image image;
@@ -4495,11 +4503,8 @@ static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compil
             image.sampled_image_id, coordinate_id, ref_id, operands_mask,
             image_operands, image_operand_count);
 
-    val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-            val_id, image.sampled_type, src[1].swizzle, dst.write_mask);
-    /* XXX: Fix the result data type. */
-    dst.reg.data_type = vkd3d_data_type_from_component_type(image.sampled_type);
-    vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst, val_id);
+    vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
+            dst, val_id, image.sampled_type, src[1].swizzle);
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_texel_offset(struct vkd3d_dxbc_compiler *compiler,
@@ -4518,9 +4523,9 @@ static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compile
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t sampled_type_id, coordinate_id, component_id, val_id;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
     const struct vkd3d_shader_src_param *resource, *sampler;
-    struct vkd3d_shader_dst_param dst = *instruction->dst;
     SpvImageOperandsMask operands_mask = 0;
     unsigned int image_operand_count = 0;
     struct vkd3d_shader_image image;
@@ -4552,11 +4557,8 @@ static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compile
             image.sampled_image_id, coordinate_id, component_id,
             operands_mask, image_operands, image_operand_count);
 
-    val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-            val_id, image.sampled_type, resource->swizzle, dst.write_mask);
-    /* XXX: Fix the result data type. */
-    dst.reg.data_type = vkd3d_data_type_from_component_type(image.sampled_type);
-    vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst, val_id);
+    vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
+            dst, val_id, image.sampled_type, resource->swizzle);
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_raw_structured_addressing(
@@ -4804,8 +4806,8 @@ static void vkd3d_dxbc_compiler_emit_ld_uav_typed(struct vkd3d_dxbc_compiler *co
         const struct vkd3d_shader_instruction *instruction)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    struct vkd3d_shader_dst_param dst = *instruction->dst;
     uint32_t coordinate_id, type_id, val_id;
     struct vkd3d_shader_image image;
     DWORD coordinate_mask;
@@ -4818,11 +4820,8 @@ static void vkd3d_dxbc_compiler_emit_ld_uav_typed(struct vkd3d_dxbc_compiler *co
     val_id = vkd3d_spirv_build_op_image_read(builder, type_id,
             image.image_id, coordinate_id, SpvImageOperandsMaskNone, NULL, 0);
 
-    val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-            val_id, image.sampled_type, src[1].swizzle, dst.write_mask);
-    /* XXX: Fix the result data type. */
-    dst.reg.data_type = vkd3d_data_type_from_component_type(image.sampled_type);
-    vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst, val_id);
+    vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
+            dst, val_id, image.sampled_type, src[1].swizzle);
 }
 
 static void vkd3d_dxbc_compiler_emit_store_uav_typed(struct vkd3d_dxbc_compiler *compiler,
