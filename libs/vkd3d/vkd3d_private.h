@@ -187,6 +187,17 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource) DECLSPEC_HIDDEN;
 struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface) DECLSPEC_HIDDEN;
 
+struct vkd3d_view
+{
+    LONG refcount;
+    union
+    {
+        VkBufferView vk_buffer_view;
+        VkImageView vk_image_view;
+        VkSampler vk_sampler;
+    } u;
+};
+
 struct d3d12_desc
 {
     uint32_t magic;
@@ -194,9 +205,7 @@ struct d3d12_desc
     union
     {
         VkDescriptorBufferInfo vk_cbv_info;
-        VkBufferView vk_buffer_view;
-        VkImageView vk_image_view;
-        VkSampler vk_sampler;
+        struct vkd3d_view *view;
     } u;
 };
 

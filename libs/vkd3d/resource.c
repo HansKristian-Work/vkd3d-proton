@@ -765,23 +765,56 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_D
 }
 
 /* CBVs, SRVs, UAVs */
-static void d3d12_desc_destroy(struct d3d12_desc *descriptor,
-        struct d3d12_device *device)
+static struct vkd3d_view *vkd3d_view_create(void)
+{
+    struct vkd3d_view *view;
+
+    if ((view = vkd3d_malloc(sizeof(*view))))
+        view->refcount = 1;
+    return view;
+}
+
+static void vkd3d_view_incref(struct vkd3d_view *view)
+{
+    InterlockedIncrement(&view->refcount);
+}
+
+static void vkd3d_view_decref(struct vkd3d_view *view,
+        const struct d3d12_desc *descriptor, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    ULONG refcount = InterlockedDecrement(&view->refcount);
 
-    /* Nothing to do for VKD3D_DESCRIPTOR_MAGIC_CBV. */
+    if (refcount)
+        return;
+
+    TRACE("Destroying view %p.\n", view);
+
     if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
     {
         if (descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
                 || descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
-            VK_CALL(vkDestroyBufferView(device->vk_device, descriptor->u.vk_buffer_view, NULL));
+            VK_CALL(vkDestroyBufferView(device->vk_device, view->u.vk_buffer_view, NULL));
         else
-            VK_CALL(vkDestroyImageView(device->vk_device, descriptor->u.vk_image_view, NULL));
+            VK_CALL(vkDestroyImageView(device->vk_device, view->u.vk_image_view, NULL));
     }
     else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
     {
-        VK_CALL(vkDestroySampler(device->vk_device, descriptor->u.vk_sampler, NULL));
+        VK_CALL(vkDestroySampler(device->vk_device, view->u.vk_sampler, NULL));
+    }
+
+    vkd3d_free(view);
+}
+
+static void d3d12_desc_destroy(struct d3d12_desc *descriptor,
+        struct d3d12_device *device)
+{
+    /* Nothing to do for VKD3D_DESCRIPTOR_MAGIC_CBV. */
+    if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
+            || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
+            || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
+    {
+        vkd3d_view_decref(descriptor->u.view, descriptor, device);
     }
 
     memset(descriptor, 0, sizeof(*descriptor));
@@ -933,6 +966,8 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
 {
+    struct vkd3d_view *view;
+
     if (!desc)
     {
         FIXME("Default SRV views not supported.\n");
@@ -945,15 +980,22 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
         return;
     }
 
+    if (!(view = vkd3d_view_create()))
+        return;
+
     if (!vkd3d_create_buffer_view(device, resource, desc->Format,
             desc->u.Buffer.FirstElement, desc->u.Buffer.NumElements,
             desc->u.Buffer.StructureByteStride,
             vkd3d_view_flags_from_d3d12_buffer_srv_flags(desc->u.Buffer.Flags),
-            &descriptor->u.vk_buffer_view))
+            &view->u.vk_buffer_view))
+    {
+        vkd3d_free(view);
         return;
+    }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+    descriptor->u.view = view;
 }
 
 void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
@@ -962,6 +1004,7 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
 {
     const struct vkd3d_format *format;
     VkImageViewType vk_view_type;
+    struct vkd3d_view *view;
 
     d3d12_desc_destroy(descriptor, device);
 
@@ -992,14 +1035,21 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
         return;
     }
 
+    if (!(view = vkd3d_view_create()))
+        return;
+
     vk_view_type = resource->desc.DepthOrArraySize > 1
             ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
     if (vkd3d_create_texture_view(device, resource, format, vk_view_type,
-            0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS, &descriptor->u.vk_image_view) < 0)
+            0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS, &view->u.vk_image_view) < 0)
+    {
+        vkd3d_free(view);
         return;
+    }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    descriptor->u.view = view;
 }
 
 static unsigned int vkd3d_view_flags_from_d3d12_buffer_uav_flags(D3D12_BUFFER_UAV_FLAGS flags)
@@ -1015,6 +1065,8 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
+    struct vkd3d_view *view;
+
     if (!desc)
     {
         FIXME("Default UAV views not supported.\n");
@@ -1030,15 +1082,22 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor,
     if (desc->u.Buffer.CounterOffsetInBytes)
         FIXME("Ignoring counter offset %"PRIu64".\n", desc->u.Buffer.CounterOffsetInBytes);
 
+    if (!(view = vkd3d_view_create()))
+        return;
+
     if (!vkd3d_create_buffer_view(device, resource, desc->Format,
             desc->u.Buffer.FirstElement, desc->u.Buffer.NumElements,
             desc->u.Buffer.StructureByteStride,
             vkd3d_view_flags_from_d3d12_buffer_uav_flags(desc->u.Buffer.Flags),
-            &descriptor->u.vk_buffer_view))
+            &view->u.vk_buffer_view))
+    {
+        vkd3d_free(view);
         return;
+    }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+    descriptor->u.view = view;
 }
 
 static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
@@ -1048,6 +1107,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
     uint32_t miplevel_idx, layer_idx, layer_count;
     const struct vkd3d_format *format;
     VkImageViewType vk_view_type;
+    struct vkd3d_view *view;
 
     if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
     {
@@ -1098,12 +1158,19 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         }
     }
 
-    if (vkd3d_create_texture_view(device, resource, format, vk_view_type,
-            miplevel_idx, 1, layer_idx, layer_count, &descriptor->u.vk_image_view) < 0)
+    if (!(view = vkd3d_view_create()))
         return;
+
+    if (vkd3d_create_texture_view(device, resource, format, vk_view_type,
+            miplevel_idx, 1, layer_idx, layer_count, &view->u.vk_image_view) < 0)
+    {
+        vkd3d_free(view);
+        return;
+    }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    descriptor->u.view = view;
 }
 
 void d3d12_desc_create_uav(struct d3d12_desc *descriptor,
@@ -1227,6 +1294,8 @@ static VkResult d3d12_create_sampler(struct d3d12_device *device, D3D12_FILTER f
 void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc)
 {
+    struct vkd3d_view *view;
+
     d3d12_desc_destroy(sampler, device);
 
     if (!desc)
@@ -1241,13 +1310,20 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         FIXME("Ignoring border color {%.8e, %.8e, %.8e, %.8e}.\n",
                 desc->BorderColor[0], desc->BorderColor[1], desc->BorderColor[2], desc->BorderColor[3]);
 
+    if (!(view = vkd3d_view_create()))
+        return;
+
     if (d3d12_create_sampler(device, desc->Filter, desc->AddressU,
             desc->AddressV, desc->AddressW, desc->MipLODBias, desc->MaxAnisotropy,
-            desc->ComparisonFunc, desc->MinLOD, desc->MaxLOD, &sampler->u.vk_sampler) < 0)
+            desc->ComparisonFunc, desc->MinLOD, desc->MaxLOD, &view->u.vk_sampler) < 0)
+    {
+        vkd3d_free(view);
         return;
+    }
 
     sampler->magic = VKD3D_DESCRIPTOR_MAGIC_SAMPLER;
     sampler->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLER;
+    sampler->u.view = view;
 }
 
 HRESULT vkd3d_create_static_sampler(struct d3d12_device *device,

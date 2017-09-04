@@ -2447,6 +2447,8 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
         VkDescriptorImageInfo *vk_image_info, struct d3d12_desc *descriptor,
         VkDescriptorSet vk_descriptor_set, uint32_t vk_binding, unsigned int index)
 {
+    const struct vkd3d_view *view = descriptor->u.view;
+
     vk_descriptor_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     vk_descriptor_write->pNext = NULL;
     vk_descriptor_write->dstSet = vk_descriptor_set;
@@ -2476,12 +2478,12 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
             if (descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
                     || descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
             {
-                vk_descriptor_write->pTexelBufferView = &descriptor->u.vk_buffer_view;
+                vk_descriptor_write->pTexelBufferView = &view->u.vk_buffer_view;
             }
             else
             {
                 vk_image_info->sampler = VK_NULL_HANDLE;
-                vk_image_info->imageView = descriptor->u.vk_image_view;
+                vk_image_info->imageView = view->u.vk_image_view;
                 vk_image_info->imageLayout = descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
                         ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL;
 
@@ -2490,7 +2492,7 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
             break;
 
         case VKD3D_DESCRIPTOR_MAGIC_SAMPLER:
-            vk_image_info->sampler = descriptor->u.vk_sampler;
+            vk_image_info->sampler = view->u.vk_sampler;
             vk_image_info->imageView = VK_NULL_HANDLE;
             vk_image_info->imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
