@@ -1144,6 +1144,75 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             return S_OK;
         }
 
+        case D3D12_FEATURE_FORMAT_SUPPORT:
+        {
+            const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+            D3D12_FEATURE_DATA_FORMAT_SUPPORT *data = feature_data;
+            VkFormatFeatureFlagBits image_features;
+            const struct vkd3d_format *format;
+            VkFormatProperties properties;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            data->Support1 = D3D12_FORMAT_SUPPORT1_NONE;
+            data->Support2 = D3D12_FORMAT_SUPPORT2_NONE;
+            if (!(format = vkd3d_get_format(data->Format, false)))
+            {
+                FIXME("Unhandled format %#x.\n", data->Format);
+                return E_INVALIDARG;
+            }
+
+            VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device, format->vk_format, &properties));
+            image_features = properties.linearTilingFeatures | properties.optimalTilingFeatures;
+
+            if (properties.bufferFeatures)
+                data->Support1 |= D3D12_FORMAT_SUPPORT1_BUFFER;
+            if (properties.bufferFeatures & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT)
+                data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_VERTEX_BUFFER;
+            if (data->Format == DXGI_FORMAT_R16_UINT || data->Format == DXGI_FORMAT_R32_UINT)
+                data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_INDEX_BUFFER;
+            if (image_features)
+                data->Support1 |= D3D12_FORMAT_SUPPORT1_TEXTURE1D | D3D12_FORMAT_SUPPORT1_TEXTURE2D
+                        | D3D12_FORMAT_SUPPORT1_TEXTURE3D | D3D12_FORMAT_SUPPORT1_TEXTURECUBE;
+            if (image_features & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)
+            {
+                data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_LOAD | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_LOAD
+                        | D3D12_FORMAT_SUPPORT1_SHADER_GATHER;
+                if (image_features & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)
+                {
+                    data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE
+                            | D3D12_FORMAT_SUPPORT1_MIP;
+                }
+                if (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                    data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE_COMPARISON
+                            | D3D12_FORMAT_SUPPORT1_SHADER_GATHER_COMPARISON;
+            }
+            if (image_features & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT)
+                data->Support1 |= D3D12_FORMAT_SUPPORT1_RENDER_TARGET | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RENDERTARGET;
+            if (image_features & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT)
+                data->Support1 |= D3D12_FORMAT_SUPPORT1_BLENDABLE;
+            if (image_features & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+                data->Support1 |= D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL;
+            if (image_features & VK_FORMAT_FEATURE_BLIT_SRC_BIT)
+                data->Support1 |= D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RESOLVE;
+            if (image_features & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT)
+                data->Support1 |= D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW;
+
+            if (image_features & VK_FORMAT_FEATURE_STORAGE_IMAGE_ATOMIC_BIT)
+                data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_ADD
+                        | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_BITWISE_OPS
+                        | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_COMPARE_STORE_OR_COMPARE_EXCHANGE
+                        | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_EXCHANGE
+                        | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_SIGNED_MIN_OR_MAX
+                        | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_UNSIGNED_MIN_OR_MAX;
+
+            return S_OK;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;

@@ -1880,10 +1880,7 @@ static void test_format_support(void)
         format_support.Format = unsupported_format_features[i].Format;
         hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT,
                 &format_support, sizeof(format_support));
-        todo(hr == S_OK, "Got unexpected hr %#x.\n", hr);
-        if (hr != S_OK)
-            continue;
-
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
         ok(!(format_support.Support1 & unsupported_format_features[i].Support1),
                 "Format %#x supports %#x.\n", unsupported_format_features[i].Format,
                 format_support.Support1 & unsupported_format_features[i].Support1);
