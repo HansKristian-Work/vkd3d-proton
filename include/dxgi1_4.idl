@@ -32,7 +32,7 @@ interface IDXGISwapChain3 : IDXGISwapChain2
     HRESULT SetColorSpace1(DXGI_COLOR_SPACE_TYPE type);
     HRESULT ResizeBuffers1(UINT buffer_count, UINT width, UINT height, DXGI_FORMAT format,
             UINT flags, const UINT *node_mask, IUnknown *const *present_queue);
-};
+}
 
 [
     local,
@@ -44,4 +44,4 @@ interface IDXGIFactory4 : IDXGIFactory3
 {
     HRESULT EnumAdapterByLuid(LUID luid, REFIID iid, void **adapter);
     HRESULT EnumWarpAdapter(REFIID iid, void **adapter);
-};
+}

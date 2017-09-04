@@ -66,7 +66,7 @@ interface IDXGIObject : IUnknown
     HRESULT GetPrivateDataInterface(REFGUID name, const IUnknown *unknown);
     HRESULT GetPrivateData(REFGUID name, UINT *data_size, void *data);
     HRESULT GetParent(REFIID riid, void **parent);
-};
+}
 
 [
     local,
@@ -77,7 +77,7 @@ interface IDXGIObject : IUnknown
 interface IDXGIDeviceSubObject : IDXGIObject
 {
     HRESULT GetDevice(REFIID riid, void **device);
-};
+}
 
 [
     local,
@@ -97,7 +97,7 @@ interface IDXGISwapChain : IDXGIDeviceSubObject
     HRESULT GetContainingOutput(IDXGIOutput **output);
     HRESULT GetFrameStatistics(DXGI_FRAME_STATISTICS *stats);
     HRESULT GetLastPresentCount(UINT *last_present_count);
-};
+}
 
 [
     local,
@@ -112,7 +112,7 @@ interface IDXGIFactory : IDXGIObject
     HRESULT GetWindowAssociation(HWND *hwnd);
     HRESULT CreateSwapChain(IUnknown *device, DXGI_SWAP_CHAIN_DESC *desc, IDXGISwapChain **swapchain);
     HRESULT CreateSoftwareAdapter(HMODULE hmodule, IDXGIAdapter **adapter);
-};
+}
 
 [
     local,
@@ -124,7 +124,7 @@ interface IDXGIFactory1 : IDXGIFactory
 {
     HRESULT EnumAdapters1(UINT adapter_idx, IDXGIAdapter1 **adpter);
     BOOL IsCurrent();
-};
+}
 
 [local] HRESULT __stdcall CreateDXGIFactory(REFIID riid, void **factory);
 [local] HRESULT __stdcall CreateDXGIFactory1(REFIID riid, void **factory);

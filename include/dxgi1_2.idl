@@ -73,7 +73,7 @@ interface IDXGISwapChain1 : IDXGISwapChain
     HRESULT GetBackgroundColor(DXGI_RGBA *color);
     HRESULT SetRotation(DXGI_MODE_ROTATION rotation);
     HRESULT GetRotation(DXGI_MODE_ROTATION *rotation);
-};
+}
 
 [
     local,
@@ -97,4 +97,4 @@ interface IDXGIFactory2 : IDXGIFactory1
     void UnregisterOcclusionStatus(DWORD cookie);
     HRESULT CreateSwapChainForComposition(IUnknown *device, const DXGI_SWAP_CHAIN_DESC1 *desc,
             IDXGIOutput *output, IDXGISwapChain1 **swapchain);
-};
+}

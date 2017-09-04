@@ -50,6 +50,6 @@ interface IUnknown
     HRESULT QueryInterface(REFIID riid, void **object);
     ULONG AddRef();
     ULONG Release();
-};
+}
 
 cpp_quote("#endif   /* __VKD3D_UNKNOWN_H */")

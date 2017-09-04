@@ -36,7 +36,7 @@ interface IDXGISwapChain2 : IDXGISwapChain1
     HANDLE  GetFrameLatencyWaitableObject();
     HRESULT SetMatrixTransform(const DXGI_MATRIX_3X2_F *matrix);
     HRESULT GetMatrixTransform(DXGI_MATRIX_3X2_F *matrix);
-};
+}
 
 [
     local,
@@ -47,4 +47,4 @@ interface IDXGISwapChain2 : IDXGISwapChain1
 interface IDXGIFactory3 : IDXGIFactory2
 {
     UINT GetCreationFlags();
-};
+}
