@@ -1187,13 +1187,50 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(ID3D12Device *iface,
         const UINT *src_descriptor_range_sizes,
         D3D12_DESCRIPTOR_HEAP_TYPE descriptor_heap_type)
 {
-    FIXME("iface %p, dst_descriptor_range_count %u, dst_descriptor_range_offsets %p, "
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    unsigned int dst_range_idx, dst_idx, src_range_idx, src_idx;
+    struct d3d12_desc *dst, *src;
+
+    TRACE("iface %p, dst_descriptor_range_count %u, dst_descriptor_range_offsets %p, "
             "dst_descriptor_range_sizes %p, src_descriptor_range_count %u, "
             "src_descriptor_range_offsets %p, src_descriptor_range_sizes %p, "
-            "descriptor_heap_type %#x stub!\n",
+            "descriptor_heap_type %#x.\n",
             iface, dst_descriptor_range_count, dst_descriptor_range_offsets,
             dst_descriptor_range_sizes, src_descriptor_range_count, src_descriptor_range_offsets,
             src_descriptor_range_sizes, descriptor_heap_type);
+
+    if (descriptor_heap_type != D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV
+            && descriptor_heap_type != D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+    {
+        FIXME("Unhandled descriptor heap type %#x.\n", descriptor_heap_type);
+        return;
+    }
+
+    dst_range_idx = dst_idx = 0;
+    dst = (struct d3d12_desc *)dst_descriptor_range_offsets[0].ptr;
+    for (src_range_idx = 0; src_range_idx < src_descriptor_range_count; ++src_range_idx)
+    {
+        src = (struct d3d12_desc *)src_descriptor_range_offsets[src_range_idx].ptr;
+        for (src_idx = 0; src_idx < src_descriptor_range_sizes[src_range_idx]; ++src_idx)
+        {
+            if (dst_idx >= dst_descriptor_range_sizes[dst_range_idx])
+            {
+                ++dst_range_idx;
+                dst = (struct d3d12_desc *)dst_descriptor_range_offsets[dst_range_idx].ptr;
+                dst_idx = 0;
+            }
+
+            assert(dst_range_idx < dst_descriptor_range_count);
+            assert(dst_idx < dst_descriptor_range_sizes[dst_range_idx]);
+
+            d3d12_desc_copy(dst++, src++, device);
+
+            ++dst_idx;
+        }
+    }
+
+    assert(dst_idx == dst_descriptor_range_sizes[dst_range_idx]);
+    assert(dst_range_idx == dst_descriptor_range_count - 1);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple(ID3D12Device *iface,

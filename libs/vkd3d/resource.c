@@ -820,6 +820,21 @@ static void d3d12_desc_destroy(struct d3d12_desc *descriptor,
     memset(descriptor, 0, sizeof(*descriptor));
 }
 
+void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
+        struct d3d12_device *device)
+{
+    d3d12_desc_destroy(dst, device);
+
+    *dst = *src;
+
+    if (src->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
+            || src->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
+            || src->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
+    {
+        vkd3d_view_incref(src->u.view);
+    }
+}
+
 static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
         struct d3d12_resource *resource, const struct vkd3d_format *format,
         VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view)
