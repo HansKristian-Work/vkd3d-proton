@@ -8994,12 +8994,13 @@ static void test_copy_descriptors(void)
     ID3D12Device_CopyDescriptors(device, 2, dst_handles, dst_range_sizes,
             1, src_handles, src_range_sizes, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-    dst_handles[0] = get_cpu_descriptor_handle(&context, heap, 20);
-    dst_range_sizes[0] = 1;
+    /* copy 1 uninitialized descriptor (19) */
+    dst_handles[0] = get_cpu_descriptor_handle(&context, heap, 19);
+    dst_range_sizes[0] = 2;
     dst_handles[1] = get_cpu_descriptor_handle(&context, heap, 21);
     dst_range_sizes[1] = 1;
-    src_handles[0] = get_cpu_descriptor_handle(&context, cpu_heap, 20);
-    src_range_sizes[0] = 1;
+    src_handles[0] = get_cpu_descriptor_handle(&context, cpu_heap, 19);
+    src_range_sizes[0] = 2;
     src_handles[1] = get_cpu_descriptor_handle(&context, cpu_heap, 21);
     src_range_sizes[1] = 1;
     /* u1-u2 */
