@@ -1812,7 +1812,7 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
     return true;
 }
 
-static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *list,
+static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point, unsigned int index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
@@ -1882,9 +1882,17 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_root_signature *rs = bindings->root_signature;
+    unsigned int i;
 
     if (!rs || !rs->pool_size_count || !rs->vk_set_layout)
         return;
+
+    for (i = 0; i < ARRAY_SIZE(bindings->descriptor_tables); ++i)
+    {
+        if (bindings->descriptor_table_dirty_mask & ((uint64_t)1 << i))
+            d3d12_command_list_update_descriptor_table(list, bind_point, i, bindings->descriptor_tables[i]);
+    }
+    bindings->descriptor_table_dirty_mask = 0;
 
     bindings->in_use = true;
     VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
@@ -2569,6 +2577,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(ID3D12
 
     d3d12_command_list_set_root_signature(list, VK_PIPELINE_BIND_POINT_GRAPHICS,
             unsafe_impl_from_ID3D12RootSignature(root_signature));
+}
+
+static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point, unsigned int index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
+{
+    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    struct d3d12_root_signature *root_signature = bindings->root_signature;
+
+    assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE);
+
+    assert(index < ARRAY_SIZE(bindings->descriptor_tables));
+    bindings->descriptor_tables[index] = base_descriptor;
+    bindings->descriptor_table_dirty_mask |= (uint64_t)1 << index;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable(ID3D12GraphicsCommandList *iface,
