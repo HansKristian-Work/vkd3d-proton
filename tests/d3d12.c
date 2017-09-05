@@ -2473,6 +2473,55 @@ static void test_create_root_signature(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_root_signature_limits(void)
+{
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[D3D12_MAX_ROOT_COST + 1];
+    D3D12_ROOT_PARAMETER root_parameters[D3D12_MAX_ROOT_COST + 1];
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12RootSignature *root_signature;
+    ID3D12Device *device;
+    ULONG refcount;
+    unsigned int i;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    /* A descriptor table costs 1 DWORD. */
+    for (i = 0; i < ARRAY_SIZE(root_parameters); ++i)
+    {
+        descriptor_ranges[i].RangeType = i % 2
+                ? D3D12_DESCRIPTOR_RANGE_TYPE_SRV : D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        descriptor_ranges[i].NumDescriptors = 1;
+        descriptor_ranges[i].BaseShaderRegister = i / 2;
+        descriptor_ranges[i].RegisterSpace = 0;
+        descriptor_ranges[i].OffsetInDescriptorsFromTableStart = 0;
+        root_parameters[i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        root_parameters[i].DescriptorTable.NumDescriptorRanges = 1;
+        root_parameters[i].DescriptorTable.pDescriptorRanges = &descriptor_ranges[i];
+        root_parameters[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    }
+
+    root_signature_desc.NumParameters = D3D12_MAX_ROOT_COST;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ID3D12RootSignature_Release(root_signature);
+
+    root_signature_desc.NumParameters = D3D12_MAX_ROOT_COST + 1;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 static void test_create_pipeline_state(void)
 {
     D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_state_desc;
@@ -12499,6 +12548,7 @@ START_TEST(d3d12)
     run_test(test_create_sampler);
     run_test(test_create_unordered_access_view);
     run_test(test_create_root_signature);
+    run_test(test_root_signature_limits);
     run_test(test_create_pipeline_state);
     run_test(test_create_fence);
     run_test(test_reset_command_allocator);
