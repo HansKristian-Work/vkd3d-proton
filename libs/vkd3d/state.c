@@ -326,6 +326,7 @@ struct d3d12_root_signature_info
     size_t sampler_count;
     size_t descriptor_count;
     size_t root_constant_count;
+    size_t cost;
 };
 
 static bool d3d12_root_signature_info_count_descriptors(struct d3d12_root_signature_info *info,
@@ -380,23 +381,28 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
                     if (FAILED(hr = d3d12_root_signature_info_count_descriptors(info,
                             &p->u.DescriptorTable.pDescriptorRanges[j])))
                         return hr;
+                ++info->cost;
                 break;
 
             case D3D12_ROOT_PARAMETER_TYPE_CBV:
                 ++info->cbv_count;
                 ++info->descriptor_count;
+                info->cost += 2;
                 break;
             case D3D12_ROOT_PARAMETER_TYPE_SRV:
                 ++info->buffer_srv_count;
                 ++info->descriptor_count;
+                info->cost += 2;
                 break;
             case D3D12_ROOT_PARAMETER_TYPE_UAV:
                 ++info->buffer_uav_count;
                 ++info->descriptor_count;
+                info->cost += 2;
                 break;
 
             case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
                 ++info->root_constant_count;
+                info->cost += p->u.Constants.Num32BitValues;
                 break;
 
             default:
@@ -837,6 +843,12 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
     if (FAILED(hr = d3d12_root_signature_info_from_desc(&info, desc)))
         return hr;
+
+    if (info.cost > D3D12_MAX_ROOT_COST)
+    {
+        WARN("Root signature cost %zu exceeds maximum allowed cost.\n", info.cost);
+        return E_INVALIDARG;
+    }
 
     /* XXX: Vulkan buffer and image descriptors have different types. In order
      * to preserve compatibility between Vulkan resource bindings for the same
