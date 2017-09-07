@@ -1902,26 +1902,26 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
         enum vkd3d_shader_resource_type resource_type)
 {
     const struct vkd3d_shader_interface *shader_interface = &compiler->shader_interface;
+    enum vkd3d_shader_descriptor_type descriptor_type;
     struct vkd3d_shader_descriptor_binding vk_binding;
-    enum vkd3d_descriptor_type descriptor_type;
     unsigned int reg_idx = reg->idx[0].offset;
     bool is_buffer_resource;
     unsigned int i;
 
-    descriptor_type = VKD3D_DESCRIPTOR_TYPE_UNKNOWN;
+    descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN;
     if (reg->type == VKD3DSPR_CONSTBUFFER)
-        descriptor_type = VKD3D_DESCRIPTOR_TYPE_CBV;
+        descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_CBV;
     else if (reg->type == VKD3DSPR_RESOURCE)
-        descriptor_type = VKD3D_DESCRIPTOR_TYPE_SRV;
+        descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
     else if (reg->type == VKD3DSPR_UAV)
-        descriptor_type = VKD3D_DESCRIPTOR_TYPE_UAV;
+        descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
     else if (reg->type == VKD3DSPR_SAMPLER)
-        descriptor_type = VKD3D_DESCRIPTOR_TYPE_SAMPLER;
+        descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER;
     else
         FIXME("Unhandled register type %#x.\n", reg->type);
 
     is_buffer_resource = resource_type == VKD3D_SHADER_RESOURCE_BUFFER;
-    if (descriptor_type != VKD3D_DESCRIPTOR_TYPE_UNKNOWN)
+    if (descriptor_type != VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN)
     {
         for (i = 0; i < shader_interface->binding_count; ++i)
         {

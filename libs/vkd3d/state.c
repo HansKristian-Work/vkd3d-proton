@@ -258,38 +258,39 @@ static VkDescriptorType vk_descriptor_type_from_d3d12_root_parameter(D3D12_ROOT_
     }
 }
 
-static enum vkd3d_descriptor_type vkd3d_descriptor_type_from_d3d12_range_type(D3D12_DESCRIPTOR_RANGE_TYPE type)
+static enum vkd3d_shader_descriptor_type vkd3d_descriptor_type_from_d3d12_range_type(
+        D3D12_DESCRIPTOR_RANGE_TYPE type)
 {
     switch (type)
     {
         case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
-            return VKD3D_DESCRIPTOR_TYPE_SRV;
+            return VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
         case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-            return VKD3D_DESCRIPTOR_TYPE_UAV;
+            return VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
         case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
-            return VKD3D_DESCRIPTOR_TYPE_CBV;
+            return VKD3D_SHADER_DESCRIPTOR_TYPE_CBV;
         case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
-            return VKD3D_DESCRIPTOR_TYPE_SAMPLER;
+            return VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER;
         default:
             FIXME("Unhandled descriptor range type type %#x.\n", type);
-            return VKD3D_DESCRIPTOR_TYPE_SRV;
+            return VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
     }
 }
 
-static enum vkd3d_descriptor_type vkd3d_descriptor_type_from_d3d12_root_parameter_type(
+static enum vkd3d_shader_descriptor_type vkd3d_descriptor_type_from_d3d12_root_parameter_type(
         D3D12_ROOT_PARAMETER_TYPE type)
 {
     switch (type)
     {
         case D3D12_ROOT_PARAMETER_TYPE_SRV:
-            return VKD3D_DESCRIPTOR_TYPE_SRV;
+            return VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
         case D3D12_ROOT_PARAMETER_TYPE_UAV:
-            return VKD3D_DESCRIPTOR_TYPE_UAV;
+            return VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
         case D3D12_ROOT_PARAMETER_TYPE_CBV:
-            return VKD3D_DESCRIPTOR_TYPE_CBV;
+            return VKD3D_SHADER_DESCRIPTOR_TYPE_CBV;
         default:
             FIXME("Unhandled descriptor root parameter type %#x.\n", type);
-            return VKD3D_DESCRIPTOR_TYPE_SRV;
+            return VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
     }
 }
 
@@ -593,7 +594,7 @@ struct vkd3d_descriptor_set_context
 };
 
 static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *root_signature,
-        enum vkd3d_descriptor_type descriptor_type, unsigned int register_idx,
+        enum vkd3d_shader_descriptor_type descriptor_type, unsigned int register_idx,
         bool buffer_descriptor, struct vkd3d_descriptor_set_context *context)
 {
     unsigned int i = context->descriptor_index++;
@@ -606,16 +607,16 @@ static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *
 }
 
 static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signature *root_signature,
-        enum vkd3d_descriptor_type descriptor_type, unsigned int base_register_idx,
+        enum vkd3d_shader_descriptor_type descriptor_type, unsigned int base_register_idx,
         unsigned int binding_count, bool is_buffer_descriptor, bool duplicate_descriptors,
         struct vkd3d_descriptor_set_context *context)
 {
     uint32_t first_binding;
     unsigned int i;
 
-    is_buffer_descriptor |= descriptor_type == VKD3D_DESCRIPTOR_TYPE_CBV;
-    duplicate_descriptors = (descriptor_type == VKD3D_DESCRIPTOR_TYPE_SRV
-            || descriptor_type == VKD3D_DESCRIPTOR_TYPE_UAV)
+    is_buffer_descriptor |= descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_CBV;
+    duplicate_descriptors = (descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_SRV
+            || descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV)
             && duplicate_descriptors;
 
     first_binding = context->descriptor_binding;
@@ -782,7 +783,7 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
             return hr;
 
         cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
-                VKD3D_DESCRIPTOR_TYPE_SAMPLER, s->ShaderRegister, 1, false, false, context);
+                VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, s->ShaderRegister, 1, false, false, context);
         cur_binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
         cur_binding->descriptorCount = 1;
         cur_binding->stageFlags = stage_flags_from_visibility(s->ShaderVisibility);

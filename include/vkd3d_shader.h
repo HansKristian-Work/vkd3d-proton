@@ -48,13 +48,13 @@ struct vkd3d_shader_code
     size_t size;
 };
 
-enum vkd3d_descriptor_type
+enum vkd3d_shader_descriptor_type
 {
-    VKD3D_DESCRIPTOR_TYPE_UNKNOWN,
-    VKD3D_DESCRIPTOR_TYPE_CBV,     /* cb# */
-    VKD3D_DESCRIPTOR_TYPE_SRV,     /* t#  */
-    VKD3D_DESCRIPTOR_TYPE_UAV,     /* u#  */
-    VKD3D_DESCRIPTOR_TYPE_SAMPLER, /* s#  */
+    VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN,
+    VKD3D_SHADER_DESCRIPTOR_TYPE_CBV,     /* cb# */
+    VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,     /* t#  */
+    VKD3D_SHADER_DESCRIPTOR_TYPE_UAV,     /* u#  */
+    VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, /* s#  */
 };
 
 struct vkd3d_shader_descriptor_binding
@@ -65,7 +65,7 @@ struct vkd3d_shader_descriptor_binding
 
 struct vkd3d_shader_resource_binding
 {
-    enum vkd3d_descriptor_type type;
+    enum vkd3d_shader_descriptor_type type;
     unsigned int register_index;
     bool is_buffer;
 
