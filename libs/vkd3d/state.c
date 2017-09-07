@@ -804,6 +804,28 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
     return S_OK;
 }
 
+static HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
+        VkDescriptorSetLayoutCreateFlags flags, unsigned int binding_count,
+        const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkDescriptorSetLayoutCreateInfo set_desc;
+    VkResult vr;
+
+    set_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    set_desc.pNext = NULL;
+    set_desc.flags = flags;
+    set_desc.bindingCount = binding_count;
+    set_desc.pBindings = bindings;
+    if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device, &set_desc, NULL, set_layout))) < 0)
+    {
+        WARN("Failed to create Vulkan descriptor set layout, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc)
 {
@@ -812,7 +834,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
     struct VkPipelineLayoutCreateInfo pipeline_layout_info;
-    struct VkDescriptorSetLayoutCreateInfo set_desc[2];
     struct vkd3d_descriptor_set_context context;
     VkDescriptorSetLayoutBinding *binding_desc;
     struct d3d12_root_signature_info info;
@@ -829,8 +850,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
     root_signature->vk_pipeline_layout = VK_NULL_HANDLE;
     root_signature->pool_sizes = NULL;
-    root_signature->vk_set_layout = VK_NULL_HANDLE;
     root_signature->vk_push_set_layout = VK_NULL_HANDLE;
+    root_signature->vk_set_layout = VK_NULL_HANDLE;
     root_signature->parameters = NULL;
     root_signature->descriptor_mapping = NULL;
     root_signature->static_sampler_count = 0;
@@ -894,18 +915,10 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     /* We use KHR_push_descriptor for root descriptor parameters. */
     if (vk_info->KHR_push_descriptor && context.descriptor_binding)
     {
-        set_desc[context.set_index].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        set_desc[context.set_index].pNext = NULL;
-        set_desc[context.set_index].flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
-        set_desc[context.set_index].bindingCount = context.descriptor_binding;
-        set_desc[context.set_index].pBindings = binding_desc;
-        if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device, &set_desc[context.set_index],
-                NULL, &root_signature->vk_push_set_layout))) < 0)
-        {
-            WARN("Failed to create Vulkan descriptor set layout, vr %d.\n", vr);
-            hr = hresult_from_vk_result(vr);
+        if (FAILED(hr = vkd3d_create_descriptor_set_layout(device,
+                VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
+                context.descriptor_binding, binding_desc, &root_signature->vk_push_set_layout)))
             goto fail;
-        }
 
         set_layouts[context.set_index++] = root_signature->vk_push_set_layout;
         context.current_binding = binding_desc;
@@ -924,18 +937,9 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     root_signature->main_set = context.set_index;
     if (context.descriptor_binding)
     {
-        set_desc[context.set_index].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        set_desc[context.set_index].pNext = NULL;
-        set_desc[context.set_index].flags = 0;
-        set_desc[context.set_index].bindingCount = context.descriptor_binding;
-        set_desc[context.set_index].pBindings = binding_desc;
-        if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device,  &set_desc[context.set_index],
-                NULL, &root_signature->vk_set_layout))) < 0)
-        {
-            WARN("Failed to create Vulkan descriptor set layout, vr %d.\n", vr);
-            hr = hresult_from_vk_result(vr);
+        if (FAILED(hr = vkd3d_create_descriptor_set_layout(device,
+                0, context.descriptor_binding, binding_desc, &root_signature->vk_set_layout)))
             goto fail;
-        }
 
         set_layouts[context.set_index++] = root_signature->vk_set_layout;
     }

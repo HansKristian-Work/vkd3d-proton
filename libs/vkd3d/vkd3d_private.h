@@ -327,8 +327,8 @@ struct d3d12_root_signature
     LONG refcount;
 
     VkPipelineLayout vk_pipeline_layout;
-    VkDescriptorSetLayout vk_set_layout;
     VkDescriptorSetLayout vk_push_set_layout;
+    VkDescriptorSetLayout vk_set_layout;
 
     unsigned int copy_descriptor_count;
 
