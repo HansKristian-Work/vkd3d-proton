@@ -530,8 +530,7 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
     }
     else
     {
-        /* Move non-empty push constants ranges to front and compute offsets.
-         */
+        /* Move non-empty push constants ranges to front and compute offsets. */
         offset = 0;
         for (i = 0, j = 0; i <= D3D12_SHADER_VISIBILITY_PIXEL; ++i)
         {
@@ -826,20 +825,43 @@ static HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
     return S_OK;
 }
 
+static HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
+        unsigned int set_layout_count, const VkDescriptorSetLayout *set_layouts,
+        unsigned int push_constant_count, const VkPushConstantRange *push_constants,
+        VkPipelineLayout *pipeline_layout)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct VkPipelineLayoutCreateInfo pipeline_layout_info;
+    VkResult vr;
+
+    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_info.pNext = NULL;
+    pipeline_layout_info.flags = 0;
+    pipeline_layout_info.setLayoutCount = set_layout_count;
+    pipeline_layout_info.pSetLayouts = set_layouts;
+    pipeline_layout_info.pushConstantRangeCount = push_constant_count;
+    pipeline_layout_info.pPushConstantRanges = push_constants;
+    if ((vr = VK_CALL(vkCreatePipelineLayout(device->vk_device,
+            &pipeline_layout_info, NULL, pipeline_layout))) < 0)
+    {
+        WARN("Failed to create Vulkan pipeline layout, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc)
 {
     /* Only a single push constant range may include the same stage in Vulkan. */
     struct VkPushConstantRange push_constants[D3D12_SHADER_VISIBILITY_PIXEL + 1];
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
-    struct VkPipelineLayoutCreateInfo pipeline_layout_info;
     struct vkd3d_descriptor_set_context context;
     VkDescriptorSetLayoutBinding *binding_desc;
     struct d3d12_root_signature_info info;
     VkDescriptorSetLayout set_layouts[2];
     uint32_t push_constant_count;
-    VkResult vr;
     HRESULT hr;
 
     memset(&context, 0, sizeof(context));
@@ -862,7 +884,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
     if (FAILED(hr = d3d12_root_signature_info_from_desc(&info, desc)))
         return hr;
-
     if (info.cost > D3D12_MAX_ROOT_COST)
     {
         WARN("Root signature cost %zu exceeds maximum allowed cost.\n", info.cost);
@@ -946,20 +967,9 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     vkd3d_free(binding_desc);
     binding_desc = NULL;
 
-    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipeline_layout_info.pNext = NULL;
-    pipeline_layout_info.flags = 0;
-    pipeline_layout_info.setLayoutCount = context.set_index;
-    pipeline_layout_info.pSetLayouts = set_layouts;
-    pipeline_layout_info.pushConstantRangeCount = push_constant_count;
-    pipeline_layout_info.pPushConstantRanges = push_constants;
-    if ((vr = VK_CALL(vkCreatePipelineLayout(device->vk_device, &pipeline_layout_info, NULL,
-            &root_signature->vk_pipeline_layout))) < 0)
-    {
-        WARN("Failed to create Vulkan pipeline layout, vr %d.\n", vr);
-        hr = hresult_from_vk_result(vr);
+    if (FAILED(hr = vkd3d_create_pipeline_layout(device, context.set_index, set_layouts,
+            push_constant_count, push_constants, &root_signature->vk_pipeline_layout)))
         goto fail;
-    }
 
     root_signature->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
