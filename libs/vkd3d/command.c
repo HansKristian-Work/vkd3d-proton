@@ -1804,8 +1804,12 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
             vk_descriptor_write->pImageInfo = vk_image_info;
             break;
 
+        case VKD3D_DESCRIPTOR_MAGIC_FREE:
+            TRACE("Descriptor %u not initialized.\n", vk_descriptor_write->dstBinding);
+            return false;
+
         default:
-            FIXME("Unhandled descriptor %#x.\n", descriptor->magic);
+            ERR("Invalid descriptor %#x.\n", descriptor->magic);
             return false;
     }
 
