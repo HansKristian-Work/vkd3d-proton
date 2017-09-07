@@ -3129,7 +3129,7 @@ static SpvImageFormat image_format_for_image_read(enum vkd3d_component_type data
 
 static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, const struct vkd3d_spirv_resource_type *resource_type_info,
-        enum vkd3d_component_type data_type, uint32_t depth)
+        enum vkd3d_component_type data_type, bool raw_structured, uint32_t depth)
 {
     const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -3137,7 +3137,8 @@ static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler
     SpvImageFormat format;
 
     format = SpvImageFormatUnknown;
-    if (reg->type == VKD3DSPR_UAV && (scan_info->uav_read_mask & (1u << reg->idx[0].offset)))
+    if (reg->type == VKD3DSPR_UAV
+            && (raw_structured || (scan_info->uav_read_mask & (1u << reg->idx[0].offset))))
         format = image_format_for_image_read(data_type);
 
     sampled_type_id = vkd3d_spirv_get_type_id(builder, data_type, 1);
@@ -3170,7 +3171,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     sampled_type = vkd3d_component_type_from_data_type(resource_data_type);
 
     type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler,
-            reg, resource_type_info, sampled_type, 0);
+            reg, resource_type_info, sampled_type, structure_stride || raw, 0);
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id);
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
             ptr_type_id, storage_class, 0);
@@ -4388,7 +4389,8 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
             image->image_type_id, image->id, SpvMemoryAccessMaskNone) : 0;
 
     image->image_type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler,
-            resource_reg, image->resource_type_info, image->sampled_type, depth_comparison);
+            resource_reg, image->resource_type_info, image->sampled_type,
+            image->structure_stride || image->raw, depth_comparison);
 
     image->sampler_id = 0;
     image->sampled_image_id = 0;
