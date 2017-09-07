@@ -196,6 +196,7 @@ struct vkd3d_view
         VkImageView vk_image_view;
         VkSampler vk_sampler;
     } u;
+    VkBufferView vk_counter_view;
 };
 
 struct d3d12_desc
@@ -216,8 +217,8 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
 void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc) DECLSPEC_HIDDEN;
-void d3d12_desc_create_uav(struct d3d12_desc *descriptor,
-        struct d3d12_device *device, struct d3d12_resource *resource,
+void d3d12_desc_create_uav(struct d3d12_desc *descriptor, struct d3d12_device *device,
+        struct d3d12_resource *resource, struct d3d12_resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc) DECLSPEC_HIDDEN;
 void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc) DECLSPEC_HIDDEN;

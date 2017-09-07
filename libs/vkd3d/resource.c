@@ -770,7 +770,10 @@ static struct vkd3d_view *vkd3d_view_create(void)
     struct vkd3d_view *view;
 
     if ((view = vkd3d_malloc(sizeof(*view))))
+    {
         view->refcount = 1;
+        view->vk_counter_view = VK_NULL_HANDLE;
+    }
     return view;
 }
 
@@ -797,6 +800,9 @@ static void vkd3d_view_decref(struct vkd3d_view *view,
             VK_CALL(vkDestroyBufferView(device->vk_device, view->u.vk_buffer_view, NULL));
         else
             VK_CALL(vkDestroyImageView(device->vk_device, view->u.vk_image_view, NULL));
+
+        if (view->vk_counter_view)
+            VK_CALL(vkDestroyBufferView(device->vk_device, view->vk_counter_view, NULL));
     }
     else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
     {
@@ -1076,8 +1082,8 @@ static unsigned int vkd3d_view_flags_from_d3d12_buffer_uav_flags(D3D12_BUFFER_UA
     return 0;
 }
 
-static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor,
-        struct d3d12_device *device, struct d3d12_resource *resource,
+static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_device *device,
+        struct d3d12_resource *resource, struct d3d12_resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
     struct vkd3d_view *view;
@@ -1113,6 +1119,18 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor,
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
     descriptor->u.view = view;
+
+    if (counter_resource)
+    {
+        assert(d3d12_resource_is_buffer(counter_resource));
+        assert(desc->u.Buffer.StructureByteStride);
+        if (!vkd3d_create_buffer_view(device, counter_resource, DXGI_FORMAT_R32_UINT,
+                desc->u.Buffer.CounterOffsetInBytes / sizeof(uint32_t), 1, 0, 0, &view->vk_counter_view))
+        {
+            view->vk_counter_view = VK_NULL_HANDLE;
+            d3d12_desc_destroy(descriptor, device);
+        }
+    }
 }
 
 static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
@@ -1188,8 +1206,8 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
     descriptor->u.view = view;
 }
 
-void d3d12_desc_create_uav(struct d3d12_desc *descriptor,
-        struct d3d12_device *device, struct d3d12_resource *resource,
+void d3d12_desc_create_uav(struct d3d12_desc *descriptor, struct d3d12_device *device,
+        struct d3d12_resource *resource, struct d3d12_resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
     d3d12_desc_destroy(descriptor, device);
@@ -1201,9 +1219,15 @@ void d3d12_desc_create_uav(struct d3d12_desc *descriptor,
     }
 
     if (d3d12_resource_is_buffer(resource))
-        vkd3d_create_buffer_uav(descriptor, device, resource, desc);
+    {
+        vkd3d_create_buffer_uav(descriptor, device, resource, counter_resource, desc);
+    }
     else
+    {
+        if (counter_resource)
+            FIXME("Unexpected counter resource for texture view.\n");
         vkd3d_create_texture_uav(descriptor, device, resource, desc);
+    }
 }
 
 bool vkd3d_create_raw_buffer_uav(struct d3d12_device *device,
