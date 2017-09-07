@@ -343,8 +343,12 @@ struct d3d12_root_signature
     struct vkd3d_shader_resource_binding *descriptor_mapping;
     struct vkd3d_shader_descriptor_binding default_sampler;
 
-    unsigned int constant_count;
-    struct vkd3d_shader_push_constant *push_constants;
+    unsigned int root_constant_count;
+    struct vkd3d_shader_push_constant *root_constants;
+
+    unsigned int push_constant_range_count;
+    /* Only a single push constant range may include the same stage in Vulkan. */
+    VkPushConstantRange push_constant_ranges[D3D12_SHADER_VISIBILITY_PIXEL + 1];
 
     unsigned int static_sampler_count;
     VkSampler *static_samplers;
