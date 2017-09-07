@@ -1175,8 +1175,8 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
 
     shader_interface.bindings = root_signature->descriptor_mapping;
     shader_interface.binding_count = root_signature->descriptor_count;
-    shader_interface.push_constants = root_signature->root_constants;
-    shader_interface.push_constant_count = root_signature->root_constant_count;
+    shader_interface.push_constant_buffers = root_signature->root_constants;
+    shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
     shader_interface.default_sampler = root_signature->default_sampler;
     if (FAILED(hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, &shader_interface)))
     {
