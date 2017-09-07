@@ -2972,10 +2972,11 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
         /* Push constant buffers are handled in
          * vkd3d_dxbc_compiler_emit_push_constant_buffers().
          */
+        unsigned int cb_size_in_bytes = cb_size * VKD3D_VEC4_SIZE * sizeof(uint32_t);
         push_cb->reg = *reg;
-        if (cb_size * VKD3D_VEC4_SIZE * sizeof(uint32_t) > push_cb->pc.size)
+        if (cb_size_in_bytes > push_cb->pc.size)
             WARN("Constant buffer size %u exceeds push constant size %u.\n",
-                    cb_size, push_cb->pc.size);
+                    cb_size_in_bytes, push_cb->pc.size);
         return;
     }
 
@@ -3162,7 +3163,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     if (!(resource_type_info = vkd3d_dxbc_compiler_enable_resource_type(compiler,
             resource_type, is_uav)))
     {
-        FIXME("Failed to emit resource declaration.\n");
+        FIXME("Unrecognized resource type.\n");
         return;
     }
 
@@ -4552,8 +4553,8 @@ static uint32_t vkd3d_dxbc_compiler_emit_texel_offset(struct vkd3d_dxbc_compiler
         const struct vkd3d_spirv_resource_type *resource_type_info)
 {
     const struct vkd3d_shader_texel_offset *offset = &instruction->texel_offset;
-    int32_t data[4] = {offset->u, offset->v, offset->w, 0};
     unsigned int component_count = resource_type_info->offset_component_count;
+    int32_t data[4] = {offset->u, offset->v, offset->w, 0};
     return vkd3d_dxbc_compiler_get_constant(compiler,
             VKD3D_TYPE_INT, component_count, (const uint32_t *)data);
 }
