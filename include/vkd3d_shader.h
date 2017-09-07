@@ -72,6 +72,13 @@ struct vkd3d_shader_resource_binding
     struct vkd3d_shader_descriptor_binding binding;
 };
 
+struct vkd3d_shader_uav_counter_binding
+{
+    unsigned int register_index; /* u# */
+
+    struct vkd3d_shader_descriptor_binding binding;
+};
+
 struct vkd3d_shader_push_constant_buffer
 {
     unsigned int register_index;
@@ -94,6 +101,9 @@ struct vkd3d_shader_interface
      * In Vulkan OpImageFetch must be used with a sampled image.
      */
     struct vkd3d_shader_descriptor_binding default_sampler;
+
+    const struct vkd3d_shader_uav_counter_binding *uav_counters;
+    unsigned int uav_counter_count;
 };
 
 HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
