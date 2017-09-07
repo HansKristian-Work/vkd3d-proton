@@ -4351,23 +4351,30 @@ struct vkd3d_shader_image
 #define VKD3D_IMAGE_FLAG_DEPTH   0x1
 #define VKD3D_IMAGE_FLAG_NO_LOAD 0x2
 
+static const struct vkd3d_symbol *vkd3d_dxbc_compiler_find_resource(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *resource_reg)
+{
+    struct vkd3d_symbol resource_key;
+    struct rb_entry *entry;
+
+    vkd3d_symbol_make_resource(&resource_key, resource_reg);
+    entry = rb_get(&compiler->symbol_table, &resource_key);
+    assert(entry);
+    return RB_ENTRY_VALUE(entry, struct vkd3d_symbol, entry);
+}
+
 static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_image *image, const struct vkd3d_shader_register *resource_reg,
         unsigned int flags)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_symbol *resource_symbol;
-    struct vkd3d_symbol resource_key;
     bool load, depth_comparison;
-    struct rb_entry *entry;
 
     load = !(flags & VKD3D_IMAGE_FLAG_NO_LOAD);
     depth_comparison = flags & VKD3D_IMAGE_FLAG_DEPTH;
 
-    vkd3d_symbol_make_resource(&resource_key, resource_reg);
-    entry = rb_get(&compiler->symbol_table, &resource_key);
-    assert(entry);
-    resource_symbol = RB_ENTRY_VALUE(entry, struct vkd3d_symbol, entry);
+    resource_symbol = vkd3d_dxbc_compiler_find_resource(compiler, resource_reg);
 
     image->sampled_type = resource_symbol->info.resource.sampled_type;
     image->image_type_id = resource_symbol->info.resource.type_id;
@@ -4881,6 +4888,39 @@ static void vkd3d_dxbc_compiler_emit_store_uav_typed(struct vkd3d_dxbc_compiler 
             SpvImageOperandsMaskNone, NULL, 0);
 }
 
+static void vkd3d_dxbc_compiler_emit_uav_counter_instruction(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t ptr_type_id, type_id, image_id, result_id;
+    uint32_t coordinate_id, sample_id, pointer_id;
+    const struct vkd3d_symbol *resource_symbol;
+    uint32_t operands[3];
+    SpvOp op;
+
+    op = instruction->handler_idx == VKD3DSIH_IMM_ATOMIC_ALLOC
+            ? SpvOpAtomicIIncrement : SpvOpAtomicIDecrement;
+
+    resource_symbol = vkd3d_dxbc_compiler_find_resource(compiler, &src->reg);
+    image_id = resource_symbol->info.resource.uav_counter_id;
+    assert(image_id);
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassImage, type_id);
+    coordinate_id = sample_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
+    pointer_id = vkd3d_spirv_build_op_image_texel_pointer(builder,
+            ptr_type_id, image_id, coordinate_id, sample_id);
+
+    operands[0] = pointer_id;
+    operands[1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvScopeDevice);
+    operands[2] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvMemorySemanticsMaskNone);
+    result_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
+            op, type_id, operands, ARRAY_SIZE(operands));
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, result_id);
+}
+
 static SpvOp vkd3d_dxbc_compiler_map_atomic_instruction(const struct vkd3d_shader_instruction *instruction)
 {
     static const struct
@@ -5348,6 +5388,10 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_STORE_UAV_TYPED:
             vkd3d_dxbc_compiler_emit_store_uav_typed(compiler, instruction);
+            break;
+        case VKD3DSIH_IMM_ATOMIC_ALLOC:
+        case VKD3DSIH_IMM_ATOMIC_CONSUME:
+            vkd3d_dxbc_compiler_emit_uav_counter_instruction(compiler, instruction);
             break;
         case VKD3DSIH_ATOMIC_AND:
         case VKD3DSIH_ATOMIC_CMP_STORE:
