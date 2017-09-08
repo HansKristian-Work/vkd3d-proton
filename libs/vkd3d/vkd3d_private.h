@@ -458,7 +458,7 @@ HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
 
 struct vkd3d_pipeline_bindings
 {
-    struct d3d12_root_signature *root_signature;
+    const struct d3d12_root_signature *root_signature;
 
     VkDescriptorSet descriptor_set;
     bool in_use;

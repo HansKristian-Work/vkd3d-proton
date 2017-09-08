@@ -1640,7 +1640,7 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
 }
 
 static VkDescriptorSet d3d12_command_list_allocate_descriptor_set(struct d3d12_command_list *list,
-        struct d3d12_root_signature *root_signature)
+        const struct d3d12_root_signature *root_signature)
 {
     const struct vkd3d_vk_device_procs *vk_procs;
     VkDevice vk_device = list->device->vk_device;
@@ -1690,7 +1690,7 @@ static VkDescriptorSet d3d12_command_list_allocate_descriptor_set(struct d3d12_c
 }
 
 static void d3d12_command_list_copy_descriptors(struct d3d12_command_list *list,
-        struct d3d12_root_signature *root_signature, VkDescriptorSet dst_set, VkDescriptorSet src_set)
+        const struct d3d12_root_signature *root_signature, VkDescriptorSet dst_set, VkDescriptorSet src_set)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     unsigned int count = root_signature->copy_descriptor_count;
@@ -1722,7 +1722,7 @@ static void d3d12_command_list_prepare_descriptors(struct d3d12_command_list *li
         VkPipelineBindPoint bind_point)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
-    struct d3d12_root_signature *root_signature = bindings->root_signature;
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
     VkDescriptorSet previous_descriptor_set = bindings->descriptor_set;
 
     if (bindings->descriptor_set && !bindings->in_use)
@@ -1820,8 +1820,8 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
         VkPipelineBindPoint bind_point, unsigned int index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
     struct VkWriteDescriptorSet *descriptor_writes, *current_descriptor_write;
-    struct d3d12_root_signature *root_signature = bindings->root_signature;
     struct VkDescriptorImageInfo *image_infos, *current_image_info;
     const struct d3d12_root_descriptor_table *descriptor_table;
     const struct d3d12_root_descriptor_table_range *range;
@@ -1885,7 +1885,7 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    struct d3d12_root_signature *rs = bindings->root_signature;
+    const struct d3d12_root_signature *rs = bindings->root_signature;
     unsigned int i;
 
     if (!rs || !rs->pool_size_count || !rs->vk_set_layout)
@@ -2550,7 +2550,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(ID3D12Graphi
 }
 
 static void d3d12_command_list_set_root_signature(struct d3d12_command_list *list,
-        VkPipelineBindPoint bind_point, struct d3d12_root_signature *root_signature)
+        VkPipelineBindPoint bind_point, const struct d3d12_root_signature *root_signature)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
 
@@ -2587,7 +2587,7 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
         VkPipelineBindPoint bind_point, unsigned int index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
-    struct d3d12_root_signature *root_signature = bindings->root_signature;
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
 
     assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE);
 
@@ -2624,7 +2624,7 @@ static void d3d12_command_list_set_root_constants(struct d3d12_command_list *lis
         VkPipelineBindPoint bind_point, unsigned int index, unsigned int offset,
         unsigned int count, const void *data)
 {
-    struct d3d12_root_signature *root_signature = list->pipeline_bindings[bind_point].root_signature;
+    const struct d3d12_root_signature *root_signature = list->pipeline_bindings[bind_point].root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct d3d12_root_constant *c;
 
@@ -2686,7 +2686,7 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point, unsigned int index, D3D12_GPU_VIRTUAL_ADDRESS gpu_address)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
-    struct d3d12_root_signature *root_signature = bindings->root_signature;
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
     const struct d3d12_root_descriptor *root_descriptor;
@@ -2753,7 +2753,7 @@ static void d3d12_command_list_set_root_uav(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point, unsigned int index, D3D12_GPU_VIRTUAL_ADDRESS gpu_address)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
-    struct d3d12_root_signature *root_signature = bindings->root_signature;
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
     const struct d3d12_root_descriptor *root_descriptor;
