@@ -11648,6 +11648,252 @@ static void test_cs_uav_store(void)
     destroy_test_context(&context);
 }
 
+static unsigned int read_uav_counter(const struct test_context *context,
+        ID3D12Resource *counter_buffer, size_t offset)
+{
+    struct resource_readback rb;
+    uint32_t counter;
+
+    transition_sub_resource_state(context->list, counter_buffer, 0,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(counter_buffer, DXGI_FORMAT_R32_UINT, &rb,
+            context->queue, context->list);
+    counter = get_readback_uint(&rb, offset / sizeof(counter), 0);
+    release_resource_readback(&rb);
+    reset_command_list(context->list, context->allocator);
+    transition_sub_resource_state(context->list, counter_buffer, 0,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    return counter;
+}
+
+static int compare_id(const void *a, const void *b)
+{
+    return *(int *)a - *(int *)b;
+}
+
+static void test_uav_counters(void)
+{
+    ID3D12Resource *buffer, *buffer2, *counter_buffer;
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_ROOT_PARAMETER root_parameters[1];
+    ID3D12DescriptorHeap *descriptor_heap;
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    uint32_t data, id[128];
+    ID3D12Device *device;
+    uint32_t counter;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD cs_producer_code[] =
+    {
+#if 0
+        RWStructuredBuffer<uint> u;
+
+        [numthreads(4, 1, 1)]
+        void main(uint3 dispatch_id : SV_DispatchThreadID)
+        {
+            uint counter = u.IncrementCounter();
+            u[counter] = dispatch_id.x;
+        }
+#endif
+        0x43425844, 0x013163a8, 0xe7d371b8, 0x4f71e39a, 0xd479e584, 0x00000001, 0x000000c8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000074, 0x00050050, 0x0000001d, 0x0100086a,
+        0x0480009e, 0x0011e000, 0x00000000, 0x00000004, 0x0200005f, 0x00020012, 0x02000068, 0x00000001,
+        0x0400009b, 0x00000004, 0x00000001, 0x00000001, 0x050000b2, 0x00100012, 0x00000000, 0x0011e000,
+        0x00000000, 0x080000a8, 0x0011e012, 0x00000000, 0x0010000a, 0x00000000, 0x00004001, 0x00000000,
+        0x0002000a, 0x0100003e,
+    };
+    static const DWORD cs_consumer_code[] =
+    {
+#if 0
+        RWStructuredBuffer<uint> u;
+        RWStructuredBuffer<uint> u2;
+
+        [numthreads(4, 1, 1)]
+        void main()
+        {
+            uint counter = u.DecrementCounter();
+            u2[counter] = u[counter];
+        }
+#endif
+        0x43425844, 0x957ef3dd, 0x9f317559, 0x09c8f12d, 0xdbfd98c8, 0x00000001, 0x00000100, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000ac, 0x00050050, 0x0000002b, 0x0100086a,
+        0x0480009e, 0x0011e000, 0x00000000, 0x00000004, 0x0400009e, 0x0011e000, 0x00000001, 0x00000004,
+        0x02000068, 0x00000001, 0x0400009b, 0x00000004, 0x00000001, 0x00000001, 0x050000b3, 0x00100012,
+        0x00000000, 0x0011e000, 0x00000000, 0x8b0000a7, 0x80002302, 0x00199983, 0x00100022, 0x00000000,
+        0x0010000a, 0x00000000, 0x00004001, 0x00000000, 0x0011e006, 0x00000000, 0x090000a8, 0x0011e012,
+        0x00000001, 0x0010000a, 0x00000000, 0x00004001, 0x00000000, 0x0010001a, 0x00000000, 0x0100003e,
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    descriptor_ranges[0].NumDescriptors = 2;
+    descriptor_ranges[0].BaseShaderRegister = 0;
+    descriptor_ranges[0].RegisterSpace = 0;
+    descriptor_ranges[0].OffsetInDescriptorsFromTableStart = 0;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = descriptor_ranges;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = 1;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
+            shader_bytecode(cs_producer_code, sizeof(cs_producer_code)));
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap_desc.NumDescriptors = 3;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    buffer = create_default_buffer(device, 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    buffer2 = create_default_buffer(device, 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    counter_buffer = create_default_buffer(device, 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.Format = DXGI_FORMAT_UNKNOWN;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Buffer.NumElements = 256;
+    uav_desc.Buffer.StructureByteStride = sizeof(uint32_t);
+    uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+    ID3D12Device_CreateUnorderedAccessView(device, buffer, counter_buffer, &uav_desc,
+            get_cpu_descriptor_handle(&context, descriptor_heap, 0));
+    ID3D12Device_CreateUnorderedAccessView(device, buffer2, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, descriptor_heap, 1));
+
+    counter = 0;
+    upload_buffer_data(counter_buffer, 0, sizeof(counter), &counter, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+    transition_sub_resource_state(command_list, counter_buffer, 0,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    /* produce */
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap));
+    ID3D12GraphicsCommandList_Dispatch(command_list, 16, 1, 1);
+
+    counter = read_uav_counter(&context, counter_buffer, 0);
+    ok(counter == 64, "Got unexpected value %u.\n", counter);
+    transition_sub_resource_state(command_list, buffer, 0,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    memcpy(id, rb.data, 64 * sizeof(*id));
+    release_resource_readback(&rb);
+    qsort(id, 64, sizeof(*id), compare_id);
+    for (i = 0; i < 64; ++i)
+    {
+        if (id[i] != i)
+            break;
+    }
+    ok(i == 64, "Got unexpected id %u at %u.\n", id[i], i);
+
+    reset_command_list(command_list, context.allocator);
+    transition_sub_resource_state(command_list, buffer, 0,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    ID3D12PipelineState_Release(context.pipeline_state);
+    context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
+            shader_bytecode(cs_consumer_code, sizeof(cs_consumer_code)));
+
+    /* consume */
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap));
+    ID3D12GraphicsCommandList_Dispatch(command_list, 16, 1, 1);
+
+    transition_sub_resource_state(command_list, buffer2, 0,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    counter = read_uav_counter(&context, counter_buffer, 0);
+    ok(!counter, "Got unexpected value %u.\n", counter);
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    memcpy(id, rb.data, 64 * sizeof(*id));
+    release_resource_readback(&rb);
+    qsort(id, 64, sizeof(*id), compare_id);
+    for (i = 0; i < 64; ++i)
+    {
+        if (id[i] != i)
+            break;
+    }
+    ok(i == 64, "Got unexpected id %u at %u.\n", id[i], i);
+
+    reset_command_list(command_list, context.allocator);
+    transition_sub_resource_state(command_list, counter_buffer, 0,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+    transition_sub_resource_state(command_list, buffer2, 0,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    /* produce on CPU */
+    counter = 8;
+    for (i = 0; i < counter; ++i)
+        id[i] = 0xdeadbeef;
+    upload_buffer_data(buffer, 0, counter * sizeof(*id), id, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+    upload_buffer_data(counter_buffer, 0, sizeof(counter), &counter, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+
+    transition_sub_resource_state(command_list, counter_buffer, 0,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    transition_sub_resource_state(command_list, buffer2, 0,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    /* consume */
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap));
+    ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
+    ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
+
+    transition_sub_resource_state(command_list, buffer2, 0,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    counter = read_uav_counter(&context, counter_buffer, 0);
+    ok(!counter, "Got unexpected value %u.\n", counter);
+
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (i = 0; i < 8; ++i)
+    {
+        data = get_readback_uint(&rb, i, 0);
+        ok(data == 0xdeadbeef, "Got data %u at %u.\n", data, i);
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(buffer);
+    ID3D12Resource_Release(buffer2);
+    ID3D12Resource_Release(counter_buffer);
+    ID3D12DescriptorHeap_Release(descriptor_heap);
+    destroy_test_context(&context);
+}
+
 static void test_atomic_instructions(void)
 {
     ID3D12Resource *ps_buffer, *cs_buffer, *cs_buffer2;
@@ -12900,6 +13146,7 @@ START_TEST(d3d12)
     run_test(test_tgsm);
     run_test(test_uav_load);
     run_test(test_cs_uav_store);
+    run_test(test_uav_counters);
     run_test(test_atomic_instructions);
     run_test(test_buffer_srv);
     run_test(test_create_query_heap);
