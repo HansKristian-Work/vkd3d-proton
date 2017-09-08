@@ -88,6 +88,7 @@ AS_IF([test "x$with_spirv_tools" = "xyes"],
 PKG_CHECK_MODULES([XCB], [xcb xcb-keysyms])
 
 dnl Check for functions
+VKD3D_CHECK_BUILTIN_POPCOUNT
 VKD3D_CHECK_SYNC_ADD_AND_FETCH_FUNC
 VKD3D_CHECK_SYNC_SUB_AND_FETCH_FUNC
 
