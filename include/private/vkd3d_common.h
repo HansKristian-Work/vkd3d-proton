@@ -37,6 +37,13 @@ static inline size_t align(size_t addr, size_t alignment)
 # define VKD3D_UNUSED
 #endif  /* __GNUC__ */
 
+static inline unsigned int vkd3d_popcount(unsigned int v)
+{
+    v -= (v >> 1) & 0x55555555;
+    v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
+    return (((v + (v >> 4)) & 0x0f0f0f0f) * 0x01010101) >> 24;
+}
+
 #ifndef _WIN32
 # if HAVE_SYNC_ADD_AND_FETCH
 static inline LONG InterlockedIncrement(LONG volatile *x)

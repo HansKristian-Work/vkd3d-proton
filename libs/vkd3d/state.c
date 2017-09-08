@@ -1067,6 +1067,13 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState 
             VK_CALL(vkDestroyPipeline(device->vk_device, state->u.compute.vk_pipeline, NULL));
         }
 
+        if (state->vk_set_layout)
+            VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout, NULL));
+        if (state->vk_pipeline_layout)
+            VK_CALL(vkDestroyPipelineLayout(device->vk_device, state->vk_pipeline_layout, NULL));
+
+        vkd3d_free(state->uav_counters);
+
         vkd3d_free(state);
 
         ID3D12Device_Release(&device->ID3D12Device_iface);
@@ -1153,11 +1160,10 @@ struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12Pipeline
 
 static HRESULT create_shader_stage(struct d3d12_device *device,
         struct VkPipelineShaderStageCreateInfo *stage_desc, enum VkShaderStageFlagBits stage,
-        const D3D12_SHADER_BYTECODE *code, struct d3d12_root_signature *root_signature)
+        const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface *shader_interface)
 {
     struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct vkd3d_shader_interface shader_interface;
     struct VkShaderModuleCreateInfo shader_desc;
     struct vkd3d_shader_code spirv = {};
     VkResult vr;
@@ -1174,12 +1180,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     shader_desc.pNext = NULL;
     shader_desc.flags = 0;
 
-    shader_interface.bindings = root_signature->descriptor_mapping;
-    shader_interface.binding_count = root_signature->descriptor_count;
-    shader_interface.push_constant_buffers = root_signature->root_constants;
-    shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
-    shader_interface.default_sampler = root_signature->default_sampler;
-    if (FAILED(hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, &shader_interface)))
+    if (FAILED(hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, shader_interface)))
     {
         WARN("Failed to compile shader, hr %#x.\n", hr);
         return hr;
@@ -1198,17 +1199,99 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     return S_OK;
 }
 
+static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipeline_state *state,
+        struct d3d12_device *device, const struct d3d12_root_signature *root_signature,
+        const struct vkd3d_shader_scan_info *shader_info)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_descriptor_set_context context;
+    VkDescriptorSetLayoutBinding *binding_desc;
+    VkDescriptorSetLayout set_layouts[3];
+    unsigned int uav_counter_count;
+    unsigned int i, j;
+    HRESULT hr;
+
+    if (!(uav_counter_count = vkd3d_popcount(shader_info->uav_counter_mask)))
+        return S_OK;
+
+    if (!(binding_desc = vkd3d_calloc(uav_counter_count, sizeof(*binding_desc))))
+        return E_OUTOFMEMORY;
+    if (!(state->uav_counters = vkd3d_calloc(uav_counter_count, sizeof(*state->uav_counters))))
+        return E_OUTOFMEMORY;
+    state->uav_counter_count = uav_counter_count;
+
+    memset(&context, 0, sizeof(context));
+    if (root_signature->vk_push_set_layout)
+        set_layouts[context.set_index++] = root_signature->vk_push_set_layout;
+    if (root_signature->vk_set_layout)
+        set_layouts[context.set_index++] = root_signature->vk_set_layout;
+
+    for (i = 0, j = 0; i < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS; ++i)
+    {
+        if (!(shader_info->uav_counter_mask & (1u << i)))
+            continue;
+
+        state->uav_counters[j].register_index = i;
+        state->uav_counters[j].binding.set = context.set_index;
+        state->uav_counters[j].binding.binding = context.descriptor_binding;
+
+        /* FIXME: For graphics pipeline we have to take the shader visibility
+         * into account.
+         */
+        binding_desc[j].binding = context.descriptor_binding;
+        binding_desc[j].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+        binding_desc[j].descriptorCount = 1;
+        binding_desc[j].stageFlags = VK_SHADER_STAGE_ALL;
+        binding_desc[j].pImmutableSamplers = NULL;
+
+        ++context.descriptor_binding;
+        ++j;
+    }
+
+    /* Create a descriptor set layout for UAV counters. */
+    hr = vkd3d_create_descriptor_set_layout(device,
+            0, context.descriptor_binding, binding_desc, &state->vk_set_layout);
+    vkd3d_free(binding_desc);
+    if (FAILED(hr))
+    {
+        vkd3d_free(state->uav_counters);
+        return hr;
+    }
+
+    /* Create a pipeline layout which is compatible for all other descriptor
+     * sets with the root signature's pipeline layout.
+     */
+    set_layouts[context.set_index++] = state->vk_set_layout;
+    if (FAILED(hr = vkd3d_create_pipeline_layout(device, context.set_index, set_layouts,
+            root_signature->push_constant_range_count, root_signature->push_constant_ranges,
+            &state->vk_pipeline_layout)))
+    {
+        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout, NULL));
+        vkd3d_free(state->uav_counters);
+        return hr;
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct d3d12_root_signature *root_signature;
+    const struct d3d12_root_signature *root_signature;
+    struct vkd3d_shader_interface shader_interface;
     VkComputePipelineCreateInfo pipeline_info;
+    struct vkd3d_shader_scan_info shader_info;
+    struct vkd3d_shader_code dxbc;
     VkResult vr;
     HRESULT hr;
 
     state->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
     state->refcount = 1;
+
+    state->vk_pipeline_layout = VK_NULL_HANDLE;
+    state->vk_set_layout = VK_NULL_HANDLE;
+    state->uav_counters = NULL;
 
     if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->pRootSignature)))
     {
@@ -1216,13 +1299,44 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
         return E_INVALIDARG;
     }
 
+    dxbc.code = desc->CS.pShaderBytecode;
+    dxbc.size = desc->CS.BytecodeLength;
+    if (FAILED(hr = vkd3d_shader_scan_dxbc(&dxbc, &shader_info)))
+    {
+        WARN("Failed to scan shader bytecode, hr %#x.\n", hr);
+        return hr;
+    }
+
+    if (FAILED(hr = d3d12_pipeline_state_init_compute_uav_counters(state,
+            device, root_signature, &shader_info)))
+    {
+        WARN("Failed to create descriptor set layout for UAV counters, hr %#x.\n", hr);
+        return hr;
+    }
+
+    shader_interface.bindings = root_signature->descriptor_mapping;
+    shader_interface.binding_count = root_signature->descriptor_count;
+    shader_interface.push_constant_buffers = root_signature->root_constants;
+    shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
+    shader_interface.default_sampler = root_signature->default_sampler;
+    shader_interface.uav_counters = state->uav_counters;
+    shader_interface.uav_counter_count = state->uav_counter_count;
+
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = NULL;
     pipeline_info.flags = 0;
     if (FAILED(hr = create_shader_stage(device, &pipeline_info.stage,
-            VK_SHADER_STAGE_COMPUTE_BIT, &desc->CS, root_signature)))
+            VK_SHADER_STAGE_COMPUTE_BIT, &desc->CS, &shader_interface)))
+    {
+        if (state->vk_set_layout)
+            VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout, NULL));
+        if (state->vk_pipeline_layout)
+            VK_CALL(vkDestroyPipelineLayout(device->vk_device, state->vk_pipeline_layout, NULL));
+        vkd3d_free(state->uav_counters);
         return hr;
-    pipeline_info.layout = root_signature->vk_pipeline_layout;
+    }
+    pipeline_info.layout = state->vk_pipeline_layout
+            ? state->vk_pipeline_layout : root_signature->vk_pipeline_layout;
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
 
@@ -1232,6 +1346,11 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     if (vr)
     {
         WARN("Failed to create Vulkan compute pipeline, vr %d.\n", vr);
+        if (state->vk_set_layout)
+            VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout, NULL));
+        if (state->vk_pipeline_layout)
+            VK_CALL(vkDestroyPipelineLayout(device->vk_device, state->vk_pipeline_layout, NULL));
+        vkd3d_free(state->uav_counters);
         return hresult_from_vk_result(vr);
     }
 
@@ -1524,7 +1643,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct d3d12_root_signature *root_signature;
+    const struct d3d12_root_signature *root_signature;
+    struct vkd3d_shader_interface shader_interface;
     struct VkSubpassDescription sub_pass_desc;
     struct VkRenderPassCreateInfo pass_desc;
     const struct vkd3d_format *format;
@@ -1552,21 +1672,44 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     state->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
     state->refcount = 1;
 
+    state->vk_pipeline_layout = VK_NULL_HANDLE;
+    state->vk_set_layout = VK_NULL_HANDLE;
+    state->uav_counters = NULL;
+
     if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->pRootSignature)))
     {
         WARN("Root signature is NULL.\n");
         return E_INVALIDARG;
     }
 
+    shader_interface.bindings = root_signature->descriptor_mapping;
+    shader_interface.binding_count = root_signature->descriptor_count;
+    shader_interface.push_constant_buffers = root_signature->root_constants;
+    shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
+    shader_interface.default_sampler = root_signature->default_sampler;
+    shader_interface.uav_counters = NULL;
+    shader_interface.uav_counter_count = 0;
+
     for (i = 0, graphics->stage_count = 0; i < ARRAY_SIZE(shader_stages); ++i)
     {
         const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
+        const struct vkd3d_shader_code dxbc = {b->pShaderBytecode, b->BytecodeLength};
+        struct vkd3d_shader_scan_info shader_info;
 
         if (!b->pShaderBytecode)
             continue;
 
+        if (FAILED(hr = vkd3d_shader_scan_dxbc(&dxbc, &shader_info)))
+        {
+            WARN("Failed to scan shader bytecode, stage %#x, hr %#x.\n", shader_stages[i].stage, hr);
+            hr = E_FAIL;
+            goto fail;
+        }
+        if (shader_info.uav_counter_mask)
+            FIXME("UAV counters not implemented for graphics pipelines.\n");
+
         if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
-                shader_stages[i].stage, b, root_signature)))
+                shader_stages[i].stage, b, &shader_interface)))
             goto fail;
 
         ++graphics->stage_count;

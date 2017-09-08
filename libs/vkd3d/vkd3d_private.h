@@ -379,7 +379,7 @@ struct d3d12_graphics_pipeline_state
     struct VkPipelineMultisampleStateCreateInfo ms_desc;
     struct VkPipelineDepthStencilStateCreateInfo ds_desc;
 
-    struct d3d12_root_signature *root_signature;
+    const struct d3d12_root_signature *root_signature;
 };
 
 struct d3d12_compute_pipeline_state
@@ -399,6 +399,12 @@ struct d3d12_pipeline_state
         struct d3d12_compute_pipeline_state compute;
     } u;
     VkPipelineBindPoint vk_bind_point;
+
+    VkPipelineLayout vk_pipeline_layout;
+    VkDescriptorSetLayout vk_set_layout;
+
+    struct vkd3d_shader_uav_counter_binding *uav_counters;
+    unsigned int uav_counter_count;
 
     struct d3d12_device *device;
 };
