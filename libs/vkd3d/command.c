@@ -1963,6 +1963,8 @@ static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_comma
 
     VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
             state->vk_pipeline_layout, state->set_index, 1, &vk_descriptor_set, 0, NULL));
+
+    bindings->uav_counter_dirty_mask = 0;
 }
 
 static void d3d12_command_list_update_descriptors(struct d3d12_command_list *list,
