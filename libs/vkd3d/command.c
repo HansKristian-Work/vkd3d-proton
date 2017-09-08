@@ -1018,6 +1018,19 @@ static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_
     list->current_pipeline = VK_NULL_HANDLE;
 }
 
+static void d3d12_command_list_invalidate_bindings(struct d3d12_command_list *list,
+        struct d3d12_pipeline_state *state)
+{
+    if (!state)
+        return;
+
+    if (state->uav_counter_count)
+    {
+        struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[state->vk_bind_point];
+        bindings->uav_counter_dirty_mask = ~(uint8_t)0;
+    }
+}
+
 static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state, bool is_swapchain_image,
         VkAccessFlags *access_mask, VkPipelineStageFlags *stage_flags, VkImageLayout *image_layout)
 {
@@ -1640,7 +1653,8 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
 }
 
 static VkDescriptorSet d3d12_command_list_allocate_descriptor_set(struct d3d12_command_list *list,
-        const struct d3d12_root_signature *root_signature)
+        const VkDescriptorPoolSize *pool_sizes, unsigned int pool_size_count,
+        VkDescriptorSetLayout vk_set_layout)
 {
     const struct vkd3d_vk_device_procs *vk_procs;
     VkDevice vk_device = list->device->vk_device;
@@ -1650,7 +1664,7 @@ static VkDescriptorSet d3d12_command_list_allocate_descriptor_set(struct d3d12_c
     VkDescriptorPool vk_pool;
     VkResult vr;
 
-    if (!root_signature->pool_size_count)
+    if (!pool_size_count)
         return VK_NULL_HANDLE;
 
     vk_procs = &list->device->vk_procs;
@@ -1659,8 +1673,8 @@ static VkDescriptorSet d3d12_command_list_allocate_descriptor_set(struct d3d12_c
     pool_desc.pNext = NULL;
     pool_desc.flags = 0;
     pool_desc.maxSets = 1;
-    pool_desc.poolSizeCount = root_signature->pool_size_count;
-    pool_desc.pPoolSizes = root_signature->pool_sizes;
+    pool_desc.poolSizeCount = pool_size_count;
+    pool_desc.pPoolSizes = pool_sizes;
     if ((vr = VK_CALL(vkCreateDescriptorPool(vk_device, &pool_desc, NULL, &vk_pool))) < 0)
     {
         ERR("Failed to create descriptor pool, vr %d.\n", vr);
@@ -1671,7 +1685,7 @@ static VkDescriptorSet d3d12_command_list_allocate_descriptor_set(struct d3d12_c
     set_desc.pNext = NULL;
     set_desc.descriptorPool = vk_pool;
     set_desc.descriptorSetCount = 1;
-    set_desc.pSetLayouts = &root_signature->vk_set_layout;
+    set_desc.pSetLayouts = &vk_set_layout;
     if ((vr = VK_CALL(vkAllocateDescriptorSets(vk_device, &set_desc, &vk_descriptor_set))) < 0)
     {
         ERR("Failed to allocate descriptor set, vr %d.\n", vr);
@@ -1740,7 +1754,8 @@ static void d3d12_command_list_prepare_descriptors(struct d3d12_command_list *li
      *   by an update command, or freed) between when the command is recorded
      *   and when the command completes executing on the queue."
      */
-    bindings->descriptor_set = d3d12_command_list_allocate_descriptor_set(list, root_signature);
+    bindings->descriptor_set = d3d12_command_list_allocate_descriptor_set(list,
+            root_signature->pool_sizes, root_signature->pool_size_count, root_signature->vk_set_layout);
     bindings->in_use = false;
 
     if (previous_descriptor_set)
@@ -1822,10 +1837,10 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     struct VkWriteDescriptorSet *descriptor_writes, *current_descriptor_write;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct VkDescriptorImageInfo *image_infos, *current_image_info;
     const struct d3d12_root_descriptor_table *descriptor_table;
     const struct d3d12_root_descriptor_table_range *range;
-    const struct vkd3d_vk_device_procs *vk_procs;
     struct d3d12_device *device = list->device;
     unsigned int i, j, descriptor_count;
     struct d3d12_desc *descriptor;
@@ -1861,23 +1876,88 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
             descriptor += range->offset;
         }
 
-        for (j = 0; j < range->descriptor_count; ++j, ++descriptor)
+        for (j = 0; j < range->descriptor_count; ++j)
         {
+            unsigned int register_idx = range->base_register_idx + j;
+
+            /* Track UAV counters. */
+            if (range->type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV
+                    && register_idx < ARRAY_SIZE(bindings->vk_uav_counter_views))
+            {
+                VkBufferView vk_counter_view = descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
+                        ? descriptor->u.view->vk_counter_view : VK_NULL_HANDLE;
+                if (bindings->vk_uav_counter_views[register_idx] != vk_counter_view)
+                    bindings->uav_counter_dirty_mask |= 1u << register_idx;
+                bindings->vk_uav_counter_views[register_idx] = vk_counter_view;
+            }
+
             if (!vk_write_descriptor_set_from_d3d12_desc(current_descriptor_write,
                     current_image_info, descriptor, bindings->descriptor_set, range->binding, j))
                 continue;
 
+            ++descriptor;
             ++descriptor_count;
             ++current_descriptor_write;
             ++current_image_info;
         }
     }
 
-    vk_procs = &device->vk_procs;
     VK_CALL(vkUpdateDescriptorSets(device->vk_device, descriptor_count, descriptor_writes, 0, NULL));
 
     vkd3d_free(descriptor_writes);
     vkd3d_free(image_infos);
+}
+
+static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point)
+{
+    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct d3d12_pipeline_state *state = list->state;
+    VkDevice vk_device = list->device->vk_device;
+    VkWriteDescriptorSet *vk_descriptor_writes;
+    VkDescriptorSet vk_descriptor_set;
+    VkDescriptorPoolSize pool_size;
+    unsigned int uav_counter_count;
+    unsigned int i;
+
+    if (!state || !(state->uav_counter_mask & bindings->uav_counter_dirty_mask))
+        return;
+
+    uav_counter_count = state->uav_counter_count;
+
+    pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+    pool_size.descriptorCount = uav_counter_count;
+    vk_descriptor_set = d3d12_command_list_allocate_descriptor_set(list,
+            &pool_size, 1, state->vk_set_layout);
+
+    if (!(vk_descriptor_writes = vkd3d_calloc(uav_counter_count, sizeof(*vk_descriptor_writes))))
+        return;
+
+    for (i = 0; i < uav_counter_count; ++i)
+    {
+        const struct vkd3d_shader_uav_counter_binding *uav_counter = &state->uav_counters[i];
+        const VkBufferView *vk_uav_counter_views = bindings->vk_uav_counter_views;
+
+        assert(vk_uav_counter_views[uav_counter->register_index]);
+
+        vk_descriptor_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        vk_descriptor_writes[i].pNext = NULL;
+        vk_descriptor_writes[i].dstSet = vk_descriptor_set;
+        vk_descriptor_writes[i].dstBinding = uav_counter->binding.binding;
+        vk_descriptor_writes[i].dstArrayElement = 0;
+        vk_descriptor_writes[i].descriptorCount = 1;
+        vk_descriptor_writes[i].descriptorType = pool_size.type;
+        vk_descriptor_writes[i].pImageInfo = NULL;
+        vk_descriptor_writes[i].pBufferInfo = NULL;
+        vk_descriptor_writes[i].pTexelBufferView = &vk_uav_counter_views[uav_counter->register_index];
+    }
+
+    VK_CALL(vkUpdateDescriptorSets(vk_device, uav_counter_count, vk_descriptor_writes, 0, NULL));
+    vkd3d_free(vk_descriptor_writes);
+
+    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
+            state->vk_pipeline_layout, state->set_index, 1, &vk_descriptor_set, 0, NULL));
 }
 
 static void d3d12_command_list_update_descriptors(struct d3d12_command_list *list,
@@ -1901,6 +1981,8 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     bindings->in_use = true;
     VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
             rs->vk_pipeline_layout, rs->main_set, 1, &bindings->descriptor_set, 0, NULL));
+
+    d3d12_command_list_update_uav_counter_descriptors(list, bind_point);
 }
 
 static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list,
@@ -2344,6 +2426,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(ID3D12Graphics
     list->state = state;
     d3d12_command_list_invalidate_current_framebuffer(list);
     d3d12_command_list_invalidate_current_pipeline(list);
+    d3d12_command_list_invalidate_bindings(list, state);
 
     if (state && state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
     {

@@ -692,6 +692,8 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
             table->ranges[j].offset = descriptor_range->OffsetInDescriptorsFromTableStart;
             table->ranges[j].descriptor_count = descriptor_range->NumDescriptors;
             table->ranges[j].binding = vk_binding;
+            table->ranges[j].type = descriptor_range->RangeType;
+            table->ranges[j].base_register_idx = descriptor_range->BaseShaderRegister;
         }
     }
 
@@ -1219,6 +1221,7 @@ static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipel
     if (!(state->uav_counters = vkd3d_calloc(uav_counter_count, sizeof(*state->uav_counters))))
         return E_OUTOFMEMORY;
     state->uav_counter_count = uav_counter_count;
+    state->uav_counter_mask = shader_info->uav_counter_mask;
 
     memset(&context, 0, sizeof(context));
     if (root_signature->vk_push_set_layout)
@@ -1261,6 +1264,7 @@ static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipel
     /* Create a pipeline layout which is compatible for all other descriptor
      * sets with the root signature's pipeline layout.
      */
+    state->set_index = context.set_index;
     set_layouts[context.set_index++] = state->vk_set_layout;
     if (FAILED(hr = vkd3d_create_pipeline_layout(device, context.set_index, set_layouts,
             root_signature->push_constant_range_count, root_signature->push_constant_ranges,
@@ -1292,6 +1296,8 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     state->vk_pipeline_layout = VK_NULL_HANDLE;
     state->vk_set_layout = VK_NULL_HANDLE;
     state->uav_counters = NULL;
+    state->uav_counter_count = 0;
+    state->uav_counter_mask = 0;
 
     if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->pRootSignature)))
     {
@@ -1675,6 +1681,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     state->vk_pipeline_layout = VK_NULL_HANDLE;
     state->vk_set_layout = VK_NULL_HANDLE;
     state->uav_counters = NULL;
+    state->uav_counter_count = 0;
+    state->uav_counter_mask = 0;
 
     if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->pRootSignature)))
     {
