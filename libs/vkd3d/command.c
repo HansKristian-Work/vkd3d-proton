@@ -1919,7 +1919,7 @@ static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_comma
     VkDescriptorSet vk_descriptor_set;
     VkDescriptorPoolSize pool_size;
     unsigned int uav_counter_count;
-    unsigned int i;
+    unsigned int i, j;
 
     if (!state || !(state->uav_counter_mask & bindings->uav_counter_dirty_mask))
         return;
@@ -1934,26 +1934,31 @@ static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_comma
     if (!(vk_descriptor_writes = vkd3d_calloc(uav_counter_count, sizeof(*vk_descriptor_writes))))
         return;
 
-    for (i = 0; i < uav_counter_count; ++i)
+    for (i = 0, j = 0; i < uav_counter_count; ++i)
     {
         const struct vkd3d_shader_uav_counter_binding *uav_counter = &state->uav_counters[i];
         const VkBufferView *vk_uav_counter_views = bindings->vk_uav_counter_views;
 
-        assert(vk_uav_counter_views[uav_counter->register_index]);
+        if (!vk_uav_counter_views[uav_counter->register_index])
+        {
+            FIXME("UAV counter %u descriptor is not initialized.\n", uav_counter->register_index);
+            continue;
+        }
 
-        vk_descriptor_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        vk_descriptor_writes[i].pNext = NULL;
-        vk_descriptor_writes[i].dstSet = vk_descriptor_set;
-        vk_descriptor_writes[i].dstBinding = uav_counter->binding.binding;
-        vk_descriptor_writes[i].dstArrayElement = 0;
-        vk_descriptor_writes[i].descriptorCount = 1;
-        vk_descriptor_writes[i].descriptorType = pool_size.type;
-        vk_descriptor_writes[i].pImageInfo = NULL;
-        vk_descriptor_writes[i].pBufferInfo = NULL;
-        vk_descriptor_writes[i].pTexelBufferView = &vk_uav_counter_views[uav_counter->register_index];
+        vk_descriptor_writes[j].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        vk_descriptor_writes[j].pNext = NULL;
+        vk_descriptor_writes[j].dstSet = vk_descriptor_set;
+        vk_descriptor_writes[j].dstBinding = uav_counter->binding.binding;
+        vk_descriptor_writes[j].dstArrayElement = 0;
+        vk_descriptor_writes[j].descriptorCount = 1;
+        vk_descriptor_writes[j].descriptorType = pool_size.type;
+        vk_descriptor_writes[j].pImageInfo = NULL;
+        vk_descriptor_writes[j].pBufferInfo = NULL;
+        vk_descriptor_writes[j].pTexelBufferView = &vk_uav_counter_views[uav_counter->register_index];
+        ++j;
     }
 
-    VK_CALL(vkUpdateDescriptorSets(vk_device, uav_counter_count, vk_descriptor_writes, 0, NULL));
+    VK_CALL(vkUpdateDescriptorSets(vk_device, j, vk_descriptor_writes, 0, NULL));
     vkd3d_free(vk_descriptor_writes);
 
     VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
