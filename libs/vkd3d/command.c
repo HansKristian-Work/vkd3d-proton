@@ -1024,7 +1024,7 @@ static void d3d12_command_list_invalidate_bindings(struct d3d12_command_list *li
     if (!state)
         return;
 
-    if (state->uav_counter_count)
+    if (state->uav_counter_mask)
     {
         struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[state->vk_bind_point];
         bindings->uav_counter_dirty_mask = ~(uint8_t)0;
@@ -1924,7 +1924,7 @@ static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_comma
     if (!state || !(state->uav_counter_mask & bindings->uav_counter_dirty_mask))
         return;
 
-    uav_counter_count = state->uav_counter_count;
+    uav_counter_count = vkd3d_popcount(state->uav_counter_mask);
 
     pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
     pool_size.descriptorCount = uav_counter_count;

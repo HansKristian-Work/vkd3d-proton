@@ -1220,7 +1220,6 @@ static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipel
         return E_OUTOFMEMORY;
     if (!(state->uav_counters = vkd3d_calloc(uav_counter_count, sizeof(*state->uav_counters))))
         return E_OUTOFMEMORY;
-    state->uav_counter_count = uav_counter_count;
     state->uav_counter_mask = shader_info->uav_counter_mask;
 
     memset(&context, 0, sizeof(context));
@@ -1296,7 +1295,6 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     state->vk_pipeline_layout = VK_NULL_HANDLE;
     state->vk_set_layout = VK_NULL_HANDLE;
     state->uav_counters = NULL;
-    state->uav_counter_count = 0;
     state->uav_counter_mask = 0;
 
     if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->pRootSignature)))
@@ -1326,7 +1324,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
     shader_interface.default_sampler = root_signature->default_sampler;
     shader_interface.uav_counters = state->uav_counters;
-    shader_interface.uav_counter_count = state->uav_counter_count;
+    shader_interface.uav_counter_count = vkd3d_popcount(state->uav_counter_mask);
 
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = NULL;
@@ -1681,7 +1679,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     state->vk_pipeline_layout = VK_NULL_HANDLE;
     state->vk_set_layout = VK_NULL_HANDLE;
     state->uav_counters = NULL;
-    state->uav_counter_count = 0;
     state->uav_counter_mask = 0;
 
     if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->pRootSignature)))
