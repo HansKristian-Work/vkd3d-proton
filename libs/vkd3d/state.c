@@ -1709,12 +1709,13 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
     const struct d3d12_root_signature *root_signature;
     struct vkd3d_shader_interface shader_interface;
+    struct vkd3d_shader_signature input_signature;
     struct VkSubpassDescription sub_pass_desc;
     struct VkRenderPassCreateInfo pass_desc;
     const struct vkd3d_format *format;
     enum VkVertexInputRate input_rate;
+    unsigned int i, j;
     size_t rt_count;
-    unsigned int i;
     uint32_t mask;
     VkResult vr;
     HRESULT hr;
@@ -1755,6 +1756,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     shader_interface.uav_counters = NULL;
     shader_interface.uav_counter_count = 0;
 
+    memset(&input_signature, 0, sizeof(input_signature));
     for (i = 0, graphics->stage_count = 0; i < ARRAY_SIZE(shader_stages); ++i)
     {
         const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
@@ -1777,6 +1779,10 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 shader_stages[i].stage, b, &shader_interface)))
             goto fail;
 
+        if (shader_stages[i].stage == VK_SHADER_STAGE_VERTEX_BIT
+                && FAILED(hr = vkd3d_shader_parse_input_signature(&dxbc, &input_signature)))
+            goto fail;
+
         ++graphics->stage_count;
     }
 
@@ -1792,9 +1798,10 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             && FAILED(hr = compute_input_layout_offsets(&desc->InputLayout, aligned_offsets)))
         goto fail;
 
-    for (i = 0, mask = 0; i < graphics->attribute_count; ++i)
+    for (i = 0, j = 0, mask = 0; i < graphics->attribute_count; ++i)
     {
         const D3D12_INPUT_ELEMENT_DESC *e = &desc->InputLayout.pInputElementDescs[i];
+        const struct vkd3d_shader_signature_element *signature_element;
 
         if (!(format = vkd3d_get_format(e->Format, false)))
         {
@@ -1810,14 +1817,21 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
         }
 
-        /* FIXME: Assign locations based on the vertex shader input signature. */
-        graphics->attributes[i].location = i;
-        graphics->attributes[i].binding = e->InputSlot;
-        graphics->attributes[i].format = format->vk_format;
+        if (!(signature_element = vkd3d_shader_find_signature_element(&input_signature,
+                e->SemanticName, e->SemanticIndex, 0)))
+        {
+            WARN("Unused input element %u.\n", i);
+            continue;
+        }
+
+        graphics->attributes[j].location = signature_element->register_index;
+        graphics->attributes[j].binding = e->InputSlot;
+        graphics->attributes[j].format = format->vk_format;
         if (e->AlignedByteOffset != D3D12_APPEND_ALIGNED_ELEMENT)
-            graphics->attributes[i].offset = e->AlignedByteOffset;
+            graphics->attributes[j].offset = e->AlignedByteOffset;
         else
-            graphics->attributes[i].offset = aligned_offsets[i];
+            graphics->attributes[j].offset = aligned_offsets[i];
+        ++j;
 
         switch (e->InputSlotClass)
         {
@@ -1847,6 +1861,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         graphics->input_rates[e->InputSlot] = input_rate;
         mask |= 1u << e->InputSlot;
     }
+    graphics->attribute_count = j;
+    vkd3d_shader_free_shader_signature(&input_signature);
 
     rt_count = desc->NumRenderTargets;
     if (rt_count > ARRAY_SIZE(graphics->attachments) - 1)
@@ -1983,6 +1999,7 @@ fail:
     {
         VK_CALL(vkDestroyShaderModule(device->vk_device, state->u.graphics.stages[i].module, NULL));
     }
+    vkd3d_shader_free_shader_signature(&input_signature);
 
     return hr;
 }
