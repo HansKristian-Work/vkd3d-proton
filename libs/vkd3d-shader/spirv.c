@@ -2568,6 +2568,9 @@ static void vkd3d_dxbc_compiler_emit_store_dst_components(struct vkd3d_dxbc_comp
  *
  *   "The variable decorated with VertexIndex must be declared as a scalar
  *   32-bit integer."
+ *
+ *   "The variable decorated with InstanceIndex must be declared as a scalar
+ *   32-bit integer."
  */
 static const struct vkd3d_spirv_builtin
 {
@@ -2587,8 +2590,9 @@ vkd3d_spirv_builtin_table[] =
 
     {VKD3D_SIV_NONE, VKD3DSPR_DEPTHOUT,         VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth},
 
-    {VKD3D_SIV_POSITION,  ~0u, VKD3D_TYPE_FLOAT, 4, SpvBuiltInPosition},
-    {VKD3D_SIV_VERTEX_ID, ~0u, VKD3D_TYPE_INT,   1, SpvBuiltInVertexIndex},
+    {VKD3D_SIV_POSITION,    ~0u, VKD3D_TYPE_FLOAT, 4, SpvBuiltInPosition},
+    {VKD3D_SIV_VERTEX_ID,   ~0u, VKD3D_TYPE_INT,   1, SpvBuiltInVertexIndex},
+    {VKD3D_SIV_INSTANCE_ID, ~0u, VKD3D_TYPE_INT,   1, SpvBuiltInInstanceIndex},
 };
 
 static const struct vkd3d_spirv_builtin *vkd3d_get_spirv_builtin(enum vkd3d_shader_register_type reg_type,
