@@ -1876,7 +1876,7 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
             descriptor += range->offset;
         }
 
-        for (j = 0; j < range->descriptor_count; ++j)
+        for (j = 0; j < range->descriptor_count; ++j, ++descriptor)
         {
             unsigned int register_idx = range->base_register_idx + j;
 
@@ -1895,7 +1895,6 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
                     current_image_info, descriptor, bindings->descriptor_set, range->binding, j))
                 continue;
 
-            ++descriptor;
             ++descriptor_count;
             ++current_descriptor_write;
             ++current_image_info;
