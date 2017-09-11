@@ -1660,11 +1660,53 @@ static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentSta
         FIXME("Ignoring LogicOpEnable %#x.\n", d3d12_desc->LogicOpEnable);
 }
 
+static HRESULT compute_input_layout_offsets(const D3D12_INPUT_LAYOUT_DESC *input_layout_desc,
+        uint32_t *offsets)
+{
+    uint32_t input_slot_offsets[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT] = {0};
+    const D3D12_INPUT_ELEMENT_DESC *e;
+    const struct vkd3d_format *format;
+    unsigned int i;
+
+    if (input_layout_desc->NumElements > D3D12_VS_INPUT_REGISTER_COUNT)
+    {
+        FIXME("InputLayout.NumElements %u > %u, ignoring extra elements.\n",
+                input_layout_desc->NumElements, D3D12_VS_INPUT_REGISTER_COUNT);
+    }
+
+    for (i = 0; i < min(input_layout_desc->NumElements, D3D12_VS_INPUT_REGISTER_COUNT); ++i)
+    {
+        e = &input_layout_desc->pInputElementDescs[i];
+
+        if (e->InputSlot >= ARRAY_SIZE(input_slot_offsets))
+        {
+            WARN("Invalid input slot %#x.\n", e->InputSlot);
+            return E_INVALIDARG;
+        }
+
+        if (!(format = vkd3d_get_format(e->Format, false)))
+        {
+            WARN("Invalid DXGI format %#x.\n", e->Format);
+            return E_INVALIDARG;
+        }
+
+        if (e->AlignedByteOffset != D3D12_APPEND_ALIGNED_ELEMENT)
+            offsets[i] = e->AlignedByteOffset;
+        else
+            offsets[i] = input_slot_offsets[e->InputSlot];
+
+        input_slot_offsets[e->InputSlot] = align(offsets[i] + format->byte_count, 4);
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
     const struct d3d12_root_signature *root_signature;
     struct vkd3d_shader_interface shader_interface;
     struct VkSubpassDescription sub_pass_desc;
@@ -1746,6 +1788,10 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         graphics->attribute_count = ARRAY_SIZE(graphics->attributes);
     }
 
+    if (graphics->attribute_count
+            && FAILED(hr = compute_input_layout_offsets(&desc->InputLayout, aligned_offsets)))
+        goto fail;
+
     for (i = 0, mask = 0; i < graphics->attribute_count; ++i)
     {
         const D3D12_INPUT_ELEMENT_DESC *e = &desc->InputLayout.pInputElementDescs[i];
@@ -1768,9 +1814,10 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         graphics->attributes[i].location = i;
         graphics->attributes[i].binding = e->InputSlot;
         graphics->attributes[i].format = format->vk_format;
-        if (e->AlignedByteOffset == D3D12_APPEND_ALIGNED_ELEMENT)
-            FIXME("D3D12_APPEND_ALIGNED_ELEMENT not implemented.\n");
-        graphics->attributes[i].offset = e->AlignedByteOffset;
+        if (e->AlignedByteOffset != D3D12_APPEND_ALIGNED_ELEMENT)
+            graphics->attributes[i].offset = e->AlignedByteOffset;
+        else
+            graphics->attributes[i].offset = aligned_offsets[i];
 
         switch (e->InputSlotClass)
         {
