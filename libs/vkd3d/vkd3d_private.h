@@ -291,7 +291,7 @@ struct d3d12_root_descriptor_table_range
     unsigned int descriptor_count;
     uint32_t binding;
 
-    D3D12_DESCRIPTOR_RANGE_TYPE type;
+    uint32_t descriptor_magic;
     unsigned int base_register_idx;
 };
 

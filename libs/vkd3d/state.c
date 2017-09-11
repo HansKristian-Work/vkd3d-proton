@@ -632,12 +632,30 @@ static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signat
     return first_binding;
 }
 
+static uint32_t vkd3d_descriptor_magic_from_d3d12(D3D12_DESCRIPTOR_RANGE_TYPE type)
+{
+    switch (type)
+    {
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
+            return VKD3D_DESCRIPTOR_MAGIC_SRV;
+        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+            return VKD3D_DESCRIPTOR_MAGIC_UAV;
+        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+            return VKD3D_DESCRIPTOR_MAGIC_CBV;
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+            return VKD3D_DESCRIPTOR_MAGIC_SAMPLER;
+        default:
+            ERR("Invalid range type %#x.\n", type);
+            return VKD3D_DESCRIPTOR_MAGIC_FREE;
+    }
+}
+
 static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_root_signature *root_signature,
         const D3D12_ROOT_SIGNATURE_DESC *desc, struct vkd3d_descriptor_set_context *context)
 {
     VkDescriptorSetLayoutBinding *cur_binding = context->current_binding;
-    const D3D12_DESCRIPTOR_RANGE *descriptor_range;
     struct d3d12_root_descriptor_table *table;
+    const D3D12_DESCRIPTOR_RANGE *range;
     unsigned int i, j, k, range_count;
     uint32_t vk_binding;
 
@@ -657,43 +675,43 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 
         for (j = 0; j < range_count; ++j)
         {
-            descriptor_range = &p->u.DescriptorTable.pDescriptorRanges[j];
+            range = &p->u.DescriptorTable.pDescriptorRanges[j];
 
             vk_binding = d3d12_root_signature_assign_vk_bindings(root_signature,
-                    vkd3d_descriptor_type_from_d3d12_range_type(descriptor_range->RangeType),
-                    descriptor_range->BaseShaderRegister, descriptor_range->NumDescriptors,
+                    vkd3d_descriptor_type_from_d3d12_range_type(range->RangeType),
+                    range->BaseShaderRegister, range->NumDescriptors,
                     false, true, context);
 
             /* Unroll descriptor range. */
-            for (k = 0; k < descriptor_range->NumDescriptors; ++k)
+            for (k = 0; k < range->NumDescriptors; ++k)
             {
                 uint32_t vk_current_binding = vk_binding + k;
 
-                if (descriptor_range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SRV
-                        || descriptor_range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
+                if (range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SRV
+                        || range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
                 {
                     vk_current_binding = vk_binding + 2 * k;
 
                     /* Assign binding for image view. */
                     if (!vk_binding_from_d3d12_descriptor_range(cur_binding,
-                                descriptor_range, p->ShaderVisibility, false, vk_current_binding + 1))
+                            range, p->ShaderVisibility, false, vk_current_binding + 1))
                         return E_NOTIMPL;
 
                     ++cur_binding;
                 }
 
                 if (!vk_binding_from_d3d12_descriptor_range(cur_binding,
-                            descriptor_range, p->ShaderVisibility, true, vk_current_binding))
+                        range, p->ShaderVisibility, true, vk_current_binding))
                     return E_NOTIMPL;
 
                 ++cur_binding;
             }
 
-            table->ranges[j].offset = descriptor_range->OffsetInDescriptorsFromTableStart;
-            table->ranges[j].descriptor_count = descriptor_range->NumDescriptors;
+            table->ranges[j].offset = range->OffsetInDescriptorsFromTableStart;
+            table->ranges[j].descriptor_count = range->NumDescriptors;
             table->ranges[j].binding = vk_binding;
-            table->ranges[j].type = descriptor_range->RangeType;
-            table->ranges[j].base_register_idx = descriptor_range->BaseShaderRegister;
+            table->ranges[j].descriptor_magic = vkd3d_descriptor_magic_from_d3d12(range->RangeType);
+            table->ranges[j].base_register_idx = range->BaseShaderRegister;
         }
     }
 

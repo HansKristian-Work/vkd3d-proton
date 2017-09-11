@@ -1764,10 +1764,14 @@ static void d3d12_command_list_prepare_descriptors(struct d3d12_command_list *li
 }
 
 static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_descriptor_write,
-        VkDescriptorImageInfo *vk_image_info, struct d3d12_desc *descriptor,
-        VkDescriptorSet vk_descriptor_set, uint32_t vk_binding, unsigned int index)
+        VkDescriptorImageInfo *vk_image_info, const struct d3d12_desc *descriptor,
+        uint32_t descriptor_range_magic, VkDescriptorSet vk_descriptor_set,
+        uint32_t vk_binding, unsigned int index)
 {
     const struct vkd3d_view *view = descriptor->u.view;
+
+    if (descriptor->magic != descriptor_range_magic)
+        return false;
 
     vk_descriptor_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     vk_descriptor_write->pNext = NULL;
@@ -1818,10 +1822,6 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
 
             vk_descriptor_write->pImageInfo = vk_image_info;
             break;
-
-        case VKD3D_DESCRIPTOR_MAGIC_FREE:
-            TRACE("Descriptor %u not initialized.\n", vk_descriptor_write->dstBinding);
-            return false;
 
         default:
             ERR("Invalid descriptor %#x.\n", descriptor->magic);
@@ -1881,7 +1881,7 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
             unsigned int register_idx = range->base_register_idx + j;
 
             /* Track UAV counters. */
-            if (range->type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV
+            if (range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_UAV
                     && register_idx < ARRAY_SIZE(bindings->vk_uav_counter_views))
             {
                 VkBufferView vk_counter_view = descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
@@ -1892,7 +1892,8 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
             }
 
             if (!vk_write_descriptor_set_from_d3d12_desc(current_descriptor_write,
-                    current_image_info, descriptor, bindings->descriptor_set, range->binding, j))
+                    current_image_info, descriptor, range->descriptor_magic,
+                    bindings->descriptor_set, range->binding, j))
                 continue;
 
             ++descriptor_count;
