@@ -19,9 +19,6 @@
 
 #include "vkd3d_shader_private.h"
 
-#include <string.h>
-#include <strings.h>
-
 #define VKD3D_SM4_INSTRUCTION_MODIFIER        (0x1u << 31)
 
 #define VKD3D_SM4_MODIFIER_AOFFIMMI           0x1
@@ -1277,13 +1274,13 @@ void *shader_sm4_init(const DWORD *byte_code, size_t byte_code_size,
     {
         struct vkd3d_shader_signature_element *e = &output_signature->elements[i];
 
-        if (e->register_idx >= ARRAY_SIZE(priv->output_map))
+        if (e->register_index >= ARRAY_SIZE(priv->output_map))
         {
-            WARN("Invalid output index %u.\n", e->register_idx);
+            WARN("Invalid output index %u.\n", e->register_index);
             continue;
         }
 
-        priv->output_map[e->register_idx] = e->semantic_idx;
+        priv->output_map[e->register_index] = e->semantic_index;
     }
 
     list_init(&priv->src_free);
@@ -1906,9 +1903,9 @@ static HRESULT shader_parse_signature(DWORD tag, const char *data, DWORD data_si
         DWORD name_offset;
 
         if (tag == TAG_OSG5)
-            read_dword(&ptr, &e[i].stream_idx);
+            read_dword(&ptr, &e[i].stream_index);
         else
-            e[i].stream_idx = 0;
+            e[i].stream_index = 0;
         read_dword(&ptr, &name_offset);
         if (!(e[i].semantic_name = shader_get_string(data, data_size, name_offset)))
         {
@@ -1916,16 +1913,16 @@ static HRESULT shader_parse_signature(DWORD tag, const char *data, DWORD data_si
             vkd3d_free(e);
             return E_INVALIDARG;
         }
-        read_dword(&ptr, &e[i].semantic_idx);
+        read_dword(&ptr, &e[i].semantic_index);
         read_dword(&ptr, &e[i].sysval_semantic);
         read_dword(&ptr, &e[i].component_type);
-        read_dword(&ptr, &e[i].register_idx);
+        read_dword(&ptr, &e[i].register_index);
         read_dword(&ptr, &e[i].mask);
 
         TRACE("Stream: %u, semantic: %s, semantic idx: %u, sysval_semantic %#x, "
                 "type %u, register idx: %u, use_mask %#x, input_mask %#x.\n",
-                e[i].stream_idx, debugstr_a(e[i].semantic_name), e[i].semantic_idx, e[i].sysval_semantic,
-                e[i].component_type, e[i].register_idx, (e[i].mask >> 8) & 0xff, e[i].mask & 0xff);
+                e[i].stream_index, debugstr_a(e[i].semantic_name), e[i].semantic_index, e[i].sysval_semantic,
+                e[i].component_type, e[i].register_index, (e[i].mask >> 8) & 0xff, e[i].mask & 0xff);
     }
 
     s->elements = e;
@@ -1934,25 +1931,35 @@ static HRESULT shader_parse_signature(DWORD tag, const char *data, DWORD data_si
     return S_OK;
 }
 
-struct vkd3d_shader_signature_element *shader_find_signature_element(const struct vkd3d_shader_signature *s,
-        const char *semantic_name, unsigned int semantic_idx, unsigned int stream_idx)
+static HRESULT isgn_handler(const char *data, DWORD data_size, DWORD tag, void *ctx)
 {
-    struct vkd3d_shader_signature_element *e = s->elements;
-    unsigned int i;
+    struct vkd3d_shader_signature *is = ctx;
 
-    for (i = 0; i < s->element_count; ++i)
+    if (tag != TAG_ISGN)
+        return S_OK;
+
+    if (is->elements)
     {
-        if (!strcasecmp(e[i].semantic_name, semantic_name) && e[i].semantic_idx == semantic_idx
-                && e[i].stream_idx == stream_idx)
-            return &e[i];
+        FIXME("Multiple input signatures.\n");
+        vkd3d_shader_free_shader_signature(is);
     }
-
-    return NULL;
+    return shader_parse_signature(tag, data, data_size, is);
 }
 
-static void shader_free_signature(struct vkd3d_shader_signature *s)
+HRESULT shader_parse_input_signature(const void *dxbc, SIZE_T dxbc_length,
+        struct vkd3d_shader_signature *signature)
 {
-    vkd3d_free(s->elements);
+    HRESULT hr;
+
+    memset(signature, 0, sizeof(*signature));
+
+    if (FAILED(hr = parse_dxbc(dxbc, dxbc_length, isgn_handler, signature)))
+    {
+        ERR("Failed to parse input signature.\n");
+        return E_FAIL;
+    }
+
+    return S_OK;
 }
 
 static HRESULT shdr_handler(const char *data, DWORD data_size, DWORD tag, void *context)
@@ -2015,9 +2022,9 @@ static HRESULT shdr_handler(const char *data, DWORD data_size, DWORD tag, void *
 
 void free_shader_desc(struct vkd3d_shader_desc *desc)
 {
-    shader_free_signature(&desc->input_signature);
-    shader_free_signature(&desc->output_signature);
-    shader_free_signature(&desc->patch_constant_signature);
+    vkd3d_shader_free_shader_signature(&desc->input_signature);
+    vkd3d_shader_free_shader_signature(&desc->output_signature);
+    vkd3d_shader_free_shader_signature(&desc->patch_constant_signature);
 }
 
 HRESULT shader_extract_from_dxbc(const void *dxbc, SIZE_T dxbc_length,

@@ -126,6 +126,60 @@ struct vkd3d_shader_scan_info
 HRESULT vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_scan_info *scan_info);
 
+enum vkd3d_component_type
+{
+    VKD3D_TYPE_VOID    = 0,
+    VKD3D_TYPE_UINT    = 1,
+    VKD3D_TYPE_INT     = 2,
+    VKD3D_TYPE_FLOAT   = 3,
+    VKD3D_TYPE_BOOL,
+    VKD3D_TYPE_COUNT,
+};
+
+enum vkd3d_sysval_semantic
+{
+    VKD3D_SV_POSITION                  = 1,
+    VKD3D_SV_CLIP_DISTANCE             = 2,
+    VKD3D_SV_CULL_DISTANCE             = 3,
+    VKD3D_SV_RENDER_TARGET_ARRAY_INDEX = 4,
+    VKD3D_SV_VIEWPORT_ARRAY_INDEX      = 5,
+    VKD3D_SV_VERTEX_ID                 = 6,
+    VKD3D_SV_PRIMITIVE_ID              = 7,
+    VKD3D_SV_INSTANCE_ID               = 8,
+    VKD3D_SV_IS_FRONT_FACE             = 9,
+    VKD3D_SV_SAMPLE_INDEX              = 10,
+    VKD3D_SV_TESS_FACTOR_QUADEDGE      = 11,
+    VKD3D_SV_TESS_FACTOR_QUADINT       = 12,
+    VKD3D_SV_TESS_FACTOR_TRIEDGE       = 13,
+    VKD3D_SV_TESS_FACTOR_TRIINT        = 14,
+    VKD3D_SV_TESS_FACTOR_LINEDET       = 15,
+    VKD3D_SV_TESS_FACTOR_LINEDEN       = 16,
+};
+
+struct vkd3d_shader_signature_element
+{
+    const char *semantic_name;
+    unsigned int semantic_index;
+    unsigned int stream_index;
+    enum vkd3d_sysval_semantic sysval_semantic;
+    enum vkd3d_component_type component_type;
+    unsigned int register_index;
+    DWORD mask;
+};
+
+struct vkd3d_shader_signature
+{
+    struct vkd3d_shader_signature_element *elements;
+    unsigned int element_count;
+};
+
+HRESULT vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_shader_signature *signature);
+struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
+        const struct vkd3d_shader_signature *signature, const char *semantic_name,
+        unsigned int semantic_index, unsigned int stream_index);
+void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature);
+
 #ifdef __cplusplus
 }
 #endif  /* __cplusplus */

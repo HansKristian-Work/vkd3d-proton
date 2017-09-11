@@ -216,3 +216,41 @@ void vkd3d_shader_free_root_signature(D3D12_ROOT_SIGNATURE_DESC *root_signature)
 
     memset(root_signature, 0, sizeof(*root_signature));
 }
+
+HRESULT vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_shader_signature *signature)
+{
+    TRACE("dxbc {%p, %zu}, signature %p.\n", dxbc->code, dxbc->size, signature);
+
+    return shader_parse_input_signature(dxbc->code, dxbc->size, signature);
+}
+
+struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
+        const struct vkd3d_shader_signature *signature, const char *semantic_name,
+        unsigned int semantic_index, unsigned int stream_index)
+{
+    struct vkd3d_shader_signature_element *e = signature->elements;
+    unsigned int i;
+
+    TRACE("signature %p, semantic_name %s, semantic_index %u, stream_index %u.\n",
+            signature, debugstr_a(semantic_name), semantic_index, stream_index);
+
+    e = signature->elements;
+    for (i = 0; i < signature->element_count; ++i)
+    {
+        if (!strcasecmp(e[i].semantic_name, semantic_name)
+                && e[i].semantic_index == semantic_index
+                && e[i].stream_index == stream_index)
+            return &e[i];
+    }
+
+    return NULL;
+}
+
+void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature)
+{
+    TRACE("signature %p.\n", signature);
+
+    vkd3d_free(signature->elements);
+    signature->elements = NULL;
+}

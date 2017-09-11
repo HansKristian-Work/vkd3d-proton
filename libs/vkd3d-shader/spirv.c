@@ -2636,7 +2636,7 @@ static const struct vkd3d_shader_signature_element *vkd3d_find_signature_element
 
     for (signature_idx = 0; signature_idx < signature->element_count; ++signature_idx)
     {
-        if (signature->elements[signature_idx].register_idx == reg->idx[0].offset
+        if (signature->elements[signature_idx].register_index == reg->idx[0].offset
                 && (signature->elements[signature_idx].mask & 0xff) == write_mask)
         {
             if (signature_element_index)
@@ -5474,7 +5474,7 @@ static void vkd3d_dxbc_compiler_emit_output_setup_function(struct vkd3d_dxbc_com
     for (i = 0; i < signature->element_count; ++i)
     {
         variable_idx = vkd3d_dxbc_compiler_get_output_variable_index(compiler,
-                signature->elements[i].register_idx);
+                signature->elements[i].register_index);
 
         if (!param_id[variable_idx])
             continue;

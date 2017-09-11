@@ -55,6 +55,8 @@
 #include <inttypes.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <string.h>
+#include <strings.h>
 
 #define VKD3D_VEC4_SIZE 4
 
@@ -352,16 +354,6 @@ enum vkd3d_shader_register_type
     VKD3DSPR_GSINSTID,
 };
 
-enum vkd3d_component_type
-{
-    VKD3D_TYPE_VOID    = 0,
-    VKD3D_TYPE_UINT    = 1,
-    VKD3D_TYPE_INT     = 2,
-    VKD3D_TYPE_FLOAT   = 3,
-    VKD3D_TYPE_BOOL,
-    VKD3D_TYPE_COUNT,
-};
-
 enum vkd3d_shader_resource_type
 {
     VKD3D_SHADER_RESOURCE_NONE,
@@ -621,26 +613,6 @@ struct vkd3d_shader_semantic
     struct vkd3d_shader_dst_param reg;
 };
 
-enum vkd3d_sysval_semantic
-{
-    VKD3D_SV_POSITION                     = 1,
-    VKD3D_SV_CLIP_DISTANCE                = 2,
-    VKD3D_SV_CULL_DISTANCE                = 3,
-    VKD3D_SV_RENDER_TARGET_ARRAY_INDEX    = 4,
-    VKD3D_SV_VIEWPORT_ARRAY_INDEX         = 5,
-    VKD3D_SV_VERTEX_ID                    = 6,
-    VKD3D_SV_PRIMITIVE_ID                 = 7,
-    VKD3D_SV_INSTANCE_ID                  = 8,
-    VKD3D_SV_IS_FRONT_FACE                = 9,
-    VKD3D_SV_SAMPLE_INDEX                 = 10,
-    VKD3D_SV_TESS_FACTOR_QUADEDGE         = 11,
-    VKD3D_SV_TESS_FACTOR_QUADINT          = 12,
-    VKD3D_SV_TESS_FACTOR_TRIEDGE          = 13,
-    VKD3D_SV_TESS_FACTOR_TRIINT           = 14,
-    VKD3D_SV_TESS_FACTOR_LINEDET          = 15,
-    VKD3D_SV_TESS_FACTOR_LINEDEN          = 16,
-};
-
 enum vkd3d_shader_input_sysval_semantic
 {
     VKD3D_SIV_NONE                         = 0,
@@ -666,23 +638,6 @@ enum vkd3d_shader_input_sysval_semantic
     VKD3D_SIV_TRIANGLE_INNER_TESS_FACTOR   = 20,
     VKD3D_SIV_LINE_DETAIL_TESS_FACTOR      = 21,
     VKD3D_SIV_LINE_DENSITY_TESS_FACTOR     = 22,
-};
-
-struct vkd3d_shader_signature_element
-{
-    const char *semantic_name;
-    unsigned int semantic_idx;
-    unsigned int stream_idx;
-    enum vkd3d_sysval_semantic sysval_semantic;
-    enum vkd3d_component_type component_type;
-    unsigned int register_idx;
-    DWORD mask;
-};
-
-struct vkd3d_shader_signature
-{
-    UINT element_count;
-    struct vkd3d_shader_signature_element *elements;
 };
 
 struct vkd3d_shader_desc
@@ -815,9 +770,10 @@ BOOL shader_sm4_is_end(void *data, const DWORD **ptr) DECLSPEC_HIDDEN;
 
 HRESULT shader_extract_from_dxbc(const void *dxbc, SIZE_T dxbc_length,
         struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
-struct vkd3d_shader_signature_element *shader_find_signature_element(const struct vkd3d_shader_signature *s,
-        const char *semantic_name, unsigned int semantic_idx, unsigned int stream_idx) DECLSPEC_HIDDEN;
 void free_shader_desc(struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
+
+HRESULT shader_parse_input_signature(const void *dxbc, SIZE_T dxbc_length,
+        struct vkd3d_shader_signature *signature) DECLSPEC_HIDDEN;
 
 struct vkd3d_dxbc_compiler;
 
