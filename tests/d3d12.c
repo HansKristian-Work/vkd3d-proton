@@ -5575,17 +5575,19 @@ static void test_shader_instructions(void)
         {
             dst.x = floor(src0);
             dst.y = ceil(src0);
-            dst.zw = (float2)0;
+            dst.z = trunc(src0);
+            dst.w = 0;
+
         }
 #endif
-        0x43425844, 0x19abb9a8, 0xf5db0887, 0xc9e611d4, 0xe881c7d2, 0x00000001, 0x000000f4, 0x00000003,
+        0x43425844, 0x44e2c554, 0x216a8c83, 0x87e90dd8, 0x3fde3e57, 0x00000001, 0x00000100, 0x00000003,
         0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
         0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
-        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x0000007c, 0x00000050, 0x0000001f,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000088, 0x00000050, 0x00000022,
         0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
         0x06000041, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x06000042, 0x00102022,
-        0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x08000036, 0x001020c2, 0x00000000, 0x00004002,
-        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
+        0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x06000043, 0x00102042, 0x00000000, 0x0020800a,
+        0x00000000, 0x00000000, 0x05000036, 0x00102082, 0x00000000, 0x00004001, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_round = {ps_round_code, sizeof(ps_round_code)};
     static const DWORD ps_frc_code[] =
@@ -6403,13 +6405,13 @@ static void test_shader_instructions(void)
         {&ps_ftoi, {{    -1.0f}}, {.i = {     -1,       1}}},
         {&ps_ftoi, {{     1.0f}}, {.i = {      1,      -1}}},
 
-        {&ps_round, {{    -0.5f}}, {{    -1.0f,      0.0f}}},
-        {&ps_round, {{    -0.0f}}, {{    -0.0f,     -0.0f}}},
-        {&ps_round, {{     0.0f}}, {{     0.0f,      0.0f}}},
-        {&ps_round, {{     0.5f}}, {{     0.0f,      1.0f}}},
-        {&ps_round, {{     3.0f}}, {{     3.0f,      3.0f}}},
-        {&ps_round, {{ INFINITY}}, {{ INFINITY,  INFINITY}}},
-        {&ps_round, {{-INFINITY}}, {{-INFINITY, -INFINITY}}},
+        {&ps_round, {{    -0.5f}}, {{    -1.0f,      0.0f,     -0.0f}}},
+        {&ps_round, {{    -0.0f}}, {{    -0.0f,     -0.0f,     -0.0f}}},
+        {&ps_round, {{     0.0f}}, {{     0.0f,      0.0f,      0.0f}}},
+        {&ps_round, {{     0.5f}}, {{     0.0f,      1.0f,      0.0f}}},
+        {&ps_round, {{     3.0f}}, {{     3.0f,      3.0f,      3.0f}}},
+        {&ps_round, {{ INFINITY}}, {{ INFINITY,  INFINITY,  INFINITY}}},
+        {&ps_round, {{-INFINITY}}, {{-INFINITY, -INFINITY, -INFINITY}}},
 
         {&ps_frc, {{ 0.0f}}, {{0.0f, 0.0f}}},
         {&ps_frc, {{-0.0f}}, {{0.0f, 0.0f}}},
