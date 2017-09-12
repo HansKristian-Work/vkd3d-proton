@@ -5146,6 +5146,28 @@ static void test_shader_instructions(void)
     unsigned int i, x, y;
     ID3D12Resource *cb;
 
+    static const DWORD ps_div_code[] =
+    {
+#if 0
+        float4 src0;
+        float4 src1;
+
+        void main(out float4 dst : SV_Target)
+        {
+            dst.x = src0.x / src1.x;
+            dst.yzw = (float3)0;
+        }
+#endif
+        0x43425844, 0x19578813, 0xb1e4de1e, 0x3adee1dc, 0x478cd5d3, 0x00000001, 0x000000e8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000070, 0x00000050, 0x0000001c,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000002, 0x03000065, 0x001020f2, 0x00000000,
+        0x0900000e, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0020800a, 0x00000000,
+        0x00000001, 0x08000036, 0x001020e2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_div = {ps_div_code, sizeof(ps_div_code)};
     static const DWORD ps_dot2_code[] =
     {
 #if 0
@@ -6305,6 +6327,17 @@ static void test_shader_instructions(void)
     }
     tests[] =
     {
+        {&ps_div, {{ 2.0f}, { 4.0f}}, {{     0.5f}}},
+        {&ps_div, {{ 2.0f}, {-4.0f}}, {{    -0.5f}}},
+        {&ps_div, {{-2.0f}, { 4.0f}}, {{    -0.5f}}},
+        {&ps_div, {{-2.0f}, {-4.0f}}, {{     0.5f}}},
+        {&ps_div, {{ 0.0f}, { 1.0f}}, {{     0.0f}}},
+        {&ps_div, {{ 0.0f}, {-1.0f}}, {{    -0.0f}}},
+        {&ps_div, {{ 1.0f}, { 0.0f}}, {{ INFINITY}}},
+        {&ps_div, {{ 1.0f}, {-0.0f}}, {{-INFINITY}}},
+        {&ps_div, {{-1.0f}, { 0.0f}}, {{-INFINITY}}},
+        {&ps_div, {{-1.0f}, {-0.0f}}, {{ INFINITY}}},
+
         {&ps_dot2, {{1.0f, 1.0f}, {1.0f, 1.0f}}, {{2.0f}}},
         {&ps_dot2, {{1.0f, 1.0f}, {2.0f, 3.0f}}, {{5.0f}}},
 
