@@ -204,6 +204,7 @@ static bool vkd3d_spirv_stream_append(struct vkd3d_spirv_stream *dst_stream,
 struct vkd3d_spirv_builder
 {
     uint64_t capability_mask;
+    uint64_t capability_draw_parameters : 1;
     uint32_t ext_instr_set_glsl_450;
     SpvExecutionModel execution_model;
 
@@ -249,8 +250,18 @@ static uint32_t vkd3d_spirv_alloc_id(struct vkd3d_spirv_builder *builder)
 static void vkd3d_spirv_enable_capability(struct vkd3d_spirv_builder *builder,
         SpvCapability cap)
 {
-    assert(cap < sizeof(builder->capability_mask) * CHAR_BIT);
-    builder->capability_mask |= 1ull << cap;
+    if (cap < sizeof(builder->capability_mask) * CHAR_BIT)
+    {
+        builder->capability_mask |= 1ull << cap;
+    }
+    else if (cap == SpvCapabilityDrawParameters)
+    {
+        builder->capability_draw_parameters = 1;
+    }
+    else
+    {
+        FIXME("Unhandled capability %#x.\n", cap);
+    }
 }
 
 static uint32_t vkd3d_spirv_get_glsl_std450_instr_set(struct vkd3d_spirv_builder *builder)
@@ -691,6 +702,14 @@ static void vkd3d_spirv_build_op_capability(struct vkd3d_spirv_stream *stream,
         SpvCapability cap)
 {
     vkd3d_spirv_build_op1(stream, SpvOpCapability, cap);
+}
+
+static void vkd3d_spirv_build_op_extension(struct vkd3d_spirv_stream *stream,
+        const char *name)
+{
+    unsigned int name_size = vkd3d_spirv_string_word_count(name);
+    vkd3d_spirv_build_word(stream, vkd3d_spirv_opcode_word(SpvOpExtension, 1 + name_size));
+    vkd3d_spirv_build_string(stream, name, name_size);
 }
 
 static void vkd3d_spirv_build_op_ext_inst_import(struct vkd3d_spirv_stream *stream,
@@ -1513,6 +1532,11 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
             vkd3d_spirv_build_op_capability(&stream, i);
         capability_mask >>= 1;
     }
+    if (builder->capability_draw_parameters)
+        vkd3d_spirv_build_op_capability(&stream, SpvCapabilityDrawParameters);
+
+    if (builder->capability_draw_parameters)
+        vkd3d_spirv_build_op_extension(&stream, "SPV_KHR_shader_draw_parameters");
 
     if (builder->ext_instr_set_glsl_450)
         vkd3d_spirv_build_op_ext_inst_import(&stream, builder->ext_instr_set_glsl_450, "GLSL.std.450");
@@ -2546,6 +2570,47 @@ static void vkd3d_dxbc_compiler_emit_store_dst_components(struct vkd3d_dxbc_comp
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
+static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t target_id, SpvBuiltIn builtin)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL && builtin == SpvBuiltInPosition)
+        builtin = SpvBuiltInFragCoord;
+
+    vkd3d_spirv_build_op_decorate1(builder, target_id, SpvDecorationBuiltIn, builtin);
+}
+
+typedef uint32_t (*vkd3d_spirv_builtin_fixup_pfn)(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t val_id);
+
+/* Substitute "InstanceIndex - BaseInstance" for SV_InstanceID. */
+static uint32_t vkd3d_spirv_instance_id_fixup(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t instance_index_id)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t base_instance_var_id, base_instance_id, type_id;
+
+    vkd3d_spirv_enable_capability(builder, SpvCapabilityDrawParameters);
+
+    /* The Vulkan spec states:
+     *
+     *   "The variable decorated with BaseInstance must be declared as a scalar
+     *   32-bit integer.
+     */
+    base_instance_var_id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
+            SpvStorageClassInput, VKD3D_TYPE_INT, 1);
+    vkd3d_spirv_add_iface_variable(builder, base_instance_var_id);
+    vkd3d_dxbc_compiler_decorate_builtin(compiler, base_instance_var_id, SpvBuiltInBaseInstance);
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_INT, 1);
+    base_instance_id = vkd3d_spirv_build_op_load(builder,
+            type_id, base_instance_var_id, SpvMemoryAccessMaskNone);
+
+    return vkd3d_spirv_build_op_isub(builder,
+            type_id, instance_index_id, base_instance_id);
+}
+
 /* The Vulkan spec says:
  *
  *   "The variable decorated with GlobalInvocationId must be declared as a
@@ -2580,6 +2645,7 @@ static const struct vkd3d_spirv_builtin
     enum vkd3d_component_type component_type;
     unsigned int component_count;
     SpvBuiltIn spirv_builtin;
+    vkd3d_spirv_builtin_fixup_pfn fixup_pfn;
 }
 vkd3d_spirv_builtin_table[] =
 {
@@ -2592,7 +2658,7 @@ vkd3d_spirv_builtin_table[] =
 
     {VKD3D_SIV_POSITION,    ~0u, VKD3D_TYPE_FLOAT, 4, SpvBuiltInPosition},
     {VKD3D_SIV_VERTEX_ID,   ~0u, VKD3D_TYPE_INT,   1, SpvBuiltInVertexIndex},
-    {VKD3D_SIV_INSTANCE_ID, ~0u, VKD3D_TYPE_INT,   1, SpvBuiltInInstanceIndex},
+    {VKD3D_SIV_INSTANCE_ID, ~0u, VKD3D_TYPE_INT,   1, SpvBuiltInInstanceIndex, vkd3d_spirv_instance_id_fixup},
 };
 
 static const struct vkd3d_spirv_builtin *vkd3d_get_spirv_builtin(enum vkd3d_shader_register_type reg_type,
@@ -2615,17 +2681,6 @@ static const struct vkd3d_spirv_builtin *vkd3d_get_spirv_builtin(enum vkd3d_shad
             || (reg_type != VKD3DSPR_INPUT && reg_type != VKD3DSPR_OUTPUT && reg_type != VKD3DSPR_COLOROUT))
         FIXME("Unhandled builtin (register type %#x, semantic %#x).\n", reg_type, sysval);
     return NULL;
-}
-
-static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *compiler,
-        uint32_t target_id, SpvBuiltIn builtin)
-{
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-
-    if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL && builtin == SpvBuiltInPosition)
-        builtin = SpvBuiltInFragCoord;
-
-    vkd3d_spirv_build_op_decorate1(builder, target_id, SpvDecorationBuiltIn, builtin);
 }
 
 static const struct vkd3d_shader_signature_element *vkd3d_find_signature_element_for_reg(
@@ -2707,6 +2762,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     {
         type_id = vkd3d_spirv_get_type_id(builder, component_type, input_component_count);
         val_id = vkd3d_spirv_build_op_load(builder, type_id, input_id, SpvMemoryAccessMaskNone);
+
+        if (builtin && builtin->fixup_pfn)
+            val_id = builtin->fixup_pfn(compiler, val_id);
 
         if (component_type != VKD3D_TYPE_FLOAT)
         {
