@@ -41,8 +41,9 @@ static const struct vkd3d_optional_extension_info optional_instance_extensions[]
 
 static const char * const required_device_extensions[] =
 {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
     VK_KHR_MAINTENANCE1_EXTENSION_NAME,
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+    VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
 };
 
 static const struct vkd3d_optional_extension_info optional_device_extensions[] =
