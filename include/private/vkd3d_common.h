@@ -24,6 +24,8 @@
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
 
+#define DIV_ROUND_UP(a, b) ((a) % (b) == 0 ? (a) / (b) : (a) / (b) + 1)
+
 static inline size_t align(size_t addr, size_t alignment)
 {
     return (addr + (alignment - 1)) & ~(alignment - 1);
