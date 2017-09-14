@@ -5608,7 +5608,6 @@ static void test_shader_instructions(void)
             dst.y = ceil(src0);
             dst.z = trunc(src0);
             dst.w = 0;
-
         }
 #endif
         0x43425844, 0x44e2c554, 0x216a8c83, 0x87e90dd8, 0x3fde3e57, 0x00000001, 0x00000100, 0x00000003,
