@@ -435,10 +435,55 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
     TRACE("  inheritedQueries: %#x.\n", features.inheritedQueries);
 }
 
-static void vkd3d_init_device_caps(struct vkd3d_instance *instance,
-        VkPhysicalDevice physical_device, struct vkd3d_vulkan_info *vulkan_info)
+static void vkd3d_check_feature_level_11_requirements(const VkPhysicalDeviceLimits *limits,
+        const VkPhysicalDeviceFeatures *features)
 {
-    const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
+#define CHECK_MIN_REQUIREMENT(name, value) \
+    if (limits->name < value) \
+        WARN(#name " does not meet feature level 11_0 requirements.\n");
+#define CHECK_MAX_REQUIREMENT(name, value) \
+    if (limits->name > value) \
+        WARN(#name " does not meet feature level 11_0 requirements.\n");
+#define CHECK_FEATURE(name) \
+    if (!features->name) \
+        WARN(#name " is not supported.\n");
+
+    CHECK_MIN_REQUIREMENT(maxPushConstantsSize, D3D12_MAX_ROOT_COST * sizeof(uint32_t));
+    CHECK_MIN_REQUIREMENT(maxComputeSharedMemorySize, D3D12_CS_TGSM_REGISTER_COUNT * sizeof(uint32_t));
+    CHECK_MAX_REQUIREMENT(viewportBoundsRange[0], D3D12_VIEWPORT_BOUNDS_MIN);
+    CHECK_MIN_REQUIREMENT(viewportBoundsRange[1], D3D12_VIEWPORT_BOUNDS_MAX);
+    CHECK_MIN_REQUIREMENT(viewportSubPixelBits, 8);
+
+    CHECK_FEATURE(imageCubeArray);
+    CHECK_FEATURE(independentBlend);
+    CHECK_FEATURE(geometryShader);
+    CHECK_FEATURE(tessellationShader);
+    CHECK_FEATURE(sampleRateShading);
+    CHECK_FEATURE(dualSrcBlend);
+    CHECK_FEATURE(multiDrawIndirect);
+    CHECK_FEATURE(drawIndirectFirstInstance);
+    CHECK_FEATURE(depthClamp);
+    CHECK_FEATURE(depthBiasClamp);
+    CHECK_FEATURE(multiViewport);
+    CHECK_FEATURE(occlusionQueryPrecise);
+    CHECK_FEATURE(pipelineStatisticsQuery);
+    CHECK_FEATURE(fragmentStoresAndAtomics);
+    CHECK_FEATURE(shaderImageGatherExtended);
+    CHECK_FEATURE(shaderStorageImageWriteWithoutFormat);
+    CHECK_FEATURE(shaderClipDistance);
+    CHECK_FEATURE(shaderCullDistance);
+
+#undef CHECK_MIN_REQUIREMENT
+#undef CHECK_MAX_REQUIREMENT
+#undef CHECK_FEATURE
+}
+
+static void vkd3d_init_device_caps(struct d3d12_device *device,
+        const VkPhysicalDeviceFeatures *features)
+{
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance.vk_procs;
+    VkPhysicalDevice physical_device = device->vk_physical_device;
+    struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
     VkPhysicalDeviceProperties device_properties;
     VkExtensionProperties *vk_extensions;
     uint32_t count;
@@ -447,6 +492,8 @@ static void vkd3d_init_device_caps(struct vkd3d_instance *instance,
     VK_CALL(vkGetPhysicalDeviceProperties(physical_device, &device_properties));
     vulkan_info->device_limits = device_properties.limits;
     vulkan_info->sparse_properties = device_properties.sparseProperties;
+
+    vkd3d_check_feature_level_11_requirements(&device_properties.limits, features);
 
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL,
             &count, NULL))) < 0)
@@ -626,10 +673,11 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
 
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 
-    vkd3d_init_device_caps(&device->vkd3d_instance, physical_device, &device->vk_info);
+    VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &device_features));
+    device->vk_physical_device = physical_device;
+    vkd3d_init_device_caps(device, &device_features);
 
     /* Create device */
-    VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &device_features));
     device->feature_options.DoublePrecisionFloatShaderOps = device_features.shaderFloat64;
     device->feature_options.OutputMergerLogicOp = device_features.logicOp;
     /* SPV_KHR_16bit_storage */
@@ -694,7 +742,6 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
         return hr;
     }
 
-    device->vk_physical_device = physical_device;
     device->vk_device = vk_device;
 
     TRACE("Created Vulkan device %p.\n", vk_device);
