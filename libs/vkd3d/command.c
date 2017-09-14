@@ -2287,9 +2287,36 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(ID3D12GraphicsCommandList *iface,
-        ID3D12Resource *dst_resource, ID3D12Resource *src_resource)
+        ID3D12Resource *dst, ID3D12Resource *src)
 {
-    FIXME("iface %p, dst_resource %p, src_resource %p stub!\n", iface, dst_resource, src_resource);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_resource *dst_resource, *src_resource;
+    const struct vkd3d_vk_device_procs *vk_procs;
+
+    TRACE("iface %p, dst_resource %p, src_resource %p.\n", iface, dst, src);
+
+    vk_procs = &list->device->vk_procs;
+
+    dst_resource = unsafe_impl_from_ID3D12Resource(dst);
+    src_resource = unsafe_impl_from_ID3D12Resource(src);
+
+    if (d3d12_resource_is_buffer(dst_resource))
+    {
+        VkBufferCopy vk_buffer_copy;
+
+        assert(d3d12_resource_is_buffer(src_resource));
+        assert(src_resource->desc.Width == dst_resource->desc.Width);
+
+        vk_buffer_copy.srcOffset = 0;
+        vk_buffer_copy.dstOffset = 0;
+        vk_buffer_copy.size = dst_resource->desc.Width;
+        VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
+                src_resource->u.vk_buffer, dst_resource->u.vk_buffer, 1, &vk_buffer_copy));
+    }
+    else
+    {
+        FIXME("Not implemented for textures.\n");
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(ID3D12GraphicsCommandList *iface,
