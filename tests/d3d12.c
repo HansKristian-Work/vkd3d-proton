@@ -13285,6 +13285,60 @@ static void test_query_occlusion(void)
     destroy_test_context(&context);
 }
 
+static void test_resolve_non_issued_query_data(void)
+{
+    static const UINT64 initial_data[] = {0xdeadbeef, 0xdeadbeef, 0xdeadbabe, 0xdeadbeef};
+    ID3D12Resource *readback_buffer, *upload_buffer;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_QUERY_HEAP_DESC heap_desc;
+    struct test_context_desc desc;
+    ID3D12QueryHeap *query_heap;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    UINT64 *timestamps;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    heap_desc.Count = ARRAY_SIZE(initial_data);
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr %#x.\n", hr);
+
+    readback_buffer = create_readback_buffer(device, sizeof(initial_data));
+    upload_buffer = create_upload_buffer(context.device, sizeof(initial_data), initial_data);
+
+    ID3D12GraphicsCommandList_EndQuery(command_list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, 0);
+    ID3D12GraphicsCommandList_CopyResource(command_list, readback_buffer, upload_buffer);
+    ID3D12GraphicsCommandList_EndQuery(command_list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, 3);
+    ID3D12GraphicsCommandList_ResolveQueryData(command_list, query_heap,
+            D3D12_QUERY_TYPE_TIMESTAMP, 0, 4, readback_buffer, 0);
+
+    get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
+    timestamps = get_readback_data(&rb, 0, 0, sizeof(*timestamps));
+    ok(timestamps[0] != initial_data[0] && timestamps[0] > 0,
+            "Got unexpected timestamp %#"PRIx64".\n", timestamps[0]);
+    ok(!timestamps[1], "Got unexpected timestamp %#"PRIx64".\n", timestamps[1]);
+    ok(!timestamps[2], "Got unexpected timestamp %#"PRIx64".\n", timestamps[2]);
+    ok(timestamps[3] != initial_data[3] && timestamps[3] > 0,
+            "Got unexpected timestamp %#"PRIx64".\n", timestamps[3]);
+    release_resource_readback(&rb);
+
+    ID3D12QueryHeap_Release(query_heap);
+    ID3D12Resource_Release(readback_buffer);
+    ID3D12Resource_Release(upload_buffer);
+    destroy_test_context(&context);
+}
+
 static void test_execute_indirect(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -13980,6 +14034,7 @@ START_TEST(d3d12)
     run_test(test_query_timestamp);
     run_test(test_query_pipeline_statistics);
     run_test(test_query_occlusion);
+    run_test(test_resolve_non_issued_query_data);
     run_test(test_execute_indirect);
     run_test(test_dispatch_zero_thread_groups);
     run_test(test_instance_id);
