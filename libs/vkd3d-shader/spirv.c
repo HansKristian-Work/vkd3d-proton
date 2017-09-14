@@ -3386,6 +3386,10 @@ static void vkd3d_dxbc_compiler_emit_interpolation_decorations(struct vkd3d_dxbc
             break;
         case VKD3DSIM_LINEAR:
             break;
+        case VKD3DSIM_LINEAR_SAMPLE:
+            vkd3d_spirv_enable_capability(builder, SpvCapabilitySampleRateShading);
+            vkd3d_spirv_build_op_decorate(builder, id, SpvDecorationSample, NULL, 0);
+            break;
         default:
             FIXME("Unhandled interpolation mode %#x.\n", mode);
             break;
