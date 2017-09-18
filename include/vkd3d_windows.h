@@ -138,12 +138,13 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
         ((type *)((char *)(address) - offsetof(type, field)))
 
 # ifdef __x86_64__
-#  define WINAPI __attribute__((ms_abi))
-#  define STDMETHODCALLTYPE __attribute__((ms_abi))
+#  define __stdcall __attribute__((ms_abi))
 # else
-#  define WINAPI __attribute__((__stdcall__))
-#  define STDMETHODCALLTYPE __attribute__((__stdcall__))
+#  define __stdcall __attribute__((__stdcall__))
 # endif
+
+# define WINAPI __stdcall
+# define STDMETHODCALLTYPE __stdcall
 
 # ifdef __GNUC__
 #  define DECLSPEC_SELECTANY __attribute__((weak))

@@ -2102,19 +2102,18 @@ interface ID3D12RootSignatureDeserializer : IUnknown
     const D3D12_ROOT_SIGNATURE_DESC *GetRootSignatureDesc();
 }
 
-cpp_quote("HRESULT WINAPI D3D12CreateRootSignatureDeserializer(")
-cpp_quote("const void *data, SIZE_T data_size, REFIID riid, void **deserializer);")
+[local] HRESULT __stdcall D3D12CreateRootSignatureDeserializer(
+        const void *data, SIZE_T data_size, REFIID iid, void **deserializer);
 
-cpp_quote("HRESULT WINAPI D3D12SerializeRootSignature(")
-cpp_quote("const D3D12_ROOT_SIGNATURE_DESC *root_signature,")
-cpp_quote("D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob);")
+[local] HRESULT __stdcall D3D12SerializeRootSignature(
+        const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc,
+        D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob);
 
-cpp_quote("HRESULT WINAPI D3D12SerializeVersionedRootSignature(")
-cpp_quote("const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *root_signature,")
-cpp_quote("ID3DBlob **blob, ID3DBlob **error_blob);")
+[local] HRESULT __stdcall D3D12SerializeVersionedRootSignature(
+        const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *root_signature_desc,
+        ID3DBlob **blob, ID3DBlob **error_blob);
 
-cpp_quote("HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,")
-cpp_quote("D3D_FEATURE_LEVEL minimum_feature_level,")
-cpp_quote("REFIID riid, void **device);")
+[local] HRESULT __stdcall D3D12CreateDevice(IUnknown *adapter,
+        D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device);
 
-cpp_quote("HRESULT WINAPI D3D12GetDebugInterface(REFIID riid, void **debug);")
+[local] HRESULT __stdcall D3D12GetDebugInterface(REFIID iid, void **debug);
