@@ -355,8 +355,6 @@ struct d3d12_root_signature
     VkDescriptorSetLayout vk_push_set_layout;
     VkDescriptorSetLayout vk_set_layout;
 
-    unsigned int copy_descriptor_count;
-
     struct VkDescriptorPoolSize *pool_sizes;
     size_t pool_size_count;
 
@@ -370,6 +368,8 @@ struct d3d12_root_signature
 
     unsigned int root_constant_count;
     struct vkd3d_shader_push_constant_buffer *root_constants;
+
+    unsigned int root_descriptor_count;
 
     unsigned int push_constant_range_count;
     /* Only a single push constant range may include the same stage in Vulkan. */

@@ -323,8 +323,12 @@ struct d3d12_root_signature_info
     size_t buffer_srv_count;
     size_t srv_count;
     size_t sampler_count;
+
     size_t descriptor_count;
+
     size_t root_constant_count;
+    size_t root_descriptor_count;
+
     size_t cost;
 };
 
@@ -384,16 +388,19 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
                 break;
 
             case D3D12_ROOT_PARAMETER_TYPE_CBV:
+                ++info->root_descriptor_count;
                 ++info->cbv_count;
                 ++info->descriptor_count;
                 info->cost += 2;
                 break;
             case D3D12_ROOT_PARAMETER_TYPE_SRV:
+                ++info->root_descriptor_count;
                 ++info->buffer_srv_count;
                 ++info->descriptor_count;
                 info->cost += 2;
                 break;
             case D3D12_ROOT_PARAMETER_TYPE_UAV:
+                ++info->root_descriptor_count;
                 ++info->buffer_uav_count;
                 ++info->descriptor_count;
                 info->cost += 2;
@@ -916,6 +923,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
     root_signature->descriptor_count = info.descriptor_count;
     root_signature->static_sampler_count = desc->NumStaticSamplers;
+    root_signature->root_descriptor_count = info.root_descriptor_count;
 
     /* An additional sampler is created for SpvOpImageFetch. */
     if (info.srv_count || info.buffer_srv_count)
@@ -969,7 +977,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         goto fail;
     if (FAILED(hr = d3d12_root_signature_init_root_descriptor_tables(root_signature, desc, &context)))
         goto fail;
-    root_signature->copy_descriptor_count = context.descriptor_binding;
     if (FAILED(hr = d3d12_root_signature_init_static_samplers(root_signature, device, desc, &context)))
         goto fail;
 

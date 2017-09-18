@@ -1704,29 +1704,84 @@ static VkDescriptorSet d3d12_command_list_allocate_descriptor_set(struct d3d12_c
 }
 
 static void d3d12_command_list_copy_descriptors(struct d3d12_command_list *list,
-        const struct d3d12_root_signature *root_signature, VkDescriptorSet dst_set, VkDescriptorSet src_set)
+        const struct vkd3d_pipeline_bindings *bindings, VkDescriptorSet src_set)
 {
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    unsigned int count = root_signature->copy_descriptor_count;
+    const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
+    const struct d3d12_root_descriptor_table *descriptor_table;
+    const struct d3d12_root_descriptor_table_range *range;
     VkDevice vk_device = list->device->vk_device;
     VkCopyDescriptorSet *descriptor_copies;
-    unsigned int i;
+    unsigned int i, j, count;
+    unsigned int idx;
+
+    count = 0;
+    if (!vk_info->KHR_push_descriptor)
+        count += root_signature->root_descriptor_count;
+    for (i = 0; i < root_signature->parameter_count; ++i)
+    {
+        if (root_signature->parameters[i].parameter_type != D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+            continue;
+        if (bindings->descriptor_table_dirty_mask & ((uint64_t)1 << i))
+            continue;
+
+        descriptor_table = &root_signature->parameters[i].u.descriptor_table;
+        count += descriptor_table->range_count;
+    }
+
+    if (!count)
+        return;
 
     if (!(descriptor_copies = vkd3d_calloc(count, sizeof(*descriptor_copies))))
         return;
 
-    for (i = 0; i < count; ++i)
+    idx = 0;
+    if (!vk_info->KHR_push_descriptor)
     {
-        descriptor_copies[i].sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
-        descriptor_copies[i].pNext = NULL;
-        descriptor_copies[i].srcSet = src_set;
-        descriptor_copies[i].srcBinding = i;
-        descriptor_copies[i].srcArrayElement = 0;
-        descriptor_copies[i].dstSet = dst_set;
-        descriptor_copies[i].dstBinding = i;
-        descriptor_copies[i].dstArrayElement = 0;
-        descriptor_copies[i].descriptorCount = 1;
+        for (i = 0; i < root_signature->root_descriptor_count; ++i)
+        {
+            descriptor_copies[idx].sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+            descriptor_copies[idx].pNext = NULL;
+            descriptor_copies[idx].srcSet = src_set;
+            descriptor_copies[idx].srcBinding = i;
+            descriptor_copies[idx].srcArrayElement = 0;
+            descriptor_copies[idx].dstSet = bindings->descriptor_set;
+            descriptor_copies[idx].dstBinding = i;
+            descriptor_copies[idx].dstArrayElement = 0;
+            descriptor_copies[idx].descriptorCount = 1;
+            ++idx;
+        }
     }
+    for (i = 0; i < root_signature->parameter_count; ++i)
+    {
+        if (root_signature->parameters[i].parameter_type != D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+            continue;
+        if (bindings->descriptor_table_dirty_mask & ((uint64_t)1 << i))
+            continue;
+
+        descriptor_table = &root_signature->parameters[i].u.descriptor_table;
+        for (j = 0; j < descriptor_table->range_count; ++j)
+        {
+            range = &descriptor_table->ranges[j];
+            descriptor_copies[idx].sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+            descriptor_copies[idx].pNext = NULL;
+            descriptor_copies[idx].srcSet = src_set;
+            descriptor_copies[idx].srcBinding = range->binding;
+            descriptor_copies[idx].srcArrayElement = 0;
+            descriptor_copies[idx].dstSet = bindings->descriptor_set;
+            descriptor_copies[idx].dstBinding = range->binding;
+            descriptor_copies[idx].dstArrayElement = 0;
+            descriptor_copies[idx].descriptorCount = 1;
+            if (range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_SRV
+                    || range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
+                descriptor_copies[idx].descriptorCount = 2 * range->descriptor_count;
+            else
+                descriptor_copies[idx].descriptorCount = range->descriptor_count;
+            ++idx;
+        }
+    }
+    assert(count == idx);
     VK_CALL(vkUpdateDescriptorSets(vk_device, 0, NULL, count, descriptor_copies));
 
     vkd3d_free(descriptor_copies);
@@ -1759,8 +1814,7 @@ static void d3d12_command_list_prepare_descriptors(struct d3d12_command_list *li
     bindings->in_use = false;
 
     if (previous_descriptor_set)
-        d3d12_command_list_copy_descriptors(list, root_signature,
-                bindings->descriptor_set, previous_descriptor_set);
+        d3d12_command_list_copy_descriptors(list, bindings, previous_descriptor_set);
 }
 
 static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_descriptor_write,
