@@ -54,6 +54,21 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 #define MAX_DEVICE_EXTENSION_COUNT \
         (ARRAY_SIZE(required_device_extensions) + ARRAY_SIZE(optional_device_extensions))
 
+static bool is_extension_disabled(const char *extension_name)
+{
+    const char *disabled_extensions;
+    const char *s;
+    size_t len;
+
+    if (!(disabled_extensions = getenv("VKD3D_DISABLE_EXTENSIONS")))
+        return false;
+
+    if (!(s = strstr(disabled_extensions, extension_name)))
+        return false;
+    len = strlen(extension_name);
+    return s[len] == ';' || s[len] == '\0';
+}
+
 static bool has_extension(const VkExtensionProperties *extensions,
         unsigned int count, const char *extension_name)
 {
@@ -61,8 +76,14 @@ static bool has_extension(const VkExtensionProperties *extensions,
 
     for (i = 0; i < count; ++i)
     {
-        if (!strcmp(extensions[i].extensionName, extension_name))
-            return true;
+        if (strcmp(extensions[i].extensionName, extension_name))
+            continue;
+        if (is_extension_disabled(extension_name))
+        {
+            WARN("Extension %s is disabled.\n", debugstr_a(extension_name));
+            continue;
+        }
+        return true;
     }
     return false;
 }
