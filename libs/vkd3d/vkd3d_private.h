@@ -587,6 +587,8 @@ struct d3d12_device
     struct vkd3d_gpu_va_allocator gpu_va_allocator;
     struct vkd3d_fence_worker fence_worker;
 
+    VkPipelineCache vk_pipeline_cache;
+
     unsigned int direct_queue_family_index;
     unsigned int copy_queue_family_index;
     unsigned int compute_queue_family_index;

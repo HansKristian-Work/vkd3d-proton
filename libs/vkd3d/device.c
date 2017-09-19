@@ -770,6 +770,25 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     return S_OK;
 }
 
+static void d3d12_device_init_pipeline_cache(struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkPipelineCacheCreateInfo cache_info;
+    VkResult vr;
+
+    cache_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+    cache_info.pNext = NULL;
+    cache_info.flags = 0;
+    cache_info.initialDataSize = 0;
+    cache_info.pInitialData = NULL;
+    if ((vr = VK_CALL(vkCreatePipelineCache(device->vk_device, &cache_info, NULL,
+            &device->vk_pipeline_cache))) < 0)
+    {
+        ERR("Failed to create pipeline cache, vr %d.\n", vr);
+        device->vk_pipeline_cache = VK_NULL_HANDLE;
+    }
+}
+
 D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_allocator *allocator,
         size_t size, void *ptr)
 {
@@ -888,6 +907,8 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
 
         vkd3d_gpu_va_allocator_cleanup(&device->gpu_va_allocator);
         vkd3d_fence_worker_stop(&device->fence_worker);
+        if (device->vk_pipeline_cache)
+            VK_CALL(vkDestroyPipelineCache(device->vk_device, device->vk_pipeline_cache, NULL));
         VK_CALL(vkDestroyDevice(device->vk_device, NULL));
         vkd3d_instance_destroy(&device->vkd3d_instance);
 
@@ -1741,6 +1762,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     }
 
     vkd3d_gpu_va_allocator_init(&device->gpu_va_allocator);
+
+    d3d12_device_init_pipeline_cache(device);
 
     return S_OK;
 }

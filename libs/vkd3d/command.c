@@ -1526,6 +1526,7 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     struct VkPipelineVertexInputStateCreateInfo input_desc;
     struct VkPipelineColorBlendStateCreateInfo blend_desc;
     struct VkGraphicsPipelineCreateInfo pipeline_desc;
+    const struct d3d12_device *device = list->device;
     struct d3d12_graphics_pipeline_state *state;
     size_t binding_count = 0;
     VkPipeline vk_pipeline;
@@ -1632,7 +1633,7 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     pipeline_desc.subpass = 0;
     pipeline_desc.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_desc.basePipelineIndex = -1;
-    if ((vr = VK_CALL(vkCreateGraphicsPipelines(list->device->vk_device, VK_NULL_HANDLE,
+    if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device, device->vk_pipeline_cache,
             1, &pipeline_desc, NULL, &vk_pipeline))) < 0)
     {
         WARN("Failed to create Vulkan graphics pipeline, vr %d.\n", vr);
@@ -1642,7 +1643,7 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     if (!d3d12_command_allocator_add_pipeline(list->allocator, vk_pipeline))
     {
         WARN("Failed to add pipeline.\n");
-        VK_CALL(vkDestroyPipeline(list->device->vk_device, vk_pipeline, NULL));
+        VK_CALL(vkDestroyPipeline(device->vk_device, vk_pipeline, NULL));
         return false;
     }
 
