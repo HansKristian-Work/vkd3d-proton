@@ -2916,7 +2916,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootConstantBufferVi
     d3d12_command_list_set_root_cbv(list, VK_PIPELINE_BIND_POINT_GRAPHICS, root_parameter_index, address);
 }
 
-static void d3d12_command_list_set_root_uav(struct d3d12_command_list *list,
+static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point, unsigned int index, D3D12_GPU_VIRTUAL_ADDRESS gpu_address)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
@@ -2926,13 +2926,20 @@ static void d3d12_command_list_set_root_uav(struct d3d12_command_list *list,
     const struct d3d12_root_descriptor *root_descriptor;
     struct VkWriteDescriptorSet descriptor_write;
     VkDevice vk_device = list->device->vk_device;
+    VkDescriptorType descriptor_type;
     VkBufferView vk_buffer_view;
 
-    assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_UAV);
+    assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_SRV
+            || root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_UAV);
     root_descriptor = &root_signature->parameters[index].u.descriptor;
 
+    if (root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_SRV)
+        descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+    else
+        descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+
     /* FIXME: Re-use buffer views. */
-    if (!vkd3d_create_raw_buffer_uav(list->device, gpu_address, &vk_buffer_view))
+    if (!vkd3d_create_raw_buffer_view(list->device, gpu_address, &vk_buffer_view))
     {
         ERR("Failed to create buffer view.\n");
         return;
@@ -2954,7 +2961,7 @@ static void d3d12_command_list_set_root_uav(struct d3d12_command_list *list,
     descriptor_write.dstBinding = root_descriptor->binding;
     descriptor_write.dstArrayElement = 0;
     descriptor_write.descriptorCount = 1;
-    descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+    descriptor_write.descriptorType = descriptor_type;
     descriptor_write.pImageInfo = NULL;
     descriptor_write.pBufferInfo = NULL;
     descriptor_write.pTexelBufferView = &vk_buffer_view;
@@ -2973,8 +2980,13 @@ static void d3d12_command_list_set_root_uav(struct d3d12_command_list *list,
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootShaderResourceView(
         ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
 {
-    FIXME("iface %p, root_parameter_index %u, address %#"PRIx64" stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, root_parameter_index %u, address %#"PRIx64".\n",
             iface, root_parameter_index, address);
+
+    d3d12_command_list_set_root_descriptor(list, VK_PIPELINE_BIND_POINT_COMPUTE,
+            root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootShaderResourceView(
@@ -2992,7 +3004,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootUnorderedAccessVi
     TRACE("iface %p, root_parameter_index %u, address %#"PRIx64".\n",
             iface, root_parameter_index, address);
 
-    d3d12_command_list_set_root_uav(list, VK_PIPELINE_BIND_POINT_COMPUTE, root_parameter_index, address);
+    d3d12_command_list_set_root_descriptor(list, VK_PIPELINE_BIND_POINT_COMPUTE,
+            root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootUnorderedAccessView(
@@ -3003,7 +3016,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootUnorderedAccessV
     TRACE("iface %p, root_parameter_index %u, address %#"PRIx64".\n",
             iface, root_parameter_index, address);
 
-    d3d12_command_list_set_root_uav(list, VK_PIPELINE_BIND_POINT_GRAPHICS, root_parameter_index, address);
+    d3d12_command_list_set_root_descriptor(list, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(ID3D12GraphicsCommandList *iface,

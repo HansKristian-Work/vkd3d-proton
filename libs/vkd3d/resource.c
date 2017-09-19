@@ -1230,7 +1230,7 @@ void d3d12_desc_create_uav(struct d3d12_desc *descriptor, struct d3d12_device *d
     }
 }
 
-bool vkd3d_create_raw_buffer_uav(struct d3d12_device *device,
+bool vkd3d_create_raw_buffer_view(struct d3d12_device *device,
         D3D12_GPU_VIRTUAL_ADDRESS gpu_address, VkBufferView *vk_buffer_view)
 {
     const struct vkd3d_format *format;
