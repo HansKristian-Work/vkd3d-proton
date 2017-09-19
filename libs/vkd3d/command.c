@@ -2992,8 +2992,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootShaderResourceVie
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootShaderResourceView(
         ID3D12GraphicsCommandList *iface, UINT root_parameter_index, D3D12_GPU_VIRTUAL_ADDRESS address)
 {
-    FIXME("iface %p, root_parameter_index %u, address %#"PRIx64" stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, root_parameter_index %u, address %#"PRIx64".\n",
             iface, root_parameter_index, address);
+
+    d3d12_command_list_set_root_descriptor(list, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            root_parameter_index, address);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootUnorderedAccessView(
