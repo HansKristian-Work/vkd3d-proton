@@ -12793,6 +12793,133 @@ static void test_uav_counters(void)
     destroy_test_context(&context);
 }
 
+static void test_decrement_uav_counter(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    ID3D12Resource *buffer, *counter_buffer;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_ROOT_PARAMETER root_parameters[1];
+    ID3D12DescriptorHeap *descriptor_heap;
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    uint32_t counter;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD cs_code[] =
+    {
+#if 0
+        RWStructuredBuffer<uint> u;
+
+        [numthreads(1, 1, 1)]
+        void main()
+        {
+            u[0] = u.DecrementCounter();
+        }
+#endif
+        0x43425844, 0xef99d2a2, 0x3141da00, 0x1db3fb8b, 0xa1fc2ee5, 0x00000001, 0x000000c4, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000070, 0x00050050, 0x0000001c, 0x0100086a,
+        0x0480009e, 0x0011e000, 0x00000000, 0x00000004, 0x02000068, 0x00000001, 0x0400009b, 0x00000001,
+        0x00000001, 0x00000001, 0x050000b3, 0x00100012, 0x00000000, 0x0011e000, 0x00000000, 0x090000a8,
+        0x0011e012, 0x00000000, 0x00004001, 0x00000000, 0x00004001, 0x00000000, 0x0010000a, 0x00000000,
+        0x0100003e,
+    };
+    static const struct
+    {
+        uint32_t initial_value;
+        unsigned int decrement_count;
+        uint32_t expected_value;
+    }
+    tests[] =
+    {
+        {0x00000000,  1, 0xffffffff},
+        {0x00000001,  1, 0x00000000},
+        {0xffffffff,  1, 0xfffffffe},
+        {0x00000010, 16, 0x00000000},
+        {0x00000010, 17, 0xffffffff},
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    descriptor_ranges[0].NumDescriptors = 1;
+    descriptor_ranges[0].BaseShaderRegister = 0;
+    descriptor_ranges[0].RegisterSpace = 0;
+    descriptor_ranges[0].OffsetInDescriptorsFromTableStart = 0;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = descriptor_ranges;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = 1;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
+            shader_bytecode(cs_code, sizeof(cs_code)));
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap_desc.NumDescriptors = 1;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    buffer = create_default_buffer(device, 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    counter_buffer = create_default_buffer(device, 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.Format = DXGI_FORMAT_UNKNOWN;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Buffer.NumElements = 256;
+    uav_desc.Buffer.StructureByteStride = sizeof(uint32_t);
+    uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+    ID3D12Device_CreateUnorderedAccessView(device, buffer, counter_buffer, &uav_desc,
+            get_cpu_descriptor_handle(&context, descriptor_heap, 0));
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        transition_sub_resource_state(command_list, counter_buffer, 0,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+        counter = tests[i].initial_value;
+        upload_buffer_data(counter_buffer, 0, sizeof(counter), &counter, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+        transition_sub_resource_state(command_list, counter_buffer, 0,
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0,
+                ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap));
+        ID3D12GraphicsCommandList_Dispatch(command_list, tests[i].decrement_count, 1, 1);
+
+        counter = read_uav_counter(&context, counter_buffer, 0);
+        ok(counter == tests[i].expected_value, "Got %u, expected %u.\n",
+                counter, tests[i].expected_value);
+    }
+
+    ID3D12Resource_Release(buffer);
+    ID3D12Resource_Release(counter_buffer);
+    ID3D12DescriptorHeap_Release(descriptor_heap);
+    destroy_test_context(&context);
+}
+
 static void test_atomic_instructions(void)
 {
     ID3D12Resource *ps_buffer, *cs_buffer, *cs_buffer2;
@@ -14811,6 +14938,7 @@ START_TEST(d3d12)
     run_test(test_uav_load);
     run_test(test_cs_uav_store);
     run_test(test_uav_counters);
+    run_test(test_decrement_uav_counter);
     run_test(test_atomic_instructions);
     run_test(test_buffer_srv);
     run_test(test_create_query_heap);
