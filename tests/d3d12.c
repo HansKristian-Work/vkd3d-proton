@@ -2159,6 +2159,26 @@ static void test_create_committed_resource(void)
             &IID_ID3D12Resource, (void **)&resource);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
+    /* DXGI_FORMAT_B8G8R8A8_UNORM does not support D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS. */
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 32;
+    resource_desc.Height = 32;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    todo(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(resource);
+
     heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
 
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -2251,7 +2271,7 @@ static void test_create_descriptor_heap(void)
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
 
     refcount = get_refcount(device);
     ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
@@ -2273,28 +2293,28 @@ static void test_create_descriptor_heap(void)
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
     refcount = ID3D12DescriptorHeap_Release(heap);
     ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
 
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
     refcount = ID3D12DescriptorHeap_Release(heap);
     ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
 
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
     refcount = ID3D12DescriptorHeap_Release(heap);
     ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
 
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "CreateDescriptorHeap failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
     refcount = ID3D12DescriptorHeap_Release(heap);
     ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
 
