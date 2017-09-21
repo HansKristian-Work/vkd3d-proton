@@ -1745,7 +1745,7 @@ static void test_check_feature_support(void)
     feature_levels.MaxSupportedFeatureLevel = 0;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels));
-    ok(SUCCEEDED(hr), "CheckFeatureSupport failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to check feature support, hr %#x.\n", hr);
     trace("Max supported feature level %#x.\n", feature_levels.MaxSupportedFeatureLevel);
     max_supported_feature_level = feature_levels.MaxSupportedFeatureLevel;
 
@@ -1754,7 +1754,7 @@ static void test_check_feature_support(void)
     feature_levels.MaxSupportedFeatureLevel = 0;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels));
-    ok(SUCCEEDED(hr), "CheckFeatureSupport failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to check feature support, hr %#x.\n", hr);
     ok(feature_levels.MaxSupportedFeatureLevel == max_supported_feature_level,
             "Got unexpected feature level %#x, expected %#x.\n",
             feature_levels.MaxSupportedFeatureLevel, max_supported_feature_level);
@@ -1772,7 +1772,7 @@ static void test_check_feature_support(void)
     feature_levels.MaxSupportedFeatureLevel = 0;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels));
-    ok(SUCCEEDED(hr), "CheckFeatureSupport failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to check feature support, hr %#x.\n", hr);
     ok(feature_levels.MaxSupportedFeatureLevel == D3D_FEATURE_LEVEL_9_3,
             "Got unexpected max feature level %#x.\n", feature_levels.MaxSupportedFeatureLevel);
 
@@ -1781,9 +1781,62 @@ static void test_check_feature_support(void)
     feature_levels.MaxSupportedFeatureLevel = 0;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels));
-    ok(SUCCEEDED(hr), "CheckFeatureSupport failed, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to check feature support, hr %#x.\n", hr);
     ok(feature_levels.MaxSupportedFeatureLevel == 0x3000,
             "Got unexpected max feature level %#x.\n", feature_levels.MaxSupportedFeatureLevel);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
+static void test_format_support(void)
+{
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT format_support;
+    ID3D12Device *device;
+    ULONG refcount;
+    unsigned int i;
+    HRESULT hr;
+
+    static const D3D12_FEATURE_DATA_FORMAT_SUPPORT unsupported_format_features[] =
+    {
+        {DXGI_FORMAT_B8G8R8A8_TYPELESS, D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
+                D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE},
+        {DXGI_FORMAT_B8G8R8A8_UNORM,    D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
+                D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE},
+    };
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    memset(&format_support, 0, sizeof(format_support));
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT,
+            &format_support, sizeof(format_support));
+    todo(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    todo(format_support.Support1 == D3D12_FORMAT_SUPPORT1_BUFFER,
+            "Got unexpected support1 %#x.\n", format_support.Support1);
+    ok(!format_support.Support2 || format_support.Support2 == D3D12_FORMAT_SUPPORT2_TILED,
+            "Got unexpected support2 %#x.\n", format_support.Support2);
+
+    for (i = 0; i < ARRAY_SIZE(unsupported_format_features); ++i)
+    {
+        memset(&format_support, 0, sizeof(format_support));
+        format_support.Format = unsupported_format_features[i].Format;
+        hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT,
+                &format_support, sizeof(format_support));
+        todo(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        if (hr != S_OK)
+            continue;
+
+        ok(!(format_support.Support1 & unsupported_format_features[i].Support1),
+                "Format %#x supports %#x.\n", unsupported_format_features[i].Format,
+                format_support.Support1 & unsupported_format_features[i].Support1);
+        ok(!(format_support.Support2 & unsupported_format_features[i].Support2),
+                "Format %#x supports %#x.\n", unsupported_format_features[i].Format,
+                format_support.Support2 & unsupported_format_features[i].Support2);
+    }
 
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
@@ -15274,6 +15327,7 @@ START_TEST(d3d12)
     run_test(test_create_device);
     run_test(test_node_count);
     run_test(test_check_feature_support);
+    run_test(test_format_support);
     run_test(test_create_command_allocator);
     run_test(test_create_command_list);
     run_test(test_create_command_queue);
