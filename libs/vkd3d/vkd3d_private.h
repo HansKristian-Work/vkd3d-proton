@@ -589,6 +589,9 @@ struct d3d12_device
 
     VkPipelineCache vk_pipeline_cache;
 
+    /* A sampler used for SpvOpImageFetch. */
+    VkSampler vk_default_sampler;
+
     unsigned int direct_queue_family_index;
     unsigned int copy_queue_family_index;
     unsigned int compute_queue_family_index;

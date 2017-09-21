@@ -764,21 +764,10 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     return S_OK;
 }
 
-static HRESULT d3d12_root_signature_create_default_sampler(struct d3d12_root_signature *root_signature,
-        struct d3d12_device *device, unsigned int index, struct vkd3d_descriptor_set_context *context,
-        VkDescriptorSetLayoutBinding *binding)
+static HRESULT d3d12_root_signature_init_default_sampler(struct d3d12_root_signature *root_signature,
+        struct d3d12_device *device, struct vkd3d_descriptor_set_context *context)
 {
-    D3D12_STATIC_SAMPLER_DESC sampler_desc;
-    HRESULT hr;
-
-    memset(&sampler_desc, 0, sizeof(sampler_desc));
-    sampler_desc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
-    sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    if (FAILED(hr = vkd3d_create_static_sampler(device, &sampler_desc,
-            &root_signature->static_samplers[index])))
-        return hr;
+    VkDescriptorSetLayoutBinding *binding = context->current_binding;
 
     root_signature->default_sampler.set = context->set_index;
     root_signature->default_sampler.binding = context->descriptor_binding++;
@@ -787,7 +776,9 @@ static HRESULT d3d12_root_signature_create_default_sampler(struct d3d12_root_sig
     binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
     binding->descriptorCount = 1;
     binding->stageFlags = VK_SHADER_STAGE_ALL;
-    binding->pImmutableSamplers = &root_signature->static_samplers[index];
+    binding->pImmutableSamplers = &device->vk_default_sampler;
+
+    ++context->current_binding;
     return S_OK;
 }
 
@@ -799,6 +790,7 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
     unsigned int i;
     HRESULT hr;
 
+    assert(root_signature->static_sampler_count == desc->NumStaticSamplers);
     for (i = 0; i < desc->NumStaticSamplers; ++i)
     {
         const D3D12_STATIC_SAMPLER_DESC *s = &desc->pStaticSamplers[i];
@@ -816,14 +808,6 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
         cur_binding->stageFlags = stage_flags_from_visibility(s->ShaderVisibility);
         cur_binding->pImmutableSamplers = &root_signature->static_samplers[i];
 
-        ++cur_binding;
-    }
-
-    if (i < root_signature->static_sampler_count)
-    {
-        if (FAILED(hr = d3d12_root_signature_create_default_sampler(root_signature, device,
-                i, context, cur_binding)))
-            return hr;
         ++cur_binding;
     }
 
@@ -887,6 +871,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     VkDescriptorSetLayoutBinding *binding_desc;
     struct d3d12_root_signature_info info;
     VkDescriptorSetLayout set_layouts[2];
+    bool needs_default_sampler;
     HRESULT hr;
 
     memset(&context, 0, sizeof(context));
@@ -926,11 +911,11 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     root_signature->root_descriptor_count = info.root_descriptor_count;
 
     /* An additional sampler is created for SpvOpImageFetch. */
-    if (info.srv_count || info.buffer_srv_count)
+    needs_default_sampler = info.srv_count || info.buffer_srv_count;
+    if (needs_default_sampler)
     {
         ++info.sampler_count;
         ++info.descriptor_count;
-        ++root_signature->static_sampler_count;
     }
 
     hr = E_OUTOFMEMORY;
@@ -978,6 +963,9 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (FAILED(hr = d3d12_root_signature_init_root_descriptor_tables(root_signature, desc, &context)))
         goto fail;
     if (FAILED(hr = d3d12_root_signature_init_static_samplers(root_signature, device, desc, &context)))
+        goto fail;
+    if (needs_default_sampler && FAILED(hr = d3d12_root_signature_init_default_sampler(root_signature,
+            device, &context)))
         goto fail;
 
     root_signature->main_set = context.set_index;
