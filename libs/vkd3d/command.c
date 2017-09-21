@@ -2242,10 +2242,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *dst_resource, *src_resource;
+    const struct vkd3d_format *src_format, *dst_format;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkBufferImageCopy buffer_image_copy;
     VkImageCopy image_copy;
-    const struct vkd3d_format *src_format, *dst_format;
 
     TRACE("iface %p, dst %p, dst_x %u, dst_y %u, dst_z %u, src %p, src_box %p.\n",
             iface, dst, dst_x, dst_y, dst_z, src, src_box);
@@ -2327,6 +2327,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
         if ((src_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
                 && (src_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
             FIXME("Depth-stencil format %#x not fully supported yet.\n", src_format->dxgi_format);
+
+        if (dst_format->vk_aspect_mask != src_format->vk_aspect_mask)
+        {
+            FIXME("Formats %#x, %#x -> %#x, %#x not supported yet.\n",
+                    src_format->dxgi_format, src_format->vk_format,
+                    dst_format->dxgi_format, dst_format->vk_format);
+            return;
+        }
 
         vk_image_copy_from_d3d12(&image_copy, src->u.SubresourceIndex, dst->u.SubresourceIndex,
                  &src_resource->desc, &dst_resource->desc, src_format, dst_format,
