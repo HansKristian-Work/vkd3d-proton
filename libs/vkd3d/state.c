@@ -1801,8 +1801,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         graphics->attribute_count = ARRAY_SIZE(graphics->attributes);
     }
 
-    if (graphics->attribute_count
-            && FAILED(hr = compute_input_layout_offsets(&desc->InputLayout, aligned_offsets)))
+    if (FAILED(hr = compute_input_layout_offsets(&desc->InputLayout, aligned_offsets)))
         goto fail;
 
     for (i = 0, j = 0, mask = 0; i < graphics->attribute_count; ++i)
