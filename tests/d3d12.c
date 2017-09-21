@@ -1125,15 +1125,16 @@ static ID3D12RootSignature *create_32bit_constants_root_signature_(unsigned int 
     return root_signature;
 }
 
-#define create_texture_root_signature(a, b, c) create_texture_root_signature_(__LINE__, a, b, c)
+#define create_texture_root_signature(a, b, c, d) create_texture_root_signature_(__LINE__, a, b, c, d)
 static ID3D12RootSignature *create_texture_root_signature_(unsigned int line,
-        ID3D12Device *device, D3D12_SHADER_VISIBILITY shader_visibility, D3D12_ROOT_SIGNATURE_FLAGS flags)
+        ID3D12Device *device, D3D12_SHADER_VISIBILITY shader_visibility,
+        unsigned int constant_count, D3D12_ROOT_SIGNATURE_FLAGS flags)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     ID3D12RootSignature *root_signature = NULL;
     D3D12_DESCRIPTOR_RANGE descriptor_range;
+    D3D12_ROOT_PARAMETER root_parameters[2];
     D3D12_STATIC_SAMPLER_DESC sampler_desc;
-    D3D12_ROOT_PARAMETER root_parameter;
     HRESULT hr;
 
     memset(&sampler_desc, 0, sizeof(sampler_desc));
@@ -1150,15 +1151,20 @@ static ID3D12RootSignature *create_texture_root_signature_(unsigned int line,
     descriptor_range.BaseShaderRegister = 0;
     descriptor_range.RegisterSpace = 0;
     descriptor_range.OffsetInDescriptorsFromTableStart = 0;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = &descriptor_range;
+    root_parameters[0].ShaderVisibility = shader_visibility;
 
-    root_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    root_parameter.DescriptorTable.NumDescriptorRanges = 1;
-    root_parameter.DescriptorTable.pDescriptorRanges = &descriptor_range;
-    root_parameter.ShaderVisibility = shader_visibility;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[1].Constants.ShaderRegister = 0;
+    root_parameters[1].Constants.RegisterSpace = 0;
+    root_parameters[1].Constants.Num32BitValues = constant_count;
+    root_parameters[1].ShaderVisibility = shader_visibility;
 
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
-    root_signature_desc.NumParameters = 1;
-    root_signature_desc.pParameters = &root_parameter;
+    root_signature_desc.NumParameters = constant_count ? 2 : 1;
+    root_signature_desc.pParameters = root_parameters;
     root_signature_desc.NumStaticSamplers = 1;
     root_signature_desc.pStaticSamplers = &sampler_desc;
     root_signature_desc.Flags = flags;
@@ -8362,7 +8368,8 @@ static void test_texture(void)
     command_list = context.list;
     queue = context.queue;
 
-    context.root_signature = create_texture_root_signature(context.device, D3D12_SHADER_VISIBILITY_PIXEL, 0);
+    context.root_signature = create_texture_root_signature(context.device,
+            D3D12_SHADER_VISIBILITY_PIXEL, 0, 0);
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
 
@@ -8410,6 +8417,388 @@ static void test_texture(void)
            unsigned int color = get_readback_uint(&rb, 4 + 8 * x, 4 + 8 * y);
            ok(compare_color(color, bitmap_data[4 * y + x], 1),
                    "Got color 0x%08x, expected 0x%08x at (%u, %u).\n", color, bitmap_data[4 * y + x], x, y);
+        }
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(texture);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
+static void test_gather(void)
+{
+    struct
+    {
+        int width, height;
+        int offset_x, offset_y;
+    } constants;
+
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *texture;
+    unsigned int x, y;
+    HRESULT hr;
+
+    static const DWORD gather4_code[] =
+    {
+#if 0
+        SamplerState s;
+        Texture2D<float4> t;
+
+        int2 size;
+
+        float4 main(float4 position : SV_Position) : SV_Target
+        {
+            return t.Gather(s, position.xy / size);
+        }
+#endif
+        0x43425844, 0xca1ee692, 0xb122f477, 0x8c467d38, 0x0f5a233a, 0x00000001, 0x00000154, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x7469736f, 0x006e6f69,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x000000b8, 0x00000041,
+        0x0000002e, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300005a, 0x00106000,
+        0x00000000, 0x04001858, 0x00107000, 0x00000000, 0x00005555, 0x04002064, 0x00101032, 0x00000000,
+        0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0600002b, 0x00100032,
+        0x00000000, 0x00208046, 0x00000000, 0x00000000, 0x0700000e, 0x00100032, 0x00000000, 0x00101046,
+        0x00000000, 0x00100046, 0x00000000, 0x0900006d, 0x001020f2, 0x00000000, 0x00100046, 0x00000000,
+        0x00107e46, 0x00000000, 0x0010600a, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_gather4 = {gather4_code, sizeof(gather4_code)};
+    static const DWORD gather4_offset_code[] =
+    {
+#if 0
+        SamplerState s;
+        Texture2D<float4> t;
+
+        int2 size;
+
+        float4 main(float4 position : SV_Position) : SV_Target
+        {
+            return t.Gather(s, position.xy / size, int2(1, 1));
+        }
+#endif
+        0x43425844, 0xe5ab2216, 0x90748ece, 0x7ccf2123, 0x4edbba7c, 0x00000001, 0x00000158, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x7469736f, 0x006e6f69,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x000000bc, 0x00000041,
+        0x0000002f, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300005a, 0x00106000,
+        0x00000000, 0x04001858, 0x00107000, 0x00000000, 0x00005555, 0x04002064, 0x00101032, 0x00000000,
+        0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0600002b, 0x00100032,
+        0x00000000, 0x00208046, 0x00000000, 0x00000000, 0x0700000e, 0x00100032, 0x00000000, 0x00101046,
+        0x00000000, 0x00100046, 0x00000000, 0x8a00006d, 0x00002201, 0x001020f2, 0x00000000, 0x00100046,
+        0x00000000, 0x00107e46, 0x00000000, 0x0010600a, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_gather4_offset = {gather4_offset_code, sizeof(gather4_offset_code)};
+    static const DWORD gather4_green_code[] =
+    {
+#if 0
+        SamplerState s;
+        Texture2D<float4> t;
+
+        int2 size;
+
+        float4 main(float4 position : SV_Position) : SV_Target
+        {
+            return t.GatherGreen(s, position.xy / size);
+        }
+#endif
+        0x43425844, 0x2b0ad2d9, 0x8ad30b52, 0xc418477f, 0xe5211693, 0x00000001, 0x0000015c, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x7469736f, 0x006e6f69,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000c0, 0x00000050,
+        0x00000030, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300005a, 0x00106000,
+        0x00000000, 0x04001858, 0x00107000, 0x00000000, 0x00005555, 0x04002064, 0x00101032, 0x00000000,
+        0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0600002b, 0x00100032,
+        0x00000000, 0x00208046, 0x00000000, 0x00000000, 0x0700000e, 0x00100032, 0x00000000, 0x00101046,
+        0x00000000, 0x00100046, 0x00000000, 0x8b00006d, 0x800000c2, 0x00155543, 0x001020f2, 0x00000000,
+        0x00100046, 0x00000000, 0x00107e46, 0x00000000, 0x0010601a, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_gather4_green = {gather4_green_code, sizeof(gather4_green_code)};
+    static const DWORD gather4_po_code[] =
+    {
+#if 0
+        SamplerState s;
+        Texture2D<float4> t;
+
+        int2 size;
+        int2 offset;
+
+        float4 main(float4 position : SV_Position) : SV_Target
+        {
+            return t.Gather(s, position.xy / size, offset);
+        }
+#endif
+        0x43425844, 0xe19bdd35, 0x44514fb3, 0xfaa8727f, 0xc1092da0, 0x00000001, 0x00000168, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x7469736f, 0x006e6f69,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000cc, 0x00000050,
+        0x00000033, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300005a, 0x00106000,
+        0x00000000, 0x04001858, 0x00107000, 0x00000000, 0x00005555, 0x04002064, 0x00101032, 0x00000000,
+        0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0600002b, 0x00100032,
+        0x00000000, 0x00208046, 0x00000000, 0x00000000, 0x0700000e, 0x00100032, 0x00000000, 0x00101046,
+        0x00000000, 0x00100046, 0x00000000, 0x8e00007f, 0x800000c2, 0x00155543, 0x001020f2, 0x00000000,
+        0x00100046, 0x00000000, 0x00208ae6, 0x00000000, 0x00000000, 0x00107e46, 0x00000000, 0x0010600a,
+        0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_gather4_po = {gather4_po_code, sizeof(gather4_po_code)};
+    static const struct vec4 texture_data[] =
+    {
+        {0.0f, 0.0f}, {1.0f, 1.0f}, {2.0f, 2.0f}, {3.0f, 3.0f},
+        {4.0f, 0.1f}, {5.0f, 1.1f}, {6.0f, 2.1f}, {7.0f, 3.1f},
+        {8.0f, 0.2f}, {9.0f, 1.2f}, {0.5f, 2.2f}, {1.5f, 3.2f},
+        {2.5f, 0.3f}, {3.5f, 1.3f}, {4.5f, 2.3f}, {5.5f, 3.3f},
+    };
+    static const struct vec4 expected_gather4[] =
+    {
+        {4.0f, 5.0f, 1.0f, 0.0f}, {5.0f, 6.0f, 2.0f, 1.0f}, {6.0f, 7.0f, 3.0f, 2.0f}, {7.0f, 7.0f, 3.0f, 3.0f},
+        {8.0f, 9.0f, 5.0f, 4.0f}, {9.0f, 0.5f, 6.0f, 5.0f}, {0.5f, 1.5f, 7.0f, 6.0f}, {1.5f, 1.5f, 7.0f, 7.0f},
+        {2.5f, 3.5f, 9.0f, 8.0f}, {3.5f, 4.5f, 0.5f, 9.0f}, {4.5f, 5.5f, 1.5f, 0.5f}, {5.5f, 5.5f, 1.5f, 1.5f},
+        {2.5f, 3.5f, 3.5f, 2.5f}, {3.5f, 4.5f, 4.5f, 3.5f}, {4.5f, 5.5f, 5.5f, 4.5f}, {5.5f, 5.5f, 5.5f, 5.5f},
+    };
+    static const struct vec4 expected_gather4_offset[] =
+    {
+        {9.0f, 0.5f, 6.0f, 5.0f}, {0.5f, 1.5f, 7.0f, 6.0f}, {1.5f, 1.5f, 7.0f, 7.0f}, {1.5f, 1.5f, 7.0f, 7.0f},
+        {3.5f, 4.5f, 0.5f, 9.0f}, {4.5f, 5.5f, 1.5f, 0.5f}, {5.5f, 5.5f, 1.5f, 1.5f}, {5.5f, 5.5f, 1.5f, 1.5f},
+        {3.5f, 4.5f, 4.5f, 3.5f}, {4.5f, 5.5f, 5.5f, 4.5f}, {5.5f, 5.5f, 5.5f, 5.5f}, {5.5f, 5.5f, 5.5f, 5.5f},
+        {3.5f, 4.5f, 4.5f, 3.5f}, {4.5f, 5.5f, 5.5f, 4.5f}, {5.5f, 5.5f, 5.5f, 5.5f}, {5.5f, 5.5f, 5.5f, 5.5f},
+    };
+    static const struct vec4 expected_gather4_green[] =
+    {
+        {0.1f, 1.1f, 1.0f, 0.0f}, {1.1f, 2.1f, 2.0f, 1.0f}, {2.1f, 3.1f, 3.0f, 2.0f}, {3.1f, 3.1f, 3.0f, 3.0f},
+        {0.2f, 1.2f, 1.1f, 0.1f}, {1.2f, 2.2f, 2.1f, 1.1f}, {2.2f, 3.2f, 3.1f, 2.1f}, {3.2f, 3.2f, 3.1f, 3.1f},
+        {0.3f, 1.3f, 1.2f, 0.2f}, {1.3f, 2.3f, 2.2f, 1.2f}, {2.3f, 3.3f, 3.2f, 2.2f}, {3.3f, 3.3f, 3.2f, 3.2f},
+        {0.3f, 1.3f, 1.3f, 0.3f}, {1.3f, 2.3f, 2.3f, 1.3f}, {2.3f, 3.3f, 3.3f, 2.3f}, {3.3f, 3.3f, 3.3f, 3.3f},
+    };
+    static const struct vec4 white = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const D3D12_SUBRESOURCE_DATA resource_data = {&texture_data, sizeof(texture_data) / 4};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = 4;
+    desc.rt_height = 4;
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_texture_root_signature(context.device,
+            D3D12_SHADER_VISIBILITY_PIXEL, 4, 0);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap_desc.NumDescriptors = 1;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
+
+    texture = create_texture(context.device, 4, 4, DXGI_FORMAT_R32G32B32A32_FLOAT,
+            D3D12_RESOURCE_STATE_COPY_DEST);
+    ID3D12Device_CreateShaderResourceView(context.device, texture, NULL, cpu_handle);
+    upload_texture_data(texture, &resource_data, 1, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+    constants.width = 4;
+    constants.height = 4;
+    constants.offset_x = 1;
+    constants.offset_y = 1;
+
+    /* ps_gather4 */
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, desc.rt_format, NULL, &ps_gather4, NULL);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 4, &constants.width, 0);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (y = 0; y < rb.height; ++y)
+    {
+        for (x = 0; x < rb.width; ++x)
+        {
+            const struct vec4 *expected = &expected_gather4[y * rb.width + x];
+            const struct vec4 *got = get_readback_vec4(&rb, x, y);
+            ok(compare_vec4(got, expected, 0),
+                    "Got {%.8e, %.8e, %.8e, %.8e}, expected {%.8e, %.8e, %.8e, %.8e}.\n",
+                    got->x, got->y, got->z, got->w, expected->x, expected->y, expected->z, expected->w);
+        }
+    }
+    release_resource_readback(&rb);
+
+    ID3D12PipelineState_Release(context.pipeline_state);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* ps_gather4_offset */
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, desc.rt_format, NULL, &ps_gather4_offset, NULL);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 4, &constants.width, 0);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (y = 0; y < rb.height; ++y)
+    {
+        for (x = 0; x < rb.width; ++x)
+        {
+            const struct vec4 *expected = &expected_gather4_offset[y * rb.width + x];
+            const struct vec4 *got = get_readback_vec4(&rb, x, y);
+            ok(compare_vec4(got, expected, 0),
+                    "Got {%.8e, %.8e, %.8e, %.8e}, expected {%.8e, %.8e, %.8e, %.8e}.\n",
+                    got->x, got->y, got->z, got->w, expected->x, expected->y, expected->z, expected->w);
+        }
+    }
+    release_resource_readback(&rb);
+
+    ID3D12PipelineState_Release(context.pipeline_state);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* ps_gather4_green */
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, desc.rt_format, NULL, &ps_gather4_green, NULL);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 4, &constants.width, 0);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (y = 0; y < rb.height; ++y)
+    {
+        for (x = 0; x < rb.width; ++x)
+        {
+            const struct vec4 *expected = &expected_gather4_green[y * rb.width + x];
+            const struct vec4 *got = get_readback_vec4(&rb, x, y);
+            ok(compare_vec4(got, expected, 0),
+                    "Got {%.8e, %.8e, %.8e, %.8e}, expected {%.8e, %.8e, %.8e, %.8e}.\n",
+                    got->x, got->y, got->z, got->w, expected->x, expected->y, expected->z, expected->w);
+        }
+    }
+    release_resource_readback(&rb);
+
+    ID3D12PipelineState_Release(context.pipeline_state);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* ps_gather4_po */
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, desc.rt_format, NULL, &ps_gather4_po, NULL);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 4, &constants.width, 0);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (y = 0; y < rb.height; ++y)
+    {
+        for (x = 0; x < rb.width; ++x)
+        {
+            const struct vec4 *expected = &expected_gather4_offset[y * rb.width + x];
+            const struct vec4 *got = get_readback_vec4(&rb, x, y);
+            todo(compare_vec4(got, expected, 0),
+                    "Got {%.8e, %.8e, %.8e, %.8e}, expected {%.8e, %.8e, %.8e, %.8e}.\n",
+                    got->x, got->y, got->z, got->w, expected->x, expected->y, expected->z, expected->w);
+        }
+    }
+    release_resource_readback(&rb);
+
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    constants.offset_x = 0;
+    constants.offset_y = 0;
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 4, &constants.width, 0);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (y = 0; y < rb.height; ++y)
+    {
+        for (x = 0; x < rb.width; ++x)
+        {
+            const struct vec4 *expected = &expected_gather4[y * rb.width + x];
+            const struct vec4 *got = get_readback_vec4(&rb, x, y);
+            todo(compare_vec4(got, expected, 0),
+                    "Got {%.8e, %.8e, %.8e, %.8e}, expected {%.8e, %.8e, %.8e, %.8e}.\n",
+                    got->x, got->y, got->z, got->w, expected->x, expected->y, expected->z, expected->w);
         }
     }
     release_resource_readback(&rb);
@@ -9173,7 +9562,7 @@ static void test_update_descriptor_heap_after_closing_command_list(void)
     queue = context.queue;
 
     context.root_signature = create_texture_root_signature(context.device,
-            D3D12_SHADER_VISIBILITY_PIXEL, 0);
+            D3D12_SHADER_VISIBILITY_PIXEL, 0, 0);
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
 
@@ -14923,6 +15312,7 @@ START_TEST(d3d12)
     run_test(test_immediate_constant_buffer);
     run_test(test_root_constants);
     run_test(test_texture);
+    run_test(test_gather);
     run_test(test_descriptor_tables);
     run_test(test_descriptor_tables_overlapping_bindings);
     run_test(test_update_root_descriptors);
