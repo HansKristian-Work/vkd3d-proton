@@ -385,11 +385,11 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     }
 
     if (format_count != 1 || formats->format != VK_FORMAT_UNDEFINED
-            || formats->colorSpace != VK_COLORSPACE_SRGB_NONLINEAR_KHR)
+            || formats->colorSpace != VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
     {
         for (i = 0; i < format_count; ++i)
         {
-            if (formats[i].format == format && formats[i].colorSpace == VK_COLORSPACE_SRGB_NONLINEAR_KHR)
+            if (formats[i].format == format && formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
                 break;
         }
 
@@ -409,7 +409,7 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     vk_swapchain_desc.surface = vk_surface;
     vk_swapchain_desc.minImageCount = desc->buffer_count;
     vk_swapchain_desc.imageFormat = format;
-    vk_swapchain_desc.imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+    vk_swapchain_desc.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     vk_swapchain_desc.imageExtent.width = desc->width;
     vk_swapchain_desc.imageExtent.height = desc->height;
     vk_swapchain_desc.imageArrayLayers = 1;
