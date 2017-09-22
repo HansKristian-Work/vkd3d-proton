@@ -1899,6 +1899,7 @@ static bool vkd3d_dxbc_compiler_check_shader_visibility(struct vkd3d_dxbc_compil
             return compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL;
     }
 
+    ERR("Invalid shader visibility %#x.\n", visibility);
     return false;
 }
 
@@ -1953,6 +1954,7 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
         {
             const struct vkd3d_shader_uav_counter_binding *current = &shader_interface->uav_counters[i];
 
+            /* FIXME: Implement shader visibility for UAV counters. */
             if (current->register_index == reg_idx)
                 return current->binding;
         }
@@ -1965,12 +1967,16 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
         {
             const struct vkd3d_shader_resource_binding *current = &shader_interface->bindings[i];
 
+            if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
+                continue;
+
             if (current->type == descriptor_type && current->register_index == reg_idx
                     && current->is_buffer == is_buffer_resource)
                 return current->binding;
         }
         if (shader_interface->binding_count)
-            FIXME("Could not find descriptor binding for %#x, %u.\n", descriptor_type, reg_idx);
+            FIXME("Could not find binding for type %#x, register %u, shader type %#x.\n",
+                    descriptor_type, reg_idx, compiler->shader_type);
     }
 
     vk_binding.set = 0;
