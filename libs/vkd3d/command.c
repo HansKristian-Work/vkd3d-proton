@@ -1714,7 +1714,8 @@ static void d3d12_command_list_copy_descriptors(struct d3d12_command_list *list,
     const struct d3d12_root_descriptor_table_range *range;
     VkDevice vk_device = list->device->vk_device;
     VkCopyDescriptorSet *descriptor_copies;
-    unsigned int i, j, count;
+    unsigned int copy_descriptor_count;
+    unsigned int i, j, k, count;
     unsigned int idx;
 
     count = 0;
@@ -1728,7 +1729,20 @@ static void d3d12_command_list_copy_descriptors(struct d3d12_command_list *list,
             continue;
 
         descriptor_table = &root_signature->parameters[i].u.descriptor_table;
-        count += descriptor_table->range_count;
+        for (j = 0; j < descriptor_table->range_count; ++j)
+        {
+            range = &descriptor_table->ranges[j];
+            switch (range->descriptor_magic)
+            {
+                case VKD3D_DESCRIPTOR_MAGIC_SRV:
+                case VKD3D_DESCRIPTOR_MAGIC_UAV:
+                    count += 2 * range->descriptor_count;
+                    break;
+                default:
+                    ++count;
+                    break;
+            }
+        }
     }
 
     if (!count)
@@ -1765,21 +1779,28 @@ static void d3d12_command_list_copy_descriptors(struct d3d12_command_list *list,
         for (j = 0; j < descriptor_table->range_count; ++j)
         {
             range = &descriptor_table->ranges[j];
-            descriptor_copies[idx].sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
-            descriptor_copies[idx].pNext = NULL;
-            descriptor_copies[idx].srcSet = src_set;
-            descriptor_copies[idx].srcBinding = range->binding;
-            descriptor_copies[idx].srcArrayElement = 0;
-            descriptor_copies[idx].dstSet = bindings->descriptor_set;
-            descriptor_copies[idx].dstBinding = range->binding;
-            descriptor_copies[idx].dstArrayElement = 0;
-            descriptor_copies[idx].descriptorCount = 1;
             if (range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_SRV
                     || range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
-                descriptor_copies[idx].descriptorCount = 2 * range->descriptor_count;
+                copy_descriptor_count = 2 * range->descriptor_count;
             else
-                descriptor_copies[idx].descriptorCount = range->descriptor_count;
-            ++idx;
+                copy_descriptor_count = 1;
+            for (k = 0; k < copy_descriptor_count; ++k)
+            {
+                descriptor_copies[idx].sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+                descriptor_copies[idx].pNext = NULL;
+                descriptor_copies[idx].srcSet = src_set;
+                descriptor_copies[idx].srcBinding = range->binding + k;
+                descriptor_copies[idx].srcArrayElement = 0;
+                descriptor_copies[idx].dstSet = bindings->descriptor_set;
+                descriptor_copies[idx].dstBinding = range->binding + k;
+                descriptor_copies[idx].dstArrayElement = 0;
+                if (range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_SRV
+                        || range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
+                    descriptor_copies[idx].descriptorCount = 1;
+                else
+                    descriptor_copies[idx].descriptorCount = range->descriptor_count;
+                ++idx;
+            }
         }
     }
     assert(count == idx);
