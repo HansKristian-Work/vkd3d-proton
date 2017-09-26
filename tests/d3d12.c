@@ -663,6 +663,7 @@ static unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
         case DXGI_FORMAT_B8G8R8A8_UNORM:
             return 4;
+        case DXGI_FORMAT_R16_FLOAT:
         case DXGI_FORMAT_R16_UNORM:
             return 2;
         case DXGI_FORMAT_BC1_UNORM:
@@ -12153,6 +12154,142 @@ static void test_typed_buffer_uav(void)
     destroy_test_context(&context);
 }
 
+static void test_typed_uav_store(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    ID3D12DescriptorHeap *descriptor_heap;
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD cs_float_code[] =
+    {
+#if 0
+        RWTexture2D<float> u;
+
+        float f;
+
+        [numthreads(1, 1, 1)]
+        void main(uint2 id : SV_GroupID)
+        {
+            u[id] = f;
+        }
+#endif
+        0x43425844, 0xc3add41b, 0x67df51b1, 0x2b887930, 0xcb1ee991, 0x00000001, 0x000000b8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000064, 0x00050050, 0x00000019, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400189c, 0x0011e000, 0x00000000, 0x00005555,
+        0x0200005f, 0x00021032, 0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x070000a4, 0x0011e0f2,
+        0x00000000, 0x00021546, 0x00208006, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const struct
+    {
+        DXGI_FORMAT format;
+        float constant;
+        union
+        {
+            float f;
+            uint16_t u16;
+        } result;
+    }
+    tests[] =
+    {
+        {DXGI_FORMAT_R16_FLOAT, 1.0f, {.u16 = 0x3c00}},
+        {DXGI_FORMAT_R16_FLOAT, 0.5f, {.u16 = 0x3800}},
+
+        {DXGI_FORMAT_R16_UNORM, 0.5f, {.u16 = 32768}},
+
+        {DXGI_FORMAT_R32_FLOAT, 0.0f, {.f = 0.0f}},
+        {DXGI_FORMAT_R32_FLOAT, 0.5f, {.f = 0.5f}},
+        {DXGI_FORMAT_R32_FLOAT, 1.0f, {.f = 1.0f}},
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    descriptor_ranges[0].NumDescriptors = 1;
+    descriptor_ranges[0].BaseShaderRegister = 0;
+    descriptor_ranges[0].RegisterSpace = 0;
+    descriptor_ranges[0].OffsetInDescriptorsFromTableStart = 0;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = descriptor_ranges;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[1].Constants.ShaderRegister = 0;
+    root_parameters[1].Constants.RegisterSpace = 0;
+    root_parameters[1].Constants.Num32BitValues = 1;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = 2;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
+            shader_bytecode(cs_float_code, sizeof(cs_float_code)));
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap_desc.NumDescriptors = 1;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        resource = create_default_texture(device, 32, 32, tests[i].format,
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        ID3D12Device_CreateUnorderedAccessView(device, resource, NULL, NULL,
+                ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap));
+
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &descriptor_heap);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0,
+                ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap));
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(command_list, 1,
+                1, &tests[i].constant, 0);
+        ID3D12GraphicsCommandList_Dispatch(command_list, 32, 32, 1);
+
+        transition_sub_resource_state(command_list, resource, 0,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        switch (tests[i].format)
+        {
+            default:
+                trace("Unhandled format %#x.\n", tests[i].format);
+            case DXGI_FORMAT_R32_FLOAT:
+                check_sub_resource_float(resource, 0, queue, command_list, tests[i].result.f, 2);
+                break;
+            case DXGI_FORMAT_R16_FLOAT:
+            case DXGI_FORMAT_R16_UNORM:
+                check_sub_resource_uint16(resource, 0, queue, command_list, tests[i].result.u16, 2);
+                break;
+        }
+
+        ID3D12Resource_Release(resource);
+
+        reset_command_list(command_list, context.allocator);
+    }
+
+    ID3D12DescriptorHeap_Release(descriptor_heap);
+    destroy_test_context(&context);
+}
+
 static void test_compute_shader_registers(void)
 {
     struct data
@@ -15922,6 +16059,7 @@ START_TEST(d3d12)
     run_test(test_depth_stencil_sampling);
     run_test(test_depth_load);
     run_test(test_typed_buffer_uav);
+    run_test(test_typed_uav_store);
     run_test(test_compute_shader_registers);
     run_test(test_tgsm);
     run_test(test_uav_load);
