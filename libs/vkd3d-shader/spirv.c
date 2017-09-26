@@ -3248,6 +3248,9 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
 
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
+    if (is_uav && !(scan_info->uav_read_mask & (1u << reg->idx[0].offset)))
+        vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
+
     if (is_uav && (scan_info->uav_counter_mask & (1u << reg->idx[0].offset)))
     {
         assert(structure_stride); /* counters are valid only for structured buffers */
