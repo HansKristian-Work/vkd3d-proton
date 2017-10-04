@@ -1935,7 +1935,7 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
         return;
     }
 
-    descriptor = (struct d3d12_desc *)(intptr_t)base_descriptor.ptr;
+    descriptor = d3d12_desc_from_gpu_handle(base_descriptor);
 
     d3d12_command_list_prepare_descriptors(list, bind_point);
 
@@ -1948,8 +1948,7 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
 
         if (range->offset != D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND)
         {
-            descriptor = (struct d3d12_desc *)(intptr_t)base_descriptor.ptr;
-            descriptor += range->offset;
+            descriptor = d3d12_desc_from_gpu_handle(base_descriptor) + range->offset;
         }
 
         for (j = 0; j < range->descriptor_count; ++j, ++descriptor)

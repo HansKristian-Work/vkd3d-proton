@@ -1290,7 +1290,8 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(ID3D12Device *iface,
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     unsigned int dst_range_idx, dst_idx, src_range_idx, src_idx;
-    struct d3d12_desc *dst, *src;
+    const struct d3d12_desc *src;
+    struct d3d12_desc *dst;
 
     TRACE("iface %p, dst_descriptor_range_count %u, dst_descriptor_range_offsets %p, "
             "dst_descriptor_range_sizes %p, src_descriptor_range_count %u, "
@@ -1308,16 +1309,16 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(ID3D12Device *iface,
     }
 
     dst_range_idx = dst_idx = 0;
-    dst = (struct d3d12_desc *)dst_descriptor_range_offsets[0].ptr;
+    dst = d3d12_desc_from_cpu_handle(dst_descriptor_range_offsets[0]);
     for (src_range_idx = 0; src_range_idx < src_descriptor_range_count; ++src_range_idx)
     {
-        src = (struct d3d12_desc *)src_descriptor_range_offsets[src_range_idx].ptr;
+        src = d3d12_desc_from_cpu_handle(src_descriptor_range_offsets[src_range_idx]);
         for (src_idx = 0; src_idx < src_descriptor_range_sizes[src_range_idx]; ++src_idx)
         {
             if (dst_idx >= dst_descriptor_range_sizes[dst_range_idx])
             {
                 ++dst_range_idx;
-                dst = (struct d3d12_desc *)dst_descriptor_range_offsets[dst_range_idx].ptr;
+                dst = d3d12_desc_from_cpu_handle(dst_descriptor_range_offsets[dst_range_idx]);
                 dst_idx = 0;
             }
 

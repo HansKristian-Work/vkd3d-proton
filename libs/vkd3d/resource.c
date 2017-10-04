@@ -826,7 +826,7 @@ static void d3d12_desc_destroy(struct d3d12_desc *descriptor,
     memset(descriptor, 0, sizeof(*descriptor));
 }
 
-void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
+void d3d12_desc_copy(struct d3d12_desc *dst, const struct d3d12_desc *src,
         struct d3d12_device *device)
 {
     d3d12_desc_destroy(dst, device);
