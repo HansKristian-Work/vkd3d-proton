@@ -3356,11 +3356,37 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
         const UINT values[4], UINT rect_count, const D3D12_RECT *rects)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct d3d12_desc *cpu_descriptor;
+    struct d3d12_resource *resource_impl;
 
-    FIXME("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p stub!\n",
+    TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
-    d3d12_command_list_track_resource_usage(list, unsafe_impl_from_ID3D12Resource(resource));
+    resource_impl = unsafe_impl_from_ID3D12Resource(resource);
+
+    d3d12_command_list_track_resource_usage(list, resource_impl);
+
+    if (d3d12_resource_is_texture(resource_impl))
+    {
+        FIXME("Not implemented for textures.\n");
+        return;
+    }
+    if (rect_count)
+    {
+        FIXME("Clear rects not supported.\n");
+        return;
+    }
+
+    cpu_descriptor = d3d12_desc_from_cpu_handle(cpu_handle);
+    if (!cpu_descriptor->view_size)
+    {
+        FIXME("Not supported for UAV descriptor %p.\n", cpu_descriptor);
+        return;
+    }
+
+    VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, resource_impl->u.vk_buffer,
+            cpu_descriptor->view_offset, cpu_descriptor->view_size, values[0]));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(ID3D12GraphicsCommandList *iface,
@@ -3368,11 +3394,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(I
         const float values[4], UINT rect_count, const D3D12_RECT *rects)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_resource *resource_impl;
 
     FIXME("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p stub!\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
-    d3d12_command_list_track_resource_usage(list, unsafe_impl_from_ID3D12Resource(resource));
+    resource_impl = unsafe_impl_from_ID3D12Resource(resource);
+
+    d3d12_command_list_track_resource_usage(list, resource_impl);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(ID3D12GraphicsCommandList *iface,

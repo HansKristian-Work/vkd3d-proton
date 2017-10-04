@@ -209,6 +209,9 @@ struct d3d12_desc
         VkDescriptorBufferInfo vk_cbv_info;
         struct vkd3d_view *view;
     } u;
+
+    VkDeviceSize view_offset;
+    VkDeviceSize view_size;
 };
 
 static inline struct d3d12_desc *d3d12_desc_from_cpu_handle(D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle)

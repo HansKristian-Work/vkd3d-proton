@@ -1131,6 +1131,16 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
             d3d12_desc_destroy(descriptor, device);
         }
     }
+
+    /* FIXME: Clears are implemented only for R32_UINT buffer UAVs. */
+    if ((desc->Format == DXGI_FORMAT_R32_TYPELESS && (desc->u.Buffer.Flags & VKD3D_VIEW_RAW_BUFFER))
+            || desc->Format == DXGI_FORMAT_R32_UINT)
+    {
+        const struct vkd3d_format *format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
+
+        descriptor->view_offset = desc->u.Buffer.FirstElement * format->byte_count;
+        descriptor->view_size = desc->u.Buffer.NumElements * format->byte_count;
+    }
 }
 
 static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
