@@ -4132,6 +4132,22 @@ static struct vkd3d_control_flow_info *vkd3d_dxbc_compiler_find_innermost_breaka
     return NULL;
 }
 
+static void vkd3d_dxbc_compiler_emit_switch_default_case(struct vkd3d_dxbc_compiler *compiler,
+        struct vkd3d_control_flow_info *cf_info)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    assert(!cf_info->u.switch_.default_block_id);
+
+    cf_info->u.switch_.default_block_id = vkd3d_spirv_alloc_id(builder);
+    if (cf_info->u.switch_.inside_block) /* fall-through */
+        vkd3d_spirv_build_op_branch(builder, cf_info->u.switch_.default_block_id);
+
+    vkd3d_spirv_build_op_label(builder, cf_info->u.switch_.default_block_id);
+    vkd3d_spirv_build_op_name(builder, cf_info->u.switch_.default_block_id,
+            "switch%u_default", cf_info->u.switch_.id);
+}
+
 static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -4279,6 +4295,14 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
         case VKD3DSIH_ENDSWITCH:
             assert(compiler->control_flow_depth);
             assert(cf_info->current_block == VKD3D_BLOCK_SWITCH);
+            assert(!cf_info->u.switch_.inside_block);
+
+            /* The default block is required in SPIR-V. */
+            if (!cf_info->u.switch_.default_block_id)
+            {
+                vkd3d_dxbc_compiler_emit_switch_default_case(compiler, cf_info);
+                vkd3d_spirv_build_op_branch(builder, cf_info->u.switch_.merge_block_id);
+            }
 
             vkd3d_spirv_build_op_label(builder, cf_info->u.switch_.merge_block_id);
 
@@ -4327,14 +4351,8 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             assert(compiler->control_flow_depth);
             assert(cf_info->current_block == VKD3D_BLOCK_SWITCH);
 
-            cf_info->u.switch_.default_block_id = vkd3d_spirv_alloc_id(builder);
-            if (cf_info->u.switch_.inside_block) /* fall-through */
-                vkd3d_spirv_build_op_branch(builder, cf_info->u.switch_.default_block_id);
-
-            vkd3d_spirv_build_op_label(builder, cf_info->u.switch_.default_block_id);
+            vkd3d_dxbc_compiler_emit_switch_default_case(compiler, cf_info);
             cf_info->u.switch_.inside_block = true;
-            vkd3d_spirv_build_op_name(builder, cf_info->u.switch_.default_block_id,
-                    "switch%u_default", cf_info->u.switch_.id);
             break;
 
         case VKD3DSIH_BREAK:
