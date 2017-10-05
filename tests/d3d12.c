@@ -6359,6 +6359,38 @@ static void test_shader_instructions(void)
         0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_nested_switch = {ps_nested_switch_code, sizeof(ps_nested_switch_code)};
+    static const DWORD ps_switch_no_default_code[] =
+    {
+#if 0
+        ps_5_0
+        dcl_globalFlags refactoringAllowed
+        dcl_constantbuffer CB0[1], immediateIndexed
+        dcl_output o0.xyzw
+        switch cb0[0].x
+            case l(0)
+            mov o0.xyzw, l(1,1,1,1)
+            ret
+            case l(3)
+            mov o0.xyzw, l(2,2,2,2)
+            ret
+        endswitch
+        nop
+        nop
+        mov o0.xyzw, l(3,3,3,3)
+        ret
+#endif
+        0x43425844, 0x97459226, 0x57ed7614, 0xcda58342, 0xbdf6a9dd, 0x00000001, 0x00000140, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000c8, 0x00000050, 0x00000032,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x0400004c, 0x0020800a, 0x00000000, 0x00000000, 0x03000006, 0x00004001, 0x00000000, 0x08000036,
+        0x001020f2, 0x00000000, 0x00004002, 0x00000001, 0x00000001, 0x00000001, 0x00000001, 0x0100003e,
+        0x03000006, 0x00004001, 0x00000003, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000002,
+        0x00000002, 0x00000002, 0x00000002, 0x0100003e, 0x01000017, 0x0100003a, 0x0100003a, 0x08000036,
+        0x001020f2, 0x00000000, 0x00004002, 0x00000003, 0x00000003, 0x00000003, 0x00000003, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_switch_no_default = {ps_switch_no_default_code, sizeof(ps_switch_no_default_code)};
     static const DWORD ps_movc_code[] =
     {
 #if 0
@@ -6922,6 +6954,12 @@ static void test_shader_instructions(void)
         {&ps_nested_switch, {{{ 4u, 6, 3, 1}, {1}}}, {{  1,   1,   1,   1}}},
         {&ps_nested_switch, {{{ 4u, 7, 3, 1}, {1}}}, {{  1,   1,   1,   1}}},
         {&ps_nested_switch, {{{ 4u, 8, 3, 1}, {1}}}, {{  1,   1,   1,   1}}},
+
+        {&ps_switch_no_default, {{{0}}}, {{1, 1, 1, 1}}},
+        {&ps_switch_no_default, {{{1}}}, {{3, 3, 3, 3}}},
+        {&ps_switch_no_default, {{{2}}}, {{3, 3, 3, 3}}},
+        {&ps_switch_no_default, {{{3}}}, {{2, 2, 2, 2}}},
+        {&ps_switch_no_default, {{{4}}}, {{3, 3, 3, 3}}},
 
         {&ps_movc, {{{0, 0, 0, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 6, 7, 8}}, true},
         {&ps_movc, {{{0, 0, 0, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 6, 7, 4}}, true},
