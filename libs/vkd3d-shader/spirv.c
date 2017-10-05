@@ -5498,6 +5498,8 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_SYNC:
             vkd3d_dxbc_compiler_emit_sync(compiler, instruction);
             break;
+        case VKD3DSIH_NOP:
+            break;
         default:
             FIXME("Unhandled instruction %#x.\n", instruction->handler_idx);
     }
