@@ -2175,9 +2175,6 @@ static void vkd3d_dxbc_compiler_get_register_info(struct vkd3d_dxbc_compiler *co
 
     assert(reg->type != VKD3DSPR_IMMCONST);
 
-    if (reg->idx[0].rel_addr || reg->idx[1].rel_addr)
-        FIXME("Relative indexing not implemented.\n");
-
     if (reg->type == VKD3DSPR_TEMP)
     {
         assert(reg->idx[0].offset < compiler->temp_count);
@@ -2200,9 +2197,10 @@ static void vkd3d_dxbc_compiler_get_register_info(struct vkd3d_dxbc_compiler *co
         uint32_t indexes[] =
         {
             vkd3d_dxbc_compiler_get_constant_uint(compiler, symbol->info.reg.member_idx),
-            vkd3d_dxbc_compiler_get_constant_uint(compiler, reg->idx[1].offset),
+            vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[1]),
         };
 
+        assert(!reg->idx[0].rel_addr);
         type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
         ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, register_info->storage_class, type_id);
         register_info->id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
@@ -2217,6 +2215,10 @@ static void vkd3d_dxbc_compiler_get_register_info(struct vkd3d_dxbc_compiler *co
         ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, register_info->storage_class, type_id);
         register_info->id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
                 register_info->id, indexes, ARRAY_SIZE(indexes));
+    }
+    else if (reg->idx[0].rel_addr || reg->idx[1].rel_addr)
+    {
+        FIXME("Relative addressing not implemented.\n");
     }
 }
 
