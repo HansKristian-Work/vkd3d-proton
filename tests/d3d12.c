@@ -8119,6 +8119,109 @@ static void test_cs_constant_buffer(void)
     destroy_test_context(&context);
 }
 
+static void test_constant_buffer_relative_addressing(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    ID3D12GraphicsCommandList *command_list;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *uav, *cb;
+    ID3D12Device *device;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD cs_code[] =
+    {
+#if 0
+        cbuffer b0
+        {
+            uint4 pad;
+            uint4 data[4];
+        };
+
+        RWByteAddressBuffer u0;
+
+        [numthreads(4, 1, 1)]
+        void main(uint tid : SV_GroupThreadID)
+        {
+            uint location = 4 * tid;
+            u0.Store4(4 * location, data[tid]);
+        }
+#endif
+        0x43425844, 0x759a28a0, 0xdd34cd41, 0x73702692, 0x739a66ea, 0x00000001, 0x000000f0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x0000009c, 0x00050050, 0x00000027, 0x0100086a,
+        0x04000859, 0x00208e46, 0x00000000, 0x00000005, 0x0300009d, 0x0011e000, 0x00000000, 0x0200005f,
+        0x00022012, 0x02000068, 0x00000001, 0x0400009b, 0x00000004, 0x00000001, 0x00000001, 0x06000029,
+        0x00100012, 0x00000000, 0x0002200a, 0x00004001, 0x00000004, 0x04000036, 0x00100022, 0x00000000,
+        0x0002200a, 0x0a0000a6, 0x0011e0f2, 0x00000000, 0x0010000a, 0x00000000, 0x06208e46, 0x00000000,
+        0x00000001, 0x0010001a, 0x00000000, 0x0100003e,
+    };
+    static const struct uvec4 cb_data[] =
+    {
+        {0xdeadbeef, 0xdeadbeef, 0xdeadbeef, 0xdeadbeef},
+        {1, 2, 3, 4},
+        {4, 4, 9, 8},
+        {4, 5, 6, 7},
+        {6, 0, 6, 0},
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    cb = create_upload_buffer(context.device, sizeof(cb_data), &cb_data);
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[0].Descriptor.ShaderRegister = 0;
+    root_parameters[0].Descriptor.RegisterSpace = 0;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    root_parameters[1].Descriptor.ShaderRegister = 0;
+    root_parameters[1].Descriptor.RegisterSpace = 0;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = 2;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
+            shader_bytecode(cs_code, sizeof(cs_code)));
+
+    uav = create_default_buffer(device, 16 * sizeof(uint32_t),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list, 0,
+            ID3D12Resource_GetGPUVirtualAddress(uav));
+    ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(command_list, 1,
+            ID3D12Resource_GetGPUVirtualAddress(cb));
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
+
+    transition_sub_resource_state(command_list, uav, 0,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(uav, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (i = 0; i < rb.width; ++i)
+    {
+        unsigned int got = get_readback_uint(&rb, i, 0);
+        const unsigned int *expected = &cb_data[1].x;
+        ok(got == expected[i], "Got %#x, expected %#x at %u.\n", got, expected[i], i);
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(cb);
+    ID3D12Resource_Release(uav);
+    destroy_test_context(&context);
+}
+
 static void test_immediate_constant_buffer(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -16223,6 +16326,7 @@ START_TEST(d3d12)
     run_test(test_shader_interstage_interface);
     run_test(test_root_signature_deserializer);
     run_test(test_cs_constant_buffer);
+    run_test(test_constant_buffer_relative_addressing);
     run_test(test_immediate_constant_buffer);
     run_test(test_root_constants);
     run_test(test_texture);
