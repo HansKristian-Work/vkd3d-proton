@@ -1231,7 +1231,7 @@ static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12
 
     if (is_cpu_accessible_heap(&resource->heap_properties))
     {
-        barrier.srcAccessMask = VK_ACCESS_HOST_READ_BIT | VK_ACCESS_HOST_WRITE_BIT;
+        barrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
         barrier.oldLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
         src_stage_mask = VK_PIPELINE_STAGE_HOST_BIT;
     }
@@ -2630,7 +2630,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
                         resource && (resource->flags & VKD3D_RESOURCE_SWAPCHAIN_IMAGE),
                         &access_mask, &stage_mask, &image_layout);
                 src_access_mask = dst_access_mask = access_mask;
-                dst_stage_mask = src_stage_mask = stage_mask;
+                src_stage_mask = dst_stage_mask = stage_mask;
                 layout_before = layout_after = image_layout;
 
                 TRACE("UAV barrier (resource %p).\n", resource);
