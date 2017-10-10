@@ -68,6 +68,7 @@ interface ID3D10Blob : IUnknown
 }
 
 typedef ID3D10Blob ID3DBlob;
+cpp_quote("#define IID_ID3DBlob IID_ID3D10Blob")
 
 typedef enum D3D_PRIMITIVE_TOPOLOGY
 {
