@@ -123,6 +123,21 @@ static inline void demo_blend_desc_init_default(D3D12_BLEND_DESC *desc)
     }
 }
 
+static inline HRESULT demo_create_root_signature(ID3D12Device *device,
+        const D3D12_ROOT_SIGNATURE_DESC *desc, ID3D12RootSignature **signature)
+{
+    ID3DBlob *blob;
+    HRESULT hr;
+
+    if (FAILED(hr = D3D12SerializeRootSignature(desc, D3D_ROOT_SIGNATURE_VERSION_1, &blob, NULL)))
+        return hr;
+    hr = ID3D12Device_CreateRootSignature(device, 0, ID3D10Blob_GetBufferPointer(blob),
+            ID3D10Blob_GetBufferSize(blob), &IID_ID3D12RootSignature, (void **)signature);
+    ID3D10Blob_Release(blob);
+
+    return hr;
+}
+
 #ifdef _WIN32
 #include "demo_win32.h"
 #else

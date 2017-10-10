@@ -564,10 +564,3 @@ static inline void demo_destroy_event(HANDLE event)
 {
     vkd3d_destroy_event(event);
 }
-
-static inline HRESULT demo_create_root_signature(ID3D12Device *device,
-        const D3D12_ROOT_SIGNATURE_DESC *desc, ID3D12RootSignature **signature)
-{
-    return ID3D12Device_CreateRootSignature(device, 0, desc, ~(SIZE_T)0,
-            &IID_ID3D12RootSignature, (void **)signature);
-}
