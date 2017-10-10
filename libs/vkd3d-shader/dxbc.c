@@ -2568,13 +2568,19 @@ static HRESULT shader_write_root_signature(struct root_signature_writer_context 
 }
 
 HRESULT vkd3d_shader_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_signature,
-        struct vkd3d_shader_code *dxbc)
+        enum vkd3d_root_signature_version version, struct vkd3d_shader_code *dxbc)
 {
     struct root_signature_writer_context context;
     size_t total_size, chunk_size;
     HRESULT hr;
 
-    TRACE("root_signature %p, dxbc %p.\n", root_signature, dxbc);
+    TRACE("root_signature %p, version %#x, dxbc %p.\n", root_signature, version, dxbc);
+
+    if (version != VKD3D_ROOT_SIGNATURE_VERSION_1_0)
+    {
+        FIXME("Root signature version %#x not supported.\n", version);
+        return E_NOTIMPL;
+    }
 
     memset(dxbc, 0, sizeof(*dxbc));
     memset(&context, 0, sizeof(context));

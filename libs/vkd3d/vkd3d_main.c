@@ -299,19 +299,14 @@ HRESULT WINAPI D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *root
         return E_INVALIDARG;
     }
 
-    if (version != D3D_ROOT_SIGNATURE_VERSION_1_0)
-    {
-        FIXME("Root signature version %#x is not supported.\n", version);
-        return E_NOTIMPL;
-    }
-
     if (error_blob)
     {
         FIXME("Ignoring error blob %p.\n", error_blob);
         *error_blob = NULL;
     }
 
-    if (FAILED(hr = vkd3d_shader_serialize_root_signature(root_signature_desc, &dxbc)))
+    if (FAILED(hr = vkd3d_shader_serialize_root_signature(root_signature_desc,
+            (enum vkd3d_root_signature_version)version, &dxbc)))
     {
         WARN("Failed to serialize root signature, hr %#x.\n", hr);
         return hr;
