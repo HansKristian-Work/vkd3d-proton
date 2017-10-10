@@ -2473,26 +2473,26 @@ static HRESULT shader_write_root_parameters(struct root_signature_writer_context
     {
         context->data[parameters_position + 3 * i + 2] = get_chunk_offset(context); /* offset */
 
-        if (parameters[i].ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+        switch (parameters[i].ParameterType)
         {
-            if (FAILED(hr = shader_write_descriptor_table(context, &parameters[i].u.DescriptorTable)))
-                return hr;
+            case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+                hr = shader_write_descriptor_table(context, &parameters[i].u.DescriptorTable);
+                break;
+            case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+                hr = shader_write_root_constants(context, &parameters[i].u.Constants);
+                break;
+            case D3D12_ROOT_PARAMETER_TYPE_CBV:
+            case D3D12_ROOT_PARAMETER_TYPE_SRV:
+            case D3D12_ROOT_PARAMETER_TYPE_UAV:
+                hr = shader_write_root_descriptor(context, &parameters[i].u.Descriptor);
+                break;
+            default:
+                FIXME("Unrecognized type %#x.\n", parameters[i].ParameterType);
+                return E_INVALIDARG;
         }
-        else if (parameters[i].ParameterType == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
-        {
-            if (FAILED(hr = shader_write_root_constants(context, &parameters[i].u.Constants)))
-                return hr;
-        }
-        else  if (parameters[i].ParameterType <= D3D12_ROOT_PARAMETER_TYPE_UAV)
-        {
-            if (FAILED(hr = shader_write_root_descriptor(context, &parameters[i].u.Descriptor)))
-                return hr;
-        }
-        else
-        {
-            FIXME("Unrecognized type %#x.\n", parameters[i].ParameterType);
-            return E_INVALIDARG;
-        }
+
+        if (FAILED(hr))
+            return hr;
     }
 
     return S_OK;
