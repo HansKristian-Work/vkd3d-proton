@@ -2315,3 +2315,288 @@ HRESULT vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
 
     return S_OK;
 }
+
+struct root_signature_writer_context
+{
+    DWORD *data;
+    size_t position;
+    size_t capacity;
+
+    size_t total_size_position;
+    size_t chunk_position;
+};
+
+static bool write_dwords(struct root_signature_writer_context *context,
+        unsigned int count, DWORD d)
+{
+    unsigned int i;
+
+    if (!vkd3d_array_reserve((void **)&context->data, &context->capacity,
+            context->position + count, sizeof(*context->data)))
+        return false;
+    for (i = 0; i < count; ++i)
+        context->data[context->position++] = d;
+    return true;
+}
+
+static bool write_dword(struct root_signature_writer_context *context, DWORD d)
+{
+    return write_dwords(context, 1, d);
+}
+
+static bool write_float(struct root_signature_writer_context *context, float f)
+{
+    union
+    {
+        float f;
+        DWORD d;
+    } u;
+    u.f = f;
+    return write_dword(context, u.d);
+}
+
+static size_t get_chunk_offset(struct root_signature_writer_context *context)
+{
+    return (context->position - context->chunk_position) * sizeof(DWORD);
+}
+
+static HRESULT shader_write_root_signature_header(struct root_signature_writer_context *context)
+{
+    if (!write_dword(context, TAG_DXBC))
+        return E_OUTOFMEMORY;
+
+    WARN("DXBC checksum is not implemented.\n");
+    if (!write_dwords(context, 4, 0x00000000))
+        return E_OUTOFMEMORY;
+
+    if (!write_dword(context, 0x00000001))
+        return E_OUTOFMEMORY;
+
+    context->total_size_position = context->position;
+    if (!write_dword(context, 0xffffffff)) /* total size */
+        return E_OUTOFMEMORY;
+
+    if (!write_dword(context, 1)) /* chunk count */
+        return E_OUTOFMEMORY;
+
+    /* chunk offset */
+    if (!write_dword(context, (context->position + 1) * sizeof(DWORD)))
+        return E_OUTOFMEMORY;
+
+    if (!write_dword(context, TAG_RTS0))
+        return E_OUTOFMEMORY;
+    if (!write_dword(context, 0xffffffff)) /* chunk size */
+        return E_OUTOFMEMORY;
+    context->chunk_position = context->position;
+
+    return S_OK;
+}
+
+static HRESULT shader_write_descriptor_ranges(struct root_signature_writer_context *context,
+        const D3D12_ROOT_DESCRIPTOR_TABLE *table)
+{
+    const D3D12_DESCRIPTOR_RANGE *ranges = table->pDescriptorRanges;
+    unsigned int i;
+
+    for (i = 0; i < table->NumDescriptorRanges; ++i)
+    {
+        if (!write_dword(context, ranges[i].RangeType))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, ranges[i].NumDescriptors))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, ranges[i].BaseShaderRegister))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, ranges[i].RegisterSpace))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, ranges[i].OffsetInDescriptorsFromTableStart))
+            return E_OUTOFMEMORY;
+    }
+
+    return S_OK;
+}
+
+static HRESULT shader_write_descriptor_table(struct root_signature_writer_context *context,
+        const D3D12_ROOT_DESCRIPTOR_TABLE *table)
+{
+    if (!write_dword(context, table->NumDescriptorRanges))
+        return E_OUTOFMEMORY;
+    if (!write_dword(context, get_chunk_offset(context) + sizeof(DWORD))) /* offset */
+        return E_OUTOFMEMORY;
+
+    return shader_write_descriptor_ranges(context, table);
+}
+
+static HRESULT shader_write_root_constants(struct root_signature_writer_context *context,
+        const D3D12_ROOT_CONSTANTS *constants)
+{
+    if (!write_dword(context, constants->ShaderRegister))
+        return E_OUTOFMEMORY;
+    if (!write_dword(context, constants->RegisterSpace))
+        return E_OUTOFMEMORY;
+    if (!write_dword(context, constants->Num32BitValues))
+        return E_OUTOFMEMORY;
+
+    return S_OK;
+}
+
+static HRESULT shader_write_root_descriptor(struct root_signature_writer_context *context,
+        const D3D12_ROOT_DESCRIPTOR *descriptor)
+{
+    if (!write_dword(context, descriptor->ShaderRegister))
+        return E_OUTOFMEMORY;
+    if (!write_dword(context, descriptor->RegisterSpace))
+        return E_OUTOFMEMORY;
+
+    return S_OK;
+}
+
+static HRESULT shader_write_root_parameters(struct root_signature_writer_context *context,
+        const D3D12_ROOT_SIGNATURE_DESC *desc)
+{
+    const D3D12_ROOT_PARAMETER *parameters = desc->pParameters;
+    size_t parameters_position;
+    unsigned int i;
+    HRESULT hr;
+
+    parameters_position = context->position;
+    for (i = 0; i < desc->NumParameters; ++i)
+    {
+        if (!write_dword(context, parameters[i].ParameterType))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, parameters[i].ShaderVisibility))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, 0xffffffff)) /* offset */
+            return E_OUTOFMEMORY;
+    }
+
+    for (i = 0; i < desc->NumParameters; ++i)
+    {
+        context->data[parameters_position + 3 * i + 2] = get_chunk_offset(context); /* offset */
+
+        if (parameters[i].ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+        {
+            if (FAILED(hr = shader_write_descriptor_table(context, &parameters[i].u.DescriptorTable)))
+                return hr;
+        }
+        else if (parameters[i].ParameterType == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
+        {
+            if (FAILED(hr = shader_write_root_constants(context, &parameters[i].u.Constants)))
+                return hr;
+        }
+        else  if (parameters[i].ParameterType <= D3D12_ROOT_PARAMETER_TYPE_UAV)
+        {
+            if (FAILED(hr = shader_write_root_descriptor(context, &parameters[i].u.Descriptor)))
+                return hr;
+        }
+        else
+        {
+            FIXME("Unrecognized type %#x.\n", parameters[i].ParameterType);
+            return E_INVALIDARG;
+        }
+    }
+
+    return S_OK;
+}
+
+static HRESULT shader_write_static_samplers(struct root_signature_writer_context *context,
+        const D3D12_ROOT_SIGNATURE_DESC *desc)
+{
+    const D3D12_STATIC_SAMPLER_DESC *samplers = desc->pStaticSamplers;
+    unsigned int i;
+
+    for (i = 0; i < desc->NumStaticSamplers; ++i)
+    {
+        if (!write_dword(context, samplers[i].Filter))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, samplers[i].AddressU))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, samplers[i].AddressV))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, samplers[i].AddressW))
+            return E_OUTOFMEMORY;
+        if (!write_float(context, samplers[i].MipLODBias))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, samplers[i].MaxAnisotropy))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, samplers[i].ComparisonFunc))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, samplers[i].BorderColor))
+            return E_OUTOFMEMORY;
+        if (!write_float(context, samplers[i].MinLOD))
+            return E_OUTOFMEMORY;
+        if (!write_float(context, samplers[i].MaxLOD))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, samplers[i].ShaderRegister))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, samplers[i].RegisterSpace))
+            return E_OUTOFMEMORY;
+        if (!write_dword(context, samplers[i].ShaderVisibility))
+            return E_OUTOFMEMORY;
+    }
+
+    return S_OK;
+}
+
+static HRESULT shader_write_root_signature(struct root_signature_writer_context *context,
+        const D3D12_ROOT_SIGNATURE_DESC *desc)
+{
+    size_t samplers_offset_position;
+    HRESULT hr;
+
+    if (!write_dword(context, 0x00000001))
+        return E_OUTOFMEMORY;
+
+    if (!write_dword(context, desc->NumParameters))
+        return E_OUTOFMEMORY;
+    if (!write_dword(context, get_chunk_offset(context) + 4 * sizeof(DWORD))) /* offset */
+        return E_OUTOFMEMORY;
+
+    if (!write_dword(context, desc->NumStaticSamplers))
+        return E_OUTOFMEMORY;
+    samplers_offset_position = context->position;
+    if (!write_dword(context, 0xffffffff)) /* offset */
+        return E_OUTOFMEMORY;
+
+    if (!write_dword(context, desc->Flags))
+        return E_OUTOFMEMORY;
+
+    if (FAILED(hr = shader_write_root_parameters(context, desc)))
+        return hr;
+
+    context->data[samplers_offset_position] = get_chunk_offset(context);
+    return shader_write_static_samplers(context, desc);
+}
+
+HRESULT vkd3d_shader_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_signature,
+        struct vkd3d_shader_code *dxbc)
+{
+    struct root_signature_writer_context context;
+    size_t total_size, chunk_size;
+    HRESULT hr;
+
+    TRACE("root_signature %p, dxbc %p.\n", root_signature, dxbc);
+
+    memset(dxbc, 0, sizeof(*dxbc));
+    memset(&context, 0, sizeof(context));
+    if (FAILED(hr = shader_write_root_signature_header(&context)))
+    {
+        vkd3d_free(context.data);
+        return hr;
+    }
+
+    if (FAILED(hr = shader_write_root_signature(&context, root_signature)))
+    {
+        vkd3d_free(context.data);
+        return hr;
+    }
+
+    total_size = context.position * sizeof(DWORD);
+    chunk_size = get_chunk_offset(&context);
+    context.data[context.total_size_position] = total_size;
+    context.data[context.chunk_position - 1] = chunk_size;
+
+    dxbc->code = context.data;
+    dxbc->size = total_size;
+
+    return S_OK;
+}

@@ -116,6 +116,9 @@ HRESULT vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         D3D12_ROOT_SIGNATURE_DESC *root_signature);
 void vkd3d_shader_free_root_signature(D3D12_ROOT_SIGNATURE_DESC *root_signature);
 
+HRESULT vkd3d_shader_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_signature,
+        struct vkd3d_shader_code *dxbc);
+
 #define VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS 8
 
 struct vkd3d_shader_scan_info
