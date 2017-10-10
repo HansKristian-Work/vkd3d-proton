@@ -2177,29 +2177,26 @@ static HRESULT shader_parse_root_parameters(const char *data, DWORD data_size,
         TRACE("Type %#x, shader visibility %#x.\n",
                 parameters[i].ParameterType, parameters[i].ShaderVisibility);
 
-        if (parameters[i].ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+        switch (parameters[i].ParameterType)
         {
-            if (FAILED(hr = shader_parse_descriptor_table(data, data_size,
-                    offset, &parameters[i].u.DescriptorTable)))
-                return hr;
+            case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+                hr = shader_parse_descriptor_table(data, data_size, offset, &parameters[i].u.DescriptorTable);
+                break;
+            case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+                hr = shader_parse_root_constants(data, data_size, offset, &parameters[i].u.Constants);
+                break;
+            case D3D12_ROOT_PARAMETER_TYPE_CBV:
+            case D3D12_ROOT_PARAMETER_TYPE_SRV:
+            case D3D12_ROOT_PARAMETER_TYPE_UAV:
+                hr = shader_parse_root_descriptor(data, data_size, offset, &parameters[i].u.Descriptor);
+                break;
+            default:
+                FIXME("Unrecognized type %#x.\n", parameters[i].ParameterType);
+                return E_INVALIDARG;
         }
-        else if (parameters[i].ParameterType == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
-        {
-            if (FAILED(hr = shader_parse_root_constants(data, data_size,
-                    offset, &parameters[i].u.Constants)))
-                return hr;
-        }
-        else  if (parameters[i].ParameterType <= D3D12_ROOT_PARAMETER_TYPE_UAV)
-        {
-            if (FAILED(hr = shader_parse_root_descriptor(data, data_size,
-                    offset, &parameters[i].u.Descriptor)))
-                return hr;
-        }
-        else
-        {
-            FIXME("Unrecognized type %#x.\n", parameters[i].ParameterType);
-            return E_INVALIDARG;
-        }
+
+        if (FAILED(hr))
+            return hr;
     }
 
     return S_OK;
