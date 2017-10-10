@@ -174,7 +174,6 @@ static void check_interface_(unsigned int line, IUnknown *iface, REFIID riid, bo
         IUnknown_Release(unk);
 }
 
-#if _WIN32
 static HRESULT create_root_signature(ID3D12Device *device, const D3D12_ROOT_SIGNATURE_DESC *desc,
         ID3D12RootSignature **root_signature)
 {
@@ -189,16 +188,6 @@ static HRESULT create_root_signature(ID3D12Device *device, const D3D12_ROOT_SIGN
     ID3D10Blob_Release(blob);
     return hr;
 }
-#else
-/* XXX: Root signature byte code is not supported yet. We allow to pass D3D12_ROOT_SIGNATURE_DESC
- * directly to CreateRootSignature(). */
-static HRESULT create_root_signature(ID3D12Device *device, const D3D12_ROOT_SIGNATURE_DESC *desc,
-        ID3D12RootSignature **root_signature)
-{
-    return ID3D12Device_CreateRootSignature(device, 0, desc, ~(SIZE_T)0,
-            &IID_ID3D12RootSignature, (void **)root_signature);
-}
-#endif
 
 static D3D12_SHADER_BYTECODE shader_bytecode(const DWORD *code, size_t size)
 {
