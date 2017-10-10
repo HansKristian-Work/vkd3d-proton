@@ -7680,7 +7680,41 @@ static void test_root_signature_deserialization_(unsigned int line, const DWORD 
     ok_(line)(!refcount, "ID3D12RootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_root_signature_deserializer(void)
+#define test_root_signature_serialization(a, b, c) test_root_signature_serialization_(__LINE__, a, b, c)
+static void test_root_signature_serialization_(unsigned int line, const DWORD *code, size_t code_size,
+        const D3D12_ROOT_SIGNATURE_DESC *desc)
+{
+    DWORD *blob_buffer;
+    size_t blob_size;
+    ID3DBlob *blob;
+    unsigned int i;
+    HRESULT hr;
+
+    hr = D3D12SerializeRootSignature(desc, D3D_ROOT_SIGNATURE_VERSION_1_0, &blob, NULL);
+    ok_(line)(hr == S_OK, "Failed to serialize root signature, hr %#x.\n", hr);
+
+    blob_buffer = ID3D10Blob_GetBufferPointer(blob);
+    blob_size = ID3D10Blob_GetBufferSize(blob);
+    ok_(line)(blob_size == code_size, "Got size %u, expected %u.\n",
+            (unsigned int)blob_size, (unsigned int)code_size);
+
+    ok_(line)(blob_buffer[0] == code[0], "Got magic %#x, expected %#x.\n",
+            (unsigned int)blob_buffer[0], (unsigned int)code[0]);
+    for (i = 1; i < 5; ++i)
+    {
+        todo_(line)(blob_buffer[i] == code[i], "Got checksum %#x, expected %#x at %u.\n",
+                (unsigned int)blob_buffer[i], (unsigned int)code[i], i - 1);
+    }
+    for (; i < code_size / sizeof(DWORD); ++i)
+    {
+        ok_(line)(blob_buffer[i] == code[i], "Got dword %#x, expected %#x at %u.\n",
+                (unsigned int)blob_buffer[i], (unsigned int)code[i], i);
+    }
+
+    ID3D10Blob_Release(blob);
+}
+
+static void test_root_signature_byte_code(void)
 {
     ID3D12RootSignatureDeserializer *deserializer;
     ULONG refcount;
@@ -7955,6 +7989,21 @@ static void test_root_signature_deserializer(void)
     test_root_signature_deserialization(default_static_sampler_rootsig, sizeof(default_static_sampler_rootsig),
             &default_static_sampler_rootsig_desc);
     test_root_signature_deserialization(static_samplers_rootsig, sizeof(static_samplers_rootsig),
+            &static_samplers_rootsig_desc);
+
+    test_root_signature_serialization(empty_rootsig, sizeof(empty_rootsig), &empty_rootsig_desc);
+    test_root_signature_serialization(ia_rootsig, sizeof(ia_rootsig), &ia_rootsig_desc);
+    test_root_signature_serialization(deny_ps_rootsig, sizeof(deny_ps_rootsig), &deny_ps_rootsig_desc);
+    test_root_signature_serialization(cbv_rootsig, sizeof(cbv_rootsig), &cbv_rootsig_desc);
+    test_root_signature_serialization(cbv2_rootsig, sizeof(cbv2_rootsig), &cbv2_rootsig_desc);
+    test_root_signature_serialization(srv_rootsig, sizeof(srv_rootsig), &srv_rootsig_desc);
+    test_root_signature_serialization(uav_rootsig, sizeof(uav_rootsig), &uav_rootsig_desc);
+    test_root_signature_serialization(constants_rootsig, sizeof(constants_rootsig), &constants_rootsig_desc);
+    test_root_signature_serialization(descriptor_table_rootsig, sizeof(descriptor_table_rootsig),
+            &descriptor_table_rootsig_desc);
+    test_root_signature_serialization(default_static_sampler_rootsig, sizeof(default_static_sampler_rootsig),
+            &default_static_sampler_rootsig_desc);
+    test_root_signature_serialization(static_samplers_rootsig, sizeof(static_samplers_rootsig),
             &static_samplers_rootsig_desc);
 }
 
@@ -16321,7 +16370,7 @@ START_TEST(d3d12)
     run_test(test_bundle_state_inheritance);
     run_test(test_shader_instructions);
     run_test(test_shader_interstage_interface);
-    run_test(test_root_signature_deserializer);
+    run_test(test_root_signature_byte_code);
     run_test(test_cs_constant_buffer);
     run_test(test_constant_buffer_relative_addressing);
     run_test(test_immediate_constant_buffer);
