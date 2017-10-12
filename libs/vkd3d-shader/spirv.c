@@ -5016,6 +5016,12 @@ static void vkd3d_dxbc_compiler_emit_uav_counter_instruction(struct vkd3d_dxbc_c
     operands[2] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvMemorySemanticsMaskNone);
     result_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
             op, type_id, operands, ARRAY_SIZE(operands));
+    if (op == SpvOpAtomicIDecrement)
+    {
+        /* SpvOpAtomicIDecrement returns the original value. */
+        result_id = vkd3d_spirv_build_op_isub(builder, type_id, result_id,
+                vkd3d_dxbc_compiler_get_constant_uint(compiler, 1));
+    }
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, result_id);
 }
 
