@@ -14259,30 +14259,31 @@ static void test_decrement_uav_counter(void)
         [numthreads(1, 1, 1)]
         void main()
         {
-            u[0] = u.DecrementCounter();
+            InterlockedMin(u[0], u.DecrementCounter());
         }
 #endif
-        0x43425844, 0xef99d2a2, 0x3141da00, 0x1db3fb8b, 0xa1fc2ee5, 0x00000001, 0x000000c4, 0x00000003,
+        0x43425844, 0xceb0e9d3, 0x64ea7417, 0xbd37d26f, 0x589c63c2, 0x00000001, 0x000000c8, 0x00000003,
         0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
-        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000070, 0x00050050, 0x0000001c, 0x0100086a,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000074, 0x00050050, 0x0000001d, 0x0100086a,
         0x0480009e, 0x0011e000, 0x00000000, 0x00000004, 0x02000068, 0x00000001, 0x0400009b, 0x00000001,
-        0x00000001, 0x00000001, 0x050000b3, 0x00100012, 0x00000000, 0x0011e000, 0x00000000, 0x090000a8,
-        0x0011e012, 0x00000000, 0x00004001, 0x00000000, 0x00004001, 0x00000000, 0x0010000a, 0x00000000,
-        0x0100003e,
+        0x00000001, 0x00000001, 0x050000b3, 0x00100012, 0x00000000, 0x0011e000, 0x00000000, 0x0a0000b1,
+        0x0011e000, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0010000a,
+        0x00000000, 0x0100003e,
     };
     static const struct
     {
         uint32_t initial_value;
         unsigned int decrement_count;
         uint32_t expected_value;
+        uint32_t expected_min_value;
     }
     tests[] =
     {
-        {0x00000000,  1, 0xffffffff},
-        {0x00000001,  1, 0x00000000},
-        {0xffffffff,  1, 0xfffffffe},
-        {0x00000010, 16, 0x00000000},
-        {0x00000010, 17, 0xffffffff},
+        {0x00000000,  1, 0xffffffff, 0xffffffff},
+        {0x00000001,  1, 0x00000000, 0x00000000},
+        {0xffffffff,  1, 0xfffffffe, 0xfffffffe},
+        {0x00000010, 16, 0x00000000, 0x00000000},
+        {0x00000010, 17, 0xffffffff, 0x00000000},
     };
 
     if (!init_compute_test_context(&context))
@@ -14335,6 +14336,14 @@ static void test_decrement_uav_counter(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        transition_sub_resource_state(command_list, buffer, 0,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+        counter = 0xffffffff;
+        upload_buffer_data(buffer, 0, sizeof(counter), &counter, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+        transition_sub_resource_state(command_list, buffer, 0,
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
         transition_sub_resource_state(command_list, counter_buffer, 0,
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
         counter = tests[i].initial_value;
@@ -14353,6 +14362,10 @@ static void test_decrement_uav_counter(void)
         counter = read_uav_counter(&context, counter_buffer, 0);
         ok(counter == tests[i].expected_value, "Got %u, expected %u.\n",
                 counter, tests[i].expected_value);
+
+        counter = read_uav_counter(&context, buffer, 0);
+        ok(counter == tests[i].expected_min_value, "Got %u, expected %u.\n",
+                counter, tests[i].expected_min_value);
     }
 
     ID3D12Resource_Release(buffer);
