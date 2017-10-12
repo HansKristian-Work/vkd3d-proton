@@ -14011,7 +14011,7 @@ static int compare_id(const void *a, const void *b)
 
 static void test_uav_counters(void)
 {
-    ID3D12Resource *buffer, *buffer2, *counter_buffer;
+    ID3D12Resource *buffer, *out_buffer, *counter_buffer;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
@@ -14107,7 +14107,7 @@ static void test_uav_counters(void)
 
     buffer = create_default_buffer(device, 1024,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    buffer2 = create_default_buffer(device, 1024,
+    out_buffer = create_default_buffer(device, 1024,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     counter_buffer = create_default_buffer(device, 1024,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -14120,7 +14120,7 @@ static void test_uav_counters(void)
     uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
     ID3D12Device_CreateUnorderedAccessView(device, buffer, counter_buffer, &uav_desc,
             get_cpu_descriptor_handle(&context, descriptor_heap, 0));
-    ID3D12Device_CreateUnorderedAccessView(device, buffer2, NULL, &uav_desc,
+    ID3D12Device_CreateUnorderedAccessView(device, out_buffer, NULL, &uav_desc,
             get_cpu_descriptor_handle(&context, descriptor_heap, 1));
 
     counter = 0;
@@ -14168,11 +14168,11 @@ static void test_uav_counters(void)
             ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap));
     ID3D12GraphicsCommandList_Dispatch(command_list, 16, 1, 1);
 
-    transition_sub_resource_state(command_list, buffer2, 0,
+    transition_sub_resource_state(command_list, out_buffer, 0,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     counter = read_uav_counter(&context, counter_buffer, 0);
     ok(!counter, "Got unexpected value %u.\n", counter);
-    get_buffer_readback_with_command_list(buffer2, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    get_buffer_readback_with_command_list(out_buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     memcpy(id, rb.data, 64 * sizeof(*id));
     release_resource_readback(&rb);
     qsort(id, 64, sizeof(*id), compare_id);
@@ -14188,7 +14188,7 @@ static void test_uav_counters(void)
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
     transition_sub_resource_state(command_list, buffer, 0,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
-    transition_sub_resource_state(command_list, buffer2, 0,
+    transition_sub_resource_state(command_list, out_buffer, 0,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     /* produce on CPU */
@@ -14214,12 +14214,12 @@ static void test_uav_counters(void)
     ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
     ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
 
-    transition_sub_resource_state(command_list, buffer2, 0,
+    transition_sub_resource_state(command_list, out_buffer, 0,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     counter = read_uav_counter(&context, counter_buffer, 0);
     ok(!counter, "Got unexpected value %u.\n", counter);
 
-    get_buffer_readback_with_command_list(buffer2, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    get_buffer_readback_with_command_list(out_buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     for (i = 0; i < 8; ++i)
     {
         data = get_readback_uint(&rb, i, 0);
@@ -14228,7 +14228,7 @@ static void test_uav_counters(void)
     release_resource_readback(&rb);
 
     ID3D12Resource_Release(buffer);
-    ID3D12Resource_Release(buffer2);
+    ID3D12Resource_Release(out_buffer);
     ID3D12Resource_Release(counter_buffer);
     ID3D12DescriptorHeap_Release(descriptor_heap);
     destroy_test_context(&context);
