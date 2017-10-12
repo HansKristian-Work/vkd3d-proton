@@ -14172,7 +14172,7 @@ static void test_uav_counters(void)
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     counter = read_uav_counter(&context, counter_buffer, 0);
     ok(!counter, "Got unexpected value %u.\n", counter);
-    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    get_buffer_readback_with_command_list(buffer2, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     memcpy(id, rb.data, 64 * sizeof(*id));
     release_resource_readback(&rb);
     qsort(id, 64, sizeof(*id), compare_id);
@@ -14186,8 +14186,10 @@ static void test_uav_counters(void)
     reset_command_list(command_list, context.allocator);
     transition_sub_resource_state(command_list, counter_buffer, 0,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+    transition_sub_resource_state(command_list, buffer, 0,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
     transition_sub_resource_state(command_list, buffer2, 0,
-            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     /* produce on CPU */
     counter = 8;
@@ -14200,7 +14202,7 @@ static void test_uav_counters(void)
 
     transition_sub_resource_state(command_list, counter_buffer, 0,
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    transition_sub_resource_state(command_list, buffer2, 0,
+    transition_sub_resource_state(command_list, buffer, 0,
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     /* consume */
@@ -14217,7 +14219,7 @@ static void test_uav_counters(void)
     counter = read_uav_counter(&context, counter_buffer, 0);
     ok(!counter, "Got unexpected value %u.\n", counter);
 
-    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    get_buffer_readback_with_command_list(buffer2, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     for (i = 0; i < 8; ++i)
     {
         data = get_readback_uint(&rb, i, 0);
