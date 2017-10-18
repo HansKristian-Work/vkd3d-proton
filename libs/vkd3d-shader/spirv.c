@@ -2056,6 +2056,14 @@ static uint32_t vkd3d_dxbc_compiler_get_constant_float(struct vkd3d_dxbc_compile
     return vkd3d_dxbc_compiler_get_constant(compiler, VKD3D_TYPE_FLOAT, 1, (uint32_t *)&value);
 }
 
+static uint32_t vkd3d_dxbc_compiler_get_constant_float_vector(struct vkd3d_dxbc_compiler *compiler,
+        float value, unsigned int component_count)
+{
+    const float values[] = {value, value, value, value};
+    return vkd3d_dxbc_compiler_get_constant(compiler,
+            VKD3D_TYPE_FLOAT, component_count, (const uint32_t *)values);
+}
+
 static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buffer_size,
         const struct vkd3d_shader_register *reg)
 {
@@ -3774,7 +3782,7 @@ static void vkd3d_dxbc_compiler_emit_rcp(struct vkd3d_dxbc_compiler *compiler,
 
     src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst->write_mask);
     val_id = vkd3d_spirv_build_op_fdiv(builder, type_id,
-            vkd3d_dxbc_compiler_get_constant_float(compiler, 1.0f), src_id);
+            vkd3d_dxbc_compiler_get_constant_float_vector(compiler, 1.0f, component_count), src_id);
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
