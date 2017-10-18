@@ -698,6 +698,20 @@ static void vkd3d_spirv_end_function_stream_insertion(struct vkd3d_spirv_builder
     builder->insertion_location = ~(size_t)0;
 }
 
+struct vkd3d_spirv_op_branch_conditional
+{
+    uint32_t opcode;
+    uint32_t condition_id;
+    uint32_t true_label;
+    uint32_t false_label;
+};
+
+static struct vkd3d_spirv_op_branch_conditional *vkd3d_spirv_as_op_branch_conditional(
+        struct vkd3d_spirv_stream *stream, size_t location)
+{
+    return (struct vkd3d_spirv_op_branch_conditional *)&stream->words[location];
+}
+
 static void vkd3d_spirv_build_op_capability(struct vkd3d_spirv_stream *stream,
         SpvCapability cap)
 {
@@ -1718,6 +1732,8 @@ static struct vkd3d_symbol *vkd3d_symbol_dup(const struct vkd3d_symbol *symbol)
 
 struct vkd3d_if_cf_info
 {
+    size_t stream_location;
+    unsigned int id;
     uint32_t merge_block_id;
     uint32_t else_block_id;
 };
@@ -1731,8 +1747,8 @@ struct vkd3d_loop_cf_info
 
 struct vkd3d_switch_cf_info
 {
-    unsigned int id;
     size_t stream_location;
+    unsigned int id;
     uint32_t selector_id;
     uint32_t merge_block_id;
     uint32_t default_block_id;
@@ -4164,10 +4180,10 @@ static void vkd3d_dxbc_compiler_emit_switch_default_case(struct vkd3d_dxbc_compi
 static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    uint32_t merge_block_id, val_id, condition_id, true_label, false_label;
     uint32_t loop_header_block_id, loop_body_block_id, continue_block_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t merge_block_id, val_id, condition_id, true_label;
     struct vkd3d_control_flow_info *cf_info;
 
     cf_info = compiler->control_flow_depth
@@ -4183,20 +4199,20 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             condition_id = vkd3d_dxbc_compiler_emit_int_to_bool(compiler, instruction->flags, 1, val_id);
 
             true_label = vkd3d_spirv_alloc_id(builder);
-            false_label = vkd3d_spirv_alloc_id(builder);
             merge_block_id = vkd3d_spirv_alloc_id(builder);
             vkd3d_spirv_build_op_selection_merge(builder, merge_block_id, SpvSelectionControlMaskNone);
-            vkd3d_spirv_build_op_branch_conditional(builder, condition_id, true_label, false_label);
+            cf_info->u.if_.stream_location = vkd3d_spirv_stream_current_location(&builder->function_stream);
+            vkd3d_spirv_build_op_branch_conditional(builder, condition_id, true_label, merge_block_id);
 
             vkd3d_spirv_build_op_label(builder, true_label);
 
+            cf_info->u.if_.id = compiler->branch_id;
             cf_info->u.if_.merge_block_id = merge_block_id;
-            cf_info->u.if_.else_block_id = false_label;
+            cf_info->u.if_.else_block_id = 0;
             cf_info->current_block = VKD3D_BLOCK_IF;
 
             vkd3d_spirv_build_op_name(builder, merge_block_id, "branch%u_merge", compiler->branch_id);
             vkd3d_spirv_build_op_name(builder, true_label, "branch%u_true", compiler->branch_id);
-            vkd3d_spirv_build_op_name(builder, false_label, "branch%u_false", compiler->branch_id);
             ++compiler->branch_id;
             break;
 
@@ -4207,8 +4223,12 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             if (cf_info->current_block == VKD3D_BLOCK_IF)
                 vkd3d_spirv_build_op_branch(builder, cf_info->u.if_.merge_block_id);
 
-            if (cf_info->current_block != VKD3D_BLOCK_ELSE)
-                vkd3d_spirv_build_op_label(builder, cf_info->u.if_.else_block_id);
+            cf_info->u.if_.else_block_id = vkd3d_spirv_alloc_id(builder);
+            vkd3d_spirv_as_op_branch_conditional(&builder->function_stream,
+                    cf_info->u.if_.stream_location)->false_label = cf_info->u.if_.else_block_id;
+            vkd3d_spirv_build_op_name(builder,
+                    cf_info->u.if_.else_block_id, "branch%u_false", cf_info->u.if_.id);
+            vkd3d_spirv_build_op_label(builder, cf_info->u.if_.else_block_id);
             cf_info->current_block = VKD3D_BLOCK_ELSE;
             break;
 
@@ -4216,15 +4236,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             assert(compiler->control_flow_depth);
             assert(cf_info->current_block != VKD3D_BLOCK_LOOP);
 
-            if (cf_info->current_block == VKD3D_BLOCK_IF)
-            {
-                vkd3d_spirv_build_op_branch(builder, cf_info->u.if_.merge_block_id);
-
-                vkd3d_spirv_build_op_label(builder, cf_info->u.if_.else_block_id);
-                vkd3d_spirv_build_op_branch(builder, cf_info->u.if_.merge_block_id);
-
-            }
-            else if (cf_info->current_block == VKD3D_BLOCK_ELSE)
+            if (cf_info->current_block == VKD3D_BLOCK_IF || cf_info->current_block == VKD3D_BLOCK_ELSE)
             {
                 vkd3d_spirv_build_op_branch(builder, cf_info->u.if_.merge_block_id);
             }
@@ -4393,12 +4405,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
                 }
             }
 
-            if (cf_info->current_block == VKD3D_BLOCK_IF)
-            {
-                vkd3d_spirv_build_op_label(builder, cf_info->u.if_.else_block_id);
-                cf_info->current_block = VKD3D_BLOCK_ELSE;
-            }
-            else if (cf_info->current_block != VKD3D_BLOCK_SWITCH)
+            if (cf_info->current_block != VKD3D_BLOCK_SWITCH)
             {
                 cf_info->current_block = VKD3D_BLOCK_NONE;
             }
@@ -4415,12 +4422,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
         case VKD3DSIH_RET:
             vkd3d_dxbc_compiler_emit_return(compiler, instruction);
 
-            if (cf_info && cf_info->current_block == VKD3D_BLOCK_IF)
-            {
-                vkd3d_spirv_build_op_label(builder, cf_info->u.if_.else_block_id);
-                cf_info->current_block = VKD3D_BLOCK_ELSE;
-            }
-            else if (cf_info && cf_info->current_block == VKD3D_BLOCK_SWITCH)
+            if (cf_info && cf_info->current_block == VKD3D_BLOCK_SWITCH)
             {
                 cf_info->u.switch_.inside_block = false;
             }
