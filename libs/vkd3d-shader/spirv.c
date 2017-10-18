@@ -1747,7 +1747,7 @@ struct vkd3d_control_flow_info
 {
     union
     {
-        struct vkd3d_if_cf_info branch;
+        struct vkd3d_if_cf_info if_;
         struct vkd3d_loop_cf_info loop;
         struct vkd3d_switch_cf_info switch_;
     } u;
@@ -4191,8 +4191,8 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
             vkd3d_spirv_build_op_label(builder, true_label);
 
-            cf_info->u.branch.merge_block_id = merge_block_id;
-            cf_info->u.branch.else_block_id = false_label;
+            cf_info->u.if_.merge_block_id = merge_block_id;
+            cf_info->u.if_.else_block_id = false_label;
             cf_info->current_block = VKD3D_BLOCK_IF;
 
             vkd3d_spirv_build_op_name(builder, merge_block_id, "branch%u_merge", compiler->branch_id);
@@ -4206,10 +4206,10 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             assert(cf_info->current_block != VKD3D_BLOCK_LOOP);
 
             if (cf_info->current_block == VKD3D_BLOCK_IF)
-                vkd3d_spirv_build_op_branch(builder, cf_info->u.branch.merge_block_id);
+                vkd3d_spirv_build_op_branch(builder, cf_info->u.if_.merge_block_id);
 
             if (cf_info->current_block != VKD3D_BLOCK_ELSE)
-                vkd3d_spirv_build_op_label(builder, cf_info->u.branch.else_block_id);
+                vkd3d_spirv_build_op_label(builder, cf_info->u.if_.else_block_id);
             cf_info->current_block = VKD3D_BLOCK_ELSE;
             break;
 
@@ -4220,18 +4220,18 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
             if (cf_info->current_block == VKD3D_BLOCK_IF)
             {
-                vkd3d_spirv_build_op_branch(builder, cf_info->u.branch.merge_block_id);
+                vkd3d_spirv_build_op_branch(builder, cf_info->u.if_.merge_block_id);
 
-                vkd3d_spirv_build_op_label(builder, cf_info->u.branch.else_block_id);
-                vkd3d_spirv_build_op_branch(builder, cf_info->u.branch.merge_block_id);
+                vkd3d_spirv_build_op_label(builder, cf_info->u.if_.else_block_id);
+                vkd3d_spirv_build_op_branch(builder, cf_info->u.if_.merge_block_id);
 
             }
             else if (cf_info->current_block == VKD3D_BLOCK_ELSE)
             {
-                vkd3d_spirv_build_op_branch(builder, cf_info->u.branch.merge_block_id);
+                vkd3d_spirv_build_op_branch(builder, cf_info->u.if_.merge_block_id);
             }
 
-            vkd3d_spirv_build_op_label(builder, cf_info->u.branch.merge_block_id);
+            vkd3d_spirv_build_op_label(builder, cf_info->u.if_.merge_block_id);
 
             vkd3d_dxbc_compiler_pop_control_flow_level(compiler);
             break;
@@ -4397,7 +4397,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
             if (cf_info->current_block == VKD3D_BLOCK_IF)
             {
-                vkd3d_spirv_build_op_label(builder, cf_info->u.branch.else_block_id);
+                vkd3d_spirv_build_op_label(builder, cf_info->u.if_.else_block_id);
                 cf_info->current_block = VKD3D_BLOCK_ELSE;
             }
             else if (cf_info->current_block != VKD3D_BLOCK_SWITCH)
@@ -4419,7 +4419,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
             if (cf_info && cf_info->current_block == VKD3D_BLOCK_IF)
             {
-                vkd3d_spirv_build_op_label(builder, cf_info->u.branch.else_block_id);
+                vkd3d_spirv_build_op_label(builder, cf_info->u.if_.else_block_id);
                 cf_info->current_block = VKD3D_BLOCK_ELSE;
             }
             else if (cf_info && cf_info->current_block == VKD3D_BLOCK_SWITCH)
