@@ -1771,7 +1771,6 @@ struct vkd3d_control_flow_info
     enum
     {
         VKD3D_BLOCK_IF,
-        VKD3D_BLOCK_ELSE,
         VKD3D_BLOCK_LOOP,
         VKD3D_BLOCK_SWITCH,
         VKD3D_BLOCK_NONE,
@@ -4229,14 +4228,14 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             vkd3d_spirv_build_op_name(builder,
                     cf_info->u.if_.else_block_id, "branch%u_false", cf_info->u.if_.id);
             vkd3d_spirv_build_op_label(builder, cf_info->u.if_.else_block_id);
-            cf_info->current_block = VKD3D_BLOCK_ELSE;
+            cf_info->current_block = VKD3D_BLOCK_IF;
             break;
 
         case VKD3DSIH_ENDIF:
             assert(compiler->control_flow_depth);
             assert(cf_info->current_block != VKD3D_BLOCK_LOOP);
 
-            if (cf_info->current_block == VKD3D_BLOCK_IF || cf_info->current_block == VKD3D_BLOCK_ELSE)
+            if (cf_info->current_block == VKD3D_BLOCK_IF)
             {
                 vkd3d_spirv_build_op_branch(builder, cf_info->u.if_.merge_block_id);
             }
