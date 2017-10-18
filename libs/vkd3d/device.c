@@ -801,6 +801,7 @@ static void d3d12_device_init_pipeline_cache(struct d3d12_device *device)
     }
 }
 
+/* FIXME: Allocator should be thread-safe. */
 D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_allocator *allocator,
         size_t size, void *ptr)
 {
