@@ -1755,8 +1755,6 @@ struct vkd3d_switch_cf_info
     uint32_t *case_blocks;
     size_t case_blocks_size;
     unsigned int case_block_count;
-
-    bool inside_block;
 };
 
 struct vkd3d_control_flow_info
@@ -1773,8 +1771,8 @@ struct vkd3d_control_flow_info
         VKD3D_BLOCK_IF,
         VKD3D_BLOCK_LOOP,
         VKD3D_BLOCK_SWITCH,
-        VKD3D_BLOCK_NONE,
     } current_block;
+    bool inside_block;
 };
 
 struct vkd3d_push_constant_buffer_binding
@@ -4168,7 +4166,7 @@ static void vkd3d_dxbc_compiler_emit_switch_default_case(struct vkd3d_dxbc_compi
     assert(!cf_info->u.switch_.default_block_id);
 
     cf_info->u.switch_.default_block_id = vkd3d_spirv_alloc_id(builder);
-    if (cf_info->u.switch_.inside_block) /* fall-through */
+    if (cf_info->inside_block) /* fall-through */
         vkd3d_spirv_build_op_branch(builder, cf_info->u.switch_.default_block_id);
 
     vkd3d_spirv_build_op_label(builder, cf_info->u.switch_.default_block_id);
@@ -4208,6 +4206,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             cf_info->u.if_.id = compiler->branch_id;
             cf_info->u.if_.merge_block_id = merge_block_id;
             cf_info->u.if_.else_block_id = 0;
+            cf_info->inside_block = true;
             cf_info->current_block = VKD3D_BLOCK_IF;
 
             vkd3d_spirv_build_op_name(builder, merge_block_id, "branch%u_merge", compiler->branch_id);
@@ -4217,9 +4216,9 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
         case VKD3DSIH_ELSE:
             assert(compiler->control_flow_depth);
-            assert(cf_info->current_block != VKD3D_BLOCK_LOOP);
+            assert(cf_info->current_block == VKD3D_BLOCK_IF);
 
-            if (cf_info->current_block == VKD3D_BLOCK_IF)
+            if (cf_info->inside_block)
                 vkd3d_spirv_build_op_branch(builder, cf_info->u.if_.merge_block_id);
 
             cf_info->u.if_.else_block_id = vkd3d_spirv_alloc_id(builder);
@@ -4228,17 +4227,15 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             vkd3d_spirv_build_op_name(builder,
                     cf_info->u.if_.else_block_id, "branch%u_false", cf_info->u.if_.id);
             vkd3d_spirv_build_op_label(builder, cf_info->u.if_.else_block_id);
-            cf_info->current_block = VKD3D_BLOCK_IF;
+            cf_info->inside_block = true;
             break;
 
         case VKD3DSIH_ENDIF:
             assert(compiler->control_flow_depth);
-            assert(cf_info->current_block != VKD3D_BLOCK_LOOP);
+            assert(cf_info->current_block == VKD3D_BLOCK_IF);
 
-            if (cf_info->current_block == VKD3D_BLOCK_IF)
-            {
+            if (cf_info->inside_block)
                 vkd3d_spirv_build_op_branch(builder, cf_info->u.if_.merge_block_id);
-            }
 
             vkd3d_spirv_build_op_label(builder, cf_info->u.if_.merge_block_id);
 
@@ -4307,7 +4304,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             vkd3d_array_reserve((void **)&cf_info->u.switch_.case_blocks, &cf_info->u.switch_.case_blocks_size,
                     10, sizeof(*cf_info->u.switch_.case_blocks));
             cf_info->u.switch_.default_block_id = 0;
-            cf_info->u.switch_.inside_block = false;
+            cf_info->inside_block = false;
             cf_info->current_block = VKD3D_BLOCK_SWITCH;
 
             vkd3d_spirv_build_op_name(builder, merge_block_id, "switch%u_merge", compiler->switch_id);
@@ -4318,7 +4315,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
         case VKD3DSIH_ENDSWITCH:
             assert(compiler->control_flow_depth);
             assert(cf_info->current_block == VKD3D_BLOCK_SWITCH);
-            assert(!cf_info->u.switch_.inside_block);
+            assert(!cf_info->inside_block);
 
             /* The default block is required in SPIR-V. */
             if (!cf_info->u.switch_.default_block_id)
@@ -4357,7 +4354,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
                 return;
 
             label_id = vkd3d_spirv_alloc_id(builder);
-            if (cf_info->u.switch_.inside_block) /* fall-through */
+            if (cf_info->inside_block) /* fall-through */
                 vkd3d_spirv_build_op_branch(builder, label_id);
 
             cf_info->u.switch_.case_blocks[2 * cf_info->u.switch_.case_block_count + 0] = value;
@@ -4365,7 +4362,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             ++cf_info->u.switch_.case_block_count;
 
             vkd3d_spirv_build_op_label(builder, label_id);
-            cf_info->u.switch_.inside_block = true;
+            cf_info->inside_block = true;
             vkd3d_spirv_build_op_name(builder, label_id, "switch%u_case%u", cf_info->u.switch_.id, value);
             break;
         }
@@ -4375,7 +4372,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             assert(cf_info->current_block == VKD3D_BLOCK_SWITCH);
 
             vkd3d_dxbc_compiler_emit_switch_default_case(compiler, cf_info);
-            cf_info->u.switch_.inside_block = true;
+            cf_info->inside_block = true;
             break;
 
         case VKD3DSIH_BREAK:
@@ -4396,18 +4393,11 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             }
             else if (breakable_cf_info->current_block == VKD3D_BLOCK_SWITCH)
             {
-                if (breakable_cf_info->u.switch_.inside_block)
-                {
-                    vkd3d_spirv_build_op_branch(builder, breakable_cf_info->u.switch_.merge_block_id);
-                    if (breakable_cf_info == cf_info)
-                        breakable_cf_info->u.switch_.inside_block = false;
-                }
+                assert(breakable_cf_info->inside_block);
+                vkd3d_spirv_build_op_branch(builder, breakable_cf_info->u.switch_.merge_block_id);
             }
 
-            if (cf_info->current_block != VKD3D_BLOCK_SWITCH)
-            {
-                cf_info->current_block = VKD3D_BLOCK_NONE;
-            }
+            cf_info->inside_block = false;
             break;
         }
 
@@ -4421,14 +4411,8 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
         case VKD3DSIH_RET:
             vkd3d_dxbc_compiler_emit_return(compiler, instruction);
 
-            if (cf_info && cf_info->current_block == VKD3D_BLOCK_SWITCH)
-            {
-                cf_info->u.switch_.inside_block = false;
-            }
-            else if (cf_info)
-            {
-                cf_info->current_block = VKD3D_BLOCK_NONE;
-            }
+            if (cf_info)
+                cf_info->inside_block = false;
             break;
 
         case VKD3DSIH_TEXKILL:
