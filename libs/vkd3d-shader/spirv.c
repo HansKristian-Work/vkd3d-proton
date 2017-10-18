@@ -1754,7 +1754,6 @@ struct vkd3d_control_flow_info
 
     enum
     {
-        VKD3D_BLOCK_MAIN,
         VKD3D_BLOCK_IF,
         VKD3D_BLOCK_ELSE,
         VKD3D_BLOCK_LOOP,
@@ -4215,7 +4214,6 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
         case VKD3DSIH_ENDIF:
             assert(compiler->control_flow_depth);
-            assert(cf_info->current_block != VKD3D_BLOCK_MAIN);
             assert(cf_info->current_block != VKD3D_BLOCK_LOOP);
 
             if (cf_info->current_block == VKD3D_BLOCK_IF)
