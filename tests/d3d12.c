@@ -5893,6 +5893,24 @@ static void test_shader_instructions(void)
         0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_rcp = {ps_rcp_code, sizeof(ps_rcp_code)};
+    static const DWORD ps_rcp_vector_code[] =
+    {
+#if 0
+        float4 src;
+
+        void main(out float4 dst : SV_Target)
+        {
+            dst.xyzw = rcp(src.xyzw);
+        }
+#endif
+        0x43425844, 0x4952e20e, 0x859b9f18, 0x7a31907a, 0x3f1cc4af, 0x00000001, 0x000000bc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000044, 0x00000050, 0x00000011,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x06000081, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_rcp_vector = {ps_rcp_vector_code, sizeof(ps_rcp_vector_code)};
     static const DWORD ps_bfi_code[] =
     {
 #if 0
@@ -6707,6 +6725,8 @@ static void test_shader_instructions(void)
         {&ps_rcp, {{     1.0f}}, {{     1.0f}}},
         {&ps_rcp, {{    -2.0f}}, {{    -0.5f}}},
         {&ps_rcp, {{     2.0f}}, {{     0.5f}}},
+
+        {&ps_rcp_vector, {{-1.0f, 1.0f, 4.0f, -4.0f}}, {{-1.0f, 1.0f, 0.25f, -0.25f}}},
     };
 
     static const struct
