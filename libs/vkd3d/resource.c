@@ -58,9 +58,9 @@ static VkSampleCountFlagBits vk_samples_from_dxgi_sample_desc(const DXGI_SAMPLE_
     }
 }
 
-static HRESULT vkd3d_create_buffer(struct d3d12_resource *resource, struct d3d12_device *device,
+HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        const D3D12_RESOURCE_DESC *desc)
+        const D3D12_RESOURCE_DESC *desc, VkBuffer *vk_buffer)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkBufferCreateInfo buffer_info;
@@ -93,13 +93,11 @@ static HRESULT vkd3d_create_buffer(struct d3d12_resource *resource, struct d3d12
     buffer_info.queueFamilyIndexCount = 0;
     buffer_info.pQueueFamilyIndices = 0;
 
-    if ((vr = VK_CALL(vkCreateBuffer(device->vk_device, &buffer_info, NULL, &resource->u.vk_buffer))) < 0)
+    if ((vr = VK_CALL(vkCreateBuffer(device->vk_device, &buffer_info, NULL, vk_buffer))) < 0)
     {
         WARN("Failed to create Vulkan buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
     }
-
-    TRACE("Created Vulkan buffer for resource %p.\n", resource);
 
     return S_OK;
 }
@@ -186,8 +184,6 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
         return hresult_from_vk_result(vr);
     }
 
-    TRACE("Created Vulkan image for resource %p.\n", resource);
-
     return S_OK;
 }
 
@@ -263,26 +259,25 @@ static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
     return S_OK;
 }
 
-static HRESULT vkd3d_allocate_buffer_memory(struct d3d12_resource *resource, struct d3d12_device *device,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
+HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        VkDeviceMemory *vk_memory)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryRequirements memory_requirements;
     VkResult vr;
     HRESULT hr;
 
-    assert(d3d12_resource_is_buffer(resource));
-
-    VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, resource->u.vk_buffer, &memory_requirements));
+    VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, vk_buffer, &memory_requirements));
     if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
-            &memory_requirements, &resource->vk_memory)))
+            &memory_requirements, vk_memory)))
         return hr;
 
-    if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, resource->u.vk_buffer, resource->vk_memory, 0))) < 0)
+    if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, vk_buffer, *vk_memory, 0))) < 0)
     {
         WARN("Failed to bind memory, vr %d.\n", vr);
-        VK_CALL(vkFreeMemory(device->vk_device, resource->vk_memory, NULL));
-        resource->vk_memory = VK_NULL_HANDLE;
+        VK_CALL(vkFreeMemory(device->vk_device, *vk_memory, NULL));
+        *vk_memory = VK_NULL_HANDLE;
         return hresult_from_vk_result(vr);
     }
 
@@ -663,7 +658,8 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     switch (desc->Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
-            if (FAILED(hr = vkd3d_create_buffer(resource, device, heap_properties, heap_flags, desc)))
+            if (FAILED(hr = vkd3d_create_buffer(device, heap_properties, heap_flags, desc,
+                    &resource->u.vk_buffer)))
                 return hr;
             if (!(resource->gpu_address = vkd3d_gpu_va_allocator_allocate(&device->gpu_va_allocator,
                     desc->Width, resource)))
@@ -672,7 +668,8 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
                 d3d12_resource_destroy(resource, device);
                 return E_OUTOFMEMORY;
             }
-            if (FAILED(hr = vkd3d_allocate_buffer_memory(resource, device, heap_properties, heap_flags)))
+            if (FAILED(hr = vkd3d_allocate_buffer_memory(device, resource->u.vk_buffer,
+                    heap_properties, heap_flags, &resource->vk_memory)))
             {
                 d3d12_resource_destroy(resource, device);
                 return hr;

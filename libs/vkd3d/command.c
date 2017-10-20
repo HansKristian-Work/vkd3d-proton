@@ -676,6 +676,18 @@ static bool d3d12_command_allocator_add_buffer_view(struct d3d12_command_allocat
     return true;
 }
 
+static bool d3d12_command_allocator_add_transfer_buffer(struct d3d12_command_allocator *allocator,
+        const struct vkd3d_buffer *buffer)
+{
+    if (!vkd3d_array_reserve((void **)&allocator->transfer_buffers, &allocator->transfer_buffers_size,
+            allocator->transfer_buffer_count + 1, sizeof(*allocator->transfer_buffers)))
+        return false;
+
+    allocator->transfer_buffers[allocator->transfer_buffer_count++] = *buffer;
+
+    return true;
+}
+
 static void d3d12_command_list_allocator_destroyed(struct d3d12_command_list *list)
 {
     TRACE("list %p.\n", list);
@@ -684,11 +696,25 @@ static void d3d12_command_list_allocator_destroyed(struct d3d12_command_list *li
     list->vk_command_buffer = VK_NULL_HANDLE;
 }
 
+static void vkd3d_buffer_destroy(struct vkd3d_buffer *buffer, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    VK_CALL(vkFreeMemory(device->vk_device, buffer->vk_memory, NULL));
+    VK_CALL(vkDestroyBuffer(device->vk_device, buffer->vk_buffer, NULL));
+}
+
 static void d3d12_command_allocator_free_resources(struct d3d12_command_allocator *allocator)
 {
     struct d3d12_device *device = allocator->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     unsigned int i;
+
+    for (i = 0; i < allocator->transfer_buffer_count; ++i)
+    {
+        vkd3d_buffer_destroy(&allocator->transfer_buffers[i], device);
+    }
+    allocator->transfer_buffer_count = 0;
 
     for (i = 0; i < allocator->buffer_view_count; ++i)
     {
@@ -775,6 +801,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
             d3d12_command_list_allocator_destroyed(allocator->current_command_list);
 
         d3d12_command_allocator_free_resources(allocator);
+        vkd3d_free(allocator->transfer_buffers);
         vkd3d_free(allocator->buffer_views);
         vkd3d_free(allocator->descriptor_pools);
         vkd3d_free(allocator->pipelines);
@@ -961,6 +988,10 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     allocator->buffer_views = NULL;
     allocator->buffer_views_size = 0;
     allocator->buffer_view_count = 0;
+
+    allocator->transfer_buffers = NULL;
+    allocator->transfer_buffers_size = 0;
+    allocator->transfer_buffer_count = 0;
 
     allocator->command_buffers = NULL;
     allocator->command_buffers_size = 0;
@@ -2193,6 +2224,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(ID3D12Graphics
             src_resource->u.vk_buffer, dst_resource->u.vk_buffer, 1, &buffer_copy));
 }
 
+static void vk_image_subresource_layers_from_d3d12(VkImageSubresourceLayers *subresource,
+        const struct vkd3d_format *format, unsigned int sub_resource_idx, unsigned int miplevel_count)
+{
+    subresource->aspectMask = format->vk_aspect_mask;
+    subresource->mipLevel = sub_resource_idx % miplevel_count;
+    subresource->baseArrayLayer = sub_resource_idx / miplevel_count;
+    subresource->layerCount = 1;
+}
+
+static void vk_extent_3d_from_d3d12_miplevel(VkExtent3D *extent,
+        const D3D12_RESOURCE_DESC *resource_desc, unsigned int miplevel_idx)
+{
+    extent->width = d3d12_resource_desc_get_width(resource_desc, miplevel_idx);
+    extent->height = d3d12_resource_desc_get_height(resource_desc, miplevel_idx);
+    extent->depth = d3d12_resource_desc_get_depth(resource_desc, miplevel_idx);
+}
+
 static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy *buffer_image_copy,
         const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *footprint, unsigned int sub_resource_idx,
         const D3D12_RESOURCE_DESC *image_desc, const struct vkd3d_format *format,
@@ -2202,10 +2250,8 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy *buffer_image_copy
     buffer_image_copy->bufferRowLength = footprint->Footprint.RowPitch /
             (format->byte_count * format->block_byte_count) * format->block_width;
     buffer_image_copy->bufferImageHeight = 0;
-    buffer_image_copy->imageSubresource.aspectMask = format->vk_aspect_mask;
-    buffer_image_copy->imageSubresource.mipLevel = sub_resource_idx % image_desc->MipLevels;
-    buffer_image_copy->imageSubresource.baseArrayLayer = sub_resource_idx / image_desc->MipLevels;
-    buffer_image_copy->imageSubresource.layerCount = 1;
+    vk_image_subresource_layers_from_d3d12(&buffer_image_copy->imageSubresource,
+            format, sub_resource_idx, image_desc->MipLevels);
     buffer_image_copy->imageOffset.x = dst_x;
     buffer_image_copy->imageOffset.y = dst_y;
     buffer_image_copy->imageOffset.z = dst_z;
@@ -2220,17 +2266,13 @@ static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
         const struct vkd3d_format *src_format, const struct vkd3d_format *dst_format,
         const D3D12_BOX *src_box, unsigned int dst_x, unsigned int dst_y, unsigned int dst_z)
 {
-    image_copy->srcSubresource.aspectMask = src_format->vk_aspect_mask;
-    image_copy->srcSubresource.mipLevel = src_sub_resource_idx % src_desc->MipLevels;
-    image_copy->srcSubresource.baseArrayLayer = src_sub_resource_idx / src_desc->MipLevels;
-    image_copy->srcSubresource.layerCount = 1;
+    vk_image_subresource_layers_from_d3d12(&image_copy->srcSubresource,
+            src_format, src_sub_resource_idx, src_desc->MipLevels);
     image_copy->srcOffset.x = src_box ? src_box->left : 0;
     image_copy->srcOffset.y = src_box ? src_box->top : 0;
     image_copy->srcOffset.z = src_box ? src_box->front : 0;
-    image_copy->dstSubresource.aspectMask = dst_format->vk_aspect_mask;
-    image_copy->dstSubresource.mipLevel = dst_sub_resource_idx % dst_desc->MipLevels;
-    image_copy->dstSubresource.baseArrayLayer = dst_sub_resource_idx / dst_desc->MipLevels;
-    image_copy->dstSubresource.layerCount = 1;
+    vk_image_subresource_layers_from_d3d12(&image_copy->dstSubresource,
+            dst_format, dst_sub_resource_idx, dst_desc->MipLevels);
     image_copy->dstOffset.x = dst_x;
     image_copy->dstOffset.y = dst_y;
     image_copy->dstOffset.z = dst_z;
@@ -2243,10 +2285,133 @@ static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
     else
     {
         unsigned int miplevel = image_copy->srcSubresource.mipLevel;
-        image_copy->extent.width = d3d12_resource_desc_get_width(src_desc, miplevel);
-        image_copy->extent.height = d3d12_resource_desc_get_height(src_desc, miplevel);
-        image_copy->extent.depth = d3d12_resource_desc_get_depth(src_desc, miplevel);
+        vk_extent_3d_from_d3d12_miplevel(&image_copy->extent, src_desc, miplevel);
     }
+}
+
+static HRESULT d3d12_command_list_allocate_transfer_buffer(struct d3d12_command_list *list,
+        VkDeviceSize size, struct vkd3d_buffer *buffer)
+{
+    struct d3d12_device *device = list->device;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC buffer_desc;
+    HRESULT hr;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    buffer_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer_desc.Alignment = 0;
+    buffer_desc.Width = size;
+    buffer_desc.Height = 1;
+    buffer_desc.DepthOrArraySize = 1;
+    buffer_desc.MipLevels = 1;
+    buffer_desc.Format = DXGI_FORMAT_UNKNOWN;
+    buffer_desc.SampleDesc.Count = 1;
+    buffer_desc.SampleDesc.Quality = 0;
+    buffer_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    buffer_desc.Flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+
+    if (FAILED(hr = vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &buffer_desc, &buffer->vk_buffer)))
+        return hr;
+    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, buffer->vk_buffer,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &buffer->vk_memory)))
+    {
+        VK_CALL(vkDestroyBuffer(device->vk_device, buffer->vk_buffer, NULL));
+        return hr;
+    }
+
+    if (!d3d12_command_allocator_add_transfer_buffer(list->allocator, buffer))
+    {
+        ERR("Failed to add transfer buffer.\n");
+        vkd3d_buffer_destroy(buffer, device);
+        return E_OUTOFMEMORY;
+    }
+
+    return S_OK;
+}
+
+/* In Vulkan, each depth/stencil format is only compatible with itself.
+ * This means that we are not allowed to copy texture regions directly between
+ * depth/stencil and color formats.
+ */
+static void d3d12_command_list_copy_incompatible_texture_region(struct d3d12_command_list *list,
+        struct d3d12_resource *dst_resource, unsigned int dst_sub_resource_idx,
+        const struct vkd3d_format *dst_format, struct d3d12_resource *src_resource,
+        unsigned int src_sub_resource_idx, const struct vkd3d_format *src_format)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const D3D12_RESOURCE_DESC *dst_desc = &dst_resource->desc;
+    const D3D12_RESOURCE_DESC *src_desc = &src_resource->desc;
+    unsigned int dst_miplevel_idx, src_miplevel_idx;
+    struct vkd3d_buffer transfer_buffer;
+    VkBufferImageCopy buffer_image_copy;
+    VkBufferMemoryBarrier vk_barrier;
+    VkDeviceSize buffer_size;
+    HRESULT hr;
+
+    WARN("Copying incompatible texture formats %#x, %#x -> %#x, %#x.\n",
+            src_format->dxgi_format, src_format->vk_format,
+            dst_format->dxgi_format, dst_format->vk_format);
+
+    assert(d3d12_resource_is_texture(dst_resource));
+    assert(d3d12_resource_is_texture(src_resource));
+    assert(!vkd3d_format_is_compressed(dst_format));
+    assert(!vkd3d_format_is_compressed(src_format));
+    assert(dst_format->byte_count == src_format->byte_count);
+
+    buffer_image_copy.bufferOffset = 0;
+    buffer_image_copy.bufferRowLength = 0;
+    buffer_image_copy.bufferImageHeight = 0;
+    vk_image_subresource_layers_from_d3d12(&buffer_image_copy.imageSubresource,
+            src_format, src_sub_resource_idx, src_desc->MipLevels);
+    src_miplevel_idx = buffer_image_copy.imageSubresource.mipLevel;
+    buffer_image_copy.imageOffset.x = 0;
+    buffer_image_copy.imageOffset.y = 0;
+    buffer_image_copy.imageOffset.z = 0;
+    vk_extent_3d_from_d3d12_miplevel(&buffer_image_copy.imageExtent, src_desc, src_miplevel_idx);
+
+    buffer_size = src_format->byte_count * buffer_image_copy.imageExtent.width *
+            buffer_image_copy.imageExtent.height * buffer_image_copy.imageExtent.depth;
+    if (FAILED(hr = d3d12_command_list_allocate_transfer_buffer(list, buffer_size, &transfer_buffer)))
+    {
+        ERR("Failed to allocate transfer buffer, hr %#x.\n", hr);
+        return;
+    }
+
+    VK_CALL(vkCmdCopyImageToBuffer(list->vk_command_buffer,
+            src_resource->u.vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            transfer_buffer.vk_buffer, 1, &buffer_image_copy));
+
+    vk_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    vk_barrier.pNext = NULL;
+    vk_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    vk_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vk_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vk_barrier.buffer = transfer_buffer.vk_buffer;
+    vk_barrier.offset = 0;
+    vk_barrier.size = VK_WHOLE_SIZE;
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+            0, NULL, 1, &vk_barrier, 0, NULL));
+
+    vk_image_subresource_layers_from_d3d12(&buffer_image_copy.imageSubresource,
+            dst_format, dst_sub_resource_idx, dst_desc->MipLevels);
+    dst_miplevel_idx = buffer_image_copy.imageSubresource.mipLevel;
+
+    assert(d3d12_resource_desc_get_width(src_desc, src_miplevel_idx) ==
+            d3d12_resource_desc_get_width(dst_desc, dst_miplevel_idx));
+    assert(d3d12_resource_desc_get_height(src_desc, src_miplevel_idx) ==
+            d3d12_resource_desc_get_height(dst_desc, dst_miplevel_idx));
+    assert(d3d12_resource_desc_get_depth(src_desc, src_miplevel_idx) ==
+            d3d12_resource_desc_get_depth(dst_desc, dst_miplevel_idx));
+
+    VK_CALL(vkCmdCopyBufferToImage(list->vk_command_buffer,
+            transfer_buffer.vk_buffer, dst_resource->u.vk_image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &buffer_image_copy));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12GraphicsCommandList *iface,
@@ -2343,9 +2508,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
 
         if (dst_format->vk_aspect_mask != src_format->vk_aspect_mask)
         {
-            FIXME("Formats %#x, %#x -> %#x, %#x not supported yet.\n",
-                    src_format->dxgi_format, src_format->vk_format,
-                    dst_format->dxgi_format, dst_format->vk_format);
+            d3d12_command_list_copy_incompatible_texture_region(list,
+                    dst_resource, dst->u.SubresourceIndex, dst_format,
+                    src_resource, src->u.SubresourceIndex, src_format);
             return;
         }
 

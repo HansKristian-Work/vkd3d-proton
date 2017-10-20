@@ -454,6 +454,12 @@ HRESULT d3d12_pipeline_state_create_graphics(struct d3d12_device *device,
         const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
 struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface) DECLSPEC_HIDDEN;
 
+struct vkd3d_buffer
+{
+    VkBuffer vk_buffer;
+    VkDeviceMemory vk_memory;
+};
+
 /* ID3D12CommandAllocator */
 struct d3d12_command_allocator
 {
@@ -483,6 +489,10 @@ struct d3d12_command_allocator
     VkBufferView *buffer_views;
     size_t buffer_views_size;
     size_t buffer_view_count;
+
+    struct vkd3d_buffer *transfer_buffers;
+    size_t transfer_buffers_size;
+    size_t transfer_buffer_count;
 
     VkCommandBuffer *command_buffers;
     size_t command_buffers_size;
@@ -623,6 +633,13 @@ struct d3d12_device
 HRESULT d3d12_device_create(const struct vkd3d_device_create_info *create_info,
         struct d3d12_device **device) DECLSPEC_HIDDEN;
 struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface) DECLSPEC_HIDDEN;
+
+HRESULT vkd3d_create_buffer(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_RESOURCE_DESC *desc, VkBuffer *vk_buffer) DECLSPEC_HIDDEN;
+HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        VkDeviceMemory *vk_memory) DECLSPEC_HIDDEN;
 
 /* utils */
 struct vkd3d_format
