@@ -277,20 +277,10 @@ static HRESULT vkd3d_allocate_buffer_memory(struct d3d12_resource *resource, str
     if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
             &memory_requirements, &resource->vk_memory)))
         return hr;
-    if (!(resource->gpu_address = vkd3d_gpu_va_allocator_allocate(&device->gpu_va_allocator,
-            memory_requirements.size, resource)))
-    {
-        ERR("Failed to allocate GPU VA.\n");
-        VK_CALL(vkFreeMemory(device->vk_device, resource->vk_memory, NULL));
-        resource->vk_memory = VK_NULL_HANDLE;
-        return E_OUTOFMEMORY;
-    }
 
     if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, resource->u.vk_buffer, resource->vk_memory, 0))) < 0)
     {
         WARN("Failed to bind memory, vr %d.\n", vr);
-        vkd3d_gpu_va_allocator_free(&device->gpu_va_allocator, resource->gpu_address);
-        resource->gpu_address = 0;
         VK_CALL(vkFreeMemory(device->vk_device, resource->vk_memory, NULL));
         resource->vk_memory = VK_NULL_HANDLE;
         return hresult_from_vk_result(vr);
@@ -675,6 +665,13 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
         case D3D12_RESOURCE_DIMENSION_BUFFER:
             if (FAILED(hr = vkd3d_create_buffer(resource, device, heap_properties, heap_flags, desc)))
                 return hr;
+            if (!(resource->gpu_address = vkd3d_gpu_va_allocator_allocate(&device->gpu_va_allocator,
+                    desc->Width, resource)))
+            {
+                ERR("Failed to allocate GPU VA.\n");
+                d3d12_resource_destroy(resource, device);
+                return E_OUTOFMEMORY;
+            }
             if (FAILED(hr = vkd3d_allocate_buffer_memory(resource, device, heap_properties, heap_flags)))
             {
                 d3d12_resource_destroy(resource, device);
