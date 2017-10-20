@@ -71,13 +71,18 @@ static HRESULT vkd3d_create_buffer(struct d3d12_resource *resource, struct d3d12
     buffer_info.flags = 0;
     buffer_info.size = desc->Width;
 
-    /* FIXME: Try to limit usage based on heap_properties. */
     buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
             | VK_BUFFER_USAGE_TRANSFER_DST_BIT
             | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
             | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
             | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
             | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+
+    if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD)
+        buffer_info.usage &= ~VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    else if (heap_properties->Type == D3D12_HEAP_TYPE_READBACK)
+        buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
         buffer_info.usage |= VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
