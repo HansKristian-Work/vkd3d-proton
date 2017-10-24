@@ -1535,6 +1535,44 @@ static void destroy_test_context_(unsigned int line, struct test_context *contex
     ok_(line)(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+#define create_cpu_descriptor_heap(a, b, c) create_cpu_descriptor_heap_(__LINE__, a, b, c)
+static ID3D12DescriptorHeap *create_cpu_descriptor_heap_(unsigned int line, ID3D12Device *device,
+        D3D12_DESCRIPTOR_HEAP_TYPE heap_type, unsigned int descriptor_count)
+{
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    ID3D12DescriptorHeap *descriptor_heap;
+    HRESULT hr;
+
+    heap_desc.Type = heap_type,
+    heap_desc.NumDescriptors = descriptor_count;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
+    ok_(line)(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    return descriptor_heap;
+}
+
+#define create_gpu_descriptor_heap(a, b, c) create_gpu_descriptor_heap_(__LINE__, a, b, c)
+static ID3D12DescriptorHeap *create_gpu_descriptor_heap_(unsigned int line, ID3D12Device *device,
+        D3D12_DESCRIPTOR_HEAP_TYPE heap_type, unsigned int descriptor_count)
+{
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    ID3D12DescriptorHeap *descriptor_heap;
+    HRESULT hr;
+
+    heap_desc.Type = heap_type,
+    heap_desc.NumDescriptors = descriptor_count;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
+    ok_(line)(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    return descriptor_heap;
+}
+
 static D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_handle(ID3D12Device *device,
         ID3D12DescriptorHeap *heap, D3D12_DESCRIPTOR_HEAP_TYPE heap_type, unsigned int offset)
 {
@@ -1608,20 +1646,13 @@ static void init_depth_stencil_(unsigned int line, struct depth_stencil_resource
         DXGI_FORMAT format, DXGI_FORMAT view_format, const D3D12_CLEAR_VALUE *clear_value)
 {
     D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc, *view_desc;
-    D3D12_DESCRIPTOR_HEAP_DESC dsv_heap_desc;
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
     HRESULT hr;
 
     memset(ds, 0, sizeof(*ds));
 
-    dsv_heap_desc.NumDescriptors = 1;
-    dsv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-    dsv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    dsv_heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &dsv_heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&ds->heap);
-    ok_(line)(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    ds->heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -2447,13 +2478,11 @@ static void test_create_unordered_access_view(void)
 {
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     unsigned int descriptor_size;
     ID3D12DescriptorHeap *heap;
     ID3D12Resource *resource;
     ID3D12Device *device;
     ULONG refcount;
-    HRESULT hr;
 
     if (!(device = create_device()))
     {
@@ -2466,12 +2495,7 @@ static void test_create_unordered_access_view(void)
     trace("CBV/SRV/UAV descriptor size: %u.\n", descriptor_size);
     ok(descriptor_size, "Got unexpected descriptor size %#x.\n", descriptor_size);
 
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 16;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 16);
 
     resource = create_default_buffer(device, 64 * sizeof(float),
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -3604,7 +3628,6 @@ static void test_clear_render_target_view(void)
 {
     static const float color[] = {0.1f, 0.5f, 0.3f, 0.75f};
     static const float green[] = {0.0f, 1.0f, 0.0f, 1.0f};
-    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc;
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle;
     D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
@@ -3628,13 +3651,7 @@ static void test_clear_render_target_view(void)
     command_list = context.list;
     queue = context.queue;
 
-    rtv_heap_desc.NumDescriptors = 1;
-    rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    rtv_heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &rtv_heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&rtv_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    rtv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
 
     rtv_increment_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
             D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
@@ -3707,7 +3724,6 @@ static void test_clear_unordered_access_view(void)
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     ID3D12DescriptorHeap *cpu_heap, *gpu_heap;
     ID3D12GraphicsCommandList *command_list;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     struct test_context_desc desc;
     struct test_context context;
     struct resource_readback rb;
@@ -3716,7 +3732,6 @@ static void test_clear_unordered_access_view(void)
     ID3D12Device *device;
     UINT clear_value[4];
     unsigned int i, j;
-    HRESULT hr;
     RECT rect;
 
     static const size_t buffer_size = 1024 * 1024;
@@ -3771,18 +3786,8 @@ static void test_clear_unordered_access_view(void)
     command_list = context.list;
     queue = context.queue;
 
-    heap_desc.NumDescriptors = 2;
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&cpu_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
-
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&gpu_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    cpu_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
+    gpu_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
@@ -4696,7 +4701,6 @@ static void test_draw_uav_only(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     D3D12_ROOT_PARAMETER root_parameter;
     struct test_context_desc desc;
     struct test_context context;
@@ -4757,17 +4761,8 @@ static void test_draw_uav_only(void)
     resource = create_default_texture(context.device, 1, 1, DXGI_FORMAT_R32_SINT,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 1;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
-    heap_desc.Flags = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&cpu_descriptor_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    descriptor_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    cpu_descriptor_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
     gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
     ID3D12Device_CreateUnorderedAccessView(context.device, resource, NULL, NULL, cpu_handle);
@@ -8789,7 +8784,6 @@ static void test_texture(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     D3D12_SUBRESOURCE_DATA texture_data;
     struct test_context_desc desc;
     struct resource_readback rb;
@@ -8798,7 +8792,6 @@ static void test_texture(void)
     ID3D12CommandQueue *queue;
     ID3D12Resource *texture;
     unsigned int x, y;
-    HRESULT hr;
 
     static const DWORD ps_code[] =
     {
@@ -8848,12 +8841,7 @@ static void test_texture(void)
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
 
-    memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 1;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
     gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
 
@@ -8912,7 +8900,6 @@ static void test_gather(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     struct test_context_desc desc;
     struct resource_readback rb;
     struct test_context context;
@@ -8920,7 +8907,6 @@ static void test_gather(void)
     ID3D12CommandQueue *queue;
     ID3D12Resource *texture;
     unsigned int x, y;
-    HRESULT hr;
 
     static const DWORD gather4_code[] =
     {
@@ -9072,13 +9058,7 @@ static void test_gather(void)
     context.root_signature = create_texture_root_signature(context.device,
             D3D12_SHADER_VISIBILITY_PIXEL, 4, 0);
 
-    memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 1;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
     gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
 
@@ -9293,7 +9273,6 @@ static void test_descriptor_tables(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     ID3D12Resource *cb, *textures[4];
     unsigned int i, descriptor_size;
     D3D12_SAMPLER_DESC sampler_desc;
@@ -9411,19 +9390,8 @@ static void test_descriptor_tables(void)
     sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
 
-    memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 6;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
-
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
-    heap_desc.NumDescriptors = 1;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&sampler_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 6);
+    sampler_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 1);
 
     descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(context.device,
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
@@ -9503,7 +9471,6 @@ static void test_descriptor_tables_overlapping_bindings(void)
     D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
     D3D12_ROOT_PARAMETER root_parameters[3];
     ID3D12GraphicsCommandList *command_list;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     struct resource_readback rb;
     struct test_context context;
     ID3D12DescriptorHeap *heap;
@@ -9591,19 +9558,13 @@ static void test_descriptor_tables_overlapping_bindings(void)
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
     root_signature_desc.NumParameters = 3;
     root_signature_desc.pParameters = root_parameters;
-    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
     ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
 
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
             shader_bytecode(cs_code, sizeof(cs_code)));
 
-    memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 30;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 30);
 
     input_buffers[0] = create_default_buffer(device, sizeof(buffer_data),
             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -9989,7 +9950,6 @@ static void test_update_descriptor_heap_after_closing_command_list(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
     ID3D12DescriptorHeap *cpu_heap, *heap;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     D3D12_SUBRESOURCE_DATA texture_data;
     struct test_context_desc desc;
     struct resource_readback rb;
@@ -10041,19 +10001,10 @@ static void test_update_descriptor_heap_after_closing_command_list(void)
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
 
-    memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 1;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
 
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&cpu_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
 
     red_texture = create_texture(context.device, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
             D3D12_RESOURCE_STATE_COPY_DEST);
@@ -10135,7 +10086,6 @@ static void test_update_compute_descriptor_tables(void)
     D3D12_SUBRESOURCE_DATA subresource_data;
     ID3D12Resource *buffer_cb, *texture_cb;
     ID3D12DescriptorHeap *descriptor_heap;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     ID3D12Resource *output_buffers[2];
     ID3D12Resource *input_buffers[5];
     ID3D12Resource *textures[3];
@@ -10508,13 +10458,7 @@ static void test_update_compute_descriptor_tables(void)
     cb_data.uav_size[1].y = 4;
     texture_cb = create_upload_buffer(device, sizeof(cb_data), &cb_data);
 
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 30;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    descriptor_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 30);
 
     memset(&srv_desc, 0, sizeof(srv_desc));
     srv_desc.Format = DXGI_FORMAT_R32_UINT;
@@ -10681,7 +10625,6 @@ static void test_copy_descriptors(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[4];
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     ID3D12Resource *t[7], *u[3], *cb;
     struct depth_stencil_resource ds;
     D3D12_SAMPLER_DESC sampler_desc;
@@ -10847,33 +10790,12 @@ static void test_copy_descriptors(void)
     sampler_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
             D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 
-    memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
-    heap_desc.NumDescriptors = 2;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&cpu_sampler_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&cpu_sampler_heap2);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    cpu_sampler_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 2);
+    cpu_sampler_heap2 = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 2);
+    sampler_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 4);
 
-    heap_desc.NumDescriptors = 4;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&sampler_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
-
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 30;
-    heap_desc.Flags = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&cpu_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
-
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    cpu_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 30);
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 30);
 
     /* create samplers */
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_sampler_heap);
@@ -11244,7 +11166,6 @@ static void test_descriptors_visibility(void)
     ID3D12Resource *vs_texture, *ps_texture;
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[6];
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     ID3D12Resource *vs_cb, *ps_cb;
     struct test_context_desc desc;
     D3D12_SUBRESOURCE_DATA data;
@@ -11469,13 +11390,7 @@ static void test_descriptors_visibility(void)
     transition_resource_state(command_list, ps_texture,
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
-    memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 2;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
     ID3D12Device_CreateShaderResourceView(device, vs_texture, NULL,
             get_cpu_descriptor_handle(&context, heap, 0));
     ID3D12Device_CreateShaderResourceView(device, ps_texture, NULL,
@@ -11870,7 +11785,6 @@ static void test_depth_stencil_sampling(void)
     D3D12_DESCRIPTOR_RANGE descriptor_range;
     D3D12_ROOT_PARAMETER root_parameters[2];
     ID3D12GraphicsCommandList *command_list;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     struct depth_stencil_resource ds;
     ID3D12DescriptorHeap *srv_heap;
     struct test_context_desc desc;
@@ -12063,7 +11977,7 @@ static void test_depth_stencil_sampling(void)
     root_signature_desc.pParameters = root_parameters;
     root_signature_desc.NumStaticSamplers = 2;
     root_signature_desc.pStaticSamplers = sampler_desc;
-    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
     ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
 
     pso_compare = create_pipeline_state(device,
@@ -12075,14 +11989,7 @@ static void test_depth_stencil_sampling(void)
     pso_depth_stencil = create_pipeline_state(device,
             context.root_signature, context.render_target_desc.Format, NULL, &ps_depth_stencil, NULL);
 
-    memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 2;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&srv_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
-
+    srv_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
     descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
@@ -12213,7 +12120,6 @@ static void test_depth_load(void)
     D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
     D3D12_ROOT_PARAMETER root_parameters[1];
     ID3D12GraphicsCommandList *command_list;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     ID3D12PipelineState *pipeline_state;
     struct depth_stencil_resource ds;
     struct test_context_desc desc;
@@ -12308,13 +12214,7 @@ static void test_depth_load(void)
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
 
-    memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 2;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
 
     init_depth_stencil(&ds, device, context.render_target_desc.Width,
             context.render_target_desc.Height, DXGI_FORMAT_R32_TYPELESS,
@@ -12394,7 +12294,6 @@ static void test_typed_buffer_uav(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[1];
     ID3D12DescriptorHeap *descriptor_heap;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     ID3D12RootSignature *root_signature;
     ID3D12PipelineState *pipeline_state;
     struct resource_readback rb;
@@ -12451,13 +12350,7 @@ static void test_typed_buffer_uav(void)
     pipeline_state = create_compute_pipeline_state(device, root_signature,
             shader_bytecode(cs_code, sizeof(cs_code)));
 
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 1;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    descriptor_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
 
     cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
     gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
@@ -12501,7 +12394,6 @@ static void test_typed_uav_store(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[2];
     ID3D12DescriptorHeap *descriptor_heap;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Resource *resource;
@@ -12582,13 +12474,7 @@ static void test_typed_uav_store(void)
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
             shader_bytecode(cs_float_code, sizeof(cs_float_code)));
 
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 1;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    descriptor_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
@@ -12649,7 +12535,6 @@ static void test_compute_shader_registers(void)
     D3D12_ROOT_PARAMETER root_parameters[2];
     unsigned int i, x, y, group_x, group_y;
     ID3D12DescriptorHeap *descriptor_heap;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     struct resource_readback rb;
     struct test_context context;
     ID3D12CommandQueue *queue;
@@ -12737,14 +12622,7 @@ static void test_compute_shader_registers(void)
     resource = create_default_buffer(device, 10240,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 1;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
-
+    descriptor_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
     cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
     gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
 
@@ -12818,7 +12696,6 @@ static void test_compute_shader_registers(void)
 
 static void test_tgsm(void)
 {
-    D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor_handle;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_descriptor_handle;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
@@ -12827,9 +12704,7 @@ static void test_tgsm(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[1];
     ID3D12DescriptorHeap *descriptor_heap;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     ID3D12Resource *buffer, *buffer2;
-    unsigned int descriptor_size;
     unsigned int data, expected;
     struct resource_readback rb;
     struct test_context context;
@@ -13012,23 +12887,9 @@ static void test_tgsm(void)
     buffer = create_default_buffer(device, 1024,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 2;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    descriptor_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
+    cpu_descriptor_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
 
-    heap_desc.Flags = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&cpu_descriptor_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
-
-    descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
-            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-    cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
     gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
 
     memset(&uav_desc, 0, sizeof(uav_desc));
@@ -13037,9 +12898,10 @@ static void test_tgsm(void)
     uav_desc.Buffer.FirstElement = 0;
     uav_desc.Buffer.NumElements = 256;
     uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc, cpu_descriptor_handle);
-    cpu_descriptor_handle.ptr += descriptor_size;
-    ID3D12Device_CreateUnorderedAccessView(device, NULL, NULL, &uav_desc, cpu_descriptor_handle);
+    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, descriptor_heap, 0));
+    ID3D12Device_CreateUnorderedAccessView(device, NULL, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, descriptor_heap, 1));
 
     /* cs_raw_tgsm */
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature, cs_raw_tgsm);
@@ -13072,21 +12934,22 @@ static void test_tgsm(void)
     buffer2 = create_default_buffer(device, 1024,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-    ID3D12Device_CreateUnorderedAccessView(device, buffer2, NULL, &uav_desc, cpu_descriptor_handle);
+    ID3D12Device_CreateUnorderedAccessView(device, buffer2, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, descriptor_heap, 1));
 
-    cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_descriptor_heap);
-    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc, cpu_descriptor_handle);
-    cpu_descriptor_handle.ptr += descriptor_size;
-    ID3D12Device_CreateUnorderedAccessView(device, buffer2, NULL, &uav_desc, cpu_descriptor_handle);
+    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, cpu_descriptor_heap, 0));
+    ID3D12Device_CreateUnorderedAccessView(device, buffer2, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, cpu_descriptor_heap, 1));
 
-    cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_descriptor_heap);
-    gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
     ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list,
-            gpu_descriptor_handle, cpu_descriptor_handle, buffer, zero, 0, NULL);
-    gpu_descriptor_handle.ptr += descriptor_size;
-    cpu_descriptor_handle.ptr += descriptor_size;
+            get_gpu_descriptor_handle(&context, descriptor_heap, 0),
+            get_cpu_descriptor_handle(&context, cpu_descriptor_heap, 0),
+            buffer, zero, 0, NULL);
     ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list,
-            gpu_descriptor_handle, cpu_descriptor_handle, buffer2, zero, 0, NULL);
+            get_gpu_descriptor_handle(&context, descriptor_heap, 1),
+            get_cpu_descriptor_handle(&context, cpu_descriptor_heap, 1),
+            buffer2, zero, 0, NULL);
 
     gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
@@ -13130,13 +12993,13 @@ static void test_tgsm(void)
     context.pipeline_state = create_compute_pipeline_state(device,
             context.root_signature, cs_structured_tgsm_float);
 
-    cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
     uav_desc.Format = DXGI_FORMAT_R32_FLOAT;
     uav_desc.Buffer.Flags = 0;
-    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc, cpu_descriptor_handle);
-    cpu_descriptor_handle.ptr += descriptor_size;
+    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, descriptor_heap, 0));
     uav_desc.Format = DXGI_FORMAT_R32_UINT;
-    ID3D12Device_CreateUnorderedAccessView(device, buffer2, NULL, &uav_desc, cpu_descriptor_handle);
+    ID3D12Device_CreateUnorderedAccessView(device, buffer2, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, descriptor_heap, 1));
 
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
@@ -13196,7 +13059,6 @@ static void test_uav_load(void)
     D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
     const struct texture *current_texture;
     D3D12_HEAP_PROPERTIES heap_properties;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     ID3D12Resource *texture, *rt_texture;
     D3D12_RESOURCE_DESC resource_desc;
     D3D12_CLEAR_VALUE clear_value;
@@ -13463,12 +13325,7 @@ static void test_uav_load(void)
             &IID_ID3D12Resource, (void **)&rt_texture);
     ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
 
-    memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    heap_desc.NumDescriptors = 3;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&rtv_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    rtv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 3);
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap);
     rtv_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
             D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
@@ -13489,12 +13346,7 @@ static void test_uav_load(void)
     ID3D12Device_CreateRenderTargetView(device, rt_texture, &rtv_desc, cpu_handle);
     rtv_sint = cpu_handle;
 
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 1;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&uav_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    uav_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
 
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
@@ -13612,7 +13464,6 @@ static void test_cs_uav_store(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[2];
     ID3D12DescriptorHeap *descriptor_heap;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     ID3D12RootSignature *root_signature;
     ID3D12PipelineState *pipeline_state;
     struct resource_readback rb;
@@ -13825,19 +13676,8 @@ static void test_cs_uav_store(void)
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
     ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
 
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 1;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
-
-    heap_desc.Flags = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&cpu_descriptor_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
-
+    descriptor_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    cpu_descriptor_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
     cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
     gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
 
@@ -14032,7 +13872,6 @@ static void test_uav_counters(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[1];
     ID3D12DescriptorHeap *descriptor_heap;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     struct resource_readback rb;
     struct test_context context;
     ID3D12CommandQueue *queue;
@@ -14111,13 +13950,7 @@ static void test_uav_counters(void)
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
             shader_bytecode(cs_producer_code, sizeof(cs_producer_code)));
 
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 3;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    descriptor_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 3);
 
     buffer = create_default_buffer(device, 1024,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -14257,7 +14090,6 @@ static void test_decrement_uav_counter(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[1];
     ID3D12DescriptorHeap *descriptor_heap;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
@@ -14326,13 +14158,7 @@ static void test_decrement_uav_counter(void)
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
             shader_bytecode(cs_code, sizeof(cs_code)));
 
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 1;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    descriptor_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
 
     buffer = create_default_buffer(device, 1024,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -14701,7 +14527,6 @@ static void test_buffer_srv(void)
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
     ID3D12DescriptorHeap *descriptor_heap;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     const struct buffer *current_buffer;
     unsigned int color, expected_color;
     struct test_context_desc desc;
@@ -14893,13 +14718,7 @@ static void test_buffer_srv(void)
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
     ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
 
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 1;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    heap_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    descriptor_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
     gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
 
@@ -15912,7 +15731,6 @@ static void test_copy_texture_region(void)
     D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
     ID3D12Resource *src_texture, *dst_texture;
     ID3D12GraphicsCommandList *command_list;
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     D3D12_SUBRESOURCE_DATA texture_data;
     struct depth_stencil_resource ds;
     struct test_context_desc desc;
@@ -15923,7 +15741,6 @@ static void test_copy_texture_region(void)
     ID3D12Device *device;
     unsigned int x, y, i;
     D3D12_BOX box;
-    HRESULT hr;
 
     static const unsigned int clear_data[] =
     {
@@ -16030,13 +15847,7 @@ static void test_copy_texture_region(void)
     context.pipeline_state = create_pipeline_state(device,
             context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
 
-    memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 1;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
 
     for (i = 0; i < ARRAY_SIZE(depth_values); ++i)
     {
@@ -16103,7 +15914,6 @@ static void test_separate_bindings(void)
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[4];
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     ID3D12PipelineState *compute_pso;
     ID3D12Resource *cs_cb, *ps_cb;
     struct test_context_desc desc;
@@ -16289,13 +16099,7 @@ static void test_separate_bindings(void)
             context.root_signature, context.render_target_desc.Format,
             NULL, &ps, NULL);
 
-    memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 20;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
-            &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 20);
 
     cs_cb = create_upload_buffer(device, sizeof(cs_data), &cs_data);
     ps_cb = create_upload_buffer(device, sizeof(ps_data), &ps_data);
