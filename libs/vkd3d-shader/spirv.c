@@ -4822,17 +4822,46 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured(struct vkd3d_dxbc_compile
     }
 }
 
-static void vkd3d_dxbc_compiler_emit_store_uav(struct vkd3d_dxbc_compiler *compiler,
+static uint32_t vkd3d_dxbc_compiler_emit_construct_vec4(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t val_id, enum vkd3d_component_type component_type,
+        unsigned int component_idx, unsigned int component_count)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t components[VKD3D_VEC4_SIZE];
+    uint32_t type_id, result_id;
+    unsigned int i;
+
+    assert(component_idx < component_count);
+
+    type_id = vkd3d_spirv_get_type_id(builder, component_type, VKD3D_VEC4_SIZE);
+    if (component_count == 1)
+    {
+        for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
+            components[i] = val_id;
+        result_id = vkd3d_spirv_build_op_composite_construct(builder,
+                type_id, components, VKD3D_VEC4_SIZE);
+    }
+    else
+    {
+        for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
+            components[i] = component_idx;
+        result_id = vkd3d_spirv_build_op_vector_shuffle(builder,
+                type_id, val_id, val_id, components, VKD3D_VEC4_SIZE);
+    }
+    return result_id;
+}
+
+static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    uint32_t base_coordinate_id, component_idx, components[VKD3D_VEC4_SIZE];
-    uint32_t coordinate_id, type_id, val_id, texel_type_id, texel_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t coordinate_id, type_id, val_id, texel_id;
     const struct vkd3d_shader_src_param *texel;
+    uint32_t base_coordinate_id, component_idx;
     struct vkd3d_shader_image image;
-    unsigned int i, component_count;
+    unsigned int component_count;
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
     vkd3d_dxbc_compiler_prepare_image(compiler, &image, &dst->reg, VKD3D_IMAGE_FLAG_NONE);
@@ -4840,20 +4869,16 @@ static void vkd3d_dxbc_compiler_emit_store_uav(struct vkd3d_dxbc_compiler *compi
     base_coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
             type_id, image.structure_stride, &src[0], VKD3DSP_WRITEMASK_0, &src[1], VKD3DSP_WRITEMASK_0);
 
-    /* Mesa Vulkan drivers require the texel parameter to be a 4-component
-     * vector. */
     texel = &src[instruction->src_count - 1];
     assert(texel->reg.data_type == VKD3D_DATA_UINT);
     val_id = vkd3d_dxbc_compiler_emit_load_src(compiler, texel, dst->write_mask);
-    texel_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, VKD3D_VEC4_SIZE);
 
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
     for (component_idx = 0; component_idx < component_count; ++component_idx)
     {
-        for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
-            components[i] = component_idx;
-        texel_id = vkd3d_spirv_build_op_vector_shuffle(builder,
-                texel_type_id, val_id, val_id, components, VKD3D_VEC4_SIZE);
+        /* Mesa Vulkan drivers require the texel parameter to be a vector. */
+        texel_id = vkd3d_dxbc_compiler_emit_construct_vec4(compiler,
+                val_id, VKD3D_TYPE_UINT, component_idx, component_count);
 
         coordinate_id = base_coordinate_id;
         if (component_idx)
@@ -4912,7 +4937,7 @@ static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_comp
     switch (reg_type)
     {
         case VKD3DSPR_UAV:
-            vkd3d_dxbc_compiler_emit_store_uav(compiler, instruction);
+            vkd3d_dxbc_compiler_emit_store_uav_raw_structured(compiler, instruction);
             break;
         case VKD3DSPR_GROUPSHAREDMEM:
             vkd3d_dxbc_compiler_emit_store_tgsm(compiler, instruction);
