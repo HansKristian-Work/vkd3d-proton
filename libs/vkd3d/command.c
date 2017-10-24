@@ -1101,8 +1101,6 @@ static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state, 
 
         case D3D12_RESOURCE_STATE_UNORDERED_ACCESS:
             *access_mask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-            /* FIXME: We can limit shader bits based on command list type,
-             * fragmentStoresAndAtomics and vertexPipelineStoresAndAtomics. */
             *stage_flags = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT
                     | VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT
                     | VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT
