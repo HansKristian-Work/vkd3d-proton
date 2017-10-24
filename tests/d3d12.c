@@ -13069,18 +13069,9 @@ static void test_tgsm(void)
 
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature, cs_structured_tgsm);
 
-    /* FIXME: Re-creating the buffer should not be needed when
-     * ClearUnorderedAccessViewUint() is implemented.
-     */
-    ID3D12Resource_Release(buffer);
-    buffer = create_default_buffer(device, 1024,
-            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     buffer2 = create_default_buffer(device, 1024,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-    cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
-    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc, cpu_descriptor_handle);
-    cpu_descriptor_handle.ptr += descriptor_size;
     ID3D12Device_CreateUnorderedAccessView(device, buffer2, NULL, &uav_desc, cpu_descriptor_handle);
 
     cpu_descriptor_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_descriptor_heap);
