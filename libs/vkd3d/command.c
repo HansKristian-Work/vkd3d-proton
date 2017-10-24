@@ -1489,15 +1489,16 @@ static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
 {
     struct d3d12_device *device = list->device;
 
-    if (!list->state->u.graphics.attachment_count)
+    if (list->state->u.graphics.attachment_count)
+    {
+        *width = list->fb_width;
+        *height = list->fb_height;
+    }
+    else
     {
         *width = device->vk_info.device_limits.maxFramebufferWidth;
         *height = device->vk_info.device_limits.maxFramebufferHeight;
-        return;
     }
-
-    *width = list->fb_width;
-    *height = list->fb_height;
 }
 
 static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_list *list,
