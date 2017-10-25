@@ -5552,13 +5552,16 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
 static void vkd3d_dxbc_compiler_emit_output_setup_function(struct vkd3d_dxbc_compiler *compiler)
 {
     uint32_t void_id, type_id, ptr_type_id, function_type_id, function_id, val_id;
+    uint32_t param_type_id[MAX_REG_OUTPUT + 1], param_id[MAX_REG_OUTPUT + 1] = {};
     const struct vkd3d_shader_signature *signature = compiler->output_signature;
-    uint32_t param_type_id[MAX_REG_OUTPUT], param_id[MAX_REG_OUTPUT] = {};
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     DWORD write_mask, variable_idx;
     unsigned int i, count;
 
     function_id = compiler->output_setup_function_id;
+
+    assert(ARRAY_SIZE(compiler->private_output_variable) == ARRAY_SIZE(param_id));
+    assert(ARRAY_SIZE(compiler->private_output_variable) == ARRAY_SIZE(param_type_id));
 
     void_id = vkd3d_spirv_get_op_type_void(builder);
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 4);
