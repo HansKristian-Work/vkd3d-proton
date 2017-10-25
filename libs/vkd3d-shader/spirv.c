@@ -236,6 +236,8 @@ struct vkd3d_spirv_builder
     struct vkd3d_spirv_stream insertion_stream;
     size_t insertion_location;
 
+    size_t main_function_location;
+
     /* entry point interface */
     uint32_t *iface;
     size_t iface_capacity;
@@ -678,6 +680,10 @@ static void vkd3d_spirv_begin_function_stream_insertion(struct vkd3d_spirv_build
         size_t location)
 {
     assert(builder->insertion_location == ~(size_t)0);
+
+    if (vkd3d_spirv_stream_current_location(&builder->function_stream) == location)
+        return;
+
     builder->original_function_stream = builder->function_stream;
     builder->function_stream = builder->insertion_stream;
     builder->insertion_location = location;
@@ -687,7 +693,8 @@ static void vkd3d_spirv_end_function_stream_insertion(struct vkd3d_spirv_builder
 {
     struct vkd3d_spirv_stream *insertion_stream = &builder->insertion_stream;
 
-    assert(builder->insertion_location != ~(size_t)0);
+    if (builder->insertion_location == ~(size_t)0)
+        return;
 
     builder->insertion_stream = builder->function_stream;
     builder->function_stream = builder->original_function_stream;
@@ -1486,6 +1493,7 @@ static void vkd3d_spirv_builder_init(struct vkd3d_spirv_builder *builder)
             vkd3d_spirv_alloc_id(builder), SpvFunctionControlMaskNone, function_type_id);
     vkd3d_spirv_build_op_name(builder, builder->main_function_id, "main");
     vkd3d_spirv_build_op_label(builder, vkd3d_spirv_alloc_id(builder));
+    builder->main_function_location = vkd3d_spirv_stream_current_location(&builder->function_stream);
 }
 
 static void vkd3d_spirv_builder_free(struct vkd3d_spirv_builder *builder)
@@ -2954,9 +2962,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_temps(struct vkd3d_dxbc_compiler *compi
     unsigned int i;
     uint32_t id;
 
-    /* FIXME: Make sure that function variables are declared at the beginning
-     * of the first block in the function. Otherwise, we'll produce invalid
-     * SPIR-V code. */
+    vkd3d_spirv_begin_function_stream_insertion(builder, builder->main_function_location);
+
     assert(!compiler->temp_count);
     compiler->temp_count = instruction->declaration.count;
     for (i = 0; i < compiler->temp_count; ++i)
@@ -2969,6 +2976,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_temps(struct vkd3d_dxbc_compiler *compi
 
         vkd3d_spirv_build_op_name(builder, id, "r%u", i);
     }
+
+    vkd3d_spirv_end_function_stream_insertion(builder);
 }
 
 static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_compiler *compiler)
