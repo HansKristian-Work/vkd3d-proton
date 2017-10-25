@@ -1823,6 +1823,8 @@ struct vkd3d_dxbc_compiler
     uint32_t output_setup_function_id;
     uint32_t default_sampler_id;
 
+    uint32_t binding_idx;
+
     const struct vkd3d_shader_scan_info *scan_info;
 };
 
@@ -2001,7 +2003,7 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
     }
 
     vk_binding.set = 0;
-    vk_binding.binding = reg_idx;
+    vk_binding.binding = compiler->binding_idx++;
     return vk_binding;
 }
 
