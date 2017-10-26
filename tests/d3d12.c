@@ -15291,6 +15291,78 @@ static void test_resolve_query_data_in_different_command_list(void)
     destroy_test_context(&context);
 }
 
+static void test_resolve_query_data_in_reordered_command_list(void)
+{
+    ID3D12GraphicsCommandList *command_lists[2];
+    ID3D12CommandAllocator *command_allocator;
+    D3D12_QUERY_HEAP_DESC heap_desc;
+    ID3D12Resource *readback_buffer;
+    struct resource_readback rb;
+    ID3D12QueryHeap *query_heap;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    UINT64 result;
+    HRESULT hr;
+
+    if (!init_test_context(&context, NULL))
+        return;
+    device = context.device;
+    command_lists[0] = context.list;
+    queue = context.queue;
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
+    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_lists[1]);
+    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+
+    heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
+    heap_desc.Count = 1;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr %#x.\n", hr);
+
+    readback_buffer = create_readback_buffer(device, sizeof(UINT64));
+
+    /* Read query results in the second command list. */
+    ID3D12GraphicsCommandList_ResolveQueryData(command_lists[1],
+            query_heap, heap_desc.Type, 0, 1, readback_buffer, 0);
+    hr = ID3D12GraphicsCommandList_Close(command_lists[1]);
+    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+
+    /* Produce query results in the first command list. */
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_lists[0], 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_lists[0], context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_lists[0], context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_lists[0], D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_lists[0], 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_lists[0], 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_BeginQuery(command_lists[0], query_heap, heap_desc.Type, 0);
+    ID3D12GraphicsCommandList_DrawInstanced(command_lists[0], 3, 1, 0, 0);
+    ID3D12GraphicsCommandList_EndQuery(command_lists[0], query_heap, heap_desc.Type, 0);
+    hr = ID3D12GraphicsCommandList_Close(command_lists[0]);
+    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+
+    ID3D12CommandQueue_ExecuteCommandLists(queue,
+            ARRAY_SIZE(command_lists), (ID3D12CommandList **)command_lists);
+    wait_queue_idle(device, queue);
+
+    reset_command_list(command_lists[0], context.allocator);
+    get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_UNKNOWN, &rb, queue, command_lists[0]);
+    result = get_readback_uint64(&rb, 0, 0);
+    todo(result == context.render_target_desc.Width * context.render_target_desc.Height,
+            "Got unexpected result %"PRIu64".\n", result);
+    release_resource_readback(&rb);
+
+    ID3D12GraphicsCommandList_Release(command_lists[1]);
+    ID3D12CommandAllocator_Release(command_allocator);
+    ID3D12QueryHeap_Release(query_heap);
+    ID3D12Resource_Release(readback_buffer);
+    destroy_test_context(&context);
+}
+
 static void test_execute_indirect(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -16396,6 +16468,7 @@ START_TEST(d3d12)
     run_test(test_query_occlusion);
     run_test(test_resolve_non_issued_query_data);
     run_test(test_resolve_query_data_in_different_command_list);
+    run_test(test_resolve_query_data_in_reordered_command_list);
     run_test(test_execute_indirect);
     run_test(test_dispatch_zero_thread_groups);
     run_test(test_instance_id);
