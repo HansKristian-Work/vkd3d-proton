@@ -12390,6 +12390,11 @@ static void test_depth_read_only_view(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
 
+    reset_command_list(command_list, context.allocator);
+    transition_sub_resource_state(command_list, ds.texture, 0,
+            D3D12_RESOURCE_STATE_DEPTH_READ, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_float(ds.texture, 0, queue, command_list, 0.5f, 2);
+
     destroy_depth_stencil(&ds);
     ID3D12DescriptorHeap_Release(heap);
     destroy_test_context(&context);
