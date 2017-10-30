@@ -12285,6 +12285,116 @@ static void test_depth_load(void)
     destroy_test_context(&context);
 }
 
+static void test_depth_read_only_view(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle;
+    struct depth_stencil_resource ds;
+    struct test_context_desc desc;
+    D3D12_CLEAR_VALUE clear_value;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float4 color;
+
+        float4 main(float4 position : SV_POSITION) : SV_Target
+        {
+            return color;
+        }
+#endif
+        0x43425844, 0xd18ead43, 0x8b8264c1, 0x9c0a062d, 0xfc843226, 0x00000001, 0x000000e0, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000044, 0x00000050,
+        0x00000011, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2,
+        0x00000000, 0x06000036, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const float green[] = {0.0f, 1.0f, 0.0f, 1.0f};
+    static const float red[] = {1.0f, 0.0f, 0.0f, 1.0f};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_32bit_constants_root_signature(device,
+            0, 4, D3D12_SHADER_VISIBILITY_PIXEL);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
+    pso_desc.NumRenderTargets = 1;
+    pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_GREATER;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+
+    heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+
+    clear_value.Format = DXGI_FORMAT_D32_FLOAT;
+    clear_value.DepthStencil.Depth = 0.5f;
+    clear_value.DepthStencil.Stencil = 0;
+    init_depth_stencil(&ds, device, context.render_target_desc.Width,
+            context.render_target_desc.Height, DXGI_FORMAT_R32_TYPELESS,
+            DXGI_FORMAT_D32_FLOAT, &clear_value);
+    memset(&dsv_desc, 0, sizeof(dsv_desc));
+    dsv_desc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    dsv_desc.Flags = D3D12_DSV_FLAG_READ_ONLY_DEPTH;
+    dsv_handle = get_cpu_descriptor_handle(&context, heap, 0);
+    ID3D12Device_CreateDepthStencilView(device, ds.texture, &dsv_desc, dsv_handle);
+
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+            D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0, 0, NULL);
+    transition_sub_resource_state(command_list, ds.texture, 0,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_DEPTH_READ);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, &dsv_handle);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    context.viewport.MinDepth = 0.6f;
+    context.viewport.MaxDepth = 0.6f;
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, green, 0);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    context.viewport.MinDepth = 0.4f;
+    context.viewport.MaxDepth = 0.4f;
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, red, 0);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_sub_resource_state(command_list, context.render_target, 0,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+
+    destroy_depth_stencil(&ds);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
 static void test_typed_buffer_uav(void)
 {
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor_handle;
@@ -16452,6 +16562,7 @@ START_TEST(d3d12)
     run_test(test_get_copyable_footprints);
     run_test(test_depth_stencil_sampling);
     run_test(test_depth_load);
+    run_test(test_depth_read_only_view);
     run_test(test_typed_buffer_uav);
     run_test(test_typed_uav_store);
     run_test(test_compute_shader_registers);
