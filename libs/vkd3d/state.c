@@ -1953,12 +1953,21 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->rt_idx = 0;
     if (desc->DepthStencilState.DepthEnable || desc->DepthStencilState.StencilEnable)
     {
+        const D3D12_DEPTH_STENCIL_DESC *ds_desc = &desc->DepthStencilState;
+        VkImageLayout depth_layout;
+
         if (!(format = vkd3d_get_format(desc->DSVFormat, true)))
         {
             WARN("Invalid DXGI format %#x.\n", desc->DSVFormat);
             hr = E_FAIL;
             goto fail;
         }
+
+        if ((ds_desc->DepthEnable && ds_desc->DepthWriteMask)
+                || (ds_desc->StencilEnable && ds_desc->StencilWriteMask))
+            depth_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        else
+            depth_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
         graphics->attachments[0].flags = 0;
         graphics->attachments[0].format = format->vk_format;
@@ -1983,11 +1992,11 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             graphics->attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
             graphics->attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         }
-        graphics->attachments[0].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        graphics->attachments[0].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        graphics->attachments[0].initialLayout = depth_layout;
+        graphics->attachments[0].finalLayout = depth_layout;
 
         graphics->attachment_references[0].attachment = 0;
-        graphics->attachment_references[0].layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        graphics->attachment_references[0].layout = depth_layout;
         ++graphics->rt_idx;
     }
 
