@@ -12324,7 +12324,6 @@ static void test_depth_read_only_view(void)
     static const float red[] = {1.0f, 0.0f, 0.0f, 1.0f};
 
     memset(&desc, 0, sizeof(desc));
-    desc.rt_format = DXGI_FORMAT_R8G8B8A8_UNORM;
     desc.no_root_signature = true;
     if (!init_test_context(&context, &desc))
         return;
@@ -12335,9 +12334,8 @@ static void test_depth_read_only_view(void)
     context.root_signature = create_32bit_constants_root_signature(device,
             0, 4, D3D12_SHADER_VISIBILITY_PIXEL);
 
-    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
-    pso_desc.NumRenderTargets = 1;
-    pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, NULL, &ps, NULL);
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
     pso_desc.DepthStencilState.DepthEnable = TRUE;
     pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
@@ -16055,6 +16053,11 @@ static void test_copy_texture_region(void)
     };
     static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
     static const float depth_values[] = {0.0f, 0.5f, 0.7f, 1.0f};
+    static const D3D12_RESOURCE_STATES resource_states[] =
+    {
+        D3D12_RESOURCE_STATE_COPY_SOURCE,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+    };
 
     memset(&desc, 0, sizeof(desc));
     desc.rt_format = DXGI_FORMAT_R32_FLOAT;
@@ -16065,50 +16068,56 @@ static void test_copy_texture_region(void)
     command_list = context.list;
     queue = context.queue;
 
-    src_texture = create_texture(device, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_STATE_COPY_DEST);
-    texture_data.pData = bitmap_data;
-    texture_data.RowPitch = 4 * sizeof(*bitmap_data);
-    texture_data.SlicePitch = texture_data.RowPitch * 4;
-    upload_texture_data(src_texture, &texture_data, 1, queue, command_list);
-    reset_command_list(command_list, context.allocator);
-
-    dst_texture = create_texture(device, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_STATE_COPY_DEST);
-    texture_data.pData = clear_data;
-    texture_data.RowPitch = 4 * sizeof(*bitmap_data);
-    texture_data.SlicePitch = texture_data.RowPitch * 4;
-    upload_texture_data(dst_texture, &texture_data, 1, queue, command_list);
-    reset_command_list(command_list, context.allocator);
-    transition_resource_state(command_list, src_texture,
-            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
-
-    src_location.pResource = src_texture;
-    src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-    src_location.SubresourceIndex = 0;
-    dst_location.pResource = dst_texture;
-    dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-    dst_location.SubresourceIndex = 0;
-    set_box(&box, 0, 0, 0, 2, 2, 1);
-    ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst_location, 1, 1, 0,
-            &src_location, &box);
-
-    transition_resource_state(command_list, dst_texture,
-            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    get_texture_readback_with_command_list(dst_texture, 0, &rb, queue, command_list);
-    for (y = 0; y < 4; ++y)
+    for (i = 0; i < ARRAY_SIZE(resource_states); ++i)
     {
-        for (x = 0; x < 4; ++x)
-        {
-            unsigned int color = get_readback_uint(&rb, x, y);
-            unsigned int expected = result_data[y * 4 + x];
+        src_texture = create_texture(device, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM,
+                D3D12_RESOURCE_STATE_COPY_DEST);
+        texture_data.pData = bitmap_data;
+        texture_data.RowPitch = 4 * sizeof(*bitmap_data);
+        texture_data.SlicePitch = texture_data.RowPitch * 4;
+        upload_texture_data(src_texture, &texture_data, 1, queue, command_list);
+        reset_command_list(command_list, context.allocator);
 
-            ok(color == expected, "Got unexpected color 0x%08x at (%u, %u), expected 0x%08x.\n",
-                    color, x, y, expected);
+        dst_texture = create_texture(device, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM,
+                D3D12_RESOURCE_STATE_COPY_DEST);
+        texture_data.pData = clear_data;
+        texture_data.RowPitch = 4 * sizeof(*bitmap_data);
+        texture_data.SlicePitch = texture_data.RowPitch * 4;
+        upload_texture_data(dst_texture, &texture_data, 1, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, src_texture,
+                D3D12_RESOURCE_STATE_COPY_DEST, resource_states[i]);
+
+        src_location.pResource = src_texture;
+        src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src_location.SubresourceIndex = 0;
+        dst_location.pResource = dst_texture;
+        dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dst_location.SubresourceIndex = 0;
+        set_box(&box, 0, 0, 0, 2, 2, 1);
+        ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+                &dst_location, 1, 1, 0, &src_location, &box);
+
+        transition_resource_state(command_list, dst_texture,
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_texture_readback_with_command_list(dst_texture, 0, &rb, queue, command_list);
+        for (y = 0; y < 4; ++y)
+        {
+            for (x = 0; x < 4; ++x)
+            {
+                unsigned int color = get_readback_uint(&rb, x, y);
+                unsigned int expected = result_data[y * 4 + x];
+
+                ok(color == expected,
+                        "Got unexpected color 0x%08x at (%u, %u), expected 0x%08x.\n",
+                        color, x, y, expected);
+            }
         }
+        release_resource_readback(&rb);
+        ID3D12Resource_Release(src_texture);
+        ID3D12Resource_Release(dst_texture);
+        reset_command_list(command_list, context.allocator);
     }
-    release_resource_readback(&rb);
-    ID3D12Resource_Release(src_texture);
-    ID3D12Resource_Release(dst_texture);
-    reset_command_list(command_list, context.allocator);
 
     context.root_signature = create_texture_root_signature(device,
             D3D12_SHADER_VISIBILITY_PIXEL, 0, 0);
@@ -16125,7 +16134,7 @@ static void test_copy_texture_region(void)
         ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
                 D3D12_CLEAR_FLAG_DEPTH, depth_values[i], 0, 0, NULL);
         transition_sub_resource_state(command_list, ds.texture, 0,
-                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, resource_states[i % ARRAY_SIZE(resource_states)]);
 
         dst_texture = create_texture(device, 32, 32, DXGI_FORMAT_R32_FLOAT,
                 D3D12_RESOURCE_STATE_COPY_DEST);
