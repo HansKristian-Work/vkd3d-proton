@@ -15840,21 +15840,17 @@ static void test_instance_id(void)
         0x00000001, 0x00101006, 0x00000002, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
-    static const struct
+    static const struct vec4 stream0[] =
     {
-        struct vec4 position;
-    }
-    stream0[] =
-    {
-        {{-1.00f, 0.0f, 0.0f, 1.0f}},
-        {{-1.00f, 1.0f, 0.0f, 1.0f}},
-        {{-0.75f, 0.0f, 0.0f, 1.0f}},
-        {{-0.75f, 1.0f, 0.0f, 1.0f}},
+        {-1.00f, 0.0f, 0.0f, 1.0f},
+        {-1.00f, 1.0f, 0.0f, 1.0f},
+        {-0.75f, 0.0f, 0.0f, 1.0f},
+        {-0.75f, 1.0f, 0.0f, 1.0f},
         /* indirect draws data */
-        {{-1.00f, -1.0f, 0.0f, 1.0f}},
-        {{-1.00f,  0.0f, 0.0f, 1.0f}},
-        {{-0.75f, -1.0f, 0.0f, 1.0f}},
-        {{-0.75f,  0.0f, 0.0f, 1.0f}},
+        {-1.00f, -1.0f, 0.0f, 1.0f},
+        {-1.00f,  0.0f, 0.0f, 1.0f},
+        {-0.75f, -1.0f, 0.0f, 1.0f},
+        {-0.75f,  0.0f, 0.0f, 1.0f},
     };
     static const struct
     {
