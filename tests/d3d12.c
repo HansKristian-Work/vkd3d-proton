@@ -7293,10 +7293,6 @@ static void test_shader_instructions(void)
 
         update_buffer_data(cb, 0, sizeof(tests[i].input), &tests[i].input);
 
-        if (i)
-            transition_resource_state(command_list, context.render_target,
-                    D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
         ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
@@ -7314,6 +7310,8 @@ static void test_shader_instructions(void)
         check_sub_resource_vec4(context.render_target, 0, queue, command_list, &tests[i].output.f, 2);
 
         reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
 
     ID3D12Resource_Release(context.render_target);
@@ -7338,10 +7336,6 @@ static void test_shader_instructions(void)
         }
 
         update_buffer_data(cb, 0, sizeof(uint_tests[i].input), &uint_tests[i].input);
-
-        if (i)
-            transition_resource_state(command_list, context.render_target,
-                    D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -7373,9 +7367,137 @@ static void test_shader_instructions(void)
         release_resource_readback(&rb);
 
         reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
 
     ID3D12Resource_Release(cb);
+    destroy_test_context(&context);
+}
+
+static void test_discard_instruction(void)
+{
+    ID3D12PipelineState *pso_discard_nz, *pso_discard_z;
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    ID3D12Resource *cb;
+    unsigned int i;
+
+    static const DWORD ps_discard_nz_code[] =
+    {
+#if 0
+        uint data;
+
+        float4 main() : SV_Target
+        {
+            if (data)
+                discard;
+            return float4(0.0f, 0.5f, 0.0f, 1.0f);
+        }
+#endif
+        0x43425844, 0xfa7e5758, 0xd8716ffc, 0x5ad6a940, 0x2b99bba2, 0x00000001, 0x000000d0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x00000058, 0x00000040, 0x00000016,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x0404000d,
+        0x0020800a, 0x00000000, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000,
+        0x3f000000, 0x00000000, 0x3f800000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_discard_nz = {ps_discard_nz_code, sizeof(ps_discard_nz_code)};
+    static const DWORD ps_discard_z_code[] =
+    {
+#if 0
+        uint data;
+
+        float4 main() : SV_Target
+        {
+            if (!data)
+                discard;
+            return float4(0.0f, 1.0f, 0.0f, 1.0f);
+        }
+#endif
+        0x43425844, 0x5c4dd108, 0x1eb43558, 0x7c02c98c, 0xd81eb34c, 0x00000001, 0x000000d0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x00000058, 0x00000040, 0x00000016,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x0400000d,
+        0x0020800a, 0x00000000, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000,
+        0x3f800000, 0x00000000, 0x3f800000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_discard_z = {ps_discard_z_code, sizeof(ps_discard_z_code)};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const struct uvec4 values[] =
+    {
+        {0x0000000},
+        {0x0000001},
+        {0x8000000},
+        {0xfffffff},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_cb_root_signature(device,
+            0, D3D12_SHADER_VISIBILITY_PIXEL, D3D12_ROOT_SIGNATURE_FLAG_NONE);
+    pso_discard_nz = create_pipeline_state(device, context.root_signature,
+            context.render_target_desc.Format, NULL, &ps_discard_nz, NULL);
+    pso_discard_z = create_pipeline_state(device, context.root_signature,
+            context.render_target_desc.Format, NULL, &ps_discard_z, NULL);
+
+    cb = create_upload_buffer(device, sizeof(*values), NULL);
+
+    for (i = 0; i < ARRAY_SIZE(values); ++i)
+    {
+        update_buffer_data(cb, 0, sizeof(values[i]), &values[i]);
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
+                ID3D12Resource_GetGPUVirtualAddress(cb));
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, pso_discard_nz);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(context.render_target, 0, queue, command_list,
+                values[i].x ? 0xffffffff : 0xff007f00, 1);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
+                ID3D12Resource_GetGPUVirtualAddress(cb));
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, pso_discard_z);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(context.render_target, 0, queue, command_list,
+                values[i].x ? 0xff00ff00 : 0xffffffff, 1);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+
+    ID3D12Resource_Release(cb);
+    ID3D12PipelineState_Release(pso_discard_nz);
+    ID3D12PipelineState_Release(pso_discard_z);
     destroy_test_context(&context);
 }
 
@@ -16812,6 +16934,7 @@ START_TEST(d3d12)
     run_test(test_map_resource);
     run_test(test_bundle_state_inheritance);
     run_test(test_shader_instructions);
+    run_test(test_discard_instruction);
     run_test(test_shader_interstage_interface);
     run_test(test_root_signature_byte_code);
     run_test(test_cs_constant_buffer);
