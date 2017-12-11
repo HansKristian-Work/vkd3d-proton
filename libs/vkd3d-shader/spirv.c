@@ -4136,8 +4136,7 @@ static void vkd3d_dxbc_compiler_emit_kill(struct vkd3d_dxbc_compiler *compiler,
     uint32_t condition_id, target_block_id, merge_block_id;
 
     condition_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, VKD3DSP_WRITEMASK_0);
-    condition_id = vkd3d_dxbc_compiler_emit_int_to_bool(compiler,
-            VKD3D_SHADER_CONDITIONAL_OP_NZ, 1, condition_id);
+    condition_id = vkd3d_dxbc_compiler_emit_int_to_bool(compiler, instruction->flags, 1, condition_id);
 
     merge_block_id = vkd3d_spirv_alloc_id(builder);
     target_block_id = vkd3d_spirv_alloc_id(builder);
