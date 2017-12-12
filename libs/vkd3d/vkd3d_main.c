@@ -146,15 +146,15 @@ static HRESULT d3d12_root_signature_deserializer_init(struct d3d12_root_signatur
     return S_OK;
 }
 
-HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T data_size,
-        REFIID riid, void **deserializer)
+HRESULT vkd3d_create_root_signature_deserializer(const void *data, SIZE_T data_size,
+        REFIID iid, void **deserializer)
 {
     struct vkd3d_shader_code dxbc = {data, data_size};
     struct d3d12_root_signature_deserializer *object;
     HRESULT hr;
 
-    TRACE("data %p, data_size %lu, riid %s, deserializer %p.\n",
-            data, data_size, debugstr_guid(riid), deserializer);
+    TRACE("data %p, data_size %lu, iid %s, deserializer %p.\n",
+            data, data_size, debugstr_guid(iid), deserializer);
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
@@ -166,7 +166,7 @@ HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T dat
     }
 
     return return_interface((IUnknown *)&object->ID3D12RootSignatureDeserializer_iface,
-            &IID_ID3D12RootSignatureDeserializer, riid, deserializer);
+            &IID_ID3D12RootSignatureDeserializer, iid, deserializer);
 }
 
 /* ID3DBlob */
@@ -283,7 +283,7 @@ static HRESULT d3d_blob_create(void *buffer, SIZE_T size, struct d3d_blob **blob
     return S_OK;
 }
 
-HRESULT WINAPI D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc,
+HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob)
 {
     struct vkd3d_shader_code dxbc;
