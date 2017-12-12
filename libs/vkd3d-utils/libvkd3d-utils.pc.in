@@ -3,7 +3,7 @@ exec_prefix=@exec_prefix@
 libdir=@libdir@
 includedir=@includedir@
 
-Name: vkd3d
+Name: vkd3d-utils
 Description: The vkd3d 3D Graphics Utility Library
 Version: @PACKAGE_VERSION@
 Cflags: -I${includedir}/vkd3d
