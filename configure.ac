@@ -12,6 +12,8 @@ AC_ARG_VAR([CROSSCC64], [64-bit Windows cross compiler])
 AC_ARG_WITH([spirv-tools], AS_HELP_STRING([--with-spirv-tools],
                                           [Build with SPIRV-Tools library (default: disabled)]))
 
+AC_USE_SYSTEM_EXTENSIONS
+
 dnl Check for progs
 AM_PROG_AR
 AC_PROG_CC
@@ -29,7 +31,7 @@ LT_PREREQ([2.4.2])
 LT_INIT
 
 dnl Check compiler specific flags
-AC_SUBST([VKD3D_CFLAGS], [""])
+AC_SUBST([VKD3D_CFLAGS])
 AS_IF([test "x${GCC}" = "xyes"],
       [VKD3D_CFLAGS="-Wall -pipe"
       VKD3D_CHECK_CFLAGS([-std=c99])
@@ -38,17 +40,6 @@ AS_IF([test "x${GCC}" = "xyes"],
       VKD3D_CHECK_CFLAGS([-Wunused-but-set-parameter])
       VKD3D_CHECK_CFLAGS([-Wvla])
       VKD3D_CHECK_CFLAGS([-Wl,--no-undefined])])
-
-AC_EGREP_CPP(yes,
-            [#define _POSIX_C_SOURCE 200809L
-             #include <unistd.h>
-             #ifdef _POSIX_VERSION
-             #if _POSIX_VERSION == 200809L
-             yes
-             #endif
-             #endif],
-             [AC_DEFINE([_POSIX_C_SOURCE], [200809L], [Define the POSIX version.])],
-             [])
 
 dnl Check for cross compilers
 VKD3D_CHECK_MINGW32_PROG([CROSSCC32], [CROSSTARGET32], [no])
