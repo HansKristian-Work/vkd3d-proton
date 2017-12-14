@@ -36,17 +36,17 @@
 typedef int HRESULT;
 #endif
 
-#include <inttypes.h>
-#include <limits.h>
-#include <math.h>
-#include <time.h>
-
 #define COBJMACROS
 #define INITGUID
 #include "vkd3d_test.h"
 #include "vkd3d_windows.h"
 #define WIDL_C_INLINE_WRAPPERS
 #include "d3d12.h"
+
+#include <inttypes.h>
+#include <limits.h>
+#include <math.h>
+#include <time.h>
 
 #ifdef _WIN32
 # include "dxgi1_4.h"

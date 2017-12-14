@@ -19,6 +19,7 @@
 #ifndef __VKD3D_TEST_H
 #define __VKD3D_TEST_H
 
+#include "vkd3d_common.h"
 #include <assert.h>
 #include <inttypes.h>
 #include <stdarg.h>
@@ -26,8 +27,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "vkd3d_common.h"
 
 static void vkd3d_test_main(int argc, char **argv);
 static const char *vkd3d_test_name;
