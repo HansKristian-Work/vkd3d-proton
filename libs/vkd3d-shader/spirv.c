@@ -2078,6 +2078,13 @@ static uint32_t vkd3d_dxbc_compiler_get_constant_float(struct vkd3d_dxbc_compile
     return vkd3d_dxbc_compiler_get_constant(compiler, VKD3D_TYPE_FLOAT, 1, (uint32_t *)&value);
 }
 
+static uint32_t vkd3d_dxbc_compiler_get_constant_uint_vector(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t value, unsigned int component_count)
+{
+    const uint32_t values[] = {value, value, value, value};
+    return vkd3d_dxbc_compiler_get_constant(compiler, VKD3D_TYPE_UINT, component_count, values);
+}
+
 static uint32_t vkd3d_dxbc_compiler_get_constant_float_vector(struct vkd3d_dxbc_compiler *compiler,
         float value, unsigned int component_count)
 {
@@ -2624,7 +2631,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_int_to_bool(struct vkd3d_dxbc_compiler 
         enum vkd3d_shader_conditional_op condition, unsigned int component_count, uint32_t val_id)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    static const uint32_t zero[VKD3D_VEC4_SIZE];
     uint32_t type_id;
     SpvOp op;
 
@@ -2633,20 +2639,17 @@ static uint32_t vkd3d_dxbc_compiler_emit_int_to_bool(struct vkd3d_dxbc_compiler 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, component_count);
     op = condition & VKD3D_SHADER_CONDITIONAL_OP_Z ? SpvOpIEqual : SpvOpINotEqual;
     return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream, op, type_id, val_id,
-            vkd3d_dxbc_compiler_get_constant(compiler, VKD3D_TYPE_UINT, component_count, zero));
+            vkd3d_dxbc_compiler_get_constant_uint_vector(compiler, 0, component_count));
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_bool_to_int(struct vkd3d_dxbc_compiler *compiler,
         unsigned int component_count, uint32_t val_id)
 {
-    static const uint32_t d3d_true[] = {0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff};
-    static const uint32_t d3d_false[] = {0, 0, 0, 0};
-
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t type_id, true_id, false_id;
 
-    true_id = vkd3d_dxbc_compiler_get_constant(compiler, VKD3D_TYPE_UINT, component_count, d3d_true);
-    false_id = vkd3d_dxbc_compiler_get_constant(compiler, VKD3D_TYPE_UINT, component_count, d3d_false);
+    true_id = vkd3d_dxbc_compiler_get_constant_uint_vector(compiler, 0xffffffff, component_count);
+    false_id = vkd3d_dxbc_compiler_get_constant_uint_vector(compiler, 0, component_count);
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, component_count);
     return vkd3d_spirv_build_op_select(builder, type_id, val_id, true_id, false_id);
 }
@@ -3885,9 +3888,7 @@ static void vkd3d_dxbc_compiler_emit_imad(struct vkd3d_dxbc_compiler *compiler,
 static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    static const uint32_t ffffffff[] = {0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff};
-
-    uint32_t type_id, val_id, src0_id, src1_id, condition_id, ffffffff_id;
+    uint32_t type_id, val_id, src0_id, src1_id, condition_id, uint_max_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
@@ -3904,12 +3905,12 @@ static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
 
         condition_id = vkd3d_dxbc_compiler_emit_int_to_bool(compiler,
                 VKD3D_SHADER_CONDITIONAL_OP_NZ, component_count, src1_id);
-        ffffffff_id = vkd3d_dxbc_compiler_get_constant(compiler,
-                VKD3D_TYPE_UINT, component_count, ffffffff);
+        uint_max_id = vkd3d_dxbc_compiler_get_constant_uint_vector(compiler,
+                0xffffffff, component_count);
 
         val_id = vkd3d_spirv_build_op_udiv(builder, type_id, src0_id, src1_id);
         /* The SPIR-V spec says: "The resulting value is undefined if Operand 2 is 0." */
-        val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, val_id, ffffffff_id);
+        val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, val_id, uint_max_id);
 
         vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[0], val_id);
     }
@@ -3927,13 +3928,13 @@ static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
 
             condition_id = vkd3d_dxbc_compiler_emit_int_to_bool(compiler,
                     VKD3D_SHADER_CONDITIONAL_OP_NZ, component_count, src1_id);
-            ffffffff_id = vkd3d_dxbc_compiler_get_constant(compiler,
-                    VKD3D_TYPE_UINT, component_count, ffffffff);
+            uint_max_id = vkd3d_dxbc_compiler_get_constant_uint_vector(compiler,
+                    0xffffffff, component_count);
         }
 
         val_id = vkd3d_spirv_build_op_umod(builder, type_id, src0_id, src1_id);
         /* The SPIR-V spec says: "The resulting value is undefined if Operand 2 is 0." */
-        val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, val_id, ffffffff_id);
+        val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, val_id, uint_max_id);
 
         vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[1], val_id);
     }
