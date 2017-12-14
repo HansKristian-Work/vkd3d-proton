@@ -237,6 +237,12 @@ static char *vkd3d_test_strdupWtoA(WCHAR *str)
     return out;
 }
 
+static bool running_under_wine(void)
+{
+    HMODULE module = GetModuleHandleA("ntdll.dll");
+    return module && GetProcAddress(module, "wine_server_call");
+}
+
 int wmain(int argc, WCHAR **wargv)
 {
     char **argv;
@@ -251,7 +257,7 @@ int wmain(int argc, WCHAR **wargv)
     }
     assert(i == argc);
 
-    vkd3d_test_platform = "windows";
+    vkd3d_test_platform = running_under_wine() ? "wine" : "windows";
 
     ret = main(argc, argv);
 
