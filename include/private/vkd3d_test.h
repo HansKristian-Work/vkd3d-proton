@@ -30,6 +30,7 @@
 
 static void vkd3d_test_main(int argc, char **argv);
 static const char *vkd3d_test_name;
+static const char *vkd3d_test_platform = "other";
 
 #define START_TEST(name) \
         static const char *vkd3d_test_name = #name; \
@@ -53,13 +54,8 @@ static const char *vkd3d_test_name;
         unsigned int vkd3d_line = line; \
         VKD3D_TEST_TODO
 
-#ifdef _WIN32
-# define VKD3D_TEST_TODO(args...) \
-        vkd3d_test_ok(vkd3d_line, args); } while (0)
-#else
 # define VKD3D_TEST_TODO(args...) \
         vkd3d_test_todo(vkd3d_line, args); } while (0)
-#endif  /* _WIN32 */
 
 #define skip_(line) \
         do { \
@@ -88,8 +84,14 @@ static struct
     unsigned int debug_level;
 } vkd3d_test_state;
 
-static void VKD3D_PRINTF_FUNC(3, 4) VKD3D_UNUSED
-vkd3d_test_ok(unsigned int line, bool result, const char *fmt, ...)
+static bool
+vkd3d_test_platform_is_windows(void)
+{
+    return !strcmp(vkd3d_test_platform, "windows");
+}
+
+static void
+vkd3d_test_check_ok(unsigned int line, bool result, const char *fmt, va_list args)
 {
     if (result)
     {
@@ -99,13 +101,20 @@ vkd3d_test_ok(unsigned int line, bool result, const char *fmt, ...)
     }
     else
     {
-        va_list args;
-        va_start(args, fmt);
         printf("%s:%d: Test failed: ", vkd3d_test_name, line);
         vprintf(fmt, args);
-        va_end(args);
         InterlockedIncrement(&vkd3d_test_state.failure_count);
     }
+}
+
+static void VKD3D_PRINTF_FUNC(3, 4) VKD3D_UNUSED
+vkd3d_test_ok(unsigned int line, bool result, const char *fmt, ...)
+{
+    va_list args;
+
+    va_start(args, fmt);
+    vkd3d_test_check_ok(line, result, fmt, args);
+    va_end(args);
 }
 
 static void VKD3D_PRINTF_FUNC(3, 4) VKD3D_UNUSED
@@ -113,19 +122,23 @@ vkd3d_test_todo(unsigned int line, bool result, const char *fmt, ...)
 {
     va_list args;
 
-    if (result)
+    va_start(args, fmt);
+    if (vkd3d_test_platform_is_windows())
+    {
+        vkd3d_test_check_ok(line, result, fmt, args);
+    }
+    else if (result)
     {
         printf("%s:%d Todo succeeded: ", vkd3d_test_name, line);
+        vprintf(fmt, args);
         InterlockedIncrement(&vkd3d_test_state.todo_success_count);
     }
     else
     {
         printf("%s:%d: Todo: ", vkd3d_test_name, line);
+        vprintf(fmt, args);
         InterlockedIncrement(&vkd3d_test_state.todo_count);
     }
-
-    va_start(args, fmt);
-    vprintf(fmt, args);
     va_end(args);
 }
 
@@ -177,9 +190,19 @@ vkd3d_test_debug(const char *fmt, ...)
 int main(int argc, char **argv)
 {
     const char *debug_level = getenv("VKD3D_TEST_DEBUG");
+    char *test_platform = getenv("VKD3D_TEST_PLATFORM");
 
     memset(&vkd3d_test_state, 0, sizeof(vkd3d_test_state));
     vkd3d_test_state.debug_level = !debug_level ? 0 : atoi(debug_level);
+
+    if (test_platform)
+    {
+        test_platform = strdup(test_platform);
+        vkd3d_test_platform = test_platform;
+    }
+
+    if (vkd3d_test_state.debug_level > 1)
+        printf("Test platform: '%s'.\n", vkd3d_test_platform);
 
     vkd3d_test_main(argc, argv);
 
@@ -192,6 +215,9 @@ int main(int argc, char **argv)
             + vkd3d_test_state.todo_success_count),
             (unsigned long)vkd3d_test_state.skip_count,
             (unsigned long)vkd3d_test_state.todo_count);
+
+    if (test_platform)
+        free(test_platform);
 
     return vkd3d_test_state.failure_count || vkd3d_test_state.todo_success_count;
 }
@@ -224,6 +250,8 @@ int wmain(int argc, WCHAR **wargv)
             break;
     }
     assert(i == argc);
+
+    vkd3d_test_platform = "windows";
 
     ret = main(argc, argv);
 

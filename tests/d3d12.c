@@ -5193,11 +5193,12 @@ static void test_bundle_state_inheritance(void)
     unsigned int x, y;
     HRESULT hr;
 
-#ifndef _WIN32
-    /* Avoid 2048 test todos. */
-    skip("Bundles are not implemented yet.\n");
-    return;
-#endif
+    if (!vkd3d_test_platform_is_windows())
+    {
+        /* Avoid 2048 test todos. */
+        skip("Bundles are not implemented yet.\n");
+        return;
+    }
 
     if (use_warp_device)
     {
