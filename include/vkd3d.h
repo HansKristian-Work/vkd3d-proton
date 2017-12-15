@@ -19,8 +19,11 @@
 #ifndef __VKD3D_H
 #define __VKD3D_H
 
-#include "vkd3d_windows.h"
-#include "d3d12.h"
+#ifndef VKD3D_NO_WIN32_TYPES
+# include "vkd3d_windows.h"
+# include "d3d12.h"
+#endif  /* VKD3D_NO_WIN32_TYPES */
+
 #include <vulkan/vulkan.h>
 #include <stdbool.h>
 
