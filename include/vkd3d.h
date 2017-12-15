@@ -21,7 +21,7 @@
 
 #ifndef VKD3D_NO_WIN32_TYPES
 # include "vkd3d_windows.h"
-# include "d3d12.h"
+# include "vkd3d_d3d12.h"
 #endif  /* VKD3D_NO_WIN32_TYPES */
 
 #include <vulkan/vulkan.h>

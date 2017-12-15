@@ -17,7 +17,7 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-import "dxgi1_3.idl";
+import "vkd3d_dxgi1_3.idl";
 
 [
     local,

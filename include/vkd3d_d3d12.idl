@@ -18,9 +18,9 @@
 
 import "vkd3d_windows.h";
 
-import "dxgibase.idl";
+import "vkd3d_dxgibase.idl";
 
-#include "unknown.idl"
+#include "vkd3d_unknown.idl"
 
 const UINT D3D12_CS_TGSM_REGISTER_COUNT = 8192;
 const UINT D3D12_MAX_ROOT_COST = 64;

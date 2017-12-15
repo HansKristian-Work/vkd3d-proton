@@ -3,22 +3,22 @@ AM_CFLAGS = @VKD3D_CFLAGS@
 AM_CPPFLAGS = -I$(srcdir)/include -I$(srcdir)/include/dummy -I$(srcdir)/include/private
 
 widl_headers = \
-	include/d3d12.h \
-	include/dxgi.h \
-	include/dxgi1_2.h \
-	include/dxgi1_3.h \
-	include/dxgi1_4.h \
-	include/dxgibase.h \
-	include/dxgiformat.h \
-	include/dxgitype.h
+	include/vkd3d_d3d12.h \
+	include/vkd3d_dxgi.h \
+	include/vkd3d_dxgi1_2.h \
+	include/vkd3d_dxgi1_3.h \
+	include/vkd3d_dxgi1_4.h \
+	include/vkd3d_dxgibase.h \
+	include/vkd3d_dxgiformat.h \
+	include/vkd3d_dxgitype.h
 
 vkd3d_public_headers = \
-	include/d3d12.h \
 	include/dummy/rpc.h \
 	include/dummy/rpcndr.h \
-	include/dxgibase.h \
-	include/dxgiformat.h \
 	include/vkd3d.h \
+	include/vkd3d_d3d12.h \
+	include/vkd3d_dxgibase.h \
+	include/vkd3d_dxgiformat.h \
 	include/vkd3d_shader.h \
 	include/vkd3d_utils.h \
 	include/vkd3d_windows.h

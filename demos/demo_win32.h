@@ -17,7 +17,7 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <dxgi1_4.h>
+#include <vkd3d_dxgi1_4.h>
 #include <stdbool.h>
 #include <stdio.h>
 

@@ -36,7 +36,7 @@
 #include <vkd3d_windows.h>
 #define WIDL_C_INLINE_WRAPPERS
 #define COBJMACROS
-#include <d3d12.h>
+#include <vkd3d_d3d12.h>
 #include <inttypes.h>
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*x))

@@ -18,7 +18,7 @@
 
 import "vkd3d_windows.h";
 
-import "dxgiformat.idl";
+import "vkd3d_dxgiformat.idl";
 
 cpp_quote("#ifndef DXGI_ERROR_INVALID_CALL")
 cpp_quote("#define DXGI_ERROR_INVALID_CALL   _HRESULT_TYPEDEF_(0x887a0001)")

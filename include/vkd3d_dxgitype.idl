@@ -18,7 +18,7 @@
  */
 
 import "vkd3d_windows.h";
-import "dxgibase.idl";
+import "vkd3d_dxgibase.idl";
 
 typedef enum DXGI_COLOR_SPACE_TYPE
 {
