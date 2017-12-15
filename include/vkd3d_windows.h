@@ -18,6 +18,7 @@
 
 #ifndef __VKD3D_WINDOWS_H
 #define __VKD3D_WINDOWS_H
+#ifndef _INC_WINDOWS
 
 #if !defined(_WIN32) || defined(__WIDL__)
 
@@ -238,4 +239,5 @@ extern "C++" \
 #endif
 #endif /* DEFINE_ENUM_FLAG_OPERATORS */
 
+#endif  /* _INC_WINDOWS */
 #endif  /* __VKD3D_WINDOWS_H */
