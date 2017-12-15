@@ -2616,6 +2616,25 @@ static void vkd3d_dxbc_compiler_emit_store_dst_components(struct vkd3d_dxbc_comp
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
+static void vkd3d_dxbc_compiler_emit_store_dst_scalar(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_dst_param *dst, uint32_t val_id,
+        enum vkd3d_component_type component_type, DWORD swizzle)
+{
+    unsigned int component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    uint32_t component_ids[VKD3D_VEC4_SIZE];
+    unsigned int component_idx, i;
+
+    component_idx = vkd3d_write_mask_get_component_idx(dst->write_mask);
+    for (i = 0; i < component_count; ++i)
+    {
+        if (vkd3d_swizzle_get_component(swizzle, component_idx + i))
+            ERR("Invalid swizzle %#x for scalar value, write mask %#x.\n", swizzle, dst->write_mask);
+
+        component_ids[i] = val_id;
+    }
+    vkd3d_dxbc_compiler_emit_store_dst_components(compiler, dst, component_type, component_ids);
+}
+
 static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *compiler,
         uint32_t target_id, SpvBuiltIn builtin)
 {
@@ -4641,7 +4660,7 @@ static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compil
 
     vkd3d_dxbc_compiler_prepare_sampled_image(compiler,
             &image, &src[1].reg, &src[2].reg, VKD3D_IMAGE_FLAG_DEPTH);
-    sampled_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
+    sampled_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, 1);
     coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_ALL);
     ref_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[3], VKD3DSP_WRITEMASK_0);
     /* XXX: Nvidia is broken and expects that the D_ref is packed together with coordinates. */
@@ -4652,7 +4671,7 @@ static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compil
             image.sampled_image_id, coordinate_id, ref_id, operands_mask,
             image_operands, image_operand_count);
 
-    vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
+    vkd3d_dxbc_compiler_emit_store_dst_scalar(compiler,
             dst, val_id, image.sampled_type, src[1].swizzle);
 }
 
