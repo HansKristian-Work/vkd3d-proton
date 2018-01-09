@@ -963,6 +963,12 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
         return;
     }
 
+    if (!desc->BufferLocation)
+    {
+        FIXME("NULL CBV not implemented.\n");
+        return;
+    }
+
     resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, desc->BufferLocation);
     buffer_info = &descriptor->u.vk_cbv_info;
     buffer_info->buffer = resource->u.vk_buffer;
