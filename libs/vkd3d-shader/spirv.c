@@ -2164,17 +2164,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_variable(struct vkd3d_dxbc_compiler *co
     return vkd3d_spirv_build_op_variable(builder, stream, ptr_type_id, storage_class, 0);
 }
 
-static uint32_t vkd3d_dxbc_compiler_emit_undef(struct vkd3d_dxbc_compiler *compiler,
-        struct vkd3d_spirv_stream *stream, const struct vkd3d_shader_register *reg)
-{
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    uint32_t type_id, ptr_type_id;
-
-    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
-    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassPrivate, type_id);
-    return vkd3d_spirv_build_op_undef(builder, stream, ptr_type_id);
-}
-
 static uint32_t vkd3d_dxbc_compiler_emit_load_src(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_src_param *src, DWORD write_mask);
 
@@ -2289,13 +2278,16 @@ static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *
         case VKD3DSPR_THREADGROUPID:
             if (vkd3d_dxbc_compiler_get_register_info(compiler, reg, &register_info))
                 return register_info.id;
-            return vkd3d_dxbc_compiler_emit_undef(compiler, &builder->global_stream, reg);
+            return vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
+                    SpvStorageClassPrivate, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
         case VKD3DSPR_IMMCONST:
             ERR("Unexpected register type %#x.\n", reg->type);
-            return vkd3d_dxbc_compiler_emit_undef(compiler, &builder->global_stream, reg);
+            return vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
+                    SpvStorageClassPrivate, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
         default:
             FIXME("Unhandled register type %#x.\n", reg->type);
-            return vkd3d_dxbc_compiler_emit_undef(compiler, &builder->global_stream, reg);
+            return vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
+                    SpvStorageClassPrivate, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
     }
 }
 
