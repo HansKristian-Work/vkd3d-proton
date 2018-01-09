@@ -2928,12 +2928,23 @@ static void test_reset_command_allocator(void)
 
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator2, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list2);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
 
     hr = ID3D12GraphicsCommandList_Close(command_list2);
     ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
     hr = ID3D12GraphicsCommandList_Reset(command_list2, command_allocator, NULL);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ID3D12GraphicsCommandList_Release(command_list2);
+
+    /* A command allocator can be re-used after closing the command list. */
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list2);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list2);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
 
     ID3D12CommandAllocator_Release(command_allocator);
     ID3D12CommandAllocator_Release(command_allocator2);

@@ -1426,6 +1426,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(ID3D12GraphicsCommandL
         return hresult_from_vk_result(vr);
     }
 
+    if (list->allocator)
+    {
+        d3d12_command_allocator_free_command_buffer(list->allocator, list);
+        list->allocator = NULL;
+    }
+
     list->is_recording = false;
 
     if (!list->is_valid)
@@ -1457,12 +1463,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(ID3D12GraphicsCommandL
     {
         WARN("Command list is in the recording state.\n");
         return E_FAIL;
-    }
-
-    if (list->allocator)
-    {
-        d3d12_command_allocator_free_command_buffer(list->allocator, list);
-        list->allocator = NULL;
     }
 
     if (SUCCEEDED(hr = d3d12_command_allocator_allocate_command_buffer(allocator_impl, list)))
