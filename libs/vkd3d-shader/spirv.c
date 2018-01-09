@@ -2204,7 +2204,7 @@ struct vkd3d_shader_register_info
     unsigned int structure_stride;
 };
 
-static void vkd3d_dxbc_compiler_get_register_info(struct vkd3d_dxbc_compiler *compiler,
+static bool vkd3d_dxbc_compiler_get_register_info(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, struct vkd3d_shader_register_info *register_info)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -2218,12 +2218,17 @@ static void vkd3d_dxbc_compiler_get_register_info(struct vkd3d_dxbc_compiler *co
         assert(reg->idx[0].offset < compiler->temp_count);
         register_info->id = compiler->temp_id + reg->idx[0].offset;
         register_info->storage_class = SpvStorageClassFunction;
-        return;
+        return true;
     }
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
-    entry = rb_get(&compiler->symbol_table, &reg_symbol);
-    assert(entry);
+    if (!(entry = rb_get(&compiler->symbol_table, &reg_symbol)))
+    {
+        FIXME("Unrecognized register %#x.\n", reg->type);
+        memset(register_info, 0, sizeof(*register_info));
+        return false;
+    }
+
     symbol = RB_ENTRY_VALUE(entry, struct vkd3d_symbol, entry);
     register_info->id = symbol->id;
     register_info->storage_class = symbol->info.reg.storage_class;
@@ -2258,6 +2263,8 @@ static void vkd3d_dxbc_compiler_get_register_info(struct vkd3d_dxbc_compiler *co
     {
         FIXME("Relative addressing not implemented.\n");
     }
+
+    return true;
 }
 
 static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *compiler,
@@ -2280,8 +2287,9 @@ static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *
         case VKD3DSPR_LOCALTHREADID:
         case VKD3DSPR_LOCALTHREADINDEX:
         case VKD3DSPR_THREADGROUPID:
-            vkd3d_dxbc_compiler_get_register_info(compiler, reg, &register_info);
-            return register_info.id;
+            if (vkd3d_dxbc_compiler_get_register_info(compiler, reg, &register_info))
+                return register_info.id;
+            return vkd3d_dxbc_compiler_emit_undef(compiler, &builder->global_stream, reg);
         case VKD3DSPR_IMMCONST:
             ERR("Unexpected register type %#x.\n", reg->type);
             return vkd3d_dxbc_compiler_emit_undef(compiler, &builder->global_stream, reg);
@@ -2361,7 +2369,12 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_scalar(struct vkd3d_dxbc_compiler 
     component_idx = vkd3d_write_mask_get_component_idx(write_mask);
     component_idx = vkd3d_swizzle_get_component(swizzle, component_idx);
 
-    vkd3d_dxbc_compiler_get_register_info(compiler, reg, &reg_info);
+    if (!vkd3d_dxbc_compiler_get_register_info(compiler, reg, &reg_info))
+    {
+        type_id = vkd3d_spirv_get_type_id(builder,
+                vkd3d_component_type_from_data_type(reg->data_type), 1);
+        return vkd3d_spirv_build_op_undef(builder, &builder->global_stream, type_id);
+    }
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 1);
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, reg_info.storage_class, type_id);
@@ -2489,7 +2502,8 @@ static void vkd3d_dxbc_compiler_emit_store_scalar(struct vkd3d_dxbc_compiler *co
 
     assert(reg->type != VKD3DSPR_IMMCONST);
 
-    vkd3d_dxbc_compiler_get_register_info(compiler, reg, &reg_info);
+    if (!vkd3d_dxbc_compiler_get_register_info(compiler, reg, &reg_info))
+        return;
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 1);
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, reg_info.storage_class, type_id);
@@ -4827,7 +4841,9 @@ static void vkd3d_dxbc_compiler_emit_ld_tgsm(struct vkd3d_dxbc_compiler *compile
     unsigned int i, j;
 
     resource = &src[instruction->src_count - 1];
-    vkd3d_dxbc_compiler_get_register_info(compiler, &resource->reg, &reg_info);
+    if (!vkd3d_dxbc_compiler_get_register_info(compiler, &resource->reg, &reg_info))
+        return;
+
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, reg_info.storage_class, type_id);
     base_coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
@@ -4950,7 +4966,9 @@ static void vkd3d_dxbc_compiler_emit_store_tgsm(struct vkd3d_dxbc_compiler *comp
     struct vkd3d_shader_register_info reg_info;
     unsigned int component_count;
 
-    vkd3d_dxbc_compiler_get_register_info(compiler, &dst->reg, &reg_info);
+    if (!vkd3d_dxbc_compiler_get_register_info(compiler, &dst->reg, &reg_info))
+        return;
+
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, reg_info.storage_class, type_id);
     assert((instruction->handler_idx == VKD3DSIH_STORE_STRUCTURED) != !reg_info.structure_stride);
@@ -5157,7 +5175,8 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
     {
         scope = SpvScopeWorkgroup;
         coordinate_mask = 1u;
-        vkd3d_dxbc_compiler_get_register_info(compiler, &resource->reg, &reg_info);
+        if (!vkd3d_dxbc_compiler_get_register_info(compiler, &resource->reg, &reg_info))
+            return;
         structure_stride = reg_info.structure_stride;
         raw = !structure_stride;
     }
