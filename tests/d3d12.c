@@ -11558,6 +11558,75 @@ static void test_descriptors_visibility(void)
     destroy_test_context(&context);
 }
 
+static void test_null_descriptors(void)
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap_desc.NumDescriptors = 16;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
+            &IID_ID3D12DescriptorHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    cbv_desc.BufferLocation = 0;
+    cbv_desc.SizeInBytes = 0;
+    ID3D12Device_CreateConstantBufferView(device, &cbv_desc,
+            get_cpu_descriptor_handle(&context, heap, 0));
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    srv_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.Buffer.FirstElement = 0;
+    srv_desc.Buffer.NumElements = 1;
+    srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+    ID3D12Device_CreateShaderResourceView(device, NULL, &srv_desc,
+            get_cpu_descriptor_handle(&context, heap, 1));
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    srv_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.Texture2D.MipLevels = 1;
+    ID3D12Device_CreateShaderResourceView(device, NULL, &srv_desc,
+            get_cpu_descriptor_handle(&context, heap, 2));
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.Format = DXGI_FORMAT_R32_UINT;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Buffer.FirstElement = 0;
+    uav_desc.Buffer.NumElements = 1;
+    ID3D12Device_CreateUnorderedAccessView(device, NULL, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, heap, 3));
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.Format = DXGI_FORMAT_R32_UINT;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    uav_desc.Texture2D.MipSlice = 0;
+    uav_desc.Texture2D.PlaneSlice = 0;
+    ID3D12Device_CreateUnorderedAccessView(device, NULL, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, heap, 3));
+
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
 #define check_copyable_footprints(a, b, c, d, e, f, g) \
         check_copyable_footprints_(__LINE__, a, b, c, d, e, f, g)
 static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_DESC *desc,
@@ -16952,6 +17021,7 @@ START_TEST(d3d12)
     run_test(test_update_compute_descriptor_tables);
     run_test(test_copy_descriptors);
     run_test(test_descriptors_visibility);
+    run_test(test_null_descriptors);
     run_test(test_get_copyable_footprints);
     run_test(test_depth_stencil_sampling);
     run_test(test_depth_load);
