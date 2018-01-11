@@ -3575,6 +3575,37 @@ static void vkd3d_dxbc_compiler_emit_dcl_vertices_out(struct vkd3d_dxbc_compiler
             SpvExecutionModeOutputVertices, instruction->declaration.count);
 }
 
+static void vkd3d_dxbc_compiler_emit_dcl_input_primitive(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    enum vkd3d_primitive_type primitive_type = instruction->declaration.primitive_type.type;
+    SpvExecutionMode mode;
+
+    switch (primitive_type)
+    {
+        case VKD3D_PT_POINTLIST:
+            mode = SpvExecutionModeInputPoints;
+            break;
+        case VKD3D_PT_LINELIST:
+            mode = SpvExecutionModeInputLines;
+            break;
+        case VKD3D_PT_LINELIST_ADJ:
+            mode = SpvExecutionModeInputLinesAdjacency;
+            break;
+        case VKD3D_PT_TRIANGLELIST:
+            mode = SpvExecutionModeTriangles;
+            break;
+        case VKD3D_PT_TRIANGLELIST_ADJ:
+            mode = SpvExecutionModeInputTrianglesAdjacency;
+            break;
+        default:
+            FIXME("Unhandled primitive type %#x.\n", primitive_type);
+            return;
+    }
+
+    vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, NULL, 0);
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_output_topology(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -5511,6 +5542,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL_VERTICES_OUT:
             vkd3d_dxbc_compiler_emit_dcl_vertices_out(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_INPUT_PRIMITIVE:
+            vkd3d_dxbc_compiler_emit_dcl_input_primitive(compiler, instruction);
             break;
         case VKD3DSIH_DCL_OUTPUT_TOPOLOGY:
             vkd3d_dxbc_compiler_emit_dcl_output_topology(compiler, instruction);
