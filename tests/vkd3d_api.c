@@ -28,6 +28,18 @@ static bool signal_event(HANDLE event)
     return true;
 }
 
+static const struct vkd3d_instance_create_info instance_default_create_info =
+{
+    .wchar_size = sizeof(WCHAR),
+    .signal_event_pfn = signal_event,
+};
+
+static const struct vkd3d_device_create_info device_default_create_info =
+{
+    .minimum_feature_level = D3D_FEATURE_LEVEL_11_0,
+    .instance_create_info = &instance_default_create_info,
+};
+
 static void test_create_instance(void)
 {
     struct vkd3d_instance_create_info create_info;
@@ -53,21 +65,58 @@ static void test_create_instance(void)
     ok(!refcount, "Instance has %u references left.\n", refcount);
 }
 
+static void test_create_device(void)
+{
+    struct vkd3d_device_create_info create_info;
+    struct vkd3d_instance *instance;
+    ID3D12Device *device;
+    ULONG refcount;
+    HRESULT hr;
+
+    hr = vkd3d_create_device(NULL, &IID_ID3D12Device, (void **)&device);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    create_info = device_default_create_info;
+    create_info.instance = NULL;
+    create_info.instance_create_info = NULL;
+    hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    create_info.instance_create_info = &instance_default_create_info;
+    hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+
+    hr = vkd3d_create_instance(&instance_default_create_info, &instance);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+
+    create_info.instance = instance;
+    create_info.instance_create_info = NULL;
+    hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+    refcount = vkd3d_instance_incref(instance);
+    ok(refcount >= 3, "Got unexpected refcount %u.\n", refcount);
+    vkd3d_instance_decref(instance);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+
+    create_info.instance = instance;
+    create_info.instance_create_info = &instance_default_create_info;
+    hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    refcount = vkd3d_instance_decref(instance);
+    ok(!refcount, "Instance has %u references left.\n", refcount);
+}
+
 static bool have_d3d12_device(void)
 {
-    struct vkd3d_instance_create_info instance_create_info =
-    {
-        .wchar_size = sizeof(WCHAR),
-    };
-    struct vkd3d_device_create_info device_create_info =
-    {
-        .minimum_feature_level = D3D_FEATURE_LEVEL_11_0,
-        .instance_create_info = &instance_create_info,
-    };
     ID3D12Device *device;
     HRESULT hr;
 
-    if (SUCCEEDED(hr = vkd3d_create_device(&device_create_info, &IID_ID3D12Device, (void **)&device)))
+    if (SUCCEEDED(hr = vkd3d_create_device(&device_default_create_info,
+            &IID_ID3D12Device, (void **)&device)))
         ID3D12Device_Release(device);
     return hr == S_OK;
 }
@@ -81,4 +130,5 @@ START_TEST(vkd3d_api)
     }
 
     run_test(test_create_instance);
+    run_test(test_create_device);
 }
