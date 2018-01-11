@@ -220,16 +220,10 @@ struct vkd3d_spirv_builder
     struct vkd3d_spirv_stream global_stream; /* types, constants, global variables */
     struct vkd3d_spirv_stream function_stream; /* function definitions */
 
+    struct vkd3d_spirv_stream execution_mode_stream; /* execution mode instructions */
+
     union
     {
-        struct
-        {
-            uint32_t local_size[3];
-        } compute;
-        struct
-        {
-            uint32_t output_vertices;
-        } geometry;
         struct
         {
             bool depth_replacing;
@@ -310,25 +304,6 @@ static void vkd3d_spirv_set_execution_model(struct vkd3d_spirv_builder *builder,
         default:
             ERR("Unhandled execution model %#x.\n", model);
     }
-}
-
-static void vkd3d_spirv_set_local_size(struct vkd3d_spirv_builder *builder,
-        unsigned int x, unsigned int y, unsigned int z)
-{
-    assert(builder->execution_model == SpvExecutionModelGLCompute);
-
-    builder->u.compute.local_size[0] = x;
-    builder->u.compute.local_size[1] = y;
-    builder->u.compute.local_size[2] = z;
-}
-
-static void vkd3d_spirv_set_output_vertices(struct vkd3d_spirv_builder *builder,
-        unsigned int output_vertex_count)
-{
-    assert(builder->execution_model == SpvExecutionModelGeometry);
-
-    assert(output_vertex_count > 0);
-    builder->u.geometry.output_vertices = output_vertex_count;
 }
 
 static void vkd3d_spirv_enable_depth_replacing(struct vkd3d_spirv_builder *builder)
@@ -783,7 +758,7 @@ static void vkd3d_spirv_build_op_entry_point(struct vkd3d_spirv_stream *stream,
 }
 
 static void vkd3d_spirv_build_op_execution_mode(struct vkd3d_spirv_stream *stream,
-        uint32_t entry_point, SpvExecutionMode mode, uint32_t *literals, unsigned int literal_count)
+        uint32_t entry_point, SpvExecutionMode mode, const uint32_t *literals, unsigned int literal_count)
 {
     vkd3d_spirv_build_op2v(stream, SpvOpExecutionMode, entry_point, mode, literals, literal_count);
 }
@@ -1491,6 +1466,7 @@ static void vkd3d_spirv_builder_init(struct vkd3d_spirv_builder *builder)
     vkd3d_spirv_stream_init(&builder->annotation_stream);
     vkd3d_spirv_stream_init(&builder->global_stream);
     vkd3d_spirv_stream_init(&builder->function_stream);
+    vkd3d_spirv_stream_init(&builder->execution_mode_stream);
 
     vkd3d_spirv_stream_init(&builder->insertion_stream);
     builder->insertion_location = ~(size_t)0;
@@ -1515,6 +1491,7 @@ static void vkd3d_spirv_builder_free(struct vkd3d_spirv_builder *builder)
     vkd3d_spirv_stream_free(&builder->annotation_stream);
     vkd3d_spirv_stream_free(&builder->global_stream);
     vkd3d_spirv_stream_free(&builder->function_stream);
+    vkd3d_spirv_stream_free(&builder->execution_mode_stream);
 
     vkd3d_spirv_stream_free(&builder->insertion_stream);
 
@@ -1523,29 +1500,17 @@ static void vkd3d_spirv_builder_free(struct vkd3d_spirv_builder *builder)
     vkd3d_free(builder->iface);
 }
 
-static void vkd3d_spirv_build_execution_mode_declarations(struct vkd3d_spirv_builder *builder,
+static void vkd3d_spirv_build_additional_execution_modes(struct vkd3d_spirv_builder *builder,
         struct vkd3d_spirv_stream *stream)
 {
     const uint32_t function_id = builder->main_function_id;
 
     switch (builder->execution_model)
     {
-        case SpvExecutionModelGeometry:
-            if (builder->u.geometry.output_vertices)
-                vkd3d_spirv_build_op_execution_mode(stream, function_id,
-                    SpvExecutionModeOutputVertices, &builder->u.geometry.output_vertices, 1);
-            break;
-
         case SpvExecutionModelFragment:
             if (builder->u.fragment.depth_replacing)
                 vkd3d_spirv_build_op_execution_mode(stream, function_id,
                         SpvExecutionModeDepthReplacing, NULL, 0);
-            break;
-
-        case SpvExecutionModelGLCompute:
-            vkd3d_spirv_build_op_execution_mode(stream, function_id,
-                    SpvExecutionModeLocalSize, builder->u.compute.local_size,
-                    ARRAY_SIZE(builder->u.compute.local_size));
             break;
 
         default:
@@ -1570,6 +1535,7 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
     vkd3d_spirv_build_word(&stream, builder->current_id); /* bound */
     vkd3d_spirv_build_word(&stream, 0); /* schema, reserved */
 
+    /* capabilities */
     for (i = 0; capability_mask; ++i)
     {
         if (capability_mask & 1)
@@ -1579,17 +1545,21 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
     if (builder->capability_draw_parameters)
         vkd3d_spirv_build_op_capability(&stream, SpvCapabilityDrawParameters);
 
+    /* extensions */
     if (builder->capability_draw_parameters)
         vkd3d_spirv_build_op_extension(&stream, "SPV_KHR_shader_draw_parameters");
 
     if (builder->ext_instr_set_glsl_450)
         vkd3d_spirv_build_op_ext_inst_import(&stream, builder->ext_instr_set_glsl_450, "GLSL.std.450");
 
+    /* entry point declarations */
     vkd3d_spirv_build_op_memory_model(&stream, SpvAddressingModelLogical, SpvMemoryModelGLSL450);
     vkd3d_spirv_build_op_entry_point(&stream, builder->execution_model, builder->main_function_id,
             "main", builder->iface, builder->iface_element_count);
 
-    vkd3d_spirv_build_execution_mode_declarations(builder, &stream);
+    /* execution mode declarations */
+    vkd3d_spirv_stream_append(&stream, &builder->execution_mode_stream);
+    vkd3d_spirv_build_additional_execution_modes(builder, &stream);
 
     vkd3d_spirv_stream_append(&stream, &builder->debug_stream);
     vkd3d_spirv_stream_append(&stream, &builder->annotation_stream);
@@ -2436,6 +2406,21 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *co
     }
 
     return val_id;
+}
+
+static void vkd3d_dxbc_compiler_emit_execution_mode(struct vkd3d_dxbc_compiler *compiler,
+        SpvExecutionMode mode, const uint32_t *literals, unsigned int literal_count)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    vkd3d_spirv_build_op_execution_mode(&builder->execution_mode_stream,
+            builder->main_function_id, mode, literals, literal_count);
+}
+
+static void vkd3d_dxbc_compiler_emit_execution_mode1(struct vkd3d_dxbc_compiler *compiler,
+        SpvExecutionMode mode, const uint32_t literal)
+{
+    vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, &literal, 1);
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_abs(struct vkd3d_dxbc_compiler *compiler,
@@ -3572,18 +3557,18 @@ static void vkd3d_dxbc_compiler_emit_dcl_output_siv(struct vkd3d_dxbc_compiler *
 static void vkd3d_dxbc_compiler_emit_dcl_vertices_out(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-
-    vkd3d_spirv_set_output_vertices(builder, instruction->declaration.count);
+    vkd3d_dxbc_compiler_emit_execution_mode1(compiler,
+            SpvExecutionModeOutputVertices, instruction->declaration.count);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_thread_group(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     const struct vkd3d_shader_thread_group_size *group_size = &instruction->declaration.thread_group_size;
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const uint32_t local_size[] = {group_size->x, group_size->y, group_size->z};
 
-    vkd3d_spirv_set_local_size(builder, group_size->x, group_size->y, group_size->z);
+    vkd3d_dxbc_compiler_emit_execution_mode(compiler,
+            SpvExecutionModeLocalSize, local_size, ARRAY_SIZE(local_size));
 }
 
 static SpvOp vkd3d_dxbc_compiler_map_alu_instruction(const struct vkd3d_shader_instruction *instruction)
