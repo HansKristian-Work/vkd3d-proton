@@ -184,6 +184,11 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         ERR("Invalid create/join thread function pointers.\n");
         return E_INVALIDARG;
     }
+    if (create_info->wchar_size != 2 && create_info->wchar_size != 4)
+    {
+        ERR("Unexpected WCHAR size %zu.\n", create_info->wchar_size);
+        return E_INVALIDARG;
+    }
 
     instance->signal_event = create_info->signal_event_pfn;
     instance->create_thread = create_info->create_thread_pfn;
