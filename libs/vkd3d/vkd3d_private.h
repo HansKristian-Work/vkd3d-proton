@@ -73,7 +73,11 @@ struct vkd3d_instance
 
 struct vkd3d_fence_worker
 {
-    pthread_t thread;
+    union
+    {
+        pthread_t thread;
+        void *handle;
+    } u;
     pthread_mutex_t mutex;
     pthread_cond_t cond;
     bool should_exit;
@@ -93,7 +97,8 @@ struct vkd3d_fence_worker
 
 HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
-HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker) DECLSPEC_HIDDEN;
+HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
 
 struct vkd3d_gpu_va_allocator
 {
@@ -628,6 +633,9 @@ struct d3d12_device
     struct vkd3d_vulkan_info vk_info;
 
     struct vkd3d_instance vkd3d_instance;
+
+    vkd3d_create_thread_pfn create_thread;
+    vkd3d_join_thread_pfn join_thread;
 };
 
 HRESULT d3d12_device_create(const struct vkd3d_device_create_info *create_info,

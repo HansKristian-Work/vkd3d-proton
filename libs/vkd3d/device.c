@@ -919,7 +919,7 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
         vkd3d_gpu_va_allocator_cleanup(&device->gpu_va_allocator);
-        vkd3d_fence_worker_stop(&device->fence_worker);
+        vkd3d_fence_worker_stop(&device->fence_worker, device);
         VK_CALL(vkDestroySampler(device->vk_device, device->vk_default_sampler, NULL));
         if (device->vk_pipeline_cache)
             VK_CALL(vkDestroyPipelineCache(device->vk_device, device->vk_pipeline_cache, NULL));
@@ -1813,6 +1813,12 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 {
     HRESULT hr;
 
+    if (!create_info->create_thread_pfn != !create_info->join_thread_pfn)
+    {
+        ERR("Invalid create/join thread function pointers.\n");
+        return E_INVALIDARG;
+    }
+
     device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl;
     device->refcount = 1;
 
@@ -1828,6 +1834,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     }
 
     device->signal_event = create_info->signal_event_pfn;
+    device->create_thread = create_info->create_thread_pfn;
+    device->join_thread = create_info->join_thread_pfn;
     device->wchar_size = create_info->wchar_size;
 
     if (FAILED(hr = d3d12_device_create_default_sampler(device)))

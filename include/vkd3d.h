@@ -33,10 +33,17 @@ extern "C" {
 
 typedef bool (*vkd3d_signal_event_pfn)(HANDLE event);
 
+typedef void * (*vkd3d_thread_pfn)(void *data);
+
+typedef void * (*vkd3d_create_thread_pfn)(vkd3d_thread_pfn thread_main, void *data);
+typedef bool (*vkd3d_join_thread_pfn)(void *thread);
+
 struct vkd3d_device_create_info
 {
     D3D_FEATURE_LEVEL minimum_feature_level;
     vkd3d_signal_event_pfn signal_event_pfn;
+    vkd3d_create_thread_pfn create_thread_pfn;
+    vkd3d_join_thread_pfn join_thread_pfn;
     size_t wchar_size;
 };
 

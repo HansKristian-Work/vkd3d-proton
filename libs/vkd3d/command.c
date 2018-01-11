@@ -204,7 +204,20 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
         return E_FAIL;
     }
 
-    if ((rc = pthread_create(&worker->thread, NULL, vkd3d_fence_worker_main, worker)))
+    if (device->create_thread)
+    {
+        if (!(worker->u.handle = device->create_thread(vkd3d_fence_worker_main, worker)))
+        {
+            ERR("Failed to create fence worker thread.\n");
+            pthread_mutex_destroy(&worker->mutex);
+            pthread_cond_destroy(&worker->cond);
+            return E_FAIL;
+        }
+
+        return S_OK;
+    }
+
+    if ((rc = pthread_create(&worker->u.thread, NULL, vkd3d_fence_worker_main, worker)))
     {
         ERR("Failed to create fence worker thread, error %d.\n", rc);
         pthread_mutex_destroy(&worker->mutex);
@@ -215,7 +228,8 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
     return S_OK;
 }
 
-HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker)
+HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
+        struct d3d12_device *device)
 {
     int rc;
 
@@ -232,10 +246,21 @@ HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker)
 
     pthread_mutex_unlock(&worker->mutex);
 
-    if ((rc = pthread_join(worker->thread, NULL)))
+    if (device->join_thread)
     {
-        ERR("Failed to join fence worker thread, error %d.\n", rc);
-        return E_FAIL;
+        if (!device->join_thread(worker->u.handle))
+        {
+            ERR("Failed to join fence worker thread.\n");
+            return E_FAIL;
+        }
+    }
+    else
+    {
+        if ((rc = pthread_join(worker->u.thread, NULL)))
+        {
+            ERR("Failed to join fence worker thread, error %d.\n", rc);
+            return E_FAIL;
+        }
     }
 
     pthread_mutex_destroy(&worker->mutex);
