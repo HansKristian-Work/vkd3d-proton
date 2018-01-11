@@ -79,10 +79,10 @@ AS_IF([test "x$with_spirv_tools" = "xyes"],
 PKG_CHECK_MODULES([XCB], [xcb xcb-keysyms])
 
 dnl Check for functions
-VKD3D_CHECK_BUILTIN_CLZ
-VKD3D_CHECK_BUILTIN_POPCOUNT
-VKD3D_CHECK_SYNC_ADD_AND_FETCH_FUNC
-VKD3D_CHECK_SYNC_SUB_AND_FETCH_FUNC
+VKD3D_CHECK_FUNC([HAVE_BUILTIN_CLZ], [__builtin_clz], [__builtin_clz(0)])
+VKD3D_CHECK_FUNC([HAVE_BUILTIN_POPCOUNT], [__builtin_popcount], [__builtin_popcount(0)])
+VKD3D_CHECK_FUNC([HAVE_SYNC_ADD_AND_FETCH], [__sync_add_and_fetch], [__sync_add_and_fetch((int *)0, 0)])
+VKD3D_CHECK_FUNC([HAVE_SYNC_SUB_AND_FETCH], [__sync_sub_and_fetch], [__sync_sub_and_fetch((int *)0, 0)])
 
 AM_CONDITIONAL([HAS_CROSSTARGET32], [test "x$CROSSTARGET32" != "xno"])
 AM_CONDITIONAL([HAS_CROSSTARGET64], [test "x$CROSSTARGET64" != "xno"])
