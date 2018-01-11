@@ -103,13 +103,15 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
 }
 
 static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_device *device,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        const D3D12_RESOURCE_DESC *desc)
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_format *format;
+    const D3D12_RESOURCE_DESC *desc;
     VkImageCreateInfo image_info;
     VkResult vr;
+
+    desc = &resource->desc;
 
     if (!(format = vkd3d_format_from_d3d12_resource_desc(desc, 0)))
     {
@@ -606,6 +608,30 @@ struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface)
     return impl_from_ID3D12Resource(iface);
 }
 
+static HRESULT validate_buffer_desc(const D3D12_RESOURCE_DESC *desc)
+{
+    if (desc->MipLevels != 1)
+    {
+        WARN("Invalid miplevel count %u for buffer.\n", desc->MipLevels);
+        return E_INVALIDARG;
+    }
+
+    return S_OK;
+}
+
+static HRESULT validate_texture_desc(D3D12_RESOURCE_DESC *desc)
+{
+    if (!desc->MipLevels)
+    {
+        unsigned int size = max(desc->Width, desc->Height);
+        if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+            size = max(size, desc->DepthOrArraySize);
+        desc->MipLevels = vkd3d_log2i(size) + 1;
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
@@ -658,8 +684,10 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     switch (desc->Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
-            if (FAILED(hr = vkd3d_create_buffer(device, heap_properties, heap_flags, desc,
-                    &resource->u.vk_buffer)))
+            if (FAILED(hr = validate_buffer_desc(&resource->desc)))
+                return hr;
+            if (FAILED(hr = vkd3d_create_buffer(device, heap_properties, heap_flags,
+                    &resource->desc, &resource->u.vk_buffer)))
                 return hr;
             if (!(resource->gpu_address = vkd3d_gpu_va_allocator_allocate(&device->gpu_va_allocator,
                     desc->Width, resource)))
@@ -679,8 +707,10 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
         case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
         case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
         case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
+            if (FAILED(hr = validate_texture_desc(&resource->desc)))
+                return hr;
             resource->flags |= VKD3D_RESOURCE_INITIAL_STATE_TRANSITION;
-            if (FAILED(hr = vkd3d_create_image(resource, device, heap_properties, heap_flags, desc)))
+            if (FAILED(hr = vkd3d_create_image(resource, device, heap_properties, heap_flags)))
                 return hr;
             if (FAILED(hr = vkd3d_allocate_image_memory(resource, device, heap_properties, heap_flags)))
             {

@@ -2213,6 +2213,24 @@ static void test_create_committed_resource(void)
     refcount = ID3D12Resource_Release(resource);
     ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
 
+    resource_desc.MipLevels = 0;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "Failed to create committed resource, hr %#x.\n", hr);
+    resource_desc = ID3D12Resource_GetDesc(resource);
+    ok(resource_desc.MipLevels == 6, "Got unexpected miplevels %u.\n", resource_desc.MipLevels);
+    ID3D12Resource_Release(resource);
+    resource_desc.MipLevels = 10;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "Failed to create committed resource, hr %#x.\n", hr);
+    resource_desc = ID3D12Resource_GetDesc(resource);
+    ok(resource_desc.MipLevels == 10, "Got unexpected miplevels %u.\n", resource_desc.MipLevels);
+    ID3D12Resource_Release(resource);
+    resource_desc.MipLevels = 1;
+
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
             &clear_value, &IID_ID3D12Resource, (void **)&resource);
@@ -2290,6 +2308,13 @@ static void test_create_committed_resource(void)
 
     refcount = ID3D12Resource_Release(resource);
     ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+
+    resource_desc.MipLevels = 0;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, &clear_value,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Failed to create committed resource, hr %#x.\n", hr);
+    resource_desc.MipLevels = 1;
 
     /* The clear value must be NULL for buffers. */
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
