@@ -333,7 +333,7 @@ enum vkd3d_sm4_register_type
 enum vkd3d_sm4_output_primitive_type
 {
     VKD3D_SM4_OUTPUT_PT_POINTLIST     = 0x1,
-    VKD3D_SM4_OUTPUT_PT_LINELIST      = 0x3,
+    VKD3D_SM4_OUTPUT_PT_LINESTRIP     = 0x3,
     VKD3D_SM4_OUTPUT_PT_TRIANGLESTRIP = 0x5,
 };
 
@@ -462,7 +462,7 @@ static const enum vkd3d_primitive_type output_primitive_type_table[] =
     /* UNKNOWN */                             VKD3D_PT_UNDEFINED,
     /* VKD3D_SM4_OUTPUT_PT_POINTLIST */       VKD3D_PT_POINTLIST,
     /* UNKNOWN */                             VKD3D_PT_UNDEFINED,
-    /* VKD3D_SM4_OUTPUT_PT_LINELIST */        VKD3D_PT_LINELIST,
+    /* VKD3D_SM4_OUTPUT_PT_LINESTRIP */       VKD3D_PT_LINESTRIP,
     /* UNKNOWN */                             VKD3D_PT_UNDEFINED,
     /* VKD3D_SM4_OUTPUT_PT_TRIANGLESTRIP */   VKD3D_PT_TRIANGLESTRIP,
 };
