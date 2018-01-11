@@ -33,6 +33,9 @@ vkd3d_demos_shaders = \
 	demos/triangle_vs.h
 
 vkd3d_tests = \
+	tests/vkd3d_api
+
+vkd3d_cross_tests = \
 	tests/d3d12
 
 vkd3d_demos = \
@@ -101,9 +104,9 @@ vkd3d_compiler_SOURCES = programs/vkd3d-compiler/main.c
 vkd3d_compiler_LDADD = libvkd3d-shader.la
 
 LDADD = libvkd3d.la libvkd3d-utils.la
-check_PROGRAMS = $(vkd3d_tests)
+check_PROGRAMS = $(vkd3d_tests) $(vkd3d_cross_tests)
 AM_DEFAULT_SOURCE_EXT = .c
-TESTS = $(vkd3d_tests)
+TESTS = $(vkd3d_tests) $(vkd3d_cross_tests)
 tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@
 
 DEMOS_LDADD = $(LDADD) libvkd3d-shader.la @XCB_LIBS@ @VULKAN_LIBS@
@@ -154,7 +157,7 @@ if HAS_CROSSTARGET32
 CROSS32_CC = @CROSSCC32@
 CROSS32_DLLTOOL = @CROSSTARGET32@-dlltool
 CROSS32_IMPLIBS = $(cross_implibs:=.cross32.a)
-CROSS32_EXEFILES = $(vkd3d_tests:=.cross32.exe) $(vkd3d_demos:=.cross32.exe)
+CROSS32_EXEFILES = $(vkd3d_cross_tests:=.cross32.exe) $(vkd3d_demos:=.cross32.exe)
 CROSS32_FILES = $(CROSS32_IMPLIBS) $(CROSS32_EXEFILES)
 
 CLEANFILES += $(CROSS32_FILES)
@@ -179,7 +182,7 @@ if HAS_CROSSTARGET64
 CROSS64_CC = @CROSSCC64@
 CROSS64_DLLTOOL = @CROSSTARGET64@-dlltool
 CROSS64_IMPLIBS = $(cross_implibs:=.cross64.a)
-CROSS64_EXEFILES = $(vkd3d_tests:=.cross64.exe) $(vkd3d_demos:=.cross64.exe)
+CROSS64_EXEFILES = $(vkd3d_cross_tests:=.cross64.exe) $(vkd3d_demos:=.cross64.exe)
 CROSS64_FILES = $(CROSS64_IMPLIBS) $(CROSS64_EXEFILES)
 
 CLEANFILES += $(CROSS64_FILES)
