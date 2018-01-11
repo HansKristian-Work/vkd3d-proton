@@ -1391,6 +1391,11 @@ static uint32_t vkd3d_spirv_build_op_image_query_levels(struct vkd3d_spirv_build
             SpvOpImageQueryLevels, result_type, image_id);
 }
 
+static void vkd3d_spirv_build_op_emit_vertex(struct vkd3d_spirv_builder *builder)
+{
+    return vkd3d_spirv_build_op(&builder->function_stream, SpvOpEmitVertex);
+}
+
 static void vkd3d_spirv_build_op_control_barrier(struct vkd3d_spirv_builder *builder,
         uint32_t execution_id, uint32_t memory_id, uint32_t memory_semantics_id)
 {
@@ -3554,6 +3559,15 @@ static void vkd3d_dxbc_compiler_emit_dcl_output_siv(struct vkd3d_dxbc_compiler *
             instruction->declaration.register_semantic.sysval_semantic);
 }
 
+static void vkd3d_dxbc_compiler_emit_dcl_stream(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    unsigned int stream_idx = instruction->src[0].reg.idx[0].offset;
+
+    if (stream_idx)
+        FIXME("Multiple streams are not supported yet.\n");
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_vertices_out(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -4146,8 +4160,7 @@ static void vkd3d_dxbc_compiler_emit_breakc(struct vkd3d_dxbc_compiler *compiler
     vkd3d_spirv_build_op_label(builder, merge_block_id);
 }
 
-static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_instruction *instruction)
+static void vkd3d_dxbc_compiler_emit_output_setup_invocation(struct vkd3d_dxbc_compiler *compiler)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t void_id, function_id, arguments[MAX_REG_OUTPUT];
@@ -4164,7 +4177,14 @@ static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler
 
         vkd3d_spirv_build_op_function_call(builder, void_id, function_id, arguments, count);
     }
+}
 
+static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    vkd3d_dxbc_compiler_emit_output_setup_invocation(compiler);
     vkd3d_spirv_build_op_return(builder);
 }
 
@@ -5360,6 +5380,27 @@ static void vkd3d_dxbc_compiler_emit_sync(struct vkd3d_dxbc_compiler *compiler,
     }
 }
 
+static void vkd3d_dxbc_compiler_emit_emit_stream(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    unsigned int stream_idx;
+
+    if (instruction->handler_idx == VKD3DSIH_EMIT_STREAM)
+        stream_idx = instruction->src[0].reg.idx[0].offset;
+    else
+        stream_idx = 0;
+
+    if (stream_idx)
+    {
+        FIXME("Multiple streams are not supported yet.\n");
+        return;
+    }
+
+    vkd3d_dxbc_compiler_emit_output_setup_invocation(compiler);
+    vkd3d_spirv_build_op_emit_vertex(builder);
+}
+
 /* This function is called after declarations are processed. */
 static void vkd3d_dxbc_compiler_emit_main_prolog(struct vkd3d_dxbc_compiler *compiler)
 {
@@ -5439,6 +5480,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL_OUTPUT_SIV:
             vkd3d_dxbc_compiler_emit_dcl_output_siv(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_STREAM:
+            vkd3d_dxbc_compiler_emit_dcl_stream(compiler, instruction);
             break;
         case VKD3DSIH_DCL_VERTICES_OUT:
             vkd3d_dxbc_compiler_emit_dcl_vertices_out(compiler, instruction);
@@ -5607,6 +5651,10 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_SYNC:
             vkd3d_dxbc_compiler_emit_sync(compiler, instruction);
+            break;
+        case VKD3DSIH_EMIT:
+        case VKD3DSIH_EMIT_STREAM:
+            vkd3d_dxbc_compiler_emit_emit_stream(compiler, instruction);
             break;
         case VKD3DSIH_NOP:
             break;
