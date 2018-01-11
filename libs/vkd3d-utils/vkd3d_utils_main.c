@@ -28,7 +28,8 @@ HRESULT WINAPI D3D12GetDebugInterface(REFIID riid, void **debug)
 HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
         D3D_FEATURE_LEVEL minimum_feature_level, REFIID riid, void **device)
 {
-    struct vkd3d_device_create_info create_info;
+    struct vkd3d_instance_create_info instance_create_info;
+    struct vkd3d_device_create_info device_create_info;
 
     TRACE("adapter %p, minimum_feature_level %#x, riid %s, device %p.\n",
             adapter, minimum_feature_level, debugstr_guid(riid), device);
@@ -36,13 +37,16 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
     if (adapter)
         FIXME("Ignoring adapter %p.\n", adapter);
 
-    create_info.minimum_feature_level = minimum_feature_level;
-    create_info.signal_event_pfn = vkd3d_signal_event;
-    create_info.create_thread_pfn = NULL;
-    create_info.join_thread_pfn = NULL;
-    create_info.wchar_size = sizeof(WCHAR);
+    instance_create_info.signal_event_pfn = vkd3d_signal_event;
+    instance_create_info.create_thread_pfn = NULL;
+    instance_create_info.join_thread_pfn = NULL;
+    instance_create_info.wchar_size = sizeof(WCHAR);
 
-    return vkd3d_create_device(&create_info, riid, device);
+    device_create_info.minimum_feature_level = minimum_feature_level;
+    device_create_info.instance = NULL;
+    device_create_info.instance_create_info = &instance_create_info;
+
+    return vkd3d_create_device(&device_create_info, riid, device);
 }
 
 HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T data_size,

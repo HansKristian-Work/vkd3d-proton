@@ -170,7 +170,7 @@ static void vkd3d_init_instance_caps(struct vkd3d_vulkan_info *vulkan_info)
 }
 
 static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
-        struct vkd3d_vulkan_info *vk_info)
+        const struct vkd3d_instance_create_info *create_info)
 {
     const char *extensions[MAX_INSTANCE_EXTENSION_COUNT];
     VkApplicationInfo application_info;
@@ -179,7 +179,19 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     VkResult vr;
     HRESULT hr;
 
-    TRACE("instance %p.\n", instance);
+    if (!create_info->create_thread_pfn != !create_info->join_thread_pfn)
+    {
+        ERR("Invalid create/join thread function pointers.\n");
+        return E_INVALIDARG;
+    }
+
+    instance->signal_event = create_info->signal_event_pfn;
+    instance->create_thread = create_info->create_thread_pfn;
+    instance->join_thread = create_info->join_thread_pfn;
+    instance->wchar_size = create_info->wchar_size;
+
+    memset(&instance->vk_info, 0, sizeof(instance->vk_info));
+    vkd3d_init_instance_caps(&instance->vk_info);
 
     application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     application_info.pNext = NULL;
@@ -198,7 +210,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance_info.enabledExtensionCount = vkd3d_enable_extensions(extensions,
             required_instance_extensions, ARRAY_SIZE(required_instance_extensions),
             optional_instance_extensions, ARRAY_SIZE(optional_instance_extensions),
-            vk_info);
+            &instance->vk_info);
     instance_info.ppEnabledExtensionNames = extensions;
 
     if ((vr = vkCreateInstance(&instance_info, NULL, &vk_instance)))
@@ -218,16 +230,58 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
 
     TRACE("Created Vulkan instance %p.\n", vk_instance);
 
+    instance->refcount = 1;
+
     return S_OK;
 }
 
-static void vkd3d_instance_destroy(struct vkd3d_instance *instance)
+HRESULT vkd3d_create_instance(const struct vkd3d_instance_create_info *create_info,
+        struct vkd3d_instance **instance)
 {
-    const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
+    struct vkd3d_instance *object;
+    HRESULT hr;
 
-    TRACE("instance %p.\n", instance);
+    TRACE("create_info %p.\n", create_info);
 
-    VK_CALL(vkDestroyInstance(instance->vk_instance, NULL));
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    if (FAILED(hr = vkd3d_instance_init(object, create_info)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
+
+    TRACE("Created instance %p.\n", object);
+
+    *instance = object;
+
+    return S_OK;
+}
+
+ULONG vkd3d_instance_incref(struct vkd3d_instance *instance)
+{
+    ULONG refcount = InterlockedIncrement(&instance->refcount);
+
+    TRACE("%p increasing refcount to %u.\n", instance, refcount);
+
+    return refcount;
+}
+
+ULONG vkd3d_instance_decref(struct vkd3d_instance *instance)
+{
+    ULONG refcount = InterlockedDecrement(&instance->refcount);
+
+    TRACE("%p decreasing refcount to %u.\n", instance, refcount);
+
+    if (!refcount)
+    {
+        const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
+        VK_CALL(vkDestroyInstance(instance->vk_instance, NULL));
+        vkd3d_free(instance);
+    }
+
+    return refcount;
 }
 
 static void vkd3d_trace_physical_device(VkPhysicalDevice device,
@@ -502,7 +556,7 @@ static void vkd3d_check_feature_level_11_requirements(const VkPhysicalDeviceLimi
 static void vkd3d_init_device_caps(struct d3d12_device *device,
         const VkPhysicalDeviceFeatures *features)
 {
-    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance.vk_procs;
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDevice physical_device = device->vk_physical_device;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
     VkPhysicalDeviceProperties device_properties;
@@ -629,7 +683,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
 {
     unsigned int direct_queue_family_index, copy_queue_family_index, compute_queue_family_index;
     uint32_t direct_queue_timestamp_bits, copy_queue_timestamp_bits, compute_queue_timestamp_bits;
-    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance.vk_procs;
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     const char *extensions[MAX_DEVICE_EXTENSION_COUNT];
     VkQueueFamilyProperties *queue_properties;
     VkPhysicalDeviceFeatures device_features;
@@ -645,7 +699,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     TRACE("device %p.\n", device);
 
     physical_device = VK_NULL_HANDLE;
-    if (FAILED(hr = vkd3d_select_physical_device(&device->vkd3d_instance, &physical_device)))
+    if (FAILED(hr = vkd3d_select_physical_device(device->vkd3d_instance, &physical_device)))
         return hr;
 
     /* Create command queues */
@@ -924,7 +978,7 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
         if (device->vk_pipeline_cache)
             VK_CALL(vkDestroyPipelineCache(device->vk_device, device->vk_pipeline_cache, NULL));
         VK_CALL(vkDestroyDevice(device->vk_device, NULL));
-        vkd3d_instance_destroy(&device->vkd3d_instance);
+        vkd3d_instance_decref(device->vkd3d_instance);
 
         vkd3d_free(device);
     }
@@ -1808,42 +1862,32 @@ struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface)
     return impl_from_ID3D12Device(iface);
 }
 
-static HRESULT d3d12_device_init(struct d3d12_device *device,
-        const struct vkd3d_device_create_info *create_info)
+static HRESULT d3d12_device_init(struct d3d12_device *device, struct vkd3d_instance *instance)
 {
     HRESULT hr;
-
-    if (!create_info->create_thread_pfn != !create_info->join_thread_pfn)
-    {
-        ERR("Invalid create/join thread function pointers.\n");
-        return E_INVALIDARG;
-    }
 
     device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl;
     device->refcount = 1;
 
-    memset(&device->vk_info, 0, sizeof(device->vk_info));
-    vkd3d_init_instance_caps(&device->vk_info);
-    if (FAILED(hr = vkd3d_instance_init(&device->vkd3d_instance, &device->vk_info)))
-        return hr;
+    vkd3d_instance_incref(device->vkd3d_instance = instance);
+    device->vk_info = instance->vk_info;
+    device->signal_event = instance->signal_event;
+    device->create_thread = instance->create_thread;
+    device->join_thread = instance->join_thread;
+    device->wchar_size = instance->wchar_size;
 
     if (FAILED(hr = vkd3d_create_vk_device(device)))
     {
-        vkd3d_instance_destroy(&device->vkd3d_instance);
+        vkd3d_instance_decref(device->vkd3d_instance);
         return hr;
     }
-
-    device->signal_event = create_info->signal_event_pfn;
-    device->create_thread = create_info->create_thread_pfn;
-    device->join_thread = create_info->join_thread_pfn;
-    device->wchar_size = create_info->wchar_size;
 
     if (FAILED(hr = d3d12_device_create_default_sampler(device)))
     {
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
         ERR("Failed to create default sampler, hr %#x.\n", hr);
         VK_CALL(vkDestroyDevice(device->vk_device, NULL));
-        vkd3d_instance_destroy(&device->vkd3d_instance);
+        vkd3d_instance_decref(device->vkd3d_instance);
         return hr;
     }
 
@@ -1852,7 +1896,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
         VK_CALL(vkDestroySampler(device->vk_device, device->vk_default_sampler, NULL));
         VK_CALL(vkDestroyDevice(device->vk_device, NULL));
-        vkd3d_instance_destroy(&device->vkd3d_instance);
+        vkd3d_instance_decref(device->vkd3d_instance);
         return hr;
     }
 
@@ -1863,8 +1907,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     return S_OK;
 }
 
-HRESULT d3d12_device_create(const struct vkd3d_device_create_info *create_info,
-        struct d3d12_device **device)
+HRESULT d3d12_device_create(struct vkd3d_instance *instance, struct d3d12_device **device)
 {
     struct d3d12_device *object;
     HRESULT hr;
@@ -1872,7 +1915,7 @@ HRESULT d3d12_device_create(const struct vkd3d_device_create_info *create_info,
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    if (FAILED(hr = d3d12_device_init(object, create_info)))
+    if (FAILED(hr = d3d12_device_init(object, instance)))
     {
         vkd3d_free(object);
         return hr;
@@ -1895,8 +1938,9 @@ VkDevice vkd3d_get_vk_device(ID3D12Device *device)
 VkInstance vkd3d_get_vk_instance(ID3D12Device *device)
 {
     struct d3d12_device *d3d12_device = impl_from_ID3D12Device(device);
+    struct vkd3d_instance *instance = d3d12_device->vkd3d_instance;
 
-    return d3d12_device->vkd3d_instance.vk_instance;
+    return instance->vk_instance;
 }
 
 VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device)

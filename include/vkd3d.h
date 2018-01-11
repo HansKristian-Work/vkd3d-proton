@@ -38,27 +38,41 @@ typedef void * (*vkd3d_thread_pfn)(void *data);
 typedef void * (*vkd3d_create_thread_pfn)(vkd3d_thread_pfn thread_main, void *data);
 typedef bool (*vkd3d_join_thread_pfn)(void *thread);
 
-struct vkd3d_device_create_info
+struct vkd3d_instance;
+
+struct vkd3d_instance_create_info
 {
-    D3D_FEATURE_LEVEL minimum_feature_level;
     vkd3d_signal_event_pfn signal_event_pfn;
     vkd3d_create_thread_pfn create_thread_pfn;
     vkd3d_join_thread_pfn join_thread_pfn;
     size_t wchar_size;
 };
 
+struct vkd3d_device_create_info
+{
+    D3D_FEATURE_LEVEL minimum_feature_level;
+
+    struct vkd3d_instance *instance;
+    const struct vkd3d_instance_create_info *instance_create_info;
+};
+
 /* resource flags */
 #define VKD3D_RESOURCE_INITIAL_STATE_TRANSITION 0x00000001
 #define VKD3D_RESOURCE_SWAPCHAIN_IMAGE          0x00000002
+
+HRESULT vkd3d_create_instance(const struct vkd3d_instance_create_info *create_info,
+        struct vkd3d_instance **instance);
+ULONG vkd3d_instance_decref(struct vkd3d_instance *instance);
+ULONG vkd3d_instance_incref(struct vkd3d_instance *instance);
 
 HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         REFIID riid, void **device);
 HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_DESC *desc,
         VkImage vk_image, unsigned int resource_flags, ID3D12Resource **resource);
 VkDevice vkd3d_get_vk_device(ID3D12Device *device);
-VkFormat vkd3d_get_vk_format(DXGI_FORMAT format);
 VkInstance vkd3d_get_vk_instance(ID3D12Device *device);
 VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device);
+
 VkQueue vkd3d_get_vk_queue(ID3D12CommandQueue *queue);
 uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue);
 
@@ -67,6 +81,8 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_sig
 
 HRESULT vkd3d_create_root_signature_deserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer);
+
+VkFormat vkd3d_get_vk_format(DXGI_FORMAT format);
 
 #ifdef __cplusplus
 }

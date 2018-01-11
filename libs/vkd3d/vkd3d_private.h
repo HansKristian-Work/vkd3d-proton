@@ -65,10 +65,30 @@ struct vkd3d_vk_device_procs
 };
 #undef DECLARE_VK_PFN
 
+struct vkd3d_vulkan_info
+{
+    /* instance extensions */
+    bool KHR_get_physical_device_properties2;
+    /* device extensions */
+    bool KHR_push_descriptor;
+
+    VkPhysicalDeviceLimits device_limits;
+    VkPhysicalDeviceSparseProperties sparse_properties;
+};
+
 struct vkd3d_instance
 {
     VkInstance vk_instance;
     struct vkd3d_vk_instance_procs vk_procs;
+
+    vkd3d_signal_event_pfn signal_event;
+    vkd3d_create_thread_pfn create_thread;
+    vkd3d_join_thread_pfn join_thread;
+    size_t wchar_size;
+
+    struct vkd3d_vulkan_info vk_info;
+
+    LONG refcount;
 };
 
 struct vkd3d_fence_worker
@@ -591,15 +611,6 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_
         struct d3d12_command_signature **signature) DECLSPEC_HIDDEN;
 struct d3d12_command_signature *unsafe_impl_from_ID3D12CommandSignature(ID3D12CommandSignature *iface) DECLSPEC_HIDDEN;
 
-struct vkd3d_vulkan_info
-{
-    bool KHR_get_physical_device_properties2;
-    bool KHR_push_descriptor;
-
-    VkPhysicalDeviceLimits device_limits;
-    VkPhysicalDeviceSparseProperties sparse_properties;
-};
-
 /* ID3D12Device */
 struct d3d12_device
 {
@@ -632,14 +643,13 @@ struct d3d12_device
 
     struct vkd3d_vulkan_info vk_info;
 
-    struct vkd3d_instance vkd3d_instance;
+    struct vkd3d_instance *vkd3d_instance;
 
     vkd3d_create_thread_pfn create_thread;
     vkd3d_join_thread_pfn join_thread;
 };
 
-HRESULT d3d12_device_create(const struct vkd3d_device_create_info *create_info,
-        struct d3d12_device **device) DECLSPEC_HIDDEN;
+HRESULT d3d12_device_create(struct vkd3d_instance *instance, struct d3d12_device **device) DECLSPEC_HIDDEN;
 struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface) DECLSPEC_HIDDEN;
 
 HRESULT vkd3d_create_buffer(struct d3d12_device *device,

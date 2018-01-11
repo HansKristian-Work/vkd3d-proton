@@ -22,10 +22,24 @@
 HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         REFIID riid, void **device)
 {
+    struct vkd3d_instance *instance;
     struct d3d12_device *object;
     HRESULT hr;
 
     TRACE("create_info %p, riid %s, device %p.\n", create_info, debugstr_guid(riid), device);
+
+    if (!create_info || !device)
+        return E_INVALIDARG;
+    if (!create_info->instance && !create_info->instance_create_info)
+    {
+        ERR("Instance or instance create info is required.\n");
+        return E_INVALIDARG;
+    }
+    if (create_info->instance && create_info->instance_create_info)
+    {
+        ERR("Instance and instance create info are mutually exclusive parameters.\n");
+        return E_INVALIDARG;
+    }
 
     if (create_info->minimum_feature_level < D3D_FEATURE_LEVEL_11_0
             || !is_valid_feature_level(create_info->minimum_feature_level))
@@ -40,7 +54,19 @@ HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         return E_INVALIDARG;
     }
 
-    if (FAILED(hr = d3d12_device_create(create_info, &object)))
+    if ((instance = create_info->instance))
+    {
+        vkd3d_instance_incref(instance);
+    }
+    else if (FAILED(hr = vkd3d_create_instance(create_info->instance_create_info, &instance)))
+    {
+        WARN("Failed to create instance, hr %#x.\n", hr);
+        return E_FAIL;
+    }
+
+    hr = d3d12_device_create(instance, &object);
+    vkd3d_instance_decref(instance);
+    if (FAILED(hr))
         return hr;
 
     return return_interface((IUnknown *)&object->ID3D12Device_iface, &IID_ID3D12Device,
