@@ -40,6 +40,33 @@ static const struct vkd3d_device_create_info device_default_create_info =
     .instance_create_info = &instance_default_create_info,
 };
 
+static ID3D12Device *create_device(void)
+{
+    ID3D12Device *device;
+    HRESULT hr;
+
+    hr = vkd3d_create_device(&device_default_create_info,
+            &IID_ID3D12Device, (void **)&device);
+    return SUCCEEDED(hr) ? device : NULL;
+}
+
+static ID3D12CommandQueue *create_command_queue(ID3D12Device *device,
+        D3D12_COMMAND_LIST_TYPE type)
+{
+    D3D12_COMMAND_QUEUE_DESC desc;
+    ID3D12CommandQueue *queue;
+    HRESULT hr;
+
+    desc.Type = type;
+    desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    desc.NodeMask = 0;
+    hr = ID3D12Device_CreateCommandQueue(device, &desc,
+            &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
+    return queue;
+}
+
 static void test_create_instance(void)
 {
     struct vkd3d_instance_create_info create_info;
@@ -110,15 +137,55 @@ static void test_create_device(void)
     ok(!refcount, "Instance has %u references left.\n", refcount);
 }
 
+static void test_vkd3d_queue(void)
+{
+    ID3D12CommandQueue *direct_queue, *compute_queue, *copy_queue;
+    uint32_t vk_queue_family;
+    ID3D12Device *device;
+    VkQueue vk_queue;
+    ULONG refcount;
+
+    device = create_device();
+    ok(device, "Failed to create device.\n");
+
+    direct_queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT);
+    ok(direct_queue, "Failed to create direct command queue.\n");
+    compute_queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_COMPUTE);
+    ok(compute_queue, "Failed to create direct command queue.\n");
+    copy_queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_COPY);
+    ok(copy_queue, "Failed to create direct command queue.\n");
+
+    vk_queue_family = vkd3d_get_vk_queue_family_index(direct_queue);
+    trace("Direct queue family index %u.\n", vk_queue_family);
+    vk_queue_family = vkd3d_get_vk_queue_family_index(compute_queue);
+    trace("Compute queue family index %u.\n", vk_queue_family);
+    vk_queue_family = vkd3d_get_vk_queue_family_index(copy_queue);
+    trace("Copy queue family index %u.\n", vk_queue_family);
+
+    vk_queue = vkd3d_acquire_vk_queue(direct_queue);
+    ok(vk_queue != VK_NULL_HANDLE, "Failed to acquire Vulkan queue.\n");
+    vkd3d_release_vk_queue(direct_queue);
+    vk_queue = vkd3d_acquire_vk_queue(compute_queue);
+    ok(vk_queue != VK_NULL_HANDLE, "Failed to acquire Vulkan queue.\n");
+    vkd3d_release_vk_queue(compute_queue);
+    vk_queue = vkd3d_acquire_vk_queue(copy_queue);
+    ok(vk_queue != VK_NULL_HANDLE, "Failed to acquire Vulkan queue.\n");
+    vkd3d_release_vk_queue(copy_queue);
+
+    ID3D12CommandQueue_Release(direct_queue);
+    ID3D12CommandQueue_Release(compute_queue);
+    ID3D12CommandQueue_Release(copy_queue);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+}
+
 static bool have_d3d12_device(void)
 {
     ID3D12Device *device;
-    HRESULT hr;
 
-    if (SUCCEEDED(hr = vkd3d_create_device(&device_default_create_info,
-            &IID_ID3D12Device, (void **)&device)))
+    if ((device = create_device()))
         ID3D12Device_Release(device);
-    return hr == S_OK;
+    return device;
 }
 
 START_TEST(vkd3d_api)
@@ -131,4 +198,5 @@ START_TEST(vkd3d_api)
 
     run_test(test_create_instance);
     run_test(test_create_device);
+    run_test(test_vkd3d_queue);
 }

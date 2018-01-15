@@ -61,7 +61,7 @@ struct demo_swapchain
 
     VkInstance vk_instance;
     VkDevice vk_device;
-    VkQueue vk_queue;
+    ID3D12CommandQueue *command_queue;
 
     uint32_t current_buffer;
     unsigned int buffer_count;
@@ -451,7 +451,6 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     swapchain->vk_fence = vk_fence;
     swapchain->vk_instance = vk_instance;
     swapchain->vk_device = vk_device;
-    swapchain->vk_queue = vkd3d_get_vk_queue(command_queue);
 
     vkAcquireNextImageKHR(vk_device, vk_swapchain, UINT64_MAX,
             VK_NULL_HANDLE, vk_fence, &swapchain->current_buffer);
@@ -488,6 +487,8 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     free(vk_images);
     ID3D12Device_Release(d3d12_device);
 
+    ID3D12CommandQueue_AddRef(swapchain->command_queue = command_queue);
+
     return swapchain;
 
 fail:
@@ -518,6 +519,7 @@ static inline ID3D12Resource *demo_swapchain_get_back_buffer(struct demo_swapcha
 static inline void demo_swapchain_present(struct demo_swapchain *swapchain)
 {
     VkPresentInfoKHR present_desc;
+    VkQueue vk_queue;
 
     present_desc.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     present_desc.pNext = NULL;
@@ -528,7 +530,9 @@ static inline void demo_swapchain_present(struct demo_swapchain *swapchain)
     present_desc.pImageIndices = &swapchain->current_buffer;
     present_desc.pResults = NULL;
 
-    vkQueuePresentKHR(swapchain->vk_queue, &present_desc);
+    vk_queue = vkd3d_acquire_vk_queue(swapchain->command_queue);
+    vkQueuePresentKHR(vk_queue, &present_desc);
+    vkd3d_release_vk_queue(swapchain->command_queue);
 
     vkAcquireNextImageKHR(swapchain->vk_device, swapchain->vk_swapchain, UINT64_MAX,
             VK_NULL_HANDLE, swapchain->vk_fence, &swapchain->current_buffer);
@@ -540,6 +544,7 @@ static inline void demo_swapchain_destroy(struct demo_swapchain *swapchain)
 {
     unsigned int i;
 
+    ID3D12CommandQueue_Release(swapchain->command_queue);
     for (i = 0; i < swapchain->buffer_count; ++i)
     {
         ID3D12Resource_Release(swapchain->buffers[i]);

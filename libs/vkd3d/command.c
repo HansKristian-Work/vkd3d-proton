@@ -4394,6 +4394,20 @@ uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue)
     return d3d12_queue->vkd3d_queue->vk_family_index;
 }
 
+VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue)
+{
+    struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
+
+    return vkd3d_queue_acquire(d3d12_queue->vkd3d_queue);
+}
+
+void vkd3d_release_vk_queue(ID3D12CommandQueue *queue)
+{
+    struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
+
+    return vkd3d_queue_release(d3d12_queue->vkd3d_queue);
+}
+
 /* ID3D12CommandSignature */
 static inline struct d3d12_command_signature *impl_from_ID3D12CommandSignature(ID3D12CommandSignature *iface)
 {
