@@ -578,6 +578,19 @@ HRESULT d3d12_command_list_create(struct d3d12_device *device,
         UINT node_mask, D3D12_COMMAND_LIST_TYPE type, ID3D12CommandAllocator *allocator_iface,
         ID3D12PipelineState *initial_pipeline_state, struct d3d12_command_list **list) DECLSPEC_HIDDEN;
 
+struct vkd3d_queue
+{
+    /* Access to VkQueue must be externally synchronized. */
+    pthread_mutex_t mutex;
+    VkQueue vk_queue;
+    uint32_t vk_family_index;
+    uint32_t timestamp_bits;
+};
+
+HRESULT vkd3d_queue_create(struct d3d12_device *device,
+        uint32_t family_index, uint32_t timestamp_bits, struct vkd3d_queue **queue) DECLSPEC_HIDDEN;
+void vkd3d_queue_destroy(struct vkd3d_queue *queue) DECLSPEC_HIDDEN;
+
 /* ID3D12CommandQueue */
 struct d3d12_command_queue
 {
@@ -586,9 +599,7 @@ struct d3d12_command_queue
 
     D3D12_COMMAND_QUEUE_DESC desc;
 
-    VkQueue vk_queue;
-    uint32_t vk_queue_family_index;
-    uint32_t vk_queue_timestamp_bits;
+    struct vkd3d_queue *vkd3d_queue;
 
     struct d3d12_device *device;
 };
@@ -631,17 +642,15 @@ struct d3d12_device
     /* A sampler used for SpvOpImageFetch. */
     VkSampler vk_default_sampler;
 
-    unsigned int direct_queue_family_index;
-    unsigned int copy_queue_family_index;
-    unsigned int compute_queue_family_index;
     VkPhysicalDeviceMemoryProperties memory_properties;
-    uint32_t direct_queue_timestamp_bits;
-    uint32_t copy_queue_timestamp_bits;
-    uint32_t compute_queue_timestamp_bits;
 
     D3D12_FEATURE_DATA_D3D12_OPTIONS feature_options;
 
     struct vkd3d_vulkan_info vk_info;
+
+    struct vkd3d_queue *direct_queue;
+    struct vkd3d_queue *compute_queue;
+    struct vkd3d_queue *copy_queue;
 
     struct vkd3d_instance *vkd3d_instance;
 

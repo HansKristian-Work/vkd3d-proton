@@ -684,6 +684,62 @@ static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
     return S_OK;
 }
 
+static void d3d12_device_destroy_vkd3d_queues(struct d3d12_device *device)
+{
+    if (device->direct_queue)
+        vkd3d_queue_destroy(device->direct_queue);
+    if (device->compute_queue && device->compute_queue != device->direct_queue)
+        vkd3d_queue_destroy(device->compute_queue);
+    if (device->copy_queue && device->copy_queue != device->direct_queue
+            && device->copy_queue != device->compute_queue)
+        vkd3d_queue_destroy(device->copy_queue);
+
+    device->direct_queue = NULL;
+    device->compute_queue = NULL;
+    device->copy_queue = NULL;
+}
+
+static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
+        uint32_t direct_queue_family_index, uint32_t direct_queue_timestamp_bits,
+        uint32_t compute_queue_family_index, uint32_t compute_queue_timestamp_bits,
+        uint32_t copy_queue_family_index, uint32_t copy_queue_timestamp_bits)
+{
+    HRESULT hr;
+
+    device->direct_queue = NULL;
+    device->compute_queue = NULL;
+    device->copy_queue = NULL;
+
+    if (FAILED((hr = vkd3d_queue_create(device, direct_queue_family_index,
+            direct_queue_timestamp_bits, &device->direct_queue))))
+    {
+        d3d12_device_destroy_vkd3d_queues(device);
+        return hr;
+    }
+
+    if (compute_queue_family_index == direct_queue_family_index)
+        device->compute_queue = device->direct_queue;
+    else if (FAILED(hr = vkd3d_queue_create(device, compute_queue_family_index,
+            compute_queue_timestamp_bits, &device->compute_queue)))
+    {
+        d3d12_device_destroy_vkd3d_queues(device);
+        return hr;
+    }
+
+    if (copy_queue_family_index == direct_queue_family_index)
+        device->copy_queue = device->direct_queue;
+    else if (copy_queue_family_index == compute_queue_family_index)
+        device->copy_queue = device->compute_queue;
+    else if (FAILED(hr = vkd3d_queue_create(device, copy_queue_family_index,
+            copy_queue_timestamp_bits, &device->copy_queue)))
+    {
+        d3d12_device_destroy_vkd3d_queues(device);
+        return hr;
+    }
+
+    return S_OK;
+}
+
 static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
 {
     unsigned int direct_queue_family_index, copy_queue_family_index, compute_queue_family_index;
@@ -776,12 +832,6 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
         compute_queue_timestamp_bits = direct_queue_timestamp_bits;
     }
 
-    device->direct_queue_family_index = direct_queue_family_index;
-    device->copy_queue_family_index = copy_queue_family_index;
-    device->compute_queue_family_index = compute_queue_family_index;
-    device->direct_queue_timestamp_bits = direct_queue_timestamp_bits;
-    device->copy_queue_timestamp_bits = copy_queue_timestamp_bits;
-    device->compute_queue_timestamp_bits = compute_queue_timestamp_bits;
     TRACE("Using queue family %u for direct command queues.\n", direct_queue_family_index);
     TRACE("Using queue family %u for copy command queues.\n", copy_queue_family_index);
     TRACE("Using queue family %u for compute command queues.\n", compute_queue_family_index);
@@ -823,6 +873,16 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     }
 
     device->vk_device = vk_device;
+
+    if (FAILED(hr = d3d12_device_create_vkd3d_queues(device,
+            direct_queue_family_index, direct_queue_timestamp_bits,
+            compute_queue_family_index, compute_queue_timestamp_bits,
+            copy_queue_family_index, copy_queue_timestamp_bits)))
+    {
+        ERR("Failed to create queues, hr %#x.\n", hr);
+        vkDestroyDevice(vk_device, NULL);
+        return hr;
+    }
 
     TRACE("Created Vulkan device %p.\n", vk_device);
 
@@ -982,6 +1042,7 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
         VK_CALL(vkDestroySampler(device->vk_device, device->vk_default_sampler, NULL));
         if (device->vk_pipeline_cache)
             VK_CALL(vkDestroyPipelineCache(device->vk_device, device->vk_pipeline_cache, NULL));
+        d3d12_device_destroy_vkd3d_queues(device);
         VK_CALL(vkDestroyDevice(device->vk_device, NULL));
         vkd3d_instance_decref(device->vkd3d_instance);
 

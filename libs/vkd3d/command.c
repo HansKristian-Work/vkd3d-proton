@@ -19,6 +19,63 @@
 
 #include "vkd3d_private.h"
 
+HRESULT vkd3d_queue_create(struct d3d12_device *device,
+        uint32_t family_index, uint32_t timestamp_bits, struct vkd3d_queue **queue)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_queue *object;
+    int rc;
+
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    if ((rc = pthread_mutex_init(&object->mutex, NULL)))
+    {
+        ERR("Failed to initialize mutex, error %d.\n", rc);
+        vkd3d_free(object);
+        return E_FAIL;
+    }
+
+    object->vk_family_index = family_index;
+    object->timestamp_bits = timestamp_bits;
+
+    VK_CALL(vkGetDeviceQueue(device->vk_device, family_index, 0, &object->vk_queue));
+
+    TRACE("Created queue %p for queue family index %u.\n", object, family_index);
+
+    *queue = object;
+
+    return S_OK;
+}
+
+void vkd3d_queue_destroy(struct vkd3d_queue *queue)
+{
+    pthread_mutex_destroy(&queue->mutex);
+    vkd3d_free(queue);
+}
+
+static VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue)
+{
+    int rc;
+
+    TRACE("queue %p.\n", queue);
+
+    if ((rc = pthread_mutex_lock(&queue->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return VK_NULL_HANDLE;
+    }
+
+    return queue->vk_queue;
+}
+
+static void vkd3d_queue_release(struct vkd3d_queue *queue)
+{
+    TRACE("queue %p.\n", queue);
+
+    pthread_mutex_unlock(&queue->mutex);
+}
+
 /* Fence worker thread */
 static HRESULT vkd3d_queue_gpu_fence(struct vkd3d_fence_worker *worker,
         VkFence vk_fence, ID3D12Fence *fence, UINT64 value)
@@ -955,12 +1012,33 @@ static struct d3d12_command_allocator *unsafe_impl_from_ID3D12CommandAllocator(I
     return impl_from_ID3D12CommandAllocator(iface);
 }
 
+static struct vkd3d_queue *d3d12_device_get_vkd3d_queue(struct d3d12_device *device,
+        D3D12_COMMAND_LIST_TYPE type)
+{
+    switch (type)
+    {
+        case D3D12_COMMAND_LIST_TYPE_DIRECT:
+            return device->direct_queue;
+        case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+            return device->compute_queue;
+        case D3D12_COMMAND_LIST_TYPE_COPY:
+            return device->copy_queue;
+        default:
+            FIXME("Unhandled command list type %#x.\n", type);
+            return NULL;
+    }
+}
+
 static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allocator,
         struct d3d12_device *device, D3D12_COMMAND_LIST_TYPE type)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkCommandPoolCreateInfo command_pool_info;
+    struct vkd3d_queue *queue;
     VkResult vr;
+
+    if (!(queue = d3d12_device_get_vkd3d_queue(device, type)))
+        queue = device->direct_queue;
 
     allocator->ID3D12CommandAllocator_iface.lpVtbl = &d3d12_command_allocator_vtbl;
     allocator->refcount = 1;
@@ -970,22 +1048,7 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     command_pool_info.pNext = NULL;
     command_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    switch (type)
-    {
-        case D3D12_COMMAND_LIST_TYPE_DIRECT:
-            command_pool_info.queueFamilyIndex = device->direct_queue_family_index;
-            break;
-        case D3D12_COMMAND_LIST_TYPE_COMPUTE:
-            command_pool_info.queueFamilyIndex = device->compute_queue_family_index;
-            break;
-        case D3D12_COMMAND_LIST_TYPE_COPY:
-            command_pool_info.queueFamilyIndex = device->copy_queue_family_index;
-            break;
-        default:
-            FIXME("Unhandled command list type %#x.\n", type);
-            command_pool_info.queueFamilyIndex = device->direct_queue_family_index;
-            break;
-    }
+    command_pool_info.queueFamilyIndex = queue->vk_family_index;
 
     if ((vr = VK_CALL(vkCreateCommandPool(device->vk_device, &command_pool_info, NULL,
             &allocator->vk_command_pool))) < 0)
@@ -4077,6 +4140,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     const struct vkd3d_vk_device_procs *vk_procs;
     struct VkSubmitInfo submit_desc;
     VkCommandBuffer *buffers;
+    VkQueue vk_queue;
     unsigned int i;
     VkResult vr;
 
@@ -4106,9 +4170,16 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     submit_desc.signalSemaphoreCount = 0;
     submit_desc.pSignalSemaphores = NULL;
 
-    if ((vr = VK_CALL(vkQueueSubmit(command_queue->vk_queue,
-            1, &submit_desc, VK_NULL_HANDLE))) < 0)
+    if (!(vk_queue = vkd3d_queue_acquire(command_queue->vkd3d_queue)))
+    {
+        ERR("Failed to acquire queue %p.\n", command_queue->vkd3d_queue);
+        return;
+    }
+
+    if ((vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_desc, VK_NULL_HANDLE))) < 0)
         ERR("Failed to submit queue(s), vr %d.\n", vr);
+
+    vkd3d_queue_release(command_queue->vkd3d_queue);
 
     vkd3d_free(buffers);
 }
@@ -4140,6 +4211,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
     VkFenceCreateInfo fence_info;
     struct d3d12_device *device;
     VkFence vk_fence;
+    VkQueue vk_queue;
     VkResult vr;
 
     TRACE("iface %p, fence %p, value %#"PRIx64".\n", iface, fence, value);
@@ -4158,7 +4230,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
         return hresult_from_vk_result(vr);
     }
 
-    if ((vr = VK_CALL(vkQueueSubmit(command_queue->vk_queue, 0, NULL, vk_fence))) < 0)
+    if (!(vk_queue = vkd3d_queue_acquire(command_queue->vkd3d_queue)))
+    {
+        ERR("Failed to acquire queue %p.\n", command_queue->vkd3d_queue);
+        return E_FAIL;
+    }
+    vr = VK_CALL(vkQueueSubmit(vk_queue, 0, NULL, vk_fence));
+    vkd3d_queue_release(command_queue->vkd3d_queue);
+    if (vr < 0)
     {
         WARN("Failed to submit fence, vr %d.\n", vr);
         VK_CALL(vkDestroyFence(device->vk_device, vk_fence, NULL));
@@ -4197,8 +4276,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetTimestampFrequency(ID3D1
 
     TRACE("iface %p, frequency %p.\n", iface, frequency);
 
-    if (command_queue->vk_queue_timestamp_bits == 0)
+    if (!command_queue->vkd3d_queue->timestamp_bits)
+    {
+        WARN("Timestamp queries not supported.\n");
         return E_FAIL;
+    }
 
     *frequency = 1000000000 / device->vk_info.device_limits.timestampPeriod;
 
@@ -4255,10 +4337,6 @@ static const struct ID3D12CommandQueueVtbl d3d12_command_queue_vtbl =
 static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
         struct d3d12_device *device, const D3D12_COMMAND_QUEUE_DESC *desc)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    unsigned int queue_family_index;
-    uint32_t timestamp_bits;
-
     queue->ID3D12CommandQueue_iface.lpVtbl = &d3d12_command_queue_vtbl;
     queue->refcount = 1;
 
@@ -4266,34 +4344,13 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     if (!queue->desc.NodeMask)
         queue->desc.NodeMask = 0x1;
 
-    switch (desc->Type)
-    {
-        case D3D12_COMMAND_LIST_TYPE_DIRECT:
-            queue_family_index = device->direct_queue_family_index;
-            timestamp_bits = device->direct_queue_timestamp_bits;
-            break;
-        case D3D12_COMMAND_LIST_TYPE_COPY:
-            queue_family_index = device->copy_queue_family_index;
-            timestamp_bits = device->copy_queue_timestamp_bits;
-            break;
-        case D3D12_COMMAND_LIST_TYPE_COMPUTE:
-            queue_family_index = device->compute_queue_family_index;
-            timestamp_bits = device->compute_queue_timestamp_bits;
-            break;
-        default:
-            FIXME("Unhandled command list type %#x.\n", desc->Type);
-            return E_NOTIMPL;
-    }
+    if (!(queue->vkd3d_queue = d3d12_device_get_vkd3d_queue(device, desc->Type)))
+        return E_NOTIMPL;
 
     if (desc->Priority)
         FIXME("Ignoring priority %#x.\n", desc->Priority);
     if (desc->Flags)
         FIXME("Ignoring flags %#x.\n", desc->Flags);
-
-    /* FIXME: Access to VkQueue must be externally synchronized. */
-    VK_CALL(vkGetDeviceQueue(device->vk_device, queue_family_index, 0, &queue->vk_queue));
-    queue->vk_queue_family_index = queue_family_index;
-    queue->vk_queue_timestamp_bits = timestamp_bits;
 
     queue->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
@@ -4327,14 +4384,14 @@ VkQueue vkd3d_get_vk_queue(ID3D12CommandQueue *queue)
 {
     struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
 
-    return d3d12_queue->vk_queue;
+    return d3d12_queue->vkd3d_queue->vk_queue;
 }
 
 uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue)
 {
     struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
 
-    return d3d12_queue->vk_queue_family_index;
+    return d3d12_queue->vkd3d_queue->vk_family_index;
 }
 
 /* ID3D12CommandSignature */
