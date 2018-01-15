@@ -16983,6 +16983,103 @@ static void test_face_culling(void)
     destroy_test_context(&context);
 }
 
+static void draw_thread_main(void *thread_data)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    struct test_context *context = thread_data;
+    ID3D12GraphicsCommandList *command_list;
+    ID3D12CommandAllocator *allocator;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv;
+    ID3D12Resource *render_target;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    unsigned int i;
+    HRESULT hr;
+
+    queue = context->queue;
+    device = context->device;
+    heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    rtv = get_cpu_descriptor_handle(context, heap, 0);
+    create_render_target(context, NULL, &render_target, &rtv);
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            &IID_ID3D12CommandAllocator, (void **)&allocator);
+    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+
+    for (i = 0; i < 100; ++i)
+    {
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv, white, 0, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context->root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context->pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context->viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context->scissor_rect);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_resource_state(command_list, render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(render_target, 0, queue, command_list, 0xff00ff00, 0);
+        reset_command_list(command_list, allocator);
+        transition_resource_state(command_list, render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12Resource_Release(render_target);
+    ID3D12CommandAllocator_Release(allocator);
+    ID3D12GraphicsCommandList_Release(command_list);
+}
+
+static void test_multithread_command_queue_exec(void)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    HANDLE threads[10];
+    unsigned int i;
+
+    if (!init_test_context(&context, NULL))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    for (i = 0; i < ARRAY_SIZE(threads); ++i)
+    {
+        threads[i] = create_thread(draw_thread_main, &context);
+        ok(threads[i], "Failed to create thread %u.\n", i);
+    }
+
+    for (i = 0; i < 100; ++i)
+    {
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(threads); ++i)
+        ok(join_thread(threads[i]), "Failed to join thread %u.\n", i);
+
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     bool enable_debug_layer = false;
@@ -17085,4 +17182,5 @@ START_TEST(d3d12)
     run_test(test_copy_texture_region);
     run_test(test_separate_bindings);
     run_test(test_face_culling);
+    run_test(test_multithread_command_queue_exec);
 }
