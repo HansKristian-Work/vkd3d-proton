@@ -30,6 +30,8 @@ AM_SILENT_RULES([yes])
 LT_PREREQ([2.4.2])
 LT_INIT
 
+gl_LD_VERSION_SCRIPT
+
 dnl Check compiler specific flags
 AC_SUBST([VKD3D_CFLAGS])
 AS_IF([test "x${GCC}" = "xyes"],

@@ -68,6 +68,9 @@ libvkd3d_shader_la_SOURCES = \
 	libs/vkd3d-shader/vkd3d_shader_main.c \
 	libs/vkd3d-shader/vkd3d_shader_private.h
 libvkd3d_shader_la_LIBADD = libvkd3d-common.la @SPIRV_TOOLS_LIBS@
+if HAVE_LD_VERSION_SCRIPT
+libvkd3d_shader_la_LDFLAGS = -Wl,--version-script=$(srcdir)/libs/vkd3d-shader/vkd3d_shader.map
+endif
 
 libvkd3d_la_SOURCES = \
 	include/d3d12.idl \
@@ -85,11 +88,17 @@ libvkd3d_la_SOURCES = \
 	libs/vkd3d/vkd3d_private.h \
 	libs/vkd3d/vulkan_procs.h
 libvkd3d_la_LIBADD = libvkd3d-common.la libvkd3d-shader.la @PTHREAD_LIBS@ @VULKAN_LIBS@
+if HAVE_LD_VERSION_SCRIPT
+libvkd3d_la_LDFLAGS = -Wl,--version-script=$(srcdir)/libs/vkd3d/vkd3d.map
+endif
 
 libvkd3d_utils_la_SOURCES = \
 	libs/vkd3d-utils/vkd3d_utils_main.c \
 	libs/vkd3d-utils/vkd3d_utils_private.h
 libvkd3d_utils_la_LIBADD = libvkd3d-common.la libvkd3d.la
+if HAVE_LD_VERSION_SCRIPT
+libvkd3d_utils_la_LDFLAGS = -Wl,--version-script=$(srcdir)/libs/vkd3d-utils/vkd3d_utils.map
+endif
 
 EXTRA_DIST = LICENSE
 

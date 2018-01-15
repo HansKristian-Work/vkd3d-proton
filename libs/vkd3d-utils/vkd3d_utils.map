@@ -1,0 +1,13 @@
+{
+global:
+    D3D12CreateDevice;
+    D3D12CreateRootSignatureDeserializer;
+    D3D12GetDebugInterface;
+    D3D12SerializeRootSignature;
+    vkd3d_create_event;
+    vkd3d_destroy_event;
+    vkd3d_signal_event;
+    vkd3d_wait_event;
+
+local: *;
+};
