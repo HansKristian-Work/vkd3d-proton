@@ -107,7 +107,7 @@ nodist_pkgconfig_DATA = libvkd3d.pc libvkd3d-utils.pc
 CLEANFILES = libvkd3d.pc libvkd3d-utils.pc
 EXTRA_DIST += libs/vkd3d/libvkd3d.pc.in libs/vkd3d-utils/libvkd3d-utils.pc.in
 
-bin_PROGRAMS = vkd3d-compiler
+noinst_PROGRAMS = vkd3d-compiler
 vkd3d_compiler_SOURCES = programs/vkd3d-compiler/main.c
 vkd3d_compiler_LDADD = libvkd3d-shader.la libvkd3d-common.la
 
@@ -119,7 +119,7 @@ tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@
 
 DEMOS_LDADD = $(LDADD) libvkd3d-shader.la @XCB_LIBS@ @VULKAN_LIBS@
 DEMOS_CFLAGS = @XCB_CFLAGS@
-noinst_PROGRAMS = $(vkd3d_demos)
+noinst_PROGRAMS += $(vkd3d_demos)
 EXTRA_DIST += $(vkd3d_demos_headers)
 
 demos_gears_CFLAGS = $(DEMOS_CFLAGS)
