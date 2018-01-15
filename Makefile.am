@@ -19,7 +19,6 @@ vkd3d_public_headers = \
 	include/vkd3d_d3d12.h \
 	include/vkd3d_dxgibase.h \
 	include/vkd3d_dxgiformat.h \
-	include/vkd3d_shader.h \
 	include/vkd3d_utils.h \
 	include/vkd3d_windows.h
 
@@ -49,13 +48,13 @@ vkd3d_demos_headers = \
 
 BUILT_SOURCES = $(widl_headers)
 
-noinst_LTLIBRARIES = libvkd3d-common.la
+noinst_LTLIBRARIES = libvkd3d-common.la libvkd3d-shader.la
 libvkd3d_common_la_SOURCES = \
 	include/private/vkd3d_debug.h \
 	libs/vkd3d-common/debug.c \
 	libs/vkd3d-common/memory.c
 
-lib_LTLIBRARIES = libvkd3d-shader.la libvkd3d.la libvkd3d-utils.la
+lib_LTLIBRARIES = libvkd3d.la libvkd3d-utils.la
 
 libvkd3d_shader_la_SOURCES = \
 	include/private/list.h \
@@ -67,7 +66,7 @@ libvkd3d_shader_la_SOURCES = \
 	libs/vkd3d-shader/spirv.c \
 	libs/vkd3d-shader/vkd3d_shader_main.c \
 	libs/vkd3d-shader/vkd3d_shader_private.h
-libvkd3d_shader_la_LIBADD = libvkd3d-common.la @SPIRV_TOOLS_LIBS@
+libvkd3d_shader_la_LIBADD = @SPIRV_TOOLS_LIBS@
 if HAVE_LD_VERSION_SCRIPT
 libvkd3d_shader_la_LDFLAGS = -Wl,--version-script=$(srcdir)/libs/vkd3d-shader/vkd3d_shader.map
 endif
@@ -110,7 +109,7 @@ EXTRA_DIST += libs/vkd3d/libvkd3d.pc.in libs/vkd3d-utils/libvkd3d-utils.pc.in
 
 bin_PROGRAMS = vkd3d-compiler
 vkd3d_compiler_SOURCES = programs/vkd3d-compiler/main.c
-vkd3d_compiler_LDADD = libvkd3d-shader.la
+vkd3d_compiler_LDADD = libvkd3d-shader.la libvkd3d-common.la
 
 LDADD = libvkd3d.la libvkd3d-utils.la
 check_PROGRAMS = $(vkd3d_tests) $(vkd3d_cross_tests)
