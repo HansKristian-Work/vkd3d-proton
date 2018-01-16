@@ -64,7 +64,7 @@ HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         return E_FAIL;
     }
 
-    hr = d3d12_device_create(instance, &object);
+    hr = d3d12_device_create(instance, create_info->vk_physical_device, &object);
     vkd3d_instance_decref(instance);
     if (FAILED(hr))
         return hr;

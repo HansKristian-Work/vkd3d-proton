@@ -740,16 +740,15 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
     return S_OK;
 }
 
-static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
+static HRESULT vkd3d_create_vk_device(struct d3d12_device *device, VkPhysicalDevice physical_device)
 {
-    unsigned int direct_queue_family_index, copy_queue_family_index, compute_queue_family_index;
     uint32_t direct_queue_timestamp_bits, copy_queue_timestamp_bits, compute_queue_timestamp_bits;
+    unsigned int direct_queue_family_index, copy_queue_family_index, compute_queue_family_index;
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     const char *extensions[MAX_DEVICE_EXTENSION_COUNT];
     VkQueueFamilyProperties *queue_properties;
     VkPhysicalDeviceFeatures device_features;
     VkDeviceQueueCreateInfo *queue_info;
-    VkPhysicalDevice physical_device;
     VkDeviceCreateInfo device_info;
     uint32_t queue_family_count;
     VkDevice vk_device;
@@ -757,10 +756,10 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device)
     VkResult vr;
     HRESULT hr;
 
-    TRACE("device %p.\n", device);
+    TRACE("device %p, physical_device %p.\n", device, physical_device);
 
-    physical_device = VK_NULL_HANDLE;
-    if (FAILED(hr = vkd3d_select_physical_device(device->vkd3d_instance, &physical_device)))
+    if (!physical_device
+            && FAILED(hr = vkd3d_select_physical_device(device->vkd3d_instance, &physical_device)))
         return hr;
 
     /* Create command queues */
@@ -1976,7 +1975,8 @@ struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface)
     return impl_from_ID3D12Device(iface);
 }
 
-static HRESULT d3d12_device_init(struct d3d12_device *device, struct vkd3d_instance *instance)
+static HRESULT d3d12_device_init(struct d3d12_device *device,
+        struct vkd3d_instance *instance, VkPhysicalDevice vk_physical_device)
 {
     HRESULT hr;
 
@@ -1990,7 +1990,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device, struct vkd3d_insta
     device->join_thread = instance->join_thread;
     device->wchar_size = instance->wchar_size;
 
-    if (FAILED(hr = vkd3d_create_vk_device(device)))
+    if (FAILED(hr = vkd3d_create_vk_device(device, vk_physical_device)))
     {
         vkd3d_instance_decref(device->vkd3d_instance);
         return hr;
@@ -2021,7 +2021,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device, struct vkd3d_insta
     return S_OK;
 }
 
-HRESULT d3d12_device_create(struct vkd3d_instance *instance, struct d3d12_device **device)
+HRESULT d3d12_device_create(struct vkd3d_instance *instance,
+        VkPhysicalDevice vk_physical_device, struct d3d12_device **device)
 {
     struct d3d12_device *object;
     HRESULT hr;
@@ -2029,7 +2030,7 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance, struct d3d12_device
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    if (FAILED(hr = d3d12_device_init(object, instance)))
+    if (FAILED(hr = d3d12_device_init(object, instance, vk_physical_device)))
     {
         vkd3d_free(object);
         return hr;

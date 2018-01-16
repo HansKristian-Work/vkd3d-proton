@@ -658,7 +658,8 @@ struct d3d12_device
     vkd3d_join_thread_pfn join_thread;
 };
 
-HRESULT d3d12_device_create(struct vkd3d_instance *instance, struct d3d12_device **device) DECLSPEC_HIDDEN;
+HRESULT d3d12_device_create(struct vkd3d_instance *instance,
+        VkPhysicalDevice vk_physical_device, struct d3d12_device **device) DECLSPEC_HIDDEN;
 struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface) DECLSPEC_HIDDEN;
 
 HRESULT vkd3d_create_buffer(struct d3d12_device *device,
