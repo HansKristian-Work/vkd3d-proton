@@ -1,3 +1,4 @@
+VKD3D_1_0
 {
 global:
     vkd3d_acquire_vk_queue;

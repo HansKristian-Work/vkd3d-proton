@@ -1,3 +1,4 @@
+VKD3D_1_0
 {
 global:
     D3D12CreateDevice;
