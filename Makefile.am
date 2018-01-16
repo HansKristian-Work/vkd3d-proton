@@ -62,8 +62,10 @@ libvkd3d_shader_la_SOURCES = \
 	include/private/vkd3d_common.h \
 	include/private/vkd3d_debug.h \
 	include/private/vkd3d_memory.h \
+	include/vkd3d_shader.h \
 	libs/vkd3d-shader/dxbc.c \
 	libs/vkd3d-shader/spirv.c \
+	libs/vkd3d-shader/vkd3d_shader.map \
 	libs/vkd3d-shader/vkd3d_shader_main.c \
 	libs/vkd3d-shader/vkd3d_shader_private.h
 libvkd3d_shader_la_LIBADD = @SPIRV_TOOLS_LIBS@
@@ -72,17 +74,18 @@ libvkd3d_shader_la_LDFLAGS = -Wl,--version-script=$(srcdir)/libs/vkd3d-shader/vk
 endif
 
 libvkd3d_la_SOURCES = \
-	include/d3d12.idl \
 	include/private/vkd3d_common.h \
 	include/private/vkd3d_debug.h \
 	include/private/vkd3d_memory.h \
 	include/private/vkd3d_test.h \
-	include/unknown.idl \
+	include/vkd3d_d3d12.idl \
+	include/vkd3d_unknown.idl \
 	libs/vkd3d/command.c \
 	libs/vkd3d/device.c \
 	libs/vkd3d/resource.c \
 	libs/vkd3d/state.c \
 	libs/vkd3d/utils.c \
+	libs/vkd3d/vkd3d.map \
 	libs/vkd3d/vkd3d_main.c \
 	libs/vkd3d/vkd3d_private.h \
 	libs/vkd3d/vulkan_procs.h
@@ -92,6 +95,7 @@ libvkd3d_la_LDFLAGS = -Wl,--version-script=$(srcdir)/libs/vkd3d/vkd3d.map
 endif
 
 libvkd3d_utils_la_SOURCES = \
+	libs/vkd3d-utils/vkd3d_utils.map \
 	libs/vkd3d-utils/vkd3d_utils_main.c \
 	libs/vkd3d-utils/vkd3d_utils_private.h
 libvkd3d_utils_la_LIBADD = libvkd3d-common.la libvkd3d.la
