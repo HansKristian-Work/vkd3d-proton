@@ -151,9 +151,9 @@ static void test_vkd3d_queue(void)
     direct_queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT);
     ok(direct_queue, "Failed to create direct command queue.\n");
     compute_queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_COMPUTE);
-    ok(compute_queue, "Failed to create direct command queue.\n");
+    ok(compute_queue, "Failed to create compute command queue.\n");
     copy_queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_COPY);
-    ok(copy_queue, "Failed to create direct command queue.\n");
+    ok(copy_queue, "Failed to create copy command queue.\n");
 
     vk_queue_family = vkd3d_get_vk_queue_family_index(direct_queue);
     trace("Direct queue family index %u.\n", vk_queue_family);
