@@ -41,9 +41,9 @@ static HRESULT vkd3d_shader_parser_init(struct vkd3d_shader_parser *parser,
     if (!(parser->data = shader_sm4_init(shader_desc->byte_code,
             shader_desc->byte_code_size, &shader_desc->output_signature)))
     {
-        WARN("Failed to initialize shader parser, hr %#x.\n", hr);
+        WARN("Failed to initialize shader parser.\n");
         free_shader_desc(shader_desc);
-        return hr;
+        return E_INVALIDARG;
     }
 
     shader_sm4_read_header(parser->data, &parser->ptr, &parser->shader_version);
