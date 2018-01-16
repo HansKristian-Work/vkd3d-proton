@@ -24,7 +24,10 @@
 # include "vkd3d_d3d12.h"
 #endif  /* VKD3D_NO_WIN32_TYPES */
 
-#include <vulkan/vulkan.h>
+#ifndef VKD3D_NO_VULKAN_H
+# include <vulkan/vulkan.h>
+#endif  /* VKD3D_NO_VULKAN_H */
+
 #include <stdbool.h>
 
 #ifdef __cplusplus
