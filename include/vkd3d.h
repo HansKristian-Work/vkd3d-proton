@@ -75,7 +75,6 @@ VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device);
 
 uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue);
 VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue);
-VkQueue vkd3d_get_vk_queue(ID3D12CommandQueue *queue);
 void vkd3d_release_vk_queue(ID3D12CommandQueue *queue);
 
 HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc,

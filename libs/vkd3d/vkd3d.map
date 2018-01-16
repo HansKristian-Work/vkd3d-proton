@@ -9,7 +9,6 @@ global:
     vkd3d_get_vk_format;
     vkd3d_get_vk_instance;
     vkd3d_get_vk_physical_device;
-    vkd3d_get_vk_queue;
     vkd3d_get_vk_queue_family_index;
     vkd3d_instance_decref;
     vkd3d_instance_incref;
