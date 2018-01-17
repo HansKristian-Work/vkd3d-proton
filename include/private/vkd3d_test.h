@@ -273,7 +273,7 @@ typedef void (*vkd3d_test_pfn)(void);
 
 static inline void vkd3d_run_test(const char *name, vkd3d_test_pfn test_pfn)
 {
-    vkd3d_test_debug(name);
+    vkd3d_test_debug("%s", name);
     test_pfn();
 }
 
