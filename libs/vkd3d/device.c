@@ -1230,6 +1230,30 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandList(ID3D12Device *if
             &IID_ID3D12GraphicsCommandList, riid, command_list);
 }
 
+/* Direct3D feature levels restrict which formats can be optionally supported. */
+static void vkd3d_restrict_format_support_for_feature_level(
+        D3D12_FEATURE_DATA_FORMAT_SUPPORT *format_support, const struct vkd3d_format *format)
+{
+    static const D3D12_FEATURE_DATA_FORMAT_SUPPORT blacklisted_format_features[] =
+    {
+        {DXGI_FORMAT_B8G8R8A8_TYPELESS, D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
+                D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE},
+        {DXGI_FORMAT_B8G8R8A8_UNORM,    D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
+                D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE},
+    };
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(blacklisted_format_features); ++i)
+    {
+        if (blacklisted_format_features[i].Format == format->dxgi_format)
+        {
+            format_support->Support1 &= ~blacklisted_format_features[i].Support1;
+            format_support->Support2 &= ~blacklisted_format_features[i].Support2;
+            break;
+        }
+    }
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *iface,
         D3D12_FEATURE feature, void *feature_data, UINT feature_data_size)
 {
@@ -1377,6 +1401,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
                         | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_EXCHANGE
                         | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_SIGNED_MIN_OR_MAX
                         | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_UNSIGNED_MIN_OR_MAX;
+
+            vkd3d_restrict_format_support_for_feature_level(data, format);
 
             return S_OK;
         }
