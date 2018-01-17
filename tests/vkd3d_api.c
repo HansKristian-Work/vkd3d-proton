@@ -94,8 +94,8 @@ static void test_create_instance(void)
 
 static void test_create_device(void)
 {
+    struct vkd3d_instance *instance, *tmp_instance;
     struct vkd3d_device_create_info create_info;
-    struct vkd3d_instance *instance;
     ID3D12Device *device;
     ULONG refcount;
     HRESULT hr;
@@ -125,6 +125,8 @@ static void test_create_device(void)
     refcount = vkd3d_instance_incref(instance);
     ok(refcount >= 3, "Got unexpected refcount %u.\n", refcount);
     vkd3d_instance_decref(instance);
+    tmp_instance = vkd3d_instance_from_device(device);
+    ok(tmp_instance == instance, "Got instance %p, expected %p.\n", tmp_instance, instance);
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "Device has %u references left.\n", refcount);
 
@@ -133,6 +135,61 @@ static void test_create_device(void)
     hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
+    refcount = vkd3d_instance_decref(instance);
+    ok(!refcount, "Instance has %u references left.\n", refcount);
+}
+
+static void test_physical_device(void)
+{
+    struct vkd3d_device_create_info create_info;
+    VkPhysicalDevice *vk_physical_devices;
+    VkPhysicalDevice vk_physical_device;
+    struct vkd3d_instance *instance;
+    VkInstance vk_instance;
+    ID3D12Device *device;
+    uint32_t i, count;
+    ULONG refcount;
+    VkResult vr;
+    HRESULT hr;
+
+    hr = vkd3d_create_instance(&instance_default_create_info, &instance);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    vk_instance = vkd3d_get_vk_instance(instance);
+    ok(vk_instance != VK_NULL_HANDLE, "Failed to get Vulkan instance.\n");
+
+    create_info = device_default_create_info;
+    create_info.instance = instance;
+    create_info.instance_create_info = NULL;
+    create_info.vk_physical_device = VK_NULL_HANDLE;
+    hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+    vk_physical_device = vkd3d_get_vk_physical_device(device);
+    trace("Default Vulkan physical device %p.\n", vk_physical_device);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+
+    vr = vkEnumeratePhysicalDevices(vk_instance, &count, NULL);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+    vk_physical_devices = calloc(count, sizeof(*vk_physical_devices));
+    ok(vk_physical_devices, "Failed to allocate memory.\n");
+    vr = vkEnumeratePhysicalDevices(vk_instance, &count, vk_physical_devices);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+
+    for (i = 0; i < count; ++i)
+    {
+        trace("Creating device for Vulkan physical device %p.\n", vk_physical_devices[i]);
+
+        create_info.vk_physical_device = vk_physical_devices[i];
+        hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
+        ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+        vk_physical_device = vkd3d_get_vk_physical_device(device);
+        ok(vk_physical_device == vk_physical_devices[i],
+                "Got unexpected Vulkan physical device %p.\n", vk_physical_device);
+        refcount = ID3D12Device_Release(device);
+        ok(!refcount, "Device has %u references left.\n", refcount);
+    }
+
+    free(vk_physical_devices);
     refcount = vkd3d_instance_decref(instance);
     ok(!refcount, "Instance has %u references left.\n", refcount);
 }
@@ -198,5 +255,6 @@ START_TEST(vkd3d_api)
 
     run_test(test_create_instance);
     run_test(test_create_device);
+    run_test(test_physical_device);
     run_test(test_vkd3d_queue);
 }

@@ -120,6 +120,7 @@ check_PROGRAMS = $(vkd3d_tests) $(vkd3d_cross_tests)
 AM_DEFAULT_SOURCE_EXT = .c
 TESTS = $(vkd3d_tests) $(vkd3d_cross_tests)
 tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@
+tests_vkd3d_api_LDADD = libvkd3d.la @VULKAN_LIBS@
 
 DEMOS_LDADD = $(LDADD) libvkd3d-shader.la @XCB_LIBS@ @VULKAN_LIBS@
 DEMOS_CFLAGS = @XCB_CFLAGS@
