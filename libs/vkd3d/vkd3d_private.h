@@ -88,6 +88,7 @@ struct vkd3d_instance
 
     struct vkd3d_vulkan_info vk_info;
     struct vkd3d_vulkan_procs_info vk_global_procs;
+    void *libvulkan;
 
     LONG refcount;
 };
@@ -751,14 +752,5 @@ HRESULT vkd3d_load_vk_instance_procs(struct vkd3d_vk_instance_procs *procs,
         const struct vkd3d_vulkan_procs_info *global_procs, VkInstance instance) DECLSPEC_HIDDEN;
 HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
         const struct vkd3d_vk_instance_procs *parent_procs, VkDevice device) DECLSPEC_HIDDEN;
-
-/* We link directly to the loader library and use the following exported functions. */
-VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance,
-        const char *name);
-VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo *create_info,
-        const VkAllocationCallbacks *allocator, VkInstance *instance);
-VKAPI_ATTR VkResult VKAPI_CALL vkEnumerateInstanceExtensionProperties(const char *layer_name,
-        uint32_t *property_count, VkExtensionProperties *properties);
-VKAPI_ATTR void VKAPI_CALL vkDestroyInstance(VkInstance instance, const VkAllocationCallbacks *allocator);
 
 #endif  /* __VKD3D_PRIVATE_H */

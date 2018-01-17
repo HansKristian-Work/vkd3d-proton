@@ -18,6 +18,8 @@
 
 #include "vkd3d_private.h"
 
+#include <dlfcn.h>
+
 struct vkd3d_optional_extension_info
 {
     const char *extension_name;
@@ -176,16 +178,34 @@ static bool vkd3d_init_vk_global_procs(struct vkd3d_instance *instance,
 {
     struct vkd3d_vulkan_procs_info *procs = &instance->vk_global_procs;
 
+    instance->libvulkan = NULL;
+
     if (vulkan_procs_info)
     {
         *procs = *vulkan_procs_info;
         return true;
     }
 
-    procs->vkCreateInstance = vkCreateInstance;
-    procs->vkDestroyInstance = vkDestroyInstance;
-    procs->vkGetInstanceProcAddr = vkGetInstanceProcAddr;
-    procs->vkEnumerateInstanceExtensionProperties = vkEnumerateInstanceExtensionProperties;
+    if (!(instance->libvulkan = dlopen("libvulkan.so.1", RTLD_NOW)))
+    {
+        ERR("Failed to load libvulkan.\n");
+        return false;
+    }
+
+#define LOAD_PROC(name) \
+    if (!(procs->name = dlsym(instance->libvulkan, #name))) \
+    { \
+        ERR("Could not get proc addr for '" #name "'.\n"); \
+        dlclose(instance->libvulkan); \
+        instance->libvulkan = NULL; \
+        return false; \
+    }
+    LOAD_PROC(vkCreateInstance)
+    LOAD_PROC(vkDestroyInstance)
+    LOAD_PROC(vkGetInstanceProcAddr)
+    LOAD_PROC(vkEnumerateInstanceExtensionProperties)
+#undef LOAD_PROC
+
     return true;
 }
 
@@ -248,6 +268,8 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     if ((vr = vk_global_procs->vkCreateInstance(&instance_info, NULL, &vk_instance)))
     {
         ERR("Failed to create Vulkan instance, vr %d.\n", vr);
+        if (instance->libvulkan)
+            dlclose(instance->libvulkan);
         return hresult_from_vk_result(vr);
     }
 
@@ -255,6 +277,8 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     {
         ERR("Failed to load instance procs, hr %#x.\n", hr);
         vk_global_procs->vkDestroyInstance(vk_instance, NULL);
+        if (instance->libvulkan)
+            dlclose(instance->libvulkan);
         return hr;
     }
 
@@ -310,6 +334,8 @@ ULONG vkd3d_instance_decref(struct vkd3d_instance *instance)
     {
         const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
         VK_CALL(vkDestroyInstance(instance->vk_instance, NULL));
+        if (instance->libvulkan)
+            dlclose(instance->libvulkan);
         vkd3d_free(instance);
     }
 
