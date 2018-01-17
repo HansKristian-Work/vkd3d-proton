@@ -350,6 +350,27 @@ HRESULT hresult_from_vk_result(VkResult vr)
     }
 }
 
+#define LOAD_GLOBAL_PFN(name) \
+    if (!(procs->name = (void *)vkGetInstanceProcAddr(NULL, #name))) \
+    { \
+        ERR("Could not get global proc addr for '" #name "'.\n"); \
+        return E_FAIL; \
+    }
+
+HRESULT vkd3d_load_vk_global_procs(struct vkd3d_vk_global_procs *procs,
+        PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr)
+{
+    memset(procs, 0, sizeof(*procs));
+
+    procs->vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+
+    LOAD_GLOBAL_PFN(vkCreateInstance)
+    LOAD_GLOBAL_PFN(vkEnumerateInstanceExtensionProperties)
+
+    TRACE("Loaded global Vulkan procs.\n");
+    return S_OK;
+}
+
 #define LOAD_INSTANCE_PFN(name) \
     if (!(procs->name = (void *)global_procs->vkGetInstanceProcAddr(instance, #name))) \
     { \
@@ -358,7 +379,7 @@ HRESULT hresult_from_vk_result(VkResult vr)
     }
 
 HRESULT vkd3d_load_vk_instance_procs(struct vkd3d_vk_instance_procs *procs,
-        const struct vkd3d_vulkan_procs_info *global_procs, VkInstance instance)
+        const struct vkd3d_vk_global_procs *global_procs, VkInstance instance)
 {
     memset(procs, 0, sizeof(*procs));
 

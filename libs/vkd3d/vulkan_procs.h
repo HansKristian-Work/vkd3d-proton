@@ -29,8 +29,8 @@
 #endif
 
 /* Instance functions (obtained by vkGetInstanceProcAddr). */
+VK_INSTANCE_PFN(vkDestroyInstance) /* Load vkDestroyInstance() first. */
 VK_INSTANCE_PFN(vkCreateDevice)
-VK_INSTANCE_PFN(vkDestroyInstance)
 VK_INSTANCE_PFN(vkEnumerateDeviceExtensionProperties)
 VK_INSTANCE_PFN(vkEnumerateDeviceLayerProperties)
 VK_INSTANCE_PFN(vkEnumeratePhysicalDevices)

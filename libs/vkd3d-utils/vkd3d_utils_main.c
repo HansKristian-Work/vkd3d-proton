@@ -41,7 +41,7 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
     instance_create_info.create_thread_pfn = NULL;
     instance_create_info.join_thread_pfn = NULL;
     instance_create_info.wchar_size = sizeof(WCHAR);
-    instance_create_info.vulkan_procs_info = NULL;
+    instance_create_info.vkGetInstanceProcAddr_pfn = NULL;
 
     device_create_info.minimum_feature_level = minimum_feature_level;
     device_create_info.instance = NULL;

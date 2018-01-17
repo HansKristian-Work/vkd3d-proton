@@ -49,6 +49,13 @@
 struct d3d12_command_list;
 struct d3d12_device;
 
+struct vkd3d_vk_global_procs
+{
+    PFN_vkCreateInstance vkCreateInstance;
+    PFN_vkEnumerateInstanceExtensionProperties vkEnumerateInstanceExtensionProperties;
+    PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
+};
+
 #define DECLARE_VK_PFN(name) PFN_##name name;
 struct vkd3d_vk_instance_procs
 {
@@ -87,7 +94,7 @@ struct vkd3d_instance
     size_t wchar_size;
 
     struct vkd3d_vulkan_info vk_info;
-    struct vkd3d_vulkan_procs_info vk_global_procs;
+    struct vkd3d_vk_global_procs vk_global_procs;
     void *libvulkan;
 
     LONG refcount;
@@ -748,8 +755,10 @@ const char *debug_vk_queue_flags(VkQueueFlags flags) DECLSPEC_HIDDEN;
 
 HRESULT hresult_from_vk_result(VkResult vr) DECLSPEC_HIDDEN;
 
+HRESULT vkd3d_load_vk_global_procs(struct vkd3d_vk_global_procs *procs,
+        PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr) DECLSPEC_HIDDEN;
 HRESULT vkd3d_load_vk_instance_procs(struct vkd3d_vk_instance_procs *procs,
-        const struct vkd3d_vulkan_procs_info *global_procs, VkInstance instance) DECLSPEC_HIDDEN;
+        const struct vkd3d_vk_global_procs *global_procs, VkInstance instance) DECLSPEC_HIDDEN;
 HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
         const struct vkd3d_vk_instance_procs *parent_procs, VkDevice device) DECLSPEC_HIDDEN;
 

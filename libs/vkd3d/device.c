@@ -140,7 +140,7 @@ static unsigned int vkd3d_enable_extensions(const char *extensions[],
 
 static void vkd3d_init_instance_caps(struct vkd3d_instance *instance)
 {
-    const struct vkd3d_vulkan_procs_info *vk_procs = &instance->vk_global_procs;
+    const struct vkd3d_vk_global_procs *vk_procs = &instance->vk_global_procs;
     struct vkd3d_vulkan_info *vulkan_info = &instance->vk_info;
     VkExtensionProperties *vk_extensions;
     uint32_t count;
@@ -173,46 +173,47 @@ static void vkd3d_init_instance_caps(struct vkd3d_instance *instance)
     vkd3d_free(vk_extensions);
 }
 
-static bool vkd3d_init_vk_global_procs(struct vkd3d_instance *instance,
-        const struct vkd3d_vulkan_procs_info *vulkan_procs_info)
+static HRESULT vkd3d_init_vk_global_procs(struct vkd3d_instance *instance,
+        PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr)
 {
-    struct vkd3d_vulkan_procs_info *procs = &instance->vk_global_procs;
+    HRESULT hr;
 
-    instance->libvulkan = NULL;
-
-    if (vulkan_procs_info)
+    if (!vkGetInstanceProcAddr)
     {
-        *procs = *vulkan_procs_info;
-        return true;
-    }
+        if (!(instance->libvulkan = dlopen("libvulkan.so.1", RTLD_NOW)))
+        {
+            ERR("Failed to load libvulkan.\n");
+            return E_FAIL;
+        }
 
-    if (!(instance->libvulkan = dlopen("libvulkan.so.1", RTLD_NOW)))
+        if (!(vkGetInstanceProcAddr = dlsym(instance->libvulkan, "vkGetInstanceProcAddr")))
+        {
+            ERR("Could not load function pointer for vkGetInstanceProcAddr().\n");
+            dlclose(instance->libvulkan);
+            instance->libvulkan = NULL;
+            return E_FAIL;
+        }
+    }
+    else
     {
-        ERR("Failed to load libvulkan.\n");
-        return false;
+        instance->libvulkan = NULL;
     }
 
-#define LOAD_PROC(name) \
-    if (!(procs->name = dlsym(instance->libvulkan, #name))) \
-    { \
-        ERR("Could not get proc addr for '" #name "'.\n"); \
-        dlclose(instance->libvulkan); \
-        instance->libvulkan = NULL; \
-        return false; \
+    if (FAILED(hr = vkd3d_load_vk_global_procs(&instance->vk_global_procs, vkGetInstanceProcAddr)))
+    {
+        if (instance->libvulkan)
+            dlclose(instance->libvulkan);
+        instance->libvulkan = NULL;
+        return hr;
     }
-    LOAD_PROC(vkCreateInstance)
-    LOAD_PROC(vkDestroyInstance)
-    LOAD_PROC(vkGetInstanceProcAddr)
-    LOAD_PROC(vkEnumerateInstanceExtensionProperties)
-#undef LOAD_PROC
 
-    return true;
+    return S_OK;
 }
 
 static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         const struct vkd3d_instance_create_info *create_info)
 {
-    const struct vkd3d_vulkan_procs_info *vk_global_procs = &instance->vk_global_procs;
+    const struct vkd3d_vk_global_procs *vk_global_procs = &instance->vk_global_procs;
     const char *extensions[MAX_INSTANCE_EXTENSION_COUNT];
     VkApplicationInfo application_info;
     VkInstanceCreateInfo instance_info;
@@ -236,10 +237,10 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance->join_thread = create_info->join_thread_pfn;
     instance->wchar_size = create_info->wchar_size;
 
-    if (!vkd3d_init_vk_global_procs(instance, create_info->vulkan_procs_info))
+    if (FAILED(hr = vkd3d_init_vk_global_procs(instance, create_info->vkGetInstanceProcAddr_pfn)))
     {
-        ERR("Failed to initialize Vulkan global procs.\n");
-        return E_FAIL;
+        ERR("Failed to initialize Vulkan global procs, hr %#x.\n", hr);
+        return hr;
     }
 
     memset(&instance->vk_info, 0, sizeof(instance->vk_info));
@@ -276,7 +277,8 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     if (FAILED(hr = vkd3d_load_vk_instance_procs(&instance->vk_procs, vk_global_procs, vk_instance)))
     {
         ERR("Failed to load instance procs, hr %#x.\n", hr);
-        vk_global_procs->vkDestroyInstance(vk_instance, NULL);
+        if (instance->vk_procs.vkDestroyInstance)
+            instance->vk_procs.vkDestroyInstance(vk_instance, NULL);
         if (instance->libvulkan)
             dlclose(instance->libvulkan);
         return hr;
