@@ -289,6 +289,11 @@ ULONG vkd3d_instance_decref(struct vkd3d_instance *instance)
     return refcount;
 }
 
+VkInstance vkd3d_get_vk_instance(struct vkd3d_instance *instance)
+{
+    return instance->vk_instance;
+}
+
 static void vkd3d_trace_physical_device(VkPhysicalDevice device,
         const struct vkd3d_vk_instance_procs *vk_procs)
 {
@@ -2076,17 +2081,16 @@ VkDevice vkd3d_get_vk_device(ID3D12Device *device)
     return d3d12_device->vk_device;
 }
 
-VkInstance vkd3d_get_vk_instance(ID3D12Device *device)
-{
-    struct d3d12_device *d3d12_device = impl_from_ID3D12Device(device);
-    struct vkd3d_instance *instance = d3d12_device->vkd3d_instance;
-
-    return instance->vk_instance;
-}
-
 VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device)
 {
     struct d3d12_device *d3d12_device = impl_from_ID3D12Device(device);
 
     return d3d12_device->vk_physical_device;
+}
+
+struct vkd3d_instance *vkd3d_instance_from_device(ID3D12Device *device)
+{
+    struct d3d12_device *d3d12_device = impl_from_ID3D12Device(device);
+
+    return d3d12_device->vkd3d_instance;
 }

@@ -67,6 +67,7 @@ struct vkd3d_device_create_info
 
 HRESULT vkd3d_create_instance(const struct vkd3d_instance_create_info *create_info,
         struct vkd3d_instance **instance);
+VkInstance vkd3d_get_vk_instance(struct vkd3d_instance *instance);
 ULONG vkd3d_instance_decref(struct vkd3d_instance *instance);
 ULONG vkd3d_instance_incref(struct vkd3d_instance *instance);
 
@@ -75,8 +76,8 @@ HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
 HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_DESC *desc,
         VkImage vk_image, unsigned int resource_flags, ID3D12Resource **resource);
 VkDevice vkd3d_get_vk_device(ID3D12Device *device);
-VkInstance vkd3d_get_vk_instance(ID3D12Device *device);
 VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device);
+struct vkd3d_instance *vkd3d_instance_from_device(ID3D12Device *device);
 
 uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue);
 VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue);
