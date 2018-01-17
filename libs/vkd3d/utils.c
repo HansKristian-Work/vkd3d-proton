@@ -351,14 +351,14 @@ HRESULT hresult_from_vk_result(VkResult vr)
 }
 
 #define LOAD_INSTANCE_PFN(name) \
-    if (!(procs->name = (void *)vkGetInstanceProcAddr(instance, #name))) \
+    if (!(procs->name = (void *)global_procs->vkGetInstanceProcAddr(instance, #name))) \
     { \
         ERR("Could not get instance proc addr for '" #name "'.\n"); \
         return E_FAIL; \
     }
 
 HRESULT vkd3d_load_vk_instance_procs(struct vkd3d_vk_instance_procs *procs,
-        VkInstance instance)
+        const struct vkd3d_vulkan_procs_info *global_procs, VkInstance instance)
 {
     memset(procs, 0, sizeof(*procs));
 

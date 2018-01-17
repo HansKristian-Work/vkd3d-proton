@@ -44,6 +44,7 @@ VK_INSTANCE_PFN(vkGetPhysicalDeviceQueueFamilyProperties)
 VK_INSTANCE_PFN(vkGetPhysicalDeviceSparseImageFormatProperties)
 
 /* Device functions (obtained by vkGetDeviceProcAddr). */
+VK_DEVICE_PFN(vkDestroyDevice) /* Load vkDestroyDevice() first. */
 VK_DEVICE_PFN(vkAllocateCommandBuffers)
 VK_DEVICE_PFN(vkAllocateDescriptorSets)
 VK_DEVICE_PFN(vkAllocateMemory)
@@ -118,7 +119,6 @@ VK_DEVICE_PFN(vkDestroyBufferView)
 VK_DEVICE_PFN(vkDestroyCommandPool)
 VK_DEVICE_PFN(vkDestroyDescriptorPool)
 VK_DEVICE_PFN(vkDestroyDescriptorSetLayout)
-VK_DEVICE_PFN(vkDestroyDevice)
 VK_DEVICE_PFN(vkDestroyEvent)
 VK_DEVICE_PFN(vkDestroyFence)
 VK_DEVICE_PFN(vkDestroyFramebuffer)

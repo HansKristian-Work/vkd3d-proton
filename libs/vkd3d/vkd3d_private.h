@@ -87,6 +87,7 @@ struct vkd3d_instance
     size_t wchar_size;
 
     struct vkd3d_vulkan_info vk_info;
+    struct vkd3d_vulkan_procs_info vk_global_procs;
 
     LONG refcount;
 };
@@ -747,7 +748,7 @@ const char *debug_vk_queue_flags(VkQueueFlags flags) DECLSPEC_HIDDEN;
 HRESULT hresult_from_vk_result(VkResult vr) DECLSPEC_HIDDEN;
 
 HRESULT vkd3d_load_vk_instance_procs(struct vkd3d_vk_instance_procs *procs,
-        VkInstance instance) DECLSPEC_HIDDEN;
+        const struct vkd3d_vulkan_procs_info *global_procs, VkInstance instance) DECLSPEC_HIDDEN;
 HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
         const struct vkd3d_vk_instance_procs *parent_procs, VkDevice device) DECLSPEC_HIDDEN;
 
@@ -759,6 +760,5 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo *crea
 VKAPI_ATTR VkResult VKAPI_CALL vkEnumerateInstanceExtensionProperties(const char *layer_name,
         uint32_t *property_count, VkExtensionProperties *properties);
 VKAPI_ATTR void VKAPI_CALL vkDestroyInstance(VkInstance instance, const VkAllocationCallbacks *allocator);
-VKAPI_ATTR void VKAPI_CALL vkDestroyDevice(VkDevice device, const VkAllocationCallbacks *allocator);
 
 #endif  /* __VKD3D_PRIVATE_H */

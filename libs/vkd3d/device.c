@@ -136,13 +136,15 @@ static unsigned int vkd3d_enable_extensions(const char *extensions[],
     return i;
 }
 
-static void vkd3d_init_instance_caps(struct vkd3d_vulkan_info *vulkan_info)
+static void vkd3d_init_instance_caps(struct vkd3d_instance *instance)
 {
+    const struct vkd3d_vulkan_procs_info *vk_procs = &instance->vk_global_procs;
+    struct vkd3d_vulkan_info *vulkan_info = &instance->vk_info;
     VkExtensionProperties *vk_extensions;
     uint32_t count;
     VkResult vr;
 
-    if ((vr = vkEnumerateInstanceExtensionProperties(NULL, &count, NULL)) < 0)
+    if ((vr = vk_procs->vkEnumerateInstanceExtensionProperties(NULL, &count, NULL)) < 0)
     {
         ERR("Failed to enumerate instance extensions, vr %d.\n", vr);
         return;
@@ -154,7 +156,7 @@ static void vkd3d_init_instance_caps(struct vkd3d_vulkan_info *vulkan_info)
         return;
 
     TRACE("Enumerating %u instance extensions.\n", count);
-    if ((vr = vkEnumerateInstanceExtensionProperties(NULL, &count, vk_extensions)) < 0)
+    if ((vr = vk_procs->vkEnumerateInstanceExtensionProperties(NULL, &count, vk_extensions)) < 0)
     {
         ERR("Failed to enumerate instance extensions, vr %d.\n", vr);
         vkd3d_free(vk_extensions);
@@ -169,9 +171,28 @@ static void vkd3d_init_instance_caps(struct vkd3d_vulkan_info *vulkan_info)
     vkd3d_free(vk_extensions);
 }
 
+static bool vkd3d_init_vk_global_procs(struct vkd3d_instance *instance,
+        const struct vkd3d_vulkan_procs_info *vulkan_procs_info)
+{
+    struct vkd3d_vulkan_procs_info *procs = &instance->vk_global_procs;
+
+    if (vulkan_procs_info)
+    {
+        *procs = *vulkan_procs_info;
+        return true;
+    }
+
+    procs->vkCreateInstance = vkCreateInstance;
+    procs->vkDestroyInstance = vkDestroyInstance;
+    procs->vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+    procs->vkEnumerateInstanceExtensionProperties = vkEnumerateInstanceExtensionProperties;
+    return true;
+}
+
 static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         const struct vkd3d_instance_create_info *create_info)
 {
+    const struct vkd3d_vulkan_procs_info *vk_global_procs = &instance->vk_global_procs;
     const char *extensions[MAX_INSTANCE_EXTENSION_COUNT];
     VkApplicationInfo application_info;
     VkInstanceCreateInfo instance_info;
@@ -195,8 +216,14 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance->join_thread = create_info->join_thread_pfn;
     instance->wchar_size = create_info->wchar_size;
 
+    if (!vkd3d_init_vk_global_procs(instance, create_info->vulkan_procs_info))
+    {
+        ERR("Failed to initialize Vulkan global procs.\n");
+        return E_FAIL;
+    }
+
     memset(&instance->vk_info, 0, sizeof(instance->vk_info));
-    vkd3d_init_instance_caps(&instance->vk_info);
+    vkd3d_init_instance_caps(instance);
 
     application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     application_info.pNext = NULL;
@@ -218,16 +245,16 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
             &instance->vk_info);
     instance_info.ppEnabledExtensionNames = extensions;
 
-    if ((vr = vkCreateInstance(&instance_info, NULL, &vk_instance)))
+    if ((vr = vk_global_procs->vkCreateInstance(&instance_info, NULL, &vk_instance)))
     {
         ERR("Failed to create Vulkan instance, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
     }
 
-    if (FAILED(hr = vkd3d_load_vk_instance_procs(&instance->vk_procs, vk_instance)))
+    if (FAILED(hr = vkd3d_load_vk_instance_procs(&instance->vk_procs, vk_global_procs, vk_instance)))
     {
         ERR("Failed to load instance procs, hr %#x.\n", hr);
-        vkDestroyInstance(vk_instance, NULL);
+        vk_global_procs->vkDestroyInstance(vk_instance, NULL);
         return hr;
     }
 
@@ -872,7 +899,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device, VkPhysicalDev
     if (FAILED(hr = vkd3d_load_vk_device_procs(&device->vk_procs, vk_procs, vk_device)))
     {
         ERR("Failed to load device procs, hr %#x.\n", hr);
-        vkDestroyDevice(vk_device, NULL);
+        if (device->vk_procs.vkDestroyDevice)
+            device->vk_procs.vkDestroyDevice(vk_device, NULL);
         return hr;
     }
 
@@ -884,7 +912,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device, VkPhysicalDev
             copy_queue_family_index, copy_queue_timestamp_bits)))
     {
         ERR("Failed to create queues, hr %#x.\n", hr);
-        vkDestroyDevice(vk_device, NULL);
+        device->vk_procs.vkDestroyDevice(vk_device, NULL);
         return hr;
     }
 

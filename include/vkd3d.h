@@ -43,12 +43,21 @@ typedef bool (*vkd3d_join_thread_pfn)(void *thread);
 
 struct vkd3d_instance;
 
+struct vkd3d_vulkan_procs_info
+{
+    PFN_vkCreateInstance vkCreateInstance;
+    PFN_vkDestroyInstance vkDestroyInstance;
+    PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
+    PFN_vkEnumerateInstanceExtensionProperties vkEnumerateInstanceExtensionProperties;
+};
+
 struct vkd3d_instance_create_info
 {
     vkd3d_signal_event_pfn signal_event_pfn;
     vkd3d_create_thread_pfn create_thread_pfn;
     vkd3d_join_thread_pfn join_thread_pfn;
     size_t wchar_size;
+    const struct vkd3d_vulkan_procs_info *vulkan_procs_info;
 };
 
 struct vkd3d_device_create_info
