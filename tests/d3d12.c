@@ -330,7 +330,7 @@ static HANDLE create_thread(thread_main_pfn main_pfn, void *user_data)
 
 static bool join_thread(HANDLE thread)
 {
-    int ret;
+    unsigned int ret;
 
     ret = WaitForSingleObject(thread, INFINITE);
     CloseHandle(thread);
@@ -402,8 +402,7 @@ static HRESULT wait_for_fence(ID3D12Fence *fence, UINT64 value)
 
     ret = wait_event(event, INFINITE);
     destroy_event(event);
-
-    return ret == WAIT_OBJECT_0;
+    return ret == WAIT_OBJECT_0 ? S_OK : E_FAIL;
 }
 
 #define wait_queue_idle(a, b) wait_queue_idle_(__LINE__, a, b)
@@ -414,12 +413,12 @@ static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12Comm
 
     hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
             &IID_ID3D12Fence, (void **)&fence);
-    ok_(line)(SUCCEEDED(hr), "Failed to create fence, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
 
     hr = ID3D12CommandQueue_Signal(queue, fence, 1);
-    ok_(line)(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     hr = wait_for_fence(fence, 1);
-    ok_(line)(SUCCEEDED(hr), "Failed to wait for fence, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to wait for fence, hr %#x.\n", hr);
 
     ID3D12Fence_Release(fence);
 }
@@ -3022,7 +3021,7 @@ static void test_cpu_signal_fence(void)
 
     /* Basic tests with single event. */
     event1 = create_event();
-    ok(!!event1, "Failed to create event.\n");
+    ok(event1, "Failed to create event.\n");
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
@@ -3114,7 +3113,7 @@ static void test_cpu_signal_fence(void)
     ok(value == 0, "Got unexpected value %"PRIu64".\n", value);
 
     event2 = create_event();
-    ok(!!event2, "Failed to create event.\n");
+    ok(event2, "Failed to create event.\n");
 
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -3297,7 +3296,7 @@ static void test_gpu_signal_fence(void)
 
     /* Basic tests with single event. */
     event1 = create_event();
-    ok(!!event1, "Failed to create event.\n");
+    ok(event1, "Failed to create event.\n");
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
@@ -3372,7 +3371,7 @@ static void test_gpu_signal_fence(void)
     ok(value == 0, "Got unexpected value %"PRIu64".\n", value);
 
     event2 = create_event();
-    ok(!!event2, "Failed to create event.\n");
+    ok(event2, "Failed to create event.\n");
 
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -3508,12 +3507,12 @@ struct multithread_fence_wait_data
 static void fence_event_wait_main(void *untyped_data)
 {
     struct multithread_fence_wait_data *data = untyped_data;
+    unsigned int ret;
     HANDLE event;
     HRESULT hr;
-    int ret;
 
     event = create_event();
-    ok(!!event, "Failed to create event.\n");
+    ok(event, "Failed to create event.\n");
 
     hr = ID3D12Fence_SetEventOnCompletion(data->fence, data->value, event);
     ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
@@ -3563,7 +3562,7 @@ static void test_multithread_fence_wait(void)
 
     thread_data.event = create_event();
     thread_data.value = 0;
-    ok(!!thread_data.event, "Failed to create event.\n");
+    ok(thread_data.event, "Failed to create event.\n");
     hr = ID3D12Device_CreateFence(device, thread_data.value, D3D12_FENCE_FLAG_NONE,
             &IID_ID3D12Fence, (void **)&thread_data.fence);
     ok(SUCCEEDED(hr), "Failed to create fence, hr %#x.\n", hr);
@@ -3571,7 +3570,7 @@ static void test_multithread_fence_wait(void)
     /* Signal fence on host. */
     ++thread_data.value;
     thread = create_thread(fence_event_wait_main, &thread_data);
-    ok(!!thread, "Failed to create thread.\n");
+    ok(thread, "Failed to create thread.\n");
     ret = wait_event(thread_data.event, INFINITE);
     ok(ret == WAIT_OBJECT_0, "Failed to wait for thread start, return value %#x.\n", ret);
 
@@ -3582,7 +3581,7 @@ static void test_multithread_fence_wait(void)
 
     ++thread_data.value;
     thread = create_thread(fence_busy_wait_main, &thread_data);
-    ok(!!thread, "Failed to create thread.\n");
+    ok(thread, "Failed to create thread.\n");
     ret = wait_event(thread_data.event, INFINITE);
     ok(ret == WAIT_OBJECT_0, "Failed to wait for thread start, return value %#x.\n", ret);
 
@@ -3594,7 +3593,7 @@ static void test_multithread_fence_wait(void)
     /* Signal fence on device. */
     ++thread_data.value;
     thread = create_thread(fence_event_wait_main, &thread_data);
-    ok(!!thread, "Failed to create thread.\n");
+    ok(thread, "Failed to create thread.\n");
     ret = wait_event(thread_data.event, INFINITE);
     ok(ret == WAIT_OBJECT_0, "Failed to wait for thread start, return value %#x.\n", ret);
 
@@ -3605,7 +3604,7 @@ static void test_multithread_fence_wait(void)
 
     ++thread_data.value;
     thread = create_thread(fence_busy_wait_main, &thread_data);
-    ok(!!thread, "Failed to create thread.\n");
+    ok(thread, "Failed to create thread.\n");
     ret = wait_event(thread_data.event, INFINITE);
     ok(ret == WAIT_OBJECT_0, "Failed to wait for thread start, return value %#x.\n", ret);
 
