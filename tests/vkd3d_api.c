@@ -154,7 +154,7 @@ static void test_physical_device(void)
 
     hr = vkd3d_create_instance(&instance_default_create_info, &instance);
     ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
-    vk_instance = vkd3d_get_vk_instance(instance);
+    vk_instance = vkd3d_instance_get_vk_instance(instance);
     ok(vk_instance != VK_NULL_HANDLE, "Failed to get Vulkan instance.\n");
 
     create_info = device_default_create_info;

@@ -8,11 +8,11 @@ global:
     vkd3d_create_root_signature_deserializer;
     vkd3d_get_vk_device;
     vkd3d_get_vk_format;
-    vkd3d_get_vk_instance;
     vkd3d_get_vk_physical_device;
     vkd3d_get_vk_queue_family_index;
     vkd3d_instance_decref;
     vkd3d_instance_from_device;
+    vkd3d_instance_get_vk_instance;
     vkd3d_instance_incref;
     vkd3d_release_vk_queue;
     vkd3d_serialize_root_signature;

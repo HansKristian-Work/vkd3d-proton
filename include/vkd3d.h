@@ -70,8 +70,8 @@ struct vkd3d_device_create_info
 
 HRESULT vkd3d_create_instance(const struct vkd3d_instance_create_info *create_info,
         struct vkd3d_instance **instance);
-VkInstance vkd3d_get_vk_instance(struct vkd3d_instance *instance);
 ULONG vkd3d_instance_decref(struct vkd3d_instance *instance);
+VkInstance vkd3d_instance_get_vk_instance(struct vkd3d_instance *instance);
 ULONG vkd3d_instance_incref(struct vkd3d_instance *instance);
 
 HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,

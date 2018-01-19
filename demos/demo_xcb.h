@@ -344,7 +344,7 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     if (FAILED(ID3D12CommandQueue_GetDevice(command_queue, &IID_ID3D12Device, (void **)&d3d12_device)))
         return NULL;
 
-    vk_instance = vkd3d_get_vk_instance(vkd3d_instance_from_device(d3d12_device));
+    vk_instance = vkd3d_instance_get_vk_instance(vkd3d_instance_from_device(d3d12_device));
     vk_physical_device = vkd3d_get_vk_physical_device(d3d12_device);
     vk_device = vkd3d_get_vk_device(d3d12_device);
 

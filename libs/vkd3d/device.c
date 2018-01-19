@@ -344,7 +344,7 @@ ULONG vkd3d_instance_decref(struct vkd3d_instance *instance)
     return refcount;
 }
 
-VkInstance vkd3d_get_vk_instance(struct vkd3d_instance *instance)
+VkInstance vkd3d_instance_get_vk_instance(struct vkd3d_instance *instance)
 {
     return instance->vk_instance;
 }
