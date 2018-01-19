@@ -148,6 +148,102 @@ static void test_create_device(void)
     ok(!refcount, "Instance has %u references left.\n", refcount);
 }
 
+static VkResult VKAPI_CALL fake_vkEnumerateDeviceExtensionProperties(
+        VkPhysicalDevice physical_device, const char *layer_name,
+        uint32_t *out_count, VkExtensionProperties *out_properties)
+{
+    VkExtensionProperties *properties;
+    uint32_t count, i, j;
+    VkResult vr;
+
+    vr = vkEnumerateDeviceExtensionProperties(physical_device, layer_name, &count, NULL);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+    if (!count)
+    {
+        *out_count = count;
+        return vr;
+    }
+
+    properties = calloc(count, sizeof(*properties));
+    ok(properties, "Failed to allocate memory.\n");
+
+    vr = vkEnumerateDeviceExtensionProperties(physical_device, layer_name, &count, properties);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+
+    vr = VK_SUCCESS;
+    for (i = 0, j = 0; i < count; ++i)
+    {
+        /* Filter out VK_KHR_maintenance1. */
+        if (!strcmp(properties[i].extensionName, VK_KHR_MAINTENANCE1_EXTENSION_NAME))
+            continue;
+
+        if (out_properties)
+        {
+            if (j < *out_count)
+                out_properties[j] = properties[i];
+            else
+                vr = VK_INCOMPLETE;
+        }
+
+        ++j;
+    }
+
+    free(properties);
+
+    *out_count = j;
+    return vr;
+}
+
+static VkResult VKAPI_CALL fake_vkCreateDevice(VkPhysicalDevice physical_device,
+        const VkDeviceCreateInfo *create_info, const VkAllocationCallbacks *allocator,
+        VkDevice *device)
+{
+    uint32_t i;
+
+    for (i = 0; i < create_info->enabledExtensionCount; ++i)
+    {
+        if (!strcmp(create_info->ppEnabledExtensionNames[i], VK_KHR_MAINTENANCE1_EXTENSION_NAME))
+            return VK_ERROR_EXTENSION_NOT_PRESENT;
+    }
+
+    return vkCreateDevice(physical_device, create_info, allocator, device);
+}
+
+static PFN_vkVoidFunction VKAPI_CALL fake_vkGetInstanceProcAddr(VkInstance instance,
+        const char *name)
+{
+    if (!strcmp(name, "vkCreateDevice"))
+        return (PFN_vkVoidFunction)fake_vkCreateDevice;
+    if (!strcmp(name, "vkEnumerateDeviceExtensionProperties"))
+        return (PFN_vkVoidFunction)fake_vkEnumerateDeviceExtensionProperties;
+
+    return vkGetInstanceProcAddr(instance, name);
+}
+
+static void test_required_device_extensions(void)
+{
+    struct vkd3d_instance_create_info instance_create_info;
+    struct vkd3d_device_create_info device_create_info;
+    struct vkd3d_instance *instance;
+    ID3D12Device *device;
+    ULONG refcount;
+    HRESULT hr;
+
+    instance_create_info = instance_default_create_info;
+    instance_create_info.vkGetInstanceProcAddr_pfn = fake_vkGetInstanceProcAddr;
+    hr = vkd3d_create_instance(&instance_create_info, &instance);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+
+    device_create_info = device_default_create_info;
+    device_create_info.instance = instance;
+    device_create_info.instance_create_info = NULL;
+    hr = vkd3d_create_device(&device_create_info, &IID_ID3D12Device, (void **)&device);
+    ok(hr == E_FAIL, "Failed to create device, hr %#x.\n", hr);
+
+    refcount = vkd3d_instance_decref(instance);
+    ok(!refcount, "Instance has %u references left.\n", refcount);
+}
+
 static void test_physical_device(void)
 {
     struct vkd3d_device_create_info create_info;
@@ -264,6 +360,7 @@ START_TEST(vkd3d_api)
 
     run_test(test_create_instance);
     run_test(test_create_device);
+    run_test(test_required_device_extensions);
     run_test(test_physical_device);
     run_test(test_vkd3d_queue);
 }
