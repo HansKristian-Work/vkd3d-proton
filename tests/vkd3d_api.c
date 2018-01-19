@@ -92,6 +92,13 @@ static void test_create_instance(void)
     create_info.signal_event_pfn = NULL;
     hr = vkd3d_create_instance(&create_info, &instance);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    create_info = instance_default_create_info;
+    create_info.vkGetInstanceProcAddr_pfn = vkGetInstanceProcAddr;
+    hr = vkd3d_create_instance(&create_info, &instance);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    refcount = vkd3d_instance_decref(instance);
+    ok(!refcount, "Instance has %u references left.\n", refcount);
 }
 
 static void test_create_device(void)
