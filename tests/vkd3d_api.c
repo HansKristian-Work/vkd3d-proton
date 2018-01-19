@@ -74,9 +74,7 @@ static void test_create_instance(void)
     ULONG refcount;
     HRESULT hr;
 
-    memset(&create_info, 0, sizeof(create_info));
-    create_info.wchar_size = sizeof(WCHAR);
-
+    create_info = instance_default_create_info;
     hr = vkd3d_create_instance(&create_info, &instance);
     ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
     refcount = vkd3d_instance_incref(instance);
@@ -85,11 +83,15 @@ static void test_create_instance(void)
     refcount = vkd3d_instance_decref(instance);
     ok(!refcount, "Instance has %u references left.\n", refcount);
 
-    create_info.signal_event_pfn = signal_event;
+    create_info = instance_default_create_info;
+    create_info.wchar_size = 1;
     hr = vkd3d_create_instance(&create_info, &instance);
-    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
-    refcount = vkd3d_instance_decref(instance);
-    ok(!refcount, "Instance has %u references left.\n", refcount);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    create_info = instance_default_create_info;
+    create_info.signal_event_pfn = NULL;
+    hr = vkd3d_create_instance(&create_info, &instance);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 }
 
 static void test_create_device(void)

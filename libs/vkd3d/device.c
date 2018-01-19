@@ -221,6 +221,11 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     VkResult vr;
     HRESULT hr;
 
+    if (!create_info->signal_event_pfn)
+    {
+        ERR("Invalid signal event function pointer.\n");
+        return E_INVALIDARG;
+    }
     if (!create_info->create_thread_pfn != !create_info->join_thread_pfn)
     {
         ERR("Invalid create/join thread function pointers.\n");
