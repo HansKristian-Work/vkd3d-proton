@@ -37,16 +37,13 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
     if (adapter)
         FIXME("Ignoring adapter %p.\n", adapter);
 
+    memset(&instance_create_info, 0, sizeof(instance_create_info));
     instance_create_info.signal_event_pfn = vkd3d_signal_event;
-    instance_create_info.create_thread_pfn = NULL;
-    instance_create_info.join_thread_pfn = NULL;
     instance_create_info.wchar_size = sizeof(WCHAR);
-    instance_create_info.vkGetInstanceProcAddr_pfn = NULL;
 
+    memset(&device_create_info, 0, sizeof(device_create_info));
     device_create_info.minimum_feature_level = minimum_feature_level;
-    device_create_info.instance = NULL;
     device_create_info.instance_create_info = &instance_create_info;
-    device_create_info.vk_physical_device = VK_NULL_HANDLE;
 
     return vkd3d_create_device(&device_create_info, riid, device);
 }

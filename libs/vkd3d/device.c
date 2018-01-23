@@ -38,9 +38,6 @@ static const struct vkd3d_optional_extension_info optional_instance_extensions[]
             offsetof(struct vkd3d_vulkan_info, KHR_get_physical_device_properties2)},
 };
 
-#define MAX_INSTANCE_EXTENSION_COUNT \
-        (ARRAY_SIZE(required_instance_extensions) + ARRAY_SIZE(optional_instance_extensions))
-
 static const char * const required_device_extensions[] =
 {
     VK_KHR_MAINTENANCE1_EXTENSION_NAME,
@@ -90,11 +87,13 @@ static bool has_extension(const VkExtensionProperties *extensions,
     return false;
 }
 
-static void vkd3d_check_extensions(const VkExtensionProperties *extensions, unsigned int count,
+static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensions, unsigned int count,
         const char * const *required_extensions, unsigned int required_extension_count,
         const struct vkd3d_optional_extension_info *optional_extensions, unsigned int optional_extension_count,
+        const char * const *user_extensions, unsigned int user_extension_count,
         struct vkd3d_vulkan_info *vulkan_info, const char *extension_type)
 {
+    unsigned int extension_count = 0;
     unsigned int i;
 
     for (i = 0; i < required_extension_count; ++i)
@@ -102,6 +101,7 @@ static void vkd3d_check_extensions(const VkExtensionProperties *extensions, unsi
         if (!has_extension(extensions, count, required_extensions[i]))
             ERR("Required %s extension %s is not supported.\n",
                     extension_type, debugstr_a(required_extensions[i]));
+        ++extension_count;
     }
 
     for (i = 0; i < optional_extension_count; ++i)
@@ -111,34 +111,64 @@ static void vkd3d_check_extensions(const VkExtensionProperties *extensions, unsi
         bool *supported = (void *)((uintptr_t)vulkan_info + offset);
 
         if ((*supported = has_extension(extensions, count, extension_name)))
+        {
             TRACE("Found %s extension.\n", debugstr_a(extension_name));
+            ++extension_count;
+        }
     }
+
+    for (i = 0; i < user_extension_count; ++i)
+    {
+        if (!has_extension(extensions, count, user_extensions[i]))
+            ERR("Required user %s extension %s is not supported.\n",
+                    extension_type, debugstr_a(required_extensions[i]));
+        ++extension_count;
+    }
+
+    return extension_count;
 }
 
 static unsigned int vkd3d_enable_extensions(const char *extensions[],
         const char * const *required_extensions, unsigned int required_extension_count,
         const struct vkd3d_optional_extension_info *optional_extensions, unsigned int optional_extension_count,
+        const char * const *user_extensions, unsigned int user_extension_count,
         const struct vkd3d_vulkan_info *vulkan_info)
 {
+    unsigned int extension_count = 0;
     unsigned int i, j;
 
     for (i = 0; i < required_extension_count; ++i)
     {
-        extensions[i] = required_extensions[i];
+        extensions[extension_count++] = required_extensions[i];
     }
-    for (j = 0; j < optional_extension_count; ++j)
+    for (i = 0; i < optional_extension_count; ++i)
     {
-        ptrdiff_t offset = optional_extensions[j].vulkan_info_offset;
+        ptrdiff_t offset = optional_extensions[i].vulkan_info_offset;
         const bool *supported = (void *)((uintptr_t)vulkan_info + offset);
 
         if (*supported)
-            extensions[i++] = optional_extensions[j].extension_name;
+            extensions[extension_count++] = optional_extensions[i].extension_name;
+    }
+    for (i = 0; i < user_extension_count; ++i)
+    {
+        /* avoid duplicates */
+        for (j = 0; j < extension_count; ++j)
+        {
+            if (!strcmp(extensions[j], user_extensions[i]))
+                break;
+        }
+        if (j != extension_count)
+            continue;
+
+        extensions[extension_count++] = user_extensions[i];
     }
 
-    return i;
+    return extension_count;
 }
 
-static void vkd3d_init_instance_caps(struct vkd3d_instance *instance)
+static HRESULT vkd3d_init_instance_caps(struct vkd3d_instance *instance,
+        const struct vkd3d_instance_create_info *create_info,
+        uint32_t *instance_extension_count)
 {
     const struct vkd3d_vk_global_procs *vk_procs = &instance->vk_global_procs;
     struct vkd3d_vulkan_info *vulkan_info = &instance->vk_info;
@@ -146,31 +176,36 @@ static void vkd3d_init_instance_caps(struct vkd3d_instance *instance)
     uint32_t count;
     VkResult vr;
 
+    memset(vulkan_info, 0, sizeof(*vulkan_info));
+    *instance_extension_count = 0;
+
     if ((vr = vk_procs->vkEnumerateInstanceExtensionProperties(NULL, &count, NULL)) < 0)
     {
         ERR("Failed to enumerate instance extensions, vr %d.\n", vr);
-        return;
+        return hresult_from_vk_result(vr);
     }
     if (!count)
-        return;
+        return S_OK;
 
     if (!(vk_extensions = vkd3d_calloc(count, sizeof(*vk_extensions))))
-        return;
+        return E_OUTOFMEMORY;
 
     TRACE("Enumerating %u instance extensions.\n", count);
     if ((vr = vk_procs->vkEnumerateInstanceExtensionProperties(NULL, &count, vk_extensions)) < 0)
     {
         ERR("Failed to enumerate instance extensions, vr %d.\n", vr);
         vkd3d_free(vk_extensions);
-        return;
+        return hresult_from_vk_result(vr);
     }
 
-    vkd3d_check_extensions(vk_extensions, count,
+    *instance_extension_count = vkd3d_check_extensions(vk_extensions, count,
             required_instance_extensions, ARRAY_SIZE(required_instance_extensions),
             optional_instance_extensions, ARRAY_SIZE(optional_instance_extensions),
+            create_info->instance_extensions, create_info->instance_extension_count,
             vulkan_info, "instance");
 
     vkd3d_free(vk_extensions);
+    return S_OK;
 }
 
 static HRESULT vkd3d_init_vk_global_procs(struct vkd3d_instance *instance,
@@ -214,9 +249,10 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         const struct vkd3d_instance_create_info *create_info)
 {
     const struct vkd3d_vk_global_procs *vk_global_procs = &instance->vk_global_procs;
-    const char *extensions[MAX_INSTANCE_EXTENSION_COUNT];
     VkApplicationInfo application_info;
     VkInstanceCreateInfo instance_info;
+    uint32_t extension_count;
+    const char **extensions;
     VkInstance vk_instance;
     VkResult vr;
     HRESULT hr;
@@ -248,8 +284,12 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         return hr;
     }
 
-    memset(&instance->vk_info, 0, sizeof(instance->vk_info));
-    vkd3d_init_instance_caps(instance);
+    if (FAILED(hr = vkd3d_init_instance_caps(instance, create_info, &extension_count)))
+    {
+        if (instance->libvulkan)
+            dlclose(instance->libvulkan);
+        return hr;
+    }
 
     application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     application_info.pNext = NULL;
@@ -258,6 +298,13 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     application_info.pEngineName = NULL;
     application_info.engineVersion = 0;
     application_info.apiVersion = VK_API_VERSION_1_0;
+
+    if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
+    {
+        if (instance->libvulkan)
+            dlclose(instance->libvulkan);
+        return E_OUTOFMEMORY;
+    }
 
     instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instance_info.pNext = NULL;
@@ -268,10 +315,13 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance_info.enabledExtensionCount = vkd3d_enable_extensions(extensions,
             required_instance_extensions, ARRAY_SIZE(required_instance_extensions),
             optional_instance_extensions, ARRAY_SIZE(optional_instance_extensions),
+            create_info->instance_extensions, create_info->instance_extension_count,
             &instance->vk_info);
     instance_info.ppEnabledExtensionNames = extensions;
 
-    if ((vr = vk_global_procs->vkCreateInstance(&instance_info, NULL, &vk_instance)))
+    vr = vk_global_procs->vkCreateInstance(&instance_info, NULL, &vk_instance);
+    vkd3d_free(extensions);
+    if (vr < 0)
     {
         ERR("Failed to create Vulkan instance, vr %d.\n", vr);
         if (instance->libvulkan)
@@ -699,7 +749,7 @@ static void vkd3d_init_device_caps(struct d3d12_device *device,
     vkd3d_check_extensions(vk_extensions, count,
             required_device_extensions, ARRAY_SIZE(required_device_extensions),
             optional_device_extensions, ARRAY_SIZE(optional_device_extensions),
-            vulkan_info, "device");
+            NULL, 0, vulkan_info, "device");
 
     vkd3d_free(vk_extensions);
 }
@@ -917,7 +967,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device, VkPhysicalDev
     device_info.enabledExtensionCount = vkd3d_enable_extensions(extensions,
             required_device_extensions, ARRAY_SIZE(required_device_extensions),
             optional_device_extensions, ARRAY_SIZE(optional_device_extensions),
-            &device->vk_info);
+            NULL, 0, &device->vk_info);
     device_info.ppEnabledExtensionNames = extensions;
     device_info.pEnabledFeatures = &device_features;
 

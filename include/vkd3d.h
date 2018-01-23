@@ -52,6 +52,9 @@ struct vkd3d_instance_create_info
 
     /* If set to NULL, libvkd3d loads libvulkan. */
     PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr_pfn;
+
+    const char * const *instance_extensions;
+    uint32_t instance_extension_count;
 };
 
 struct vkd3d_device_create_info
