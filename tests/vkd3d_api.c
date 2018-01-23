@@ -19,6 +19,8 @@
 #define COBJMACROS
 #define INITGUID
 #define WIDL_C_INLINE_WRAPPERS
+#define VK_USE_PLATFORM_XCB_KHR
+#define VK_USE_PLATFORM_XLIB_KHR
 #include "vkd3d_test.h"
 #include <vkd3d.h>
 
@@ -97,6 +99,102 @@ static void test_create_instance(void)
     create_info.vkGetInstanceProcAddr_pfn = vkGetInstanceProcAddr;
     hr = vkd3d_create_instance(&create_info, &instance);
     ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    refcount = vkd3d_instance_decref(instance);
+    ok(!refcount, "Instance has %u references left.\n", refcount);
+}
+
+struct vulkan_extension
+{
+    const char *name;
+    bool is_supported;
+};
+
+static uint32_t check_instance_extensions(const char **enabled_extensions,
+        struct vulkan_extension *extensions, unsigned int extension_count)
+{
+    VkExtensionProperties *properties;
+    uint32_t enabled_extension_count;
+    unsigned int i, j;
+    uint32_t count;
+    VkResult vr;
+
+    vr = vkEnumerateInstanceExtensionProperties(NULL, &count, NULL);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+    if (!count)
+        return 0;
+
+    properties = calloc(count, sizeof(*properties));
+    ok(properties, "Failed to allocate memory.\n");
+    vr = vkEnumerateInstanceExtensionProperties(NULL, &count, properties);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+
+    enabled_extension_count = 0;
+    for (i = 0; i < count; ++i)
+    {
+        for (j = 0; j < extension_count; ++j)
+        {
+            if (!strcmp(properties[i].extensionName, extensions[j].name))
+            {
+                extensions[j].is_supported = true;
+                enabled_extensions[enabled_extension_count++] = extensions[j].name;
+            }
+        }
+    }
+    free(properties);
+    return enabled_extension_count;
+}
+
+static void test_additional_instance_extensions(void)
+{
+    struct vkd3d_instance_create_info create_info;
+    const char *enabled_extensions[3];
+    struct vkd3d_instance *instance;
+    uint32_t extension_count;
+    PFN_vkVoidFunction pfn;
+    VkInstance vk_instance;
+    unsigned int i;
+    ULONG refcount;
+    HRESULT hr;
+
+    struct vulkan_extension extensions[] =
+    {
+        {VK_KHR_SURFACE_EXTENSION_NAME},
+        {VK_KHR_XCB_SURFACE_EXTENSION_NAME},
+        {VK_KHR_XLIB_SURFACE_EXTENSION_NAME},
+    };
+
+    if (!(extension_count = check_instance_extensions(enabled_extensions,
+            extensions, ARRAY_SIZE(extensions))))
+    {
+        skip("Found 0 extensions.\n");
+        return;
+    }
+
+    create_info = instance_default_create_info;
+    create_info.instance_extensions = enabled_extensions;
+    create_info.instance_extension_count = extension_count;
+    hr = vkd3d_create_instance(&create_info, &instance);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    vk_instance = vkd3d_instance_get_vk_instance(instance);
+    ok(vk_instance != VK_NULL_HANDLE, "Failed to get Vulkan instance.\n");
+
+    for (i = 0; i < ARRAY_SIZE(extensions); ++i)
+    {
+        if (!extensions[i].is_supported)
+            continue;
+
+        if (!strcmp(extensions[i].name, VK_KHR_XCB_SURFACE_EXTENSION_NAME))
+        {
+            pfn = vkGetInstanceProcAddr(vk_instance, "vkCreateXcbSurfaceKHR");
+            ok(pfn, "Failed to get proc addr for vkCreateXcbSurfaceKHR.\n");
+        }
+        else if (!strcmp(extensions[i].name, VK_KHR_XLIB_SURFACE_EXTENSION_NAME))
+        {
+            pfn = vkGetInstanceProcAddr(vk_instance, "vkCreateXlibSurfaceKHR");
+            ok(pfn, "Failed to get proc addr for vkCreateXlibSurfaceKHR.\n");
+        }
+    }
+
     refcount = vkd3d_instance_decref(instance);
     ok(!refcount, "Instance has %u references left.\n", refcount);
 }
@@ -381,6 +479,7 @@ START_TEST(vkd3d_api)
     }
 
     run_test(test_create_instance);
+    run_test(test_additional_instance_extensions);
     run_test(test_create_device);
     run_test(test_required_device_extensions);
     run_test(test_physical_device);
