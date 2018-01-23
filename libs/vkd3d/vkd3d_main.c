@@ -20,13 +20,13 @@
 #include "vkd3d_private.h"
 
 HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
-        REFIID riid, void **device)
+        REFIID iid, void **device)
 {
     struct vkd3d_instance *instance;
     struct d3d12_device *object;
     HRESULT hr;
 
-    TRACE("create_info %p, riid %s, device %p.\n", create_info, debugstr_guid(riid), device);
+    TRACE("create_info %p, iid %s, device %p.\n", create_info, debugstr_guid(iid), device);
 
     if (!create_info || !device)
         return E_INVALIDARG;
@@ -64,13 +64,13 @@ HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         return E_FAIL;
     }
 
-    hr = d3d12_device_create(instance, create_info->vk_physical_device, &object);
+    hr = d3d12_device_create(instance, create_info, &object);
     vkd3d_instance_decref(instance);
     if (FAILED(hr))
         return hr;
 
     return return_interface((IUnknown *)&object->ID3D12Device_iface, &IID_ID3D12Device,
-            riid, device);
+            iid, device);
 }
 
 /* ID3D12RootSignatureDeserializer */

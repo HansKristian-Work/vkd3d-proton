@@ -2052,7 +2052,11 @@ static void STDMETHODCALLTYPE d3d12_device_GetResourceTiling(ID3D12Device *iface
 
 static LUID * STDMETHODCALLTYPE d3d12_device_GetAdapterLuid(ID3D12Device *iface, LUID *luid)
 {
-    FIXME("iface %p, luid %p stub!\n", iface, luid);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
+    TRACE("iface %p, luid %p.\n", iface, luid);
+
+    *luid = device->adapter_luid;
 
     return luid;
 }
@@ -2117,7 +2121,7 @@ struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface)
 }
 
 static HRESULT d3d12_device_init(struct d3d12_device *device,
-        struct vkd3d_instance *instance, VkPhysicalDevice vk_physical_device)
+        struct vkd3d_instance *instance, const struct vkd3d_device_create_info *create_info)
 {
     HRESULT hr;
 
@@ -2131,7 +2135,9 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     device->join_thread = instance->join_thread;
     device->wchar_size = instance->wchar_size;
 
-    if (FAILED(hr = vkd3d_create_vk_device(device, vk_physical_device)))
+    device->adapter_luid = create_info->adapter_luid;
+
+    if (FAILED(hr = vkd3d_create_vk_device(device, create_info->vk_physical_device)))
     {
         vkd3d_instance_decref(device->vkd3d_instance);
         return hr;
@@ -2163,7 +2169,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 }
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
-        VkPhysicalDevice vk_physical_device, struct d3d12_device **device)
+        const struct vkd3d_device_create_info *create_info, struct d3d12_device **device)
 {
     struct d3d12_device *object;
     HRESULT hr;
@@ -2171,7 +2177,7 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    if (FAILED(hr = d3d12_device_init(object, instance, vk_physical_device)))
+    if (FAILED(hr = d3d12_device_init(object, instance, create_info)))
     {
         vkd3d_free(object);
         return hr;

@@ -65,6 +65,8 @@ struct vkd3d_device_create_info
     const struct vkd3d_instance_create_info *instance_create_info;
 
     VkPhysicalDevice vk_physical_device;
+
+    LUID adapter_luid;
 };
 
 /* resource flags */

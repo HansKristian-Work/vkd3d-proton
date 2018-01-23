@@ -299,6 +299,28 @@ static void test_physical_device(void)
     ok(!refcount, "Instance has %u references left.\n", refcount);
 }
 
+static void test_adapter_luid(void)
+{
+    struct vkd3d_device_create_info create_info;
+    ID3D12Device *device;
+    ULONG refcount;
+    HRESULT hr;
+    LUID luid;
+
+    create_info = device_default_create_info;
+    create_info.adapter_luid.HighPart = 0xdeadc0de;
+    create_info.adapter_luid.LowPart = 0xdeadbeef;
+    hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+
+    luid = ID3D12Device_GetAdapterLuid(device);
+    ok(luid.HighPart == 0xdeadc0de && luid.LowPart == 0xdeadbeef,
+            "Got unexpected LUID %08x:%08x.\n", luid.HighPart, luid.LowPart);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+}
+
 static void test_vkd3d_queue(void)
 {
     ID3D12CommandQueue *direct_queue, *compute_queue, *copy_queue;
@@ -362,5 +384,6 @@ START_TEST(vkd3d_api)
     run_test(test_create_device);
     run_test(test_required_device_extensions);
     run_test(test_physical_device);
+    run_test(test_adapter_luid);
     run_test(test_vkd3d_queue);
 }
