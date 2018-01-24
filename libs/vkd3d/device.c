@@ -26,12 +26,6 @@ struct vkd3d_optional_extension_info
     ptrdiff_t vulkan_info_offset;
 };
 
-static const char * const required_instance_extensions[] =
-{
-    VK_KHR_SURFACE_EXTENSION_NAME,
-    VK_KHR_XCB_SURFACE_EXTENSION_NAME,
-};
-
 static const struct vkd3d_optional_extension_info optional_instance_extensions[] =
 {
     {VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
@@ -41,7 +35,6 @@ static const struct vkd3d_optional_extension_info optional_instance_extensions[]
 static const char * const required_device_extensions[] =
 {
     VK_KHR_MAINTENANCE1_EXTENSION_NAME,
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
     VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
 };
 
@@ -195,8 +188,7 @@ static HRESULT vkd3d_init_instance_caps(struct vkd3d_instance *instance,
         return hresult_from_vk_result(vr);
     }
 
-    *instance_extension_count = vkd3d_check_extensions(vk_extensions, count,
-            required_instance_extensions, ARRAY_SIZE(required_instance_extensions),
+    *instance_extension_count = vkd3d_check_extensions(vk_extensions, count, NULL, 0,
             optional_instance_extensions, ARRAY_SIZE(optional_instance_extensions),
             create_info->instance_extensions, create_info->instance_extension_count,
             vulkan_info, "instance");
@@ -309,8 +301,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance_info.pApplicationInfo = &application_info;
     instance_info.enabledLayerCount = 0;
     instance_info.ppEnabledLayerNames = NULL;
-    instance_info.enabledExtensionCount = vkd3d_enable_extensions(extensions,
-            required_instance_extensions, ARRAY_SIZE(required_instance_extensions),
+    instance_info.enabledExtensionCount = vkd3d_enable_extensions(extensions, NULL, 0,
             optional_instance_extensions, ARRAY_SIZE(optional_instance_extensions),
             create_info->instance_extensions, create_info->instance_extension_count,
             &instance->vk_info);
