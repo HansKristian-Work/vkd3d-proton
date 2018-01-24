@@ -109,12 +109,33 @@ struct vulkan_extension
     bool is_supported;
 };
 
+static uint32_t check_extensions(const char **enabled_extensions,
+        struct vulkan_extension *extensions, unsigned int extension_count,
+        const VkExtensionProperties *properties, unsigned int count)
+{
+    uint32_t enabled_extension_count = 0;
+    unsigned int i, j;
+
+    for (i = 0; i < count; ++i)
+    {
+        for (j = 0; j < extension_count; ++j)
+        {
+            if (!strcmp(properties[i].extensionName, extensions[j].name))
+            {
+                extensions[j].is_supported = true;
+                enabled_extensions[enabled_extension_count++] = extensions[j].name;
+            }
+        }
+    }
+
+    return enabled_extension_count;
+}
+
 static uint32_t check_instance_extensions(const char **enabled_extensions,
         struct vulkan_extension *extensions, unsigned int extension_count)
 {
     VkExtensionProperties *properties;
     uint32_t enabled_extension_count;
-    unsigned int i, j;
     uint32_t count;
     VkResult vr;
 
@@ -127,27 +148,47 @@ static uint32_t check_instance_extensions(const char **enabled_extensions,
     ok(properties, "Failed to allocate memory.\n");
     vr = vkEnumerateInstanceExtensionProperties(NULL, &count, properties);
     ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+    enabled_extension_count = check_extensions(enabled_extensions,
+            extensions, extension_count, properties, count);
+    free(properties);
+    return enabled_extension_count;
+}
 
-    enabled_extension_count = 0;
-    for (i = 0; i < count; ++i)
-    {
-        for (j = 0; j < extension_count; ++j)
-        {
-            if (!strcmp(properties[i].extensionName, extensions[j].name))
-            {
-                extensions[j].is_supported = true;
-                enabled_extensions[enabled_extension_count++] = extensions[j].name;
-            }
-        }
-    }
+static uint32_t check_device_extensions(VkPhysicalDevice vk_physical_device,
+        const char **enabled_extensions, struct vulkan_extension *extensions,
+        unsigned int extension_count)
+{
+    VkExtensionProperties *properties;
+    uint32_t enabled_extension_count;
+    uint32_t count;
+    VkResult vr;
+
+    vr = vkEnumerateDeviceExtensionProperties(vk_physical_device, NULL, &count, NULL);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+    if (!count)
+        return 0;
+
+    properties = calloc(count, sizeof(*properties));
+    ok(properties, "Failed to allocate memory.\n");
+    vr = vkEnumerateDeviceExtensionProperties(vk_physical_device, NULL, &count, properties);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+    enabled_extension_count = check_extensions(enabled_extensions,
+            extensions, extension_count, properties, count);
     free(properties);
     return enabled_extension_count;
 }
 
 static void test_additional_instance_extensions(void)
 {
+    struct vulkan_extension extensions[] =
+    {
+        {VK_KHR_SURFACE_EXTENSION_NAME},
+        {VK_KHR_XCB_SURFACE_EXTENSION_NAME},
+        {VK_KHR_XLIB_SURFACE_EXTENSION_NAME},
+    };
+
+    const char *enabled_extensions[ARRAY_SIZE(extensions)];
     struct vkd3d_instance_create_info create_info;
-    const char *enabled_extensions[3];
     struct vkd3d_instance *instance;
     uint32_t extension_count;
     PFN_vkVoidFunction pfn;
@@ -155,13 +196,6 @@ static void test_additional_instance_extensions(void)
     unsigned int i;
     ULONG refcount;
     HRESULT hr;
-
-    struct vulkan_extension extensions[] =
-    {
-        {VK_KHR_SURFACE_EXTENSION_NAME},
-        {VK_KHR_XCB_SURFACE_EXTENSION_NAME},
-        {VK_KHR_XLIB_SURFACE_EXTENSION_NAME},
-    };
 
     if (!(extension_count = check_instance_extensions(enabled_extensions,
             extensions, ARRAY_SIZE(extensions))))
@@ -342,6 +376,78 @@ static void test_required_device_extensions(void)
     ok(!refcount, "Instance has %u references left.\n", refcount);
 }
 
+static void test_additional_device_extensions(void)
+{
+    struct vulkan_extension extensions[] =
+    {
+        {VK_KHR_SWAPCHAIN_EXTENSION_NAME},
+    };
+
+    struct vkd3d_instance_create_info instance_create_info;
+    const char *enabled_extensions[ARRAY_SIZE(extensions)];
+    struct vkd3d_device_create_info device_create_info;
+    VkPhysicalDevice vk_physical_device;
+    struct vkd3d_instance *instance;
+    uint32_t extension_count;
+    PFN_vkVoidFunction pfn;
+    VkInstance vk_instance;
+    ID3D12Device *device;
+    VkDevice vk_device;
+    uint32_t count;
+    ULONG refcount;
+    VkResult vr;
+    HRESULT hr;
+
+    /* Required by VK_KHR_swapchain. */
+    enabled_extensions[0] = VK_KHR_SURFACE_EXTENSION_NAME;
+    extension_count = 1;
+
+    instance_create_info = instance_default_create_info;
+    instance_create_info.instance_extensions = enabled_extensions;
+    instance_create_info.instance_extension_count = extension_count;
+    if (FAILED(hr = vkd3d_create_instance(&instance_create_info, &instance)))
+    {
+        skip("Failed to create instance, hr %#x.\n", hr);
+        return;
+    }
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    vk_instance = vkd3d_instance_get_vk_instance(instance);
+    ok(vk_instance != VK_NULL_HANDLE, "Failed to get Vulkan instance.\n");
+
+    vr = vkEnumeratePhysicalDevices(vk_instance, &count, NULL);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+    count = 1;
+    vr = vkEnumeratePhysicalDevices(vk_instance, &count, &vk_physical_device);
+    ok(vr == VK_SUCCESS || vr == VK_INCOMPLETE, "Got unexpected VkResult %d.\n", vr);
+
+    if (!(extension_count = check_device_extensions(vk_physical_device,
+            enabled_extensions, extensions, ARRAY_SIZE(extensions))))
+    {
+        skip("%s is not available.\n", VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+        vkd3d_instance_decref(instance);
+        return;
+    }
+
+    device_create_info = device_default_create_info;
+    device_create_info.instance = instance;
+    device_create_info.instance_create_info = NULL;
+    device_create_info.vk_physical_device = vk_physical_device;
+    device_create_info.device_extensions = enabled_extensions;
+    device_create_info.device_extension_count = extension_count;
+    hr = vkd3d_create_device(&device_create_info, &IID_ID3D12Device, (void **)&device);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+
+    vk_device = vkd3d_get_vk_device(device);
+
+    pfn = vkGetDeviceProcAddr(vk_device, "vkCreateSwapchainKHR");
+    ok(pfn, "Failed to get proc addr for vkCreateSwapchainKHR.\n");
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+    refcount = vkd3d_instance_decref(instance);
+    ok(!refcount, "Instance has %u references left.\n", refcount);
+}
+
 static void test_physical_device(void)
 {
     struct vkd3d_device_create_info create_info;
@@ -482,6 +588,7 @@ START_TEST(vkd3d_api)
     run_test(test_additional_instance_extensions);
     run_test(test_create_device);
     run_test(test_required_device_extensions);
+    run_test(test_additional_device_extensions);
     run_test(test_physical_device);
     run_test(test_adapter_luid);
     run_test(test_vkd3d_queue);
