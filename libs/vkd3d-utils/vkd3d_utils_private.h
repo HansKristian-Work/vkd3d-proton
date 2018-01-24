@@ -19,6 +19,9 @@
 #ifndef __VKD3D_UTILS_PRIVATE_H
 #define __VKD3D_UTILS_PRIVATE_H
 
+#define VK_NO_PROTOTYPES
+#define VK_USE_PLATFORM_XCB_KHR
+
 #include <pthread.h>
 #include <vkd3d.h>
 

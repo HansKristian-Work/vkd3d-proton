@@ -18,21 +18,31 @@
 
 #include "vkd3d_utils_private.h"
 
-HRESULT WINAPI D3D12GetDebugInterface(REFIID riid, void **debug)
+HRESULT WINAPI D3D12GetDebugInterface(REFIID iid, void **debug)
 {
-    FIXME("riid %s, debug %p stub!\n", debugstr_guid(riid), debug);
+    FIXME("iid %s, debug %p stub!\n", debugstr_guid(iid), debug);
 
     return E_NOTIMPL;
 }
 
 HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
-        D3D_FEATURE_LEVEL minimum_feature_level, REFIID riid, void **device)
+        D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
 {
     struct vkd3d_instance_create_info instance_create_info;
     struct vkd3d_device_create_info device_create_info;
 
-    TRACE("adapter %p, minimum_feature_level %#x, riid %s, device %p.\n",
-            adapter, minimum_feature_level, debugstr_guid(riid), device);
+    static const char * const instance_extensions[] =
+    {
+        VK_KHR_SURFACE_EXTENSION_NAME,
+        VK_KHR_XCB_SURFACE_EXTENSION_NAME,
+    };
+    static const char * const device_extensions[] =
+    {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+    };
+
+    TRACE("adapter %p, minimum_feature_level %#x, iid %s, device %p.\n",
+            adapter, minimum_feature_level, debugstr_guid(iid), device);
 
     if (adapter)
         FIXME("Ignoring adapter %p.\n", adapter);
@@ -40,12 +50,16 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
     memset(&instance_create_info, 0, sizeof(instance_create_info));
     instance_create_info.signal_event_pfn = vkd3d_signal_event;
     instance_create_info.wchar_size = sizeof(WCHAR);
+    instance_create_info.instance_extensions = instance_extensions;
+    instance_create_info.instance_extension_count = ARRAY_SIZE(instance_extensions);
 
     memset(&device_create_info, 0, sizeof(device_create_info));
     device_create_info.minimum_feature_level = minimum_feature_level;
     device_create_info.instance_create_info = &instance_create_info;
+    device_create_info.device_extensions = device_extensions;
+    device_create_info.device_extension_count = ARRAY_SIZE(device_extensions);
 
-    return vkd3d_create_device(&device_create_info, riid, device);
+    return vkd3d_create_device(&device_create_info, iid, device);
 }
 
 HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T data_size,
