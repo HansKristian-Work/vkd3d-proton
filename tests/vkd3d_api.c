@@ -24,6 +24,12 @@
 #include "vkd3d_test.h"
 #include <vkd3d.h>
 
+static ULONG resource_get_internal_refcount(ID3D12Resource *resource)
+{
+    vkd3d_resource_incref(resource);
+    return vkd3d_resource_decref(resource);
+}
+
 static bool signal_event(HANDLE event)
 {
     trace("Signal event %p.\n", event);
@@ -67,6 +73,36 @@ static ID3D12CommandQueue *create_command_queue(ID3D12Device *device,
             &IID_ID3D12CommandQueue, (void **)&queue);
     ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
     return queue;
+}
+
+static ID3D12Resource *create_buffer(ID3D12Device *device, D3D12_HEAP_TYPE heap_type,
+        size_t size, D3D12_RESOURCE_FLAGS resource_flags, D3D12_RESOURCE_STATES initial_resource_state)
+{
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *buffer;
+    HRESULT hr;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = heap_type;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = size;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = resource_flags;
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, initial_resource_state,
+            NULL, &IID_ID3D12Resource, (void **)&buffer);
+    ok(hr == S_OK, "Failed to create buffer, hr %#x.\n", hr);
+    return buffer;
 }
 
 static void test_create_instance(void)
@@ -567,6 +603,45 @@ static void test_vkd3d_queue(void)
     ok(!refcount, "Device has %u references left.\n", refcount);
 }
 
+static void test_resource_internal_refcount(void)
+{
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    ULONG refcount;
+
+    device = create_device();
+    ok(device, "Failed to create device.\n");
+
+    resource = create_buffer(device, D3D12_HEAP_TYPE_UPLOAD, 1024,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
+    refcount = vkd3d_resource_incref(resource);
+    ok(refcount == 2, "Got refcount %u.\n", refcount);
+    refcount = ID3D12Resource_Release(resource);
+    ok(!refcount, "Got refcount %u.\n", refcount);
+    refcount = resource_get_internal_refcount(resource);
+    ok(refcount == 1, "Got refcount %u.\n", refcount);
+    refcount = vkd3d_resource_decref(resource);
+    ok(!refcount, "Got refcount %u.\n", refcount);
+
+    resource = create_buffer(device, D3D12_HEAP_TYPE_UPLOAD, 1024,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
+    refcount = vkd3d_resource_incref(resource);
+    ok(refcount == 2, "Got refcount %u.\n", refcount);
+    refcount = ID3D12Resource_Release(resource);
+    ok(!refcount, "Got refcount %u.\n", refcount);
+    refcount = resource_get_internal_refcount(resource);
+    ok(refcount == 1, "Got refcount %u.\n", refcount);
+    refcount = ID3D12Resource_AddRef(resource);
+    ok(refcount == 1, "Got refcount %u.\n", refcount);
+    refcount = vkd3d_resource_decref(resource);
+    ok(refcount == 1, "Got refcount %u.\n", refcount);
+    refcount = ID3D12Resource_Release(resource);
+    ok(!refcount, "Got refcount %u.\n", refcount);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+}
+
 static bool have_d3d12_device(void)
 {
     ID3D12Device *device;
@@ -592,4 +667,5 @@ START_TEST(vkd3d_api)
     run_test(test_physical_device);
     run_test(test_adapter_luid);
     run_test(test_vkd3d_queue);
+    run_test(test_resource_internal_refcount);
 }

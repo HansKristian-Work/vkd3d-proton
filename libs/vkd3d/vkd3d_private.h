@@ -183,6 +183,7 @@ struct d3d12_resource
 {
     ID3D12Resource ID3D12Resource_iface;
     LONG refcount;
+    LONG internal_refcount;
 
     D3D12_RESOURCE_DESC desc;
 

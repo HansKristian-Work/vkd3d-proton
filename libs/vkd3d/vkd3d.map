@@ -15,6 +15,8 @@ global:
     vkd3d_instance_get_vk_instance;
     vkd3d_instance_incref;
     vkd3d_release_vk_queue;
+    vkd3d_resource_decref;
+    vkd3d_resource_incref;
     vkd3d_serialize_root_signature;
 
 local: *;

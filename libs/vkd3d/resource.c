@@ -332,6 +332,30 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
         VK_CALL(vkFreeMemory(device->vk_device, resource->vk_memory, NULL));
 }
 
+static ULONG d3d12_resource_incref(struct d3d12_resource *resource)
+{
+    ULONG refcount = InterlockedIncrement(&resource->internal_refcount);
+
+    TRACE("%p increasing refcount to %u.\n", resource, refcount);
+
+    return refcount;
+}
+
+static ULONG d3d12_resource_decref(struct d3d12_resource *resource)
+{
+    ULONG refcount = InterlockedDecrement(&resource->internal_refcount);
+
+    TRACE("%p decreasing refcount to %u.\n", resource, refcount);
+
+    if (!refcount)
+    {
+        d3d12_resource_destroy(resource, resource->device);
+        vkd3d_free(resource);
+    }
+
+    return refcount;
+}
+
 /* ID3D12Resource */
 static inline struct d3d12_resource *impl_from_ID3D12Resource(ID3D12Resource *iface)
 {
@@ -367,6 +391,14 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_AddRef(ID3D12Resource *iface)
 
     TRACE("%p increasing refcount to %u.\n", resource, refcount);
 
+    if (refcount == 1)
+    {
+        struct d3d12_device *device = resource->device;
+
+        ID3D12Device_AddRef(&device->ID3D12Device_iface);
+        d3d12_resource_incref(resource);
+    }
+
     return refcount;
 }
 
@@ -381,8 +413,7 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_Release(ID3D12Resource *iface)
     {
         struct d3d12_device *device = resource->device;
 
-        d3d12_resource_destroy(resource, device);
-        vkd3d_free(resource);
+        d3d12_resource_decref(resource);
 
         ID3D12Device_Release(&device->ID3D12Device_iface);
     }
@@ -641,6 +672,7 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
 
     resource->ID3D12Resource_iface.lpVtbl = &d3d12_resource_vtbl;
     resource->refcount = 1;
+    resource->internal_refcount = 1;
 
     resource->desc = *desc;
 
@@ -773,6 +805,7 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_D
 
     object->ID3D12Resource_iface.lpVtbl = &d3d12_resource_vtbl;
     object->refcount = 1;
+    object->internal_refcount = 1;
     object->desc = *desc;
     object->u.vk_image = vk_image;
     object->vk_memory = VK_NULL_HANDLE;
@@ -791,6 +824,18 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_D
     *resource = &object->ID3D12Resource_iface;
 
     return S_OK;
+}
+
+ULONG vkd3d_resource_incref(ID3D12Resource *resource)
+{
+    TRACE("resource %p.\n", resource);
+    return d3d12_resource_incref(impl_from_ID3D12Resource(resource));
+}
+
+ULONG vkd3d_resource_decref(ID3D12Resource *resource)
+{
+    TRACE("resource %p.\n", resource);
+    return d3d12_resource_decref(impl_from_ID3D12Resource(resource));
 }
 
 /* CBVs, SRVs, UAVs */

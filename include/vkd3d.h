@@ -83,9 +83,7 @@ VkInstance vkd3d_instance_get_vk_instance(struct vkd3d_instance *instance);
 ULONG vkd3d_instance_incref(struct vkd3d_instance *instance);
 
 HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
-        REFIID riid, void **device);
-HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_DESC *desc,
-        VkImage vk_image, unsigned int resource_flags, ID3D12Resource **resource);
+        REFIID iid, void **device);
 VkDevice vkd3d_get_vk_device(ID3D12Device *device);
 VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device);
 struct vkd3d_instance *vkd3d_instance_from_device(ID3D12Device *device);
@@ -93,6 +91,11 @@ struct vkd3d_instance *vkd3d_instance_from_device(ID3D12Device *device);
 uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue);
 VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue);
 void vkd3d_release_vk_queue(ID3D12CommandQueue *queue);
+
+HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_DESC *desc,
+        VkImage vk_image, unsigned int resource_flags, ID3D12Resource **resource);
+ULONG vkd3d_resource_decref(ID3D12Resource *resource);
+ULONG vkd3d_resource_incref(ID3D12Resource *resource);
 
 HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob);
