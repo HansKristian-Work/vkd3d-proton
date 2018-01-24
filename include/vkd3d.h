@@ -66,6 +66,9 @@ struct vkd3d_device_create_info
 
     VkPhysicalDevice vk_physical_device;
 
+    const char * const *device_extensions;
+    uint32_t device_extension_count;
+
     LUID adapter_luid;
 };
 

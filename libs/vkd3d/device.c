@@ -50,9 +50,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_push_descriptor)},
 };
 
-#define MAX_DEVICE_EXTENSION_COUNT \
-        (ARRAY_SIZE(required_device_extensions) + ARRAY_SIZE(optional_device_extensions))
-
 static bool is_extension_disabled(const char *extension_name)
 {
     const char *disabled_extensions;
@@ -673,8 +670,9 @@ static void vkd3d_check_feature_level_11_requirements(const VkPhysicalDeviceLimi
 #undef CHECK_FEATURE
 }
 
-static void vkd3d_init_device_caps(struct d3d12_device *device,
-        const VkPhysicalDeviceFeatures *features)
+static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
+        const struct vkd3d_device_create_info *create_info,
+        const VkPhysicalDeviceFeatures *features, uint32_t *device_extension_count)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDevice physical_device = device->vk_physical_device;
@@ -683,6 +681,8 @@ static void vkd3d_init_device_caps(struct d3d12_device *device,
     VkExtensionProperties *vk_extensions;
     uint32_t count;
     VkResult vr;
+
+    *device_extension_count = 0;
 
     VK_CALL(vkGetPhysicalDeviceProperties(physical_device, &device_properties));
     vulkan_info->device_limits = device_properties.limits;
@@ -729,13 +729,13 @@ static void vkd3d_init_device_caps(struct d3d12_device *device,
             &count, NULL))) < 0)
     {
         ERR("Failed to enumerate device extensions, vr %d.\n", vr);
-        return;
+        return hresult_from_vk_result(vr);
     }
     if (!count)
-        return;
+        return S_OK;
 
     if (!(vk_extensions = vkd3d_calloc(count, sizeof(*vk_extensions))))
-        return;
+        return E_OUTOFMEMORY;
 
     TRACE("Enumerating %u device extensions.\n", count);
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL,
@@ -743,15 +743,17 @@ static void vkd3d_init_device_caps(struct d3d12_device *device,
     {
         ERR("Failed to enumerate device extensions, vr %d.\n", vr);
         vkd3d_free(vk_extensions);
-        return;
+        return hresult_from_vk_result(vr);
     }
 
-    vkd3d_check_extensions(vk_extensions, count,
+    *device_extension_count = vkd3d_check_extensions(vk_extensions, count,
             required_device_extensions, ARRAY_SIZE(required_device_extensions),
             optional_device_extensions, ARRAY_SIZE(optional_device_extensions),
-            NULL, 0, vulkan_info, "device");
+            create_info->device_extensions, create_info->device_extension_count,
+            vulkan_info, "device");
 
     vkd3d_free(vk_extensions);
+    return S_OK;
 }
 
 static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
@@ -855,24 +857,28 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
     return S_OK;
 }
 
-static HRESULT vkd3d_create_vk_device(struct d3d12_device *device, VkPhysicalDevice physical_device)
+static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
+        const struct vkd3d_device_create_info *create_info)
 {
     uint32_t direct_queue_timestamp_bits, copy_queue_timestamp_bits, compute_queue_timestamp_bits;
     unsigned int direct_queue_family_index, copy_queue_family_index, compute_queue_family_index;
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
-    const char *extensions[MAX_DEVICE_EXTENSION_COUNT];
     VkQueueFamilyProperties *queue_properties;
     VkPhysicalDeviceFeatures device_features;
     VkDeviceQueueCreateInfo *queue_info;
+    VkPhysicalDevice physical_device;
     VkDeviceCreateInfo device_info;
     uint32_t queue_family_count;
+    uint32_t extension_count;
+    const char **extensions;
     VkDevice vk_device;
     unsigned int i;
     VkResult vr;
     HRESULT hr;
 
-    TRACE("device %p, physical_device %p.\n", device, physical_device);
+    TRACE("device %p, create_info %p.\n", device, create_info);
 
+    physical_device = create_info->vk_physical_device;
     if (!physical_device
             && FAILED(hr = vkd3d_select_physical_device(device->vkd3d_instance, &physical_device)))
         return hr;
@@ -954,7 +960,17 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device, VkPhysicalDev
 
     VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &device_features));
     device->vk_physical_device = physical_device;
-    vkd3d_init_device_caps(device, &device_features);
+    if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &device_features, &extension_count)))
+    {
+        vkd3d_free(queue_info);
+        return E_FAIL;
+    }
+
+    if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
+    {
+        vkd3d_free(queue_info);
+        return E_OUTOFMEMORY;
+    }
 
     /* Create device */
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -967,11 +983,13 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device, VkPhysicalDev
     device_info.enabledExtensionCount = vkd3d_enable_extensions(extensions,
             required_device_extensions, ARRAY_SIZE(required_device_extensions),
             optional_device_extensions, ARRAY_SIZE(optional_device_extensions),
-            NULL, 0, &device->vk_info);
+            create_info->device_extensions, create_info->device_extension_count,
+            &device->vk_info);
     device_info.ppEnabledExtensionNames = extensions;
     device_info.pEnabledFeatures = &device_features;
 
     vr = VK_CALL(vkCreateDevice(physical_device, &device_info, NULL, &vk_device));
+    vkd3d_free(extensions);
     vkd3d_free(queue_info);
     if (vr < 0)
     {
@@ -2137,7 +2155,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     device->adapter_luid = create_info->adapter_luid;
 
-    if (FAILED(hr = vkd3d_create_vk_device(device, create_info->vk_physical_device)))
+    if (FAILED(hr = vkd3d_create_vk_device(device, create_info)))
     {
         vkd3d_instance_decref(device->vkd3d_instance);
         return hr;
