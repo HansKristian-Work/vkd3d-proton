@@ -1423,9 +1423,8 @@ static uint32_t vkd3d_spirv_build_op_glsl_std450_nclamp(struct vkd3d_spirv_build
 {
     uint32_t glsl_std450_id = vkd3d_spirv_get_glsl_std450_instr_set(builder);
     uint32_t operands[] = {x, min, max};
-    /* XXX: We would prefer to use NClamp but NClamp crashes the Nvidia driver. */
     return vkd3d_spirv_build_op_ext_inst(builder, result_type, glsl_std450_id,
-            GLSLstd450FClamp, operands, ARRAY_SIZE(operands));
+            GLSLstd450NClamp, operands, ARRAY_SIZE(operands));
 }
 
 static uint32_t vkd3d_spirv_get_type_id(struct vkd3d_spirv_builder *builder,
@@ -3733,11 +3732,8 @@ static enum GLSLstd450 vkd3d_dxbc_compiler_map_ext_glsl_instruction(
         {VKD3DSIH_IMIN,            GLSLstd450SMin},
         {VKD3DSIH_LOG,             GLSLstd450Log2},
         {VKD3DSIH_MAD,             GLSLstd450Fma},
-        /* XXX: We would prefer to use NMax/NMin but these opcodes lead to
-         * a crash in the Nvidia driver.
-         */
-        {VKD3DSIH_MAX,             GLSLstd450FMax},
-        {VKD3DSIH_MIN,             GLSLstd450FMin},
+        {VKD3DSIH_MAX,             GLSLstd450NMax},
+        {VKD3DSIH_MIN,             GLSLstd450NMin},
         {VKD3DSIH_ROUND_NI,        GLSLstd450Floor},
         {VKD3DSIH_ROUND_PI,        GLSLstd450Ceil},
         {VKD3DSIH_ROUND_Z,         GLSLstd450Trunc},
