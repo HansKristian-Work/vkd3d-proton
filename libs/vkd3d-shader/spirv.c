@@ -5393,7 +5393,9 @@ static void vkd3d_dxbc_compiler_emit_sync(struct vkd3d_dxbc_compiler *compiler,
     unsigned int flags = instruction->flags;
     SpvScope execution_scope = SpvScopeMax;
     SpvScope memory_scope = SpvScopeDevice;
-    unsigned int memory_semantics = 0;
+    unsigned int memory_semantics;
+
+    memory_semantics = SpvMemorySemanticsAcquireReleaseMask;
 
     if (flags & VKD3DSSF_GROUP_SHARED_MEMORY)
     {
@@ -5413,8 +5415,7 @@ static void vkd3d_dxbc_compiler_emit_sync(struct vkd3d_dxbc_compiler *compiler,
         FIXME("Unhandled sync flags %#x.\n", flags);
         memory_scope = SpvScopeDevice;
         execution_scope = SpvScopeWorkgroup;
-        memory_semantics |= SpvMemorySemanticsSequentiallyConsistentMask
-                | SpvMemorySemanticsUniformMemoryMask
+        memory_semantics |= SpvMemorySemanticsUniformMemoryMask
                 | SpvMemorySemanticsSubgroupMemoryMask
                 | SpvMemorySemanticsWorkgroupMemoryMask
                 | SpvMemorySemanticsCrossWorkgroupMemoryMask
