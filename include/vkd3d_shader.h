@@ -25,21 +25,25 @@
 extern "C" {
 #endif  /* __cplusplus */
 
+#define VKD3D_FORCE_32_BIT_ENUM(name) name##_FORCE_32BIT = 0x7fffffff
+
 enum vkd3d_shader_compiler_option
 {
     VKD3D_SHADER_STRIP_DEBUG = 0x00000001,
 
-    VKD3D_SHADER_COMPILER_OPTIONS_FORCE_32_BIT = 0x7fffffff,
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_COMPILER_OPTION),
 };
 
 enum vkd3d_shader_visibility
 {
-    VKD3D_SHADER_VISIBILITY_ALL,
-    VKD3D_SHADER_VISIBILITY_VERTEX,
-    VKD3D_SHADER_VISIBILITY_HULL,
-    VKD3D_SHADER_VISIBILITY_DOMAIN,
-    VKD3D_SHADER_VISIBILITY_GEOMETRY,
-    VKD3D_SHADER_VISIBILITY_PIXEL,
+    VKD3D_SHADER_VISIBILITY_ALL = 0,
+    VKD3D_SHADER_VISIBILITY_VERTEX = 1,
+    VKD3D_SHADER_VISIBILITY_HULL = 2,
+    VKD3D_SHADER_VISIBILITY_DOMAIN = 3,
+    VKD3D_SHADER_VISIBILITY_GEOMETRY = 4,
+    VKD3D_SHADER_VISIBILITY_PIXEL = 5,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_VISIBILITY),
 };
 
 struct vkd3d_shader_code
@@ -55,6 +59,8 @@ enum vkd3d_shader_descriptor_type
     VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,     /* t#  */
     VKD3D_SHADER_DESCRIPTOR_TYPE_UAV,     /* u#  */
     VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, /* s#  */
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_DESCRIPTOR_TYPE),
 };
 
 struct vkd3d_shader_descriptor_binding
@@ -119,6 +125,8 @@ void vkd3d_shader_free_root_signature(D3D12_ROOT_SIGNATURE_DESC *root_signature)
 enum vkd3d_root_signature_version
 {
     VKD3D_ROOT_SIGNATURE_VERSION_1_0 = 0x1,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_ROOT_SIGNATURE_VERSION),
 };
 
 HRESULT vkd3d_shader_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_signature,
@@ -143,6 +151,8 @@ enum vkd3d_component_type
     VKD3D_TYPE_FLOAT   = 3,
     VKD3D_TYPE_BOOL,
     VKD3D_TYPE_COUNT,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_COMPONENT_TYPE),
 };
 
 enum vkd3d_sysval_semantic
@@ -163,6 +173,8 @@ enum vkd3d_sysval_semantic
     VKD3D_SV_TESS_FACTOR_TRIINT        = 14,
     VKD3D_SV_TESS_FACTOR_LINEDET       = 15,
     VKD3D_SV_TESS_FACTOR_LINEDEN       = 16,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SYSVAL_SEMANTIC),
 };
 
 struct vkd3d_shader_signature_element

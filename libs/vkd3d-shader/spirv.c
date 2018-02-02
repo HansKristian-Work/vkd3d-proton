@@ -1919,10 +1919,10 @@ static bool vkd3d_dxbc_compiler_check_shader_visibility(struct vkd3d_dxbc_compil
             return compiler->shader_type == VKD3D_SHADER_TYPE_GEOMETRY;
         case VKD3D_SHADER_VISIBILITY_PIXEL:
             return compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL;
+        default:
+            ERR("Invalid shader visibility %#x.\n", visibility);
+            return false;
     }
-
-    ERR("Invalid shader visibility %#x.\n", visibility);
-    return false;
 }
 
 static struct vkd3d_push_constant_buffer_binding *vkd3d_dxbc_compiler_find_push_constant_buffer(
