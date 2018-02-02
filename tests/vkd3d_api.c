@@ -24,6 +24,13 @@
 #include "vkd3d_test.h"
 #include <vkd3d.h>
 
+static ULONG get_refcount(void *iface)
+{
+    IUnknown *unk = iface;
+    IUnknown_AddRef(unk);
+    return IUnknown_Release(unk);
+}
+
 static ULONG resource_get_internal_refcount(ID3D12Resource *resource)
 {
     vkd3d_resource_incref(resource);
@@ -561,6 +568,87 @@ static void test_adapter_luid(void)
     ok(!refcount, "Device has %u references left.\n", refcount);
 }
 
+struct parent
+{
+    IUnknown IUnknown_iface;
+    LONG refcount;
+};
+
+static struct parent *parent_from_IUnknown(IUnknown *iface)
+{
+    return CONTAINING_RECORD(iface, struct parent, IUnknown_iface);
+}
+
+static HRESULT STDMETHODCALLTYPE parent_QueryInterface(IUnknown *iface,
+        REFIID iid, void **object)
+{
+    if (IsEqualGUID(iid, &IID_IUnknown))
+    {
+        IUnknown_AddRef(iface);
+        *object = iface;
+        return S_OK;
+    }
+
+    ok(false, "Unexpected QueryInterface() call.\n");
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE parent_AddRef(IUnknown *iface)
+{
+    struct parent *parent = parent_from_IUnknown(iface);
+
+    return InterlockedIncrement(&parent->refcount);
+}
+
+static ULONG STDMETHODCALLTYPE parent_Release(IUnknown *iface)
+{
+    struct parent *parent = parent_from_IUnknown(iface);
+
+    return InterlockedDecrement(&parent->refcount);
+}
+
+static const struct IUnknownVtbl parent_vtbl =
+{
+    parent_QueryInterface,
+    parent_AddRef,
+    parent_Release,
+};
+
+static void test_device_parent(void)
+{
+    struct vkd3d_device_create_info create_info;
+    struct parent parent_impl;
+    ID3D12Device *device;
+    IUnknown *unknown;
+    IUnknown *parent;
+    ULONG refcount;
+    HRESULT hr;
+
+    parent_impl.IUnknown_iface.lpVtbl = &parent_vtbl;
+    parent_impl.refcount = 1;
+    parent = &parent_impl.IUnknown_iface;
+
+    refcount = get_refcount(parent);
+    ok(refcount == 1, "Got unexpected refcount %u.\n", refcount);
+
+    create_info = device_default_create_info;
+    create_info.parent = parent;
+    hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+
+    refcount = get_refcount(parent);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
+
+    unknown = vkd3d_get_device_parent(device);
+    ok(unknown == parent, "Got device parent %p, expected %p.\n", unknown, parent);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+
+    refcount = get_refcount(parent);
+    ok(refcount == 1, "Got unexpected refcount %u.\n", refcount);
+}
+
 static void test_vkd3d_queue(void)
 {
     ID3D12CommandQueue *direct_queue, *compute_queue, *copy_queue;
@@ -666,6 +754,7 @@ START_TEST(vkd3d_api)
     run_test(test_additional_device_extensions);
     run_test(test_physical_device);
     run_test(test_adapter_luid);
+    run_test(test_device_parent);
     run_test(test_vkd3d_queue);
     run_test(test_resource_internal_refcount);
 }

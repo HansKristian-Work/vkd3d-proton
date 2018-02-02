@@ -1216,6 +1216,8 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
             VK_CALL(vkDestroyPipelineCache(device->vk_device, device->vk_pipeline_cache, NULL));
         d3d12_device_destroy_vkd3d_queues(device);
         VK_CALL(vkDestroyDevice(device->vk_device, NULL));
+        if (device->parent)
+            IUnknown_Release(device->parent);
         vkd3d_instance_decref(device->vkd3d_instance);
 
         vkd3d_free(device);
@@ -2174,6 +2176,9 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     d3d12_device_init_pipeline_cache(device);
 
+    if ((device->parent = create_info->parent))
+        IUnknown_AddRef(device->parent);
+
     return S_OK;
 }
 
@@ -2197,6 +2202,13 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
     *device = object;
 
     return S_OK;
+}
+
+IUnknown *vkd3d_get_device_parent(ID3D12Device *device)
+{
+    struct d3d12_device *d3d12_device = impl_from_ID3D12Device(device);
+
+    return d3d12_device->parent;
 }
 
 VkDevice vkd3d_get_vk_device(ID3D12Device *device)

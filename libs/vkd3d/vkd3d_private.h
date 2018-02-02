@@ -666,6 +666,7 @@ struct d3d12_device
     vkd3d_create_thread_pfn create_thread;
     vkd3d_join_thread_pfn join_thread;
 
+    IUnknown *parent;
     LUID adapter_luid;
 };
 

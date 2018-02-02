@@ -6,6 +6,7 @@ global:
     vkd3d_create_image_resource;
     vkd3d_create_instance;
     vkd3d_create_root_signature_deserializer;
+    vkd3d_get_device_parent;
     vkd3d_get_vk_device;
     vkd3d_get_vk_format;
     vkd3d_get_vk_physical_device;

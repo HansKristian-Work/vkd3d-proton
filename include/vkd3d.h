@@ -69,6 +69,7 @@ struct vkd3d_device_create_info
     const char * const *device_extensions;
     uint32_t device_extension_count;
 
+    IUnknown *parent;
     LUID adapter_luid;
 };
 
@@ -84,6 +85,7 @@ ULONG vkd3d_instance_incref(struct vkd3d_instance *instance);
 
 HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         REFIID iid, void **device);
+IUnknown *vkd3d_get_device_parent(ID3D12Device *device);
 VkDevice vkd3d_get_vk_device(ID3D12Device *device);
 VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device);
 struct vkd3d_instance *vkd3d_instance_from_device(ID3D12Device *device);
