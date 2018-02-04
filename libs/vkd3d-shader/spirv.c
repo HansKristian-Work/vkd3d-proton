@@ -3639,6 +3639,13 @@ static void vkd3d_dxbc_compiler_emit_dcl_output_topology(struct vkd3d_dxbc_compi
     vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, NULL, 0);
 }
 
+static void vkd3d_dxbc_compiler_emit_dcl_gs_instances(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    vkd3d_dxbc_compiler_emit_execution_mode1(compiler,
+            SpvExecutionModeInvocations, instruction->declaration.count);
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_thread_group(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -5575,6 +5582,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL_OUTPUT_TOPOLOGY:
             vkd3d_dxbc_compiler_emit_dcl_output_topology(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_GS_INSTANCES:
+            vkd3d_dxbc_compiler_emit_dcl_gs_instances(compiler, instruction);
             break;
         case VKD3DSIH_DCL_THREAD_GROUP:
             vkd3d_dxbc_compiler_emit_dcl_thread_group(compiler, instruction);
