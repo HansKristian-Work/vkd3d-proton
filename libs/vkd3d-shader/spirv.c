@@ -1400,6 +1400,11 @@ static void vkd3d_spirv_build_op_emit_vertex(struct vkd3d_spirv_builder *builder
     return vkd3d_spirv_build_op(&builder->function_stream, SpvOpEmitVertex);
 }
 
+static void vkd3d_spirv_build_op_end_primitive(struct vkd3d_spirv_builder *builder)
+{
+    return vkd3d_spirv_build_op(&builder->function_stream, SpvOpEndPrimitive);
+}
+
 static void vkd3d_spirv_build_op_control_barrier(struct vkd3d_spirv_builder *builder,
         uint32_t execution_id, uint32_t memory_id, uint32_t memory_semantics_id)
 {
@@ -5458,6 +5463,26 @@ static void vkd3d_dxbc_compiler_emit_emit_stream(struct vkd3d_dxbc_compiler *com
     vkd3d_spirv_build_op_emit_vertex(builder);
 }
 
+static void vkd3d_dxbc_compiler_emit_cut_stream(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    unsigned int stream_idx;
+
+    if (instruction->handler_idx == VKD3DSIH_CUT_STREAM)
+        stream_idx = instruction->src[0].reg.idx[0].offset;
+    else
+        stream_idx = 0;
+
+    if (stream_idx)
+    {
+        FIXME("Multiple streams are not supported yet.\n");
+        return;
+    }
+
+    vkd3d_spirv_build_op_end_primitive(builder);
+}
+
 /* This function is called after declarations are processed. */
 static void vkd3d_dxbc_compiler_emit_main_prolog(struct vkd3d_dxbc_compiler *compiler)
 {
@@ -5719,6 +5744,10 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_EMIT:
         case VKD3DSIH_EMIT_STREAM:
             vkd3d_dxbc_compiler_emit_emit_stream(compiler, instruction);
+            break;
+        case VKD3DSIH_CUT:
+        case VKD3DSIH_CUT_STREAM:
+            vkd3d_dxbc_compiler_emit_cut_stream(compiler, instruction);
             break;
         case VKD3DSIH_NOP:
             break;
