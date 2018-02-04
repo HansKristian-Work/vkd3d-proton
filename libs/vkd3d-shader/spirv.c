@@ -2614,17 +2614,12 @@ static void vkd3d_dxbc_compiler_emit_store_reg(struct vkd3d_dxbc_compiler *compi
 static uint32_t vkd3d_dxbc_compiler_emit_sat(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, DWORD write_mask, uint32_t val_id)
 {
-    static const float zero[] = {0.0f, 0.0f, 0.0f, 0.0f};
-    static const float one[] = {1.0f, 1.0f, 1.0f, 1.0f};
-
     unsigned int component_count = vkd3d_write_mask_component_count(write_mask);
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t type_id, zero_id, one_id;
 
-    zero_id = vkd3d_dxbc_compiler_get_constant(compiler,
-            VKD3D_TYPE_FLOAT, component_count, (const uint32_t *)zero);
-    one_id = vkd3d_dxbc_compiler_get_constant(compiler,
-            VKD3D_TYPE_FLOAT, component_count, (const uint32_t *)one);
+    zero_id = vkd3d_dxbc_compiler_get_constant_float_vector(compiler, 0.0f, component_count);
+    one_id = vkd3d_dxbc_compiler_get_constant_float_vector(compiler, 1.0f, component_count);
 
     type_id = vkd3d_spirv_get_type_id(builder,
             vkd3d_component_type_from_data_type(reg->data_type), component_count);
