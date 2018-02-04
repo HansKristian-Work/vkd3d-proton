@@ -2779,6 +2779,9 @@ vkd3d_spirv_builtin_table[] =
     {VKD3D_SIV_NONE, VKD3DSPR_LOCALTHREADINDEX, VKD3D_TYPE_INT, 1, SpvBuiltInLocalInvocationIndex},
     {VKD3D_SIV_NONE, VKD3DSPR_THREADGROUPID,    VKD3D_TYPE_INT, 3, SpvBuiltInWorkgroupId},
 
+    {VKD3D_SIV_NONE, VKD3DSPR_GSINSTID,         VKD3D_TYPE_INT, 1, SpvBuiltInInvocationId},
+    {VKD3D_SIV_NONE, VKD3DSPR_OUTPOINTID,       VKD3D_TYPE_INT, 1, SpvBuiltInInvocationId},
+
     {VKD3D_SIV_NONE, VKD3DSPR_DEPTHOUT,         VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth},
 
     {VKD3D_SIV_POSITION,    ~0u, VKD3D_TYPE_FLOAT, 4, SpvBuiltInPosition},

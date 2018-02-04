@@ -1557,7 +1557,9 @@ static bool shader_sm4_is_scalar_register(const struct vkd3d_shader_register *re
     switch (reg->type)
     {
         case VKD3DSPR_DEPTHOUT:
+        case VKD3DSPR_GSINSTID:
         case VKD3DSPR_LOCALTHREADINDEX:
+        case VKD3DSPR_OUTPOINTID:
         case VKD3DSPR_PRIMID:
             return true;
         default:
