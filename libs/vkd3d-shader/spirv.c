@@ -3542,7 +3542,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_input_ps_sysval(struct vkd3d_dxbc_compi
         vkd3d_dxbc_compiler_emit_interpolation_decorations(compiler, input_id, instruction->flags);
 }
 
-static void vkd3d_dxbc_compiler_emit_dcl_input_sgv(struct vkd3d_dxbc_compiler *compiler,
+static void vkd3d_dxbc_compiler_emit_dcl_input_sysval(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.register_semantic.reg,
@@ -5530,7 +5530,8 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             vkd3d_dxbc_compiler_emit_dcl_input_ps_sysval(compiler, instruction);
             break;
         case VKD3DSIH_DCL_INPUT_SGV:
-            vkd3d_dxbc_compiler_emit_dcl_input_sgv(compiler, instruction);
+        case VKD3DSIH_DCL_INPUT_SIV:
+            vkd3d_dxbc_compiler_emit_dcl_input_sysval(compiler, instruction);
             break;
         case VKD3DSIH_DCL_OUTPUT:
             vkd3d_dxbc_compiler_emit_dcl_output(compiler, instruction);
