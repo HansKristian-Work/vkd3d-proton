@@ -1339,6 +1339,7 @@ struct test_context_desc
     unsigned int rt_width, rt_height;
     DXGI_FORMAT rt_format;
     unsigned int rt_descriptor_count;
+    unsigned int root_signature_flags;
     bool no_render_target;
     bool no_root_signature;
     bool no_pipeline;
@@ -1464,7 +1465,7 @@ static bool init_test_context_(unsigned int line, struct test_context *context,
         return true;
 
     context->root_signature = create_empty_root_signature_(line,
-            device, D3D12_ROOT_SIGNATURE_FLAG_NONE);
+            device, desc ? desc->root_signature_flags : D3D12_ROOT_SIGNATURE_FLAG_NONE);
 
     if (desc && desc->no_pipeline)
         return true;
@@ -17079,6 +17080,273 @@ static void test_multithread_command_queue_exec(void)
     destroy_test_context(&context);
 }
 
+static void test_geometry_shader(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2];
+    ID3D12PipelineState *pso_5_0, *pso;
+    struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *texture;
+    ID3D12Device *device;
+    ID3D12Resource *vb;
+    unsigned int color;
+    unsigned int i;
+    HRESULT hr;
+
+    static const float red[] = {1.0f, 0.0f, 0.0f, 1.0f};
+    static const struct
+    {
+        struct vec4 position;
+        unsigned int color;
+    }
+    vertex[] =
+    {
+        {{0.0f, 0.0f, 1.0f, 1.0f}, 0xffffff00},
+    };
+    static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
+    {
+        {"SV_POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"COLOR",       0, DXGI_FORMAT_R8G8B8A8_UNORM,     0, 16, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+#if 0
+    struct vs_data
+    {
+        float4 pos : SV_POSITION;
+        float4 color : COLOR;
+    };
+
+    void main(in struct vs_data vs_input, out struct vs_data vs_output)
+    {
+        vs_output.pos = vs_input.pos;
+        vs_output.color = vs_input.color;
+    }
+#endif
+    static const DWORD vs_code[] =
+    {
+        0x43425844, 0xd5b32785, 0x35332906, 0x4d05e031, 0xf66a58af, 0x00000001, 0x00000144, 0x00000003,
+        0x0000002c, 0x00000080, 0x000000d4, 0x4e475349, 0x0000004c, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x00000044, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000f0f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x4f4c4f43, 0xabab0052,
+        0x4e47534f, 0x0000004c, 0x00000002, 0x00000008, 0x00000038, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x00000044, 0x00000000, 0x00000000, 0x00000003, 0x00000001, 0x0000000f,
+        0x505f5653, 0x5449534f, 0x004e4f49, 0x4f4c4f43, 0xabab0052, 0x52444853, 0x00000068, 0x00010040,
+        0x0000001a, 0x0300005f, 0x001010f2, 0x00000000, 0x0300005f, 0x001010f2, 0x00000001, 0x04000067,
+        0x001020f2, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000001, 0x05000036, 0x001020f2,
+        0x00000000, 0x00101e46, 0x00000000, 0x05000036, 0x001020f2, 0x00000001, 0x00101e46, 0x00000001,
+        0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs = {vs_code, sizeof(vs_code)};
+#if 0
+    struct gs_data
+    {
+        float4 pos : SV_POSITION;
+        float4 color : COLOR;
+    };
+
+    [maxvertexcount(4)]
+    void main(point struct gs_data vin[1], inout TriangleStream<gs_data> vout)
+    {
+        float offset = 0.2 * vin[0].pos.w;
+        gs_data v;
+
+        v.color = vin[0].color;
+
+        v.pos = float4(vin[0].pos.x - offset, vin[0].pos.y - offset, vin[0].pos.z, 1.0);
+        vout.Append(v);
+        v.pos = float4(vin[0].pos.x - offset, vin[0].pos.y + offset, vin[0].pos.z, 1.0);
+        vout.Append(v);
+        v.pos = float4(vin[0].pos.x + offset, vin[0].pos.y - offset, vin[0].pos.z, 1.0);
+        vout.Append(v);
+        v.pos = float4(vin[0].pos.x + offset, vin[0].pos.y + offset, vin[0].pos.z, 1.0);
+        vout.Append(v);
+    }
+#endif
+    static const DWORD gs_code[] =
+    {
+        0x43425844, 0x70616045, 0x96756e1f, 0x1caeecb8, 0x3749528c, 0x00000001, 0x0000034c, 0x00000003,
+        0x0000002c, 0x00000080, 0x000000d4, 0x4e475349, 0x0000004c, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x00000f0f, 0x00000044, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000f0f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x4f4c4f43, 0xabab0052,
+        0x4e47534f, 0x0000004c, 0x00000002, 0x00000008, 0x00000038, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x00000044, 0x00000000, 0x00000000, 0x00000003, 0x00000001, 0x0000000f,
+        0x505f5653, 0x5449534f, 0x004e4f49, 0x4f4c4f43, 0xabab0052, 0x52444853, 0x00000270, 0x00020040,
+        0x0000009c, 0x05000061, 0x002010f2, 0x00000001, 0x00000000, 0x00000001, 0x0400005f, 0x002010f2,
+        0x00000001, 0x00000001, 0x02000068, 0x00000001, 0x0100085d, 0x0100285c, 0x04000067, 0x001020f2,
+        0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000001, 0x0200005e, 0x00000004, 0x0f000032,
+        0x00100032, 0x00000000, 0x80201ff6, 0x00000041, 0x00000000, 0x00000000, 0x00004002, 0x3e4ccccd,
+        0x3e4ccccd, 0x00000000, 0x00000000, 0x00201046, 0x00000000, 0x00000000, 0x05000036, 0x00102032,
+        0x00000000, 0x00100046, 0x00000000, 0x06000036, 0x00102042, 0x00000000, 0x0020102a, 0x00000000,
+        0x00000000, 0x05000036, 0x00102082, 0x00000000, 0x00004001, 0x3f800000, 0x06000036, 0x001020f2,
+        0x00000001, 0x00201e46, 0x00000000, 0x00000001, 0x01000013, 0x05000036, 0x00102012, 0x00000000,
+        0x0010000a, 0x00000000, 0x0e000032, 0x00100052, 0x00000000, 0x00201ff6, 0x00000000, 0x00000000,
+        0x00004002, 0x3e4ccccd, 0x00000000, 0x3e4ccccd, 0x00000000, 0x00201106, 0x00000000, 0x00000000,
+        0x05000036, 0x00102022, 0x00000000, 0x0010002a, 0x00000000, 0x06000036, 0x00102042, 0x00000000,
+        0x0020102a, 0x00000000, 0x00000000, 0x05000036, 0x00102082, 0x00000000, 0x00004001, 0x3f800000,
+        0x06000036, 0x001020f2, 0x00000001, 0x00201e46, 0x00000000, 0x00000001, 0x01000013, 0x05000036,
+        0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x05000036, 0x00102022, 0x00000000, 0x0010001a,
+        0x00000000, 0x06000036, 0x00102042, 0x00000000, 0x0020102a, 0x00000000, 0x00000000, 0x05000036,
+        0x00102082, 0x00000000, 0x00004001, 0x3f800000, 0x06000036, 0x001020f2, 0x00000001, 0x00201e46,
+        0x00000000, 0x00000001, 0x01000013, 0x05000036, 0x00102032, 0x00000000, 0x00100086, 0x00000000,
+        0x06000036, 0x00102042, 0x00000000, 0x0020102a, 0x00000000, 0x00000000, 0x05000036, 0x00102082,
+        0x00000000, 0x00004001, 0x3f800000, 0x06000036, 0x001020f2, 0x00000001, 0x00201e46, 0x00000000,
+        0x00000001, 0x01000013, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE gs = {gs_code, sizeof(gs_code)};
+    static const DWORD gs_5_0_code[] =
+    {
+        0x43425844, 0x57251c23, 0x4971d115, 0x8fee0b13, 0xba149ea1, 0x00000001, 0x00000384, 0x00000003,
+        0x0000002c, 0x00000080, 0x000000dc, 0x4e475349, 0x0000004c, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x00000f0f, 0x00000044, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000f0f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x4f4c4f43, 0xabab0052,
+        0x3547534f, 0x00000054, 0x00000002, 0x00000008, 0x00000000, 0x00000040, 0x00000000, 0x00000001,
+        0x00000003, 0x00000000, 0x0000000f, 0x00000000, 0x0000004c, 0x00000000, 0x00000000, 0x00000003,
+        0x00000001, 0x0000000f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x4f4c4f43, 0xabab0052, 0x58454853,
+        0x000002a0, 0x00020050, 0x000000a8, 0x0100086a, 0x05000061, 0x002010f2, 0x00000001, 0x00000000,
+        0x00000001, 0x0400005f, 0x002010f2, 0x00000001, 0x00000001, 0x02000068, 0x00000001, 0x0100085d,
+        0x0300008f, 0x00110000, 0x00000000, 0x0100285c, 0x04000067, 0x001020f2, 0x00000000, 0x00000001,
+        0x03000065, 0x001020f2, 0x00000001, 0x0200005e, 0x00000004, 0x0f000032, 0x00100032, 0x00000000,
+        0x80201ff6, 0x00000041, 0x00000000, 0x00000000, 0x00004002, 0x3e4ccccd, 0x3e4ccccd, 0x00000000,
+        0x00000000, 0x00201046, 0x00000000, 0x00000000, 0x05000036, 0x00102032, 0x00000000, 0x00100046,
+        0x00000000, 0x06000036, 0x00102042, 0x00000000, 0x0020102a, 0x00000000, 0x00000000, 0x05000036,
+        0x00102082, 0x00000000, 0x00004001, 0x3f800000, 0x06000036, 0x001020f2, 0x00000001, 0x00201e46,
+        0x00000000, 0x00000001, 0x03000075, 0x00110000, 0x00000000, 0x05000036, 0x00102012, 0x00000000,
+        0x0010000a, 0x00000000, 0x0e000032, 0x00100052, 0x00000000, 0x00201ff6, 0x00000000, 0x00000000,
+        0x00004002, 0x3e4ccccd, 0x00000000, 0x3e4ccccd, 0x00000000, 0x00201106, 0x00000000, 0x00000000,
+        0x05000036, 0x00102022, 0x00000000, 0x0010002a, 0x00000000, 0x06000036, 0x00102042, 0x00000000,
+        0x0020102a, 0x00000000, 0x00000000, 0x05000036, 0x00102082, 0x00000000, 0x00004001, 0x3f800000,
+        0x06000036, 0x001020f2, 0x00000001, 0x00201e46, 0x00000000, 0x00000001, 0x03000075, 0x00110000,
+        0x00000000, 0x05000036, 0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x05000036, 0x00102022,
+        0x00000000, 0x0010001a, 0x00000000, 0x06000036, 0x00102042, 0x00000000, 0x0020102a, 0x00000000,
+        0x00000000, 0x05000036, 0x00102082, 0x00000000, 0x00004001, 0x3f800000, 0x06000036, 0x001020f2,
+        0x00000001, 0x00201e46, 0x00000000, 0x00000001, 0x03000075, 0x00110000, 0x00000000, 0x05000036,
+        0x00102032, 0x00000000, 0x00100086, 0x00000000, 0x06000036, 0x00102042, 0x00000000, 0x0020102a,
+        0x00000000, 0x00000000, 0x05000036, 0x00102082, 0x00000000, 0x00004001, 0x3f800000, 0x06000036,
+        0x001020f2, 0x00000001, 0x00201e46, 0x00000000, 0x00000001, 0x03000075, 0x00110000, 0x00000000,
+        0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE gs_5_0 = {gs_5_0_code, sizeof(gs_5_0_code)};
+#if 0
+    struct ps_data
+    {
+        float4 pos : SV_POSITION;
+        float4 color : COLOR;
+    };
+
+    float4 main(struct ps_data ps_input) : SV_Target
+    {
+        return ps_input.color;
+    }
+#endif
+    static const DWORD ps_code[] =
+    {
+        0x43425844, 0x89803e59, 0x3f798934, 0xf99181df, 0xf5556512, 0x00000001, 0x000000f4, 0x00000003,
+        0x0000002c, 0x00000080, 0x000000b4, 0x4e475349, 0x0000004c, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x00000044, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000f0f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x4f4c4f43, 0xabab0052,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x00000038, 0x00000040,
+        0x0000000e, 0x03001062, 0x001010f2, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x05000036,
+        0x001020f2, 0x00000000, 0x00101e46, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = 640;
+    desc.rt_height = 480;
+    desc.rt_descriptor_count = 2;
+    desc.root_signature_flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    desc.no_pipeline = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    rtvs[0] = context.rtv;
+    rtvs[1] = get_cpu_rtv_handle(&context, context.rtv_heap, 1);
+    create_render_target(&context, &desc, &texture, &rtvs[1]);
+
+    input_layout.pInputElementDescs = layout_desc;
+    input_layout.NumElements = ARRAY_SIZE(layout_desc);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, &vs, &ps, &input_layout);
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+    pso_desc.GS = gs_5_0;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pso_5_0);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    pso_desc.GS = gs;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pso);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+
+    vb = create_upload_buffer(context.device, sizeof(vertex), vertex);
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
+    vbv.StrideInBytes = sizeof(*vertex);
+    vbv.SizeInBytes = sizeof(vertex);
+
+    for (i = 0; i < ARRAY_SIZE(rtvs); ++i)
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[i], red, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtvs[0], FALSE, NULL);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, pso_5_0);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 1, 1, 0, 0);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtvs[1], FALSE, NULL);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, pso_5_0);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 1, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    color = get_readback_uint(&rb, 320, 190);
+    ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
+    color = get_readback_uint(&rb, 255, 240);
+    ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
+    color = get_readback_uint(&rb, 320, 240);
+    ok(compare_color(color, 0xffffff00, 1), "Got unexpected color 0x%08x.\n", color);
+    color = get_readback_uint(&rb, 385, 240);
+    ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
+    color = get_readback_uint(&rb, 320, 290);
+    ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
+    release_resource_readback(&rb);
+
+    reset_command_list(command_list, context.allocator);
+    get_texture_readback_with_command_list(texture, 0, &rb, queue, command_list);
+    color = get_readback_uint(&rb, 320, 190);
+    ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
+    color = get_readback_uint(&rb, 255, 240);
+    ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
+    color = get_readback_uint(&rb, 320, 240);
+    ok(compare_color(color, 0xffffff00, 1), "Got unexpected color 0x%08x.\n", color);
+    color = get_readback_uint(&rb, 385, 240);
+    ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
+    color = get_readback_uint(&rb, 320, 290);
+    ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(vb);
+    ID3D12Resource_Release(texture);
+    ID3D12PipelineState_Release(pso);
+    ID3D12PipelineState_Release(pso_5_0);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     bool enable_debug_layer = false;
@@ -17182,4 +17450,5 @@ START_TEST(d3d12)
     run_test(test_separate_bindings);
     run_test(test_face_culling);
     run_test(test_multithread_command_queue_exec);
+    run_test(test_geometry_shader);
 }
