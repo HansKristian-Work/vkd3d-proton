@@ -3704,6 +3704,31 @@ static void vkd3d_dxbc_compiler_emit_dcl_gs_instances(struct vkd3d_dxbc_compiler
             SpvExecutionModeInvocations, instruction->declaration.count);
 }
 
+static void vkd3d_dxbc_compiler_emit_dcl_tessellator_domain(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    enum vkd3d_tessellator_domain domain = instruction->declaration.tessellator_domain;
+    SpvExecutionMode mode;
+
+    switch (domain)
+    {
+        case VKD3D_TESSELLATOR_DOMAIN_LINE:
+            mode = SpvExecutionModeIsolines;
+            break;
+        case VKD3D_TESSELLATOR_DOMAIN_TRIANGLE:
+            mode = SpvExecutionModeTriangles;
+            break;
+        case VKD3D_TESSELLATOR_DOMAIN_QUAD:
+            mode = SpvExecutionModeQuads;
+            break;
+        default:
+            FIXME("Invalid tessellator domain %#x.\n", domain);
+            return;
+    }
+
+    vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, NULL, 0);
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_thread_group(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -5643,6 +5668,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL_GS_INSTANCES:
             vkd3d_dxbc_compiler_emit_dcl_gs_instances(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_TESSELLATOR_DOMAIN:
+            vkd3d_dxbc_compiler_emit_dcl_tessellator_domain(compiler, instruction);
             break;
         case VKD3DSIH_DCL_THREAD_GROUP:
             vkd3d_dxbc_compiler_emit_dcl_thread_group(compiler, instruction);
