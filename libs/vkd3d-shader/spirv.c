@@ -3729,6 +3729,32 @@ static void vkd3d_dxbc_compiler_emit_dcl_tessellator_domain(struct vkd3d_dxbc_co
     vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, NULL, 0);
 }
 
+static void vkd3d_dxbc_compiler_emit_dcl_tessellator_partitioning(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    enum vkd3d_tessellator_partitioning partitioning = instruction->declaration.tessellator_partitioning;
+    SpvExecutionMode mode;
+
+    switch (partitioning)
+    {
+        case VKD3D_TESSELLATOR_PARTITIONING_INTEGER:
+        case VKD3D_TESSELLATOR_PARTITIONING_POW2:
+            mode = SpvExecutionModeSpacingEqual;
+            break;
+        case VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_ODD:
+            mode = SpvExecutionModeSpacingFractionalOdd;
+            break;
+        case VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_EVEN:
+            mode = SpvExecutionModeSpacingFractionalEven;
+            break;
+        default:
+            FIXME("Invalid tessellator partitioning %#x.\n", partitioning);
+            return;
+    }
+
+    vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, NULL, 0);
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_thread_group(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -5671,6 +5697,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL_TESSELLATOR_DOMAIN:
             vkd3d_dxbc_compiler_emit_dcl_tessellator_domain(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_TESSELLATOR_PARTITIONING:
+            vkd3d_dxbc_compiler_emit_dcl_tessellator_partitioning(compiler, instruction);
             break;
         case VKD3DSIH_DCL_THREAD_GROUP:
             vkd3d_dxbc_compiler_emit_dcl_thread_group(compiler, instruction);
