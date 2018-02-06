@@ -87,9 +87,9 @@ struct vkd3d_instance
     VkInstance vk_instance;
     struct vkd3d_vk_instance_procs vk_procs;
 
-    vkd3d_signal_event_pfn signal_event;
-    vkd3d_create_thread_pfn create_thread;
-    vkd3d_join_thread_pfn join_thread;
+    PFN_vkd3d_signal_event signal_event;
+    PFN_vkd3d_create_thread create_thread;
+    PFN_vkd3d_join_thread join_thread;
     size_t wchar_size;
 
     struct vkd3d_vulkan_info vk_info;
@@ -640,7 +640,7 @@ struct d3d12_device
     VkDevice vk_device;
     VkPhysicalDevice vk_physical_device;
     struct vkd3d_vk_device_procs vk_procs;
-    vkd3d_signal_event_pfn signal_event;
+    PFN_vkd3d_signal_event signal_event;
     size_t wchar_size;
 
     struct vkd3d_gpu_va_allocator gpu_va_allocator;
@@ -663,8 +663,8 @@ struct d3d12_device
 
     struct vkd3d_instance *vkd3d_instance;
 
-    vkd3d_create_thread_pfn create_thread;
-    vkd3d_join_thread_pfn join_thread;
+    PFN_vkd3d_create_thread create_thread;
+    PFN_vkd3d_join_thread join_thread;
 
     IUnknown *parent;
     LUID adapter_luid;

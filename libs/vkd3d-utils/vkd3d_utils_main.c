@@ -48,7 +48,7 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
         FIXME("Ignoring adapter %p.\n", adapter);
 
     memset(&instance_create_info, 0, sizeof(instance_create_info));
-    instance_create_info.signal_event_pfn = vkd3d_signal_event;
+    instance_create_info.pfn_signal_event = vkd3d_signal_event;
     instance_create_info.wchar_size = sizeof(WCHAR);
     instance_create_info.instance_extensions = instance_extensions;
     instance_create_info.instance_extension_count = ARRAY_SIZE(instance_extensions);

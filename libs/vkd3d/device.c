@@ -246,12 +246,12 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     VkResult vr;
     HRESULT hr;
 
-    if (!create_info->signal_event_pfn)
+    if (!create_info->pfn_signal_event)
     {
         ERR("Invalid signal event function pointer.\n");
         return E_INVALIDARG;
     }
-    if (!create_info->create_thread_pfn != !create_info->join_thread_pfn)
+    if (!create_info->pfn_create_thread != !create_info->pfn_join_thread)
     {
         ERR("Invalid create/join thread function pointers.\n");
         return E_INVALIDARG;
@@ -262,12 +262,12 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         return E_INVALIDARG;
     }
 
-    instance->signal_event = create_info->signal_event_pfn;
-    instance->create_thread = create_info->create_thread_pfn;
-    instance->join_thread = create_info->join_thread_pfn;
+    instance->signal_event = create_info->pfn_signal_event;
+    instance->create_thread = create_info->pfn_create_thread;
+    instance->join_thread = create_info->pfn_join_thread;
     instance->wchar_size = create_info->wchar_size;
 
-    if (FAILED(hr = vkd3d_init_vk_global_procs(instance, create_info->vkGetInstanceProcAddr_pfn)))
+    if (FAILED(hr = vkd3d_init_vk_global_procs(instance, create_info->pfn_vkGetInstanceProcAddr)))
     {
         ERR("Failed to initialize Vulkan global procs, hr %#x.\n", hr);
         return hr;

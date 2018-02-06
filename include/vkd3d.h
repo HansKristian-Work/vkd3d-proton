@@ -34,24 +34,24 @@
 extern "C" {
 #endif  /* __cplusplus */
 
-typedef bool (*vkd3d_signal_event_pfn)(HANDLE event);
+typedef bool (*PFN_vkd3d_signal_event)(HANDLE event);
 
-typedef void * (*vkd3d_thread_pfn)(void *data);
+typedef void * (*PFN_vkd3d_thread)(void *data);
 
-typedef void * (*vkd3d_create_thread_pfn)(vkd3d_thread_pfn thread_main, void *data);
-typedef bool (*vkd3d_join_thread_pfn)(void *thread);
+typedef void * (*PFN_vkd3d_create_thread)(PFN_vkd3d_thread thread_main, void *data);
+typedef bool (*PFN_vkd3d_join_thread)(void *thread);
 
 struct vkd3d_instance;
 
 struct vkd3d_instance_create_info
 {
-    vkd3d_signal_event_pfn signal_event_pfn;
-    vkd3d_create_thread_pfn create_thread_pfn;
-    vkd3d_join_thread_pfn join_thread_pfn;
+    PFN_vkd3d_signal_event pfn_signal_event;
+    PFN_vkd3d_create_thread pfn_create_thread;
+    PFN_vkd3d_join_thread pfn_join_thread;
     size_t wchar_size;
 
     /* If set to NULL, libvkd3d loads libvulkan. */
-    PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr_pfn;
+    PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
 
     const char * const *instance_extensions;
     uint32_t instance_extension_count;
@@ -114,35 +114,35 @@ VkFormat vkd3d_get_vk_format(DXGI_FORMAT format);
 /*
  * Function pointer typedefs for vkd3d functions.
  */
-typedef HRESULT (*vkd3d_create_instance_pfn)(const struct vkd3d_instance_create_info *create_info,
+typedef HRESULT (*PFN_vkd3d_create_instance)(const struct vkd3d_instance_create_info *create_info,
         struct vkd3d_instance **instance);
-typedef ULONG (*vkd3d_instance_decref_pfn)(struct vkd3d_instance *instance);
-typedef VkInstance (*vkd3d_instance_get_vk_instance_pfn)(struct vkd3d_instance *instance);
-typedef ULONG (*vkd3d_instance_incref_pfn)(struct vkd3d_instance *instance);
+typedef ULONG (*PFN_vkd3d_instance_decref)(struct vkd3d_instance *instance);
+typedef VkInstance (*PFN_vkd3d_instance_get_vk_instance)(struct vkd3d_instance *instance);
+typedef ULONG (*PFN_vkd3d_instance_incref)(struct vkd3d_instance *instance);
 
-typedef HRESULT (*vkd3d_create_device_pfn)(const struct vkd3d_device_create_info *create_info,
+typedef HRESULT (*PFN_vkd3d_create_device)(const struct vkd3d_device_create_info *create_info,
         REFIID iid, void **device);
-typedef IUnknown * (*vkd3d_get_device_parent_pfn)(ID3D12Device *device);
-typedef VkDevice (*vkd3d_get_vk_device_pfn)(ID3D12Device *device);
-typedef VkPhysicalDevice (*vkd3d_get_vk_physical_device_pfn)(ID3D12Device *device);
-typedef struct vkd3d_instance * (*vkd3d_instance_from_device_pfn)(ID3D12Device *device);
+typedef IUnknown * (*PFN_vkd3d_get_device_parent)(ID3D12Device *device);
+typedef VkDevice (*PFN_vkd3d_get_vk_device)(ID3D12Device *device);
+typedef VkPhysicalDevice (*PFN_vkd3d_get_vk_physical_device)(ID3D12Device *device);
+typedef struct vkd3d_instance * (*PFN_vkd3d_instance_from_device)(ID3D12Device *device);
 
-typedef uint32_t (*vkd3d_get_vk_queue_family_index_pfn)(ID3D12CommandQueue *queue);
-typedef VkQueue (*vkd3d_acquire_vk_queue_pfn)(ID3D12CommandQueue *queue);
-typedef void (*vkd3d_release_vk_queue_pfn)(ID3D12CommandQueue *queue);
+typedef uint32_t (*PFN_vkd3d_get_vk_queue_family_index)(ID3D12CommandQueue *queue);
+typedef VkQueue (*PFN_vkd3d_acquire_vk_queue)(ID3D12CommandQueue *queue);
+typedef void (*PFN_vkd3d_release_vk_queue)(ID3D12CommandQueue *queue);
 
-typedef HRESULT (*vkd3d_create_image_resource_pfn)(ID3D12Device *device, const D3D12_RESOURCE_DESC *desc,
+typedef HRESULT (*PFN_vkd3d_create_image_resource)(ID3D12Device *device, const D3D12_RESOURCE_DESC *desc,
         VkImage vk_image, unsigned int resource_flags, ID3D12Resource **resource);
-typedef ULONG (*vkd3d_resource_decref_pfn)(ID3D12Resource *resource);
-typedef ULONG (*vkd3d_resource_incref_pfn)(ID3D12Resource *resource);
+typedef ULONG (*PFN_vkd3d_resource_decref)(ID3D12Resource *resource);
+typedef ULONG (*PFN_vkd3d_resource_incref)(ID3D12Resource *resource);
 
-typedef HRESULT (*vkd3d_serialize_root_signature_pfn)(const D3D12_ROOT_SIGNATURE_DESC *desc,
+typedef HRESULT (*PFN_vkd3d_serialize_root_signature)(const D3D12_ROOT_SIGNATURE_DESC *desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob);
 
-typedef HRESULT (*vkd3d_create_root_signature_deserializer_pfn)(const void *data, SIZE_T data_size,
+typedef HRESULT (*PFN_vkd3d_create_root_signature_deserializer)(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer);
 
-typedef VkFormat (*vkd3d_get_vk_format_pfn)(DXGI_FORMAT format);
+typedef VkFormat (*PFN_vkd3d_get_vk_format)(DXGI_FORMAT format);
 
 #ifdef __cplusplus
 }

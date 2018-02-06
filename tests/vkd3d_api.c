@@ -46,7 +46,7 @@ static bool signal_event(HANDLE event)
 static const struct vkd3d_instance_create_info instance_default_create_info =
 {
     .wchar_size = sizeof(WCHAR),
-    .signal_event_pfn = signal_event,
+    .pfn_signal_event = signal_event,
 };
 
 static const struct vkd3d_device_create_info device_default_create_info =
@@ -134,12 +134,12 @@ static void test_create_instance(void)
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     create_info = instance_default_create_info;
-    create_info.signal_event_pfn = NULL;
+    create_info.pfn_signal_event = NULL;
     hr = vkd3d_create_instance(&create_info, &instance);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     create_info = instance_default_create_info;
-    create_info.vkGetInstanceProcAddr_pfn = vkGetInstanceProcAddr;
+    create_info.pfn_vkGetInstanceProcAddr = vkGetInstanceProcAddr;
     hr = vkd3d_create_instance(&create_info, &instance);
     ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
     refcount = vkd3d_instance_decref(instance);
@@ -405,7 +405,7 @@ static void test_required_device_extensions(void)
     HRESULT hr;
 
     instance_create_info = instance_default_create_info;
-    instance_create_info.vkGetInstanceProcAddr_pfn = fake_vkGetInstanceProcAddr;
+    instance_create_info.pfn_vkGetInstanceProcAddr = fake_vkGetInstanceProcAddr;
     hr = vkd3d_create_instance(&instance_create_info, &instance);
     ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
 
