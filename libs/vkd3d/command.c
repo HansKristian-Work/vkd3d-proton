@@ -3390,7 +3390,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
     list->fb_height = 0;
     for (i = 0; i < render_target_descriptor_count; ++i)
     {
-        const struct d3d12_rtv_desc *rtv_desc = (const struct d3d12_rtv_desc *)render_target_descriptors[i].ptr;
+        const struct d3d12_rtv_desc *rtv_desc = d3d12_rtv_desc_from_cpu_handle(render_target_descriptors[i]);
 
         d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
 
@@ -3403,7 +3403,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
 
     if (depth_stencil_descriptor)
     {
-        const struct d3d12_dsv_desc *dsv_desc = (const struct d3d12_dsv_desc *)depth_stencil_descriptor->ptr;
+        const struct d3d12_dsv_desc *dsv_desc = d3d12_dsv_desc_from_cpu_handle(*depth_stencil_descriptor);
 
         d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
 
@@ -3523,7 +3523,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(ID3D12Gra
 {
     const union VkClearValue clear_value = {.depthStencil = {depth, stencil}};
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    struct d3d12_dsv_desc *dsv_desc = (struct d3d12_dsv_desc *)dsv.ptr;
+    const struct d3d12_dsv_desc *dsv_desc = d3d12_dsv_desc_from_cpu_handle(dsv);
     struct VkAttachmentDescription attachment_desc;
     struct VkAttachmentReference ds_reference;
 
@@ -3570,7 +3570,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
 {
     const union VkClearValue clear_value = {{{color[0], color[1], color[2], color[3]}}};
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    struct d3d12_rtv_desc *rtv_desc = (struct d3d12_rtv_desc *)rtv.ptr;
+    const struct d3d12_rtv_desc *rtv_desc = d3d12_rtv_desc_from_cpu_handle(rtv);
     struct VkAttachmentDescription attachment_desc;
     struct VkAttachmentReference color_reference;
 

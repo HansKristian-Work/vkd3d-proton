@@ -1605,7 +1605,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateConstantBufferView(ID3D12Device
 {
     TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
 
-    d3d12_desc_create_cbv((struct d3d12_desc *)descriptor.ptr,
+    d3d12_desc_create_cbv(d3d12_desc_from_cpu_handle(descriptor),
             impl_from_ID3D12Device(iface), desc);
 }
 
@@ -1616,7 +1616,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView(ID3D12Device
     TRACE("iface %p, resource %p, desc %p, descriptor %#lx.\n",
             iface, resource, desc, descriptor.ptr);
 
-    d3d12_desc_create_srv((struct d3d12_desc *)descriptor.ptr,
+    d3d12_desc_create_srv(d3d12_desc_from_cpu_handle(descriptor),
             impl_from_ID3D12Device(iface), unsafe_impl_from_ID3D12Resource(resource), desc);
 }
 
@@ -1627,7 +1627,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView(ID3D12Devic
     TRACE("iface %p, resource %p, counter_resource %p, desc %p, descriptor %#lx.\n",
             iface, resource, counter_resource, desc, descriptor.ptr);
 
-    d3d12_desc_create_uav((struct d3d12_desc *)descriptor.ptr,
+    d3d12_desc_create_uav(d3d12_desc_from_cpu_handle(descriptor),
             impl_from_ID3D12Device(iface), unsafe_impl_from_ID3D12Resource(resource),
             unsafe_impl_from_ID3D12Resource(counter_resource), desc);
 }
@@ -1639,7 +1639,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateRenderTargetView(ID3D12Device *
     TRACE("iface %p, resource %p, desc %p, descriptor %#lx.\n",
             iface, resource, desc, descriptor.ptr);
 
-    d3d12_rtv_desc_create_rtv((struct d3d12_rtv_desc *)descriptor.ptr,
+    d3d12_rtv_desc_create_rtv(d3d12_rtv_desc_from_cpu_handle(descriptor),
             impl_from_ID3D12Device(iface), unsafe_impl_from_ID3D12Resource(resource), desc);
 }
 
@@ -1650,7 +1650,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateDepthStencilView(ID3D12Device *
     TRACE("iface %p, resource %p, desc %p, descriptor %#lx.\n",
             iface, resource, desc, descriptor.ptr);
 
-    d3d12_dsv_desc_create_dsv((struct d3d12_dsv_desc *)descriptor.ptr,
+    d3d12_dsv_desc_create_dsv(d3d12_dsv_desc_from_cpu_handle(descriptor),
             impl_from_ID3D12Device(iface), unsafe_impl_from_ID3D12Resource(resource), desc);
 }
 
@@ -1659,7 +1659,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateSampler(ID3D12Device *iface,
 {
     TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
 
-    d3d12_desc_create_sampler((struct d3d12_desc *)descriptor.ptr,
+    d3d12_desc_create_sampler(d3d12_desc_from_cpu_handle(descriptor),
             impl_from_ID3D12Device(iface), desc);
 }
 

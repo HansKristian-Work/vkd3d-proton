@@ -286,6 +286,11 @@ struct d3d12_rtv_desc
     struct d3d12_resource *resource;
 };
 
+static inline struct d3d12_rtv_desc *d3d12_rtv_desc_from_cpu_handle(D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle)
+{
+    return (struct d3d12_rtv_desc *)cpu_handle.ptr;
+}
+
 void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_RENDER_TARGET_VIEW_DESC *desc) DECLSPEC_HIDDEN;
 
@@ -298,6 +303,11 @@ struct d3d12_dsv_desc
     VkImageView vk_view;
     struct d3d12_resource *resource;
 };
+
+static inline struct d3d12_dsv_desc *d3d12_dsv_desc_from_cpu_handle(D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle)
+{
+    return (struct d3d12_dsv_desc *)cpu_handle.ptr;
+}
 
 void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc) DECLSPEC_HIDDEN;
