@@ -54,9 +54,6 @@ AS_IF([test "x$ac_cv_header_vulkan_vulkan_h" != "xyes"], [AC_MSG_ERROR([vulkan.h
 AS_IF([test "x$ac_cv_header_spirv_1_0_spirv_h" != "xyes"], [AC_MSG_ERROR([spirv.h not found.])])
 AS_IF([test "x$ac_cv_header_spirv_1_0_GLSL_std_450_h" != "xyes"], [AC_MSG_ERROR([GLSL.std.450.h not found.])])
 
-AS_IF([test "x$with_spirv_tools" = "xyes"],
-      [AC_CHECK_HEADERS([spirv-tools/libspirv.h], [], [AC_MSG_ERROR([spirv-tools/libspirv.h not found.])])])
-
 dnl Check for libraries
 m4_ifdef([PKG_PROG_PKG_CONFIG], [PKG_PROG_PKG_CONFIG], [m4_fatal([pkg-config autoconf macros not found.])])
 
@@ -77,11 +74,11 @@ AC_CHECK_LIB([vulkan], [vkGetInstanceProcAddr],
              [VULKAN_LIBS="-lvulkan"],
              [AC_MSG_ERROR([libvulkan not found.])])
 
-AC_SUBST([SPIRV_TOOLS_LIBS])
+HAVE_SPIRV_TOOLS=no
 AS_IF([test "x$with_spirv_tools" = "xyes"],
-      [AC_CHECK_LIB([SPIRV-Tools], [spvTextToBinary],
-                    [SPIRV_TOOLS_LIBS="-lstdc++ -lSPIRV-Tools"],
-                    [AC_MSG_ERROR([libSPIRV-Tools not found.])], [-lstdc++])])
+      [PKG_CHECK_MODULES([SPIRV_TOOLS], [SPIRV-Tools-shared],
+      [AC_DEFINE([HAVE_SPIRV_TOOLS], [1], [Define to 1 if you have SPIRV-Tools.])
+      HAVE_SPIRV_TOOLS=yes])])
 
 PKG_CHECK_MODULES([XCB], [xcb xcb-keysyms])
 
@@ -93,11 +90,6 @@ VKD3D_CHECK_FUNC([HAVE_SYNC_SUB_AND_FETCH], [__sync_sub_and_fetch], [__sync_sub_
 
 AM_CONDITIONAL([HAS_CROSSTARGET32], [test "x$CROSSTARGET32" != "xno"])
 AM_CONDITIONAL([HAS_CROSSTARGET64], [test "x$CROSSTARGET64" != "xno"])
-
-AS_IF([test "x$ac_cv_header_spirv_tools_libspirv_h" = "xyes" -a "x$ac_cv_lib_SPIRV_Tools_spvTextToBinary" = "xyes"],
-      [AC_DEFINE([HAVE_SPIRV_TOOLS], [1], [Define to 1 if you have SPIRV-Tools.])
-      HAVE_SPIRV_TOOLS=yes],
-      [HAVE_SPIRV_TOOLS=no])
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
