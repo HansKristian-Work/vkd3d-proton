@@ -4,6 +4,7 @@ AM_CPPFLAGS = -I$(srcdir)/include -I$(srcdir)/include/dummy -I$(srcdir)/include/
 
 widl_headers = \
 	include/vkd3d_d3d12.h \
+	include/vkd3d_d3dcommon.h \
 	include/vkd3d_dxgi.h \
 	include/vkd3d_dxgi1_2.h \
 	include/vkd3d_dxgi1_3.h \
@@ -17,6 +18,7 @@ vkd3d_public_headers = \
 	include/dummy/rpcndr.h \
 	include/vkd3d.h \
 	include/vkd3d_d3d12.h \
+	include/vkd3d_d3dcommon.h \
 	include/vkd3d_dxgibase.h \
 	include/vkd3d_dxgiformat.h \
 	include/vkd3d_utils.h \
@@ -79,6 +81,7 @@ libvkd3d_la_SOURCES = \
 	include/private/vkd3d_memory.h \
 	include/private/vkd3d_test.h \
 	include/vkd3d_d3d12.idl \
+	include/vkd3d_d3dcommon.idl \
 	include/vkd3d_unknown.idl \
 	libs/vkd3d/command.c \
 	libs/vkd3d/device.c \

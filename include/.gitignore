@@ -2,6 +2,7 @@ config.h
 config.h.in
 stamp-h1
 vkd3d_d3d12.h
+vkd3d_d3dcommon.h
 vkd3d_dxgi.h
 vkd3d_dxgi1_2.h
 vkd3d_dxgi1_3.h

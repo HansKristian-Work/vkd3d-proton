@@ -20,7 +20,10 @@ import "vkd3d_windows.h";
 
 import "vkd3d_dxgibase.idl";
 
-#include "vkd3d_unknown.idl"
+import "vkd3d_d3dcommon.idl";
+
+cpp_quote("#ifndef _D3D12_CONSTANTS")
+cpp_quote("#define _D3D12_CONSTANTS")
 
 const UINT D3D12_CS_TGSM_REGISTER_COUNT = 8192;
 const UINT D3D12_MAX_ROOT_COST = 64;
@@ -48,10 +51,6 @@ const UINT D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION = 16384;
 const UINT D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION = 2048;
 const UINT D3D12_REQ_TEXTURECUBE_DIMENSION = 16384;
 const UINT D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES = 0xffffffff;
-const UINT D3D12_SHADER_COMPONENT_MAPPING_MASK = 0x7;
-const UINT D3D12_SHADER_COMPONENT_MAPPING_SHIFT = 3;
-const UINT D3D12_SHADER_COMPONENT_MAPPING_ALWAYS_SET_BIT_AVOIDING_ZEROMEM_MISTAKES
-        = 1 << (D3D12_SHADER_COMPONENT_MAPPING_SHIFT * 4);
 const UINT D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT = 8;
 const UINT D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT = 256;
 const UINT D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT = 65536;
@@ -60,15 +59,12 @@ const UINT D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT = 512;
 const UINT D3D12_VS_INPUT_REGISTER_COUNT = 32;
 const UINT D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE = 16;
 
-[uuid(8BA5FB08-5195-40E2-AC58-0D989C3A0102), object, local, pointer_default(unique)]
-interface ID3D10Blob : IUnknown
-{
-    void *GetBufferPointer();
-    SIZE_T GetBufferSize();
-}
+cpp_quote("#endif")
 
-typedef ID3D10Blob ID3DBlob;
-cpp_quote("#define IID_ID3DBlob IID_ID3D10Blob")
+const UINT D3D12_SHADER_COMPONENT_MAPPING_MASK = 0x7;
+const UINT D3D12_SHADER_COMPONENT_MAPPING_SHIFT = 3;
+const UINT D3D12_SHADER_COMPONENT_MAPPING_ALWAYS_SET_BIT_AVOIDING_ZEROMEM_MISTAKES
+        = 1 << (D3D12_SHADER_COMPONENT_MAPPING_SHIFT * 4);
 
 typedef enum D3D_PRIMITIVE_TOPOLOGY
 {
@@ -79,19 +75,6 @@ typedef enum D3D_PRIMITIVE_TOPOLOGY
     D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST = 4,
     D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP = 5,
 } D3D_PRIMITIVE_TOPOLOGY;
-
-typedef enum D3D_FEATURE_LEVEL
-{
-    D3D_FEATURE_LEVEL_9_1 = 0x9100,
-    D3D_FEATURE_LEVEL_9_2 = 0x9200,
-    D3D_FEATURE_LEVEL_9_3 = 0x9300,
-    D3D_FEATURE_LEVEL_10_0 = 0xa000,
-    D3D_FEATURE_LEVEL_10_1 = 0xa100,
-    D3D_FEATURE_LEVEL_11_0 = 0xb000,
-    D3D_FEATURE_LEVEL_11_1 = 0xb100,
-    D3D_FEATURE_LEVEL_12_0 = 0xc000,
-    D3D_FEATURE_LEVEL_12_1 = 0xc100,
-} D3D_FEATURE_LEVEL;
 
 typedef enum D3D12_SHADER_MIN_PRECISION_SUPPORT
 {
@@ -1567,7 +1550,12 @@ typedef struct D3D12_SUBRESOURCE_DATA
     LONG_PTR SlicePitch;
 } D3D12_SUBRESOURCE_DATA;
 
-[uuid(C4FEC28F-7966-4E95-9F94-F431CB56C3B8), object, local, pointer_default(unique)]
+[
+    uuid(c4fec28f-7966-4e95-9f94-f431cb56c3b8),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12Object : IUnknown
 {
     HRESULT GetPrivateData(REFGUID guid, UINT *data_size, void *data);
@@ -1576,18 +1564,33 @@ interface ID3D12Object : IUnknown
     HRESULT SetName(const WCHAR *name);
 }
 
-[uuid(905DB94B-A00C-4140-9DF5-2B64CA9EA357), object, local, pointer_default(unique)]
+[
+    uuid(905db94b-a00c-4140-9df5-2b64ca9ea357),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12DeviceChild : ID3D12Object
 {
     HRESULT GetDevice(REFIID riid, void **device);
 }
 
-[uuid(63EE58FB-1268-4835-86DA-F008CE62F0D6), object, local, pointer_default(unique)]
+[
+    uuid(63ee58fb-1268-4835-86da-f008ce62f0d6),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12Pageable : ID3D12DeviceChild
 {
 }
 
-[uuid(696442BE-A72E-4059-BC79-5B5C98040FAD), object, local, pointer_default(unique)]
+[
+    uuid(696442be-a72e-4059-bc79-5b5c98040fad),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12Resource : ID3D12Pageable
 {
     HRESULT Map(UINT sub_resource, const D3D12_RANGE *read_range, void **data);
@@ -1605,7 +1608,12 @@ interface ID3D12Resource : ID3D12Pageable
     HRESULT GetHeapProperties(D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS *flags);
 }
 
-[uuid(7116D91C-E7E4-47CE-B8C6-EC8168F437E5), object, local, pointer_default(unique)]
+[
+    uuid(7116d91c-e7e4-47ce-b8c6-ec8168f437e5),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12CommandList : ID3D12DeviceChild
 {
     D3D12_COMMAND_LIST_TYPE GetType();
@@ -1688,7 +1696,12 @@ typedef enum D3D12_PREDICATION_OP
     D3D12_PREDICATION_OP_NOT_EQUAL_ZERO = 1,
 } D3D12_PREDICATION_OP;
 
-[uuid(8EFB471D-616C-4F49-90F7-127BB763FA51), object, local, pointer_default(unique)]
+[
+    uuid(8efb471d-616c-4f49-90f7-127bb763fa51),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12DescriptorHeap : ID3D12Pageable
 {
     D3D12_DESCRIPTOR_HEAP_DESC GetDesc();
@@ -1697,17 +1710,32 @@ interface ID3D12DescriptorHeap : ID3D12Pageable
     D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandleForHeapStart();
 }
 
-[uuid(0d9658ae-ed45-469e-a61d-970ec583cab4), object, local, pointer_default(unique)]
+[
+    uuid(0d9658ae-ed45-469e-a61d-970ec583cab4),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12QueryHeap : ID3D12Pageable
 {
 }
 
-[uuid(c36a797c-ec80-4f0a-8985-a7b2475082d1), object, local, pointer_default(unique)]
+[
+    uuid(c36a797c-ec80-4f0a-8985-a7b2475082d1),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12CommandSignature : ID3D12Pageable
 {
 }
 
-[uuid(5B160D0F-AC1B-4185-8BA8-B3AE42A5A455), object, local, pointer_default(unique)]
+[
+    uuid(5b160d0f-ac1b-4185-8ba8-b3ae42a5a455),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12GraphicsCommandList : ID3D12CommandList
 {
     HRESULT Close();
@@ -1835,7 +1863,12 @@ typedef enum D3D12_TILE_MAPPING_FLAGS
     D3D12_TILE_MAPPING_FLAG_NO_HAZARD = 0x1,
 } D3D12_TILE_MAPPING_FLAGS;
 
-[uuid(0EC870A6-5D7E-4C22-8CFC-5BAAE07616ED), object, local, pointer_default(unique)]
+[
+    uuid(0ec870a6-5d7e-4c22-8cfc-5baae07616ed),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12CommandQueue : ID3D12Pageable
 {
     void UpdateTileMappings(ID3D12Resource *resource, UINT region_count,
@@ -1943,18 +1976,33 @@ typedef struct D3D12_COMMAND_SIGNATURE_DESC
     UINT NodeMask;
 } D3D12_COMMAND_SIGNATURE_DESC;
 
-[uuid(C54A6B66-72DF-4EE8-8BE5-A946A1429214), object, local, pointer_default(unique)]
+[
+    uuid(c54a6b66-72df-4ee8-8be5-a946a1429214),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12RootSignature : ID3D12DeviceChild
 {
 }
 
-[uuid(765A30F3-F624-4C6F-A828-ACE948622445), object, local, pointer_default(unique)]
+[
+    uuid(765a30f3-f624-4c6f-a828-ace948622445),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12PipelineState : ID3D12Pageable
 {
     HRESULT GetCachedBlob(ID3DBlob **blob);
 }
 
-[uuid(0A753DCF-C4D8-4B91-ADF6-BE5A60D95A76), object, local, pointer_default(unique)]
+[
+    uuid(0a753dcf-c4d8-4b91-adf6-be5a60d95a76),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12Fence : ID3D12Pageable
 {
     UINT64 GetCompletedValue();
@@ -1962,13 +2010,23 @@ interface ID3D12Fence : ID3D12Pageable
     HRESULT Signal(UINT64 value);
 }
 
-[uuid(6102DEE4-AF59-4B09-B999-B44D73F09B24), object, local, pointer_default(unique)]
+[
+    uuid(6102dee4-af59-4b09-b999-b44d73f09b24),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12CommandAllocator : ID3D12Pageable
 {
     HRESULT Reset();
 }
 
-[uuid(189819F1-1DB6-4B57-BE54-1821339B85F7), object, local, pointer_default(unique)]
+[
+    uuid(189819f1-1db6-4b57-be54-1821339b85f7),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12Device : ID3D12Object
 {
     UINT GetNodeCount();
@@ -2091,13 +2149,23 @@ interface ID3D12Device : ID3D12Object
     LUID GetAdapterLuid();
 }
 
-[uuid(344488B7-6846-474B-B989-F027448245E0), object, local, pointer_default(unique)]
+[
+    uuid(344488b7-6846-474b-b989-f027448245e0),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12Debug : IUnknown
 {
     void EnableDebugLayer();
 }
 
-[uuid(34ab647b-3cc8-46ac-841b-c0965645c046), object, local, pointer_default(unique)]
+[
+    uuid(34ab647b-3cc8-46ac-841b-c0965645c046),
+    object,
+    local,
+    pointer_default(unique)
+]
 interface ID3D12RootSignatureDeserializer : IUnknown
 {
     const D3D12_ROOT_SIGNATURE_DESC *GetRootSignatureDesc();
