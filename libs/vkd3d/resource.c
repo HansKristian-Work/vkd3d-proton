@@ -977,10 +977,52 @@ static bool vkd3d_create_buffer_view(struct d3d12_device *device,
             offset * element_size, size * element_size, vk_view);
 }
 
+static void vkd3d_set_view_swizzle_for_format(VkComponentMapping *components,
+        const struct vkd3d_format *format, bool allowed_swizzle)
+{
+    if (format->vk_aspect_mask == VK_IMAGE_ASPECT_STENCIL_BIT)
+    {
+        if (allowed_swizzle)
+        {
+            components->r = VK_COMPONENT_SWIZZLE_ZERO;
+            components->g = VK_COMPONENT_SWIZZLE_R;
+            components->b = VK_COMPONENT_SWIZZLE_ZERO;
+            components->a = VK_COMPONENT_SWIZZLE_ZERO;
+            return;
+        }
+        else
+        {
+            FIXME("Stencil swizzle is not supported for format %#x.\n",
+                    format->dxgi_format);
+        }
+    }
+
+    if (format->dxgi_format == DXGI_FORMAT_A8_UNORM)
+    {
+        if (allowed_swizzle)
+        {
+            components->r = VK_COMPONENT_SWIZZLE_ZERO;
+            components->g = VK_COMPONENT_SWIZZLE_ZERO;
+            components->b = VK_COMPONENT_SWIZZLE_ZERO;
+            components->a = VK_COMPONENT_SWIZZLE_R;
+            return;
+        }
+        else
+        {
+            FIXME("Alpha swizzle is not supported.\n");
+        }
+    }
+
+    components->r = VK_COMPONENT_SWIZZLE_R;
+    components->g = VK_COMPONENT_SWIZZLE_G;
+    components->b = VK_COMPONENT_SWIZZLE_B;
+    components->a = VK_COMPONENT_SWIZZLE_A;
+}
+
 static VkResult vkd3d_create_texture_view(struct d3d12_device *device,
         struct d3d12_resource *resource, const struct vkd3d_format *format, VkImageViewType view_type,
         uint32_t miplevel_idx, uint32_t miplevel_count, uint32_t layer_idx, uint32_t layer_count,
-        VkImageView *vk_view)
+        bool allowed_swizzle, VkImageView *vk_view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkImageViewCreateInfo view_desc;
@@ -994,27 +1036,7 @@ static VkResult vkd3d_create_texture_view(struct d3d12_device *device,
     view_desc.image = resource->u.vk_image;
     view_desc.viewType = view_type;
     view_desc.format = format->vk_format;
-    if (format->vk_aspect_mask == VK_IMAGE_ASPECT_STENCIL_BIT)
-    {
-        view_desc.components.r = VK_COMPONENT_SWIZZLE_ZERO;
-        view_desc.components.g = VK_COMPONENT_SWIZZLE_R;
-        view_desc.components.b = VK_COMPONENT_SWIZZLE_ZERO;
-        view_desc.components.a = VK_COMPONENT_SWIZZLE_ZERO;
-    }
-    else if (format->dxgi_format == DXGI_FORMAT_A8_UNORM)
-    {
-        view_desc.components.r = VK_COMPONENT_SWIZZLE_ZERO;
-        view_desc.components.g = VK_COMPONENT_SWIZZLE_ZERO;
-        view_desc.components.b = VK_COMPONENT_SWIZZLE_ZERO;
-        view_desc.components.a = VK_COMPONENT_SWIZZLE_R;
-    }
-    else
-    {
-        view_desc.components.r = VK_COMPONENT_SWIZZLE_R;
-        view_desc.components.g = VK_COMPONENT_SWIZZLE_G;
-        view_desc.components.b = VK_COMPONENT_SWIZZLE_B;
-        view_desc.components.a = VK_COMPONENT_SWIZZLE_A;
-    }
+    vkd3d_set_view_swizzle_for_format(&view_desc.components, format, allowed_swizzle);
     view_desc.subresourceRange.aspectMask = format->vk_aspect_mask;
     view_desc.subresourceRange.baseMipLevel = miplevel_idx;
     view_desc.subresourceRange.levelCount = miplevel_count;
@@ -1149,7 +1171,7 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
     vk_view_type = resource->desc.DepthOrArraySize > 1
             ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
     if (vkd3d_create_texture_view(device, resource, format, vk_view_type,
-            0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS, &view->u.vk_image_view) < 0)
+            0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS, true, &view->u.vk_image_view) < 0)
     {
         vkd3d_free(view);
         return;
@@ -1292,7 +1314,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         return;
 
     if (vkd3d_create_texture_view(device, resource, format, vk_view_type,
-            miplevel_idx, 1, layer_idx, layer_count, &view->u.vk_image_view) < 0)
+            miplevel_idx, 1, layer_idx, layer_count, false, &view->u.vk_image_view) < 0)
     {
         vkd3d_free(view);
         return;
@@ -1527,7 +1549,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 
     miplevel_idx = desc ? desc->u.Texture2D.MipSlice : 0;
     if (vkd3d_create_texture_view(device, resource, format, VK_IMAGE_VIEW_TYPE_2D,
-            miplevel_idx, 1, 0, 1, &rtv_desc->vk_view) < 0)
+            miplevel_idx, 1, 0, 1, false, &rtv_desc->vk_view) < 0)
         return;
 
     rtv_desc->format = format->vk_format;
@@ -1586,7 +1608,7 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
 
     miplevel_idx = desc ? desc->u.Texture2D.MipSlice : 0;
     if (vkd3d_create_texture_view(device, resource, format, VK_IMAGE_VIEW_TYPE_2D,
-            miplevel_idx, 1, 0, 1, &dsv_desc->vk_view) < 0)
+            miplevel_idx, 1, 0, 1, false, &dsv_desc->vk_view) < 0)
         return;
 
     dsv_desc->format = format->vk_format;
