@@ -143,6 +143,11 @@ static bool compare_uvec4(const struct uvec4* v1, const struct uvec4 *v2)
     return v1->x == v2->x && v1->y == v2->y && v1->z == v2->z && v1->w == v2->w;
 }
 
+static bool compare_uint8(uint8_t a, uint8_t b, unsigned int max_diff)
+{
+    return abs(a - b) <= max_diff;
+}
+
 static bool compare_uint16(uint16_t a, uint16_t b, unsigned int max_diff)
 {
     return abs(a - b) <= max_diff;
@@ -648,6 +653,7 @@ static unsigned int format_size(DXGI_FORMAT format)
     switch (format)
     {
         case DXGI_FORMAT_UNKNOWN:
+        case DXGI_FORMAT_A8_UNORM:
             return 1;
         case DXGI_FORMAT_R32G32B32A32_FLOAT:
         case DXGI_FORMAT_R32G32B32A32_UINT:
@@ -857,6 +863,11 @@ static void *get_readback_data(struct resource_readback *rb, unsigned int x, uns
     return &((BYTE *)rb->data)[rb->row_pitch * y + x * element_size];
 }
 
+static uint8_t get_readback_uint8(struct resource_readback *rb, unsigned int x, unsigned int y)
+{
+    return *(uint8_t *)get_readback_data(rb, x, y, sizeof(uint8_t));
+}
+
 static uint16_t get_readback_uint16(struct resource_readback *rb, unsigned int x, unsigned int y)
 {
     return *(uint16_t *)get_readback_data(rb, x, y, sizeof(uint16_t));
@@ -932,6 +943,47 @@ static void check_sub_resource_float_(unsigned int line, ID3D12Resource *texture
 
     get_texture_readback_with_command_list(texture, 0, &rb, queue, command_list);
     check_readback_data_float_(line, &rb, NULL, expected, max_diff);
+    release_resource_readback(&rb);
+}
+
+#define check_readback_data_uint8(a, b, c, d) check_readback_data_uint8_(__LINE__, a, b, c, d)
+static void check_readback_data_uint8_(unsigned int line, struct resource_readback *rb,
+        const RECT *rect, uint8_t expected, unsigned int max_diff)
+{
+    RECT r = {0, 0, rb->width, rb->height};
+    unsigned int x = 0, y;
+    bool all_match = true;
+    uint8_t got = 0;
+
+    if (rect)
+        r = *rect;
+
+    for (y = r.top; y < r.bottom; ++y)
+    {
+        for (x = r.left; x < r.right; ++x)
+        {
+            got = get_readback_uint8(rb, x, y);
+            if (!compare_uint8(got, expected, max_diff))
+            {
+                all_match = false;
+                break;
+            }
+        }
+        if (!all_match)
+            break;
+    }
+    todo_(line)(all_match, "Got 0x%02x, expected 0x%02x at (%u, %u).\n", got, expected, x, y);
+}
+
+#define check_sub_resource_uint8(a, b, c, d, e, f) check_sub_resource_uint8_(__LINE__, a, b, c, d, e, f)
+static void check_sub_resource_uint8_(unsigned int line, ID3D12Resource *texture,
+        unsigned int sub_resource_idx, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list,
+        uint8_t expected, unsigned int max_diff)
+{
+    struct resource_readback rb;
+
+    get_texture_readback_with_command_list(texture, 0, &rb, queue, command_list);
+    check_readback_data_uint8_(line, &rb, NULL, expected, max_diff);
     release_resource_readback(&rb);
 }
 
@@ -1343,6 +1395,7 @@ struct test_context_desc
     bool no_render_target;
     bool no_root_signature;
     bool no_pipeline;
+    const D3D12_SHADER_BYTECODE *ps;
 };
 
 struct test_context
@@ -1472,7 +1525,7 @@ static bool init_test_context_(unsigned int line, struct test_context *context,
 
     context->pipeline_state = create_pipeline_state_(line, device,
             context->root_signature, context->render_target_desc.Format,
-            NULL, NULL, NULL);
+            NULL, desc ? desc->ps : NULL, NULL);
 
     return true;
 }
@@ -4450,14 +4503,11 @@ static void test_fragment_coords(void)
 
     memset(&desc, 0, sizeof(desc));
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    desc.no_pipeline = true;
+    desc.ps = &ps;
     if (!init_test_context(&context, &desc))
         return;
     command_list = context.list;
     queue = context.queue;
-
-    context.pipeline_state = create_pipeline_state(context.device,
-            context.root_signature, desc.rt_format, NULL, &ps, NULL);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -4678,14 +4728,11 @@ static void test_scissor(void)
     memset(&desc, 0, sizeof(desc));
     desc.rt_width = 640;
     desc.rt_height = 480;
-    desc.no_pipeline = true;
+    desc.ps = &ps;
     if (!init_test_context(&context, &desc))
         return;
     command_list = context.list;
     queue = context.queue;
-
-    context.pipeline_state = create_pipeline_state(context.device,
-            context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
 
     set_rect(&scissor_rect, 160, 120, 480, 360);
 
@@ -17516,6 +17563,57 @@ static void test_geometry_shader(void)
     destroy_test_context(&context);
 }
 
+static void test_render_a8(void)
+{
+    static const float black[] = {0.0f, 0.0f, 0.0f, 0.0f};
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        void main(out float4 target : SV_Target)
+        {
+            target = float4(0.0f, 0.25f, 0.5f, 1.0f);
+        }
+#endif
+        0x43425844, 0x2f09e5ff, 0xaa135d5e, 0x7860f4b5, 0x5c7b8cbc, 0x00000001, 0x000000b4, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x0000003c, 0x00000050, 0x0000000f,
+        0x0100086a, 0x03000065, 0x001020f2, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002,
+        0x00000000, 0x3e800000, 0x3f000000, 0x3f800000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_format = DXGI_FORMAT_A8_UNORM;
+    desc.ps = &ps;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, black, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint8(context.render_target, 0, queue, command_list, 0xff, 0);
+
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     bool enable_debug_layer = false;
@@ -17621,4 +17719,5 @@ START_TEST(d3d12)
     run_test(test_face_culling);
     run_test(test_multithread_command_queue_exec);
     run_test(test_geometry_shader);
+    run_test(test_render_a8);
 }
