@@ -3372,6 +3372,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
         BOOL single_descriptor_handle, const D3D12_CPU_DESCRIPTOR_HANDLE *depth_stencil_descriptor)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct d3d12_rtv_desc *rtv_desc;
+    const struct d3d12_dsv_desc *dsv_desc;
     unsigned int i;
 
     TRACE("iface %p, render_target_descriptor_count %u, render_target_descriptors %p, "
@@ -3390,7 +3392,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
     list->fb_height = 0;
     for (i = 0; i < render_target_descriptor_count; ++i)
     {
-        const struct d3d12_rtv_desc *rtv_desc = d3d12_rtv_desc_from_cpu_handle(render_target_descriptors[i]);
+        if (single_descriptor_handle)
+            rtv_desc = d3d12_rtv_desc_from_cpu_handle(*render_target_descriptors) + i;
+        else
+            rtv_desc = d3d12_rtv_desc_from_cpu_handle(render_target_descriptors[i]);
 
         d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
 
@@ -3403,7 +3408,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
 
     if (depth_stencil_descriptor)
     {
-        const struct d3d12_dsv_desc *dsv_desc = d3d12_dsv_desc_from_cpu_handle(*depth_stencil_descriptor);
+        dsv_desc = d3d12_dsv_desc_from_cpu_handle(*depth_stencil_descriptor);
 
         d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
 
