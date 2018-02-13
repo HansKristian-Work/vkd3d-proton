@@ -9071,14 +9071,14 @@ static void test_texture(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
-    D3D12_SUBRESOURCE_DATA texture_data;
     struct test_context_desc desc;
     struct resource_readback rb;
     struct test_context context;
+    unsigned int x_step, y_step;
     ID3D12DescriptorHeap *heap;
     ID3D12CommandQueue *queue;
     ID3D12Resource *texture;
-    unsigned int x, y;
+    unsigned int i, x, y;
 
     static const DWORD ps_code[] =
     {
@@ -9108,15 +9108,51 @@ static void test_texture(void)
     };
     static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
     static const float red[] = {1.0f, 0.0f, 0.0f, 0.5f};
-    static const unsigned int bitmap_data[] =
+    static const unsigned int r8g8b8a8_data[] =
     {
         0xff0000ff, 0xff00ffff, 0xff00ff00, 0xffffff00,
         0xffff0000, 0xffff00ff, 0xff000000, 0xff7f7f7f,
         0xffffffff, 0xffffffff, 0xffffffff, 0xff000000,
         0xffffffff, 0xff000000, 0xff000000, 0xff000000,
     };
+    static const uint8_t a8_data[] =
+    {
+        0x00, 0xff, 0x7f, 0xf0,
+        0x0f, 0x11, 0x00, 0x00,
+        0xff, 0xf0, 0x0f, 0xff,
+        0xfa, 0xfe, 0xaa, 0xcc,
+    };
+    static const unsigned int a8_expected_data[] =
+    {
+        0x00000000, 0xff000000, 0x7f000000, 0xf0000000,
+        0x0f000000, 0x11000000, 0x00000000, 0x00000000,
+        0xff000000, 0xf0000000, 0x0f000000, 0xff000000,
+        0xfa000000, 0xfe000000, 0xaa000000, 0xcc000000,
+    };
+    static const struct
+    {
+        unsigned int width;
+        unsigned int height;
+        DXGI_FORMAT format;
+        D3D12_SUBRESOURCE_DATA data;
+        const unsigned int *expected_data;
+    }
+    tests[] =
+    {
+        {
+            4, 4, DXGI_FORMAT_R8G8B8A8_UNORM,
+            {r8g8b8a8_data, 4 * sizeof(*r8g8b8a8_data), 16 * sizeof(*r8g8b8a8_data)},
+            r8g8b8a8_data,
+        },
+        {
+            4, 4, DXGI_FORMAT_A8_UNORM,
+            {a8_data, 4 * sizeof(*a8_data), 16 * sizeof(*a8_data)},
+            a8_expected_data,
+        },
+    };
 
     memset(&desc, 0, sizeof(desc));
+    desc.rt_width = desc.rt_height = 32;
     desc.no_root_signature = true;
     if (!init_test_context(&context, &desc))
         return;
@@ -9132,46 +9168,52 @@ static void test_texture(void)
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
     gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
 
-    texture = create_texture(context.device, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_STATE_COPY_DEST);
-    texture_data.pData = bitmap_data;
-    texture_data.RowPitch = 4 * sizeof(*bitmap_data);
-    texture_data.SlicePitch = texture_data.RowPitch * 4;
-    upload_texture_data(texture, &texture_data, 1, queue, command_list);
-    reset_command_list(command_list, context.allocator);
-
-    transition_resource_state(command_list, texture,
-            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-
-    ID3D12Device_CreateShaderResourceView(context.device, texture, NULL, cpu_handle);
-
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, red, 0, NULL);
-
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
-    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
-    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
-    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
-    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
-    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
-    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
-
-    transition_resource_state(command_list, context.render_target,
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-
-    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (y = 0; y < 4; ++y)
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
-        for (x = 0; x < 4; ++x)
-        {
-           unsigned int color = get_readback_uint(&rb, 4 + 8 * x, 4 + 8 * y);
-           ok(compare_color(color, bitmap_data[4 * y + x], 1),
-                   "Got color 0x%08x, expected 0x%08x at (%u, %u).\n", color, bitmap_data[4 * y + x], x, y);
-        }
-    }
-    release_resource_readback(&rb);
+        texture = create_texture(context.device,
+                tests[i].width, tests[i].height, tests[i].format, D3D12_RESOURCE_STATE_COPY_DEST);
+        upload_texture_data(texture, &tests[i].data, 1, queue, command_list);
+        reset_command_list(command_list, context.allocator);
 
-    ID3D12Resource_Release(texture);
+        transition_resource_state(command_list, texture,
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+        ID3D12Device_CreateShaderResourceView(context.device, texture, NULL, cpu_handle);
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, red, 0, NULL);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+        ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        x_step = desc.rt_width / tests[i].width;
+        y_step = desc.rt_height / tests[i].height;
+        get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+        for (y = 0; y < tests[i].height; ++y)
+        {
+            for (x = 0; x < tests[i].width; ++x)
+            {
+                unsigned int color = get_readback_uint(&rb, x * x_step + x_step / 2, y * y_step + y_step / 2);
+                ok(compare_color(color, tests[i].expected_data[tests[i].width * y + x], 1),
+                        "Got color 0x%08x, expected 0x%08x at (%u, %u).\n",
+                        color, tests[i].expected_data[tests[i].width * y + x], x, y);
+            }
+        }
+        release_resource_readback(&rb);
+
+        ID3D12Resource_Release(texture);
+        reset_command_list(command_list, context.allocator);
+    }
+
     ID3D12DescriptorHeap_Release(heap);
     destroy_test_context(&context);
 }
