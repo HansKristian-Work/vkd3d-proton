@@ -50,6 +50,7 @@ static const struct vkd3d_format vkd3d_formats[] =
     {DXGI_FORMAT_R8_UNORM,            VK_FORMAT_R8_UNORM,                 1,  1, 1,  1, COLOR},
     {DXGI_FORMAT_R8_UINT,             VK_FORMAT_R8_UINT,                  1,  1, 1,  1, COLOR},
     {DXGI_FORMAT_R8_SNORM,            VK_FORMAT_R8_SNORM,                 1,  1, 1,  1, COLOR},
+    {DXGI_FORMAT_A8_UNORM,            VK_FORMAT_R8_UNORM,                 1,  1, 1,  1, COLOR},
     {DXGI_FORMAT_B8G8R8A8_UNORM,      VK_FORMAT_B8G8R8A8_UNORM,           4,  1, 1,  1, COLOR},
     {DXGI_FORMAT_B8G8R8A8_TYPELESS,   VK_FORMAT_B8G8R8A8_UNORM,           4,  1, 1,  1, COLOR},
     {DXGI_FORMAT_B8G8R8A8_UNORM_SRGB, VK_FORMAT_B8G8R8A8_SRGB,            4,  1, 1,  1, COLOR},

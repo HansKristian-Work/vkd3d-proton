@@ -1001,6 +1001,13 @@ static VkResult vkd3d_create_texture_view(struct d3d12_device *device,
         view_desc.components.b = VK_COMPONENT_SWIZZLE_ZERO;
         view_desc.components.a = VK_COMPONENT_SWIZZLE_ZERO;
     }
+    else if (format->dxgi_format == DXGI_FORMAT_A8_UNORM)
+    {
+        view_desc.components.r = VK_COMPONENT_SWIZZLE_ZERO;
+        view_desc.components.g = VK_COMPONENT_SWIZZLE_ZERO;
+        view_desc.components.b = VK_COMPONENT_SWIZZLE_ZERO;
+        view_desc.components.a = VK_COMPONENT_SWIZZLE_R;
+    }
     else
     {
         view_desc.components.r = VK_COMPONENT_SWIZZLE_R;
