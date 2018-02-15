@@ -200,19 +200,19 @@ void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *shader_code)
     vkd3d_free((void *)shader_code->code);
 }
 
-void vkd3d_shader_free_root_signature(D3D12_ROOT_SIGNATURE_DESC *root_signature)
+void vkd3d_shader_free_root_signature(struct vkd3d_root_signature_desc *root_signature)
 {
     unsigned int i;
 
-    for (i = 0; i < root_signature->NumParameters; ++i)
+    for (i = 0; i < root_signature->parameter_count; ++i)
     {
-        const D3D12_ROOT_PARAMETER *parameter = &root_signature->pParameters[i];
+        const struct vkd3d_root_parameter *parameter = &root_signature->parameters[i];
 
-        if (parameter->ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
-            vkd3d_free((void *)parameter->u.DescriptorTable.pDescriptorRanges);
+        if (parameter->parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+            vkd3d_free((void *)parameter->u.descriptor_table.descriptor_ranges);
     }
-    vkd3d_free((void *)root_signature->pParameters);
-    vkd3d_free((void *)root_signature->pStaticSamplers);
+    vkd3d_free((void *)root_signature->parameters);
+    vkd3d_free((void *)root_signature->static_samplers);
 
     memset(root_signature, 0, sizeof(*root_signature));
 }

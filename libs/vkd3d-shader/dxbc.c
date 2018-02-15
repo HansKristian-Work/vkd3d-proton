@@ -2064,7 +2064,7 @@ HRESULT shader_extract_from_dxbc(const void *dxbc, SIZE_T dxbc_length,
 }
 
 static HRESULT shader_parse_descriptor_ranges(const char *data, DWORD data_size,
-        DWORD offset, DWORD count, D3D12_DESCRIPTOR_RANGE *ranges)
+        DWORD offset, DWORD count, struct vkd3d_descriptor_range *ranges)
 {
     const char *ptr;
     unsigned int i;
@@ -2078,26 +2078,26 @@ static HRESULT shader_parse_descriptor_ranges(const char *data, DWORD data_size,
 
     for (i = 0; i < count; ++i)
     {
-        read_dword(&ptr, &ranges[i].RangeType);
-        read_dword(&ptr, &ranges[i].NumDescriptors);
-        read_dword(&ptr, &ranges[i].BaseShaderRegister);
-        read_dword(&ptr, &ranges[i].RegisterSpace);
-        read_dword(&ptr, &ranges[i].OffsetInDescriptorsFromTableStart);
+        read_dword(&ptr, &ranges[i].range_type);
+        read_dword(&ptr, &ranges[i].descriptor_count);
+        read_dword(&ptr, &ranges[i].base_shader_register);
+        read_dword(&ptr, &ranges[i].register_space);
+        read_dword(&ptr, &ranges[i].descriptor_table_offset);
 
         TRACE("Type %#x, descriptor count %u, base shader register %u, "
                 "register space %u, offset %u.\n",
-                ranges[i].RangeType, ranges[i].NumDescriptors,
-                ranges[i].BaseShaderRegister, ranges[i].RegisterSpace,
-                ranges[i].OffsetInDescriptorsFromTableStart);
+                ranges[i].range_type, ranges[i].descriptor_count,
+                ranges[i].base_shader_register, ranges[i].register_space,
+                ranges[i].descriptor_table_offset);
     }
 
     return S_OK;
 }
 
 static HRESULT shader_parse_descriptor_table(const char *data, DWORD data_size,
-        DWORD offset, D3D12_ROOT_DESCRIPTOR_TABLE *table)
+        DWORD offset, struct vkd3d_root_descriptor_table *table)
 {
-    D3D12_DESCRIPTOR_RANGE *ranges;
+    struct vkd3d_descriptor_range *ranges;
     const char *ptr;
     DWORD count;
 
@@ -2113,16 +2113,16 @@ static HRESULT shader_parse_descriptor_table(const char *data, DWORD data_size,
 
     TRACE("Descriptor range count %u.\n", count);
 
-    table->NumDescriptorRanges = count;
+    table->descriptor_range_count = count;
 
     if (!(ranges = vkd3d_calloc(count, sizeof(*ranges))))
         return E_OUTOFMEMORY;
-    table->pDescriptorRanges = ranges;
+    table->descriptor_ranges = ranges;
     return shader_parse_descriptor_ranges(data, data_size, offset, count, ranges);
 }
 
 static HRESULT shader_parse_root_constants(const char *data, DWORD data_size,
-        DWORD offset, D3D12_ROOT_CONSTANTS *constants)
+        DWORD offset, struct vkd3d_root_constants *constants)
 {
     const char *ptr;
 
@@ -2133,18 +2133,18 @@ static HRESULT shader_parse_root_constants(const char *data, DWORD data_size,
     }
     ptr = &data[offset];
 
-    read_dword(&ptr, &constants->ShaderRegister);
-    read_dword(&ptr, &constants->RegisterSpace);
-    read_dword(&ptr, &constants->Num32BitValues);
+    read_dword(&ptr, &constants->shader_register);
+    read_dword(&ptr, &constants->register_space);
+    read_dword(&ptr, &constants->value_count);
 
     TRACE("Shader register %u, register space %u, 32-bit value count %u.\n",
-            constants->ShaderRegister, constants->RegisterSpace, constants->Num32BitValues);
+            constants->shader_register, constants->register_space, constants->value_count);
 
     return S_OK;
 }
 
 static HRESULT shader_parse_root_descriptor(const char *data, DWORD data_size,
-        DWORD offset, D3D12_ROOT_DESCRIPTOR *descriptor)
+        DWORD offset, struct vkd3d_root_descriptor *descriptor)
 {
     const char *ptr;
 
@@ -2155,17 +2155,17 @@ static HRESULT shader_parse_root_descriptor(const char *data, DWORD data_size,
     }
     ptr = &data[offset];
 
-    read_dword(&ptr, &descriptor->ShaderRegister);
-    read_dword(&ptr, &descriptor->RegisterSpace);
+    read_dword(&ptr, &descriptor->shader_register);
+    read_dword(&ptr, &descriptor->register_space);
 
     TRACE("Shader register %u, register space %u.\n",
-            descriptor->ShaderRegister, descriptor->RegisterSpace);
+            descriptor->shader_register, descriptor->register_space);
 
     return S_OK;
 }
 
 static HRESULT shader_parse_root_parameters(const char *data, DWORD data_size,
-        DWORD offset, DWORD count, D3D12_ROOT_PARAMETER *parameters)
+        DWORD offset, DWORD count, struct vkd3d_root_parameter *parameters)
 {
     const char *ptr;
     unsigned int i;
@@ -2180,28 +2180,28 @@ static HRESULT shader_parse_root_parameters(const char *data, DWORD data_size,
 
     for (i = 0; i < count; ++i)
     {
-        read_dword(&ptr, &parameters[i].ParameterType);
-        read_dword(&ptr, &parameters[i].ShaderVisibility);
+        read_dword(&ptr, &parameters[i].parameter_type);
+        read_dword(&ptr, &parameters[i].shader_visibility);
         read_dword(&ptr, &offset);
 
         TRACE("Type %#x, shader visibility %#x.\n",
-                parameters[i].ParameterType, parameters[i].ShaderVisibility);
+                parameters[i].parameter_type, parameters[i].shader_visibility);
 
-        switch (parameters[i].ParameterType)
+        switch (parameters[i].parameter_type)
         {
-            case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
-                hr = shader_parse_descriptor_table(data, data_size, offset, &parameters[i].u.DescriptorTable);
+            case VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+                hr = shader_parse_descriptor_table(data, data_size, offset, &parameters[i].u.descriptor_table);
                 break;
-            case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
-                hr = shader_parse_root_constants(data, data_size, offset, &parameters[i].u.Constants);
+            case VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+                hr = shader_parse_root_constants(data, data_size, offset, &parameters[i].u.constants);
                 break;
-            case D3D12_ROOT_PARAMETER_TYPE_CBV:
-            case D3D12_ROOT_PARAMETER_TYPE_SRV:
-            case D3D12_ROOT_PARAMETER_TYPE_UAV:
-                hr = shader_parse_root_descriptor(data, data_size, offset, &parameters[i].u.Descriptor);
+            case VKD3D_ROOT_PARAMETER_TYPE_CBV:
+            case VKD3D_ROOT_PARAMETER_TYPE_SRV:
+            case VKD3D_ROOT_PARAMETER_TYPE_UAV:
+                hr = shader_parse_root_descriptor(data, data_size, offset, &parameters[i].u.descriptor);
                 break;
             default:
-                FIXME("Unrecognized type %#x.\n", parameters[i].ParameterType);
+                FIXME("Unrecognized type %#x.\n", parameters[i].parameter_type);
                 return E_INVALIDARG;
         }
 
@@ -2213,7 +2213,7 @@ static HRESULT shader_parse_root_parameters(const char *data, DWORD data_size,
 }
 
 static HRESULT shader_parse_static_samplers(const char *data, DWORD data_size,
-        DWORD offset, DWORD count, D3D12_STATIC_SAMPLER_DESC *sampler_descs)
+        DWORD offset, DWORD count, struct vkd3d_static_sampler_desc *sampler_descs)
 {
     const char *ptr;
     unsigned int i;
@@ -2227,26 +2227,26 @@ static HRESULT shader_parse_static_samplers(const char *data, DWORD data_size,
 
     for (i = 0; i < count; ++i)
     {
-        read_dword(&ptr, &sampler_descs[i].Filter);
-        read_dword(&ptr, &sampler_descs[i].AddressU);
-        read_dword(&ptr, &sampler_descs[i].AddressV);
-        read_dword(&ptr, &sampler_descs[i].AddressW);
-        read_float(&ptr, &sampler_descs[i].MipLODBias);
-        read_dword(&ptr, &sampler_descs[i].MaxAnisotropy);
-        read_dword(&ptr, &sampler_descs[i].ComparisonFunc);
-        read_dword(&ptr, &sampler_descs[i].BorderColor);
-        read_float(&ptr, &sampler_descs[i].MinLOD);
-        read_float(&ptr, &sampler_descs[i].MaxLOD);
-        read_dword(&ptr, &sampler_descs[i].ShaderRegister);
-        read_dword(&ptr, &sampler_descs[i].RegisterSpace);
-        read_dword(&ptr, &sampler_descs[i].ShaderVisibility);
+        read_dword(&ptr, &sampler_descs[i].filter);
+        read_dword(&ptr, &sampler_descs[i].address_u);
+        read_dword(&ptr, &sampler_descs[i].address_v);
+        read_dword(&ptr, &sampler_descs[i].address_w);
+        read_float(&ptr, &sampler_descs[i].mip_lod_bias);
+        read_dword(&ptr, &sampler_descs[i].max_anisotropy);
+        read_dword(&ptr, &sampler_descs[i].comparison_func);
+        read_dword(&ptr, &sampler_descs[i].border_color);
+        read_float(&ptr, &sampler_descs[i].min_lod);
+        read_float(&ptr, &sampler_descs[i].max_lod);
+        read_dword(&ptr, &sampler_descs[i].shader_register);
+        read_dword(&ptr, &sampler_descs[i].register_space);
+        read_dword(&ptr, &sampler_descs[i].shader_visibility);
     }
 
     return S_OK;
 }
 
 static HRESULT shader_parse_root_signature(const char *data, DWORD data_size,
-        D3D12_ROOT_SIGNATURE_DESC *desc)
+        struct vkd3d_root_signature_desc *desc)
 {
     const char *ptr = data;
     DWORD count, offset;
@@ -2264,13 +2264,13 @@ static HRESULT shader_parse_root_signature(const char *data, DWORD data_size,
     read_dword(&ptr, &offset);
     TRACE("Parameter count %u, offset %u.\n", count, offset);
 
-    desc->NumParameters = count;
-    if (desc->NumParameters)
+    desc->parameter_count = count;
+    if (desc->parameter_count)
     {
-        D3D12_ROOT_PARAMETER *parameters;
-        if (!(parameters = vkd3d_calloc(desc->NumParameters, sizeof(*parameters))))
+        struct vkd3d_root_parameter *parameters;
+        if (!(parameters = vkd3d_calloc(desc->parameter_count, sizeof(*parameters))))
             return E_OUTOFMEMORY;
-        desc->pParameters = parameters;
+        desc->parameters = parameters;
         if (FAILED(hr = shader_parse_root_parameters(data, data_size, offset, count, parameters)))
             return hr;
     }
@@ -2279,26 +2279,26 @@ static HRESULT shader_parse_root_signature(const char *data, DWORD data_size,
     read_dword(&ptr, &offset);
     TRACE("Static sampler count %u, offset %u.\n", count, offset);
 
-    desc->NumStaticSamplers = count;
-    if (desc->NumStaticSamplers)
+    desc->static_sampler_count = count;
+    if (desc->static_sampler_count)
     {
-        D3D12_STATIC_SAMPLER_DESC *samplers;
-        if (!(samplers = vkd3d_calloc(desc->NumStaticSamplers, sizeof(*samplers))))
+        struct vkd3d_static_sampler_desc *samplers;
+        if (!(samplers = vkd3d_calloc(desc->static_sampler_count, sizeof(*samplers))))
             return E_OUTOFMEMORY;
-        desc->pStaticSamplers = samplers;
+        desc->static_samplers = samplers;
         if (FAILED(hr = shader_parse_static_samplers(data, data_size, offset, count, samplers)))
             return hr;
     }
 
-    read_dword(&ptr, &desc->Flags);
-    TRACE("Flags %#x.\n", desc->Flags);
+    read_dword(&ptr, &desc->flags);
+    TRACE("Flags %#x.\n", desc->flags);
 
     return S_OK;
 }
 
 static HRESULT rts0_handler(const char *data, DWORD data_size, DWORD tag, void *context)
 {
-    D3D12_ROOT_SIGNATURE_DESC *desc = context;
+    struct vkd3d_root_signature_desc *desc = context;
 
     if (tag != TAG_RTS0)
         return S_OK;
@@ -2307,7 +2307,7 @@ static HRESULT rts0_handler(const char *data, DWORD data_size, DWORD tag, void *
 }
 
 HRESULT vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
-        D3D12_ROOT_SIGNATURE_DESC *root_signature)
+        struct vkd3d_root_signature_desc *root_signature)
 {
     HRESULT hr;
 
@@ -2400,22 +2400,22 @@ static HRESULT shader_write_root_signature_header(struct root_signature_writer_c
 }
 
 static HRESULT shader_write_descriptor_ranges(struct root_signature_writer_context *context,
-        const D3D12_ROOT_DESCRIPTOR_TABLE *table)
+        const struct vkd3d_root_descriptor_table *table)
 {
-    const D3D12_DESCRIPTOR_RANGE *ranges = table->pDescriptorRanges;
+    const struct vkd3d_descriptor_range *ranges = table->descriptor_ranges;
     unsigned int i;
 
-    for (i = 0; i < table->NumDescriptorRanges; ++i)
+    for (i = 0; i < table->descriptor_range_count; ++i)
     {
-        if (!write_dword(context, ranges[i].RangeType))
+        if (!write_dword(context, ranges[i].range_type))
             return E_OUTOFMEMORY;
-        if (!write_dword(context, ranges[i].NumDescriptors))
+        if (!write_dword(context, ranges[i].descriptor_count))
             return E_OUTOFMEMORY;
-        if (!write_dword(context, ranges[i].BaseShaderRegister))
+        if (!write_dword(context, ranges[i].base_shader_register))
             return E_OUTOFMEMORY;
-        if (!write_dword(context, ranges[i].RegisterSpace))
+        if (!write_dword(context, ranges[i].register_space))
             return E_OUTOFMEMORY;
-        if (!write_dword(context, ranges[i].OffsetInDescriptorsFromTableStart))
+        if (!write_dword(context, ranges[i].descriptor_table_offset))
             return E_OUTOFMEMORY;
     }
 
@@ -2423,9 +2423,9 @@ static HRESULT shader_write_descriptor_ranges(struct root_signature_writer_conte
 }
 
 static HRESULT shader_write_descriptor_table(struct root_signature_writer_context *context,
-        const D3D12_ROOT_DESCRIPTOR_TABLE *table)
+        const struct vkd3d_root_descriptor_table *table)
 {
-    if (!write_dword(context, table->NumDescriptorRanges))
+    if (!write_dword(context, table->descriptor_range_count))
         return E_OUTOFMEMORY;
     if (!write_dword(context, get_chunk_offset(context) + sizeof(DWORD))) /* offset */
         return E_OUTOFMEMORY;
@@ -2434,67 +2434,67 @@ static HRESULT shader_write_descriptor_table(struct root_signature_writer_contex
 }
 
 static HRESULT shader_write_root_constants(struct root_signature_writer_context *context,
-        const D3D12_ROOT_CONSTANTS *constants)
+        const struct vkd3d_root_constants *constants)
 {
-    if (!write_dword(context, constants->ShaderRegister))
+    if (!write_dword(context, constants->shader_register))
         return E_OUTOFMEMORY;
-    if (!write_dword(context, constants->RegisterSpace))
+    if (!write_dword(context, constants->register_space))
         return E_OUTOFMEMORY;
-    if (!write_dword(context, constants->Num32BitValues))
+    if (!write_dword(context, constants->value_count))
         return E_OUTOFMEMORY;
 
     return S_OK;
 }
 
 static HRESULT shader_write_root_descriptor(struct root_signature_writer_context *context,
-        const D3D12_ROOT_DESCRIPTOR *descriptor)
+        const struct vkd3d_root_descriptor *descriptor)
 {
-    if (!write_dword(context, descriptor->ShaderRegister))
+    if (!write_dword(context, descriptor->shader_register))
         return E_OUTOFMEMORY;
-    if (!write_dword(context, descriptor->RegisterSpace))
+    if (!write_dword(context, descriptor->register_space))
         return E_OUTOFMEMORY;
 
     return S_OK;
 }
 
 static HRESULT shader_write_root_parameters(struct root_signature_writer_context *context,
-        const D3D12_ROOT_SIGNATURE_DESC *desc)
+        const struct vkd3d_root_signature_desc *desc)
 {
-    const D3D12_ROOT_PARAMETER *parameters = desc->pParameters;
+    const struct vkd3d_root_parameter *parameters = desc->parameters;
     size_t parameters_position;
     unsigned int i;
     HRESULT hr;
 
     parameters_position = context->position;
-    for (i = 0; i < desc->NumParameters; ++i)
+    for (i = 0; i < desc->parameter_count; ++i)
     {
-        if (!write_dword(context, parameters[i].ParameterType))
+        if (!write_dword(context, parameters[i].parameter_type))
             return E_OUTOFMEMORY;
-        if (!write_dword(context, parameters[i].ShaderVisibility))
+        if (!write_dword(context, parameters[i].shader_visibility))
             return E_OUTOFMEMORY;
         if (!write_dword(context, 0xffffffff)) /* offset */
             return E_OUTOFMEMORY;
     }
 
-    for (i = 0; i < desc->NumParameters; ++i)
+    for (i = 0; i < desc->parameter_count; ++i)
     {
         context->data[parameters_position + 3 * i + 2] = get_chunk_offset(context); /* offset */
 
-        switch (parameters[i].ParameterType)
+        switch (parameters[i].parameter_type)
         {
-            case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
-                hr = shader_write_descriptor_table(context, &parameters[i].u.DescriptorTable);
+            case VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+                hr = shader_write_descriptor_table(context, &parameters[i].u.descriptor_table);
                 break;
-            case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
-                hr = shader_write_root_constants(context, &parameters[i].u.Constants);
+            case VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+                hr = shader_write_root_constants(context, &parameters[i].u.constants);
                 break;
-            case D3D12_ROOT_PARAMETER_TYPE_CBV:
-            case D3D12_ROOT_PARAMETER_TYPE_SRV:
-            case D3D12_ROOT_PARAMETER_TYPE_UAV:
-                hr = shader_write_root_descriptor(context, &parameters[i].u.Descriptor);
+            case VKD3D_ROOT_PARAMETER_TYPE_CBV:
+            case VKD3D_ROOT_PARAMETER_TYPE_SRV:
+            case VKD3D_ROOT_PARAMETER_TYPE_UAV:
+                hr = shader_write_root_descriptor(context, &parameters[i].u.descriptor);
                 break;
             default:
-                FIXME("Unrecognized type %#x.\n", parameters[i].ParameterType);
+                FIXME("Unrecognized type %#x.\n", parameters[i].parameter_type);
                 return E_INVALIDARG;
         }
 
@@ -2506,38 +2506,38 @@ static HRESULT shader_write_root_parameters(struct root_signature_writer_context
 }
 
 static HRESULT shader_write_static_samplers(struct root_signature_writer_context *context,
-        const D3D12_ROOT_SIGNATURE_DESC *desc)
+        const struct vkd3d_root_signature_desc *desc)
 {
-    const D3D12_STATIC_SAMPLER_DESC *samplers = desc->pStaticSamplers;
+    const struct vkd3d_static_sampler_desc *samplers = desc->static_samplers;
     unsigned int i;
 
-    for (i = 0; i < desc->NumStaticSamplers; ++i)
+    for (i = 0; i < desc->static_sampler_count; ++i)
     {
-        if (!write_dword(context, samplers[i].Filter))
+        if (!write_dword(context, samplers[i].filter))
             return E_OUTOFMEMORY;
-        if (!write_dword(context, samplers[i].AddressU))
+        if (!write_dword(context, samplers[i].address_u))
             return E_OUTOFMEMORY;
-        if (!write_dword(context, samplers[i].AddressV))
+        if (!write_dword(context, samplers[i].address_v))
             return E_OUTOFMEMORY;
-        if (!write_dword(context, samplers[i].AddressW))
+        if (!write_dword(context, samplers[i].address_w))
             return E_OUTOFMEMORY;
-        if (!write_float(context, samplers[i].MipLODBias))
+        if (!write_float(context, samplers[i].mip_lod_bias))
             return E_OUTOFMEMORY;
-        if (!write_dword(context, samplers[i].MaxAnisotropy))
+        if (!write_dword(context, samplers[i].max_anisotropy))
             return E_OUTOFMEMORY;
-        if (!write_dword(context, samplers[i].ComparisonFunc))
+        if (!write_dword(context, samplers[i].comparison_func))
             return E_OUTOFMEMORY;
-        if (!write_dword(context, samplers[i].BorderColor))
+        if (!write_dword(context, samplers[i].border_color))
             return E_OUTOFMEMORY;
-        if (!write_float(context, samplers[i].MinLOD))
+        if (!write_float(context, samplers[i].min_lod))
             return E_OUTOFMEMORY;
-        if (!write_float(context, samplers[i].MaxLOD))
+        if (!write_float(context, samplers[i].max_lod))
             return E_OUTOFMEMORY;
-        if (!write_dword(context, samplers[i].ShaderRegister))
+        if (!write_dword(context, samplers[i].shader_register))
             return E_OUTOFMEMORY;
-        if (!write_dword(context, samplers[i].RegisterSpace))
+        if (!write_dword(context, samplers[i].register_space))
             return E_OUTOFMEMORY;
-        if (!write_dword(context, samplers[i].ShaderVisibility))
+        if (!write_dword(context, samplers[i].shader_visibility))
             return E_OUTOFMEMORY;
     }
 
@@ -2545,7 +2545,7 @@ static HRESULT shader_write_static_samplers(struct root_signature_writer_context
 }
 
 static HRESULT shader_write_root_signature(struct root_signature_writer_context *context,
-        const D3D12_ROOT_SIGNATURE_DESC *desc)
+        const struct vkd3d_root_signature_desc *desc)
 {
     size_t samplers_offset_position;
     HRESULT hr;
@@ -2553,18 +2553,18 @@ static HRESULT shader_write_root_signature(struct root_signature_writer_context 
     if (!write_dword(context, 0x00000001))
         return E_OUTOFMEMORY;
 
-    if (!write_dword(context, desc->NumParameters))
+    if (!write_dword(context, desc->parameter_count))
         return E_OUTOFMEMORY;
     if (!write_dword(context, get_chunk_offset(context) + 4 * sizeof(DWORD))) /* offset */
         return E_OUTOFMEMORY;
 
-    if (!write_dword(context, desc->NumStaticSamplers))
+    if (!write_dword(context, desc->static_sampler_count))
         return E_OUTOFMEMORY;
     samplers_offset_position = context->position;
     if (!write_dword(context, 0xffffffff)) /* offset */
         return E_OUTOFMEMORY;
 
-    if (!write_dword(context, desc->Flags))
+    if (!write_dword(context, desc->flags))
         return E_OUTOFMEMORY;
 
     if (FAILED(hr = shader_write_root_parameters(context, desc)))
@@ -2574,7 +2574,7 @@ static HRESULT shader_write_root_signature(struct root_signature_writer_context 
     return shader_write_static_samplers(context, desc);
 }
 
-HRESULT vkd3d_shader_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_signature,
+HRESULT vkd3d_shader_serialize_root_signature(const struct vkd3d_root_signature_desc *root_signature,
         enum vkd3d_root_signature_version version, struct vkd3d_shader_code *dxbc)
 {
     struct root_signature_writer_context context;

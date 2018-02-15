@@ -1006,11 +1006,15 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
         const void *bytecode, size_t bytecode_length, struct d3d12_root_signature **root_signature)
 {
     const struct vkd3d_shader_code dxbc = {bytecode, bytecode_length};
-    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    union
+    {
+        D3D12_ROOT_SIGNATURE_DESC d3d12;
+        struct vkd3d_root_signature_desc vkd3d;
+    } root_signature_desc;
     struct d3d12_root_signature *object;
     HRESULT hr;
 
-    if (FAILED(hr = vkd3d_shader_parse_root_signature(&dxbc, &root_signature_desc)))
+    if (FAILED(hr = vkd3d_shader_parse_root_signature(&dxbc, &root_signature_desc.vkd3d)))
     {
         WARN("Failed to parse root signature, hr %#x.\n", hr);
         return hr;
@@ -1018,12 +1022,12 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
     {
-        vkd3d_shader_free_root_signature(&root_signature_desc);
+        vkd3d_shader_free_root_signature(&root_signature_desc.vkd3d);
         return E_OUTOFMEMORY;
     }
 
-    hr = d3d12_root_signature_init(object, device, &root_signature_desc);
-    vkd3d_shader_free_root_signature(&root_signature_desc);
+    hr = d3d12_root_signature_init(object, device, &root_signature_desc.d3d12);
+    vkd3d_shader_free_root_signature(&root_signature_desc.vkd3d);
     if (FAILED(hr))
     {
         vkd3d_free(object);
