@@ -5686,6 +5686,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             vkd3d_dxbc_compiler_emit_dcl_stream(compiler, instruction);
             break;
         case VKD3DSIH_DCL_VERTICES_OUT:
+        case VKD3DSIH_DCL_OUTPUT_CONTROL_POINT_COUNT:
             vkd3d_dxbc_compiler_emit_dcl_vertices_out(compiler, instruction);
             break;
         case VKD3DSIH_DCL_INPUT_PRIMITIVE:
@@ -5876,7 +5877,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_CUT_STREAM:
             vkd3d_dxbc_compiler_emit_cut_stream(compiler, instruction);
             break;
+        case VKD3DSIH_DCL_INPUT_CONTROL_POINT_COUNT:
         case VKD3DSIH_NOP:
+            /* nothing to do */
             break;
         default:
             FIXME("Unhandled instruction %#x.\n", instruction->handler_idx);
