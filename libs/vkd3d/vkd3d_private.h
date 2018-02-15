@@ -767,6 +767,7 @@ const char *debug_vk_memory_property_flags(VkMemoryPropertyFlags flags) DECLSPEC
 const char *debug_vk_queue_flags(VkQueueFlags flags) DECLSPEC_HIDDEN;
 
 HRESULT hresult_from_vk_result(VkResult vr) DECLSPEC_HIDDEN;
+HRESULT hresult_from_vkd3d_result(int vkd3d_result) DECLSPEC_HIDDEN;
 
 HRESULT vkd3d_load_vk_global_procs(struct vkd3d_vk_global_procs *procs,
         PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr) DECLSPEC_HIDDEN;

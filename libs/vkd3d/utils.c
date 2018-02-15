@@ -351,6 +351,26 @@ HRESULT hresult_from_vk_result(VkResult vr)
     }
 }
 
+HRESULT hresult_from_vkd3d_result(int vkd3d_result)
+{
+    switch (vkd3d_result)
+    {
+        case VKD3D_OK:
+            return S_OK;
+        case VKD3D_ERROR:
+            return E_FAIL;
+        case VKD3D_ERROR_OUT_OF_MEMORY:
+            return E_OUTOFMEMORY;
+        case VKD3D_ERROR_INVALID_ARGUMENT:
+            return E_INVALIDARG;
+        case VKD3D_ERROR_NOT_IMPLEMENTED:
+            return E_NOTIMPL;
+        default:
+            FIXME("Unhandled vkd3d result %d.\n", vkd3d_result);
+            return E_FAIL;
+    }
+}
+
 #define LOAD_GLOBAL_PFN(name) \
     if (!(procs->name = (void *)vkGetInstanceProcAddr(NULL, #name))) \
     { \

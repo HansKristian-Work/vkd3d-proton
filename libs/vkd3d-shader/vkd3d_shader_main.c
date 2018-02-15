@@ -26,16 +26,16 @@ struct vkd3d_shader_parser
     const DWORD *ptr;
 };
 
-static HRESULT vkd3d_shader_parser_init(struct vkd3d_shader_parser *parser,
+static int vkd3d_shader_parser_init(struct vkd3d_shader_parser *parser,
         const struct vkd3d_shader_code *dxbc)
 {
     struct vkd3d_shader_desc *shader_desc = &parser->shader_desc;
-    HRESULT hr;
+    int ret;
 
-    if (FAILED(hr = shader_extract_from_dxbc(dxbc->code, dxbc->size, shader_desc)))
+    if ((ret = shader_extract_from_dxbc(dxbc->code, dxbc->size, shader_desc)) < 0)
     {
-        WARN("Failed to extract shader, hr %#x.\n", hr);
-        return hr;
+        WARN("Failed to extract shader, vkd3d result %d.\n", ret);
+        return ret;
     }
 
     if (!(parser->data = shader_sm4_init(shader_desc->byte_code,
@@ -43,11 +43,11 @@ static HRESULT vkd3d_shader_parser_init(struct vkd3d_shader_parser *parser,
     {
         WARN("Failed to initialize shader parser.\n");
         free_shader_desc(shader_desc);
-        return E_INVALIDARG;
+        return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
     shader_sm4_read_header(parser->data, &parser->ptr, &parser->shader_version);
-    return S_OK;
+    return VKD3D_OK;
 }
 
 static void vkd3d_shader_parser_destroy(struct vkd3d_shader_parser *parser)
@@ -56,7 +56,7 @@ static void vkd3d_shader_parser_destroy(struct vkd3d_shader_parser *parser)
     free_shader_desc(&parser->shader_desc);
 }
 
-HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
+int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv, uint32_t compiler_options,
         const struct vkd3d_shader_interface *shader_interface)
 {
@@ -64,24 +64,23 @@ HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     struct vkd3d_dxbc_compiler *spirv_compiler;
     struct vkd3d_shader_scan_info scan_info;
     struct vkd3d_shader_parser parser;
-    HRESULT hr;
     bool ret;
 
     TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, shader_interface %p.\n",
             dxbc->code, dxbc->size, spirv, compiler_options, shader_interface);
 
-    if (FAILED(hr = vkd3d_shader_scan_dxbc(dxbc, &scan_info)))
-        return hr;
+    if ((ret = vkd3d_shader_scan_dxbc(dxbc, &scan_info)) < 0)
+        return ret;
 
-    if (FAILED(hr = vkd3d_shader_parser_init(&parser, dxbc)))
-        return hr;
+    if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
+        return ret;
 
     if (!(spirv_compiler = vkd3d_dxbc_compiler_create(&parser.shader_version,
             &parser.shader_desc, compiler_options, shader_interface, &scan_info)))
     {
         ERR("Failed to create DXBC compiler.\n");
         vkd3d_shader_parser_destroy(&parser);
-        return hr;
+        return VKD3D_ERROR;
     }
 
     while (!shader_sm4_is_end(parser.data, &parser.ptr))
@@ -93,7 +92,7 @@ HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
             WARN("Encountered unrecognized or invalid instruction.\n");
             vkd3d_dxbc_compiler_destroy(spirv_compiler);
             vkd3d_shader_parser_destroy(&parser);
-            return E_FAIL;
+            return VKD3D_ERROR_INVALID_ARGUMENT;
         }
 
         vkd3d_dxbc_compiler_handle_instruction(spirv_compiler, &instruction);
@@ -102,8 +101,7 @@ HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     ret = vkd3d_dxbc_compiler_generate_spirv(spirv_compiler, spirv);
     vkd3d_dxbc_compiler_destroy(spirv_compiler);
     vkd3d_shader_parser_destroy(&parser);
-
-    return ret ? S_OK : E_FAIL;
+    return ret;
 }
 
 static bool vkd3d_shader_instruction_is_uav_read(const struct vkd3d_shader_instruction *instruction)
@@ -160,17 +158,17 @@ static void vkd3d_shader_scan_handle_instruction(struct vkd3d_shader_scan_info *
         vkd3d_shader_scan_record_uav_counter(scan_info, &instruction->src[0].reg);
 }
 
-HRESULT vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
+int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_scan_info *scan_info)
 {
     struct vkd3d_shader_instruction instruction;
     struct vkd3d_shader_parser parser;
-    HRESULT hr;
+    int ret;
 
     TRACE("dxbc {%p, %zu}, scan_info %p.\n", dxbc->code, dxbc->size, scan_info);
 
-    if (FAILED(hr = vkd3d_shader_parser_init(&parser, dxbc)))
-        return hr;
+    if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
+        return ret;
 
     memset(scan_info, 0, sizeof(*scan_info));
 
@@ -182,14 +180,14 @@ HRESULT vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
         {
             WARN("Encountered unrecognized or invalid instruction.\n");
             vkd3d_shader_parser_destroy(&parser);
-            return E_FAIL;
+            return VKD3D_ERROR_INVALID_ARGUMENT;
         }
 
         vkd3d_shader_scan_handle_instruction(scan_info, &instruction);
     }
 
     vkd3d_shader_parser_destroy(&parser);
-    return S_OK;
+    return VKD3D_OK;
 }
 
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *shader_code)
@@ -217,7 +215,7 @@ void vkd3d_shader_free_root_signature(struct vkd3d_root_signature_desc *root_sig
     memset(root_signature, 0, sizeof(*root_signature));
 }
 
-HRESULT vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
+int vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_signature *signature)
 {
     TRACE("dxbc {%p, %zu}, signature %p.\n", dxbc->code, dxbc->size, signature);

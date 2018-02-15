@@ -1013,11 +1013,12 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
     } root_signature_desc;
     struct d3d12_root_signature *object;
     HRESULT hr;
+    int ret;
 
-    if (FAILED(hr = vkd3d_shader_parse_root_signature(&dxbc, &root_signature_desc.vkd3d)))
+    if ((ret = vkd3d_shader_parse_root_signature(&dxbc, &root_signature_desc.vkd3d)) < 0)
     {
-        WARN("Failed to parse root signature, hr %#x.\n", hr);
-        return hr;
+        WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
+        return hresult_from_vkd3d_result(ret);
     }
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
@@ -1269,7 +1270,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     struct VkShaderModuleCreateInfo shader_desc;
     struct vkd3d_shader_code spirv = {};
     VkResult vr;
-    HRESULT hr;
+    int ret;
 
     stage_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stage_desc->pNext = NULL;
@@ -1283,10 +1284,10 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     shader_desc.flags = 0;
 
     dump_shader_stage(stage, code->pShaderBytecode, code->BytecodeLength);
-    if (FAILED(hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, shader_interface)))
+    if ((ret = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, shader_interface)) < 0)
     {
-        WARN("Failed to compile shader, hr %#x.\n", hr);
-        return hr;
+        WARN("Failed to compile shader, vkd3d result %d.\n", ret);
+        return hresult_from_vkd3d_result(ret);
     }
     shader_desc.codeSize = spirv.size;
     shader_desc.pCode = spirv.code;
@@ -1389,6 +1390,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     struct vkd3d_shader_code dxbc;
     VkResult vr;
     HRESULT hr;
+    int ret;
 
     state->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
     state->refcount = 1;
@@ -1406,10 +1408,10 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
 
     dxbc.code = desc->CS.pShaderBytecode;
     dxbc.size = desc->CS.BytecodeLength;
-    if (FAILED(hr = vkd3d_shader_scan_dxbc(&dxbc, &shader_info)))
+    if ((ret = vkd3d_shader_scan_dxbc(&dxbc, &shader_info)) < 0)
     {
-        WARN("Failed to scan shader bytecode, hr %#x.\n", hr);
-        return hr;
+        WARN("Failed to scan shader bytecode, vkd3d result %d.\n", ret);
+        return hresult_from_vkd3d_result(ret);
     }
 
     if (FAILED(hr = d3d12_pipeline_state_init_compute_uav_counters(state,
@@ -1802,6 +1804,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     uint32_t mask;
     VkResult vr;
     HRESULT hr;
+    int ret;
 
     static const struct
     {
@@ -1849,10 +1852,11 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (!b->pShaderBytecode)
             continue;
 
-        if (FAILED(hr = vkd3d_shader_scan_dxbc(&dxbc, &shader_info)))
+        if ((ret = vkd3d_shader_scan_dxbc(&dxbc, &shader_info)) < 0)
         {
-            WARN("Failed to scan shader bytecode, stage %#x, hr %#x.\n", shader_stages[i].stage, hr);
-            hr = E_FAIL;
+            WARN("Failed to scan shader bytecode, stage %#x, vkd3d result %d.\n",
+                    shader_stages[i].stage, ret);
+            hr = hresult_from_vkd3d_result(ret);
             goto fail;
         }
         if (shader_info.uav_counter_mask)
@@ -1863,8 +1867,11 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
 
         if (shader_stages[i].stage == VK_SHADER_STAGE_VERTEX_BIT
-                && FAILED(hr = vkd3d_shader_parse_input_signature(&dxbc, &input_signature)))
+                && (ret = vkd3d_shader_parse_input_signature(&dxbc, &input_signature)) < 0)
+        {
+            hr = hresult_from_vkd3d_result(ret);
             goto fail;
+        }
 
         ++graphics->stage_count;
     }

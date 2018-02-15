@@ -5951,7 +5951,7 @@ static void vkd3d_dxbc_compiler_emit_output_setup_function(struct vkd3d_dxbc_com
     vkd3d_spirv_build_op_function_end(builder);
 }
 
-bool vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
+int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_code *spirv)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -5965,7 +5965,7 @@ bool vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         vkd3d_dxbc_compiler_emit_output_setup_function(compiler);
 
     if (!vkd3d_spirv_compile_module(builder, spirv))
-        return false;
+        return VKD3D_ERROR;
 
     if (TRACE_ON())
     {
@@ -5973,7 +5973,7 @@ bool vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         vkd3d_spirv_validate(spirv);
     }
 
-    return true;
+    return VKD3D_OK;
 }
 
 void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler)

@@ -19,13 +19,25 @@
 #ifndef __VKD3D_SHADER_H
 #define __VKD3D_SHADER_H
 
-#include "vkd3d.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif  /* __cplusplus */
 
 #define VKD3D_FORCE_32_BIT_ENUM(name) name##_FORCE_32BIT = 0x7fffffff
+
+enum vkd3d_result
+{
+    VKD3D_OK = 0,
+    VKD3D_ERROR = -1, /* unspecified failure */
+    VKD3D_ERROR_OUT_OF_MEMORY = -2,
+    VKD3D_ERROR_INVALID_ARGUMENT = -3,
+    VKD3D_ERROR_NOT_IMPLEMENTED = -4,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_RESULT),
+};
 
 enum vkd3d_shader_compiler_option
 {
@@ -113,7 +125,7 @@ struct vkd3d_shader_interface
     unsigned int uav_counter_count;
 };
 
-HRESULT vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
+int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv, uint32_t compiler_options,
         const struct vkd3d_shader_interface *shader_interface);
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
@@ -295,7 +307,7 @@ struct vkd3d_root_signature_desc
     enum vkd3d_root_signature_flags flags;
 };
 
-HRESULT vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
+int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_root_signature_desc *root_signature);
 void vkd3d_shader_free_root_signature(struct vkd3d_root_signature_desc *root_signature);
 
@@ -306,7 +318,7 @@ enum vkd3d_root_signature_version
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_ROOT_SIGNATURE_VERSION),
 };
 
-HRESULT vkd3d_shader_serialize_root_signature(const struct vkd3d_root_signature_desc *root_signature,
+int vkd3d_shader_serialize_root_signature(const struct vkd3d_root_signature_desc *root_signature,
         enum vkd3d_root_signature_version version, struct vkd3d_shader_code *dxbc);
 
 #define VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS 8
@@ -317,7 +329,7 @@ struct vkd3d_shader_scan_info
     unsigned int uav_counter_mask : VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS;
 };
 
-HRESULT vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
+int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_scan_info *scan_info);
 
 enum vkd3d_component_type
@@ -362,7 +374,7 @@ struct vkd3d_shader_signature_element
     enum vkd3d_sysval_semantic sysval_semantic;
     enum vkd3d_component_type component_type;
     unsigned int register_index;
-    DWORD mask;
+    unsigned int mask;
 };
 
 struct vkd3d_shader_signature
@@ -371,7 +383,7 @@ struct vkd3d_shader_signature
     unsigned int element_count;
 };
 
-HRESULT vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
+int vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_signature *signature);
 struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
         const struct vkd3d_shader_signature *signature, const char *semantic_name,

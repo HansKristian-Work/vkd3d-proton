@@ -768,11 +768,11 @@ void shader_sm4_read_instruction(void *data, const DWORD **ptr,
         struct vkd3d_shader_instruction *ins) DECLSPEC_HIDDEN;
 BOOL shader_sm4_is_end(void *data, const DWORD **ptr) DECLSPEC_HIDDEN;
 
-HRESULT shader_extract_from_dxbc(const void *dxbc, SIZE_T dxbc_length,
+int shader_extract_from_dxbc(const void *dxbc, SIZE_T dxbc_length,
         struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
 void free_shader_desc(struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
 
-HRESULT shader_parse_input_signature(const void *dxbc, SIZE_T dxbc_length,
+int shader_parse_input_signature(const void *dxbc, SIZE_T dxbc_length,
         struct vkd3d_shader_signature *signature) DECLSPEC_HIDDEN;
 
 struct vkd3d_dxbc_compiler;
@@ -783,7 +783,7 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
         const struct vkd3d_shader_scan_info *scan_info) DECLSPEC_HIDDEN;
 void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction) DECLSPEC_HIDDEN;
-bool vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
+int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_code *spirv) DECLSPEC_HIDDEN;
 void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler) DECLSPEC_HIDDEN;
 

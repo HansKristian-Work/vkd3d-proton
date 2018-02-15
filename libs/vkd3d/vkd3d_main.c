@@ -162,15 +162,15 @@ static const struct ID3D12RootSignatureDeserializerVtbl d3d12_root_signature_des
 static HRESULT d3d12_root_signature_deserializer_init(struct d3d12_root_signature_deserializer *deserializer,
         const struct vkd3d_shader_code *dxbc)
 {
-    HRESULT hr;
+    int ret;
 
     deserializer->ID3D12RootSignatureDeserializer_iface.lpVtbl = &d3d12_root_signature_deserializer_vtbl;
     deserializer->refcount = 1;
 
-    if (FAILED(hr = vkd3d_shader_parse_root_signature(dxbc, &deserializer->desc.vkd3d)))
+    if ((ret = vkd3d_shader_parse_root_signature(dxbc, &deserializer->desc.vkd3d)) < 0)
     {
-        WARN("Failed to parse root signature, hr %#x.\n", hr);
-        return hr;
+        WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
+        return hresult_from_vkd3d_result(ret);
     }
 
     return S_OK;
@@ -319,6 +319,7 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_sig
     struct vkd3d_shader_code dxbc;
     struct d3d_blob *blob_object;
     HRESULT hr;
+    int ret;
 
     TRACE("root_signature_desc %p, version %#x, blob %p, error_blob %p.\n",
             root_signature_desc, version, blob, error_blob);
@@ -335,12 +336,12 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_sig
         *error_blob = NULL;
     }
 
-    if (FAILED(hr = vkd3d_shader_serialize_root_signature(
+    if ((ret = vkd3d_shader_serialize_root_signature(
             (const struct vkd3d_root_signature_desc *)root_signature_desc,
-            (enum vkd3d_root_signature_version)version, &dxbc)))
+            (enum vkd3d_root_signature_version)version, &dxbc)) < 0)
     {
-        WARN("Failed to serialize root signature, hr %#x.\n", hr);
-        return hr;
+        WARN("Failed to serialize root signature, vkd3d result %d.\n", ret);
+        return hresult_from_vkd3d_result(ret);
     }
 
     if (FAILED(hr = d3d_blob_create((void *)dxbc.code, dxbc.size, &blob_object)))
