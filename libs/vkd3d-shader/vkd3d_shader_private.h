@@ -607,7 +607,7 @@ enum vkd3d_decl_usage
 struct vkd3d_shader_semantic
 {
     enum vkd3d_decl_usage usage;
-    UINT usage_idx;
+    unsigned int usage_idx;
     enum vkd3d_shader_resource_type resource_type;
     enum vkd3d_data_type resource_data_type;
     struct vkd3d_shader_dst_param reg;
