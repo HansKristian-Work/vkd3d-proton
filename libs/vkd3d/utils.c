@@ -347,6 +347,7 @@ HRESULT hresult_from_vk_result(VkResult vr)
         default:
             FIXME("Unhandled VkResult %d.\n", vr);
         case VK_ERROR_DEVICE_LOST:
+        case VK_ERROR_EXTENSION_NOT_PRESENT:
             return E_FAIL;
     }
 }
