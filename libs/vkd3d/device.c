@@ -111,7 +111,7 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
     {
         if (!has_extension(extensions, count, user_extensions[i]))
             ERR("Required user %s extension %s is not supported.\n",
-                    extension_type, debugstr_a(required_extensions[i]));
+                    extension_type, debugstr_a(user_extensions[i]));
         ++extension_count;
     }
 
