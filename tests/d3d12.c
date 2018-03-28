@@ -11413,16 +11413,12 @@ static void test_copy_descriptors(void)
     dst_handles[0] = get_cpu_sampler_handle(&context, sampler_heap, 0);
     dst_range_sizes[0] = 4;
     src_handles[0] = get_cpu_sampler_handle(&context, cpu_sampler_heap2, 0);
-    src_range_sizes[0] = 1;
     src_handles[1] = get_cpu_sampler_handle(&context, cpu_sampler_heap2, 0);
-    src_range_sizes[1] = 1;
     src_handles[2] = get_cpu_sampler_handle(&context, cpu_sampler_heap2, 0);
-    src_range_sizes[2] = 1;
     src_handles[3] = get_cpu_sampler_handle(&context, cpu_sampler_heap2, 1);
-    src_range_sizes[3] = 1;
     /* s0-s3 */
     ID3D12Device_CopyDescriptors(device, 1, dst_handles, dst_range_sizes,
-            4, src_handles, src_range_sizes, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+            4, src_handles, NULL, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 
     dst_handles[0] = get_cpu_descriptor_handle(&context, heap, 9);
     dst_range_sizes[0] = 4;
