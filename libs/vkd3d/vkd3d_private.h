@@ -738,6 +738,11 @@ static inline unsigned int d3d12_resource_desc_get_depth(const D3D12_RESOURCE_DE
     return max(1, d >> miplevel_idx);
 }
 
+static inline unsigned int d3d12_resource_desc_get_layer_count(const D3D12_RESOURCE_DESC *desc)
+{
+    return desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D ? desc->DepthOrArraySize : 1;
+}
+
 enum VkCompareOp vk_compare_op_from_d3d12(D3D12_COMPARISON_FUNC op) DECLSPEC_HIDDEN;
 
 bool is_valid_feature_level(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;

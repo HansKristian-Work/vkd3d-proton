@@ -2619,7 +2619,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(ID3D12GraphicsComm
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *dst_resource, *src_resource;
+    const struct vkd3d_format *src_format, *dst_format;
     const struct vkd3d_vk_device_procs *vk_procs;
+    VkBufferCopy vk_buffer_copy;
+    VkImageCopy vk_image_copy;
+    unsigned int layer_count;
+    unsigned int i;
 
     TRACE("iface %p, dst_resource %p, src_resource %p.\n", iface, dst, src);
 
@@ -2628,10 +2633,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(ID3D12GraphicsComm
     dst_resource = unsafe_impl_from_ID3D12Resource(dst);
     src_resource = unsafe_impl_from_ID3D12Resource(src);
 
+    d3d12_command_list_track_resource_usage(list, dst_resource);
+    d3d12_command_list_track_resource_usage(list, src_resource);
+
     if (d3d12_resource_is_buffer(dst_resource))
     {
-        VkBufferCopy vk_buffer_copy;
-
         assert(d3d12_resource_is_buffer(src_resource));
         assert(src_resource->desc.Width == dst_resource->desc.Width);
 
@@ -2643,7 +2649,34 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(ID3D12GraphicsComm
     }
     else
     {
-        FIXME("Not implemented for textures.\n");
+        if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(&dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
+        {
+            WARN("Invalid format %#x.\n", dst_resource->desc.Format);
+            return;
+        }
+        if (!(src_format = vkd3d_format_from_d3d12_resource_desc(&src_resource->desc, DXGI_FORMAT_UNKNOWN)))
+        {
+            WARN("Invalid format %#x.\n", src_resource->desc.Format);
+            return;
+        }
+
+        layer_count = d3d12_resource_desc_get_layer_count(&dst_resource->desc);
+
+        assert(d3d12_resource_is_texture(dst_resource));
+        assert(d3d12_resource_is_texture(src_resource));
+        assert(dst_resource->desc.MipLevels == src_resource->desc.MipLevels);
+        assert(layer_count == d3d12_resource_desc_get_layer_count(&src_resource->desc));
+
+        for (i = 0; i < dst_resource->desc.MipLevels; ++i)
+        {
+            vk_image_copy_from_d3d12(&vk_image_copy, i, i,
+                    &src_resource->desc, &dst_resource->desc, src_format, dst_format, NULL, 0, 0, 0);
+            vk_image_copy.dstSubresource.layerCount = layer_count;
+            vk_image_copy.srcSubresource.layerCount = layer_count;
+            VK_CALL(vkCmdCopyImage(list->vk_command_buffer, src_resource->u.vk_image,
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->u.vk_image,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &vk_image_copy));
+        }
     }
 }
 

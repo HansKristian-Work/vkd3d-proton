@@ -1951,7 +1951,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
             return;
     }
 
-    array_size = desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1 : desc->DepthOrArraySize;
+    array_size = d3d12_resource_desc_get_layer_count(desc);
 
     if (first_sub_resource >= desc->MipLevels * array_size
             || sub_resource_count > desc->MipLevels * array_size - first_sub_resource)
