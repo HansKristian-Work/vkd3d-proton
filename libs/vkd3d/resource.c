@@ -102,6 +102,14 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
     return S_OK;
 }
 
+static unsigned int max_miplevel_count(const D3D12_RESOURCE_DESC *desc)
+{
+    unsigned int size = max(desc->Width, desc->Height);
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+        size = max(size, desc->DepthOrArraySize);
+    return vkd3d_log2i(size) + 1;
+}
+
 static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
 {
@@ -143,7 +151,7 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
         image_info.arrayLayers = desc->DepthOrArraySize;
     }
 
-    image_info.mipLevels = desc->MipLevels;
+    image_info.mipLevels = min(desc->MipLevels, max_miplevel_count(desc));
     image_info.samples = vk_samples_from_dxgi_sample_desc(&desc->SampleDesc);
 
     if (desc->Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN)
@@ -653,12 +661,7 @@ static HRESULT validate_buffer_desc(const D3D12_RESOURCE_DESC *desc)
 static HRESULT validate_texture_desc(D3D12_RESOURCE_DESC *desc)
 {
     if (!desc->MipLevels)
-    {
-        unsigned int size = max(desc->Width, desc->Height);
-        if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
-            size = max(size, desc->DepthOrArraySize);
-        desc->MipLevels = vkd3d_log2i(size) + 1;
-    }
+        desc->MipLevels = max_miplevel_count(desc);
 
     return S_OK;
 }
