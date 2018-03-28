@@ -304,17 +304,6 @@ static inline void demo_set_idle_func(struct demo *demo,
     demo->idle_func = idle_func;
 }
 
-static inline DXGI_FORMAT demo_get_srgb_format(DXGI_FORMAT format)
-{
-    switch (format)
-    {
-        case DXGI_FORMAT_B8G8R8A8_UNORM:
-            return DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
-        default:
-            return DXGI_FORMAT_UNKNOWN;
-    }
-}
-
 static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *command_queue,
         struct demo_window *window, const struct demo_swapchain_desc *desc)
 {
@@ -338,7 +327,7 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     VkImage *vk_images;
     VkFormat format;
 
-    if ((format = vkd3d_get_vk_format(demo_get_srgb_format(desc->format))) == VK_FORMAT_UNDEFINED)
+    if ((format = vkd3d_get_vk_format(desc->format)) == VK_FORMAT_UNDEFINED)
         return NULL;
 
     if (FAILED(ID3D12CommandQueue_GetDevice(command_queue, &IID_ID3D12Device, (void **)&d3d12_device)))
