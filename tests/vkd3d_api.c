@@ -24,6 +24,23 @@
 #include "vkd3d_test.h"
 #include <vkd3d.h>
 
+#include "vkd3d_d3d12_test.h"
+
+HRESULT WINAPI D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc,
+        D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob)
+{
+    return vkd3d_serialize_root_signature(root_signature_desc, version, blob, error_blob);
+}
+
+static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12CommandQueue *queue)
+{
+    VkQueue vk_queue;
+
+    vk_queue = vkd3d_acquire_vk_queue(queue);
+    vkQueueWaitIdle(vk_queue);
+    vkd3d_release_vk_queue(queue);
+}
+
 static ULONG get_refcount(void *iface)
 {
     IUnknown *unk = iface;
@@ -80,36 +97,6 @@ static ID3D12CommandQueue *create_command_queue(ID3D12Device *device,
             &IID_ID3D12CommandQueue, (void **)&queue);
     ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
     return queue;
-}
-
-static ID3D12Resource *create_buffer(ID3D12Device *device, D3D12_HEAP_TYPE heap_type,
-        size_t size, D3D12_RESOURCE_FLAGS resource_flags, D3D12_RESOURCE_STATES initial_resource_state)
-{
-    D3D12_HEAP_PROPERTIES heap_properties;
-    D3D12_RESOURCE_DESC resource_desc;
-    ID3D12Resource *buffer;
-    HRESULT hr;
-
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = heap_type;
-
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = size;
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = resource_flags;
-
-    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties,
-            D3D12_HEAP_FLAG_NONE, &resource_desc, initial_resource_state,
-            NULL, &IID_ID3D12Resource, (void **)&buffer);
-    ok(hr == S_OK, "Failed to create buffer, hr %#x.\n", hr);
-    return buffer;
 }
 
 static void test_create_instance(void)
@@ -730,6 +717,186 @@ static void test_resource_internal_refcount(void)
     ok(!refcount, "Device has %u references left.\n", refcount);
 }
 
+static VkImage create_vulkan_image(ID3D12Device *device,
+        unsigned int width, unsigned int height, VkFormat vk_format, VkImageUsageFlags usage)
+{
+    VkImageCreateInfo image_info;
+    VkDevice vk_device;
+    VkImage vk_image;
+    VkResult vr;
+
+    vk_device = vkd3d_get_vk_device(device);
+
+    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info.pNext = NULL;
+    image_info.imageType = VK_IMAGE_TYPE_2D;
+    image_info.format = vk_format;
+    image_info.extent.width = width;
+    image_info.extent.height = height;
+    image_info.extent.depth = 1;
+    image_info.arrayLayers = 1;
+    image_info.mipLevels = 1;
+    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    image_info.usage |= usage;
+    image_info.flags = 0;
+    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    image_info.queueFamilyIndexCount = 0;
+    image_info.pQueueFamilyIndices = NULL;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    vr = vkCreateImage(vk_device, &image_info, NULL, &vk_image);
+    ok(vr == VK_SUCCESS, "Failed to create image, vr %d.\n", vr);
+
+    return vk_image;
+}
+
+static unsigned int select_vulkan_memory_type(ID3D12Device *device,
+        uint32_t memory_type_mask, VkMemoryPropertyFlags required_flags)
+{
+    VkPhysicalDeviceMemoryProperties memory_info;
+    VkPhysicalDevice vk_physical_device;
+    unsigned int i;
+
+    vk_physical_device = vkd3d_get_vk_physical_device(device);
+
+    vkGetPhysicalDeviceMemoryProperties(vk_physical_device, &memory_info);
+
+    for (i = 0; i < memory_info.memoryTypeCount; ++i)
+    {
+        if (!(memory_type_mask & (1u << i)))
+            continue;
+        if ((memory_info.memoryTypes[i].propertyFlags & required_flags) == required_flags)
+            return i;
+    }
+
+    return ~0u;
+}
+
+static VkDeviceMemory allocate_vulkan_device_memory(ID3D12Device *device,
+        VkMemoryPropertyFlags required_flags, const VkMemoryRequirements *memory_requirements)
+{
+    VkMemoryAllocateInfo allocate_info;
+    VkDeviceMemory vk_memory;
+    VkDevice vk_device;
+    VkResult vr;
+
+    vk_device = vkd3d_get_vk_device(device);
+
+    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocate_info.pNext = NULL;
+    allocate_info.allocationSize = memory_requirements->size;
+    allocate_info.memoryTypeIndex = select_vulkan_memory_type(device,
+            memory_requirements->memoryTypeBits, required_flags);
+    ok(allocate_info.memoryTypeIndex != ~0u, "Failed to find memory type.\n");
+
+    vr = vkAllocateMemory(vk_device, &allocate_info, NULL, &vk_memory);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+
+    return vk_memory;
+}
+
+static VkDeviceMemory allocate_vulkan_image_memory(ID3D12Device *device,
+        VkMemoryPropertyFlags required_flags, VkImage vk_image)
+{
+    VkMemoryRequirements memory_requirements;
+    VkDeviceMemory vk_memory;
+    VkDevice vk_device;
+    VkResult vr;
+
+    vk_device = vkd3d_get_vk_device(device);
+
+    vkGetImageMemoryRequirements(vk_device, vk_image, &memory_requirements);
+    vk_memory = allocate_vulkan_device_memory(device, required_flags, &memory_requirements);
+
+    vr = vkBindImageMemory(vk_device, vk_image, vk_memory, 0);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+
+    return vk_memory;
+}
+
+static void test_vulkan_resource_present_state(void)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+    struct vkd3d_image_resource_create_info resource_create_info;
+    ID3D12GraphicsCommandList *command_list;
+    ID3D12Resource *vk_resource, *resource;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    VkDeviceMemory vk_memory;
+    ID3D12Device *device;
+    VkDevice vk_device;
+    VkImage vk_image;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = desc.rt_height = 32;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    resource = create_default_texture(device, 32, 32, DXGI_FORMAT_R8G8B8A8_UNORM,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    vk_image = create_vulkan_image(device, 32, 32,
+            VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+    vk_memory = allocate_vulkan_image_memory(device,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vk_image);
+
+    resource_create_info.vk_image = vk_image;
+    resource_create_info.desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_create_info.desc.Alignment = 0;
+    resource_create_info.desc.Width = 32;
+    resource_create_info.desc.Height = 32;
+    resource_create_info.desc.DepthOrArraySize = 1;
+    resource_create_info.desc.MipLevels = 1;
+    resource_create_info.desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_create_info.desc.SampleDesc.Count = 1;
+    resource_create_info.desc.SampleDesc.Quality = 0;
+    resource_create_info.desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_create_info.desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    resource_create_info.flags = VKD3D_RESOURCE_INITIAL_STATE_TRANSITION | VKD3D_RESOURCE_PRESENT_STATE_TRANSITION;
+    resource_create_info.present_state = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    hr = vkd3d_create_image_resource(device, &resource_create_info, &vk_resource);
+    ok(hr == S_OK, "Failed to create D3D12 resource for Vulkan image, hr %#x.\n", hr);
+
+    rtv = get_cpu_descriptor_handle(&context, context.rtv_heap, 0);
+    ID3D12Device_CreateRenderTargetView(device, vk_resource, NULL, rtv);
+
+    transition_resource_state(command_list, vk_resource,
+            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, vk_resource,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+    ID3D12GraphicsCommandList_CopyResource(command_list, resource, vk_resource);
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(resource, 0, queue, command_list, 0xff00ff00, 0);
+
+    ID3D12Resource_Release(vk_resource);
+    vk_device = vkd3d_get_vk_device(device);
+    vkDestroyImage(vk_device, vk_image, NULL);
+    vkFreeMemory(vk_device, vk_memory, NULL);
+    ID3D12Resource_Release(resource);
+    destroy_test_context(&context);
+}
+
 static bool have_d3d12_device(void)
 {
     ID3D12Device *device;
@@ -757,4 +924,5 @@ START_TEST(vkd3d_api)
     run_test(test_device_parent);
     run_test(test_vkd3d_queue);
     run_test(test_resource_internal_refcount);
+    run_test(test_vulkan_resource_present_state);
 }
