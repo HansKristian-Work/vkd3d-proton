@@ -73,9 +73,17 @@ struct vkd3d_device_create_info
     LUID adapter_luid;
 };
 
-/* resource flags */
+/* vkd3d_image_resource_create_info flags */
 #define VKD3D_RESOURCE_INITIAL_STATE_TRANSITION 0x00000001
-#define VKD3D_RESOURCE_SWAPCHAIN_IMAGE          0x00000002
+#define VKD3D_RESOURCE_PRESENT_STATE_TRANSITION 0x00000002
+
+struct vkd3d_image_resource_create_info
+{
+    VkImage vk_image;
+    D3D12_RESOURCE_DESC desc;
+    unsigned int flags;
+    D3D12_RESOURCE_STATES present_state;
+};
 
 #ifndef VKD3D_NO_PROTOTYPES
 
@@ -96,8 +104,8 @@ uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue);
 VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue);
 void vkd3d_release_vk_queue(ID3D12CommandQueue *queue);
 
-HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_DESC *desc,
-        VkImage vk_image, unsigned int resource_flags, ID3D12Resource **resource);
+HRESULT vkd3d_create_image_resource(ID3D12Device *device,
+        const struct vkd3d_image_resource_create_info *create_info, ID3D12Resource **resource);
 ULONG vkd3d_resource_decref(ID3D12Resource *resource);
 ULONG vkd3d_resource_incref(ID3D12Resource *resource);
 
@@ -131,8 +139,8 @@ typedef uint32_t (*PFN_vkd3d_get_vk_queue_family_index)(ID3D12CommandQueue *queu
 typedef VkQueue (*PFN_vkd3d_acquire_vk_queue)(ID3D12CommandQueue *queue);
 typedef void (*PFN_vkd3d_release_vk_queue)(ID3D12CommandQueue *queue);
 
-typedef HRESULT (*PFN_vkd3d_create_image_resource)(ID3D12Device *device, const D3D12_RESOURCE_DESC *desc,
-        VkImage vk_image, unsigned int resource_flags, ID3D12Resource **resource);
+typedef HRESULT (*PFN_vkd3d_create_image_resource)(ID3D12Device *device,
+        const struct vkd3d_image_resource_create_info *create_info, ID3D12Resource **resource);
 typedef ULONG (*PFN_vkd3d_resource_decref)(ID3D12Resource *resource);
 typedef ULONG (*PFN_vkd3d_resource_incref)(ID3D12Resource *resource);
 

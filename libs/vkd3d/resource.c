@@ -797,11 +797,13 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
     return S_OK;
 }
 
-HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_DESC *desc,
-        VkImage vk_image, unsigned int resource_flags, ID3D12Resource **resource)
+HRESULT vkd3d_create_image_resource(ID3D12Device *device,
+        const struct vkd3d_image_resource_create_info *create_info, ID3D12Resource **resource)
 {
     struct d3d12_device *d3d12_device = unsafe_impl_from_ID3D12Device(device);
     struct d3d12_resource *object;
+
+    TRACE("device %p, create_info %p, resource %p.\n", device, create_info, resource);
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
@@ -809,16 +811,20 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device, const D3D12_RESOURCE_D
     object->ID3D12Resource_iface.lpVtbl = &d3d12_resource_vtbl;
     object->refcount = 1;
     object->internal_refcount = 1;
-    object->desc = *desc;
-    object->u.vk_image = vk_image;
+    object->desc = create_info->desc;
+    object->u.vk_image = create_info->vk_image;
     object->vk_memory = VK_NULL_HANDLE;
     object->flags = VKD3D_RESOURCE_EXTERNAL;
-    object->flags |= resource_flags & VKD3D_RESOURCE_PUBLIC_FLAGS;
+    object->flags |= create_info->flags & VKD3D_RESOURCE_PUBLIC_FLAGS;
     object->map_count = 0;
     object->map_data = NULL;
     memset(&object->heap_properties, 0, sizeof(object->heap_properties));
     object->heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
     object->initial_state = D3D12_RESOURCE_STATE_COMMON;
+    if (create_info->flags & VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)
+        object->present_state = create_info->present_state;
+    else
+        object->present_state = D3D12_RESOURCE_STATE_COMMON;
     object->device = d3d12_device;
     ID3D12Device_AddRef(&d3d12_device->ID3D12Device_iface);
 

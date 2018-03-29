@@ -307,13 +307,13 @@ static inline void demo_set_idle_func(struct demo *demo,
 static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *command_queue,
         struct demo_window *window, const struct demo_swapchain_desc *desc)
 {
+    struct vkd3d_image_resource_create_info resource_create_info;
     struct VkSwapchainCreateInfoKHR vk_swapchain_desc;
     struct VkXcbSurfaceCreateInfoKHR surface_desc;
     VkSwapchainKHR vk_swapchain = VK_NULL_HANDLE;
     uint32_t format_count, queue_family_index;
     VkSurfaceCapabilitiesKHR surface_caps;
     VkPhysicalDevice vk_physical_device;
-    D3D12_RESOURCE_DESC resource_desc;
     VkFence vk_fence = VK_NULL_HANDLE;
     struct demo_swapchain *swapchain;
     unsigned int image_count, i, j;
@@ -446,22 +446,23 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     vkWaitForFences(vk_device, 1, &vk_fence, VK_TRUE, UINT64_MAX);
     vkResetFences(vk_device, 1, &vk_fence);
 
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = desc->width;
-    resource_desc.Height = desc->height;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = desc->format;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    resource_create_info.desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_create_info.desc.Alignment = 0;
+    resource_create_info.desc.Width = desc->width;
+    resource_create_info.desc.Height = desc->height;
+    resource_create_info.desc.DepthOrArraySize = 1;
+    resource_create_info.desc.MipLevels = 1;
+    resource_create_info.desc.Format = desc->format;
+    resource_create_info.desc.SampleDesc.Count = 1;
+    resource_create_info.desc.SampleDesc.Quality = 0;
+    resource_create_info.desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_create_info.desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    resource_create_info.flags = VKD3D_RESOURCE_INITIAL_STATE_TRANSITION | VKD3D_RESOURCE_PRESENT_STATE_TRANSITION;
+    resource_create_info.present_state = D3D12_RESOURCE_STATE_PRESENT;
     for (i = 0; i < image_count; ++i)
     {
-        if (FAILED(vkd3d_create_image_resource(d3d12_device, &resource_desc, vk_images[i],
-                VKD3D_RESOURCE_INITIAL_STATE_TRANSITION | VKD3D_RESOURCE_SWAPCHAIN_IMAGE,
-                &swapchain->buffers[i])))
+        resource_create_info.vk_image = vk_images[i];
+        if (FAILED(vkd3d_create_image_resource(d3d12_device, &resource_create_info, &swapchain->buffers[i])))
         {
             for (j = 0; j < i; ++j)
             {

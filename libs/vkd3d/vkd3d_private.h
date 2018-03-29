@@ -175,7 +175,7 @@ HRESULT d3d12_fence_create(struct d3d12_device *device,
         UINT64 initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence) DECLSPEC_HIDDEN;
 
 #define VKD3D_RESOURCE_PUBLIC_FLAGS \
-        (VKD3D_RESOURCE_INITIAL_STATE_TRANSITION | VKD3D_RESOURCE_SWAPCHAIN_IMAGE)
+        (VKD3D_RESOURCE_INITIAL_STATE_TRANSITION | VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)
 #define VKD3D_RESOURCE_EXTERNAL 0x00000004
 
 /* ID3D12Resource */
@@ -202,6 +202,7 @@ struct d3d12_resource
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_HEAP_FLAGS heap_flags;
     D3D12_RESOURCE_STATES initial_state;
+    D3D12_RESOURCE_STATES present_state;
 
     struct d3d12_device *device;
 };
