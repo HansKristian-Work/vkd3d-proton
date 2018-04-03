@@ -34,6 +34,17 @@
 extern "C" {
 #endif  /* __cplusplus */
 
+#define VKD3D_FORCE_32_BIT_ENUM(name) name##_FORCE_32BIT = 0x7fffffff
+
+enum vkd3d_structure_type
+{
+    VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+    VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+    VKD3D_STRUCTURE_TYPE_IMAGE_RESOURCE_CREATE_INFO,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_STRUCTURE_TYPE),
+};
+
 typedef bool (*PFN_vkd3d_signal_event)(HANDLE event);
 
 typedef void * (*PFN_vkd3d_thread)(void *data);
@@ -45,6 +56,9 @@ struct vkd3d_instance;
 
 struct vkd3d_instance_create_info
 {
+    enum vkd3d_structure_type type;
+    const void *next;
+
     PFN_vkd3d_signal_event pfn_signal_event;
     PFN_vkd3d_create_thread pfn_create_thread;
     PFN_vkd3d_join_thread pfn_join_thread;
@@ -59,6 +73,9 @@ struct vkd3d_instance_create_info
 
 struct vkd3d_device_create_info
 {
+    enum vkd3d_structure_type type;
+    const void *next;
+
     D3D_FEATURE_LEVEL minimum_feature_level;
 
     struct vkd3d_instance *instance;
@@ -79,6 +96,9 @@ struct vkd3d_device_create_info
 
 struct vkd3d_image_resource_create_info
 {
+    enum vkd3d_structure_type type;
+    const void *next;
+
     VkImage vk_image;
     D3D12_RESOURCE_DESC desc;
     unsigned int flags;

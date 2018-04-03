@@ -446,6 +446,8 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     vkWaitForFences(vk_device, 1, &vk_fence, VK_TRUE, UINT64_MAX);
     vkResetFences(vk_device, 1, &vk_fence);
 
+    resource_create_info.type = VKD3D_STRUCTURE_TYPE_IMAGE_RESOURCE_CREATE_INFO;
+    resource_create_info.next = NULL;
     resource_create_info.desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     resource_create_info.desc.Alignment = 0;
     resource_create_info.desc.Width = desc->width;

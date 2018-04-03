@@ -30,6 +30,13 @@ HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
 
     if (!create_info || !device)
         return E_INVALIDARG;
+    if (create_info->type != VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO)
+    {
+        WARN("Invalid structure type %#x.\n", create_info->type);
+        return E_INVALIDARG;
+    }
+    if (create_info->next)
+        WARN("Unhandled next %p.\n", create_info->next);
     if (!create_info->instance && !create_info->instance_create_info)
     {
         ERR("Instance or instance create info is required.\n");

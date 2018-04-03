@@ -62,12 +62,14 @@ static bool signal_event(HANDLE event)
 
 static const struct vkd3d_instance_create_info instance_default_create_info =
 {
+    .type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
     .wchar_size = sizeof(WCHAR),
     .pfn_signal_event = signal_event,
 };
 
 static const struct vkd3d_device_create_info device_default_create_info =
 {
+    .type = VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
     .minimum_feature_level = D3D_FEATURE_LEVEL_11_0,
     .instance_create_info = &instance_default_create_info,
 };
@@ -849,6 +851,8 @@ static void test_vulkan_resource_present_state(void)
     vk_memory = allocate_vulkan_image_memory(device,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vk_image);
 
+    resource_create_info.type = VKD3D_STRUCTURE_TYPE_IMAGE_RESOURCE_CREATE_INFO;
+    resource_create_info.next = NULL;
     resource_create_info.vk_image = vk_image;
     resource_create_info.desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     resource_create_info.desc.Alignment = 0;

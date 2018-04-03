@@ -805,6 +805,16 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device,
 
     TRACE("device %p, create_info %p, resource %p.\n", device, create_info, resource);
 
+    if (!create_info || !resource)
+        return E_INVALIDARG;
+    if (create_info->type != VKD3D_STRUCTURE_TYPE_IMAGE_RESOURCE_CREATE_INFO)
+    {
+        WARN("Invalid structure type %#x.\n", create_info->type);
+        return E_INVALIDARG;
+    }
+    if (create_info->next)
+        WARN("Unhandled next %p.\n", create_info->next);
+
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
