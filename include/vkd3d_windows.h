@@ -122,6 +122,33 @@ typedef GUID IID;
         EXTERN_C const GUID name DECLSPEC_HIDDEN;
 # endif /* INITGUID */
 
+/* __uuidof emulation */
+#if defined(__cplusplus) && !defined(_MSC_VER)
+
+extern "C++"
+{
+    template<typename T> const GUID &__vkd3d_uuidof();
+}
+
+# define __CRT_UUID_DECL(type, l, w1, w2, b1, b2, b3, b4, b5, b6, b7, b8) \
+    extern "C++" \
+    { \
+        template<> inline const GUID &__vkd3d_uuidof<type>() \
+        { \
+            static const IID __uuid_inst = {l, w1, w2, {b1, b2, b3, b4, b5, b6, b7, b8}}; \
+            return __uuid_inst; \
+        } \
+        template<> inline const GUID &__vkd3d_uuidof<type *>() \
+        { \
+            return __vkd3d_uuidof<type>(); \
+        } \
+    }
+
+# define __uuidof(type) __vkd3d_uuidof<typeof(type)>()
+#else
+# define __CRT_UUID_DECL(type, l, w1, w2, b1, b2, b3, b4, b5, b6, b7, b8)
+#endif /* defined(__cplusplus) && !defined(_MSC_VER) */
+
 typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 #endif  /* !defined(_WIN32) || defined(__WIDL__) */
 
