@@ -10836,6 +10836,170 @@ static void test_copy_descriptors(void)
     destroy_test_context(&context);
 }
 
+static void test_copy_descriptors_range_sizes(void)
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE dst_handles[1], src_handles[1];
+    D3D12_CPU_DESCRIPTOR_HANDLE green_handle, blue_handle;
+    ID3D12Resource *green_texture, *blue_texture;
+    UINT dst_range_sizes[1], src_range_sizes[1];
+    ID3D12GraphicsCommandList *command_list;
+    ID3D12DescriptorHeap *cpu_heap;
+    struct test_context_desc desc;
+    D3D12_SUBRESOURCE_DATA data;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    unsigned int i;
+    RECT rect;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        Texture2D t;
+        SamplerState s;
+
+        float4 main(float4 position : SV_POSITION) : SV_Target
+        {
+            float2 p;
+
+            p.x = position.x / 32.0f;
+            p.y = position.y / 32.0f;
+            return t.Sample(s, p);
+        }
+#endif
+        0x43425844, 0x7a0c3929, 0x75ff3ca4, 0xccb318b2, 0xe6965b4c, 0x00000001, 0x00000140, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000a4, 0x00000050,
+        0x00000029, 0x0100086a, 0x0300005a, 0x00106000, 0x00000000, 0x04001858, 0x00107000, 0x00000000,
+        0x00005555, 0x04002064, 0x00101032, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x0a000038, 0x00100032, 0x00000000, 0x00101046, 0x00000000, 0x00004002,
+        0x3d000000, 0x3d000000, 0x00000000, 0x00000000, 0x8b000045, 0x800000c2, 0x00155543, 0x001020f2,
+        0x00000000, 0x00100046, 0x00000000, 0x00107e46, 0x00000000, 0x00106000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const struct vec4 green = {0.0f, 1.0f, 0.0f, 1.0f};
+    static const struct vec4 blue = {0.0f, 0.0f, 1.0f, 1.0f};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = desc.rt_height = 6;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    cpu_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 10);
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 8);
+
+    green_handle = get_cpu_descriptor_handle(&context, cpu_heap, 0);
+    blue_handle = get_cpu_descriptor_handle(&context, cpu_heap, 1);
+
+    green_texture = create_texture(context.device,
+            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, D3D12_RESOURCE_STATE_COPY_DEST);
+    data.pData = &green;
+    data.RowPitch = sizeof(green);
+    data.SlicePitch = data.RowPitch;
+    upload_texture_data(green_texture, &data, 1, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, green_texture,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    ID3D12Device_CreateShaderResourceView(device, green_texture, NULL, green_handle);
+
+    blue_texture = create_texture(context.device,
+            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, D3D12_RESOURCE_STATE_COPY_DEST);
+    data.pData = &blue;
+    data.RowPitch = sizeof(blue);
+    data.SlicePitch = data.RowPitch;
+    upload_texture_data(blue_texture, &data, 1, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, blue_texture,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    ID3D12Device_CreateShaderResourceView(device, blue_texture, NULL, blue_handle);
+
+    context.root_signature = create_texture_root_signature(context.device,
+            D3D12_SHADER_VISIBILITY_PIXEL, 0, 0);
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
+
+    /* copy descriptors */
+    dst_handles[0] = get_cpu_descriptor_handle(&context, heap, 1);
+    dst_range_sizes[0] = 1;
+    src_handles[0] = blue_handle;
+    src_range_sizes[0] = 1;
+    ID3D12Device_CopyDescriptors(device, 1, dst_handles, dst_range_sizes,
+            1, src_handles, src_range_sizes, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    dst_handles[0] = get_cpu_descriptor_handle(&context, heap, 2);
+    dst_range_sizes[0] = 1;
+    src_handles[0] = green_handle;
+    src_range_sizes[0] = 1;
+    ID3D12Device_CopyDescriptors(device, 1, dst_handles, dst_range_sizes,
+            1, src_handles, src_range_sizes, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    dst_handles[0] = get_cpu_descriptor_handle(&context, heap, 3);
+    src_handles[0] = blue_handle;
+    src_range_sizes[0] = 1;
+    ID3D12Device_CopyDescriptors(device, 1, dst_handles, NULL,
+            1, src_handles, src_range_sizes, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    dst_handles[0] = get_cpu_descriptor_handle(&context, heap, 4);
+    src_handles[0] = green_handle;
+    src_range_sizes[0] = 1;
+    ID3D12Device_CopyDescriptors(device, 1, dst_handles, NULL,
+            1, src_handles, src_range_sizes, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    dst_handles[0] = get_cpu_descriptor_handle(&context, heap, 5);
+    src_handles[0] = blue_handle;
+    ID3D12Device_CopyDescriptors(device, 1, dst_handles, NULL,
+            1, src_handles, NULL, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    dst_handles[0] = get_cpu_descriptor_handle(&context, heap, 0);
+    src_handles[0] = green_handle;
+    ID3D12Device_CopyDescriptors(device, 1, dst_handles, NULL,
+            1, src_handles, NULL, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+
+    for (i = 0; i < desc.rt_width; ++i)
+    {
+        ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0,
+                get_gpu_descriptor_handle(&context, heap, i));
+        set_viewport(&context.viewport, i, 0.0f, 1.0f, desc.rt_height, 0.0f, 1.0f);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    }
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (i = 0; i < desc.rt_width; ++i)
+    {
+        set_rect(&rect, i, 0, i + 1, desc.rt_height);
+        check_readback_data_uint(&rb, &rect, i % 2 ? 0xffff0000 : 0xff00ff00, 0);
+    }
+    release_resource_readback(&rb);
+
+    ID3D12DescriptorHeap_Release(cpu_heap);
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12Resource_Release(blue_texture);
+    ID3D12Resource_Release(green_texture);
+    destroy_test_context(&context);
+}
+
 static void test_descriptors_visibility(void)
 {
     ID3D12Resource *vs_raw_buffer, *ps_raw_buffer;
@@ -16991,6 +17155,7 @@ START_TEST(d3d12)
     run_test(test_update_descriptor_heap_after_closing_command_list);
     run_test(test_update_compute_descriptor_tables);
     run_test(test_copy_descriptors);
+    run_test(test_copy_descriptors_range_sizes);
     run_test(test_descriptors_visibility);
     run_test(test_null_descriptors);
     run_test(test_get_copyable_footprints);
