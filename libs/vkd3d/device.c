@@ -1682,8 +1682,8 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(ID3D12Device *iface,
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     unsigned int dst_range_idx, dst_idx, src_range_idx, src_idx;
+    unsigned int dst_range_size, src_range_size;
     const struct d3d12_desc *src;
-    unsigned int src_range_size;
     struct d3d12_desc *dst;
 
     TRACE("iface %p, dst_descriptor_range_count %u, dst_descriptor_range_offsets %p, "
@@ -1703,21 +1703,23 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(ID3D12Device *iface,
 
     dst_range_idx = dst_idx = 0;
     dst = d3d12_desc_from_cpu_handle(dst_descriptor_range_offsets[0]);
+    dst_range_size = dst_descriptor_range_sizes ? dst_descriptor_range_sizes[0] : 1;
     for (src_range_idx = 0; src_range_idx < src_descriptor_range_count; ++src_range_idx)
     {
         src = d3d12_desc_from_cpu_handle(src_descriptor_range_offsets[src_range_idx]);
         src_range_size = src_descriptor_range_sizes ? src_descriptor_range_sizes[src_range_idx] : 1;
         for (src_idx = 0; src_idx < src_range_size; ++src_idx)
         {
-            if (dst_idx >= dst_descriptor_range_sizes[dst_range_idx])
+            if (dst_idx >= dst_range_size)
             {
+                dst_idx = 0;
                 ++dst_range_idx;
                 dst = d3d12_desc_from_cpu_handle(dst_descriptor_range_offsets[dst_range_idx]);
-                dst_idx = 0;
+                dst_range_size = dst_descriptor_range_sizes ? dst_descriptor_range_sizes[dst_range_idx] : 1;
             }
 
             assert(dst_range_idx < dst_descriptor_range_count);
-            assert(dst_idx < dst_descriptor_range_sizes[dst_range_idx]);
+            assert(dst_idx < dst_range_size);
 
             d3d12_desc_copy(dst++, src++, device);
 
@@ -1725,7 +1727,7 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(ID3D12Device *iface,
         }
     }
 
-    assert(dst_idx == dst_descriptor_range_sizes[dst_range_idx]);
+    assert(dst_idx == dst_range_size);
     assert(dst_range_idx == dst_descriptor_range_count - 1);
 }
 
