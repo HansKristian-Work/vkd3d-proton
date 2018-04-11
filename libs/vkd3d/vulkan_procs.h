@@ -20,6 +20,10 @@
 # define VK_INSTANCE_PFN(x)
 #endif
 
+#ifndef VK_INSTANCE_EXT_PFN
+# define VK_INSTANCE_EXT_PFN(x)
+#endif
+
 #ifndef VK_DEVICE_PFN
 # define VK_DEVICE_PFN(x)
 #endif
@@ -42,6 +46,9 @@ VK_INSTANCE_PFN(vkGetPhysicalDeviceMemoryProperties)
 VK_INSTANCE_PFN(vkGetPhysicalDeviceProperties)
 VK_INSTANCE_PFN(vkGetPhysicalDeviceQueueFamilyProperties)
 VK_INSTANCE_PFN(vkGetPhysicalDeviceSparseImageFormatProperties)
+/* VK_EXT_debug_report */
+VK_INSTANCE_EXT_PFN(vkCreateDebugReportCallbackEXT)
+VK_INSTANCE_EXT_PFN(vkDestroyDebugReportCallbackEXT)
 
 /* Device functions (obtained by vkGetDeviceProcAddr). */
 VK_DEVICE_PFN(vkDestroyDevice) /* Load vkDestroyDevice() first. */
@@ -168,5 +175,6 @@ VK_DEVICE_PFN(vkWaitForFences)
 VK_DEVICE_EXT_PFN(vkCmdPushDescriptorSetKHR)
 
 #undef VK_INSTANCE_PFN
+#undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN
 #undef VK_DEVICE_EXT_PFN

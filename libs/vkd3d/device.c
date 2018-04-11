@@ -24,12 +24,14 @@ struct vkd3d_optional_extension_info
 {
     const char *extension_name;
     ptrdiff_t vulkan_info_offset;
+    bool is_debug_only;
 };
 
 static const struct vkd3d_optional_extension_info optional_instance_extensions[] =
 {
     {VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
             offsetof(struct vkd3d_vulkan_info, KHR_get_physical_device_properties2)},
+    {VK_EXT_DEBUG_REPORT_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_debug_report), true},
 };
 
 static const char * const required_device_extensions[] =
@@ -59,7 +61,7 @@ static bool is_extension_disabled(const char *extension_name)
 }
 
 static bool has_extension(const VkExtensionProperties *extensions,
-        unsigned int count, const char *extension_name)
+        unsigned int count, const char *extension_name, bool is_debug_only)
 {
     unsigned int i;
 
@@ -70,6 +72,11 @@ static bool has_extension(const VkExtensionProperties *extensions,
         if (is_extension_disabled(extension_name))
         {
             WARN("Extension %s is disabled.\n", debugstr_a(extension_name));
+            continue;
+        }
+        if (is_debug_only && vkd3d_dbg_get_level() < VKD3D_DBG_LEVEL_WARN)
+        {
+            TRACE("Skipping debug-only extension %s.\n", debugstr_a(extension_name));
             continue;
         }
         return true;
@@ -88,7 +95,7 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
 
     for (i = 0; i < required_extension_count; ++i)
     {
-        if (!has_extension(extensions, count, required_extensions[i]))
+        if (!has_extension(extensions, count, required_extensions[i], false))
             ERR("Required %s extension %s is not supported.\n",
                     extension_type, debugstr_a(required_extensions[i]));
         ++extension_count;
@@ -98,9 +105,10 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
     {
         const char *extension_name = optional_extensions[i].extension_name;
         ptrdiff_t offset = optional_extensions[i].vulkan_info_offset;
+        bool is_debug_only = optional_extensions[i].is_debug_only;
         bool *supported = (void *)((uintptr_t)vulkan_info + offset);
 
-        if ((*supported = has_extension(extensions, count, extension_name)))
+        if ((*supported = has_extension(extensions, count, extension_name, is_debug_only)))
         {
             TRACE("Found %s extension.\n", debugstr_a(extension_name));
             ++extension_count;
@@ -109,7 +117,7 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
 
     for (i = 0; i < user_extension_count; ++i)
     {
-        if (!has_extension(extensions, count, user_extensions[i]))
+        if (!has_extension(extensions, count, user_extensions[i], false))
             ERR("Required user %s extension %s is not supported.\n",
                     extension_type, debugstr_a(user_extensions[i]));
         ++extension_count;
@@ -234,6 +242,36 @@ static HRESULT vkd3d_init_vk_global_procs(struct vkd3d_instance *instance,
     return S_OK;
 }
 
+static VkBool32 VKAPI_PTR vkd3d_debug_report_callback(VkDebugReportFlagsEXT flags,
+        VkDebugReportObjectTypeEXT object_type, uint64_t object, size_t location,
+        int32_t message_code, const char *layer_prefix, const char *message, void *user_data)
+{
+    FIXME("%s\n", debugstr_a(message));
+    return VK_FALSE;
+}
+
+static void vkd3d_init_debug_report(struct vkd3d_instance *instance)
+{
+    const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
+    VkDebugReportCallbackCreateInfoEXT callback_info;
+    VkInstance vk_instance = instance->vk_instance;
+    VkDebugReportCallbackEXT callback;
+    VkResult vr;
+
+    callback_info.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
+    callback_info.pNext = NULL;
+    callback_info.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT;
+    callback_info.pfnCallback = vkd3d_debug_report_callback;
+    callback_info.pUserData = NULL;
+    if ((vr = VK_CALL(vkCreateDebugReportCallbackEXT(vk_instance, &callback_info, NULL, &callback)) < 0))
+    {
+        WARN("Failed to create debug report callback, vr %d.\n", vr);
+        return;
+    }
+
+    instance->vk_debug_callback = callback;
+}
+
 static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         const struct vkd3d_instance_create_info *create_info)
 {
@@ -333,6 +371,10 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
 
     instance->refcount = 1;
 
+    instance->vk_debug_callback = VK_NULL_HANDLE;
+    if (instance->vk_info.EXT_debug_report)
+        vkd3d_init_debug_report(instance);
+
     return S_OK;
 }
 
@@ -370,6 +412,22 @@ HRESULT vkd3d_create_instance(const struct vkd3d_instance_create_info *create_in
     return S_OK;
 }
 
+static void vkd3d_destroy_instance(struct vkd3d_instance *instance)
+{
+    const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
+    VkInstance vk_instance = instance->vk_instance;
+
+    if (instance->vk_debug_callback)
+        VK_CALL(vkDestroyDebugReportCallbackEXT(vk_instance, instance->vk_debug_callback, NULL));
+
+    VK_CALL(vkDestroyInstance(vk_instance, NULL));
+
+    if (instance->libvulkan)
+        dlclose(instance->libvulkan);
+
+    vkd3d_free(instance);
+}
+
 ULONG vkd3d_instance_incref(struct vkd3d_instance *instance)
 {
     ULONG refcount = InterlockedIncrement(&instance->refcount);
@@ -386,13 +444,7 @@ ULONG vkd3d_instance_decref(struct vkd3d_instance *instance)
     TRACE("%p decreasing refcount to %u.\n", instance, refcount);
 
     if (!refcount)
-    {
-        const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
-        VK_CALL(vkDestroyInstance(instance->vk_instance, NULL));
-        if (instance->libvulkan)
-            dlclose(instance->libvulkan);
-        vkd3d_free(instance);
-    }
+        vkd3d_destroy_instance(instance);
 
     return refcount;
 }

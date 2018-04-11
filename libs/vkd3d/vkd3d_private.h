@@ -58,7 +58,8 @@ struct vkd3d_vk_global_procs
 #define DECLARE_VK_PFN(name) PFN_##name name;
 struct vkd3d_vk_instance_procs
 {
-#define VK_INSTANCE_PFN DECLARE_VK_PFN
+#define VK_INSTANCE_PFN     DECLARE_VK_PFN
+#define VK_INSTANCE_EXT_PFN DECLARE_VK_PFN
 #include "vulkan_procs.h"
 };
 
@@ -75,6 +76,7 @@ struct vkd3d_vulkan_info
 {
     /* instance extensions */
     bool KHR_get_physical_device_properties2;
+    bool EXT_debug_report;
     /* device extensions */
     bool KHR_push_descriptor;
 
@@ -95,6 +97,8 @@ struct vkd3d_instance
     struct vkd3d_vulkan_info vk_info;
     struct vkd3d_vk_global_procs vk_global_procs;
     void *libvulkan;
+
+    VkDebugReportCallbackEXT vk_debug_callback;
 
     LONG refcount;
 };

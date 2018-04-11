@@ -399,13 +399,16 @@ HRESULT vkd3d_load_vk_global_procs(struct vkd3d_vk_global_procs *procs,
         ERR("Could not get instance proc addr for '" #name "'.\n"); \
         return E_FAIL; \
     }
+#define LOAD_INSTANCE_OPTIONAL_PFN(name) \
+    procs->name = (void *)global_procs->vkGetInstanceProcAddr(instance, #name);
 
 HRESULT vkd3d_load_vk_instance_procs(struct vkd3d_vk_instance_procs *procs,
         const struct vkd3d_vk_global_procs *global_procs, VkInstance instance)
 {
     memset(procs, 0, sizeof(*procs));
 
-#define VK_INSTANCE_PFN LOAD_INSTANCE_PFN
+#define VK_INSTANCE_PFN     LOAD_INSTANCE_PFN
+#define VK_INSTANCE_EXT_PFN LOAD_INSTANCE_OPTIONAL_PFN
 #include "vulkan_procs.h"
 
     TRACE("Loaded procs for VkInstance %p.\n", instance);
