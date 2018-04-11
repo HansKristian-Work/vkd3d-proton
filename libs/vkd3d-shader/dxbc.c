@@ -1808,7 +1808,7 @@ static const char *shader_get_string(const char *data, size_t data_size, DWORD o
     return data + offset;
 }
 
-static int parse_dxbc(const char *data, SIZE_T data_size,
+static int parse_dxbc(const char *data, size_t data_size,
         int (*chunk_handler)(const char *data, DWORD data_size, DWORD tag, void *ctx), void *ctx)
 {
     const char *ptr = data;
@@ -1818,6 +1818,12 @@ static int parse_dxbc(const char *data, SIZE_T data_size,
     unsigned int i;
     DWORD version;
     DWORD tag;
+
+    if (data_size < VKD3D_DXBC_HEADER_SIZE)
+    {
+        WARN("Invalid data size %zu.\n", data_size);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
 
     read_dword(&ptr, &tag);
     TRACE("tag: %#x.\n", tag);
@@ -1856,7 +1862,7 @@ static int parse_dxbc(const char *data, SIZE_T data_size,
 
         if (chunk_offset >= data_size || !require_space(chunk_offset, 2, sizeof(DWORD), data_size))
         {
-            WARN("Invalid chunk offset %#x (data size %#lx).\n", chunk_offset, data_size);
+            WARN("Invalid chunk offset %#x (data size %zu).\n", chunk_offset, data_size);
             return VKD3D_ERROR_INVALID_ARGUMENT;
         }
 
@@ -1867,7 +1873,7 @@ static int parse_dxbc(const char *data, SIZE_T data_size,
 
         if (!require_space(chunk_ptr - data, 1, chunk_size, data_size))
         {
-            WARN("Invalid chunk size %#x (data size %#lx, chunk offset %#x).\n",
+            WARN("Invalid chunk size %#x (data size %zu, chunk offset %#x).\n",
                     chunk_size, data_size, chunk_offset);
             return VKD3D_ERROR_INVALID_ARGUMENT;
         }

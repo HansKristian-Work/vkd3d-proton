@@ -858,5 +858,6 @@ static inline unsigned int vkd3d_swizzle_get_component(DWORD swizzle,
 }
 
 #define VKD3D_DXBC_MAX_SOURCE_COUNT 6
+#define VKD3D_DXBC_HEADER_SIZE (8 * sizeof(uint32_t))
 
 #endif  /* __VKD3D_SHADER_PRIVATE_H */
