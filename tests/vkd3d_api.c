@@ -54,10 +54,10 @@ static ULONG resource_get_internal_refcount(ID3D12Resource *resource)
     return vkd3d_resource_decref(resource);
 }
 
-static bool signal_event(HANDLE event)
+static HRESULT signal_event(HANDLE event)
 {
     trace("Signal event %p.\n", event);
-    return true;
+    return S_OK;
 }
 
 static const struct vkd3d_instance_create_info instance_default_create_info =

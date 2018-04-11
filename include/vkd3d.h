@@ -28,8 +28,6 @@
 # include <vulkan/vulkan.h>
 #endif  /* VKD3D_NO_VULKAN_H */
 
-#include <stdbool.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif  /* __cplusplus */
@@ -45,12 +43,12 @@ enum vkd3d_structure_type
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_STRUCTURE_TYPE),
 };
 
-typedef bool (*PFN_vkd3d_signal_event)(HANDLE event);
+typedef HRESULT (*PFN_vkd3d_signal_event)(HANDLE event);
 
 typedef void * (*PFN_vkd3d_thread)(void *data);
 
 typedef void * (*PFN_vkd3d_create_thread)(PFN_vkd3d_thread thread_main, void *data);
-typedef bool (*PFN_vkd3d_join_thread)(void *thread);
+typedef HRESULT (*PFN_vkd3d_join_thread)(void *thread);
 
 struct vkd3d_instance;
 

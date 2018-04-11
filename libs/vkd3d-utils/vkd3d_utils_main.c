@@ -159,7 +159,7 @@ unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
     return WAIT_FAILED;
 }
 
-bool vkd3d_signal_event(HANDLE event)
+HRESULT vkd3d_signal_event(HANDLE event)
 {
     struct vkd3d_event *impl = event;
     int rc;
@@ -169,13 +169,13 @@ bool vkd3d_signal_event(HANDLE event)
     if ((rc = pthread_mutex_lock(&impl->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
-        return false;
+        return E_FAIL;
     }
     impl->is_signaled = true;
     pthread_cond_signal(&impl->cond);
     pthread_mutex_unlock(&impl->mutex);
 
-    return true;
+    return S_OK;
 }
 
 void vkd3d_destroy_event(HANDLE event)

@@ -31,7 +31,7 @@ extern "C" {
 #define INFINITE (~0u)
 
 HANDLE vkd3d_create_event(void);
-bool vkd3d_signal_event(HANDLE event);
+HRESULT vkd3d_signal_event(HANDLE event);
 unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds);
 void vkd3d_destroy_event(HANDLE event);
 

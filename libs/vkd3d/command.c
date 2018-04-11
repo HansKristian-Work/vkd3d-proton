@@ -288,6 +288,7 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
 HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
         struct d3d12_device *device)
 {
+    HRESULT hr;
     int rc;
 
     TRACE("worker %p.\n", worker);
@@ -305,9 +306,9 @@ HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
 
     if (device->join_thread)
     {
-        if (!device->join_thread(worker->u.handle))
+        if (FAILED(hr = device->join_thread(worker->u.handle)))
         {
-            ERR("Failed to join fence worker thread.\n");
+            ERR("Failed to join fence worker thread, hr %#x.\n", hr);
             return E_FAIL;
         }
     }
