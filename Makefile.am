@@ -147,7 +147,11 @@ vkd3d_v_widl_1 =
 
 EXTRA_DIST += $(widl_headers) $(widl_headers:.h=.idl)
 $(widl_headers): %.h: %.idl
+if HAVE_WIDL
 	$(VKD3D_V_WIDL)$(WIDL) -o $@ $<
+else
+	echo "widl is required to generate $<"
+endif
 
 EXTRA_DIST += $(vkd3d_demos_shaders)
 
@@ -173,7 +177,7 @@ CROSS_CPPFLAGS = -I$(srcdir)/include -I$(srcdir)/include/private -I$(builddir)/i
 CROSS_CFLAGS = -g -O2 -Wall -municode ${CROSS_CPPFLAGS}
 EXTRA_DIST += $(cross_implibs:=.cross32.def) $(cross_implibs:=.cross64.def)
 
-if HAS_CROSSTARGET32
+if HAVE_CROSSTARGET32
 CROSS32_CC = @CROSSCC32@
 CROSS32_DLLTOOL = @CROSSTARGET32@-dlltool
 CROSS32_IMPLIBS = $(cross_implibs:=.cross32.a)
@@ -198,7 +202,7 @@ else
 crosstest32:
 endif
 
-if HAS_CROSSTARGET64
+if HAVE_CROSSTARGET64
 CROSS64_CC = @CROSSCC64@
 CROSS64_DLLTOOL = @CROSSTARGET64@-dlltool
 CROSS64_IMPLIBS = $(cross_implibs:=.cross64.a)
