@@ -4222,6 +4222,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     if (!(vk_queue = vkd3d_queue_acquire(command_queue->vkd3d_queue)))
     {
         ERR("Failed to acquire queue %p.\n", command_queue->vkd3d_queue);
+        vkd3d_free(buffers);
         return;
     }
 
