@@ -352,6 +352,8 @@ enum vkd3d_shader_register_type
     VKD3DSPR_COVERAGE,
     VKD3DSPR_SAMPLEMASK,
     VKD3DSPR_GSINSTID,
+
+    VKD3DSPR_INVALID = ~0u,
 };
 
 enum vkd3d_shader_resource_type

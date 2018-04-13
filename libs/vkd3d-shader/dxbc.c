@@ -1378,8 +1378,8 @@ static BOOL shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
     token = *(*ptr)++;
 
     register_type = (token & VKD3D_SM4_REGISTER_TYPE_MASK) >> VKD3D_SM4_REGISTER_TYPE_SHIFT;
-    if (register_type >= sizeof(register_type_table) / sizeof(*register_type_table)
-            || register_type_table[register_type] == ~0u)
+    if (register_type >= ARRAY_SIZE(register_type_table)
+            || register_type_table[register_type] == VKD3DSPR_INVALID)
     {
         FIXME("Unhandled register type %#x.\n", register_type);
         param->type = VKD3DSPR_TEMP;
