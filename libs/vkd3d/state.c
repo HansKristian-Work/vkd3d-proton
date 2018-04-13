@@ -1321,7 +1321,10 @@ static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipel
     if (!(binding_desc = vkd3d_calloc(uav_counter_count, sizeof(*binding_desc))))
         return E_OUTOFMEMORY;
     if (!(state->uav_counters = vkd3d_calloc(uav_counter_count, sizeof(*state->uav_counters))))
+    {
+        vkd3d_free(binding_desc);
         return E_OUTOFMEMORY;
+    }
     state->uav_counter_mask = shader_info->uav_counter_mask;
 
     memset(&context, 0, sizeof(context));
