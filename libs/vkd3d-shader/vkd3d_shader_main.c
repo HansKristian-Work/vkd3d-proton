@@ -227,7 +227,7 @@ struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
         const struct vkd3d_shader_signature *signature, const char *semantic_name,
         unsigned int semantic_index, unsigned int stream_index)
 {
-    struct vkd3d_shader_signature_element *e = signature->elements;
+    struct vkd3d_shader_signature_element *e;
     unsigned int i;
 
     TRACE("signature %p, semantic_name %s, semantic_index %u, stream_index %u.\n",
