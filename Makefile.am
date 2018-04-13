@@ -14,8 +14,6 @@ widl_headers = \
 	include/vkd3d_dxgitype.h
 
 vkd3d_public_headers = \
-	include/dummy/rpc.h \
-	include/dummy/rpcndr.h \
 	include/vkd3d.h \
 	include/vkd3d_d3d12.h \
 	include/vkd3d_d3dcommon.h \
@@ -149,6 +147,7 @@ EXTRA_DIST += $(widl_headers) $(widl_headers:.h=.idl)
 $(widl_headers): %.h: %.idl
 if HAVE_WIDL
 	$(VKD3D_V_WIDL)$(WIDL) -o $@ $<
+	sed -e '/#include <\(rpc.h\|rpcndr.h\)>/d' -i $@
 else
 	echo "widl is required to generate $<"
 endif

@@ -182,6 +182,7 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 # define interface struct
 # define BEGIN_INTERFACE
 # define END_INTERFACE
+# define MIDL_INTERFACE(x) struct
 
 # ifdef __cplusplus
 #  define EXTERN_C extern "C"
