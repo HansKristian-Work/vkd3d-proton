@@ -309,7 +309,7 @@ HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
         if (FAILED(hr = device->join_thread(worker->u.handle)))
         {
             ERR("Failed to join fence worker thread, hr %#x.\n", hr);
-            return E_FAIL;
+            return hr;
         }
     }
     else
