@@ -2048,6 +2048,10 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
     descriptor_count = 0;
     for (i = 0; i < descriptor_table->range_count; ++i)
         descriptor_count += descriptor_table->ranges[i].descriptor_count;
+
+    if (!descriptor_count)
+        return;
+
     if (!(descriptor_writes = vkd3d_calloc(descriptor_count, sizeof(*descriptor_writes))))
         return;
     if (!(image_infos = vkd3d_calloc(descriptor_count, sizeof(*image_infos))))
