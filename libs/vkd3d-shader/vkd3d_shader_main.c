@@ -64,7 +64,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     struct vkd3d_dxbc_compiler *spirv_compiler;
     struct vkd3d_shader_scan_info scan_info;
     struct vkd3d_shader_parser parser;
-    bool ret;
+    int ret;
 
     TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, shader_interface %p.\n",
             dxbc->code, dxbc->size, spirv, compiler_options, shader_interface);
