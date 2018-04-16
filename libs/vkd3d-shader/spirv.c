@@ -21,8 +21,8 @@
 
 #include <stdarg.h>
 #include <stdio.h>
-#include "spirv/1.0/spirv.h"
-#include "spirv/1.0/GLSL.std.450.h"
+#include "spirv/unified1/spirv.h"
+#include "spirv/unified1/GLSL.std.450.h"
 #ifdef HAVE_SPIRV_TOOLS
 # include "spirv-tools/libspirv.h"
 #endif /* HAVE_SPIRV_TOOLS */
@@ -87,6 +87,7 @@ static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv) {}
 
 #endif /* HAVE_SPIRV_TOOLS */
 
+#define VKD3D_SPIRV_VERSION 0x00010000
 #define VKD3D_SPIRV_GENERATOR_ID 18
 #define VKD3D_SPIRV_GENERATOR_VERSION 0
 #define VKD3D_SPIRV_GENERATOR_MAGIC ((VKD3D_SPIRV_GENERATOR_ID << 16) | VKD3D_SPIRV_GENERATOR_VERSION)
@@ -1543,7 +1544,7 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
     vkd3d_spirv_stream_init(&stream);
 
     vkd3d_spirv_build_word(&stream, SpvMagicNumber);
-    vkd3d_spirv_build_word(&stream, SpvVersion);
+    vkd3d_spirv_build_word(&stream, VKD3D_SPIRV_VERSION);
     vkd3d_spirv_build_word(&stream, VKD3D_SPIRV_GENERATOR_MAGIC);
     vkd3d_spirv_build_word(&stream, builder->current_id); /* bound */
     vkd3d_spirv_build_word(&stream, 0); /* schema, reserved */
