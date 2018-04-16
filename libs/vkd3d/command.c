@@ -4191,6 +4191,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     const struct vkd3d_vk_device_procs *vk_procs;
+    struct d3d12_command_list *cmd_list;
     struct VkSubmitInfo submit_desc;
     VkCommandBuffer *buffers;
     VkQueue vk_queue;
@@ -4210,7 +4211,17 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
     for (i = 0; i < command_list_count; ++i)
     {
-        buffers[i] = unsafe_impl_from_ID3D12CommandList(command_lists[i])->vk_command_buffer;
+        cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[i]);
+
+        if (cmd_list->is_recording)
+        {
+            d3d12_device_mark_as_removed(command_queue->device, DXGI_ERROR_INVALID_CALL,
+                    "Command list %p is in recording state.\n", command_lists[i]);
+            vkd3d_free(buffers);
+            return;
+        }
+
+        buffers[i] = cmd_list->vk_command_buffer;
     }
 
     submit_desc.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;

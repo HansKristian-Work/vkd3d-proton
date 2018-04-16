@@ -4598,7 +4598,7 @@ static void test_device_removed_reason(void)
     exec_command_list(queue, command_list);
 
     hr = ID3D12Device_GetDeviceRemovedReason(device);
-    todo(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
             &IID_ID3D12CommandQueue, (void **)&tmp_queue);
@@ -4607,7 +4607,7 @@ static void test_device_removed_reason(void)
         ID3D12CommandQueue_Release(tmp_queue);
 
     hr = ID3D12Device_GetDeviceRemovedReason(device);
-    todo(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_Release(command_list);
     ID3D12CommandAllocator_Release(command_allocator);

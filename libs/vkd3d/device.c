@@ -1943,9 +1943,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateFence(ID3D12Device *iface,
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_GetDeviceRemovedReason(ID3D12Device *iface)
 {
-    FIXME("iface %p stub!\n", iface);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
 
-    return S_OK;
+    TRACE("iface %p.\n", iface);
+
+    return device->removed_reason;
 }
 
 static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *iface,
@@ -2245,6 +2247,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if ((device->parent = create_info->parent))
         IUnknown_AddRef(device->parent);
 
+    device->removed_reason = S_OK;
+
     return S_OK;
 }
 
@@ -2268,6 +2272,19 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
     *device = object;
 
     return S_OK;
+}
+
+void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
+        const char *message, ...)
+{
+    va_list args;
+
+    va_start(args, message);
+    WARN("Device %p is lost (reason %#x, message \"%s\").\n",
+            device, reason, vkd3d_dbg_vsprintf(message, args));
+    va_end(args);
+
+    device->removed_reason = reason;
 }
 
 IUnknown *vkd3d_get_device_parent(ID3D12Device *device)

@@ -20,7 +20,6 @@
 
 #include <assert.h>
 #include <ctype.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -89,16 +88,24 @@ static char *get_buffer(void)
     return buffers[current_index];
 }
 
-const char *vkd3d_dbg_sprintf(const char *fmt, ...)
+const char *vkd3d_dbg_vsprintf(const char *fmt, va_list args)
 {
     char *buffer;
-    va_list args;
 
     buffer = get_buffer();
-    va_start(args, fmt);
     vsnprintf(buffer, VKD3D_DEBUG_BUFFER_SIZE, fmt, args);
-    va_end(args);
     buffer[VKD3D_DEBUG_BUFFER_SIZE - 1] = '\0';
+    return buffer;
+}
+
+const char *vkd3d_dbg_sprintf(const char *fmt, ...)
+{
+    const char *buffer;
+    va_list args;
+
+    va_start(args, fmt);
+    buffer = vkd3d_dbg_vsprintf(fmt, args);
+    va_end(args);
     return buffer;
 }
 

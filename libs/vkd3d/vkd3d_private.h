@@ -683,10 +683,14 @@ struct d3d12_device
 
     IUnknown *parent;
     LUID adapter_luid;
+
+    HRESULT removed_reason;
 };
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         const struct vkd3d_device_create_info *create_info, struct d3d12_device **device) DECLSPEC_HIDDEN;
+void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
+        const char *message, ...) VKD3D_PRINTF_FUNC(3, 4) DECLSPEC_HIDDEN;
 struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface) DECLSPEC_HIDDEN;
 
 HRESULT vkd3d_create_buffer(struct d3d12_device *device,
