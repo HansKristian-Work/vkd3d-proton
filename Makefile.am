@@ -94,18 +94,20 @@ libvkd3d_la_SOURCES = \
 	libs/vkd3d/vkd3d_main.c \
 	libs/vkd3d/vkd3d_private.h \
 	libs/vkd3d/vulkan_procs.h
+libvkd3d_la_LDFLAGS = -version-info 1:0:0
 libvkd3d_la_LIBADD = libvkd3d-common.la libvkd3d-shader.la @DL_LIBS@ @PTHREAD_LIBS@
 if HAVE_LD_VERSION_SCRIPT
-libvkd3d_la_LDFLAGS = -Wl,--version-script=$(srcdir)/libs/vkd3d/vkd3d.map
+libvkd3d_la_LDFLAGS += -Wl,--version-script=$(srcdir)/libs/vkd3d/vkd3d.map
 endif
 
 libvkd3d_utils_la_SOURCES = \
 	libs/vkd3d-utils/vkd3d_utils.map \
 	libs/vkd3d-utils/vkd3d_utils_main.c \
 	libs/vkd3d-utils/vkd3d_utils_private.h
+libvkd3d_utils_la_LDFLAGS = -version-info 1:0:0
 libvkd3d_utils_la_LIBADD = libvkd3d-common.la libvkd3d.la
 if HAVE_LD_VERSION_SCRIPT
-libvkd3d_utils_la_LDFLAGS = -Wl,--version-script=$(srcdir)/libs/vkd3d-utils/vkd3d_utils.map
+libvkd3d_utils_la_LDFLAGS += -Wl,--version-script=$(srcdir)/libs/vkd3d-utils/vkd3d_utils.map
 endif
 
 EXTRA_DIST = LICENSE
