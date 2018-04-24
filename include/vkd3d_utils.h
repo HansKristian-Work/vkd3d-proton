@@ -19,8 +19,6 @@
 #ifndef __VKD3D_UTILS_H
 #define __VKD3D_UTILS_H
 
-#include <stdbool.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif  /* __cplusplus */
