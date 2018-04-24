@@ -201,6 +201,10 @@ static void destroy_event(HANDLE event)
     CloseHandle(event);
 }
 #else
+#define INFINITE VKD3D_INFINITE
+#define WAIT_OBJECT_0 VKD3D_WAIT_OBJECT_0
+#define WAIT_TIMEOUT VKD3D_WAIT_TIMEOUT
+
 static HANDLE create_event(void)
 {
     return vkd3d_create_event();

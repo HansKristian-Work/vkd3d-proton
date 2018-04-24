@@ -126,7 +126,7 @@ unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
     if ((rc = pthread_mutex_lock(&impl->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
-        return WAIT_FAILED;
+        return VKD3D_WAIT_FAILED;
     }
 
     if (impl->is_signaled || !milliseconds)
@@ -134,10 +134,10 @@ unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
         bool is_signaled = impl->is_signaled;
         impl->is_signaled = false;
         pthread_mutex_unlock(&impl->mutex);
-        return is_signaled ? WAIT_OBJECT_0 : WAIT_TIMEOUT;
+        return is_signaled ? VKD3D_WAIT_OBJECT_0 : VKD3D_WAIT_TIMEOUT;
     }
 
-    if (milliseconds == INFINITE)
+    if (milliseconds == VKD3D_INFINITE)
     {
         do
         {
@@ -145,18 +145,18 @@ unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
             {
                 ERR("Failed to wait on condition variable, error %d.\n", rc);
                 pthread_mutex_unlock(&impl->mutex);
-                return WAIT_FAILED;
+                return VKD3D_WAIT_FAILED;
             }
         } while (!impl->is_signaled);
 
         impl->is_signaled = false;
         pthread_mutex_unlock(&impl->mutex);
-        return WAIT_OBJECT_0;
+        return VKD3D_WAIT_OBJECT_0;
     }
 
     pthread_mutex_unlock(&impl->mutex);
     FIXME("Timed wait not implemented yet.\n");
-    return WAIT_FAILED;
+    return VKD3D_WAIT_FAILED;
 }
 
 HRESULT vkd3d_signal_event(HANDLE event)

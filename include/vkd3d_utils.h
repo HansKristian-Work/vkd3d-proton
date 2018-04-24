@@ -23,10 +23,10 @@
 extern "C" {
 #endif  /* __cplusplus */
 
-#define WAIT_OBJECT_0 (0)
-#define WAIT_TIMEOUT (1)
-#define WAIT_FAILED (~0u)
-#define INFINITE (~0u)
+#define VKD3D_WAIT_OBJECT_0 (0)
+#define VKD3D_WAIT_TIMEOUT (1)
+#define VKD3D_WAIT_FAILED (~0u)
+#define VKD3D_INFINITE (~0u)
 
 HANDLE vkd3d_create_event(void);
 HRESULT vkd3d_signal_event(HANDLE event);
