@@ -168,7 +168,11 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 # ifdef __x86_64__
 #  define __stdcall __attribute__((ms_abi))
 # else
-#  define __stdcall __attribute__((__stdcall__))
+#  if (__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 2)) || defined(__APPLE__)
+#   define __stdcall __attribute__((__stdcall__)) __attribute__((__force_align_arg_pointer__))
+#  else
+#   define __stdcall __attribute__((__stdcall__))
+#  endif
 # endif
 
 # define WINAPI __stdcall
