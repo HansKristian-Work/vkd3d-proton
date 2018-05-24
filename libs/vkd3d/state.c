@@ -1263,7 +1263,8 @@ static void dump_shader_stage(VkShaderStageFlagBits stage, const void *data, siz
 
 static HRESULT create_shader_stage(struct d3d12_device *device,
         struct VkPipelineShaderStageCreateInfo *stage_desc, enum VkShaderStageFlagBits stage,
-        const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface *shader_interface)
+        const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface *shader_interface,
+        const struct vkd3d_shader_compile_arguments *compile_args)
 {
     struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -1284,7 +1285,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     shader_desc.flags = 0;
 
     dump_shader_stage(stage, code->pShaderBytecode, code->BytecodeLength);
-    if ((ret = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, shader_interface, NULL)) < 0)
+    if ((ret = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, shader_interface, compile_args)) < 0)
     {
         WARN("Failed to compile shader, vkd3d result %d.\n", ret);
         return hresult_from_vkd3d_result(ret);
@@ -1436,7 +1437,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     pipeline_info.pNext = NULL;
     pipeline_info.flags = 0;
     if (FAILED(hr = create_shader_stage(device, &pipeline_info.stage,
-            VK_SHADER_STAGE_COMPUTE_BIT, &desc->CS, &shader_interface)))
+            VK_SHADER_STAGE_COMPUTE_BIT, &desc->CS, &shader_interface, NULL)))
     {
         if (state->vk_set_layout)
             VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout, NULL));
@@ -1789,12 +1790,23 @@ static HRESULT compute_input_layout_offsets(const D3D12_INPUT_LAYOUT_DESC *input
     return S_OK;
 }
 
+static unsigned int vkd3d_get_rt_format_swizzle(const struct vkd3d_format *format)
+{
+    if (format->dxgi_format == DXGI_FORMAT_A8_UNORM)
+        return VKD3D_SWIZZLE(VKD3D_SWIZZLE_W, VKD3D_SWIZZLE_X, VKD3D_SWIZZLE_Y, VKD3D_SWIZZLE_Z);
+
+    return VKD3D_NO_SWIZZLE;
+}
+
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc)
 {
+    unsigned int ps_output_swizzle[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const struct vkd3d_shader_compile_arguments *compile_args;
     uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
+    struct vkd3d_shader_compile_arguments ps_compile_args;
     const struct d3d12_root_signature *root_signature;
     struct vkd3d_shader_interface shader_interface;
     struct vkd3d_shader_signature input_signature;
@@ -1907,6 +1919,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
         }
 
+        ps_output_swizzle[i] = vkd3d_get_rt_format_swizzle(format);
+
         graphics->attachments[idx].flags = 0;
         graphics->attachments[idx].format = format->vk_format;
         graphics->attachments[idx].samples = VK_SAMPLE_COUNT_1_BIT;
@@ -1923,6 +1937,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         blend_attachment_from_d3d12(&graphics->blend_attachments[i], &desc->BlendState.RenderTarget[blend_idx]);
     }
     graphics->attachment_count = graphics->rt_idx + rt_count;
+
+    ps_compile_args.output_swizzles = ps_output_swizzle;
+    ps_compile_args.output_swizzle_count = rt_count;
 
     shader_interface.bindings = root_signature->descriptor_mapping;
     shader_interface.binding_count = root_signature->descriptor_count;
@@ -1952,8 +1969,13 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (shader_info.uav_counter_mask)
             FIXME("UAV counters not implemented for graphics pipelines.\n");
 
+        if (shader_stages[i].stage == VK_SHADER_STAGE_FRAGMENT_BIT)
+            compile_args = &ps_compile_args;
+        else
+            compile_args = NULL;
+
         if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
-                shader_stages[i].stage, b, &shader_interface)))
+                shader_stages[i].stage, b, &shader_interface, compile_args)))
             goto fail;
 
         if (shader_stages[i].stage == VK_SHADER_STAGE_VERTEX_BIT

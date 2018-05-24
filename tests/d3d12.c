@@ -694,7 +694,7 @@ static void check_readback_data_uint8_(unsigned int line, struct resource_readba
         if (!all_match)
             break;
     }
-    todo_(line)(all_match, "Got 0x%02x, expected 0x%02x at (%u, %u).\n", got, expected, x, y);
+    ok_(line)(all_match, "Got 0x%02x, expected 0x%02x at (%u, %u).\n", got, expected, x, y);
 }
 
 #define check_sub_resource_uint8(a, b, c, d, e, f) check_sub_resource_uint8_(__LINE__, a, b, c, d, e, f)
