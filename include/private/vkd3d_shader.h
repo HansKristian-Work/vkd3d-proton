@@ -125,9 +125,16 @@ struct vkd3d_shader_interface
     unsigned int uav_counter_count;
 };
 
+struct vkd3d_shader_compile_arguments
+{
+    unsigned int *output_swizzles;
+    unsigned int output_swizzle_count;
+};
+
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv, uint32_t compiler_options,
-        const struct vkd3d_shader_interface *shader_interface);
+        const struct vkd3d_shader_interface *shader_interface,
+        const struct vkd3d_shader_compile_arguments *compile_args);
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
 
 enum vkd3d_filter
@@ -389,6 +396,20 @@ struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
         const struct vkd3d_shader_signature *signature, const char *semantic_name,
         unsigned int semantic_index, unsigned int stream_index);
 void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature);
+
+/* swizzle bits fields: wwzzyyxx */
+#define VKD3D_SWIZZLE_X (0u)
+#define VKD3D_SWIZZLE_Y (1u)
+#define VKD3D_SWIZZLE_Z (2u)
+#define VKD3D_SWIZZLE_W (3u)
+#define VKD3D_SWIZZLE_MASK (0x3u)
+#define VKD3D_SWIZZLE_SHIFT(idx) (2u * (idx))
+#define VKD3D_SWIZZLE(x, y, z, w) (((x & VKD3D_SWIZZLE_MASK) << VKD3D_SWIZZLE_SHIFT(0)) \
+        | ((y & VKD3D_SWIZZLE_MASK) << VKD3D_SWIZZLE_SHIFT(1)) \
+        | ((z & VKD3D_SWIZZLE_MASK) << VKD3D_SWIZZLE_SHIFT(2)) \
+        | ((w & VKD3D_SWIZZLE_MASK) << VKD3D_SWIZZLE_SHIFT(3)))
+#define VKD3D_NO_SWIZZLE \
+        VKD3D_SWIZZLE(VKD3D_SWIZZLE_X, VKD3D_SWIZZLE_Y, VKD3D_SWIZZLE_Z, VKD3D_SWIZZLE_W)
 
 #ifdef __cplusplus
 }

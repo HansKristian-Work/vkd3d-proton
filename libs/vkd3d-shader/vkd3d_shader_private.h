@@ -780,6 +780,7 @@ struct vkd3d_dxbc_compiler;
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
         const struct vkd3d_shader_desc *shader_desc, uint32_t compiler_options,
         const struct vkd3d_shader_interface *shader_interface,
+        const struct vkd3d_shader_compile_arguments *compile_args,
         const struct vkd3d_shader_scan_info *scan_info) DECLSPEC_HIDDEN;
 void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction) DECLSPEC_HIDDEN;
@@ -849,18 +850,6 @@ static inline unsigned int vkd3d_write_mask_component_count(DWORD write_mask)
 
     return count;
 }
-
-/* swizzle bits fields: wwzzyyxx */
-#define VKD3D_SWIZZLE_X (0u)
-#define VKD3D_SWIZZLE_Y (1u)
-#define VKD3D_SWIZZLE_Z (2u)
-#define VKD3D_SWIZZLE_W (3u)
-#define VKD3D_SWIZZLE_MASK (0x3u)
-#define VKD3D_SWIZZLE_SHIFT(idx) (2u * (idx))
-#define VKD3D_NO_SWIZZLE ((VKD3D_SWIZZLE_X << VKD3D_SWIZZLE_SHIFT(0)) \
-        | (VKD3D_SWIZZLE_Y << VKD3D_SWIZZLE_SHIFT(1)) \
-        | (VKD3D_SWIZZLE_Z << VKD3D_SWIZZLE_SHIFT(2)) \
-        | (VKD3D_SWIZZLE_W << VKD3D_SWIZZLE_SHIFT(3)))
 
 static inline unsigned int vkd3d_swizzle_get_component(DWORD swizzle,
         unsigned int idx)

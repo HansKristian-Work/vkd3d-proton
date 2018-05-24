@@ -1284,7 +1284,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     shader_desc.flags = 0;
 
     dump_shader_stage(stage, code->pShaderBytecode, code->BytecodeLength);
-    if ((ret = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, shader_interface)) < 0)
+    if ((ret = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, shader_interface, NULL)) < 0)
     {
         WARN("Failed to compile shader, vkd3d result %d.\n", ret);
         return hresult_from_vkd3d_result(ret);

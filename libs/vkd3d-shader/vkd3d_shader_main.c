@@ -58,7 +58,8 @@ static void vkd3d_shader_parser_destroy(struct vkd3d_shader_parser *parser)
 
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv, uint32_t compiler_options,
-        const struct vkd3d_shader_interface *shader_interface)
+        const struct vkd3d_shader_interface *shader_interface,
+        const struct vkd3d_shader_compile_arguments *compile_args)
 {
     struct vkd3d_shader_instruction instruction;
     struct vkd3d_dxbc_compiler *spirv_compiler;
@@ -66,8 +67,8 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     struct vkd3d_shader_parser parser;
     int ret;
 
-    TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, shader_interface %p.\n",
-            dxbc->code, dxbc->size, spirv, compiler_options, shader_interface);
+    TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, shader_interface %p, compile_args %p.\n",
+            dxbc->code, dxbc->size, spirv, compiler_options, shader_interface, compile_args);
 
     if ((ret = vkd3d_shader_scan_dxbc(dxbc, &scan_info)) < 0)
         return ret;
@@ -76,7 +77,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         return ret;
 
     if (!(spirv_compiler = vkd3d_dxbc_compiler_create(&parser.shader_version,
-            &parser.shader_desc, compiler_options, shader_interface, &scan_info)))
+            &parser.shader_desc, compiler_options, shader_interface, compile_args, &scan_info)))
     {
         ERR("Failed to create DXBC compiler.\n");
         vkd3d_shader_parser_destroy(&parser);

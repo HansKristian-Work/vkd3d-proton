@@ -1839,6 +1839,7 @@ struct vkd3d_dxbc_compiler
 
     struct vkd3d_shader_interface shader_interface;
     struct vkd3d_push_constant_buffer_binding *push_constants;
+    const struct vkd3d_shader_compile_arguments *compile_args;
 
     bool after_declarations_section;
     const struct vkd3d_shader_signature *input_signature;
@@ -1860,6 +1861,7 @@ struct vkd3d_dxbc_compiler
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
         const struct vkd3d_shader_desc *shader_desc, uint32_t compiler_options,
         const struct vkd3d_shader_interface *shader_interface,
+        const struct vkd3d_shader_compile_arguments *compile_args,
         const struct vkd3d_shader_scan_info *scan_info)
 {
     const struct vkd3d_shader_signature *output_signature = &shader_desc->output_signature;
@@ -1926,6 +1928,7 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
                 compiler->push_constants[i].pc = shader_interface->push_constant_buffers[i];
         }
     }
+    compiler->compile_args = compile_args;
 
     compiler->scan_info = scan_info;
 
@@ -3013,6 +3016,18 @@ static unsigned int vkd3d_dxbc_compiler_get_output_variable_index(
     return register_idx;
 }
 
+static unsigned int get_shader_output_swizzle(struct vkd3d_dxbc_compiler *compiler,
+        unsigned int register_idx)
+{
+    const struct vkd3d_shader_compile_arguments *compile_args;
+
+    if (!(compile_args = compiler->compile_args))
+        return VKD3D_NO_SWIZZLE;
+    if (register_idx >= compile_args->output_swizzle_count)
+        return VKD3D_NO_SWIZZLE;
+    return compile_args->output_swizzles[register_idx];
+}
+
 static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval)
 {
@@ -3069,7 +3084,10 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
         compiler->output_info[signature_idx].component_type = component_type;
     }
 
-    if ((use_private_variable = component_type != VKD3D_TYPE_FLOAT || component_count != VKD3D_VEC4_SIZE))
+    use_private_variable = component_type != VKD3D_TYPE_FLOAT || component_count != VKD3D_VEC4_SIZE
+            || (signature_element
+            && get_shader_output_swizzle(compiler, signature_element->register_index) != VKD3D_NO_SWIZZLE);
+    if (use_private_variable)
         storage_class = SpvStorageClassPrivate;
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
@@ -5900,7 +5918,7 @@ static void vkd3d_dxbc_compiler_emit_output_setup_function(struct vkd3d_dxbc_com
     uint32_t param_type_id[MAX_REG_OUTPUT + 1], param_id[MAX_REG_OUTPUT + 1] = {};
     const struct vkd3d_shader_signature *signature = compiler->output_signature;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    DWORD write_mask, variable_idx;
+    DWORD write_mask, swizzle, variable_idx;
     unsigned int i, count;
 
     function_id = compiler->output_setup_function_id;
@@ -5945,8 +5963,9 @@ static void vkd3d_dxbc_compiler_emit_output_setup_function(struct vkd3d_dxbc_com
             continue;
 
         write_mask = signature->elements[i].mask & 0xff;
+        swizzle = get_shader_output_swizzle(compiler, signature->elements[i].register_index);
         val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-                param_id[variable_idx], VKD3D_TYPE_FLOAT, VKD3D_NO_SWIZZLE, write_mask);
+                param_id[variable_idx], VKD3D_TYPE_FLOAT, swizzle, write_mask);
 
         if (compiler->output_info[i].component_type != VKD3D_TYPE_FLOAT)
         {
