@@ -1521,7 +1521,7 @@ static BOOL shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD *
 
     if (src_param->reg.type == VKD3DSPR_IMMCONST)
     {
-        src_param->swizzle = VKD3DSP_NOSWIZZLE;
+        src_param->swizzle = VKD3D_NO_SWIZZLE;
     }
     else
     {
@@ -1531,7 +1531,7 @@ static BOOL shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD *
         switch (swizzle_type)
         {
             case VKD3D_SM4_SWIZZLE_NONE:
-                src_param->swizzle = VKD3DSP_NOSWIZZLE;
+                src_param->swizzle = VKD3D_NO_SWIZZLE;
                 break;
 
             case VKD3D_SM4_SWIZZLE_SCALAR:

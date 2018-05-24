@@ -390,8 +390,6 @@ enum vkd3d_immconst_type
     VKD3D_IMMCONST_VEC4,
 };
 
-#define VKD3DSP_NOSWIZZLE (0u | (1u << 2) | (2u << 4) | (3u << 6))
-
 enum vkd3d_shader_src_modifier
 {
     VKD3DSPSM_NONE = 0,
@@ -852,11 +850,22 @@ static inline unsigned int vkd3d_write_mask_component_count(DWORD write_mask)
     return count;
 }
 
+/* swizzle bits fields: wwzzyyxx */
+#define VKD3D_SWIZZLE_X (0u)
+#define VKD3D_SWIZZLE_Y (1u)
+#define VKD3D_SWIZZLE_Z (2u)
+#define VKD3D_SWIZZLE_W (3u)
+#define VKD3D_SWIZZLE_MASK (0x3u)
+#define VKD3D_SWIZZLE_SHIFT(idx) (2u * (idx))
+#define VKD3D_NO_SWIZZLE ((VKD3D_SWIZZLE_X << VKD3D_SWIZZLE_SHIFT(0)) \
+        | (VKD3D_SWIZZLE_Y << VKD3D_SWIZZLE_SHIFT(1)) \
+        | (VKD3D_SWIZZLE_Z << VKD3D_SWIZZLE_SHIFT(2)) \
+        | (VKD3D_SWIZZLE_W << VKD3D_SWIZZLE_SHIFT(3)))
+
 static inline unsigned int vkd3d_swizzle_get_component(DWORD swizzle,
         unsigned int idx)
 {
-    /* swizzle bits fields: wwzzyyxx */
-    return (swizzle >> (2 * idx)) & 0x3;
+    return (swizzle >> VKD3D_SWIZZLE_SHIFT(idx)) & VKD3D_SWIZZLE_MASK;
 }
 
 #define VKD3D_DXBC_MAX_SOURCE_COUNT 6

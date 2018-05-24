@@ -2349,7 +2349,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_swizzle(struct vkd3d_dxbc_compiler *com
     unsigned int i, component_idx, component_count;
     uint32_t type_id, components[VKD3D_VEC4_SIZE];
 
-    if (swizzle == VKD3DSP_NOSWIZZLE && write_mask == VKD3DSP_WRITEMASK_ALL)
+    if (swizzle == VKD3D_NO_SWIZZLE && write_mask == VKD3DSP_WRITEMASK_ALL)
         return val_id;
 
     component_count = vkd3d_write_mask_component_count(write_mask);
@@ -2972,7 +2972,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
 
     if (val_id && input_component_count != component_count)
         val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-                val_id, VKD3D_TYPE_FLOAT, VKD3DSP_NOSWIZZLE, dst->write_mask);
+                val_id, VKD3D_TYPE_FLOAT, VKD3D_NO_SWIZZLE, dst->write_mask);
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
 
@@ -4601,7 +4601,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             assert(compiler->control_flow_depth);
             assert(cf_info->current_block == VKD3D_BLOCK_SWITCH);
 
-            assert(src->swizzle == VKD3DSP_NOSWIZZLE && src->reg.type == VKD3DSPR_IMMCONST);
+            assert(src->swizzle == VKD3D_NO_SWIZZLE && src->reg.type == VKD3DSPR_IMMCONST);
             value = *src->reg.u.immconst_data;
 
             if (!vkd3d_array_reserve((void **)&cf_info->u.switch_.case_blocks, &cf_info->u.switch_.case_blocks_size,
@@ -5946,7 +5946,7 @@ static void vkd3d_dxbc_compiler_emit_output_setup_function(struct vkd3d_dxbc_com
 
         write_mask = signature->elements[i].mask & 0xff;
         val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-                param_id[variable_idx], VKD3D_TYPE_FLOAT, VKD3DSP_NOSWIZZLE, write_mask);
+                param_id[variable_idx], VKD3D_TYPE_FLOAT, VKD3D_NO_SWIZZLE, write_mask);
 
         if (compiler->output_info[i].component_type != VKD3D_TYPE_FLOAT)
         {
