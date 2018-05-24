@@ -119,7 +119,7 @@ struct vkd3d_shader_interface
      *
      * In Vulkan OpImageFetch must be used with a sampled image.
      */
-    struct vkd3d_shader_descriptor_binding default_sampler;
+    struct vkd3d_shader_descriptor_binding dummy_sampler;
 
     const struct vkd3d_shader_uav_counter_binding *uav_counters;
     unsigned int uav_counter_count;

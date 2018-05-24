@@ -1851,7 +1851,7 @@ struct vkd3d_dxbc_compiler
     } *output_info;
     uint32_t private_output_variable[MAX_REG_OUTPUT + 1]; /* 1 entry for oDepth */
     uint32_t output_setup_function_id;
-    uint32_t default_sampler_id;
+    uint32_t dummy_sampler_id;
 
     uint32_t binding_idx;
 
@@ -3340,15 +3340,15 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
-static uint32_t vkd3d_dxbc_compiler_get_default_sampler_id(struct vkd3d_dxbc_compiler *compiler)
+static uint32_t vkd3d_dxbc_compiler_get_dummy_sampler_id(struct vkd3d_dxbc_compiler *compiler)
 {
     const struct vkd3d_shader_interface *shader_interface = &compiler->shader_interface;
     const SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t type_id, ptr_type_id, var_id;
 
-    if (compiler->default_sampler_id)
-        return compiler->default_sampler_id;
+    if (compiler->dummy_sampler_id)
+        return compiler->dummy_sampler_id;
 
     type_id = vkd3d_spirv_get_op_type_sampler(builder);
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id);
@@ -3356,14 +3356,14 @@ static uint32_t vkd3d_dxbc_compiler_get_default_sampler_id(struct vkd3d_dxbc_com
             ptr_type_id, storage_class, 0);
 
     vkd3d_spirv_build_op_decorate1(builder, var_id,
-            SpvDecorationDescriptorSet, shader_interface->default_sampler.set);
+            SpvDecorationDescriptorSet, shader_interface->dummy_sampler.set);
     vkd3d_spirv_build_op_decorate1(builder, var_id,
-            SpvDecorationBinding, shader_interface->default_sampler.binding);
+            SpvDecorationBinding, shader_interface->dummy_sampler.binding);
 
-    vkd3d_spirv_build_op_name(builder, var_id, "default_sampler");
+    vkd3d_spirv_build_op_name(builder, var_id, "dummy_sampler");
 
-    compiler->default_sampler_id = var_id;
-    return compiler->default_sampler_id;
+    compiler->dummy_sampler_id = var_id;
+    return compiler->dummy_sampler_id;
 }
 
 static const struct vkd3d_spirv_resource_type *vkd3d_dxbc_compiler_enable_resource_type(
@@ -4781,11 +4781,11 @@ static void vkd3d_dxbc_compiler_prepare_sampled_image_for_sampler(struct vkd3d_d
             sampled_image_type_id, image->image_id, image->sampler_id);
 }
 
-static void vkd3d_dxbc_compiler_prepare_default_sampled_image(struct vkd3d_dxbc_compiler *compiler,
+static void vkd3d_dxbc_compiler_prepare_dummy_sampled_image(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_image *image, const struct vkd3d_shader_register *resource_reg)
 {
     vkd3d_dxbc_compiler_prepare_sampled_image_for_sampler(compiler, image, resource_reg,
-            vkd3d_dxbc_compiler_get_default_sampler_id(compiler), false);
+            vkd3d_dxbc_compiler_get_dummy_sampler_id(compiler), false);
 }
 
 static void vkd3d_dxbc_compiler_prepare_sampled_image(struct vkd3d_dxbc_compiler *compiler,
@@ -4813,7 +4813,7 @@ static void vkd3d_dxbc_compiler_emit_ld(struct vkd3d_dxbc_compiler *compiler,
         FIXME("Texel offset not supported.\n");
 
     /* OpImageFetch must be used with a sampled image. */
-    vkd3d_dxbc_compiler_prepare_default_sampled_image(compiler, &image, &src[1].reg);
+    vkd3d_dxbc_compiler_prepare_dummy_sampled_image(compiler, &image, &src[1].reg);
     image_id = vkd3d_spirv_build_op_image(builder, image.image_type_id, image.sampled_image_id);
 
     type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
@@ -5023,7 +5023,7 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
     {
         /* OpImageFetch must be used with a sampled image. */
         op = SpvOpImageFetch;
-        vkd3d_dxbc_compiler_prepare_default_sampled_image(compiler, &image, &resource->reg);
+        vkd3d_dxbc_compiler_prepare_dummy_sampled_image(compiler, &image, &resource->reg);
         image_id = vkd3d_spirv_build_op_image(builder, image.image_type_id, image.sampled_image_id);
     }
     else
