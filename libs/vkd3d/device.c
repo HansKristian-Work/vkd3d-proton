@@ -1075,7 +1075,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     return S_OK;
 }
 
-static HRESULT d3d12_device_create_default_sampler(struct d3d12_device *device)
+static HRESULT d3d12_device_create_dummy_sampler(struct d3d12_device *device)
 {
     D3D12_STATIC_SAMPLER_DESC sampler_desc;
 
@@ -1084,7 +1084,7 @@ static HRESULT d3d12_device_create_default_sampler(struct d3d12_device *device)
     sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    return vkd3d_create_static_sampler(device, &sampler_desc, &device->vk_default_sampler);
+    return vkd3d_create_static_sampler(device, &sampler_desc, &device->vk_dummy_sampler);
 }
 
 static void d3d12_device_init_pipeline_cache(struct d3d12_device *device)
@@ -1273,7 +1273,7 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
 
         vkd3d_gpu_va_allocator_cleanup(&device->gpu_va_allocator);
         vkd3d_fence_worker_stop(&device->fence_worker, device);
-        VK_CALL(vkDestroySampler(device->vk_device, device->vk_default_sampler, NULL));
+        VK_CALL(vkDestroySampler(device->vk_device, device->vk_dummy_sampler, NULL));
         if (device->vk_pipeline_cache)
             VK_CALL(vkDestroyPipelineCache(device->vk_device, device->vk_pipeline_cache, NULL));
         d3d12_device_destroy_vkd3d_queues(device);
@@ -2222,10 +2222,10 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         return hr;
     }
 
-    if (FAILED(hr = d3d12_device_create_default_sampler(device)))
+    if (FAILED(hr = d3d12_device_create_dummy_sampler(device)))
     {
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-        ERR("Failed to create default sampler, hr %#x.\n", hr);
+        ERR("Failed to create dummy sampler, hr %#x.\n", hr);
         VK_CALL(vkDestroyDevice(device->vk_device, NULL));
         vkd3d_instance_decref(device->vkd3d_instance);
         return hr;
@@ -2234,7 +2234,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_fence_worker_start(&device->fence_worker, device)))
     {
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-        VK_CALL(vkDestroySampler(device->vk_device, device->vk_default_sampler, NULL));
+        VK_CALL(vkDestroySampler(device->vk_device, device->vk_dummy_sampler, NULL));
         VK_CALL(vkDestroyDevice(device->vk_device, NULL));
         vkd3d_instance_decref(device->vkd3d_instance);
         return hr;

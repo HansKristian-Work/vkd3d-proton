@@ -769,19 +769,19 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     return S_OK;
 }
 
-static HRESULT d3d12_root_signature_init_default_sampler(struct d3d12_root_signature *root_signature,
+static HRESULT d3d12_root_signature_init_dummy_sampler(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, struct vkd3d_descriptor_set_context *context)
 {
     VkDescriptorSetLayoutBinding *binding = context->current_binding;
 
-    root_signature->default_sampler.set = context->set_index;
-    root_signature->default_sampler.binding = context->descriptor_binding++;
+    root_signature->dummy_sampler.set = context->set_index;
+    root_signature->dummy_sampler.binding = context->descriptor_binding++;
 
-    binding->binding = root_signature->default_sampler.binding;
+    binding->binding = root_signature->dummy_sampler.binding;
     binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
     binding->descriptorCount = 1;
     binding->stageFlags = VK_SHADER_STAGE_ALL;
-    binding->pImmutableSamplers = &device->vk_default_sampler;
+    binding->pImmutableSamplers = &device->vk_dummy_sampler;
 
     ++context->current_binding;
     return S_OK;
@@ -877,7 +877,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     VkDescriptorSetLayoutBinding *binding_desc;
     struct d3d12_root_signature_info info;
     VkDescriptorSetLayout set_layouts[2];
-    bool needs_default_sampler;
+    bool needs_dummy_sampler;
     HRESULT hr;
 
     memset(&context, 0, sizeof(context));
@@ -917,8 +917,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     root_signature->root_descriptor_count = info.root_descriptor_count;
 
     /* An additional sampler is created for SpvOpImageFetch. */
-    needs_default_sampler = info.srv_count || info.buffer_srv_count;
-    if (needs_default_sampler)
+    needs_dummy_sampler = info.srv_count || info.buffer_srv_count;
+    if (needs_dummy_sampler)
     {
         ++info.sampler_count;
         ++info.descriptor_count;
@@ -970,7 +970,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         goto fail;
     if (FAILED(hr = d3d12_root_signature_init_static_samplers(root_signature, device, desc, &context)))
         goto fail;
-    if (needs_default_sampler && FAILED(hr = d3d12_root_signature_init_default_sampler(root_signature,
+    if (needs_dummy_sampler && FAILED(hr = d3d12_root_signature_init_dummy_sampler(root_signature,
             device, &context)))
         goto fail;
 
@@ -1429,7 +1429,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.binding_count = root_signature->descriptor_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
-    shader_interface.dummy_sampler = root_signature->default_sampler;
+    shader_interface.dummy_sampler = root_signature->dummy_sampler;
     shader_interface.uav_counters = state->uav_counters;
     shader_interface.uav_counter_count = vkd3d_popcount(state->uav_counter_mask);
 
@@ -1945,7 +1945,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     shader_interface.binding_count = root_signature->descriptor_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
-    shader_interface.dummy_sampler = root_signature->default_sampler;
+    shader_interface.dummy_sampler = root_signature->dummy_sampler;
     shader_interface.uav_counters = NULL;
     shader_interface.uav_counter_count = 0;
 
