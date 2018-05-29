@@ -56,6 +56,9 @@
 #define VKD3D_SM4_GLOBAL_FLAGS_SHIFT          11
 #define VKD3D_SM4_GLOBAL_FLAGS_MASK           (0xffu << VKD3D_SM4_GLOBAL_FLAGS_SHIFT)
 
+#define VKD3D_SM5_PRECISE_SHIFT               19
+#define VKD3D_SM5_PRECISE_MASK                (0xfu << VKD3D_SM5_PRECISE_SHIFT)
+
 #define VKD3D_SM5_CONTROL_POINT_COUNT_SHIFT   11
 #define VKD3D_SM5_CONTROL_POINT_COUNT_MASK    (0xffu << VKD3D_SM5_CONTROL_POINT_COUNT_SHIFT)
 
@@ -1641,6 +1644,7 @@ void shader_sm4_read_instruction(void *data, const DWORD **ptr, struct vkd3d_sha
     unsigned int i, len;
     SIZE_T remaining;
     const DWORD *p;
+    DWORD precise;
 
     list_move_head(&priv->src_free, &priv->src);
 
@@ -1703,12 +1707,13 @@ void shader_sm4_read_instruction(void *data, const DWORD **ptr, struct vkd3d_sha
             shader_sm4_read_instruction_modifier(previous_token = *p++, ins);
 
         ins->flags = (opcode_token & VKD3D_SM4_INSTRUCTION_FLAGS_MASK) >> VKD3D_SM4_INSTRUCTION_FLAGS_SHIFT;
-
         if (ins->flags & VKD3D_SM4_INSTRUCTION_FLAG_SATURATE)
         {
             ins->flags &= ~VKD3D_SM4_INSTRUCTION_FLAG_SATURATE;
             instruction_dst_modifier = VKD3DSPDM_SATURATE;
         }
+        precise = (opcode_token & VKD3D_SM5_PRECISE_MASK) >> VKD3D_SM5_PRECISE_SHIFT;
+        ins->flags |= precise << VKD3DSI_PRECISE_SHIFT;
 
         for (i = 0; i < ins->dst_count; ++i)
         {

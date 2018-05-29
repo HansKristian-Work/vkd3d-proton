@@ -480,6 +480,14 @@ enum vkd3d_tessellator_partitioning
 #define VKD3DSI_SAMPLE_INFO_UINT  0x1
 #define VKD3DSI_SAMPLER_COMPARISON_MODE 0x1
 
+#define VKD3DSI_PRECISE_X         0x100
+#define VKD3DSI_PRECISE_Y         0x200
+#define VKD3DSI_PRECISE_Z         0x400
+#define VKD3DSI_PRECISE_W         0x800
+#define VKD3DSI_PRECISE_XYZW      (VKD3DSI_PRECISE_X | VKD3DSI_PRECISE_Y \
+                                  | VKD3DSI_PRECISE_Z | VKD3DSI_PRECISE_W)
+#define VKD3DSI_PRECISE_SHIFT     8
+
 enum vkd3d_shader_rel_op
 {
     VKD3D_SHADER_REL_OP_GT = 1,
