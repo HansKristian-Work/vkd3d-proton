@@ -295,6 +295,7 @@ enum vkd3d_sm4_opcode
     VKD3D_SM5_OP_IMM_ATOMIC_UMAX                  = 0xbc,
     VKD3D_SM5_OP_IMM_ATOMIC_UMIN                  = 0xbd,
     VKD3D_SM5_OP_SYNC                             = 0xbe,
+    VKD3D_SM5_OP_EVAL_SAMPLE_INDEX                = 0xcc,
     VKD3D_SM5_OP_DCL_GS_INSTANCES                 = 0xce,
 };
 
@@ -312,6 +313,7 @@ enum vkd3d_sm4_register_type
     VKD3D_SM4_RT_PRIMID                  = 0x0b,
     VKD3D_SM4_RT_DEPTHOUT                = 0x0c,
     VKD3D_SM4_RT_NULL                    = 0x0d,
+    VKD3D_SM4_RT_RASTERIZER              = 0x0e,
     VKD3D_SM4_RT_OMASK                   = 0x0f,
     VKD3D_SM5_RT_STREAM                  = 0x10,
     VKD3D_SM5_RT_FUNCTION_BODY           = 0x11,
@@ -331,6 +333,8 @@ enum vkd3d_sm4_register_type
     VKD3D_SM5_RT_COVERAGE                = 0x23,
     VKD3D_SM5_RT_LOCAL_THREAD_INDEX      = 0x24,
     VKD3D_SM5_RT_GS_INSTANCE_ID          = 0x25,
+    VKD3D_SM5_RT_DEPTHOUT_GREATER_EQUAL  = 0x26,
+    VKD3D_SM5_RT_DEPTHOUT_LESS_EQUAL     = 0x27,
 };
 
 enum vkd3d_sm4_output_primitive_type
@@ -1103,6 +1107,7 @@ static const struct vkd3d_sm4_opcode_info opcode_table[] =
     {VKD3D_SM5_OP_IMM_ATOMIC_UMIN,                  VKD3DSIH_IMM_ATOMIC_UMIN,                  "uU",   "iu"},
     {VKD3D_SM5_OP_SYNC,                             VKD3DSIH_SYNC,                             "",     "",
             shader_sm5_read_sync},
+    {VKD3D_SM5_OP_EVAL_SAMPLE_INDEX,                VKD3DSIH_EVAL_SAMPLE_INDEX,                "f",    "fi"},
     {VKD3D_SM5_OP_DCL_GS_INSTANCES,                 VKD3DSIH_DCL_GS_INSTANCES,                 "",     "",
             shader_sm4_read_declaration_count},
 };
@@ -1123,7 +1128,7 @@ static const enum vkd3d_shader_register_type register_type_table[] =
     /* VKD3D_SM4_RT_PRIMID */                  VKD3DSPR_PRIMID,
     /* VKD3D_SM4_RT_DEPTHOUT */                VKD3DSPR_DEPTHOUT,
     /* VKD3D_SM4_RT_NULL */                    VKD3DSPR_NULL,
-    /* UNKNOWN */                              ~0u,
+    /* VKD3D_SM4_RT_RASTERIZER */              VKD3DSPR_RASTERIZER,
     /* VKD3D_SM4_RT_OMASK */                   VKD3DSPR_SAMPLEMASK,
     /* VKD3D_SM5_RT_STREAM */                  VKD3DSPR_STREAM,
     /* VKD3D_SM5_RT_FUNCTION_BODY */           VKD3DSPR_FUNCTIONBODY,
@@ -1147,6 +1152,8 @@ static const enum vkd3d_shader_register_type register_type_table[] =
     /* VKD3D_SM5_RT_COVERAGE */                VKD3DSPR_COVERAGE,
     /* VKD3D_SM5_RT_LOCAL_THREAD_INDEX */      VKD3DSPR_LOCALTHREADINDEX,
     /* VKD3D_SM5_RT_GS_INSTANCE_ID */          VKD3DSPR_GSINSTID,
+    /* VKD3D_SM5_RT_DEPTHOUT_GREATER_EQUAL */  VKD3DSPR_DEPTHOUTGE,
+    /* VKD3D_SM5_RT_DEPTHOUT_LESS_EQUAL */     VKD3DSPR_DEPTHOUTLE,
 };
 
 static const struct vkd3d_sm4_opcode_info *get_opcode_info(enum vkd3d_sm4_opcode opcode)
