@@ -2779,33 +2779,9 @@ static uint32_t vkd3d_spirv_front_facing_fixup(struct vkd3d_dxbc_compiler *compi
     return vkd3d_dxbc_compiler_emit_bool_to_int(compiler, 1, front_facing_id);
 }
 
-/* The Vulkan spec says:
- *
- *   "The variable decorated with GlobalInvocationId must be declared as a
- *   three-component vector of 32-bit integers."
- *
- *   "The variable decorated with LocalInvocationId must be declared as a
- *   three-component vector of 32-bit integers."
- *
- *   "The variable decorated with WorkgroupId must be declared as a
- *   three-component vector of 32-bit integers."
- *
- *   "The variable decorated with FragCoord must be declared as a
- *   four-component vector of 32-bit floating-point values."
- *
- *   "The variable decorated with FragDepth must be declared as a scalar 32-bit
- *   floating-point value."
- *
- *   "Any variable decorated with Position must be declared as a four-component
- *   vector of 32-bit floating-point values."
- *
- *   "The variable decorated with VertexIndex must be declared as a scalar
- *   32-bit integer."
- *
- *   "The variable decorated with InstanceIndex must be declared as a scalar
- *   32-bit integer."
- *
- *   "The variable decorated with FrontFacing must be declared as a boolean."
+/*
+ * The following table is based on the "14.6. Built-In Variables" section from
+ * the Vulkan spec.
  */
 static const struct vkd3d_spirv_builtin
 {
@@ -2834,6 +2810,8 @@ vkd3d_spirv_builtin_table[] =
     {VKD3D_SIV_POSITION,    ~0u, VKD3D_TYPE_FLOAT, 4, SpvBuiltInPosition},
     {VKD3D_SIV_VERTEX_ID,   ~0u, VKD3D_TYPE_INT,   1, SpvBuiltInVertexIndex},
     {VKD3D_SIV_INSTANCE_ID, ~0u, VKD3D_TYPE_INT,   1, SpvBuiltInInstanceIndex, vkd3d_spirv_instance_id_fixup},
+
+    {VKD3D_SIV_RENDER_TARGET_ARRAY_INDEX, ~0u, VKD3D_TYPE_INT, 1, SpvBuiltInLayer},
 
     {VKD3D_SIV_IS_FRONT_FACE, ~0u, VKD3D_TYPE_BOOL, 1, SpvBuiltInFrontFacing, vkd3d_spirv_front_facing_fixup},
 };
