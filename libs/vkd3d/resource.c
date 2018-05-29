@@ -999,6 +999,11 @@ static bool vkd3d_create_buffer_view(struct d3d12_device *device,
 static void vkd3d_set_view_swizzle_for_format(VkComponentMapping *components,
         const struct vkd3d_format *format, bool allowed_swizzle)
 {
+    components->r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    components->g = VK_COMPONENT_SWIZZLE_IDENTITY;
+    components->b = VK_COMPONENT_SWIZZLE_IDENTITY;
+    components->a = VK_COMPONENT_SWIZZLE_IDENTITY;
+
     if (format->vk_aspect_mask == VK_IMAGE_ASPECT_STENCIL_BIT)
     {
         if (allowed_swizzle)
@@ -1007,7 +1012,6 @@ static void vkd3d_set_view_swizzle_for_format(VkComponentMapping *components,
             components->g = VK_COMPONENT_SWIZZLE_R;
             components->b = VK_COMPONENT_SWIZZLE_ZERO;
             components->a = VK_COMPONENT_SWIZZLE_ZERO;
-            return;
         }
         else
         {
@@ -1024,18 +1028,12 @@ static void vkd3d_set_view_swizzle_for_format(VkComponentMapping *components,
             components->g = VK_COMPONENT_SWIZZLE_ZERO;
             components->b = VK_COMPONENT_SWIZZLE_ZERO;
             components->a = VK_COMPONENT_SWIZZLE_R;
-            return;
         }
         else
         {
             FIXME("Alpha swizzle is not supported.\n");
         }
     }
-
-    components->r = VK_COMPONENT_SWIZZLE_R;
-    components->g = VK_COMPONENT_SWIZZLE_G;
-    components->b = VK_COMPONENT_SWIZZLE_B;
-    components->a = VK_COMPONENT_SWIZZLE_A;
 }
 
 static VkResult vkd3d_create_texture_view(struct d3d12_device *device,
