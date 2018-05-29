@@ -479,6 +479,9 @@ enum vkd3d_tessellator_partitioning
     VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_EVEN = 4,
 };
 
+
+#define VKD3DSI_TEXLD_PROJECT     0x1
+
 #define VKD3DSI_INDEXED_DYNAMIC   0x4
 #define VKD3DSI_RESINFO_RCP_FLOAT 0x1
 #define VKD3DSI_RESINFO_UINT      0x2
@@ -573,7 +576,8 @@ struct vkd3d_shader_register
     enum vkd3d_immconst_type immconst_type;
     union
     {
-        DWORD immconst_data[VKD3D_VEC4_SIZE];
+        DWORD immconst_uint[VKD3D_VEC4_SIZE];
+        float immconst_float[VKD3D_VEC4_SIZE];
         unsigned fp_body_idx;
     } u;
 };
@@ -743,6 +747,8 @@ struct vkd3d_shader_instruction
     const struct vkd3d_shader_dst_param *dst;
     const struct vkd3d_shader_src_param *src;
     struct vkd3d_shader_texel_offset texel_offset;
+    bool coissue;
+    const struct vkd3d_shader_src_param *predicate;
     union
     {
         struct vkd3d_shader_semantic semantic;
@@ -771,6 +777,8 @@ static inline BOOL vkd3d_shader_instruction_has_texel_offset(const struct vkd3d_
 {
     return ins->texel_offset.u || ins->texel_offset.v || ins->texel_offset.w;
 }
+
+void vkd3d_shader_trace(void *data) DECLSPEC_HIDDEN;
 
 void *shader_sm4_init(const DWORD *byte_code, size_t byte_code_size,
         const struct vkd3d_shader_signature *output_signature) DECLSPEC_HIDDEN;

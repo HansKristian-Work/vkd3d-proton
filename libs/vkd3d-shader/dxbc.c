@@ -1485,18 +1485,18 @@ static BOOL shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
                     WARN("Invalid ptr %p, end %p.\n", *ptr, end);
                     return FALSE;
                 }
-                memcpy(param->u.immconst_data, *ptr, 1 * sizeof(DWORD));
+                memcpy(param->u.immconst_uint, *ptr, 1 * sizeof(DWORD));
                 *ptr += 1;
                 break;
 
             case VKD3D_SM4_IMMCONST_VEC4:
                 param->immconst_type = VKD3D_IMMCONST_VEC4;
-                if (end - *ptr < 4)
+                if (end - *ptr < VKD3D_VEC4_SIZE)
                 {
                     WARN("Invalid ptr %p, end %p.\n", *ptr, end);
                     return FALSE;
                 }
-                memcpy(param->u.immconst_data, *ptr, 4 * sizeof(DWORD));
+                memcpy(param->u.immconst_uint, *ptr, VKD3D_VEC4_SIZE * sizeof(DWORD));
                 *ptr += 4;
                 break;
 
@@ -1692,6 +1692,8 @@ void shader_sm4_read_instruction(void *data, const DWORD **ptr, struct vkd3d_sha
 
     ins->handler_idx = opcode_info->handler_idx;
     ins->flags = 0;
+    ins->coissue = false;
+    ins->predicate = NULL;
     ins->dst_count = strlen(opcode_info->dst_info);
     ins->dst = priv->dst_param;
     ins->src_count = strlen(opcode_info->src_info);

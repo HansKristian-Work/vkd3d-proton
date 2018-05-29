@@ -76,6 +76,9 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
         return ret;
 
+    if (TRACE_ON())
+        vkd3d_shader_trace(parser.data);
+
     if (!(spirv_compiler = vkd3d_dxbc_compiler_create(&parser.shader_version,
             &parser.shader_desc, compiler_options, shader_interface, compile_args, &scan_info)))
     {

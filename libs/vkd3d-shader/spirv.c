@@ -2386,14 +2386,14 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_constant(struct vkd3d_dxbc_compile
     if (reg->immconst_type == VKD3D_IMMCONST_SCALAR)
     {
         assert(component_count == 1);
-        values[0] = *reg->u.immconst_data;
+        values[0] = *reg->u.immconst_uint;
     }
     else
     {
         for (i = 0, j = 0; i < VKD3D_VEC4_SIZE; ++i)
         {
             if (write_mask & (VKD3DSP_WRITEMASK_0 << i))
-                values[j++] = reg->u.immconst_data[vkd3d_swizzle_get_component(swizzle, i)];
+                values[j++] = reg->u.immconst_uint[vkd3d_swizzle_get_component(swizzle, i)];
         }
     }
 
@@ -4598,7 +4598,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             assert(cf_info->current_block == VKD3D_BLOCK_SWITCH);
 
             assert(src->swizzle == VKD3D_NO_SWIZZLE && src->reg.type == VKD3DSPR_IMMCONST);
-            value = *src->reg.u.immconst_data;
+            value = *src->reg.u.immconst_uint;
 
             if (!vkd3d_array_reserve((void **)&cf_info->u.switch_.case_blocks, &cf_info->u.switch_.case_blocks_size,
                     2 * (cf_info->u.switch_.case_block_count + 1), sizeof(*cf_info->u.switch_.case_blocks)))
