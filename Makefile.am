@@ -71,7 +71,7 @@ libvkd3d_shader_la_SOURCES = \
 	libs/vkd3d-shader/vkd3d_shader.map \
 	libs/vkd3d-shader/vkd3d_shader_main.c \
 	libs/vkd3d-shader/vkd3d_shader_private.h
-libvkd3d_shader_la_CFLAGS = @SPIRV_TOOLS_CFLAGS@
+libvkd3d_shader_la_CFLAGS = $(AM_CFLAGS) @SPIRV_TOOLS_CFLAGS@
 libvkd3d_shader_la_LIBADD = @SPIRV_TOOLS_LIBS@
 if HAVE_LD_VERSION_SCRIPT
 libvkd3d_shader_la_LDFLAGS = -Wl,--version-script=$(srcdir)/libs/vkd3d-shader/vkd3d_shader.map
@@ -130,7 +130,7 @@ tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@
 tests_vkd3d_api_LDADD = libvkd3d.la @VULKAN_LIBS@
 
 DEMOS_LDADD = $(LDADD) libvkd3d-shader.la @XCB_LIBS@ @VULKAN_LIBS@
-DEMOS_CFLAGS = @XCB_CFLAGS@
+DEMOS_CFLAGS = $(AM_CFLAGS) @XCB_CFLAGS@
 noinst_PROGRAMS += $(vkd3d_demos)
 EXTRA_DIST += $(vkd3d_test_headers) $(vkd3d_demos_headers)
 
