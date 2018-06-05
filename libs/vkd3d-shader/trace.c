@@ -1234,11 +1234,50 @@ static void shader_dump_interpolation_mode(struct vkd3d_string_buffer *buffer,
     }
 }
 
+static void shader_dump_version(struct vkd3d_string_buffer *buffer,
+        const struct vkd3d_shader_version *shader_version)
+{
+    const char *prefix;
+
+    switch (shader_version->type)
+    {
+        case VKD3D_SHADER_TYPE_VERTEX:
+            prefix = "vs";
+            break;
+
+        case VKD3D_SHADER_TYPE_HULL:
+            prefix = "hs";
+            break;
+
+        case VKD3D_SHADER_TYPE_DOMAIN:
+            prefix = "ds";
+            break;
+
+        case VKD3D_SHADER_TYPE_GEOMETRY:
+            prefix = "gs";
+            break;
+
+        case VKD3D_SHADER_TYPE_PIXEL:
+            prefix = "ps";
+            break;
+
+        case VKD3D_SHADER_TYPE_COMPUTE:
+            prefix = "cs";
+            break;
+
+        default:
+            FIXME("Unhandled shader type %#x.\n", shader_version->type);
+            prefix = "unknown";
+            break;
+    }
+
+    shader_addline(buffer, "%s_%u_%u\n", prefix, shader_version->major, shader_version->minor);
+}
+
 void vkd3d_shader_trace(void *data)
 {
     struct vkd3d_shader_version shader_version;
     struct vkd3d_string_buffer buffer;
-    const char *type_prefix;
     const char *p, *q;
     const DWORD *ptr;
     DWORD i;
@@ -1250,42 +1289,7 @@ void vkd3d_shader_trace(void *data)
     }
 
     shader_sm4_read_header(data, &ptr, &shader_version);
-
-    TRACE("Parsing %p.\n", ptr);
-
-    switch (shader_version.type)
-    {
-        case VKD3D_SHADER_TYPE_VERTEX:
-            type_prefix = "vs";
-            break;
-
-        case VKD3D_SHADER_TYPE_HULL:
-            type_prefix = "hs";
-            break;
-
-        case VKD3D_SHADER_TYPE_DOMAIN:
-            type_prefix = "ds";
-            break;
-
-        case VKD3D_SHADER_TYPE_GEOMETRY:
-            type_prefix = "gs";
-            break;
-
-        case VKD3D_SHADER_TYPE_PIXEL:
-            type_prefix = "ps";
-            break;
-
-        case VKD3D_SHADER_TYPE_COMPUTE:
-            type_prefix = "cs";
-            break;
-
-        default:
-            FIXME("Unhandled shader type %#x.\n", shader_version.type);
-            type_prefix = "unknown";
-            break;
-    }
-
-    shader_addline(&buffer, "%s_%u_%u\n", type_prefix, shader_version.major, shader_version.minor);
+    shader_dump_version(&buffer, &shader_version);
 
     while (!shader_sm4_is_end(data, &ptr))
     {
