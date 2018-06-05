@@ -1274,6 +1274,72 @@ static void shader_dump_version(struct vkd3d_string_buffer *buffer,
     shader_addline(buffer, "%s_%u_%u\n", prefix, shader_version->major, shader_version->minor);
 }
 
+static void shader_dump_instruction_flags(struct vkd3d_string_buffer *buffer,
+        const struct vkd3d_shader_instruction *ins, const struct vkd3d_shader_version *shader_version)
+{
+    switch (ins->handler_idx)
+    {
+        case VKD3DSIH_BREAKP:
+        case VKD3DSIH_CONTINUEP:
+        case VKD3DSIH_IF:
+        case VKD3DSIH_RETP:
+        case VKD3DSIH_TEXKILL:
+            switch (ins->flags)
+            {
+                case VKD3D_SHADER_CONDITIONAL_OP_NZ: shader_addline(buffer, "_nz"); break;
+                case VKD3D_SHADER_CONDITIONAL_OP_Z:  shader_addline(buffer, "_z"); break;
+                default: shader_addline(buffer, "_unrecognized(%#x)", ins->flags); break;
+            }
+            break;
+
+        case VKD3DSIH_IFC:
+        case VKD3DSIH_BREAKC:
+            switch (ins->flags)
+            {
+                case VKD3D_SHADER_REL_OP_GT: shader_addline(buffer, "_gt"); break;
+                case VKD3D_SHADER_REL_OP_EQ: shader_addline(buffer, "_eq"); break;
+                case VKD3D_SHADER_REL_OP_GE: shader_addline(buffer, "_ge"); break;
+                case VKD3D_SHADER_REL_OP_LT: shader_addline(buffer, "_lt"); break;
+                case VKD3D_SHADER_REL_OP_NE: shader_addline(buffer, "_ne"); break;
+                case VKD3D_SHADER_REL_OP_LE: shader_addline(buffer, "_le"); break;
+                default: shader_addline(buffer, "_(%u)", ins->flags);
+            }
+            break;
+
+        case VKD3DSIH_RESINFO:
+            switch (ins->flags)
+            {
+                case VKD3DSI_NONE: break;
+                case VKD3DSI_RESINFO_RCP_FLOAT: shader_addline(buffer, "_rcpFloat"); break;
+                case VKD3DSI_RESINFO_UINT: shader_addline(buffer, "_uint"); break;
+                default: shader_addline(buffer, "_unrecognized(%#x)", ins->flags);
+            }
+            break;
+
+        case VKD3DSIH_SAMPLE_INFO:
+            switch (ins->flags)
+            {
+                case VKD3DSI_NONE: break;
+                case VKD3DSI_SAMPLE_INFO_UINT: shader_addline(buffer, "_uint"); break;
+                default: shader_addline(buffer, "_unrecognized(%#x)", ins->flags);
+            }
+            break;
+
+        case VKD3DSIH_SYNC:
+            shader_dump_sync_flags(buffer, ins->flags);
+            break;
+
+        case VKD3DSIH_TEX:
+            if (shader_version->major >= 2 && (ins->flags & VKD3DSI_TEXLD_PROJECT))
+                shader_addline(buffer, "p");
+            break;
+
+        default:
+            shader_dump_precise_flags(buffer, ins->flags);
+            break;
+    }
+}
+
 void vkd3d_shader_trace(void *data)
 {
     struct vkd3d_shader_version shader_version;
@@ -1518,65 +1584,7 @@ void vkd3d_shader_trace(void *data)
 
             shader_addline(&buffer, "%s", shader_opcode_names[ins.handler_idx]);
 
-            if (ins.handler_idx == VKD3DSIH_BREAKP
-                    || ins.handler_idx == VKD3DSIH_CONTINUEP
-                    || ins.handler_idx == VKD3DSIH_IF
-                    || ins.handler_idx == VKD3DSIH_RETP
-                    || ins.handler_idx == VKD3DSIH_TEXKILL)
-            {
-                switch (ins.flags)
-                {
-                    case VKD3D_SHADER_CONDITIONAL_OP_NZ: shader_addline(&buffer, "_nz"); break;
-                    case VKD3D_SHADER_CONDITIONAL_OP_Z:  shader_addline(&buffer, "_z"); break;
-                    default: shader_addline(&buffer, "_unrecognized(%#x)", ins.flags); break;
-                }
-            }
-            else if (ins.handler_idx == VKD3DSIH_IFC
-                    || ins.handler_idx == VKD3DSIH_BREAKC)
-            {
-                switch (ins.flags)
-                {
-                    case VKD3D_SHADER_REL_OP_GT: shader_addline(&buffer, "_gt"); break;
-                    case VKD3D_SHADER_REL_OP_EQ: shader_addline(&buffer, "_eq"); break;
-                    case VKD3D_SHADER_REL_OP_GE: shader_addline(&buffer, "_ge"); break;
-                    case VKD3D_SHADER_REL_OP_LT: shader_addline(&buffer, "_lt"); break;
-                    case VKD3D_SHADER_REL_OP_NE: shader_addline(&buffer, "_ne"); break;
-                    case VKD3D_SHADER_REL_OP_LE: shader_addline(&buffer, "_le"); break;
-                    default: shader_addline(&buffer, "_(%u)", ins.flags);
-                }
-            }
-            else if (ins.handler_idx == VKD3DSIH_TEX
-                    && shader_version.major >= 2
-                    && (ins.flags & VKD3DSI_TEXLD_PROJECT))
-            {
-                shader_addline(&buffer, "p");
-            }
-            else if (ins.handler_idx == VKD3DSIH_RESINFO && ins.flags)
-            {
-                switch (ins.flags)
-                {
-                    case VKD3DSI_RESINFO_RCP_FLOAT: shader_addline(&buffer, "_rcpFloat"); break;
-                    case VKD3DSI_RESINFO_UINT: shader_addline(&buffer, "_uint"); break;
-                    default: shader_addline(&buffer, "_unrecognized(%#x)", ins.flags);
-                }
-            }
-            else if (ins.handler_idx == VKD3DSIH_SAMPLE_INFO && ins.flags)
-            {
-                switch (ins.flags)
-                {
-                    case VKD3DSI_SAMPLE_INFO_UINT: shader_addline(&buffer, "_uint"); break;
-                    default: shader_addline(&buffer, "_unrecognized(%#x)", ins.flags);
-                }
-            }
-            else if (ins.handler_idx == VKD3DSIH_SYNC)
-            {
-                shader_dump_sync_flags(&buffer, ins.flags);
-            }
-            else
-            {
-                shader_dump_precise_flags(&buffer, ins.flags);
-            }
-
+            shader_dump_instruction_flags(&buffer, &ins, &shader_version);
             if (vkd3d_shader_instruction_has_texel_offset(&ins))
                 shader_addline(&buffer, "(%d,%d,%d)", ins.texel_offset.u, ins.texel_offset.v, ins.texel_offset.w);
 
