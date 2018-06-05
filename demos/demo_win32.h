@@ -25,10 +25,6 @@
 
 struct demo
 {
-    HMODULE d3dcompiler;
-    HRESULT (WINAPI *compile_from_file)(const WCHAR *filename, const void *defines, void *include,
-            const char *entry_point, const char *profile, UINT flags1, UINT flags2,
-            ID3DBlob **code, ID3DBlob **errors);
     size_t window_count;
     bool quit;
 
@@ -198,11 +194,6 @@ static inline bool demo_init(struct demo *demo, void *user_data)
 {
     WNDCLASSEXW wc;
 
-    if (!(demo->d3dcompiler = LoadLibraryW(L"d3dcompiler_47")))
-        return false;
-    if (!(demo->compile_from_file = (void *)GetProcAddress(demo->d3dcompiler, "D3DCompileFromFile")))
-        goto fail;
-
     wc.cbSize = sizeof(wc);
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = demo_window_proc;
@@ -216,7 +207,7 @@ static inline bool demo_init(struct demo *demo, void *user_data)
     wc.lpszClassName = DEMO_WINDOW_CLASS_NAME;
     wc.hIconSm = LoadIconW(NULL, IDI_WINLOGO);
     if (!RegisterClassExW(&wc))
-        goto fail;
+        return false;
 
     demo->window_count = 0;
     demo->quit = false;
@@ -224,16 +215,11 @@ static inline bool demo_init(struct demo *demo, void *user_data)
     demo->idle_func = NULL;
 
     return true;
-
-fail:
-    FreeLibrary(demo->d3dcompiler);
-    return false;
 }
 
 static inline void demo_cleanup(struct demo *demo)
 {
     UnregisterClassW(DEMO_WINDOW_CLASS_NAME, GetModuleHandle(NULL));
-    FreeLibrary(demo->d3dcompiler);
 }
 
 static inline void demo_set_idle_func(struct demo *demo,
