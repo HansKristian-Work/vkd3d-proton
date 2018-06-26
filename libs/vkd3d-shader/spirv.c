@@ -2747,7 +2747,7 @@ typedef uint32_t (*vkd3d_spirv_builtin_fixup_pfn)(struct vkd3d_dxbc_compiler *co
         uint32_t val_id);
 
 /* Substitute "InstanceIndex - BaseInstance" for SV_InstanceID. */
-static uint32_t vkd3d_spirv_instance_id_fixup(struct vkd3d_dxbc_compiler *compiler,
+static uint32_t sv_instance_id_fixup(struct vkd3d_dxbc_compiler *compiler,
         uint32_t instance_index_id)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -2773,47 +2773,57 @@ static uint32_t vkd3d_spirv_instance_id_fixup(struct vkd3d_dxbc_compiler *compil
             type_id, instance_index_id, base_instance_id);
 }
 
-static uint32_t vkd3d_spirv_front_facing_fixup(struct vkd3d_dxbc_compiler *compiler,
+static uint32_t sv_front_face_fixup(struct vkd3d_dxbc_compiler *compiler,
         uint32_t front_facing_id)
 {
     return vkd3d_dxbc_compiler_emit_bool_to_int(compiler, 1, front_facing_id);
 }
 
-/*
- * The following table is based on the "14.6. Built-In Variables" section from
- * the Vulkan spec.
- */
-static const struct vkd3d_spirv_builtin
+struct vkd3d_spirv_builtin
 {
-    enum vkd3d_shader_input_sysval_semantic sysval;
-    enum vkd3d_shader_register_type reg_type;
-
     enum vkd3d_component_type component_type;
     unsigned int component_count;
     SpvBuiltIn spirv_builtin;
     vkd3d_spirv_builtin_fixup_pfn fixup_pfn;
-}
-vkd3d_spirv_builtin_table[] =
+};
+
+/*
+ * The following tables are based on the "14.6. Built-In Variables" section
+ * from the Vulkan spec.
+ */
+static const struct
 {
-    {VKD3D_SIV_NONE, VKD3DSPR_THREADID,         VKD3D_TYPE_INT, 3, SpvBuiltInGlobalInvocationId},
-    {VKD3D_SIV_NONE, VKD3DSPR_LOCALTHREADID,    VKD3D_TYPE_INT, 3, SpvBuiltInLocalInvocationId},
-    {VKD3D_SIV_NONE, VKD3DSPR_LOCALTHREADINDEX, VKD3D_TYPE_INT, 1, SpvBuiltInLocalInvocationIndex},
-    {VKD3D_SIV_NONE, VKD3DSPR_THREADGROUPID,    VKD3D_TYPE_INT, 3, SpvBuiltInWorkgroupId},
+    enum vkd3d_shader_input_sysval_semantic sysval;
+    struct vkd3d_spirv_builtin builtin;
+}
+vkd3d_system_value_builtins[] =
+{
+    {VKD3D_SIV_POSITION,    {VKD3D_TYPE_FLOAT, 4, SpvBuiltInPosition}},
+    {VKD3D_SIV_VERTEX_ID,   {VKD3D_TYPE_INT,   1, SpvBuiltInVertexIndex}},
+    {VKD3D_SIV_INSTANCE_ID, {VKD3D_TYPE_INT,   1, SpvBuiltInInstanceIndex, sv_instance_id_fixup}},
 
-    {VKD3D_SIV_NONE, VKD3DSPR_GSINSTID,         VKD3D_TYPE_INT, 1, SpvBuiltInInvocationId},
-    {VKD3D_SIV_NONE, VKD3DSPR_OUTPOINTID,       VKD3D_TYPE_INT, 1, SpvBuiltInInvocationId},
+    {VKD3D_SIV_RENDER_TARGET_ARRAY_INDEX, {VKD3D_TYPE_INT, 1, SpvBuiltInLayer}},
 
-    {VKD3D_SIV_NONE, VKD3DSPR_TESSCOORD,        VKD3D_TYPE_FLOAT, 3, SpvBuiltInTessCoord},
+    {VKD3D_SIV_IS_FRONT_FACE, {VKD3D_TYPE_BOOL, 1, SpvBuiltInFrontFacing, sv_front_face_fixup}},
+};
+static const struct
+{
+    enum vkd3d_shader_register_type reg_type;
+    struct vkd3d_spirv_builtin builtin;
+}
+vkd3d_register_builtins[] =
+{
+    {VKD3DSPR_THREADID,         {VKD3D_TYPE_INT, 3, SpvBuiltInGlobalInvocationId}},
+    {VKD3DSPR_LOCALTHREADID,    {VKD3D_TYPE_INT, 3, SpvBuiltInLocalInvocationId}},
+    {VKD3DSPR_LOCALTHREADINDEX, {VKD3D_TYPE_INT, 1, SpvBuiltInLocalInvocationIndex}},
+    {VKD3DSPR_THREADGROUPID,    {VKD3D_TYPE_INT, 3, SpvBuiltInWorkgroupId}},
 
-    {VKD3D_SIV_NONE, VKD3DSPR_DEPTHOUT,         VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth},
+    {VKD3DSPR_GSINSTID,         {VKD3D_TYPE_INT, 1, SpvBuiltInInvocationId}},
+    {VKD3DSPR_OUTPOINTID,       {VKD3D_TYPE_INT, 1, SpvBuiltInInvocationId}},
 
-    {VKD3D_SIV_POSITION,    ~0u, VKD3D_TYPE_FLOAT, 4, SpvBuiltInPosition},
-    {VKD3D_SIV_VERTEX_ID,   ~0u, VKD3D_TYPE_INT,   1, SpvBuiltInVertexIndex},
-    {VKD3D_SIV_INSTANCE_ID, ~0u, VKD3D_TYPE_INT,   1, SpvBuiltInInstanceIndex, vkd3d_spirv_instance_id_fixup},
+    {VKD3DSPR_TESSCOORD,        {VKD3D_TYPE_FLOAT, 3, SpvBuiltInTessCoord}},
 
-    {VKD3D_SIV_RENDER_TARGET_ARRAY_INDEX, ~0u, VKD3D_TYPE_INT, 1, SpvBuiltInLayer},
-
-    {VKD3D_SIV_IS_FRONT_FACE, ~0u, VKD3D_TYPE_BOOL, 1, SpvBuiltInFrontFacing, vkd3d_spirv_front_facing_fixup},
+    {VKD3DSPR_DEPTHOUT,         {VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth}},
 };
 
 static const struct vkd3d_spirv_builtin *vkd3d_get_spirv_builtin(enum vkd3d_shader_register_type reg_type,
@@ -2821,15 +2831,16 @@ static const struct vkd3d_spirv_builtin *vkd3d_get_spirv_builtin(enum vkd3d_shad
 {
     unsigned int i;
 
-    for (i = 0; i < ARRAY_SIZE(vkd3d_spirv_builtin_table); ++i)
+    for (i = 0; i < ARRAY_SIZE(vkd3d_system_value_builtins); ++i)
     {
-        const struct vkd3d_spirv_builtin* current = &vkd3d_spirv_builtin_table[i];
+        if (vkd3d_system_value_builtins[i].sysval == sysval)
+            return &vkd3d_system_value_builtins[i].builtin;
+    }
 
-        if (current->sysval == VKD3D_SIV_NONE && current->reg_type == reg_type)
-            return current;
-
-        if (current->reg_type == ~0u && current->sysval == sysval)
-            return current;
+    for (i = 0; i < ARRAY_SIZE(vkd3d_register_builtins); ++i)
+    {
+        if (vkd3d_register_builtins[i].reg_type == reg_type)
+            return &vkd3d_register_builtins[i].builtin;
     }
 
     if (sysval != VKD3D_SIV_NONE
