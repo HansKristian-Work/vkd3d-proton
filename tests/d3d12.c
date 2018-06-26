@@ -4919,6 +4919,26 @@ static void test_shader_instructions(void)
         0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_dot2 = {ps_dot2_code, sizeof(ps_dot2_code)};
+    static const DWORD ps_dot3_code[] =
+    {
+#if 0
+        float4 src0;
+        float3 src1;
+
+        float4 main() : SV_Target
+        {
+            return dot(src0, src1);
+        }
+#endif
+        0x43425844, 0xa75a4a95, 0x5d09936e, 0xdc5c694f, 0x68b6b04f, 0x00000001, 0x000000c8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000050, 0x00000050, 0x00000014,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000002, 0x03000065, 0x001020f2, 0x00000000,
+        0x09000010, 0x001020f2, 0x00000000, 0x00208246, 0x00000000, 0x00000000, 0x00208246, 0x00000000,
+        0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_dot3 = {ps_dot3_code, sizeof(ps_dot3_code)};
     static const DWORD ps_eq_code[] =
     {
 #if 0
@@ -6118,6 +6138,9 @@ static void test_shader_instructions(void)
 
         {&ps_dot2, {{1.0f, 1.0f}, {1.0f, 1.0f}}, {{2.0f}}},
         {&ps_dot2, {{1.0f, 1.0f}, {2.0f, 3.0f}}, {{5.0f}}},
+
+        {&ps_dot3, {{1.0f, 2.0f, 3.0f, 4.0f}, {1.0f, 1.0f, 1.0f, 1.0f}}, {{6.0f, 6.0f, 6.0f, 6.0f}}},
+        {&ps_dot3, {{1.0f, 2.0f, 3.0f}, {3.0f, 1.0f, 2.0f}}, {{11.0f, 11.0f, 11.0f, 11.0f}}},
 
         {&ps_eq, {{0.0f}, {0.0f}}, {.u = {0xffffffff}}},
         {&ps_eq, {{1.0f}, {0.0f}}, {.u = {0x00000000}}},

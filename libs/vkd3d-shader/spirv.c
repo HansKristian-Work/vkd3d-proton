@@ -2219,6 +2219,35 @@ static uint32_t vkd3d_dxbc_compiler_emit_array_variable(struct vkd3d_dxbc_compil
     return vkd3d_spirv_build_op_variable(builder, stream, ptr_type_id, storage_class, 0);
 }
 
+static uint32_t vkd3d_dxbc_compiler_emit_construct_vector(struct vkd3d_dxbc_compiler *compiler,
+        enum vkd3d_component_type component_type, unsigned int component_count,
+        uint32_t val_id, unsigned int val_component_idx, unsigned int val_component_count)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t components[VKD3D_VEC4_SIZE];
+    uint32_t type_id, result_id;
+    unsigned int i;
+
+    assert(val_component_idx < val_component_count);
+
+    type_id = vkd3d_spirv_get_type_id(builder, component_type, component_count);
+    if (val_component_count == 1)
+    {
+        for (i = 0; i < component_count; ++i)
+            components[i] = val_id;
+        result_id = vkd3d_spirv_build_op_composite_construct(builder,
+                type_id, components, component_count);
+    }
+    else
+    {
+        for (i = 0; i < component_count; ++i)
+            components[i] = val_component_idx;
+        result_id = vkd3d_spirv_build_op_vector_shuffle(builder,
+                type_id, val_id, val_id, components, component_count);
+    }
+    return result_id;
+}
+
 static uint32_t vkd3d_dxbc_compiler_emit_load_src(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_src_param *src, DWORD write_mask);
 
@@ -4202,11 +4231,13 @@ static void vkd3d_dxbc_compiler_emit_dot(struct vkd3d_dxbc_compiler *compiler,
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
+    enum vkd3d_component_type component_type;
     uint32_t type_id, val_id, src_ids[2];
+    unsigned int component_count, i;
     DWORD write_mask;
-    unsigned int i;
 
-    assert(vkd3d_write_mask_component_count(dst->write_mask) == 1);
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    component_type = vkd3d_component_type_from_data_type(dst->reg.data_type);
 
     if (instruction->handler_idx == VKD3DSIH_DP4)
         write_mask = VKD3DSP_WRITEMASK_ALL;
@@ -4219,11 +4250,15 @@ static void vkd3d_dxbc_compiler_emit_dot(struct vkd3d_dxbc_compiler *compiler,
     for (i = 0; i < ARRAY_SIZE(src_ids); ++i)
         src_ids[i] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[i], write_mask);
 
-    type_id = vkd3d_spirv_get_type_id(builder,
-            vkd3d_component_type_from_data_type(dst->reg.data_type), 1);
+    type_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
 
     val_id = vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
             SpvOpDot, type_id, src_ids[0], src_ids[1]);
+    if (component_count > 1)
+    {
+        val_id = vkd3d_dxbc_compiler_emit_construct_vector(compiler,
+                component_type, component_count, val_id, 0, 1);
+    }
 
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
@@ -5270,35 +5305,6 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured(struct vkd3d_dxbc_compile
     }
 }
 
-static uint32_t vkd3d_dxbc_compiler_emit_construct_vec4(struct vkd3d_dxbc_compiler *compiler,
-        uint32_t val_id, enum vkd3d_component_type component_type,
-        unsigned int component_idx, unsigned int component_count)
-{
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    uint32_t components[VKD3D_VEC4_SIZE];
-    uint32_t type_id, result_id;
-    unsigned int i;
-
-    assert(component_idx < component_count);
-
-    type_id = vkd3d_spirv_get_type_id(builder, component_type, VKD3D_VEC4_SIZE);
-    if (component_count == 1)
-    {
-        for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
-            components[i] = val_id;
-        result_id = vkd3d_spirv_build_op_composite_construct(builder,
-                type_id, components, VKD3D_VEC4_SIZE);
-    }
-    else
-    {
-        for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
-            components[i] = component_idx;
-        result_id = vkd3d_spirv_build_op_vector_shuffle(builder,
-                type_id, val_id, val_id, components, VKD3D_VEC4_SIZE);
-    }
-    return result_id;
-}
-
 static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -5325,8 +5331,8 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
     for (component_idx = 0; component_idx < component_count; ++component_idx)
     {
         /* Mesa Vulkan drivers require the texel parameter to be a vector. */
-        texel_id = vkd3d_dxbc_compiler_emit_construct_vec4(compiler,
-                val_id, VKD3D_TYPE_UINT, component_idx, component_count);
+        texel_id = vkd3d_dxbc_compiler_emit_construct_vector(compiler,
+                VKD3D_TYPE_UINT, VKD3D_VEC4_SIZE, val_id, component_idx, component_count);
 
         coordinate_id = base_coordinate_id;
         if (component_idx)
