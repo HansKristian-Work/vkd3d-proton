@@ -2983,16 +2983,17 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_signature_element *signature_element;
     const struct vkd3d_shader_register *reg = &dst->reg;
+    uint32_t type_id, ptr_type_id, float_type_id;
     const struct vkd3d_spirv_builtin *builtin;
     enum vkd3d_component_type component_type;
     uint32_t val_id, input_id, var_id;
-    uint32_t type_id, float_type_id;
     struct vkd3d_symbol reg_symbol;
     SpvStorageClass storage_class;
     struct rb_entry *entry = NULL;
     bool use_private_var = false;
     unsigned int array_size;
     unsigned int reg_idx;
+    uint32_t i, index;
 
     assert(!reg->idx[0].rel_addr);
     assert(!reg->idx[1].rel_addr);
@@ -3071,22 +3072,36 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     if (use_private_var)
     {
         type_id = vkd3d_spirv_get_type_id(builder, component_type, input_component_count);
-        val_id = vkd3d_spirv_build_op_load(builder, type_id, input_id, SpvMemoryAccessMaskNone);
-
-        if (builtin && builtin->fixup_pfn)
-            val_id = builtin->fixup_pfn(compiler, val_id);
-
-        if (component_type != VKD3D_TYPE_FLOAT)
+        for (i = 0; i < max(array_size, 1); ++i)
         {
-            float_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, input_component_count);
-            val_id = vkd3d_spirv_build_op_bitcast(builder, float_type_id, val_id);
+            struct vkd3d_shader_register dst_reg = *reg;
+
+            val_id = input_id;
+            if (array_size)
+            {
+                ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassInput, type_id);
+                index = vkd3d_dxbc_compiler_get_constant_uint(compiler, i);
+                val_id = vkd3d_spirv_build_op_in_bounds_access_chain(builder,
+                        ptr_type_id, input_id, &index, 1);
+                dst_reg.idx[0].offset = i;
+            }
+            val_id = vkd3d_spirv_build_op_load(builder, type_id, val_id, SpvMemoryAccessMaskNone);
+
+            if (builtin && builtin->fixup_pfn)
+                val_id = builtin->fixup_pfn(compiler, val_id);
+
+            if (component_type != VKD3D_TYPE_FLOAT)
+            {
+                float_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, input_component_count);
+                val_id = vkd3d_spirv_build_op_bitcast(builder, float_type_id, val_id);
+            }
+
+            if (input_component_count != component_count)
+                val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
+                        val_id, VKD3D_TYPE_FLOAT, VKD3D_NO_SWIZZLE, dst->write_mask);
+
+            vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst_reg, dst->write_mask, val_id);
         }
-
-        if (input_component_count != component_count)
-            val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-                    val_id, VKD3D_TYPE_FLOAT, VKD3D_NO_SWIZZLE, dst->write_mask);
-
-        vkd3d_dxbc_compiler_emit_store_reg(compiler, reg, dst->write_mask, val_id);
     }
 
     return input_id;
