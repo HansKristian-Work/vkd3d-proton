@@ -1534,6 +1534,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
         struct d3d12_resource *resource, const D3D12_RENDER_TARGET_VIEW_DESC *desc)
 {
     const struct vkd3d_format *format;
+    VkImageViewType vk_view_type;
     uint32_t miplevel_idx;
 
     d3d12_rtv_desc_destroy(rtv_desc, device);
@@ -1566,13 +1567,16 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
         FIXME("Ignoring plane slice %u.\n", desc->u.Texture2D.PlaneSlice);
 
     miplevel_idx = desc ? desc->u.Texture2D.MipSlice : 0;
-    if (vkd3d_create_texture_view(device, resource, format, VK_IMAGE_VIEW_TYPE_2D,
-            miplevel_idx, 1, 0, 1, false, &rtv_desc->vk_view) < 0)
+    vk_view_type = resource->desc.DepthOrArraySize > 1
+            ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+    if (vkd3d_create_texture_view(device, resource, format, vk_view_type,
+            miplevel_idx, 1, 0, VK_REMAINING_ARRAY_LAYERS, false, &rtv_desc->vk_view) < 0)
         return;
 
     rtv_desc->format = format->vk_format;
     rtv_desc->width = d3d12_resource_desc_get_width(&resource->desc, miplevel_idx);
     rtv_desc->height = d3d12_resource_desc_get_height(&resource->desc, miplevel_idx);
+    rtv_desc->layer_count = resource->desc.DepthOrArraySize;
     rtv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_RTV;
     rtv_desc->resource = resource;
 }

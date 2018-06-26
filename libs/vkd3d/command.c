@@ -1583,7 +1583,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_ClearState(ID3D12GraphicsCom
 }
 
 static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
-        uint32_t *width, uint32_t *height)
+        uint32_t *width, uint32_t *height, uint32_t *layer_count)
 {
     struct d3d12_device *device = list->device;
 
@@ -1591,11 +1591,15 @@ static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
     {
         *width = list->fb_width;
         *height = list->fb_height;
+        if (layer_count)
+            *layer_count = list->fb_layer_count;
     }
     else
     {
         *width = device->vk_info.device_limits.maxFramebufferWidth;
         *height = device->vk_info.device_limits.maxFramebufferHeight;
+        if (layer_count)
+            *layer_count = 1;
     }
 }
 
@@ -1620,8 +1624,7 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
     fb_desc.renderPass = list->state->u.graphics.render_pass;
     fb_desc.attachmentCount = list->state->u.graphics.attachment_count;
     fb_desc.pAttachments = &list->views[start_idx];
-    d3d12_command_list_get_fb_extent(list, &fb_desc.width, &fb_desc.height);
-    fb_desc.layers = 1;
+    d3d12_command_list_get_fb_extent(list, &fb_desc.width, &fb_desc.height, &fb_desc.layers);
     if ((vr = VK_CALL(vkCreateFramebuffer(device->vk_device, &fb_desc, NULL, &vk_framebuffer))) < 0)
     {
         WARN("Failed to create Vulkan framebuffer, vr %d.\n", vr);
@@ -2212,7 +2215,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     begin_desc.renderArea.offset.x = 0;
     begin_desc.renderArea.offset.y = 0;
     d3d12_command_list_get_fb_extent(list,
-            &begin_desc.renderArea.extent.width, &begin_desc.renderArea.extent.height);
+            &begin_desc.renderArea.extent.width, &begin_desc.renderArea.extent.height, NULL);
     begin_desc.clearValueCount = 0;
     begin_desc.pClearValues = NULL;
     VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer, &begin_desc, VK_SUBPASS_CONTENTS_INLINE));
@@ -3438,6 +3441,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
 
     list->fb_width = 0;
     list->fb_height = 0;
+    list->fb_layer_count = 0;
     for (i = 0; i < render_target_descriptor_count; ++i)
     {
         if (single_descriptor_handle)
@@ -3448,10 +3452,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
         d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
 
         list->views[i + 1] = rtv_desc->vk_view;
-        if (rtv_desc->width > list->fb_width)
-            list->fb_width = rtv_desc->width;
-        if (rtv_desc->height > list->fb_height)
-            list->fb_height = rtv_desc->height;
+        list->fb_width = max(list->fb_width, rtv_desc->width);
+        list->fb_height = max(list->fb_height, rtv_desc->height);
+        list->fb_layer_count = max(list->fb_layer_count, rtv_desc->layer_count);
     }
 
     if (depth_stencil_descriptor)
@@ -3460,10 +3463,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
 
         d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
 
-        if (dsv_desc->width > list->fb_width)
-            list->fb_width = dsv_desc->width;
-        if (dsv_desc->height > list->fb_height)
-            list->fb_height = dsv_desc->height;
+        list->fb_width = max(list->fb_width, dsv_desc->width);
+        list->fb_height = max(list->fb_height, dsv_desc->height);
+        list->fb_layer_count = max(list->fb_layer_count, 1);
 
         list->views[0] = dsv_desc->vk_view;
     }
@@ -3471,9 +3473,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
     d3d12_command_list_invalidate_current_framebuffer(list);
 }
 
-static void d3d12_command_list_clear(struct d3d12_command_list *list, const struct vkd3d_vk_device_procs *vk_procs,
-        const struct VkAttachmentDescription *attachment_desc, const struct VkAttachmentReference *color_reference,
-        const struct VkAttachmentReference *ds_reference, VkImageView vk_view, size_t width, size_t height,
+static void d3d12_command_list_clear(struct d3d12_command_list *list,
+        const struct vkd3d_vk_device_procs *vk_procs, const struct VkAttachmentDescription *attachment_desc,
+        const struct VkAttachmentReference *color_reference, const struct VkAttachmentReference *ds_reference,
+        VkImageView vk_view, size_t width, size_t height, unsigned int layer_count,
         const union VkClearValue *clear_value, unsigned int rect_count, const D3D12_RECT *rects)
 {
     struct VkSubpassDescription sub_pass_desc;
@@ -3538,7 +3541,7 @@ static void d3d12_command_list_clear(struct d3d12_command_list *list, const stru
     fb_desc.pAttachments = &vk_view;
     fb_desc.width = width;
     fb_desc.height = height;
-    fb_desc.layers = 1;
+    fb_desc.layers = layer_count;
     if ((vr = VK_CALL(vkCreateFramebuffer(list->device->vk_device, &fb_desc, NULL, &vk_framebuffer))) < 0)
     {
         WARN("Failed to create Vulkan framebuffer, vr %d.\n", vr);
@@ -3615,7 +3618,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(ID3D12Gra
     ds_reference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     d3d12_command_list_clear(list, &list->device->vk_procs, &attachment_desc, NULL, &ds_reference,
-            dsv_desc->vk_view, dsv_desc->width, dsv_desc->height, &clear_value, rect_count, rects);
+            dsv_desc->vk_view, dsv_desc->width, dsv_desc->height, 1, &clear_value, rect_count, rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12GraphicsCommandList *iface,
@@ -3646,7 +3649,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
     color_reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     d3d12_command_list_clear(list, &list->device->vk_procs, &attachment_desc, &color_reference, NULL,
-            rtv_desc->vk_view, rtv_desc->width, rtv_desc->height, &clear_value, rect_count, rects);
+            rtv_desc->vk_view, rtv_desc->width, rtv_desc->height, rtv_desc->layer_count,
+            &clear_value, rect_count, rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID3D12GraphicsCommandList *iface,
@@ -4005,6 +4009,7 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     memset(list->views, 0, sizeof(list->views));
     list->fb_width = 0;
     list->fb_height = 0;
+    list->fb_layer_count = 0;
 
     list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;

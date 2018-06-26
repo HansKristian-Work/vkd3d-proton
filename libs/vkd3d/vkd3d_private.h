@@ -287,6 +287,7 @@ struct d3d12_rtv_desc
     VkFormat format;
     uint64_t width;
     unsigned int height;
+    unsigned int layer_count;
     VkImageView vk_view;
     struct d3d12_resource *resource;
 };
@@ -587,6 +588,7 @@ struct d3d12_command_list
     VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
     unsigned int fb_width;
     unsigned int fb_height;
+    unsigned int fb_layer_count;
 
     VkFramebuffer current_framebuffer;
     VkPipeline current_pipeline;
