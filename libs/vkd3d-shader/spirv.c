@@ -2243,18 +2243,15 @@ struct vkd3d_shader_register_info
 {
     uint32_t id;
     SpvStorageClass storage_class;
+    uint32_t member_idx;
     unsigned int structure_stride;
 };
 
 static bool vkd3d_dxbc_compiler_get_register_info(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, struct vkd3d_shader_register_info *register_info)
 {
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     struct vkd3d_symbol reg_symbol, *symbol;
-    uint32_t type_id, ptr_type_id;
-    uint32_t index_count = 0;
     struct rb_entry *entry;
-    uint32_t indexes[2];
 
     assert(reg->type != VKD3DSPR_IMMCONST);
 
@@ -2263,6 +2260,7 @@ static bool vkd3d_dxbc_compiler_get_register_info(struct vkd3d_dxbc_compiler *co
         assert(reg->idx[0].offset < compiler->temp_count);
         register_info->id = compiler->temp_id + reg->idx[0].offset;
         register_info->storage_class = SpvStorageClassFunction;
+        register_info->member_idx = 0;
         return true;
     }
 
@@ -2278,11 +2276,23 @@ static bool vkd3d_dxbc_compiler_get_register_info(struct vkd3d_dxbc_compiler *co
     register_info->id = symbol->id;
     register_info->storage_class = symbol->info.reg.storage_class;
     register_info->structure_stride = symbol->info.reg.structure_stride;
+    register_info->member_idx = symbol->info.reg.member_idx;
+
+    return true;
+}
+
+static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg, struct vkd3d_shader_register_info *register_info)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t type_id, ptr_type_id;
+    unsigned int index_count = 0;
+    uint32_t indexes[2];
 
     if (reg->type == VKD3DSPR_CONSTBUFFER)
     {
         assert(!reg->idx[0].rel_addr);
-        indexes[index_count++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, symbol->info.reg.member_idx);
+        indexes[index_count++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, register_info->member_idx);
         indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[1]);
     }
     else if (reg->type == VKD3DSPR_IMMCONSTBUFFER)
@@ -2306,8 +2316,6 @@ static bool vkd3d_dxbc_compiler_get_register_info(struct vkd3d_dxbc_compiler *co
         register_info->id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
                 register_info->id, indexes, index_count);
     }
-
-    return true;
 }
 
 static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *compiler,
@@ -2331,7 +2339,10 @@ static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *
         case VKD3DSPR_LOCALTHREADINDEX:
         case VKD3DSPR_THREADGROUPID:
             if (vkd3d_dxbc_compiler_get_register_info(compiler, reg, &register_info))
+            {
+                vkd3d_dxbc_compiler_emit_dereference_register(compiler, reg, &register_info);
                 return register_info.id;
+            }
             return vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
                     SpvStorageClassPrivate, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
         case VKD3DSPR_IMMCONST:
@@ -2421,6 +2432,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_scalar(struct vkd3d_dxbc_compiler 
                 vkd3d_component_type_from_data_type(reg->data_type), 1);
         return vkd3d_spirv_build_op_undef(builder, &builder->global_stream, type_id);
     }
+    vkd3d_dxbc_compiler_emit_dereference_register(compiler, reg, &reg_info);
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 1);
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, reg_info.storage_class, type_id);
@@ -2565,6 +2577,7 @@ static void vkd3d_dxbc_compiler_emit_store_scalar(struct vkd3d_dxbc_compiler *co
 
     if (!vkd3d_dxbc_compiler_get_register_info(compiler, reg, &reg_info))
         return;
+    vkd3d_dxbc_compiler_emit_dereference_register(compiler, reg, &reg_info);
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 1);
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, reg_info.storage_class, type_id);
