@@ -872,6 +872,12 @@ static inline unsigned int vkd3d_write_mask_component_count(DWORD write_mask)
     return count;
 }
 
+static inline unsigned int vkd3d_write_mask_from_component_count(unsigned int component_count)
+{
+    assert(component_count <= 4);
+    return (VKD3DSP_WRITEMASK_0 << component_count) - 1;
+}
+
 static inline unsigned int vkd3d_swizzle_get_component(DWORD swizzle,
         unsigned int idx)
 {
