@@ -4541,7 +4541,8 @@ static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
 
-    vkd3d_dxbc_compiler_emit_output_setup_invocation(compiler);
+    if (compiler->shader_type != VKD3D_SHADER_TYPE_GEOMETRY)
+        vkd3d_dxbc_compiler_emit_output_setup_invocation(compiler);
     vkd3d_spirv_build_op_return(builder);
 }
 
