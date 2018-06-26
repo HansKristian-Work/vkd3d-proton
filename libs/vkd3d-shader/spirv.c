@@ -2770,8 +2770,21 @@ static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *com
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
 
-    if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL && builtin == SpvBuiltInPosition)
-        builtin = SpvBuiltInFragCoord;
+    switch (builtin)
+    {
+        case SpvBuiltInPosition:
+            if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL)
+                builtin = SpvBuiltInFragCoord;
+            break;
+        case SpvBuiltInFragDepth:
+            vkd3d_spirv_enable_depth_replacing(builder);
+            break;
+        case SpvBuiltInLayer:
+            vkd3d_spirv_enable_capability(builder, SpvCapabilityGeometry);
+            break;
+        default:
+            break;
+    }
 
     vkd3d_spirv_build_op_decorate1(builder, target_id, SpvDecorationBuiltIn, builtin);
 }
@@ -3227,9 +3240,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
         if (!compiler->output_setup_function_id)
             compiler->output_setup_function_id = vkd3d_spirv_alloc_id(builder);
     }
-
-    if (builtin && builtin->spirv_builtin == SpvBuiltInFragDepth)
-        vkd3d_spirv_enable_depth_replacing(builder);
 
     return id;
 }
