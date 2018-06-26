@@ -2886,10 +2886,13 @@ vkd3d_register_builtins[] =
     {VKD3DSPR_DEPTHOUT,         {VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth}},
 };
 
-static const struct vkd3d_spirv_builtin *vkd3d_get_spirv_builtin(enum vkd3d_shader_register_type reg_type,
+static const struct vkd3d_spirv_builtin *get_spirv_builtin_for_sysval(
         enum vkd3d_shader_input_sysval_semantic sysval)
 {
     unsigned int i;
+
+    if (!sysval)
+        return NULL;
 
     for (i = 0; i < ARRAY_SIZE(vkd3d_system_value_builtins); ++i)
     {
@@ -2897,15 +2900,37 @@ static const struct vkd3d_spirv_builtin *vkd3d_get_spirv_builtin(enum vkd3d_shad
             return &vkd3d_system_value_builtins[i].builtin;
     }
 
+    FIXME("Unhandled builtin (sysval %#x).\n", sysval);
+
+    return NULL;
+}
+
+static const struct vkd3d_spirv_builtin *get_spirv_builtin_for_register(
+        enum vkd3d_shader_register_type reg_type)
+{
+    unsigned int i;
+
     for (i = 0; i < ARRAY_SIZE(vkd3d_register_builtins); ++i)
     {
         if (vkd3d_register_builtins[i].reg_type == reg_type)
             return &vkd3d_register_builtins[i].builtin;
     }
 
-    if (sysval != VKD3D_SIV_NONE
-            || (reg_type != VKD3DSPR_INPUT && reg_type != VKD3DSPR_OUTPUT && reg_type != VKD3DSPR_COLOROUT))
-        FIXME("Unhandled builtin (register type %#x, semantic %#x).\n", reg_type, sysval);
+    return NULL;
+}
+
+static const struct vkd3d_spirv_builtin *vkd3d_get_spirv_builtin(enum vkd3d_shader_register_type reg_type,
+        enum vkd3d_shader_input_sysval_semantic sysval)
+{
+    const struct vkd3d_spirv_builtin *builtin;
+
+    if ((builtin = get_spirv_builtin_for_sysval(sysval)))
+        return builtin;
+    if ((builtin = get_spirv_builtin_for_register(reg_type)))
+        return builtin;
+
+    if (sysval != VKD3D_SIV_NONE || (reg_type != VKD3DSPR_OUTPUT && reg_type != VKD3DSPR_COLOROUT))
+        FIXME("Unhandled builtin (register type %#x, sysval %#x).\n", reg_type, sysval);
     return NULL;
 }
 
@@ -2970,7 +2995,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         reg_idx = reg->idx[0].offset;
     }
 
-    builtin = vkd3d_get_spirv_builtin(reg->type, sysval);
+    builtin = get_spirv_builtin_for_sysval(sysval);
 
     component_idx = vkd3d_write_mask_get_component_idx(dst->write_mask);
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
@@ -3056,6 +3081,40 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     }
 
     return input_id;
+}
+
+static void vkd3d_dxbc_compiler_emit_input_register(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_dst_param *dst)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_register *reg = &dst->reg;
+    const struct vkd3d_spirv_builtin *builtin;
+    struct vkd3d_symbol reg_symbol;
+    uint32_t input_id;
+
+    assert(!reg->idx[0].rel_addr);
+    assert(!reg->idx[1].rel_addr);
+    assert(reg->idx[1].offset == ~0u);
+
+    if (!(builtin = get_spirv_builtin_for_register(reg->type)))
+    {
+        FIXME("Unhandled register %#x.\n", reg->type);
+        return;
+    }
+
+    input_id = vkd3d_dxbc_compiler_emit_variable(compiler,
+            &builder->global_stream, SpvStorageClassInput,
+            builtin->component_type, builtin->component_count);
+    vkd3d_spirv_add_iface_variable(builder, input_id);
+    vkd3d_dxbc_compiler_decorate_builtin(compiler, input_id, builtin->spirv_builtin);
+
+    vkd3d_symbol_make_register(&reg_symbol, reg);
+    reg_symbol.id = input_id;
+    reg_symbol.info.reg.storage_class = SpvStorageClassInput;
+    reg_symbol.info.reg.component_type = builtin->component_type;
+    reg_symbol.info.reg.write_mask = vkd3d_write_mask_from_component_count(builtin->component_count);
+    vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
+    vkd3d_dxbc_compiler_emit_register_debug_name(builder, input_id, reg);
 }
 
 static unsigned int vkd3d_dxbc_compiler_get_output_variable_index(
@@ -3649,7 +3708,12 @@ static void vkd3d_dxbc_compiler_emit_dcl_tgsm_structured(struct vkd3d_dxbc_compi
 static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.dst, VKD3D_SIV_NONE);
+    const struct vkd3d_shader_dst_param *dst = &instruction->declaration.dst;
+
+    if (dst->reg.type != VKD3DSPR_INPUT)
+        vkd3d_dxbc_compiler_emit_input_register(compiler, dst);
+    else
+        vkd3d_dxbc_compiler_emit_input(compiler, dst, VKD3D_SIV_NONE);
 }
 
 static void vkd3d_dxbc_compiler_emit_interpolation_decorations(struct vkd3d_dxbc_compiler *compiler,
