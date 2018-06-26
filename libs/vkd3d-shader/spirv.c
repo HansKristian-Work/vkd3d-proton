@@ -2949,13 +2949,13 @@ static const struct vkd3d_spirv_builtin *vkd3d_get_spirv_builtin(enum vkd3d_shad
 
 static const struct vkd3d_shader_signature_element *vkd3d_find_signature_element_for_reg(
         const struct vkd3d_shader_signature *signature, unsigned int *signature_element_index,
-        const struct vkd3d_shader_register *reg, DWORD write_mask)
+        unsigned int reg_idx, DWORD write_mask)
 {
     unsigned int signature_idx;
 
     for (signature_idx = 0; signature_idx < signature->element_count; ++signature_idx)
     {
-        if (signature->elements[signature_idx].register_index == reg->idx[0].offset
+        if (signature->elements[signature_idx].register_index == reg_idx
                 && (signature->elements[signature_idx].mask & 0xff) == write_mask)
         {
             if (signature_element_index)
@@ -2965,7 +2965,7 @@ static const struct vkd3d_shader_signature_element *vkd3d_find_signature_element
     }
 
     FIXME("Could not find shader signature element (register %u, write mask %#x).\n",
-            reg->idx[0].offset, write_mask);
+            reg_idx, write_mask);
     if (signature_element_index)
         *signature_element_index = ~0u;
     return NULL;
@@ -3020,7 +3020,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     else
     {
         signature_element = vkd3d_find_signature_element_for_reg(compiler->input_signature,
-                NULL, reg, dst->write_mask);
+                NULL, reg_idx, dst->write_mask);
         component_type = signature_element ? signature_element->component_type : VKD3D_TYPE_FLOAT;
         input_component_count = component_count;
     }
@@ -3164,7 +3164,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
     uint32_t id, var_id;
 
     signature_element = vkd3d_find_signature_element_for_reg(compiler->output_signature,
-            &signature_idx, reg, dst->write_mask);
+            &signature_idx, reg->idx[0].offset, dst->write_mask);
     builtin = vkd3d_get_spirv_builtin(dst->reg.type, sysval);
 
     component_idx = vkd3d_write_mask_get_component_idx(dst->write_mask);
