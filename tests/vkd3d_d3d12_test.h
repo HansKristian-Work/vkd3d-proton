@@ -313,7 +313,7 @@ static void check_sub_resource_uint_(unsigned int line, ID3D12Resource *texture,
 {
     struct resource_readback rb;
 
-    get_texture_readback_with_command_list(texture, 0, &rb, queue, command_list);
+    get_texture_readback_with_command_list(texture, sub_resource_idx, &rb, queue, command_list);
     check_readback_data_uint_(line, &rb, NULL, expected, max_diff);
     release_resource_readback(&rb);
 }
@@ -492,7 +492,7 @@ static ID3D12PipelineState *create_pipeline_state_(unsigned int line, ID3D12Devi
 
 struct test_context_desc
 {
-    unsigned int rt_width, rt_height;
+    unsigned int rt_width, rt_height, rt_array_size;
     DXGI_FORMAT rt_format;
     unsigned int rt_descriptor_count;
     unsigned int root_signature_flags;
@@ -540,7 +540,7 @@ static void create_render_target_(unsigned int line, struct test_context *contex
     resource_desc.Alignment = 0;
     resource_desc.Width = desc && desc->rt_width ? desc->rt_width : 32;
     resource_desc.Height = desc && desc->rt_height ? desc->rt_height : 32;
-    resource_desc.DepthOrArraySize = 1;
+    resource_desc.DepthOrArraySize = desc && desc->rt_array_size ? desc->rt_array_size : 1;
     resource_desc.MipLevels = 1;
     resource_desc.Format = desc && desc->rt_format ? desc->rt_format : DXGI_FORMAT_R8G8B8A8_UNORM;
     resource_desc.SampleDesc.Count = 1;

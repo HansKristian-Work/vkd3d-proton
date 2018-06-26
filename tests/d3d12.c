@@ -663,7 +663,7 @@ static void check_sub_resource_float_(unsigned int line, ID3D12Resource *texture
 {
     struct resource_readback rb;
 
-    get_texture_readback_with_command_list(texture, 0, &rb, queue, command_list);
+    get_texture_readback_with_command_list(texture, sub_resource_idx, &rb, queue, command_list);
     check_readback_data_float_(line, &rb, NULL, expected, max_diff);
     release_resource_readback(&rb);
 }
@@ -745,7 +745,7 @@ static void check_sub_resource_uint16_(unsigned int line, ID3D12Resource *textur
 {
     struct resource_readback rb;
 
-    get_texture_readback_with_command_list(texture, 0, &rb, queue, command_list);
+    get_texture_readback_with_command_list(texture, sub_resource_idx, &rb, queue, command_list);
     check_readback_data_uint16_(line, &rb, NULL, expected, max_diff);
     release_resource_readback(&rb);
 }
@@ -17034,6 +17034,211 @@ static void test_geometry_shader(void)
     destroy_test_context(&context);
 }
 
+static void test_layered_rendering(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
+    struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12PipelineState *pso;
+    ID3D12Device *device;
+    ID3D12Resource *vb;
+    HRESULT hr;
+
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const struct
+    {
+        uint32_t color;
+        struct vec4 position;
+        uint32_t layer;
+    }
+    vertices[] =
+    {
+        {0x00000000, {-1.0f, -1.0f, 0.0f, 1.0f}, 2},
+        {0x00000000, {-1.0f,  1.0f, 0.0f, 1.0f}, 2},
+        {0x00000000, { 1.0f, -1.0f, 0.0f, 1.0f}, 2},
+        {0x00000000, { 1.0f,  1.0f, 0.0f, 1.0f}, 2},
+        {0xff00ff00, {-1.0f, -1.0f, 0.0f, 1.0f}, 0},
+        {0xff00ff00, {-1.0f,  1.0f, 0.0f, 1.0f}, 0},
+        {0xff00ff00, { 1.0f, -1.0f, 0.0f, 1.0f}, 0},
+        {0xff00ff00, { 1.0f,  1.0f, 0.0f, 1.0f}, 0},
+        {0xffffff00, {-1.0f, -1.0f, 0.0f, 1.0f}, 3},
+        {0xffffff00, {-1.0f,  1.0f, 0.0f, 1.0f}, 3},
+        {0xffffff00, { 1.0f, -1.0f, 0.0f, 1.0f}, 3},
+        {0xffffff00, { 1.0f,  1.0f, 0.0f, 1.0f}, 3},
+    };
+    static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
+    {
+        {"COLOR",       0, DXGI_FORMAT_R8G8B8A8_UNORM,     0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"SV_POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,  4, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"LAYER",       0, DXGI_FORMAT_R32_UINT,           0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+    static const DWORD vs_code[] =
+    {
+#if 0
+        struct vertex
+        {
+            float4 color : COLOR;
+            float4 position : SV_Position;
+            uint layer : LAYER;
+        };
+
+        struct vertex main(in vertex v)
+        {
+            return v;
+        }
+#endif
+        0x43425844, 0x96d7f39a, 0x03d06cd5, 0x32c1fa04, 0xd509128f, 0x00000001, 0x000001ac, 0x00000003,
+        0x0000002c, 0x0000009c, 0x0000010c, 0x4e475349, 0x00000068, 0x00000003, 0x00000008, 0x00000050,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x00000056, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000f0f, 0x00000062, 0x00000000, 0x00000000, 0x00000001, 0x00000002,
+        0x00000101, 0x4f4c4f43, 0x56530052, 0x736f505f, 0x6f697469, 0x414c006e, 0x00524559, 0x4e47534f,
+        0x00000068, 0x00000003, 0x00000008, 0x00000050, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x00000056, 0x00000000, 0x00000001, 0x00000003, 0x00000001, 0x0000000f, 0x00000062,
+        0x00000000, 0x00000000, 0x00000001, 0x00000002, 0x00000e01, 0x4f4c4f43, 0x56530052, 0x736f505f,
+        0x6f697469, 0x414c006e, 0x00524559, 0x58454853, 0x00000098, 0x00010050, 0x00000026, 0x0100086a,
+        0x0300005f, 0x001010f2, 0x00000000, 0x0300005f, 0x001010f2, 0x00000001, 0x0300005f, 0x00101012,
+        0x00000002, 0x03000065, 0x001020f2, 0x00000000, 0x04000067, 0x001020f2, 0x00000001, 0x00000001,
+        0x03000065, 0x00102012, 0x00000002, 0x05000036, 0x001020f2, 0x00000000, 0x00101e46, 0x00000000,
+        0x05000036, 0x001020f2, 0x00000001, 0x00101e46, 0x00000001, 0x05000036, 0x00102012, 0x00000002,
+        0x0010100a, 0x00000002, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs = {vs_code, sizeof(vs_code)};
+    static const DWORD gs_code[] =
+    {
+#if 0
+        struct gs_in
+        {
+            float4 color : COLOR;
+            float4 position : SV_Position;
+            uint layer : LAYER;
+        };
+
+        struct gs_out
+        {
+            float4 color : COLOR;
+            float4 position : SV_Position;
+            uint layer : SV_RenderTargetArrayIndex;
+        };
+
+        [maxvertexcount(3)]
+        void main(triangle gs_in vin[3], inout TriangleStream<gs_out> vout)
+        {
+            gs_out o;
+
+            o.color = vin[0].color;
+            o.position = vin[0].position;
+            o.layer = vin[0].layer;
+            vout.Append(o);
+
+            o.color = vin[1].color;
+            o.position = vin[1].position;
+            o.layer = vin[1].layer;
+            vout.Append(o);
+
+            o.color = vin[2].color;
+            o.position = vin[2].position;
+            o.layer = vin[2].layer;
+            vout.Append(o);
+        }
+#endif
+        0x43425844, 0x29d7c0a0, 0xcf146fd1, 0x5cd36ca7, 0xab2b10ff, 0x00000001, 0x000002bc, 0x00000003,
+        0x0000002c, 0x0000009c, 0x0000012c, 0x4e475349, 0x00000068, 0x00000003, 0x00000008, 0x00000050,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x00000056, 0x00000000, 0x00000001,
+        0x00000003, 0x00000001, 0x00000f0f, 0x00000062, 0x00000000, 0x00000000, 0x00000001, 0x00000002,
+        0x00000101, 0x4f4c4f43, 0x56530052, 0x736f505f, 0x6f697469, 0x414c006e, 0x00524559, 0x3547534f,
+        0x00000088, 0x00000003, 0x00000008, 0x00000000, 0x0000005c, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x00000000, 0x00000062, 0x00000000, 0x00000001, 0x00000003, 0x00000001,
+        0x0000000f, 0x00000000, 0x0000006e, 0x00000000, 0x00000004, 0x00000001, 0x00000002, 0x00000e01,
+        0x4f4c4f43, 0x56530052, 0x736f505f, 0x6f697469, 0x5653006e, 0x6e65525f, 0x54726564, 0x65677261,
+        0x72724174, 0x6e497961, 0x00786564, 0x58454853, 0x00000188, 0x00020050, 0x00000062, 0x0100086a,
+        0x0400005f, 0x002010f2, 0x00000003, 0x00000000, 0x05000061, 0x002010f2, 0x00000003, 0x00000001,
+        0x00000001, 0x0400005f, 0x00201012, 0x00000003, 0x00000002, 0x0100185d, 0x0300008f, 0x00110000,
+        0x00000000, 0x0100285c, 0x03000065, 0x001020f2, 0x00000000, 0x04000067, 0x001020f2, 0x00000001,
+        0x00000001, 0x04000067, 0x00102012, 0x00000002, 0x00000004, 0x0200005e, 0x00000003, 0x06000036,
+        0x001020f2, 0x00000000, 0x00201e46, 0x00000000, 0x00000000, 0x06000036, 0x001020f2, 0x00000001,
+        0x00201e46, 0x00000000, 0x00000001, 0x06000036, 0x00102012, 0x00000002, 0x0020100a, 0x00000000,
+        0x00000002, 0x03000075, 0x00110000, 0x00000000, 0x06000036, 0x001020f2, 0x00000000, 0x00201e46,
+        0x00000001, 0x00000000, 0x06000036, 0x001020f2, 0x00000001, 0x00201e46, 0x00000001, 0x00000001,
+        0x06000036, 0x00102012, 0x00000002, 0x0020100a, 0x00000001, 0x00000002, 0x03000075, 0x00110000,
+        0x00000000, 0x06000036, 0x001020f2, 0x00000000, 0x00201e46, 0x00000002, 0x00000000, 0x06000036,
+        0x001020f2, 0x00000001, 0x00201e46, 0x00000002, 0x00000001, 0x06000036, 0x00102012, 0x00000002,
+        0x0020100a, 0x00000002, 0x00000002, 0x03000075, 0x00110000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE gs = {gs_code, sizeof(gs_code)};
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float4 main(float4 color : COLOR) : SV_Target0
+        {
+            return color;
+        }
+#endif
+        0x43425844, 0xdccf00bf, 0xcc96375e, 0xba21f157, 0xe47b8b1c, 0x00000001, 0x000000d4, 0x00000003,
+        0x0000002c, 0x0000005c, 0x00000090, 0x4e475349, 0x00000028, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x4f4c4f43, 0xabab0052, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x0000003c, 0x00000050, 0x0000000f,
+        0x0100086a, 0x03001062, 0x001010f2, 0x00000000, 0x03000065, 0x001020f2, 0x00000000, 0x05000036,
+        0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_array_size = 4;
+    desc.root_signature_flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    desc.no_pipeline = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    input_layout.pInputElementDescs = layout_desc;
+    input_layout.NumElements = ARRAY_SIZE(layout_desc);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, &vs, &ps, &input_layout);
+    pso_desc.GS = gs;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pso);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+
+    vb = create_upload_buffer(context.device, sizeof(vertices), vertices);
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
+    vbv.StrideInBytes = sizeof(*vertices);
+    vbv.SizeInBytes = sizeof(vertices);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, pso);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 12, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+    reset_command_list(command_list, context.allocator);
+    check_sub_resource_uint(context.render_target, 1, queue, command_list, 0xffffffff, 0);
+    reset_command_list(command_list, context.allocator);
+    check_sub_resource_uint(context.render_target, 2, queue, command_list, 0x00000000, 0);
+    reset_command_list(command_list, context.allocator);
+    check_sub_resource_uint(context.render_target, 3, queue, command_list, 0xffffff00, 0);
+
+    ID3D12Resource_Release(vb);
+    ID3D12PipelineState_Release(pso);
+    destroy_test_context(&context);
+}
+
 static void test_render_a8(void)
 {
     static const float black[] = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -17191,5 +17396,6 @@ START_TEST(d3d12)
     run_test(test_face_culling);
     run_test(test_multithread_command_queue_exec);
     run_test(test_geometry_shader);
+    run_test(test_layered_rendering);
     run_test(test_render_a8);
 }
