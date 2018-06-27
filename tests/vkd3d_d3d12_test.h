@@ -318,11 +318,12 @@ static void check_sub_resource_uint_(unsigned int line, ID3D12Resource *texture,
     release_resource_readback(&rb);
 }
 
-#define create_texture(a, b, c, d, e) create_default_texture_(__LINE__, a, b, c, d, 0, e)
-#define create_default_texture(a, b, c, d, e, f) create_default_texture_(__LINE__, a, b, c, d, e, f)
-static ID3D12Resource *create_default_texture_(unsigned int line, ID3D12Device *device,
-        unsigned int width, unsigned int height, DXGI_FORMAT format,
-        D3D12_RESOURCE_FLAGS flags, D3D12_RESOURCE_STATES initial_state)
+#define create_default_texture(a, b, c, d, e, f) create_default_texture2d_(__LINE__, a, b, c, 1, 1, d, e, f)
+#define create_texture(a, b, c, d, e) create_default_texture(a, b, c, d, 0, e)
+#define create_default_texture2d(a, b, c, d, e, f, g, h) create_default_texture2d_(__LINE__, a, b, c, d, e, f, g, h)
+static ID3D12Resource *create_default_texture2d_(unsigned int line, ID3D12Device *device,
+        unsigned int width, unsigned int height, unsigned int array_size, unsigned int miplevel_count,
+        DXGI_FORMAT format, D3D12_RESOURCE_FLAGS flags, D3D12_RESOURCE_STATES initial_state)
 {
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
@@ -336,8 +337,8 @@ static ID3D12Resource *create_default_texture_(unsigned int line, ID3D12Device *
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     resource_desc.Width = width;
     resource_desc.Height = height;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
+    resource_desc.DepthOrArraySize = array_size;
+    resource_desc.MipLevels = miplevel_count;
     resource_desc.Format = format;
     resource_desc.SampleDesc.Count = 1;
     resource_desc.Flags = flags;

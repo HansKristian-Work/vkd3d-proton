@@ -909,6 +909,7 @@ static ID3D12RootSignature *create_texture_root_signature_(unsigned int line,
     sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler_desc.MaxLOD = D3D12_FLOAT32_MAX;
     sampler_desc.ShaderRegister = 0;
     sampler_desc.RegisterSpace = 0;
     sampler_desc.ShaderVisibility = shader_visibility;
@@ -8969,6 +8970,309 @@ static void test_gather(void)
     release_resource_readback(&rb);
 
     ID3D12Resource_Release(texture);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
+static void test_cube_maps(void)
+{
+    unsigned int i, j, sub_resource_idx, sub_resource_count;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    D3D12_SUBRESOURCE_DATA *texture_data;
+    const D3D12_SHADER_BYTECODE *ps;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    ID3D12PipelineState *pso;
+    ID3D12Resource *texture;
+    float *data;
+    HRESULT hr;
+
+    struct
+    {
+        unsigned int face;
+        unsigned int level;
+        unsigned int cube;
+    } constants;
+
+    const unsigned int texture_size = 64;
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const DWORD ps_cube_code[] =
+    {
+#if 0
+        TextureCube t;
+        SamplerState s;
+
+        uint face;
+        uint level;
+
+        float4 main(float4 position : SV_POSITION) : SV_Target
+        {
+            float2 p;
+            p.x = position.x / 640.0f;
+            p.y = position.y / 480.0f;
+
+            float3 coord;
+            switch (face)
+            {
+                case 0:
+                    coord = float3(1.0f, p.x, p.y);
+                    break;
+                case 1:
+                    coord = float3(-1.0f, p.x, p.y);
+                    break;
+                case 2:
+                    coord = float3(p.x, 1.0f, p.y);
+                    break;
+                case 3:
+                    coord = float3(p.x, -1.0f, p.y);
+                    break;
+                case 4:
+                    coord = float3(p.x, p.y, 1.0f);
+                    break;
+                case 5:
+                default:
+                    coord = float3(p.x, p.y, -1.0f);
+                    break;
+            }
+            return t.SampleLevel(s, coord, level);
+        }
+#endif
+        0x43425844, 0x039aee18, 0xfd630453, 0xb884cf0f, 0x10100744, 0x00000001, 0x00000310, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x00000274, 0x00000040,
+        0x0000009d, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300005a, 0x00106000, 0x00000000,
+        0x04003058, 0x00107000, 0x00000000, 0x00005555, 0x04002064, 0x00101032, 0x00000000, 0x00000001,
+        0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0400004c, 0x0020800a, 0x00000000,
+        0x00000000, 0x03000006, 0x00004001, 0x00000000, 0x05000036, 0x00100012, 0x00000000, 0x00004001,
+        0x3f800000, 0x0a000038, 0x00100062, 0x00000000, 0x00101106, 0x00000000, 0x00004002, 0x00000000,
+        0x3acccccd, 0x3b088889, 0x00000000, 0x01000002, 0x03000006, 0x00004001, 0x00000001, 0x05000036,
+        0x00100012, 0x00000000, 0x00004001, 0xbf800000, 0x0a000038, 0x00100062, 0x00000000, 0x00101106,
+        0x00000000, 0x00004002, 0x00000000, 0x3acccccd, 0x3b088889, 0x00000000, 0x01000002, 0x03000006,
+        0x00004001, 0x00000002, 0x0a000038, 0x00100052, 0x00000000, 0x00101106, 0x00000000, 0x00004002,
+        0x3acccccd, 0x00000000, 0x3b088889, 0x00000000, 0x05000036, 0x00100022, 0x00000000, 0x00004001,
+        0x3f800000, 0x01000002, 0x03000006, 0x00004001, 0x00000003, 0x0a000038, 0x00100052, 0x00000000,
+        0x00101106, 0x00000000, 0x00004002, 0x3acccccd, 0x00000000, 0x3b088889, 0x00000000, 0x05000036,
+        0x00100022, 0x00000000, 0x00004001, 0xbf800000, 0x01000002, 0x03000006, 0x00004001, 0x00000004,
+        0x0a000038, 0x00100032, 0x00000000, 0x00101046, 0x00000000, 0x00004002, 0x3acccccd, 0x3b088889,
+        0x00000000, 0x00000000, 0x05000036, 0x00100042, 0x00000000, 0x00004001, 0x3f800000, 0x01000002,
+        0x0100000a, 0x0a000038, 0x00100032, 0x00000000, 0x00101046, 0x00000000, 0x00004002, 0x3acccccd,
+        0x3b088889, 0x00000000, 0x00000000, 0x05000036, 0x00100042, 0x00000000, 0x00004001, 0xbf800000,
+        0x01000002, 0x01000017, 0x06000056, 0x00100082, 0x00000000, 0x0020801a, 0x00000000, 0x00000000,
+        0x0b000048, 0x001020f2, 0x00000000, 0x00100246, 0x00000000, 0x00107e46, 0x00000000, 0x00106000,
+        0x00000000, 0x0010003a, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_cube = {ps_cube_code, sizeof(ps_cube_code)};
+    static const DWORD ps_cube_array_code[] =
+    {
+#if 0
+        TextureCubeArray t;
+        SamplerState s;
+
+        uint face;
+        uint level;
+        uint cube;
+
+        float4 main(float4 position : SV_POSITION) : SV_Target
+        {
+            float2 p;
+            p.x = position.x / 640.0f;
+            p.y = position.y / 480.0f;
+
+            float3 coord;
+            switch (face)
+            {
+                case 0:
+                    coord = float3(1.0f, p.x, p.y);
+                    break;
+                case 1:
+                    coord = float3(-1.0f, p.x, p.y);
+                    break;
+                case 2:
+                    coord = float3(p.x, 1.0f, p.y);
+                    break;
+                case 3:
+                    coord = float3(p.x, -1.0f, p.y);
+                    break;
+                case 4:
+                    coord = float3(p.x, p.y, 1.0f);
+                    break;
+                case 5:
+                default:
+                    coord = float3(p.x, p.y, -1.0f);
+                    break;
+            }
+            return t.SampleLevel(s, float4(coord, cube), level);
+        }
+#endif
+        0x43425844, 0xb8d5b94a, 0xdb4be034, 0x183aed19, 0xad4af415, 0x00000001, 0x00000328, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x0000028c, 0x00000041,
+        0x000000a3, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300005a, 0x00106000,
+        0x00000000, 0x04005058, 0x00107000, 0x00000000, 0x00005555, 0x04002064, 0x00101032, 0x00000000,
+        0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000002, 0x0400004c, 0x0020800a,
+        0x00000000, 0x00000000, 0x03000006, 0x00004001, 0x00000000, 0x05000036, 0x00100012, 0x00000000,
+        0x00004001, 0x3f800000, 0x0a000038, 0x00100062, 0x00000000, 0x00101106, 0x00000000, 0x00004002,
+        0x00000000, 0x3acccccd, 0x3b088889, 0x00000000, 0x01000002, 0x03000006, 0x00004001, 0x00000001,
+        0x05000036, 0x00100012, 0x00000000, 0x00004001, 0xbf800000, 0x0a000038, 0x00100062, 0x00000000,
+        0x00101106, 0x00000000, 0x00004002, 0x00000000, 0x3acccccd, 0x3b088889, 0x00000000, 0x01000002,
+        0x03000006, 0x00004001, 0x00000002, 0x0a000038, 0x00100052, 0x00000000, 0x00101106, 0x00000000,
+        0x00004002, 0x3acccccd, 0x00000000, 0x3b088889, 0x00000000, 0x05000036, 0x00100022, 0x00000000,
+        0x00004001, 0x3f800000, 0x01000002, 0x03000006, 0x00004001, 0x00000003, 0x0a000038, 0x00100052,
+        0x00000000, 0x00101106, 0x00000000, 0x00004002, 0x3acccccd, 0x00000000, 0x3b088889, 0x00000000,
+        0x05000036, 0x00100022, 0x00000000, 0x00004001, 0xbf800000, 0x01000002, 0x03000006, 0x00004001,
+        0x00000004, 0x0a000038, 0x00100032, 0x00000000, 0x00101046, 0x00000000, 0x00004002, 0x3acccccd,
+        0x3b088889, 0x00000000, 0x00000000, 0x05000036, 0x00100042, 0x00000000, 0x00004001, 0x3f800000,
+        0x01000002, 0x0100000a, 0x0a000038, 0x00100032, 0x00000000, 0x00101046, 0x00000000, 0x00004002,
+        0x3acccccd, 0x3b088889, 0x00000000, 0x00000000, 0x05000036, 0x00100042, 0x00000000, 0x00004001,
+        0xbf800000, 0x01000002, 0x01000017, 0x06000056, 0x00100032, 0x00000001, 0x00208a66, 0x00000000,
+        0x00000000, 0x05000036, 0x00100082, 0x00000000, 0x0010000a, 0x00000001, 0x0b000048, 0x001020f2,
+        0x00000000, 0x00100e46, 0x00000000, 0x00107e46, 0x00000000, 0x00106000, 0x00000000, 0x0010001a,
+        0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_cube_array = {ps_cube_array_code, sizeof(ps_cube_array_code)};
+    static const struct ps_test
+    {
+        const D3D12_SHADER_BYTECODE *ps;
+        unsigned int miplevel_count;
+        unsigned int array_size;
+    }
+    ps_tests[] =
+    {
+        {&ps_cube, 1, 6},
+        {&ps_cube, 2, 6},
+        {&ps_cube, 3, 6},
+
+        {&ps_cube_array, 1, 12},
+        {&ps_cube_array, 2, 12},
+        {&ps_cube_array, 3, 12},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = 640;
+    desc.rt_height = 480;
+    desc.rt_format = DXGI_FORMAT_R32_FLOAT;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_texture_root_signature(context.device,
+            D3D12_SHADER_VISIBILITY_PIXEL, 3, 0);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, NULL, NULL, NULL);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
+
+    ps = NULL;
+    pso = NULL;
+    for (i = 0; i < ARRAY_SIZE(ps_tests); ++i)
+    {
+        const struct ps_test *test = &ps_tests[i];
+
+        if (ps != test->ps)
+        {
+            if (pso)
+                ID3D12PipelineState_Release(pso);
+
+            ps = test->ps;
+            pso_desc.PS = *test->ps;
+            hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+                    &IID_ID3D12PipelineState, (void **)&pso);
+            ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+        }
+
+        texture = create_default_texture2d(context.device, texture_size, texture_size,
+                test->array_size, test->miplevel_count, DXGI_FORMAT_R32_FLOAT,
+                D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+        srv_desc.Format = DXGI_FORMAT_R32_FLOAT;
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        if (ps == &ps_cube)
+        {
+            srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+            srv_desc.TextureCube.MostDetailedMip = 0;
+            srv_desc.TextureCube.MipLevels = test->miplevel_count;
+            srv_desc.TextureCube.ResourceMinLODClamp = 0.0f;
+        }
+        else
+        {
+            srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBEARRAY;
+            srv_desc.TextureCubeArray.MostDetailedMip = 0;
+            srv_desc.TextureCubeArray.MipLevels = test->miplevel_count;
+            srv_desc.TextureCubeArray.First2DArrayFace = 0;
+            srv_desc.TextureCubeArray.NumCubes = test->array_size / 6;
+            srv_desc.TextureCubeArray.ResourceMinLODClamp = 0.0f;
+        }
+        ID3D12Device_CreateShaderResourceView(context.device, texture, &srv_desc, cpu_handle);
+
+        sub_resource_count = test->array_size * test->miplevel_count;
+        texture_data = calloc(sub_resource_count, sizeof(*texture_data));
+        ok(texture_data, "Failed to allocate memory.\n");
+        for (sub_resource_idx = 0; sub_resource_idx < sub_resource_count; ++sub_resource_idx)
+        {
+            data = calloc(texture_size * texture_size, sizeof(*data));
+            ok(data, "Failed to allocate memory.\n");
+            for (j = 0; j < texture_size * texture_size; ++j)
+                data[j] = sub_resource_idx;
+
+            texture_data[sub_resource_idx].pData = data;
+            texture_data[sub_resource_idx].RowPitch = texture_size * sizeof(*data);
+            texture_data[sub_resource_idx].SlicePitch = 0;
+        }
+        upload_texture_data(texture, texture_data, sub_resource_count, queue, command_list);
+        for (sub_resource_idx = 0; sub_resource_idx < sub_resource_count; ++sub_resource_idx)
+            free((void *)texture_data[sub_resource_idx].pData);
+        free(texture_data);
+
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, texture,
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+        for (sub_resource_idx = 0; sub_resource_idx < sub_resource_count; ++sub_resource_idx)
+        {
+            constants.face = (sub_resource_idx / test->miplevel_count) % 6;
+            constants.level = sub_resource_idx % test->miplevel_count;
+            constants.cube = (sub_resource_idx / test->miplevel_count) / 6;
+
+            ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+            ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+            ID3D12GraphicsCommandList_SetPipelineState(command_list, pso);
+            ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+            ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
+            ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 3, &constants.face, 0);
+            ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+            ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+            ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+            transition_resource_state(command_list, context.render_target,
+                    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+            check_sub_resource_float(context.render_target, 0, queue, command_list, sub_resource_idx, 0);
+
+            reset_command_list(command_list, context.allocator);
+            transition_resource_state(command_list, context.render_target,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        }
+
+        ID3D12Resource_Release(texture);
+    }
+    ID3D12PipelineState_Release(pso);
+
     ID3D12DescriptorHeap_Release(heap);
     destroy_test_context(&context);
 }
@@ -17380,6 +17684,7 @@ START_TEST(d3d12)
     run_test(test_root_constants);
     run_test(test_texture);
     run_test(test_gather);
+    run_test(test_cube_maps);
     run_test(test_descriptor_tables);
     run_test(test_descriptor_tables_overlapping_bindings);
     run_test(test_update_root_descriptors);
