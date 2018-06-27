@@ -1150,6 +1150,7 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
 {
+    uint32_t miplevel_idx, miplevel_count, layer_idx, layer_count;
     const struct vkd3d_format *format;
     VkImageViewType vk_view_type;
     struct vkd3d_view *view;
@@ -1174,22 +1175,52 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
         return;
     }
 
-    if (desc)
-        FIXME("Unhandled SRV desc %p.\n", desc);
-
     if (!(format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, desc ? desc->Format : 0)))
     {
         FIXME("Failed to find format for %#x.\n", resource->desc.Format);
         return;
     }
 
+    vk_view_type = resource->desc.DepthOrArraySize > 1
+            ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+    miplevel_idx = 0;
+    miplevel_count = VK_REMAINING_MIP_LEVELS;
+    layer_idx = 0;
+    layer_count = VK_REMAINING_ARRAY_LAYERS;
+    if (desc)
+    {
+        if (desc->Shader4ComponentMapping != D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING)
+            FIXME("Ignoring component mapping %#x.\n", desc->Shader4ComponentMapping);
+
+        switch (desc->ViewDimension)
+        {
+            case D3D12_SRV_DIMENSION_TEXTURECUBE:
+                vk_view_type = VK_IMAGE_VIEW_TYPE_CUBE;
+                miplevel_idx = desc->u.TextureCube.MostDetailedMip;
+                miplevel_count = desc->u.TextureCube.MipLevels;
+                layer_count = 6;
+                if (desc->u.TextureCube.ResourceMinLODClamp)
+                    FIXME("Unhandled min LOD clamp %.8e.\n", desc->u.TextureCube.ResourceMinLODClamp);
+                break;
+            case D3D12_SRV_DIMENSION_TEXTURECUBEARRAY:
+                vk_view_type = VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+                miplevel_idx = desc->u.TextureCubeArray.MostDetailedMip;
+                miplevel_count = desc->u.TextureCubeArray.MipLevels;
+                layer_idx = desc->u.TextureCubeArray.First2DArrayFace;
+                layer_count = 6 * desc->u.TextureCubeArray.NumCubes;
+                if (desc->u.TextureCubeArray.ResourceMinLODClamp)
+                    FIXME("Unhandled min LOD clamp %.8e.\n", desc->u.TextureCubeArray.ResourceMinLODClamp);
+                break;
+            default:
+                FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
+        }
+    }
+
     if (!(view = vkd3d_view_create()))
         return;
 
-    vk_view_type = resource->desc.DepthOrArraySize > 1
-            ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
     if (vkd3d_create_texture_view(device, resource, format, vk_view_type,
-            0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS, true, &view->u.vk_image_view) < 0)
+            miplevel_idx, miplevel_count, layer_idx, layer_count, true, &view->u.vk_image_view) < 0)
     {
         vkd3d_free(view);
         return;
