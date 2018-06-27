@@ -284,6 +284,8 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     VkResult vr;
     HRESULT hr;
 
+    TRACE("Build: %s.\n", vkd3d_build);
+
     if (!create_info->pfn_signal_event)
     {
         ERR("Invalid signal event function pointer.\n");

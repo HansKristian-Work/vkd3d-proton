@@ -94,7 +94,8 @@ libvkd3d_la_SOURCES = \
 	libs/vkd3d/vkd3d.map \
 	libs/vkd3d/vkd3d_main.c \
 	libs/vkd3d/vkd3d_private.h \
-	libs/vkd3d/vulkan_procs.h
+	libs/vkd3d/vulkan_procs.h \
+	libs/vkd3d_version.c
 libvkd3d_la_LDFLAGS = -version-info 1:0:0
 libvkd3d_la_LIBADD = libvkd3d-common.la libvkd3d-shader.la @DL_LIBS@ @PTHREAD_LIBS@
 if HAVE_LD_VERSION_SCRIPT
@@ -172,6 +173,14 @@ libvkd3d.pc: $(srcdir)/libs/vkd3d/libvkd3d.pc.in
 		-e 's![@]libdir[@]!$(libdir)!g' \
 		-e 's![@]PACKAGE_VERSION[@]!$(PACKAGE_VERSION)!g' \
 		$< > $@
+
+libs/vkd3d_version.c: dummy-vkd3d-version
+	version=`(GIT_DIR=$(top_srcdir)/.git git describe HEAD 2>/dev/null || echo "vkd3d-$(PACKAGE_VERSION)") | sed -n -e '$$s/\(.*\)/const char vkd3d_build[] = "\1";/p'` && (echo $$version | cmp -s - $@) || echo $$version >$@ || ($(RM) $@ && exit 1)
+.SILENT: libs/vkd3d_version.c
+CLEANFILES += libs/vkd3d_version.c
+
+.PHONY: dummy-vkd3d-version
+dummy-vkd3d-version:
 
 ## Cross-compile tests
 cross_implibs = crosslibs/d3d12
