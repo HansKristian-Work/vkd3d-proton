@@ -93,6 +93,8 @@ VKD3D_CHECK_FUNC([HAVE_BUILTIN_POPCOUNT], [__builtin_popcount], [__builtin_popco
 VKD3D_CHECK_FUNC([HAVE_SYNC_ADD_AND_FETCH], [__sync_add_and_fetch], [__sync_add_and_fetch((int *)0, 0)])
 VKD3D_CHECK_FUNC([HAVE_SYNC_SUB_AND_FETCH], [__sync_sub_and_fetch], [__sync_sub_and_fetch((int *)0, 0)])
 
+VKD3D_CHECK_LIB_FUNCS([pthread_setname_np], [$PTHREAD_LIBS])
+
 AM_CONDITIONAL([HAVE_WIDL], [test "x$WIDL" != "xno"])
 AM_CONDITIONAL([HAVE_CROSSTARGET32], [test "x$CROSSTARGET32" != "xno"])
 AM_CONDITIONAL([HAVE_CROSSTARGET64], [test "x$CROSSTARGET64" != "xno"])

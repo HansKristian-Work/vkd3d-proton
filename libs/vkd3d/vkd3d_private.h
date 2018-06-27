@@ -19,12 +19,14 @@
 #ifndef __VKD3D_PRIVATE_H
 #define __VKD3D_PRIVATE_H
 
-#define VK_NO_PROTOTYPES
-
 #define COBJMACROS
 #define NONAMELESSUNION
-#include "vkd3d.h"
+#define VK_NO_PROTOTYPES
+
+#include "vkd3d_common.h"
 #include "vkd3d_memory.h"
+
+#include "vkd3d.h"
 #include "vkd3d_shader.h"
 
 #include <assert.h>
