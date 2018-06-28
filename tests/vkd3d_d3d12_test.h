@@ -319,7 +319,6 @@ static void check_sub_resource_uint_(unsigned int line, ID3D12Resource *texture,
 }
 
 #define create_default_texture(a, b, c, d, e, f) create_default_texture2d_(__LINE__, a, b, c, 1, 1, d, e, f)
-#define create_texture(a, b, c, d, e) create_default_texture(a, b, c, d, 0, e)
 #define create_default_texture2d(a, b, c, d, e, f, g, h) create_default_texture2d_(__LINE__, a, b, c, d, e, f, g, h)
 static ID3D12Resource *create_default_texture2d_(unsigned int line, ID3D12Device *device,
         unsigned int width, unsigned int height, unsigned int array_size, unsigned int miplevel_count,

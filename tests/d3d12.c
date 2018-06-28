@@ -8552,8 +8552,8 @@ static void test_texture(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
-        texture = create_texture(context.device,
-                tests[i].width, tests[i].height, tests[i].format, D3D12_RESOURCE_STATE_COPY_DEST);
+        texture = create_default_texture(context.device,
+                tests[i].width, tests[i].height, tests[i].format, 0, D3D12_RESOURCE_STATE_COPY_DEST);
         upload_texture_data(texture, &tests[i].data, 1, queue, command_list);
         reset_command_list(command_list, context.allocator);
 
@@ -8773,8 +8773,8 @@ static void test_gather(void)
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
     gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
 
-    texture = create_texture(context.device, 4, 4, DXGI_FORMAT_R32G32B32A32_FLOAT,
-            D3D12_RESOURCE_STATE_COPY_DEST);
+    texture = create_default_texture(context.device, 4, 4, DXGI_FORMAT_R32G32B32A32_FLOAT,
+            0, D3D12_RESOURCE_STATE_COPY_DEST);
     ID3D12Device_CreateShaderResourceView(context.device, texture, NULL, cpu_handle);
     upload_texture_data(texture, &resource_data, 1, queue, command_list);
     reset_command_list(command_list, context.allocator);
@@ -9412,8 +9412,8 @@ static void test_descriptor_tables(void)
 
     for (i = 0; i < ARRAY_SIZE(textures); ++i)
     {
-        textures[i] = create_texture(context.device,
-                1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_STATE_COPY_DEST);
+        textures[i] = create_default_texture(context.device,
+                1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D12_RESOURCE_STATE_COPY_DEST);
         data.pData = &texture_data[i];
         data.RowPitch = sizeof(texture_data[i]);
         data.SlicePitch = data.RowPitch;
@@ -9887,8 +9887,8 @@ static void test_update_descriptor_tables(void)
 
     for (i = 0; i < ARRAY_SIZE(textures); ++i)
     {
-        textures[i] = create_texture(context.device, 1, 1, DXGI_FORMAT_R32_FLOAT,
-                D3D12_RESOURCE_STATE_COPY_DEST);
+        textures[i] = create_default_texture(context.device, 1, 1, DXGI_FORMAT_R32_FLOAT,
+                0, D3D12_RESOURCE_STATE_COPY_DEST);
         data.pData = &texture_data[i];
         data.RowPitch = sizeof(texture_data[i]);
         data.SlicePitch = data.RowPitch;
@@ -10020,8 +10020,8 @@ static void test_update_descriptor_heap_after_closing_command_list(void)
 
     cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
 
-    red_texture = create_texture(context.device, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
-            D3D12_RESOURCE_STATE_COPY_DEST);
+    red_texture = create_default_texture(context.device, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
+            0, D3D12_RESOURCE_STATE_COPY_DEST);
     texture_data.pData = red_data;
     texture_data.RowPitch = sizeof(*red_data);
     texture_data.SlicePitch = texture_data.RowPitch;
@@ -10030,8 +10030,8 @@ static void test_update_descriptor_heap_after_closing_command_list(void)
     transition_resource_state(command_list, red_texture,
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
-    green_texture = create_texture(context.device, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
-            D3D12_RESOURCE_STATE_COPY_DEST);
+    green_texture = create_default_texture(context.device, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
+            0, D3D12_RESOURCE_STATE_COPY_DEST);
     texture_data.pData = green_data;
     upload_texture_data(green_texture, &texture_data, 1, queue, command_list);
     reset_command_list(command_list, context.allocator);
@@ -10425,8 +10425,8 @@ static void test_update_compute_descriptor_tables(void)
     transition_resource_state(command_list, input_buffers[4],
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-    textures[0] = create_texture(context.device,
-            4, 4, DXGI_FORMAT_R32_UINT, D3D12_RESOURCE_STATE_COPY_DEST);
+    textures[0] = create_default_texture(context.device,
+            4, 4, DXGI_FORMAT_R32_UINT, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     subresource_data.pData = texture0_data;
     subresource_data.RowPitch = sizeof(*texture0_data);
     subresource_data.SlicePitch = subresource_data.RowPitch;
@@ -10435,8 +10435,8 @@ static void test_update_compute_descriptor_tables(void)
     transition_resource_state(command_list, textures[0],
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-    textures[1] = create_texture(context.device,
-            4, 4, DXGI_FORMAT_R32_UINT, D3D12_RESOURCE_STATE_COPY_DEST);
+    textures[1] = create_default_texture(context.device,
+            4, 4, DXGI_FORMAT_R32_UINT, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     subresource_data.pData = texture1_data;
     subresource_data.RowPitch = sizeof(*texture1_data);
     subresource_data.SlicePitch = subresource_data.RowPitch;
@@ -10843,8 +10843,8 @@ static void test_copy_descriptors(void)
     /* create SRVs */
     cpu_handle = get_cpu_descriptor_handle(&context, cpu_heap, 10);
 
-    t[0] = create_texture(context.device,
-            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, D3D12_RESOURCE_STATE_COPY_DEST);
+    t[0] = create_default_texture(context.device,
+            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     data.pData = &t0_data;
     data.RowPitch = sizeof(t0_data);
     data.SlicePitch = data.RowPitch;
@@ -10853,8 +10853,8 @@ static void test_copy_descriptors(void)
     transition_resource_state(command_list, t[0],
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-    t[1] = create_texture(context.device,
-            1, 1, DXGI_FORMAT_R32_UINT, D3D12_RESOURCE_STATE_COPY_DEST);
+    t[1] = create_default_texture(context.device,
+            1, 1, DXGI_FORMAT_R32_UINT, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     data.pData = &t1_data;
     data.RowPitch = sizeof(t1_data);
     data.SlicePitch = data.RowPitch;
@@ -10863,8 +10863,8 @@ static void test_copy_descriptors(void)
     transition_resource_state(command_list, t[1],
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-    t[2] = create_texture(context.device,
-            1, 1, DXGI_FORMAT_R32_UINT, D3D12_RESOURCE_STATE_COPY_DEST);
+    t[2] = create_default_texture(context.device,
+            1, 1, DXGI_FORMAT_R32_UINT, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     data.pData = &t2_data;
     data.RowPitch = sizeof(t2_data);
     data.SlicePitch = data.RowPitch;
@@ -11231,8 +11231,8 @@ static void test_copy_descriptors_range_sizes(void)
     green_handle = get_cpu_descriptor_handle(&context, cpu_heap, 0);
     blue_handle = get_cpu_descriptor_handle(&context, cpu_heap, 1);
 
-    green_texture = create_texture(context.device,
-            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, D3D12_RESOURCE_STATE_COPY_DEST);
+    green_texture = create_default_texture(context.device,
+            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     data.pData = &green;
     data.RowPitch = sizeof(green);
     data.SlicePitch = data.RowPitch;
@@ -11242,8 +11242,8 @@ static void test_copy_descriptors_range_sizes(void)
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     ID3D12Device_CreateShaderResourceView(device, green_texture, NULL, green_handle);
 
-    blue_texture = create_texture(context.device,
-            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, D3D12_RESOURCE_STATE_COPY_DEST);
+    blue_texture = create_default_texture(context.device,
+            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     data.pData = &blue;
     data.RowPitch = sizeof(blue);
     data.SlicePitch = data.RowPitch;
@@ -11544,8 +11544,8 @@ static void test_descriptors_visibility(void)
     vs_raw_buffer = create_upload_buffer(device, sizeof(vs_buffer_data), vs_buffer_data);
     ps_raw_buffer = create_upload_buffer(device, sizeof(ps_buffer_data), ps_buffer_data);
 
-    vs_texture = create_texture(device,
-            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, D3D12_RESOURCE_STATE_COPY_DEST);
+    vs_texture = create_default_texture(device,
+            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     data.pData = vs_texture_data;
     data.RowPitch = sizeof(vs_texture_data);
     data.SlicePitch = data.RowPitch;
@@ -11554,8 +11554,8 @@ static void test_descriptors_visibility(void)
     transition_resource_state(command_list, vs_texture,
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-    ps_texture = create_texture(device,
-            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, D3D12_RESOURCE_STATE_COPY_DEST);
+    ps_texture = create_default_texture(device,
+            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     data.pData = ps_texture_data;
     data.RowPitch = sizeof(ps_texture_data);
     data.SlicePitch = data.RowPitch;
@@ -16308,16 +16308,16 @@ static void test_copy_texture_region(void)
 
     for (i = 0; i < ARRAY_SIZE(resource_states); ++i)
     {
-        src_texture = create_texture(device, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM,
-                D3D12_RESOURCE_STATE_COPY_DEST);
+        src_texture = create_default_texture(device, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM,
+                0, D3D12_RESOURCE_STATE_COPY_DEST);
         texture_data.pData = bitmap_data;
         texture_data.RowPitch = 4 * sizeof(*bitmap_data);
         texture_data.SlicePitch = texture_data.RowPitch * 4;
         upload_texture_data(src_texture, &texture_data, 1, queue, command_list);
         reset_command_list(command_list, context.allocator);
 
-        dst_texture = create_texture(device, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM,
-                D3D12_RESOURCE_STATE_COPY_DEST);
+        dst_texture = create_default_texture(device, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM,
+                0, D3D12_RESOURCE_STATE_COPY_DEST);
         texture_data.pData = clear_data;
         texture_data.RowPitch = 4 * sizeof(*bitmap_data);
         texture_data.SlicePitch = texture_data.RowPitch * 4;
@@ -16374,8 +16374,8 @@ static void test_copy_texture_region(void)
         transition_sub_resource_state(command_list, ds.texture, 0,
                 D3D12_RESOURCE_STATE_DEPTH_WRITE, resource_states[i % ARRAY_SIZE(resource_states)]);
 
-        dst_texture = create_texture(device, 32, 32, DXGI_FORMAT_R32_FLOAT,
-                D3D12_RESOURCE_STATE_COPY_DEST);
+        dst_texture = create_default_texture(device, 32, 32, DXGI_FORMAT_R32_FLOAT,
+                0, D3D12_RESOURCE_STATE_COPY_DEST);
         ID3D12Device_CreateShaderResourceView(device, dst_texture, NULL,
                 ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
 
@@ -16631,8 +16631,8 @@ static void test_separate_bindings(void)
     transition_resource_state(command_list, ps_raw_uav_buffer,
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-    cs_textures[0] = create_texture(device,
-            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, D3D12_RESOURCE_STATE_COPY_DEST);
+    cs_textures[0] = create_default_texture(device,
+            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     data.pData = &cs_data;
     data.RowPitch = sizeof(cs_data);
     data.SlicePitch = data.RowPitch;
@@ -16650,8 +16650,8 @@ static void test_separate_bindings(void)
     transition_resource_state(command_list, cs_textures[1],
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-    ps_textures[0] = create_texture(device,
-            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, D3D12_RESOURCE_STATE_COPY_DEST);
+    ps_textures[0] = create_default_texture(device,
+            1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     data.pData = &ps_data;
     data.RowPitch = sizeof(ps_data);
     data.SlicePitch = data.RowPitch;
