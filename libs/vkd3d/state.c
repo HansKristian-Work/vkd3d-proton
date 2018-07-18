@@ -1866,7 +1866,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (!(format = vkd3d_get_format(desc->DSVFormat, true)))
         {
             WARN("Invalid DXGI format %#x.\n", desc->DSVFormat);
-            hr = E_FAIL;
+            hr = E_INVALIDARG;
             goto fail;
         }
 
@@ -1915,7 +1915,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (!(format = vkd3d_get_format(desc->RTVFormats[i], false)))
         {
             WARN("Invalid DXGI format %#x.\n", desc->RTVFormats[i]);
-            hr = E_FAIL;
+            hr = E_INVALIDARG;
             goto fail;
         }
 
@@ -2007,14 +2007,14 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (!(format = vkd3d_get_format(e->Format, false)))
         {
             WARN("Invalid DXGI format %#x.\n", e->Format);
-            hr = E_FAIL;
+            hr = E_INVALIDARG;
             goto fail;
         }
 
         if (e->InputSlot >= ARRAY_SIZE(graphics->input_rates))
         {
             WARN("Invalid input slot %#x.\n", e->InputSlot);
-            hr = E_FAIL;
+            hr = E_INVALIDARG;
             goto fail;
         }
 
@@ -2048,7 +2048,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
             default:
                 FIXME("Unhandled input slot class %#x on input element %u.\n", e->InputSlotClass, i);
-                hr = E_FAIL;
+                hr = E_INVALIDARG;
                 goto fail;
         }
 
@@ -2056,7 +2056,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         {
             FIXME("Input slot class %#x on input element %u conflicts with earlier input slot class %#x.\n",
                     e->InputSlotClass, e->InputSlot, graphics->input_rates[e->InputSlot]);
-            hr = E_FAIL;
+            hr = E_INVALIDARG;
             goto fail;
         }
         graphics->input_rates[e->InputSlot] = input_rate;
