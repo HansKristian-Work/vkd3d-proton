@@ -3000,11 +3000,6 @@ static const struct vkd3d_shader_signature_element *vkd3d_find_signature_element
     return NULL;
 }
 
-static bool vkd3d_dxbc_compiler_is_input_arrayed(struct vkd3d_dxbc_compiler *compiler)
-{
-    return compiler->shader_type == VKD3D_SHADER_TYPE_GEOMETRY;
-}
-
 static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval)
 {
@@ -3027,7 +3022,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     assert(!reg->idx[0].rel_addr);
     assert(!reg->idx[1].rel_addr);
 
-    if (vkd3d_dxbc_compiler_is_input_arrayed(compiler))
+    if (reg->idx[1].offset != ~0u)
     {
         array_size = reg->idx[0].offset;
         reg_idx = reg->idx[1].offset;
