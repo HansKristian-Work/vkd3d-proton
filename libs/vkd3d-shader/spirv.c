@@ -2160,6 +2160,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_DEPTHOUT:
             snprintf(buffer, buffer_size, "oDepth");
             break;
+        case VKD3DSPR_TESSCOORD:
+            snprintf(buffer, buffer_size, "vDomainLocation");
+            break;
         case VKD3DSPR_THREADID:
             snprintf(buffer, buffer_size, "vThreadID");
             break;
