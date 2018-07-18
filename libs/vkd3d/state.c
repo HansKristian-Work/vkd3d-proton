@@ -1969,21 +1969,42 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (shader_info.uav_counter_mask)
             FIXME("UAV counters not implemented for graphics pipelines.\n");
 
-        if (shader_stages[i].stage == VK_SHADER_STAGE_FRAGMENT_BIT)
-            compile_args = &ps_compile_args;
-        else
-            compile_args = NULL;
+        compile_args = NULL;
+        switch (shader_stages[i].stage)
+        {
+            case VK_SHADER_STAGE_VERTEX_BIT:
+                if ((ret = vkd3d_shader_parse_input_signature(&dxbc, &input_signature)) < 0)
+                {
+                    hr = hresult_from_vkd3d_result(ret);
+                    goto fail;
+                }
+                break;
+
+            case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
+            case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
+                if (desc->PrimitiveTopologyType != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH)
+                {
+                    WARN("D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH must be used with tessellation shaders.\n");
+                    hr = E_INVALIDARG;
+                    goto fail;
+                }
+                break;
+
+            case VK_SHADER_STAGE_GEOMETRY_BIT:
+                break;
+
+            case VK_SHADER_STAGE_FRAGMENT_BIT:
+                compile_args = &ps_compile_args;
+                break;
+
+            default:
+                hr = E_INVALIDARG;
+                goto fail;
+        }
 
         if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
                 shader_stages[i].stage, b, &shader_interface, compile_args)))
             goto fail;
-
-        if (shader_stages[i].stage == VK_SHADER_STAGE_VERTEX_BIT
-                && (ret = vkd3d_shader_parse_input_signature(&dxbc, &input_signature)) < 0)
-        {
-            hr = hresult_from_vkd3d_result(ret);
-            goto fail;
-        }
 
         ++graphics->stage_count;
     }
