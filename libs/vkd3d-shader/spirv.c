@@ -1729,7 +1729,7 @@ static void vkd3d_symbol_make_register(struct vkd3d_symbol *symbol,
     symbol->type = VKD3D_SYMBOL_REGISTER;
     memset(&symbol->key, 0, sizeof(symbol->key));
     symbol->key.reg.type = reg->type;
-    if (reg->type == VKD3DSPR_INPUT && reg->idx[1].offset != ~0u)
+    if (vkd3d_shader_register_is_input(reg) && reg->idx[1].offset != ~0u)
         symbol->key.reg.idx = reg->idx[1].offset;
     else if (reg->type != VKD3DSPR_IMMCONSTBUFFER)
         symbol->key.reg.idx = reg->idx[0].offset;
@@ -2149,6 +2149,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
             break;
         case VKD3DSPR_INPUT:
             snprintf(buffer, buffer_size, "v%u", idx);
+            break;
+        case VKD3DSPR_INCONTROLPOINT:
+            snprintf(buffer, buffer_size, "vicp%u", idx);
             break;
         case VKD3DSPR_OUTPUT:
         case VKD3DSPR_COLOROUT:
@@ -3755,10 +3758,10 @@ static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compi
 {
     const struct vkd3d_shader_dst_param *dst = &instruction->declaration.dst;
 
-    if (dst->reg.type != VKD3DSPR_INPUT)
-        vkd3d_dxbc_compiler_emit_input_register(compiler, dst);
-    else
+    if (vkd3d_shader_register_is_input(&dst->reg))
         vkd3d_dxbc_compiler_emit_input(compiler, dst, VKD3D_SIV_NONE);
+    else
+        vkd3d_dxbc_compiler_emit_input_register(compiler, dst);
 }
 
 static void vkd3d_dxbc_compiler_emit_interpolation_decorations(struct vkd3d_dxbc_compiler *compiler,

@@ -778,6 +778,11 @@ static inline BOOL vkd3d_shader_instruction_has_texel_offset(const struct vkd3d_
     return ins->texel_offset.u || ins->texel_offset.v || ins->texel_offset.w;
 }
 
+static inline bool vkd3d_shader_register_is_input(const struct vkd3d_shader_register *reg)
+{
+    return reg->type == VKD3DSPR_INPUT || reg->type == VKD3DSPR_INCONTROLPOINT;
+}
+
 void vkd3d_shader_trace(void *data) DECLSPEC_HIDDEN;
 
 void *shader_sm4_init(const DWORD *byte_code, size_t byte_code_size,
