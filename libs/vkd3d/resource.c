@@ -1194,6 +1194,15 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
 
         switch (desc->ViewDimension)
         {
+            case D3D12_SRV_DIMENSION_TEXTURE2D:
+                vk_view_type = VK_IMAGE_VIEW_TYPE_2D;
+                miplevel_idx = desc->u.Texture2D.MostDetailedMip;
+                miplevel_count = desc->u.Texture2D.MipLevels;
+                if (desc->u.Texture2D.PlaneSlice)
+                    FIXME("Ignoring plane slice %u.\n", desc->u.Texture2D.PlaneSlice);
+                if (desc->u.Texture2D.ResourceMinLODClamp)
+                    FIXME("Unhandled min LOD clamp %.8e.\n", desc->u.Texture2D.ResourceMinLODClamp);
+                break;
             case D3D12_SRV_DIMENSION_TEXTURECUBE:
                 vk_view_type = VK_IMAGE_VIEW_TYPE_CUBE;
                 miplevel_idx = desc->u.TextureCube.MostDetailedMip;
