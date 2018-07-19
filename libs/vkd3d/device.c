@@ -1597,6 +1597,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             return S_OK;
         }
 
+        case D3D12_FEATURE_ROOT_SIGNATURE:
+        {
+            D3D12_FEATURE_DATA_ROOT_SIGNATURE *data = feature_data;
+            FIXME("Root signature version 1_1 not supported yet.\n");
+            data->HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+            return S_OK;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
