@@ -28,7 +28,7 @@ HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
 
     TRACE("create_info %p, iid %s, device %p.\n", create_info, debugstr_guid(iid), device);
 
-    if (!create_info || !device)
+    if (!create_info)
         return E_INVALIDARG;
     if (create_info->type != VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO)
     {
@@ -75,6 +75,12 @@ HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
     vkd3d_instance_decref(instance);
     if (FAILED(hr))
         return hr;
+
+    if (!device)
+    {
+        ID3D12Device_Release(&object->ID3D12Device_iface);
+        return S_FALSE;
+    }
 
     return return_interface((IUnknown *)&object->ID3D12Device_iface, &IID_ID3D12Device,
             iid, device);
