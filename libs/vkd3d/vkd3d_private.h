@@ -786,6 +786,12 @@ const char *debug_vk_memory_heap_flags(VkMemoryHeapFlags flags) DECLSPEC_HIDDEN;
 const char *debug_vk_memory_property_flags(VkMemoryPropertyFlags flags) DECLSPEC_HIDDEN;
 const char *debug_vk_queue_flags(VkQueueFlags flags) DECLSPEC_HIDDEN;
 
+static inline void debug_ignored_node_mask(unsigned int mask)
+{
+    if (mask && mask != 1)
+        FIXME("Ignoring node mask 0x%08x.\n", mask);
+}
+
 HRESULT hresult_from_vk_result(VkResult vr) DECLSPEC_HIDDEN;
 HRESULT hresult_from_vkd3d_result(int vkd3d_result) DECLSPEC_HIDDEN;
 

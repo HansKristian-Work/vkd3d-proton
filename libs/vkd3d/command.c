@@ -4045,8 +4045,7 @@ HRESULT d3d12_command_list_create(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
-    if (node_mask && node_mask != 1)
-        FIXME("Multi-adapter not supported.\n");
+    debug_ignored_node_mask(node_mask);
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;

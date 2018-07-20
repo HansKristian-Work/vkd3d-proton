@@ -1663,8 +1663,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignature(ID3D12Device *
     TRACE("iface %p, node_mask 0x%08x, bytecode %p, bytecode_length %lu, riid %s, root_signature %p.\n",
             iface, node_mask, bytecode, bytecode_length, debugstr_guid(riid), root_signature);
 
-    if (node_mask && node_mask != 1)
-        FIXME("Ignoring node mask 0x%08x.\n", node_mask);
+    debug_ignored_node_mask(node_mask);
 
     if (FAILED(hr = d3d12_root_signature_create(device, bytecode, bytecode_length, &object)))
         return hr;
@@ -1816,6 +1815,8 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
             "resource_descs %p stub!\n",
             iface, allocation_info, visible_mask, resource_desc_count, resource_descs);
 
+    debug_ignored_node_mask(visible_mask);
+
     return allocation_info;
 }
 
@@ -1824,6 +1825,8 @@ static D3D12_HEAP_PROPERTIES * STDMETHODCALLTYPE d3d12_device_GetCustomHeapPrope
 {
     FIXME("iface %p, heap_properties %p, node_mask 0x%08x, heap_type %#x stub!\n",
             iface, heap_properties, node_mask, heap_type);
+
+    debug_ignored_node_mask(node_mask);
 
     return heap_properties;
 }
