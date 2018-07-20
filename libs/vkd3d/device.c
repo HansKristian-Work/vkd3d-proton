@@ -1964,7 +1964,8 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         UINT64 base_offset, D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts,
         UINT *row_counts, UINT64 *row_sizes, UINT64 *total_bytes)
 {
-    static const struct vkd3d_format vkd3d_format_unknown = {DXGI_FORMAT_UNKNOWN, VK_FORMAT_UNDEFINED, 1, 1, 1, 1, 0};
+    static const struct vkd3d_format vkd3d_format_unknown
+            = {DXGI_FORMAT_UNKNOWN, VK_FORMAT_UNDEFINED, 1, 1, 1, 1, 0};
 
     unsigned int i, sub_resource_idx, miplevel_idx, row_count, row_size, row_pitch;
     unsigned int width, height, depth, array_size;
@@ -1995,35 +1996,10 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         return;
     }
 
-    /* FIXME: We should probably share D3D12_RESOURCE_DESC validation with CreateCommittedResource(). */
-    switch (desc->Dimension)
+    if (FAILED(d3d12_resource_validate_desc(desc)))
     {
-        case D3D12_RESOURCE_DIMENSION_BUFFER:
-            if (desc->Format != DXGI_FORMAT_UNKNOWN || desc->Layout != D3D12_TEXTURE_LAYOUT_ROW_MAJOR
-                    || desc->Height != 1 || desc->DepthOrArraySize != 1 || desc->MipLevels != 1
-                    || desc->SampleDesc.Count != 1 || desc->SampleDesc.Quality != 0
-                    || (desc->Alignment != 0 && desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT))
-            {
-                WARN("Invalid parameters for a buffer resource.\n");
-                return;
-            }
-            break;
-
-        case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
-            if (desc->Height != 1)
-            {
-                WARN("1D texture with a height of %u.\n", desc->Height);
-                return;
-            }
-            break;
-
-        case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
-        case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
-            break;
-
-        default:
-            WARN("Invalid resource dimension %#x.\n", desc->Dimension);
-            return;
+        WARN("Invalid resource desc.\n");
+        return;
     }
 
     array_size = d3d12_resource_desc_get_layer_count(desc);

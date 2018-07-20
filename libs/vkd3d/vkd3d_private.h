@@ -223,6 +223,8 @@ static inline bool d3d12_resource_is_texture(const struct d3d12_resource *resour
     return resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER;
 }
 
+HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc) DECLSPEC_HIDDEN;
+
 HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,

@@ -648,21 +648,43 @@ struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface)
     return impl_from_ID3D12Resource(iface);
 }
 
-static HRESULT validate_buffer_desc(const D3D12_RESOURCE_DESC *desc)
+HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc)
 {
-    if (desc->MipLevels != 1)
+    switch (desc->Dimension)
     {
-        WARN("Invalid miplevel count %u for buffer.\n", desc->MipLevels);
-        return E_INVALIDARG;
+        case D3D12_RESOURCE_DIMENSION_BUFFER:
+            if (desc->MipLevels != 1)
+            {
+                WARN("Invalid miplevel count %u for buffer.\n", desc->MipLevels);
+                return E_INVALIDARG;
+            }
+
+            if (desc->Format != DXGI_FORMAT_UNKNOWN || desc->Layout != D3D12_TEXTURE_LAYOUT_ROW_MAJOR
+                    || desc->Height != 1 || desc->DepthOrArraySize != 1
+                    || desc->SampleDesc.Count != 1 || desc->SampleDesc.Quality != 0
+                    || (desc->Alignment != 0 && desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT))
+            {
+                WARN("Invalid parameters for a buffer resource.\n");
+                return E_INVALIDARG;
+            }
+            break;
+
+        case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
+            if (desc->Height != 1)
+            {
+                WARN("1D texture with a height of %u.\n", desc->Height);
+                return E_INVALIDARG;
+            }
+            break;
+
+        case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
+        case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
+            break;
+
+        default:
+            WARN("Invalid resource dimension %#x.\n", desc->Dimension);
+            return E_INVALIDARG;
     }
-
-    return S_OK;
-}
-
-static HRESULT validate_texture_desc(D3D12_RESOURCE_DESC *desc)
-{
-    if (!desc->MipLevels)
-        desc->MipLevels = max_miplevel_count(desc);
 
     return S_OK;
 }
@@ -717,11 +739,12 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     resource->gpu_address = 0;
     resource->flags = 0;
 
+    if (FAILED(hr = d3d12_resource_validate_desc(&resource->desc)))
+        return hr;
+
     switch (desc->Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
-            if (FAILED(hr = validate_buffer_desc(&resource->desc)))
-                return hr;
             if (FAILED(hr = vkd3d_create_buffer(device, heap_properties, heap_flags,
                     &resource->desc, &resource->u.vk_buffer)))
                 return hr;
@@ -743,8 +766,8 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
         case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
         case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
         case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
-            if (FAILED(hr = validate_texture_desc(&resource->desc)))
-                return hr;
+            if (!resource->desc.MipLevels)
+                resource->desc.MipLevels = max_miplevel_count(desc);
             resource->flags |= VKD3D_RESOURCE_INITIAL_STATE_TRANSITION;
             if (FAILED(hr = vkd3d_create_image(resource, device, heap_properties, heap_flags)))
                 return hr;
