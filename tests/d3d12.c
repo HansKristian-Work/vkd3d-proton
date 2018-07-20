@@ -1082,6 +1082,10 @@ static void test_create_device(void)
 
     hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, NULL);
     ok(hr == S_FALSE, "Got unexpected hr %#x.\n", hr);
+    hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, NULL, NULL);
+    ok(hr == S_FALSE, "Got unexpected hr %#x.\n", hr);
+    hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12DeviceChild, NULL);
+    ok(hr == S_FALSE, "Got unexpected hr %#x.\n", hr);
 
     hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_9_1, &IID_ID3D12Device, (void **)&device);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
