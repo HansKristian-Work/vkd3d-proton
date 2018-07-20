@@ -18,6 +18,210 @@
 
 #include "vkd3d_private.h"
 
+/* ID3D12Heap */
+static inline struct d3d12_heap *impl_from_ID3D12Heap(ID3D12Heap *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d12_heap, ID3D12Heap_iface);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(ID3D12Heap *iface,
+        REFIID iid, void **object)
+{
+    TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
+
+    if (IsEqualGUID(iid, &IID_ID3D12Heap)
+            || IsEqualGUID(iid, &IID_ID3D12Pageable)
+            || IsEqualGUID(iid, &IID_ID3D12DeviceChild)
+            || IsEqualGUID(iid, &IID_ID3D12Object)
+            || IsEqualGUID(iid, &IID_IUnknown))
+    {
+        ID3D12Heap_AddRef(iface);
+        *object = iface;
+        return S_OK;
+    }
+
+    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
+
+    *object = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_heap_AddRef(ID3D12Heap *iface)
+{
+    struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
+    ULONG refcount = InterlockedIncrement(&heap->refcount);
+
+    TRACE("%p increasing refcount to %u.\n", heap, refcount);
+
+    return refcount;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_heap_Release(ID3D12Heap *iface)
+{
+    struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
+    ULONG refcount = InterlockedDecrement(&heap->refcount);
+
+    TRACE("%p decreasing refcount to %u.\n", heap, refcount);
+
+    if (!refcount)
+    {
+        struct d3d12_device *device = heap->device;
+
+        vkd3d_free(heap);
+
+        ID3D12Device_Release(&device->ID3D12Device_iface);
+    }
+
+    return refcount;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_heap_GetPrivateData(ID3D12Heap *iface,
+        REFGUID guid, UINT *data_size, void *data)
+{
+    FIXME("iface %p, guid %s, data_size %p, data %p stub!", iface, debugstr_guid(guid), data_size, data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateData(ID3D12Heap *iface,
+        REFGUID guid, UINT data_size, const void *data)
+{
+    FIXME("iface %p, guid %s, data_size %u, data %p stub!\n", iface, debugstr_guid(guid), data_size, data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateDataInterface(ID3D12Heap *iface,
+        REFGUID guid, const IUnknown *data)
+{
+    FIXME("iface %p, guid %s, data %p stub!\n", iface, debugstr_guid(guid), data);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_heap_SetName(ID3D12Heap *iface, const WCHAR *name)
+{
+    struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
+
+    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, heap->device->wchar_size));
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_heap_GetDevice(ID3D12Heap *iface,
+        REFIID riid, void **device)
+{
+    struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
+
+    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+
+    return ID3D12Device_QueryInterface(&heap->device->ID3D12Device_iface, riid, device);
+}
+
+static D3D12_HEAP_DESC * STDMETHODCALLTYPE d3d12_heap_GetDesc(ID3D12Heap *iface,
+        D3D12_HEAP_DESC *desc)
+{
+    struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
+
+    TRACE("iface %p, desc %p.\n", iface, desc);
+
+    *desc = heap->desc;
+    return desc;
+}
+
+static const struct ID3D12HeapVtbl d3d12_heap_vtbl =
+{
+    /* IUnknown methods */
+    d3d12_heap_QueryInterface,
+    d3d12_heap_AddRef,
+    d3d12_heap_Release,
+    /* ID3D12Object methods */
+    d3d12_heap_GetPrivateData,
+    d3d12_heap_SetPrivateData,
+    d3d12_heap_SetPrivateDataInterface,
+    d3d12_heap_SetName,
+    /* ID3D12DeviceChild methods */
+    d3d12_heap_GetDevice,
+    /* ID3D12Heap methods */
+    d3d12_heap_GetDesc,
+};
+
+static HRESULT validate_heap_desc(const D3D12_HEAP_DESC *desc)
+{
+    if (!desc->SizeInBytes)
+    {
+        WARN("Invalid size %"PRIu64".\n", desc->SizeInBytes);
+        return E_INVALIDARG;
+    }
+
+    if (desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT
+            && desc->Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT)
+    {
+        WARN("Invalid alignment %"PRIu64".\n", desc->Alignment);
+        return E_INVALIDARG;
+    }
+
+    if (desc->Flags & D3D12_HEAP_FLAG_ALLOW_DISPLAY)
+    {
+        WARN("D3D12_HEAP_FLAG_ALLOW_DISPLAY is only for committed resources.\n");
+        return E_INVALIDARG;
+    }
+
+    return S_OK;
+}
+
+static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
+        struct d3d12_device *device, const D3D12_HEAP_DESC *desc)
+{
+    HRESULT hr;
+
+    heap->ID3D12Heap_iface.lpVtbl = &d3d12_heap_vtbl;
+    heap->refcount = 1;
+
+    heap->desc = *desc;
+
+    if (!heap->desc.Properties.CreationNodeMask)
+        heap->desc.Properties.CreationNodeMask = 1;
+    if (!heap->desc.Properties.VisibleNodeMask)
+        heap->desc.Properties.VisibleNodeMask = 1;
+
+    debug_ignored_node_mask(heap->desc.Properties.CreationNodeMask);
+    debug_ignored_node_mask(heap->desc.Properties.VisibleNodeMask);
+
+    if (!heap->desc.Alignment)
+        heap->desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+    if (FAILED(hr = validate_heap_desc(&heap->desc)))
+        return hr;
+
+    heap->device = device;
+    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+
+    return S_OK;
+}
+
+HRESULT d3d12_heap_create(struct d3d12_device *device,
+        const D3D12_HEAP_DESC *desc, struct d3d12_heap **heap)
+{
+    struct d3d12_heap *object;
+    HRESULT hr;
+
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    if (FAILED(hr = d3d12_heap_init(object, device, desc)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
+
+    TRACE("Created heap %p.\n", object);
+
+    *heap = object;
+
+    return S_OK;
+}
+
 static VkImageType vk_image_type_from_d3d12_resource_dimension(D3D12_RESOURCE_DIMENSION dimension)
 {
     switch (dimension)

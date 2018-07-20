@@ -180,6 +180,20 @@ struct d3d12_fence
 HRESULT d3d12_fence_create(struct d3d12_device *device,
         UINT64 initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence) DECLSPEC_HIDDEN;
 
+/* ID3D12Heap */
+struct d3d12_heap
+{
+    ID3D12Heap ID3D12Heap_iface;
+    LONG refcount;
+
+    D3D12_HEAP_DESC desc;
+
+    struct d3d12_device *device;
+};
+
+HRESULT d3d12_heap_create(struct d3d12_device *device,
+        const D3D12_HEAP_DESC *desc, struct d3d12_heap **heap) DECLSPEC_HIDDEN;
+
 #define VKD3D_RESOURCE_PUBLIC_FLAGS \
         (VKD3D_RESOURCE_INITIAL_STATE_TRANSITION | VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)
 #define VKD3D_RESOURCE_EXTERNAL 0x00000004
@@ -766,7 +780,7 @@ bool check_feature_level_support(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDE
 bool is_valid_resource_state(D3D12_RESOURCE_STATES state) DECLSPEC_HIDDEN;
 bool is_write_resource_state(D3D12_RESOURCE_STATES state) DECLSPEC_HIDDEN;
 
-static inline bool is_cpu_accessible_heap(const struct D3D12_HEAP_PROPERTIES *properties)
+static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *properties)
 {
     if (properties->Type == D3D12_HEAP_TYPE_DEFAULT)
         return false;
