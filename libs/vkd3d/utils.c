@@ -256,19 +256,20 @@ bool is_valid_resource_state(D3D12_RESOURCE_STATES state)
     return true;
 }
 
-HRESULT return_interface(IUnknown *iface, REFIID iface_riid,
-        REFIID requested_riid, void **object)
+HRESULT return_interface(void *iface, REFIID iface_iid,
+        REFIID requested_iid, void **object)
 {
+    IUnknown *unknown = iface;
     HRESULT hr;
 
-    if (IsEqualGUID(iface_riid, requested_riid))
+    if (IsEqualGUID(iface_iid, requested_iid))
     {
-        *object = iface;
+        *object = unknown;
         return S_OK;
     }
 
-    hr = IUnknown_QueryInterface(iface, requested_riid, object);
-    IUnknown_Release(iface);
+    hr = IUnknown_QueryInterface(unknown, requested_iid, object);
+    IUnknown_Release(unknown);
     return hr;
 }
 

@@ -1158,7 +1158,8 @@ static int vkd3d_gpu_va_allocation_compare(const void *k, const void *e)
     return 0;
 }
 
-void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocator, D3D12_GPU_VIRTUAL_ADDRESS address)
+void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocator,
+        D3D12_GPU_VIRTUAL_ADDRESS address)
 {
     struct vkd3d_gpu_va_allocation *allocation;
     int rc;
@@ -1345,7 +1346,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandQueue(ID3D12Device *i
     if (FAILED(hr = d3d12_command_queue_create(device, desc, &object)))
         return hr;
 
-    return return_interface((IUnknown *)&object->ID3D12CommandQueue_iface, &IID_ID3D12CommandQueue,
+    return return_interface(&object->ID3D12CommandQueue_iface, &IID_ID3D12CommandQueue,
             riid, command_queue);
 }
 
@@ -1362,7 +1363,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandAllocator(ID3D12Devic
     if (FAILED(hr = d3d12_command_allocator_create(device, type, &object)))
         return hr;
 
-    return return_interface((IUnknown *)&object->ID3D12CommandAllocator_iface, &IID_ID3D12CommandAllocator,
+    return return_interface(&object->ID3D12CommandAllocator_iface, &IID_ID3D12CommandAllocator,
             riid, command_allocator);
 }
 
@@ -1379,7 +1380,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateGraphicsPipelineState(ID3D12
     if (FAILED(hr = d3d12_pipeline_state_create_graphics(device, desc, &object)))
         return hr;
 
-    return return_interface((IUnknown *)&object->ID3D12PipelineState_iface,
+    return return_interface(&object->ID3D12PipelineState_iface,
             &IID_ID3D12PipelineState, riid, pipeline_state);
 }
 
@@ -1396,7 +1397,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateComputePipelineState(ID3D12D
     if (FAILED(hr = d3d12_pipeline_state_create_compute(device, desc, &object)))
         return hr;
 
-    return return_interface((IUnknown *)&object->ID3D12PipelineState_iface,
+    return return_interface(&object->ID3D12PipelineState_iface,
             &IID_ID3D12PipelineState, riid, pipeline_state);
 }
 
@@ -1417,7 +1418,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandList(ID3D12Device *if
             initial_pipeline_state, &object)))
         return hr;
 
-    return return_interface((IUnknown *)&object->ID3D12GraphicsCommandList_iface,
+    return return_interface(&object->ID3D12GraphicsCommandList_iface,
             &IID_ID3D12GraphicsCommandList, riid, command_list);
 }
 
@@ -1624,7 +1625,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateDescriptorHeap(ID3D12Device 
     if (FAILED(hr = d3d12_descriptor_heap_create(device, desc, &object)))
         return hr;
 
-    return return_interface((IUnknown *)&object->ID3D12DescriptorHeap_iface,
+    return return_interface(&object->ID3D12DescriptorHeap_iface,
             &IID_ID3D12DescriptorHeap, riid, descriptor_heap);
 }
 
@@ -1668,7 +1669,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignature(ID3D12Device *
     if (FAILED(hr = d3d12_root_signature_create(device, bytecode, bytecode_length, &object)))
         return hr;
 
-    return return_interface((IUnknown *)&object->ID3D12RootSignature_iface,
+    return return_interface(&object->ID3D12RootSignature_iface,
             &IID_ID3D12RootSignature, riid, root_signature);
 }
 
@@ -1845,8 +1846,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource(ID3D12Devi
             desc, initial_state, optimized_clear_value, &object)))
         return hr;
 
-    return return_interface((IUnknown *)&object->ID3D12Resource_iface, &IID_ID3D12Resource,
-            riid, resource);
+    return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, riid, resource);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateHeap(ID3D12Device *iface,
@@ -1947,8 +1947,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateFence(ID3D12Device *iface,
     if (FAILED(hr = d3d12_fence_create(device, initial_value, flags, &object)))
         return hr;
 
-    return return_interface((IUnknown *)&object->ID3D12Fence_iface, &IID_ID3D12Fence,
-            riid, fence);
+    return return_interface(&object->ID3D12Fence_iface, &IID_ID3D12Fence, riid, fence);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_GetDeviceRemovedReason(ID3D12Device *iface)
@@ -2096,8 +2095,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateQueryHeap(ID3D12Device *ifac
     if (FAILED(hr = d3d12_query_heap_create(device, desc, &object)))
         return hr;
 
-    return return_interface((IUnknown *)&object->ID3D12QueryHeap_iface,
-            &IID_ID3D12QueryHeap, iid, heap);
+    return return_interface(&object->ID3D12QueryHeap_iface, &IID_ID3D12QueryHeap, iid, heap);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetStablePowerState(ID3D12Device *iface, BOOL enable)
@@ -2121,7 +2119,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandSignature(ID3D12Devic
     if (FAILED(hr = d3d12_command_signature_create(device, desc, &object)))
         return hr;
 
-    return return_interface((IUnknown *)&object->ID3D12CommandSignature_iface,
+    return return_interface(&object->ID3D12CommandSignature_iface,
             &IID_ID3D12CommandSignature, iid, command_signature);
 }
 

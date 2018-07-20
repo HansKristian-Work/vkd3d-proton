@@ -82,8 +82,7 @@ HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         return S_FALSE;
     }
 
-    return return_interface((IUnknown *)&object->ID3D12Device_iface, &IID_ID3D12Device,
-            iid, device);
+    return return_interface(&object->ID3D12Device_iface, &IID_ID3D12Device, iid, device);
 }
 
 /* ID3D12RootSignatureDeserializer */
@@ -208,7 +207,7 @@ HRESULT vkd3d_create_root_signature_deserializer(const void *data, SIZE_T data_s
         return hr;
     }
 
-    return return_interface((IUnknown *)&object->ID3D12RootSignatureDeserializer_iface,
+    return return_interface(&object->ID3D12RootSignatureDeserializer_iface,
             &IID_ID3D12RootSignatureDeserializer, iid, deserializer);
 }
 

@@ -776,8 +776,8 @@ static inline bool is_cpu_accessible_heap(const struct D3D12_HEAP_PROPERTIES *pr
     return true;
 }
 
-HRESULT return_interface(IUnknown *iface, REFIID iface_riid,
-        REFIID requested_riid, void **object) DECLSPEC_HIDDEN;
+HRESULT return_interface(void *iface, REFIID iface_iid,
+        REFIID requested_iid, void **object) DECLSPEC_HIDDEN;
 
 const char *debug_vk_extent_3d(VkExtent3D extent) DECLSPEC_HIDDEN;
 const char *debug_vk_memory_heap_flags(VkMemoryHeapFlags flags) DECLSPEC_HIDDEN;
