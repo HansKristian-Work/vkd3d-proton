@@ -1606,6 +1606,17 @@ interface ID3D12Pageable : ID3D12DeviceChild
 }
 
 [
+    uuid(6b3b2502-6e51-45b3-90ee-9884265e8df3),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12Heap : ID3D12Pageable
+{
+    D3D12_HEAP_DESC GetDesc();
+}
+
+[
     uuid(696442be-a72e-4059-bc79-5b5c98040fad),
     object,
     local,
