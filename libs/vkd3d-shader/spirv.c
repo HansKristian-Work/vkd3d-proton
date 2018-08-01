@@ -4954,6 +4954,63 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
     }
 }
 
+static void vkd3d_dxbc_compiler_emit_deriv_instruction(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    const struct instruction_info *info;
+    uint32_t type_id, src_id, val_id;
+    unsigned int component_count;
+    unsigned int i;
+
+    static const struct instruction_info
+    {
+        enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx;
+        SpvOp op;
+        bool needs_derivative_control;
+    }
+    deriv_instructions[] =
+    {
+        {VKD3DSIH_DSX,        SpvOpDPdx},
+        {VKD3DSIH_DSX_COARSE, SpvOpDPdxCoarse, true},
+        {VKD3DSIH_DSX_FINE,   SpvOpDPdxFine,   true},
+        {VKD3DSIH_DSY,        SpvOpDPdy},
+        {VKD3DSIH_DSY_COARSE, SpvOpDPdyCoarse, true},
+        {VKD3DSIH_DSY_FINE,   SpvOpDPdyFine,   true},
+    };
+
+    info = NULL;
+    for (i = 0; i < ARRAY_SIZE(deriv_instructions); ++i)
+    {
+        if (deriv_instructions[i].handler_idx == instruction->handler_idx)
+        {
+            info = &deriv_instructions[i];
+            break;
+        }
+    }
+    if (!info)
+    {
+        ERR("Unexpected instruction %#x.\n", instruction->handler_idx);
+        return;
+    }
+
+    if (info->needs_derivative_control)
+        vkd3d_spirv_enable_capability(builder, SpvCapabilityDerivativeControl);
+
+    assert(instruction->dst_count == 1);
+    assert(instruction->src_count == 1);
+
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    type_id = vkd3d_spirv_get_type_id(builder,
+            vkd3d_component_type_from_data_type(dst->reg.data_type), component_count);
+
+    src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst->write_mask);
+    val_id = vkd3d_spirv_build_op_tr1(builder, &builder->function_stream, info->op, type_id, src_id);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
+}
+
 struct vkd3d_shader_image
 {
     uint32_t id;
@@ -6059,6 +6116,14 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_SWITCH:
         case VKD3DSIH_TEXKILL:
             vkd3d_dxbc_compiler_emit_control_flow_instruction(compiler, instruction);
+            break;
+        case VKD3DSIH_DSX:
+        case VKD3DSIH_DSX_COARSE:
+        case VKD3DSIH_DSX_FINE:
+        case VKD3DSIH_DSY:
+        case VKD3DSIH_DSY_COARSE:
+        case VKD3DSIH_DSY_FINE:
+            vkd3d_dxbc_compiler_emit_deriv_instruction(compiler, instruction);
             break;
         case VKD3DSIH_LD:
             vkd3d_dxbc_compiler_emit_ld(compiler, instruction);
