@@ -5658,6 +5658,25 @@ static void test_shader_instructions(void)
         0x06000081, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_rcp_vector = {ps_rcp_vector_code, sizeof(ps_rcp_vector_code)};
+    static const DWORD ps_sincos_code[] =
+    {
+#if 0
+        float2 src0;
+
+        void main(out float4 dst : SV_Target)
+        {
+            sincos(src0, dst.xy, dst.zw);
+        }
+#endif
+        0x43425844, 0xb47a22ec, 0xdb165106, 0xeee971d7, 0x8836fcc0, 0x00000001, 0x000000dc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000064, 0x00000050, 0x00000019,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x0700004d, 0x00102032, 0x00000000, 0x0000d000, 0x00208046, 0x00000000, 0x00000000, 0x0700004d,
+        0x0000d000, 0x001020c2, 0x00000000, 0x00208406, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_sincos = {ps_sincos_code, sizeof(ps_sincos_code)};
     static const DWORD ps_bfi_code[] =
     {
 #if 0
@@ -6487,6 +6506,9 @@ static void test_shader_instructions(void)
         {&ps_rcp, {{     2.0f}}, {{     0.5f}}},
 
         {&ps_rcp_vector, {{-1.0f, 1.0f, 4.0f, -4.0f}}, {{-1.0f, 1.0f, 0.25f, -0.25f}}},
+
+        {&ps_sincos, {{ 0.0f, -0.0f,  0.0f, -0.0f}}, {{ 0.0f, -0.0f,  1.0f,  1.0f}}},
+        {&ps_sincos, {{ 0.0f, -0.0f,  M_PI, -M_PI}}, {{ 0.0f, -0.0f,  1.0f,  1.0f}}},
     };
 
     static const struct
