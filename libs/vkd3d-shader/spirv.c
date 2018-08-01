@@ -3016,7 +3016,7 @@ static const struct vkd3d_shader_signature_element *vkd3d_find_signature_element
     for (signature_idx = 0; signature_idx < signature->element_count; ++signature_idx)
     {
         if (signature->elements[signature_idx].register_index == reg_idx
-                && (signature->elements[signature_idx].mask & 0xff) == write_mask)
+                && (signature->elements[signature_idx].mask & write_mask) == write_mask)
         {
             if (signature_element_index)
                 *signature_element_index = signature_idx;
