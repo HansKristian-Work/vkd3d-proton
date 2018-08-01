@@ -1427,12 +1427,29 @@ static void vkd3d_spirv_build_op_memory_barrier(struct vkd3d_spirv_builder *buil
             SpvOpMemoryBarrier, memory_id, memory_semantics_id);
 }
 
+static uint32_t vkd3d_spirv_build_op_glsl_std450_tr1(struct vkd3d_spirv_builder *builder,
+        enum GLSLstd450 op, uint32_t result_type, uint32_t operand)
+{
+    uint32_t id = vkd3d_spirv_get_glsl_std450_instr_set(builder);
+    return vkd3d_spirv_build_op_ext_inst(builder, result_type, id, op, &operand, 1);
+}
+
 static uint32_t vkd3d_spirv_build_op_glsl_std450_fabs(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand)
 {
-    uint32_t glsl_std450_id = vkd3d_spirv_get_glsl_std450_instr_set(builder);
-    return vkd3d_spirv_build_op_ext_inst(builder, result_type, glsl_std450_id,
-            GLSLstd450FAbs, &operand, 1);
+    return vkd3d_spirv_build_op_glsl_std450_tr1(builder, GLSLstd450FAbs, result_type, operand);
+}
+
+static uint32_t vkd3d_spirv_build_op_glsl_std450_sin(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t operand)
+{
+    return vkd3d_spirv_build_op_glsl_std450_tr1(builder, GLSLstd450Sin, result_type, operand);
+}
+
+static uint32_t vkd3d_spirv_build_op_glsl_std450_cos(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t operand)
+{
+    return vkd3d_spirv_build_op_glsl_std450_tr1(builder, GLSLstd450Cos, result_type, operand);
 }
 
 static uint32_t vkd3d_spirv_build_op_glsl_std450_nclamp(struct vkd3d_spirv_builder *builder,
@@ -4284,6 +4301,48 @@ static void vkd3d_dxbc_compiler_emit_rcp(struct vkd3d_dxbc_compiler *compiler,
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
+static void vkd3d_dxbc_compiler_emit_sincos(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    const struct vkd3d_shader_dst_param *dst_sin = &instruction->dst[0];
+    const struct vkd3d_shader_dst_param *dst_cos = &instruction->dst[1];
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t type_id, src_id, sin_id = 0, cos_id = 0;
+    unsigned int component_count;
+
+    if (dst_sin->reg.type != VKD3DSPR_NULL)
+    {
+        component_count = vkd3d_write_mask_component_count(dst_sin->write_mask);
+        type_id = vkd3d_spirv_get_type_id(builder,
+                vkd3d_component_type_from_data_type(dst_sin->reg.data_type), component_count);
+
+        src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst_sin->write_mask);
+
+        sin_id = vkd3d_spirv_build_op_glsl_std450_sin(builder, type_id, src_id);
+    }
+
+    if (dst_cos->reg.type != VKD3DSPR_NULL)
+    {
+        if (dst_sin->reg.type == VKD3DSPR_NULL || dst_cos->write_mask != dst_sin->write_mask)
+        {
+            component_count = vkd3d_write_mask_component_count(dst_cos->write_mask);
+            type_id = vkd3d_spirv_get_type_id(builder,
+                    vkd3d_component_type_from_data_type(dst_cos->reg.data_type), component_count);
+
+            src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst_cos->write_mask);
+        }
+
+        cos_id = vkd3d_spirv_build_op_glsl_std450_cos(builder, type_id, src_id);
+    }
+
+    if (sin_id)
+        vkd3d_dxbc_compiler_emit_store_dst(compiler, dst_sin, sin_id);
+
+    if (cos_id)
+        vkd3d_dxbc_compiler_emit_store_dst(compiler, dst_cos, cos_id);
+}
+
 static void vkd3d_dxbc_compiler_emit_imul(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -5950,6 +6009,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_RCP:
             vkd3d_dxbc_compiler_emit_rcp(compiler, instruction);
+            break;
+        case VKD3DSIH_SINCOS:
+            vkd3d_dxbc_compiler_emit_sincos(compiler, instruction);
             break;
         case VKD3DSIH_IMUL:
             vkd3d_dxbc_compiler_emit_imul(compiler, instruction);
