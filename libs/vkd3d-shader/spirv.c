@@ -2195,6 +2195,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_GROUPSHAREDMEM:
             snprintf(buffer, buffer_size, "g%u", reg->idx[0].offset);
             break;
+        case VKD3DSPR_IDXTEMP:
+            snprintf(buffer, buffer_size, "x%u", idx);
+            break;
         default:
             FIXME("Unhandled register %#x.\n", reg->type);
             snprintf(buffer, buffer_size, "unrecognized_%#x", reg->type);
@@ -2359,6 +2362,10 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
     {
         indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[0]);
     }
+    else if (reg->type == VKD3DSPR_IDXTEMP)
+    {
+        indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[1]);
+    }
     else
     {
         if (reg->idx[0].rel_addr || reg->idx[1].rel_addr)
@@ -2387,6 +2394,7 @@ static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *
     switch (reg->type)
     {
         case VKD3DSPR_TEMP:
+        case VKD3DSPR_IDXTEMP:
         case VKD3DSPR_INPUT:
         case VKD3DSPR_OUTPUT:
         case VKD3DSPR_COLOROUT:
@@ -3334,6 +3342,40 @@ static void vkd3d_dxbc_compiler_emit_dcl_temps(struct vkd3d_dxbc_compiler *compi
     }
 
     vkd3d_spirv_end_function_stream_insertion(builder);
+}
+
+static void vkd3d_dxbc_compiler_emit_dcl_indexable_temp(struct vkd3d_dxbc_compiler *compiler,
+          const struct vkd3d_shader_instruction *instruction)
+{
+    const struct vkd3d_shader_indexable_temp *temp = &instruction->declaration.indexable_temp;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    struct vkd3d_shader_register reg;
+    struct vkd3d_symbol reg_symbol;
+    uint32_t id;
+
+    if (temp->component_count != 4)
+        FIXME("Unhandled component count %u.\n", temp->component_count);
+
+    memset(&reg, 0, sizeof(reg));
+    reg.type = VKD3DSPR_IDXTEMP;
+    reg.idx[0].offset = temp->register_idx;
+    reg.idx[1].offset = ~0u;
+
+    vkd3d_spirv_begin_function_stream_insertion(builder, builder->main_function_location);
+
+    id = vkd3d_dxbc_compiler_emit_array_variable(compiler, &builder->function_stream,
+            SpvStorageClassFunction, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE, temp->register_size);
+
+    vkd3d_dxbc_compiler_emit_register_debug_name(builder, id, &reg);
+
+    vkd3d_spirv_end_function_stream_insertion(builder);
+
+    vkd3d_symbol_make_register(&reg_symbol, &reg);
+    reg_symbol.id = id;
+    reg_symbol.info.reg.storage_class = SpvStorageClassFunction;
+    reg_symbol.info.reg.component_type = VKD3D_TYPE_FLOAT;
+    reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_ALL;
+    vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
 static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_compiler *compiler)
@@ -5931,6 +5973,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             break;
         case VKD3DSIH_DCL_TEMPS:
             vkd3d_dxbc_compiler_emit_dcl_temps(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_INDEXABLE_TEMP:
+            vkd3d_dxbc_compiler_emit_dcl_indexable_temp(compiler, instruction);
             break;
         case VKD3DSIH_DCL_CONSTANT_BUFFER:
             vkd3d_dxbc_compiler_emit_dcl_constant_buffer(compiler, instruction);
