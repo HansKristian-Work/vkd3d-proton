@@ -157,6 +157,53 @@ static void check_interface_(unsigned int line, IUnknown *iface, REFIID riid, bo
         IUnknown_Release(unk);
 }
 
+#define check_heap_properties(a, b) check_heap_properties_(__LINE__, a, b)
+static void check_heap_properties_(unsigned int line,
+        const D3D12_HEAP_PROPERTIES *properties, const D3D12_HEAP_PROPERTIES *expected_properties)
+{
+    D3D12_HEAP_PROPERTIES expected = *expected_properties;
+
+    if (!expected.CreationNodeMask)
+        expected.CreationNodeMask = 0x1;
+    if (!expected.VisibleNodeMask)
+        expected.VisibleNodeMask = 0x1;
+
+    ok_(line)(properties->Type == expected.Type,
+            "Got type %#x, expected %#x.\n", properties->Type, expected.Type);
+    ok_(line)(properties->CPUPageProperty == expected.CPUPageProperty,
+            "Got CPU page properties %#x, expected %#x.\n",
+            properties->CPUPageProperty, expected.CPUPageProperty);
+    ok_(line)(properties->MemoryPoolPreference == expected.MemoryPoolPreference,
+            "Got memory pool %#x, expected %#x.\n",
+            properties->MemoryPoolPreference, expected.MemoryPoolPreference);
+    ok_(line)(properties->CreationNodeMask == expected.CreationNodeMask,
+            "Got creation node mask %#x, expected %#x.\n",
+            properties->CreationNodeMask, expected.CreationNodeMask);
+    ok_(line)(properties->VisibleNodeMask == expected.VisibleNodeMask,
+            "Got visible node mask %#x, expected %#x.\n",
+            properties->VisibleNodeMask, expected.VisibleNodeMask);
+}
+
+#define check_heap_desc(a, b) check_heap_desc_(__LINE__, a, b)
+static void check_heap_desc_(unsigned int line, const D3D12_HEAP_DESC *desc,
+        const D3D12_HEAP_DESC *expected_desc)
+{
+    D3D12_HEAP_DESC expected = *expected_desc;
+
+    if (!expected.Alignment)
+        expected.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+    ok_(line)(desc->SizeInBytes == expected.SizeInBytes,
+            "Got size %"PRIu64", expected %"PRIu64".\n",
+            desc->SizeInBytes, expected.SizeInBytes);
+    check_heap_properties_(line, &desc->Properties, &expected.Properties);
+    ok_(line)(desc->Alignment == expected.Alignment,
+            "Got alignment %"PRIu64", expected %"PRIu64".\n",
+            desc->Alignment, expected.Alignment);
+    ok_(line)(desc->Flags == expected.Flags,
+            "Got flags %#x, expected %#x.\n", desc->Flags, expected.Flags);
+}
+
 static void uav_barrier(ID3D12GraphicsCommandList *list, ID3D12Resource *resource)
 {
     D3D12_RESOURCE_BARRIER barrier;
@@ -1727,6 +1774,131 @@ static void test_create_committed_resource(void)
             &IID_ID3D12Resource, (void **)&resource);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
+static void test_create_heap(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    D3D12_HEAP_DESC desc, result_desc;
+    ID3D12Device *device, *tmp_device;
+    unsigned int i, j;
+    ID3D12Heap *heap;
+    ULONG refcount;
+    HRESULT hr;
+
+    static const struct
+    {
+        UINT64 alignment;
+        HRESULT expected_hr;
+    }
+    tests[] =
+    {
+        {D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT,     S_OK},
+        {D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,          S_OK},
+        {2 * D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT, E_INVALIDARG},
+        {2 * D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,      E_INVALIDARG},
+        {D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT,            E_INVALIDARG},
+    };
+    static const struct
+    {
+        D3D12_HEAP_FLAGS flags;
+        const char *name;
+    }
+    heap_flags[] =
+    {
+        {D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, "buffers"},
+        {D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES, "textures"},
+        {D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES, "rt_ds_textures"},
+    };
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    desc.SizeInBytes = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    memset(&desc.Properties, 0, sizeof(desc.Properties));
+    desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    desc.Alignment = 0;
+    desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
+    hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+
+    refcount = get_refcount(device);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    hr = ID3D12Heap_GetDevice(heap, &IID_ID3D12Device, (void **)&tmp_device);
+    ok(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
+    refcount = get_refcount(device);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    refcount = ID3D12Device_Release(tmp_device);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    check_interface(heap, &IID_ID3D12Object, TRUE);
+    check_interface(heap, &IID_ID3D12DeviceChild, TRUE);
+    check_interface(heap, &IID_ID3D12Pageable, TRUE);
+    check_interface(heap, &IID_ID3D12Heap, TRUE);
+
+    result_desc = ID3D12Heap_GetDesc(heap);
+    check_heap_desc(&result_desc, &desc);
+
+    refcount = ID3D12Heap_Release(heap);
+    ok(!refcount, "ID3D12Heap has %u references left.\n", (unsigned int)refcount);
+
+    desc.SizeInBytes = 0;
+    hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    desc.SizeInBytes = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES | D3D12_HEAP_FLAG_ALLOW_DISPLAY;
+    hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES | D3D12_HEAP_FLAG_ALLOW_DISPLAY;
+    hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        for (j = 0; j < ARRAY_SIZE(heap_flags); ++j)
+        {
+            desc.SizeInBytes = 10 * tests[i].alignment;
+            desc.Alignment = tests[i].alignment;
+            desc.Flags = heap_flags[j].flags;
+            hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
+            ok(hr == tests[i].expected_hr, "Test %u, %s: Got hr %#x, expected %#x.\n",
+                    i, heap_flags[j].name, hr, tests[i].expected_hr);
+            if (FAILED(hr))
+                continue;
+
+            result_desc = ID3D12Heap_GetDesc(heap);
+            check_heap_desc(&result_desc, &desc);
+
+            refcount = ID3D12Heap_Release(heap);
+            ok(!refcount, "ID3D12Heap has %u references left.\n", (unsigned int)refcount);
+        }
+    }
+
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
+    if (options.ResourceHeapTier < D3D12_RESOURCE_HEAP_TIER_2)
+    {
+        skip("Resource heap tier %u.\n", options.ResourceHeapTier);
+        goto done;
+    }
+
+    desc.SizeInBytes = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    desc.Flags = D3D12_HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES;
+    hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    result_desc = ID3D12Heap_GetDesc(heap);
+    check_heap_desc(&result_desc, &desc);
+    refcount = ID3D12Heap_Release(heap);
+    ok(!refcount, "ID3D12Heap has %u references left.\n", (unsigned int)refcount);
+
+done:
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
@@ -17652,6 +17824,7 @@ START_TEST(d3d12)
     run_test(test_create_command_list);
     run_test(test_create_command_queue);
     run_test(test_create_committed_resource);
+    run_test(test_create_heap);
     run_test(test_create_descriptor_heap);
     run_test(test_create_sampler);
     run_test(test_create_unordered_access_view);
