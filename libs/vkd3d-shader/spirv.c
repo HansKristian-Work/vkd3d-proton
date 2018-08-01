@@ -3247,13 +3247,13 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
     else
     {
         component_type = signature_element ? signature_element->component_type : VKD3D_TYPE_FLOAT;
-        output_component_count = component_count;
+        output_component_count = vkd3d_write_mask_component_count(signature_element->mask & 0xff);
     }
     assert(component_count <= output_component_count);
 
     storage_class = SpvStorageClassOutput;
     id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
-            storage_class, component_type, component_count);
+            storage_class, component_type, output_component_count);
     vkd3d_spirv_add_iface_variable(builder, id);
     if (builtin)
     {
