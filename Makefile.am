@@ -151,16 +151,16 @@ EXTRA_DIST += $(widl_headers) $(widl_headers:.h=.idl)
 $(widl_headers): %.h: %.idl
 if HAVE_WIDL
 	$(VKD3D_V_WIDL)$(WIDL) -h -o $@.tmp $<
-	$(SED) -e '/#include <rpc.h>/d' -e '/#include <rpcndr.h>/d' <$@.tmp >$@
-	$(RM) $@.tmp
+	$(AM_V_at)$(SED) -e '/#include <rpc.h>/d' -e '/#include <rpcndr.h>/d' <$@.tmp >$@
+	$(AM_V_at)$(RM) $@.tmp
 else
-	echo "widl is required to generate $<"
+	@echo "widl is required to generate $<"
 endif
 
 EXTRA_DIST += $(vkd3d_demos_shaders)
 
 libvkd3d-utils.pc: $(srcdir)/libs/vkd3d-utils/libvkd3d-utils.pc.in
-	sed -e 's![@]prefix[@]!$(prefix)!g' \
+	$(AM_V_GEN)$(SED) -e 's![@]prefix[@]!$(prefix)!g' \
 		-e 's![@]exec_prefix[@]!$(exec_prefix)!g' \
 		-e 's![@]includedir[@]!$(includedir)!g' \
 		-e 's![@]libdir[@]!$(libdir)!g' \
@@ -168,7 +168,7 @@ libvkd3d-utils.pc: $(srcdir)/libs/vkd3d-utils/libvkd3d-utils.pc.in
 		$< > $@
 
 libvkd3d.pc: $(srcdir)/libs/vkd3d/libvkd3d.pc.in
-	sed -e 's![@]prefix[@]!$(prefix)!g' \
+	$(AM_V_GEN)$(SED) -e 's![@]prefix[@]!$(prefix)!g' \
 		-e 's![@]exec_prefix[@]!$(exec_prefix)!g' \
 		-e 's![@]includedir[@]!$(includedir)!g' \
 		-e 's![@]libdir[@]!$(libdir)!g' \
@@ -176,7 +176,7 @@ libvkd3d.pc: $(srcdir)/libs/vkd3d/libvkd3d.pc.in
 		$< > $@
 
 libs/vkd3d_version.c: dummy-vkd3d-version
-	version=`(GIT_DIR=$(top_srcdir)/.git git describe HEAD 2>/dev/null || echo "vkd3d-$(PACKAGE_VERSION)") | sed -n -e '$$s/\(.*\)/const char vkd3d_build[] = "\1";/p'` && (echo $$version | cmp -s - $@) || echo $$version >$@ || ($(RM) $@ && exit 1)
+	$(AM_V_GEN)version=`(GIT_DIR=$(top_srcdir)/.git git describe HEAD 2>/dev/null || echo "vkd3d-$(PACKAGE_VERSION)") | $(SED) -n -e '$$s/\(.*\)/const char vkd3d_build[] = "\1";/p'` && (echo $$version | cmp -s - $@) || echo $$version >$@ || ($(RM) $@ && exit 1)
 .SILENT: libs/vkd3d_version.c
 CLEANFILES += libs/vkd3d_version.c
 
