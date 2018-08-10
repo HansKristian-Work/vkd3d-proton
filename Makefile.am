@@ -150,8 +150,9 @@ vkd3d_v_widl_1 =
 EXTRA_DIST += $(widl_headers) $(widl_headers:.h=.idl)
 $(widl_headers): %.h: %.idl
 if HAVE_WIDL
-	$(VKD3D_V_WIDL)$(WIDL) -o $@ $<
-	sed -e '/#include <\(rpc.h\|rpcndr.h\)>/d' -i $@
+	$(VKD3D_V_WIDL)$(WIDL) -h -o $@.tmp $<
+	$(SED) -e '/#include <rpc.h>/d' -e '/#include <rpcndr.h>/d' <$@.tmp >$@
+	$(RM) $@.tmp
 else
 	echo "widl is required to generate $<"
 endif
