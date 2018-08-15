@@ -4001,12 +4001,6 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     list->allocator = allocator;
     list->pipeline_state = initial_pipeline_state;
 
-    if (FAILED(hr = d3d12_command_allocator_allocate_command_buffer(allocator, list)))
-    {
-        ID3D12Device_Release(&device->ID3D12Device_iface);
-        return hr;
-    }
-
     memset(list->strides, 0, sizeof(list->strides));
     list->ia_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     list->ia_desc.pNext = NULL;
@@ -4024,6 +4018,12 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
 
     list->state = NULL;
+
+    if (FAILED(hr = d3d12_command_allocator_allocate_command_buffer(allocator, list)))
+    {
+        ID3D12Device_Release(&device->ID3D12Device_iface);
+        return hr;
+    }
 
     return S_OK;
 }
