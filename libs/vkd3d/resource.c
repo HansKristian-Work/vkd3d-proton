@@ -417,6 +417,7 @@ static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32
 
         case D3D12_HEAP_TYPE_CUSTOM:
             FIXME("Custom heaps not supported yet.\n");
+            /* fall-through */
         case D3D12_HEAP_TYPE_UPLOAD:
         case D3D12_HEAP_TYPE_READBACK:
             required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
