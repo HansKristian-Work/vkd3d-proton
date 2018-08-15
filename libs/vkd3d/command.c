@@ -2188,9 +2188,12 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     }
     bindings->descriptor_table_dirty_mask = 0;
 
-    bindings->in_use = true;
-    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
-            rs->vk_pipeline_layout, rs->main_set, 1, &bindings->descriptor_set, 0, NULL));
+    if (bindings->descriptor_set)
+    {
+        VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
+                rs->vk_pipeline_layout, rs->main_set, 1, &bindings->descriptor_set, 0, NULL));
+        bindings->in_use = true;
+    }
 
     d3d12_command_list_update_uav_counter_descriptors(list, bind_point);
 }
