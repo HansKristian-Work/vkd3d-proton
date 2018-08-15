@@ -2509,7 +2509,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_constant(struct vkd3d_dxbc_compile
         const struct vkd3d_shader_register *reg, DWORD swizzle, DWORD write_mask)
 {
     unsigned int component_count = vkd3d_write_mask_component_count(write_mask);
-    uint32_t values[VKD3D_VEC4_SIZE];
+    uint32_t values[VKD3D_VEC4_SIZE] = {0};
     unsigned int i, j;
 
     assert(reg->type == VKD3DSPR_IMMCONST);

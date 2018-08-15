@@ -46,7 +46,7 @@ static bool read_shader(struct vkd3d_shader_code *shader, const char *filename)
         return false;
     }
 
-    if (!(code = malloc(sizeof(uint32_t) * shader->size)))
+    if (!(code = malloc(shader->size)))
     {
         fprintf(stderr, "Out of memory.\n");
         fclose(fd);
