@@ -2839,14 +2839,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(ID3D12Graphics
     TRACE("iface %p, pipeline_state %p.\n", iface, pipeline_state);
 
     list->state = state;
-    d3d12_command_list_invalidate_current_framebuffer(list);
-    d3d12_command_list_invalidate_current_pipeline(list);
     d3d12_command_list_invalidate_bindings(list, state);
 
-    if (state && state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
+    if (d3d12_pipeline_state_is_compute(state))
     {
         const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
         VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, state->vk_bind_point, state->u.compute.vk_pipeline));
+    }
+    else
+    {
+        d3d12_command_list_invalidate_current_framebuffer(list);
+        d3d12_command_list_invalidate_current_pipeline(list);
     }
 }
 

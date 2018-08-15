@@ -516,6 +516,11 @@ struct d3d12_pipeline_state
     struct d3d12_device *device;
 };
 
+static inline bool d3d12_pipeline_state_is_compute(const struct d3d12_pipeline_state *state)
+{
+    return state && state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE;
+}
+
 HRESULT d3d12_pipeline_state_create_compute(struct d3d12_device *device,
         const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
 HRESULT d3d12_pipeline_state_create_graphics(struct d3d12_device *device,
