@@ -200,9 +200,7 @@ static void *vkd3d_fence_worker_main(void *arg)
     struct vkd3d_fence_worker *worker = arg;
     int rc;
 
-#ifdef HAVE_PTHREAD_SETNAME_NP
-    pthread_setname_np(pthread_self(), "vkd3d_worker");
-#endif
+    vkd3d_set_thread_name("vkd3d_worker");
 
     for (;;)
     {

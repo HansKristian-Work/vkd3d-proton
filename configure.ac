@@ -94,7 +94,7 @@ VKD3D_CHECK_FUNC([HAVE_BUILTIN_POPCOUNT], [__builtin_popcount], [__builtin_popco
 VKD3D_CHECK_FUNC([HAVE_SYNC_ADD_AND_FETCH], [__sync_add_and_fetch], [__sync_add_and_fetch((int *)0, 0)])
 VKD3D_CHECK_FUNC([HAVE_SYNC_SUB_AND_FETCH], [__sync_sub_and_fetch], [__sync_sub_and_fetch((int *)0, 0)])
 
-VKD3D_CHECK_LIB_FUNCS([pthread_setname_np], [$PTHREAD_LIBS])
+VKD3D_CHECK_PTHREAD_SETNAME_NP
 
 AM_CONDITIONAL([BUILD_DEMOS], [test "x$enable_demos" = "xyes"])
 AM_CONDITIONAL([HAVE_WIDL], [test "x$WIDL" != "xno"])

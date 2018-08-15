@@ -826,4 +826,13 @@ HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
 
 extern const char vkd3d_build[];
 
+static inline void vkd3d_set_thread_name(const char *name)
+{
+#if defined(HAVE_PTHREAD_SETNAME_NP_2)
+    pthread_setname_np(pthread_self(), name);
+#elif defined(HAVE_PTHREAD_SETNAME_NP_1)
+    pthread_setname_np(name);
+#endif
+}
+
 #endif  /* __VKD3D_PRIVATE_H */
