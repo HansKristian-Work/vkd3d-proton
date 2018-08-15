@@ -10,6 +10,7 @@ AC_ARG_VAR([CROSSCC32], [32-bit Windows cross compiler])
 AC_ARG_VAR([CROSSCC64], [64-bit Windows cross compiler])
 AC_ARG_WITH([spirv-tools], AS_HELP_STRING([--with-spirv-tools],
                                           [Build with SPIRV-Tools library (default: disabled)]))
+AC_ARG_ENABLE([demos], AS_HELP_STRING([--enable-demos], [Build demo programs (default: disabled)]))
 
 AC_USE_SYSTEM_EXTENSIONS
 
@@ -95,6 +96,7 @@ VKD3D_CHECK_FUNC([HAVE_SYNC_SUB_AND_FETCH], [__sync_sub_and_fetch], [__sync_sub_
 
 VKD3D_CHECK_LIB_FUNCS([pthread_setname_np], [$PTHREAD_LIBS])
 
+AM_CONDITIONAL([BUILD_DEMOS], [test "x$enable_demos" = "xyes"])
 AM_CONDITIONAL([HAVE_WIDL], [test "x$WIDL" != "xno"])
 AM_CONDITIONAL([HAVE_CROSSTARGET32], [test "x$CROSSTARGET32" != "xno"])
 AM_CONDITIONAL([HAVE_CROSSTARGET64], [test "x$CROSSTARGET64" != "xno"])

@@ -132,16 +132,19 @@ TESTS = $(vkd3d_tests) $(vkd3d_cross_tests)
 tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@
 tests_vkd3d_api_LDADD = libvkd3d.la @VULKAN_LIBS@
 
+if BUILD_DEMOS
 DEMOS_LDADD = $(LDADD) libvkd3d-shader.la @XCB_LIBS@ @VULKAN_LIBS@
 DEMOS_CFLAGS = $(AM_CFLAGS) @XCB_CFLAGS@
 noinst_PROGRAMS += $(vkd3d_demos)
-EXTRA_DIST += $(vkd3d_test_headers) $(vkd3d_demos_headers)
 
 demos_gears_CFLAGS = $(DEMOS_CFLAGS)
 demos_gears_LDADD = $(DEMOS_LDADD) -lm
 
 demos_triangle_CFLAGS = $(DEMOS_CFLAGS)
 demos_triangle_LDADD = $(DEMOS_LDADD)
+endif
+
+EXTRA_DIST += $(vkd3d_test_headers) $(vkd3d_demos_headers)
 
 VKD3D_V_WIDL = $(vkd3d_v_widl_@AM_V@)
 vkd3d_v_widl_ = $(vkd3d_v_widl_@AM_DEFAULT_V@)
