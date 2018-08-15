@@ -3236,7 +3236,7 @@ static unsigned int get_shader_output_swizzle(struct vkd3d_dxbc_compiler *compil
     return compile_args->output_swizzles[register_idx];
 }
 
-static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler,
+static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval)
 {
     unsigned int component_idx, component_count, output_component_count;
@@ -3252,8 +3252,13 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
     bool use_private_variable;
     uint32_t id, var_id;
 
-    signature_element = vkd3d_find_signature_element_for_reg(compiler->output_signature,
-            &signature_idx, reg->idx[0].offset, dst->write_mask);
+    if (!(signature_element = vkd3d_find_signature_element_for_reg(compiler->output_signature,
+            &signature_idx, reg->idx[0].offset, dst->write_mask)))
+    {
+        FIXME("No signature element for shader output, ignoring shader output.\n");
+        return;
+    }
+
     builtin = vkd3d_get_spirv_builtin(dst->reg.type, sysval);
 
     component_idx = vkd3d_write_mask_get_component_idx(dst->write_mask);
@@ -3265,7 +3270,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
     }
     else
     {
-        component_type = signature_element ? signature_element->component_type : VKD3D_TYPE_FLOAT;
+        component_type = signature_element->component_type;
         output_component_count = vkd3d_write_mask_component_count(signature_element->mask & 0xff);
     }
     assert(component_count <= output_component_count);
@@ -3286,15 +3291,12 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
         if (component_idx)
             vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationComponent, component_idx);
     }
-    if (signature_element)
-    {
-        compiler->output_info[signature_idx].id = id;
-        compiler->output_info[signature_idx].component_type = component_type;
-    }
+
+    compiler->output_info[signature_idx].id = id;
+    compiler->output_info[signature_idx].component_type = component_type;
 
     use_private_variable = component_type != VKD3D_TYPE_FLOAT || component_count != VKD3D_VEC4_SIZE
-            || (signature_element
-            && get_shader_output_swizzle(compiler, signature_element->register_index) != VKD3D_NO_SWIZZLE);
+            || get_shader_output_swizzle(compiler, signature_element->register_index) != VKD3D_NO_SWIZZLE;
     if (use_private_variable)
         storage_class = SpvStorageClassPrivate;
 
@@ -3325,8 +3327,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *comp
         if (!compiler->output_setup_function_id)
             compiler->output_setup_function_id = vkd3d_spirv_alloc_id(builder);
     }
-
-    return id;
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_global_flags(struct vkd3d_dxbc_compiler *compiler,
