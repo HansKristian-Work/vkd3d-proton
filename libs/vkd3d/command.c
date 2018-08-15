@@ -66,6 +66,7 @@ static VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue)
         return VK_NULL_HANDLE;
     }
 
+    assert(queue->vk_queue);
     return queue->vk_queue;
 }
 
