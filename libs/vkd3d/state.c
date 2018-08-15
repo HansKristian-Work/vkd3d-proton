@@ -1798,6 +1798,40 @@ static unsigned int vkd3d_get_rt_format_swizzle(const struct vkd3d_format *forma
     return VKD3D_NO_SWIZZLE;
 }
 
+/*
+ * This must return results in accordance with render passes created by
+ * d3d12_pipeline_state_init_graphics().
+ */
+bool d3d12_pipeline_state_is_render_pass_compatible(const struct d3d12_pipeline_state *state_a,
+        const struct d3d12_pipeline_state *state_b)
+{
+    const struct d3d12_graphics_pipeline_state *a = &state_a->u.graphics;
+    const struct d3d12_graphics_pipeline_state *b = &state_b->u.graphics;
+    unsigned int i;
+
+    if (!state_a != !state_b)
+        return false;
+    if (!state_a && !state_b)
+        return true;
+
+    if (state_a->vk_bind_point != VK_PIPELINE_BIND_POINT_GRAPHICS
+            || state_b->vk_bind_point != VK_PIPELINE_BIND_POINT_GRAPHICS)
+        return false;
+
+    if (a->rt_idx != b->rt_idx)
+        return false;
+    if (a->attachment_count != b->attachment_count)
+        return false;
+
+    for (i = 0; i < a->attachment_count; ++i)
+    {
+        if (a->attachments[i].format != b->attachments[i].format)
+            return false;
+    }
+
+    return true;
+}
+
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc)
 {

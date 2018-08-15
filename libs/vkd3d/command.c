@@ -2835,22 +2835,26 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(ID3D12Graphics
 {
     struct d3d12_pipeline_state *state = unsafe_impl_from_ID3D12PipelineState(pipeline_state);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
     TRACE("iface %p, pipeline_state %p.\n", iface, pipeline_state);
 
-    list->state = state;
     d3d12_command_list_invalidate_bindings(list, state);
 
     if (d3d12_pipeline_state_is_compute(state))
     {
-        const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
         VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, state->vk_bind_point, state->u.compute.vk_pipeline));
     }
     else
     {
-        d3d12_command_list_invalidate_current_framebuffer(list);
+        if (!d3d12_pipeline_state_is_render_pass_compatible(list->state, state))
+        {
+            d3d12_command_list_invalidate_current_framebuffer(list);
+        }
         d3d12_command_list_invalidate_current_pipeline(list);
     }
+
+    list->state = state;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsCommandList *iface,
