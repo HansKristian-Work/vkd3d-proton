@@ -1143,6 +1143,21 @@ static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_
     list->current_pipeline = VK_NULL_HANDLE;
 }
 
+static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list,
+        const struct vkd3d_vk_device_procs *vk_procs)
+{
+    if (list->current_render_pass)
+        VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
+
+    list->current_render_pass = VK_NULL_HANDLE;
+}
+
+static void d3d12_command_list_invalidate_current_render_pass(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    d3d12_command_list_end_current_render_pass(list, vk_procs);
+}
+
 static void d3d12_command_list_invalidate_bindings(struct d3d12_command_list *list,
         struct d3d12_pipeline_state *state)
 {
@@ -1396,6 +1411,9 @@ static void d3d12_command_list_track_resource_usage(struct d3d12_command_list *l
 {
     if (resource->flags & VKD3D_RESOURCE_INITIAL_STATE_TRANSITION)
     {
+        const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+        d3d12_command_list_end_current_render_pass(list, vk_procs);
+
         d3d12_command_list_transition_resource_to_initial_state(list, resource);
         resource->flags &= ~VKD3D_RESOURCE_INITIAL_STATE_TRANSITION;
     }
@@ -1523,6 +1541,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(ID3D12GraphicsCommandL
     }
 
     vk_procs = &list->device->vk_procs;
+
+    d3d12_command_list_end_current_render_pass(list, vk_procs);
+
     if ((vr = VK_CALL(vkEndCommandBuffer(list->vk_command_buffer))) < 0)
     {
         WARN("Failed to end command buffer, vr %d.\n", vr);
@@ -2202,6 +2223,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
         const struct vkd3d_vk_device_procs *vk_procs)
 {
     struct VkRenderPassBeginInfo begin_desc;
+    VkRenderPass vk_render_pass;
 
     if (!list->state)
     {
@@ -2216,9 +2238,14 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
 
     d3d12_command_list_update_descriptors(list, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
+    if (list->current_render_pass != VK_NULL_HANDLE)
+        return true;
+
+    vk_render_pass = list->state->u.graphics.render_pass;
+
     begin_desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     begin_desc.pNext = NULL;
-    begin_desc.renderPass = list->state->u.graphics.render_pass;
+    begin_desc.renderPass = vk_render_pass;
     begin_desc.framebuffer = list->current_framebuffer;
     begin_desc.renderArea.offset.x = 0;
     begin_desc.renderArea.offset.y = 0;
@@ -2227,6 +2254,8 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     begin_desc.clearValueCount = 0;
     begin_desc.pClearValues = NULL;
     VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer, &begin_desc, VK_SUBPASS_CONTENTS_INLINE));
+
+    list->current_render_pass = vk_render_pass;
 
     return true;
 }
@@ -2245,7 +2274,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(ID3D12GraphicsCom
 
     vk_procs = &list->device->vk_procs;
 
-    /* FIXME: We probably don't want to begin a render pass for each draw. */
     if (!d3d12_command_list_begin_render_pass(list, vk_procs))
     {
         WARN("Failed to begin render pass, ignoring draw call.\n");
@@ -2254,8 +2282,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(ID3D12GraphicsCom
 
     VK_CALL(vkCmdDraw(list->vk_command_buffer, vertex_count_per_instance,
             instance_count, start_vertex_location, start_instance_location));
-
-    VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(ID3D12GraphicsCommandList *iface,
@@ -2272,7 +2298,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(ID3D12Grap
 
     vk_procs = &list->device->vk_procs;
 
-    /* FIXME: We probably don't want to begin a render pass for each draw. */
     if (!d3d12_command_list_begin_render_pass(list, vk_procs))
     {
         WARN("Failed to begin render pass, ignoring draw call.\n");
@@ -2281,8 +2306,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(ID3D12Grap
 
     VK_CALL(vkCmdDrawIndexed(list->vk_command_buffer, index_count_per_instance,
             instance_count, start_vertex_location, base_vertex_location, start_instance_location));
-
-    VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(ID3D12GraphicsCommandList *iface,
@@ -2300,6 +2323,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(ID3D12GraphicsCommandL
     }
 
     vk_procs = &list->device->vk_procs;
+
+    d3d12_command_list_end_current_render_pass(list, vk_procs);
 
     d3d12_command_list_update_descriptors(list, VK_PIPELINE_BIND_POINT_COMPUTE);
 
@@ -2327,6 +2352,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(ID3D12Graphics
 
     d3d12_command_list_track_resource_usage(list, dst_resource);
     d3d12_command_list_track_resource_usage(list, src_resource);
+
+    d3d12_command_list_end_current_render_pass(list, vk_procs);
 
     buffer_copy.srcOffset = src_offset;
     buffer_copy.dstOffset = dst_offset;
@@ -2548,6 +2575,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
     d3d12_command_list_track_resource_usage(list, dst_resource);
     d3d12_command_list_track_resource_usage(list, src_resource);
 
+    d3d12_command_list_end_current_render_pass(list, vk_procs);
+
     if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
             && dst->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
     {
@@ -2660,6 +2689,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(ID3D12GraphicsComm
 
     d3d12_command_list_track_resource_usage(list, dst_resource);
     d3d12_command_list_track_resource_usage(list, src_resource);
+
+    d3d12_command_list_end_current_render_pass(list, vk_procs);
 
     if (d3d12_resource_is_buffer(dst_resource))
     {
@@ -2850,6 +2881,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(ID3D12Graphics
         if (!d3d12_pipeline_state_is_render_pass_compatible(list->state, state))
         {
             d3d12_command_list_invalidate_current_framebuffer(list);
+            d3d12_command_list_invalidate_current_render_pass(list);
         }
         d3d12_command_list_invalidate_current_pipeline(list);
     }
@@ -2868,6 +2900,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
     TRACE("iface %p, barrier_count %u, barriers %p.\n", iface, barrier_count, barriers);
 
     vk_procs = &list->device->vk_procs;
+
+    d3d12_command_list_end_current_render_pass(list, vk_procs);
 
     for (i = 0; i < barrier_count; ++i)
     {
@@ -3486,6 +3520,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
     }
 
     d3d12_command_list_invalidate_current_framebuffer(list);
+    d3d12_command_list_invalidate_current_render_pass(list);
 }
 
 static void d3d12_command_list_clear(struct d3d12_command_list *list,
@@ -3503,6 +3538,8 @@ static void d3d12_command_list_clear(struct d3d12_command_list *list,
     D3D12_RECT full_rect;
     unsigned int i;
     VkResult vr;
+
+    d3d12_command_list_end_current_render_pass(list, vk_procs);
 
     if (!rect_count)
     {
@@ -3695,6 +3732,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
         return;
     }
 
+    d3d12_command_list_end_current_render_pass(list, vk_procs);
+
     cpu_descriptor = d3d12_desc_from_cpu_handle(cpu_handle);
     if (!cpu_descriptor->view_size)
     {
@@ -3737,6 +3776,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(ID3D12GraphicsComman
 
     TRACE("iface %p, heap %p, type %#x, index %u.\n", iface, heap, type, index);
 
+    d3d12_command_list_end_current_render_pass(list, vk_procs);
+
     if (type == D3D12_QUERY_TYPE_OCCLUSION)
         flags = VK_QUERY_CONTROL_PRECISE_BIT;
 
@@ -3752,6 +3793,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(ID3D12GraphicsCommandL
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
     TRACE("iface %p, heap %p, type %#x, index %u.\n", iface, heap, type, index);
+
+    d3d12_command_list_end_current_render_pass(list, vk_procs);
 
     d3d12_query_heap_mark_result_as_available(query_heap, index);
 
@@ -3797,6 +3840,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
         WARN("Destination resource is not a buffer.\n");
         return;
     }
+
+    d3d12_command_list_end_current_render_pass(list, vk_procs);
 
     if (type == D3D12_QUERY_TYPE_PIPELINE_STATISTICS)
         stride = sizeof(struct D3D12_QUERY_DATA_PIPELINE_STATISTICS);
@@ -3887,8 +3932,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(ID3D12GraphicsC
 
                 VK_CALL(vkCmdDrawIndirect(list->vk_command_buffer, arg_impl->u.vk_buffer,
                         arg_buffer_offset, max_command_count, signature_desc->ByteStride));
-
-                VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
@@ -3901,6 +3944,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(ID3D12GraphicsC
                             list->state, list->state->vk_bind_point);
                     break;
                 }
+
+                d3d12_command_list_end_current_render_pass(list, vk_procs);
 
                 d3d12_command_list_update_descriptors(list, VK_PIPELINE_BIND_POINT_COMPUTE);
 
@@ -4022,6 +4067,7 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
 
     list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;
+    list->current_render_pass = VK_NULL_HANDLE;
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
 
     list->state = NULL;
