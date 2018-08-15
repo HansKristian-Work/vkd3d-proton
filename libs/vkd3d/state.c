@@ -334,7 +334,7 @@ struct d3d12_root_signature_info
     size_t cost;
 };
 
-static bool d3d12_root_signature_info_count_descriptors(struct d3d12_root_signature_info *info,
+static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_signature_info *info,
         const D3D12_DESCRIPTOR_RANGE *range)
 {
     if (range->NumDescriptors == 0xffffffff)
