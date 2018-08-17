@@ -6364,13 +6364,13 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
 
-    if (compiler->options & VKD3D_SHADER_STRIP_DEBUG)
-        vkd3d_spirv_stream_clear(&builder->debug_stream);
-
     vkd3d_spirv_build_op_function_end(builder);
 
     if (compiler->output_setup_function_id)
         vkd3d_dxbc_compiler_emit_output_setup_function(compiler);
+
+    if (compiler->options & VKD3D_SHADER_STRIP_DEBUG)
+        vkd3d_spirv_stream_clear(&builder->debug_stream);
 
     if (!vkd3d_spirv_compile_module(builder, spirv))
         return VKD3D_ERROR;
