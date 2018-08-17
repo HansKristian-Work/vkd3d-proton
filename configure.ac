@@ -96,6 +96,7 @@ VKD3D_CHECK_FUNC([HAVE_SYNC_SUB_AND_FETCH], [__sync_sub_and_fetch], [__sync_sub_
 
 VKD3D_CHECK_PTHREAD_SETNAME_NP
 
+AS_IF([test "x$enable_demos" != "xyes"], [enable_demos=no])
 AM_CONDITIONAL([BUILD_DEMOS], [test "x$enable_demos" = "xyes"])
 AM_CONDITIONAL([HAVE_WIDL], [test "x$WIDL" != "xno"])
 AM_CONDITIONAL([HAVE_CROSSTARGET32], [test "x$CROSSTARGET32" != "xno"])
@@ -112,6 +113,8 @@ AS_ECHO(["
   Configuration summary for $PACKAGE $VERSION
 
   Have SPIRV-Tools: ${HAVE_SPIRV_TOOLS}
+
+  Building demos: ${enable_demos}
 
   Building crosstests: ${HAVE_CROSSTEST}"])
 AS_IF([test "x$CROSSTARGET32" != "xno"], [AS_ECHO(["    Using 32-bit cross compiler: $CROSSCC32"])])
