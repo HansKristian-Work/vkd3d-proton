@@ -16064,9 +16064,9 @@ static void test_resolve_query_data_in_different_command_list(void)
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
 
-    ID3D12GraphicsCommandList_BeginQuery(command_list, query_heap, heap_desc.Type, 0);
+    ID3D12GraphicsCommandList_BeginQuery(command_list, query_heap, D3D12_QUERY_TYPE_OCCLUSION, 0);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
-    ID3D12GraphicsCommandList_EndQuery(command_list, query_heap, heap_desc.Type, 0);
+    ID3D12GraphicsCommandList_EndQuery(command_list, query_heap, D3D12_QUERY_TYPE_OCCLUSION, 0);
 
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -16076,7 +16076,7 @@ static void test_resolve_query_data_in_different_command_list(void)
     for (i = 0; i < readback_buffer_capacity / 2; ++i)
     {
         ID3D12GraphicsCommandList_ResolveQueryData(command_list,
-                query_heap, heap_desc.Type, 0, 1, readback_buffer, i * sizeof(UINT64));
+                query_heap, D3D12_QUERY_TYPE_OCCLUSION, 0, 1, readback_buffer, i * sizeof(UINT64));
     }
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
@@ -16087,7 +16087,7 @@ static void test_resolve_query_data_in_different_command_list(void)
     for (; i < readback_buffer_capacity; ++i)
     {
         ID3D12GraphicsCommandList_ResolveQueryData(command_list,
-                query_heap, heap_desc.Type, 0, 1, readback_buffer, i * sizeof(UINT64));
+                query_heap, D3D12_QUERY_TYPE_OCCLUSION, 0, 1, readback_buffer, i * sizeof(UINT64));
     }
 
     get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
@@ -16142,7 +16142,7 @@ static void test_resolve_query_data_in_reordered_command_list(void)
 
     /* Read query results in the second command list. */
     ID3D12GraphicsCommandList_ResolveQueryData(command_lists[1],
-            query_heap, heap_desc.Type, 0, 1, readback_buffer, 0);
+            query_heap, D3D12_QUERY_TYPE_OCCLUSION, 0, 1, readback_buffer, 0);
     hr = ID3D12GraphicsCommandList_Close(command_lists[1]);
     ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
 
@@ -16153,9 +16153,9 @@ static void test_resolve_query_data_in_reordered_command_list(void)
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_lists[0], D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ID3D12GraphicsCommandList_RSSetViewports(command_lists[0], 1, &context.viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_lists[0], 1, &context.scissor_rect);
-    ID3D12GraphicsCommandList_BeginQuery(command_lists[0], query_heap, heap_desc.Type, 0);
+    ID3D12GraphicsCommandList_BeginQuery(command_lists[0], query_heap, D3D12_QUERY_TYPE_OCCLUSION, 0);
     ID3D12GraphicsCommandList_DrawInstanced(command_lists[0], 3, 1, 0, 0);
-    ID3D12GraphicsCommandList_EndQuery(command_lists[0], query_heap, heap_desc.Type, 0);
+    ID3D12GraphicsCommandList_EndQuery(command_lists[0], query_heap, D3D12_QUERY_TYPE_OCCLUSION, 0);
     hr = ID3D12GraphicsCommandList_Close(command_lists[0]);
     ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
 
