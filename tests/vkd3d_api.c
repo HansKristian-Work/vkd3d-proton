@@ -19,8 +19,6 @@
 #define COBJMACROS
 #define INITGUID
 #define WIDL_C_INLINE_WRAPPERS
-#define VK_USE_PLATFORM_XCB_KHR
-#define VK_USE_PLATFORM_XLIB_KHR
 #include "vkd3d_test.h"
 #include <vkd3d.h>
 
@@ -215,8 +213,8 @@ static void test_additional_instance_extensions(void)
     struct vulkan_extension extensions[] =
     {
         {VK_KHR_SURFACE_EXTENSION_NAME},
-        {VK_KHR_XCB_SURFACE_EXTENSION_NAME},
-        {VK_KHR_XLIB_SURFACE_EXTENSION_NAME},
+        {"VK_KHR_xcb_surface"},
+        {"VK_KHR_xlib_surface"},
     };
 
     const char *enabled_extensions[ARRAY_SIZE(extensions)];
@@ -249,12 +247,12 @@ static void test_additional_instance_extensions(void)
         if (!extensions[i].is_supported)
             continue;
 
-        if (!strcmp(extensions[i].name, VK_KHR_XCB_SURFACE_EXTENSION_NAME))
+        if (!strcmp(extensions[i].name, "VK_KHR_xcb_surface"))
         {
             pfn = vkGetInstanceProcAddr(vk_instance, "vkCreateXcbSurfaceKHR");
             ok(pfn, "Failed to get proc addr for vkCreateXcbSurfaceKHR.\n");
         }
-        else if (!strcmp(extensions[i].name, VK_KHR_XLIB_SURFACE_EXTENSION_NAME))
+        else if (!strcmp(extensions[i].name, "VK_KHR_xlib_surface"))
         {
             pfn = vkGetInstanceProcAddr(vk_instance, "vkCreateXlibSurfaceKHR");
             ok(pfn, "Failed to get proc addr for vkCreateXlibSurfaceKHR.\n");
