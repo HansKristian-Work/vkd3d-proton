@@ -3711,7 +3711,7 @@ static void test_append_aligned_element(void)
 {
     ID3D12GraphicsCommandList *command_list;
     D3D12_INPUT_LAYOUT_DESC input_layout;
-    D3D12_VERTEX_BUFFER_VIEW vbv[3];
+    D3D12_VERTEX_BUFFER_VIEW vbv[6];
     struct test_context_desc desc;
     struct test_context context;
     struct resource_readback rb;
@@ -3724,11 +3724,11 @@ static void test_append_aligned_element(void)
     {
         {"CoLoR",    2, DXGI_FORMAT_R32G32_FLOAT,       1, D3D12_APPEND_ALIGNED_ELEMENT,
                 D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
-        {"ColoR",    3, DXGI_FORMAT_R32G32_FLOAT,       2, D3D12_APPEND_ALIGNED_ELEMENT,
+        {"ColoR",    3, DXGI_FORMAT_R32G32_FLOAT,       5, D3D12_APPEND_ALIGNED_ELEMENT,
                 D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
         {"POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT,
                 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"ColoR",    0, DXGI_FORMAT_R32G32_FLOAT,       2, D3D12_APPEND_ALIGNED_ELEMENT,
+        {"ColoR",    0, DXGI_FORMAT_R32G32_FLOAT,       5, D3D12_APPEND_ALIGNED_ELEMENT,
                 D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
         {"cOLOr",    1, DXGI_FORMAT_R32G32_FLOAT,       1, D3D12_APPEND_ALIGNED_ELEMENT,
                 D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
@@ -3860,6 +3860,7 @@ static void test_append_aligned_element(void)
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, context.render_target_desc.Format, &vs, &ps, &input_layout);
 
+    memset(vbv, 0, sizeof(vbv));
     vb[0] = create_upload_buffer(context.device, sizeof(stream0), stream0);
     vbv[0].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb[0]);
     vbv[0].StrideInBytes = sizeof(*stream0);
@@ -3871,9 +3872,9 @@ static void test_append_aligned_element(void)
     vbv[1].SizeInBytes = sizeof(stream1);
 
     vb[2] = create_upload_buffer(context.device, sizeof(stream2), stream2);
-    vbv[2].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb[2]);
-    vbv[2].StrideInBytes = sizeof(*stream2);
-    vbv[2].SizeInBytes = sizeof(stream2);
+    vbv[5].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb[2]);
+    vbv[5].StrideInBytes = sizeof(*stream2);
+    vbv[5].SizeInBytes = sizeof(stream2);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
