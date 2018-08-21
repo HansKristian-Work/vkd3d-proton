@@ -1738,6 +1738,10 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
         b->binding = binding;
         b->stride = list->strides[binding];
         b->inputRate = state->input_rates[binding];
+
+        if (!b->stride)
+            FIXME("Invalid stride for input slot %u.\n", binding);
+
         ++binding_count;
     }
 
@@ -3430,15 +3434,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
         UINT start_slot, UINT view_count, const D3D12_VERTEX_BUFFER_VIEW *views)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct vkd3d_gpu_va_allocator *gpu_va_allocator;
     VkDeviceSize offsets[ARRAY_SIZE(list->strides)];
     const struct vkd3d_vk_device_procs *vk_procs;
     VkBuffer buffers[ARRAY_SIZE(list->strides)];
+    unsigned int i, first, count, stride;
     struct d3d12_resource *resource;
-    unsigned int i;
 
     TRACE("iface %p, start_slot %u, view_count %u, views %p.\n", iface, start_slot, view_count, views);
 
     vk_procs = &list->device->vk_procs;
+    gpu_va_allocator = &list->device->gpu_va_allocator;
 
     if (start_slot >= ARRAY_SIZE(list->strides) || view_count > ARRAY_SIZE(list->strides) - start_slot)
     {
@@ -3446,15 +3452,34 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
         return;
     }
 
-    for (i = 0; i < view_count; ++i)
+    first = start_slot;
+    for (i = 0, count = 0; i < view_count; ++i)
     {
-        resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, views[i].BufferLocation);
-        offsets[i] = views[i].BufferLocation - resource->gpu_address;
-        buffers[i] = resource->u.vk_buffer;
-        list->strides[start_slot + i] = views[i].StrideInBytes;
+        if (views[i].BufferLocation)
+        {
+            resource = vkd3d_gpu_va_allocator_dereference(gpu_va_allocator, views[i].BufferLocation);
+            buffers[count] = resource->u.vk_buffer;
+            offsets[count] = views[i].BufferLocation - resource->gpu_address;
+            stride = views[i].StrideInBytes;
+            ++count;
+        }
+        else
+        {
+            if (count)
+                VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer, first, count, buffers, offsets));
+
+            stride = 0;
+            ++count;
+
+            first += count;
+            count = 0;
+        }
+
+        list->strides[start_slot + i] = stride;
     }
 
-    VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer, start_slot, view_count, buffers, offsets));
+    if (count)
+        VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer, first, count, buffers, offsets));
 
     d3d12_command_list_invalidate_current_pipeline(list);
 }
