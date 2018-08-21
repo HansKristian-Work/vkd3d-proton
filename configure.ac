@@ -77,9 +77,9 @@ AC_CHECK_LIB([pthread], [pthread_create],
              [AC_MSG_ERROR([libpthread not found.])])
 
 AC_SUBST([VULKAN_LIBS])
-AC_CHECK_LIB([vulkan], [vkGetInstanceProcAddr],
-             [VULKAN_LIBS="-lvulkan"],
-             [AC_MSG_ERROR([libvulkan not found.])])
+VKD3D_CHECK_SONAME([vulkan], [vkGetInstanceProcAddr],
+                   [VULKAN_LIBS="-lvulkan"],
+                   [AC_MSG_ERROR([libvulkan not found.])])
 
 AS_IF([test "x$with_spirv_tools" = "xyes"],
       [PKG_CHECK_MODULES([SPIRV_TOOLS], [SPIRV-Tools-shared],

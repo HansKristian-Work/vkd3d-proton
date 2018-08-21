@@ -283,9 +283,9 @@ static HRESULT vkd3d_init_vk_global_procs(struct vkd3d_instance *instance,
 
     if (!vkGetInstanceProcAddr)
     {
-        if (!(instance->libvulkan = dlopen("libvulkan.so.1", RTLD_NOW)))
+        if (!(instance->libvulkan = dlopen(SONAME_LIBVULKAN, RTLD_NOW)))
         {
-            ERR("Failed to load libvulkan.\n");
+            ERR("Failed to load libvulkan: %s.\n", dlerror());
             return E_FAIL;
         }
 
