@@ -18077,6 +18077,133 @@ static void test_render_a8(void)
     destroy_test_context(&context);
 }
 
+static void test_cpu_descriptors_lifetime(void)
+{
+    static const float blue[] = {0.0f, 0.0f, 1.0f, 1.0f};
+    static const float red[] = {1.0f, 0.0f, 0.0f, 1.0f};
+    ID3D12Resource *red_resource, *blue_resource;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12DescriptorHeap *rtv_heap;
+    D3D12_CLEAR_VALUE clear_value;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    if (!init_test_context(&context, NULL))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    rtv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 32;
+    resource_desc.Height = 32;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    clear_value.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    clear_value.Color[0] = 1.0f;
+    clear_value.Color[1] = 0.0f;
+    clear_value.Color[2] = 0.0f;
+    clear_value.Color[3] = 1.0f;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
+            &IID_ID3D12Resource, (void **)&red_resource);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+    clear_value.Color[0] = 0.0f;
+    clear_value.Color[1] = 0.0f;
+    clear_value.Color[2] = 1.0f;
+    clear_value.Color[3] = 1.0f;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
+            &IID_ID3D12Resource, (void **)&blue_resource);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+
+    ID3D12Device_CreateRenderTargetView(device, red_resource, NULL, rtv_handle);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, red, 0, NULL);
+    /* Destroy the previous RTV and create a new one in its place. */
+    ID3D12Device_CreateRenderTargetView(device, blue_resource, NULL, rtv_handle);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, blue, 0, NULL);
+
+    /* Destroy the CPU descriptor heap. */
+    ID3D12DescriptorHeap_Release(rtv_heap);
+
+    transition_resource_state(command_list, red_resource,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(command_list, blue_resource,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(red_resource, 0, queue, command_list, 0xff0000ff, 0);
+    reset_command_list(command_list, context.allocator);
+    check_sub_resource_uint(blue_resource, 0, queue, command_list, 0xffff0000, 0);
+
+    rtv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap);
+
+    /* Try again with OMSetRenderTargets(). */
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, red_resource,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    transition_resource_state(command_list, blue_resource,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12Device_CreateRenderTargetView(device, red_resource, NULL, rtv_handle);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, red, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv_handle, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    /* Destroy the previous RTV and create a new one in its place. */
+    ID3D12Device_CreateRenderTargetView(device, blue_resource, NULL, rtv_handle);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, blue, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv_handle, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    /* Destroy the previous RTV and create a new one in its place. */
+    ID3D12Device_CreateRenderTargetView(device, red_resource, NULL, rtv_handle);
+
+    /* Destroy the CPU descriptor heap. */
+    ID3D12DescriptorHeap_Release(rtv_heap);
+
+    transition_resource_state(command_list, red_resource,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(command_list, blue_resource,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(red_resource, 0, queue, command_list, 0xff00ff00, 0);
+    reset_command_list(command_list, context.allocator);
+    check_sub_resource_uint(blue_resource, 0, queue, command_list, 0xff00ff00, 0);
+
+    ID3D12Resource_Release(blue_resource);
+    ID3D12Resource_Release(red_resource);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     bool enable_debug_layer = false;
@@ -18189,4 +18316,5 @@ START_TEST(d3d12)
     run_test(test_geometry_shader);
     run_test(test_layered_rendering);
     run_test(test_render_a8);
+    run_test(test_cpu_descriptors_lifetime);
 }
