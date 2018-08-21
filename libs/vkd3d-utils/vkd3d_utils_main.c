@@ -28,15 +28,18 @@ HRESULT WINAPI D3D12GetDebugInterface(REFIID iid, void **debug)
 HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
         D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
 {
+    struct vkd3d_optional_instance_extensions_info optional_extensions_info;
     struct vkd3d_instance_create_info instance_create_info;
     struct vkd3d_device_create_info device_create_info;
 
     static const char * const instance_extensions[] =
     {
         VK_KHR_SURFACE_EXTENSION_NAME,
-#ifdef HAVE_XCB
-        VK_KHR_XCB_SURFACE_EXTENSION_NAME,
-#endif
+    };
+    static const char * const optional_instance_extensions[] =
+    {
+        "VK_KHR_xcb_surface",
+        "VK_MVK_macos_surface",
     };
     static const char * const device_extensions[] =
     {
@@ -49,9 +52,14 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
     if (adapter)
         FIXME("Ignoring adapter %p.\n", adapter);
 
+    memset(&optional_extensions_info, 0, sizeof(optional_extensions_info));
+    optional_extensions_info.type = VKD3D_STRUCTURE_TYPE_OPTIONAL_INSTANCE_EXTENSIONS_INFO;
+    optional_extensions_info.extensions = optional_instance_extensions;
+    optional_extensions_info.extension_count = ARRAY_SIZE(optional_instance_extensions);
+
     memset(&instance_create_info, 0, sizeof(instance_create_info));
     instance_create_info.type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    instance_create_info.next = NULL;
+    instance_create_info.next = &optional_extensions_info;
     instance_create_info.pfn_signal_event = vkd3d_signal_event;
     instance_create_info.wchar_size = sizeof(WCHAR);
     instance_create_info.instance_extensions = instance_extensions;
