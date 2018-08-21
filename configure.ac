@@ -79,7 +79,10 @@ AC_CHECK_LIB([pthread], [pthread_create],
 AC_SUBST([VULKAN_LIBS])
 VKD3D_CHECK_SONAME([vulkan], [vkGetInstanceProcAddr],
                    [VULKAN_LIBS="-lvulkan"],
-                   [AC_MSG_ERROR([libvulkan not found.])])
+                   [VKD3D_CHECK_SONAME([MoltenVK], [vkGetInstanceProcAddr],
+                                       [VULKAN_LIBS="-lMoltenVK"
+                                       AC_DEFINE_UNQUOTED([SONAME_LIBVULKAN],["$ac_cv_lib_soname_MoltenVK"])],
+                                       [AC_MSG_ERROR([libvulkan and libMoltenVK not found.])])])
 
 AS_IF([test "x$with_spirv_tools" = "xyes"],
       [PKG_CHECK_MODULES([SPIRV_TOOLS], [SPIRV-Tools-shared],
