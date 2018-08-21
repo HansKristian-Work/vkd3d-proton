@@ -34,7 +34,9 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
     static const char * const instance_extensions[] =
     {
         VK_KHR_SURFACE_EXTENSION_NAME,
+#ifdef HAVE_XCB
         VK_KHR_XCB_SURFACE_EXTENSION_NAME,
+#endif
     };
     static const char * const device_extensions[] =
     {

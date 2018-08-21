@@ -8,6 +8,7 @@ AC_CONFIG_HEADERS(include/config.h)
 AC_ARG_VAR([WIDL], [widl IDL compiler])
 AC_ARG_VAR([CROSSCC32], [32-bit Windows cross compiler])
 AC_ARG_VAR([CROSSCC64], [64-bit Windows cross compiler])
+AC_ARG_WITH([xcb], AS_HELP_STRING([--with-xcb], [Build with XCB library (default: test)]))
 AC_ARG_WITH([spirv-tools], AS_HELP_STRING([--with-spirv-tools],
                                           [Build with SPIRV-Tools library (default: disabled)]))
 AC_ARG_ENABLE([demos], AS_HELP_STRING([--enable-demos], [Build demo programs (default: disabled)]))
@@ -80,13 +81,17 @@ AC_CHECK_LIB([vulkan], [vkGetInstanceProcAddr],
              [VULKAN_LIBS="-lvulkan"],
              [AC_MSG_ERROR([libvulkan not found.])])
 
-HAVE_SPIRV_TOOLS=no
 AS_IF([test "x$with_spirv_tools" = "xyes"],
       [PKG_CHECK_MODULES([SPIRV_TOOLS], [SPIRV-Tools-shared],
-      [AC_DEFINE([HAVE_SPIRV_TOOLS], [1], [Define to 1 if you have SPIRV-Tools.])
-      HAVE_SPIRV_TOOLS=yes])])
+      [AC_DEFINE([HAVE_SPIRV_TOOLS], [1], [Define to 1 if you have SPIRV-Tools.])])],
+      [with_spirv_tools=no])
 
-PKG_CHECK_MODULES([XCB], [xcb xcb-keysyms])
+HAVE_XCB=no
+AS_IF([test "x$with_xcb" != "xno"],
+      [PKG_CHECK_MODULES([XCB], [xcb xcb-keysyms],
+                                [AC_DEFINE([HAVE_XCB], [1], [Define to 1 if you have libxcb.])
+                                HAVE_XCB=yes],
+                                [HAVE_XCB=no])])
 
 dnl Check for functions
 VKD3D_CHECK_FUNC([HAVE_BUILTIN_CLZ], [__builtin_clz], [__builtin_clz(0)])
@@ -96,7 +101,10 @@ VKD3D_CHECK_FUNC([HAVE_SYNC_SUB_AND_FETCH], [__sync_sub_and_fetch], [__sync_sub_
 
 VKD3D_CHECK_PTHREAD_SETNAME_NP
 
+dnl Makefiles
 AS_IF([test "x$enable_demos" != "xyes"], [enable_demos=no])
+AS_IF([test "x$enable_demos" = "xyes" -a "x$HAVE_XCB" != "xyes"],
+      [AC_MSG_ERROR([libxcb is required for demos.])])
 AM_CONDITIONAL([BUILD_DEMOS], [test "x$enable_demos" = "xyes"])
 AM_CONDITIONAL([HAVE_WIDL], [test "x$WIDL" != "xno"])
 AM_CONDITIONAL([HAVE_CROSSTARGET32], [test "x$CROSSTARGET32" != "xno"])
@@ -112,7 +120,8 @@ AS_IF([test "x$CROSSTARGET32" != "xno" -o "x$CROSSTARGET64" != "xno"],
 AS_ECHO(["
   Configuration summary for $PACKAGE $VERSION
 
-  Have SPIRV-Tools: ${HAVE_SPIRV_TOOLS}
+  Have XCB: ${HAVE_XCB}
+  Have SPIRV-Tools: ${with_spirv_tools}
 
   Building demos: ${enable_demos}
 

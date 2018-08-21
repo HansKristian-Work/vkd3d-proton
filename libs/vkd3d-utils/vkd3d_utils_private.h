@@ -19,16 +19,18 @@
 #ifndef __VKD3D_UTILS_PRIVATE_H
 #define __VKD3D_UTILS_PRIVATE_H
 
-#define VK_NO_PROTOTYPES
-#define VK_USE_PLATFORM_XCB_KHR
-
-#include <pthread.h>
-#include <vkd3d.h>
+#include "vkd3d_memory.h"
+#include <vkd3d_utils.h>
 
 #define COBJMACROS
 #define NONAMELESSUNION
-#include "vkd3d_memory.h"
-#include "vkd3d_utils.h"
+#define VK_NO_PROTOTYPES
+#ifdef HAVE_XCB
+# define VK_USE_PLATFORM_XCB_KHR
+#endif
+
+#include <pthread.h>
+#include <vkd3d.h>
 
 struct vkd3d_event
 {
