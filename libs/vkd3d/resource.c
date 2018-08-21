@@ -1099,12 +1099,12 @@ static struct vkd3d_view *vkd3d_view_create(void)
     return view;
 }
 
-static void vkd3d_view_incref(struct vkd3d_view *view)
+void vkd3d_view_incref(struct vkd3d_view *view)
 {
     InterlockedIncrement(&view->refcount);
 }
 
-static void vkd3d_view_decref(struct vkd3d_view *view,
+static void vkd3d_view_decref_descriptor(struct vkd3d_view *view,
         const struct d3d12_desc *descriptor, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -1115,7 +1115,11 @@ static void vkd3d_view_decref(struct vkd3d_view *view,
 
     TRACE("Destroying view %p.\n", view);
 
-    if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
+    if (!descriptor)
+    {
+        VK_CALL(vkDestroyImageView(device->vk_device, view->u.vk_image_view, NULL));
+    }
+    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
     {
         if (descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
                 || descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
@@ -1134,6 +1138,11 @@ static void vkd3d_view_decref(struct vkd3d_view *view,
     vkd3d_free(view);
 }
 
+void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device)
+{
+    vkd3d_view_decref_descriptor(view, NULL, device);
+}
+
 static void d3d12_desc_destroy(struct d3d12_desc *descriptor,
         struct d3d12_device *device)
 {
@@ -1142,7 +1151,7 @@ static void d3d12_desc_destroy(struct d3d12_desc *descriptor,
             || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
             || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
     {
-        vkd3d_view_decref(descriptor->u.view, descriptor, device);
+        vkd3d_view_decref_descriptor(descriptor->u.view, descriptor, device);
     }
 
     memset(descriptor, 0, sizeof(*descriptor));
@@ -1789,12 +1798,10 @@ HRESULT vkd3d_create_static_sampler(struct d3d12_device *device,
 /* RTVs */
 static void d3d12_rtv_desc_destroy(struct d3d12_rtv_desc *rtv, struct d3d12_device *device)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-
     if (rtv->magic != VKD3D_DESCRIPTOR_MAGIC_RTV)
         return;
 
-    VK_CALL(vkDestroyImageView(device->vk_device, rtv->vk_view, NULL));
+    vkd3d_view_decref(rtv->view, device);
     memset(rtv, 0, sizeof(*rtv));
 }
 
@@ -1803,6 +1810,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 {
     const struct vkd3d_format *format;
     VkImageViewType vk_view_type;
+    struct vkd3d_view *view;
     uint32_t miplevel_idx;
 
     d3d12_rtv_desc_destroy(rtv_desc, device);
@@ -1834,30 +1842,35 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
     if (desc && desc->u.Texture2D.PlaneSlice)
         FIXME("Ignoring plane slice %u.\n", desc->u.Texture2D.PlaneSlice);
 
+    if (!(view = vkd3d_view_create()))
+        return;
+
     miplevel_idx = desc ? desc->u.Texture2D.MipSlice : 0;
     vk_view_type = resource->desc.DepthOrArraySize > 1
             ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
     if (vkd3d_create_texture_view(device, resource, format, vk_view_type,
-            miplevel_idx, 1, 0, VK_REMAINING_ARRAY_LAYERS, false, &rtv_desc->vk_view) < 0)
+            miplevel_idx, 1, 0, VK_REMAINING_ARRAY_LAYERS, false, &view->u.vk_image_view) < 0)
+    {
+        vkd3d_free(view);
         return;
+    }
 
+    rtv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_RTV;
     rtv_desc->format = format->vk_format;
     rtv_desc->width = d3d12_resource_desc_get_width(&resource->desc, miplevel_idx);
     rtv_desc->height = d3d12_resource_desc_get_height(&resource->desc, miplevel_idx);
     rtv_desc->layer_count = resource->desc.DepthOrArraySize;
-    rtv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_RTV;
+    rtv_desc->view = view;
     rtv_desc->resource = resource;
 }
 
 /* DSVs */
 static void d3d12_dsv_desc_destroy(struct d3d12_dsv_desc *dsv, struct d3d12_device *device)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-
     if (dsv->magic != VKD3D_DESCRIPTOR_MAGIC_DSV)
         return;
 
-    VK_CALL(vkDestroyImageView(device->vk_device, dsv->vk_view, NULL));
+    vkd3d_view_decref(dsv->view, device);
     memset(dsv, 0, sizeof(*dsv));
 }
 
@@ -1865,6 +1878,7 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
         struct d3d12_resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc)
 {
     const struct vkd3d_format *format;
+    struct vkd3d_view *view;
     uint32_t miplevel_idx;
 
     d3d12_dsv_desc_destroy(dsv_desc, device);
@@ -1896,15 +1910,19 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
     if (desc && desc->Flags)
         FIXME("Ignoring flags %#x.\n", desc->Flags);
 
-    miplevel_idx = desc ? desc->u.Texture2D.MipSlice : 0;
-    if (vkd3d_create_texture_view(device, resource, format, VK_IMAGE_VIEW_TYPE_2D,
-            miplevel_idx, 1, 0, 1, false, &dsv_desc->vk_view) < 0)
+    if (!(view = vkd3d_view_create()))
         return;
 
+    miplevel_idx = desc ? desc->u.Texture2D.MipSlice : 0;
+    if (vkd3d_create_texture_view(device, resource, format, VK_IMAGE_VIEW_TYPE_2D,
+            miplevel_idx, 1, 0, 1, false, &view->u.vk_image_view) < 0)
+        return;
+
+    dsv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_DSV;
     dsv_desc->format = format->vk_format;
     dsv_desc->width = d3d12_resource_desc_get_width(&resource->desc, miplevel_idx);
     dsv_desc->height = d3d12_resource_desc_get_height(&resource->desc, miplevel_idx);
-    dsv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_DSV;
+    dsv_desc->view = view;
     dsv_desc->resource = resource;
 }
 

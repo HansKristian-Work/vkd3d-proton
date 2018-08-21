@@ -257,6 +257,9 @@ struct vkd3d_view
     VkBufferView vk_counter_view;
 };
 
+void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device) DECLSPEC_HIDDEN;
+void vkd3d_view_incref(struct vkd3d_view *view) DECLSPEC_HIDDEN;
+
 struct d3d12_desc
 {
     uint32_t magic;
@@ -306,7 +309,7 @@ struct d3d12_rtv_desc
     uint64_t width;
     unsigned int height;
     unsigned int layer_count;
-    VkImageView vk_view;
+    struct vkd3d_view *view;
     struct d3d12_resource *resource;
 };
 
@@ -324,7 +327,7 @@ struct d3d12_dsv_desc
     VkFormat format;
     uint64_t width;
     unsigned int height;
-    VkImageView vk_view;
+    struct vkd3d_view *view;
     struct d3d12_resource *resource;
 };
 
@@ -560,6 +563,10 @@ struct d3d12_command_allocator
     VkDescriptorPool *descriptor_pools;
     size_t descriptor_pools_size;
     size_t descriptor_pool_count;
+
+    struct vkd3d_view **views;
+    size_t views_size;
+    size_t view_count;
 
     VkBufferView *buffer_views;
     size_t buffer_views_size;

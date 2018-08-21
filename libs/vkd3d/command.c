@@ -750,6 +750,19 @@ static bool d3d12_command_allocator_add_descriptor_pool(struct d3d12_command_all
     return true;
 }
 
+static bool d3d12_command_allocator_add_view(struct d3d12_command_allocator *allocator,
+        struct vkd3d_view *view)
+{
+    if (!vkd3d_array_reserve((void **)&allocator->views, &allocator->views_size,
+            allocator->view_count + 1, sizeof(*allocator->views)))
+        return false;
+
+    vkd3d_view_incref(view);
+    allocator->views[allocator->view_count++] = view;
+
+    return true;
+}
+
 static bool d3d12_command_allocator_add_buffer_view(struct d3d12_command_allocator *allocator,
         VkBufferView view)
 {
@@ -807,6 +820,12 @@ static void d3d12_command_allocator_free_resources(struct d3d12_command_allocato
         VK_CALL(vkDestroyBufferView(device->vk_device, allocator->buffer_views[i], NULL));
     }
     allocator->buffer_view_count = 0;
+
+    for (i = 0; i < allocator->view_count; ++i)
+    {
+        vkd3d_view_decref(allocator->views[i], device);
+    }
+    allocator->view_count = 0;
 
     for (i = 0; i < allocator->descriptor_pool_count; ++i)
     {
@@ -889,6 +908,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
         d3d12_command_allocator_free_resources(allocator);
         vkd3d_free(allocator->transfer_buffers);
         vkd3d_free(allocator->buffer_views);
+        vkd3d_free(allocator->views);
         vkd3d_free(allocator->descriptor_pools);
         vkd3d_free(allocator->pipelines);
         vkd3d_free(allocator->framebuffers);
@@ -1076,6 +1096,10 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     allocator->descriptor_pools = NULL;
     allocator->descriptor_pools_size = 0;
     allocator->descriptor_pool_count = 0;
+
+    allocator->views = NULL;
+    allocator->views_size = 0;
+    allocator->view_count = 0;
 
     allocator->buffer_views = NULL;
     allocator->buffer_views_size = 0;
@@ -3497,6 +3521,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct d3d12_rtv_desc *rtv_desc;
     const struct d3d12_dsv_desc *dsv_desc;
+    struct vkd3d_view *view;
     unsigned int i;
 
     TRACE("iface %p, render_target_descriptor_count %u, render_target_descriptors %p, "
@@ -3523,7 +3548,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
 
         d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
 
-        list->views[i + 1] = rtv_desc->vk_view;
+        /* In D3D12 CPU descriptors are consumed when a command is recorded. */
+        view = rtv_desc->view;
+        if (!d3d12_command_allocator_add_view(list->allocator, view))
+        {
+            WARN("Failed to add view.\n");
+        }
+
+        list->views[i + 1] = view->u.vk_image_view;
         list->fb_width = max(list->fb_width, rtv_desc->width);
         list->fb_height = max(list->fb_height, rtv_desc->height);
         list->fb_layer_count = max(list->fb_layer_count, rtv_desc->layer_count);
@@ -3535,11 +3567,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
 
         d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
 
+        /* In D3D12 CPU descriptors are consumed when a command is recorded. */
+        view = dsv_desc->view;
+        if (!d3d12_command_allocator_add_view(list->allocator, view))
+        {
+            WARN("Failed to add view.\n");
+        }
+
+        list->views[0] = view->u.vk_image_view;
         list->fb_width = max(list->fb_width, dsv_desc->width);
         list->fb_height = max(list->fb_height, dsv_desc->height);
         list->fb_layer_count = max(list->fb_layer_count, 1);
-
-        list->views[0] = dsv_desc->vk_view;
     }
 
     d3d12_command_list_invalidate_current_framebuffer(list);
@@ -3549,7 +3587,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
 static void d3d12_command_list_clear(struct d3d12_command_list *list,
         const struct vkd3d_vk_device_procs *vk_procs, const struct VkAttachmentDescription *attachment_desc,
         const struct VkAttachmentReference *color_reference, const struct VkAttachmentReference *ds_reference,
-        VkImageView vk_view, size_t width, size_t height, unsigned int layer_count,
+        struct vkd3d_view *view, size_t width, size_t height, unsigned int layer_count,
         const union VkClearValue *clear_value, unsigned int rect_count, const D3D12_RECT *rects)
 {
     struct VkSubpassDescription sub_pass_desc;
@@ -3608,12 +3646,17 @@ static void d3d12_command_list_clear(struct d3d12_command_list *list,
         return;
     }
 
+    if (!d3d12_command_allocator_add_view(list->allocator, view))
+    {
+        WARN("Failed to add view.\n");
+    }
+
     fb_desc.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     fb_desc.pNext = NULL;
     fb_desc.flags = 0;
     fb_desc.renderPass = vk_render_pass;
     fb_desc.attachmentCount = 1;
-    fb_desc.pAttachments = &vk_view;
+    fb_desc.pAttachments = &view->u.vk_image_view;
     fb_desc.width = width;
     fb_desc.height = height;
     fb_desc.layers = layer_count;
@@ -3693,7 +3736,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(ID3D12Gra
     ds_reference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     d3d12_command_list_clear(list, &list->device->vk_procs, &attachment_desc, NULL, &ds_reference,
-            dsv_desc->vk_view, dsv_desc->width, dsv_desc->height, 1, &clear_value, rect_count, rects);
+            dsv_desc->view, dsv_desc->width, dsv_desc->height, 1, &clear_value, rect_count, rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12GraphicsCommandList *iface,
@@ -3724,7 +3767,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
     color_reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     d3d12_command_list_clear(list, &list->device->vk_procs, &attachment_desc, &color_reference, NULL,
-            rtv_desc->vk_view, rtv_desc->width, rtv_desc->height, rtv_desc->layer_count,
+            rtv_desc->view, rtv_desc->width, rtv_desc->height, rtv_desc->layer_count,
             &clear_value, rect_count, rects);
 }
 
