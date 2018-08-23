@@ -3477,8 +3477,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
         return;
     }
 
+    count = 0;
     first = start_slot;
-    for (i = 0, count = 0; i < view_count; ++i)
+    for (i = 0; i < view_count; ++i)
     {
         if (views[i].BufferLocation)
         {
@@ -3492,12 +3493,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
         {
             if (count)
                 VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer, first, count, buffers, offsets));
+            count = 0;
+            first = start_slot + i + 1;
 
             stride = 0;
-            ++count;
-
-            first += count;
-            count = 0;
         }
 
         invalidate |= list->strides[start_slot + i] != stride;
