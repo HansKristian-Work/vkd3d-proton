@@ -1695,6 +1695,7 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     struct VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct VkPipelineVertexInputStateCreateInfo input_desc;
+    struct VkPipelineInputAssemblyStateCreateInfo ia_desc;
     struct VkPipelineColorBlendStateCreateInfo blend_desc;
     struct VkGraphicsPipelineCreateInfo pipeline_desc;
     const struct d3d12_device *device = list->device;
@@ -1776,6 +1777,12 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     input_desc.vertexAttributeDescriptionCount = state->attribute_count;
     input_desc.pVertexAttributeDescriptions = state->attributes;
 
+    ia_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    ia_desc.pNext = NULL;
+    ia_desc.flags = 0;
+    ia_desc.topology = list->primitive_topology;
+    ia_desc.primitiveRestartEnable = VK_FALSE;
+
     blend_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     blend_desc.pNext = NULL;
     blend_desc.flags = 0;
@@ -1795,7 +1802,7 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     pipeline_desc.stageCount = state->stage_count;
     pipeline_desc.pStages = state->stages;
     pipeline_desc.pVertexInputState = &input_desc;
-    pipeline_desc.pInputAssemblyState = &list->ia_desc;
+    pipeline_desc.pInputAssemblyState = &ia_desc;
     pipeline_desc.pTessellationState = NULL;
     pipeline_desc.pViewportState = &vp_desc;
     pipeline_desc.pRasterizationState = &state->rs_desc;
@@ -2806,7 +2813,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(ID3D12Gr
 
     TRACE("iface %p, topology %#x.\n", iface, topology);
 
-    list->ia_desc.topology = vk_topology_from_d3d12_topology(topology);
+    list->primitive_topology = vk_topology_from_d3d12_topology(topology);
     d3d12_command_list_invalidate_current_pipeline(list);
 }
 
@@ -4151,11 +4158,7 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     list->pipeline_state = initial_pipeline_state;
 
     memset(list->strides, 0, sizeof(list->strides));
-    list->ia_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    list->ia_desc.pNext = NULL;
-    list->ia_desc.flags = 0;
-    list->ia_desc.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-    list->ia_desc.primitiveRestartEnable = VK_FALSE;
+    list->primitive_topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
 
     memset(list->views, 0, sizeof(list->views));
     list->fb_width = 0;

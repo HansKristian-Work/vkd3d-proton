@@ -615,7 +615,7 @@ struct d3d12_command_list
     bool is_valid;
 
     uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
-    struct VkPipelineInputAssemblyStateCreateInfo ia_desc;
+    VkPrimitiveTopology primitive_topology;
 
     VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
     unsigned int fb_width;
