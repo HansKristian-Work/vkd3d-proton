@@ -1786,7 +1786,6 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     blend_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     blend_desc.pNext = NULL;
     blend_desc.flags = 0;
-    /* FIXME: Logic ops are per-target in D3D. */
     blend_desc.logicOpEnable = VK_FALSE;
     blend_desc.logicOp = VK_LOGIC_OP_COPY;
     blend_desc.attachmentCount = state->attachment_count - state->rt_idx;

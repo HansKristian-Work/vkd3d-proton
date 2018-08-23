@@ -1876,6 +1876,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     state->vk_set_layout = VK_NULL_HANDLE;
     state->uav_counters = NULL;
     state->uav_counter_mask = 0;
+    graphics->stage_count = 0;
+
+    memset(&input_signature, 0, sizeof(input_signature));
 
     if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->pRootSignature)))
     {
@@ -1943,12 +1946,26 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     for (i = 0; i < rt_count; ++i)
     {
-        unsigned int blend_idx = desc->BlendState.IndependentBlendEnable ? i : 0;
+        const D3D12_RENDER_TARGET_BLEND_DESC *rt_desc;
         size_t idx = graphics->rt_idx + i;
 
         if (!(format = vkd3d_get_format(desc->RTVFormats[i], false)))
         {
             WARN("Invalid DXGI format %#x.\n", desc->RTVFormats[i]);
+            hr = E_INVALIDARG;
+            goto fail;
+        }
+
+        rt_desc = &desc->BlendState.RenderTarget[desc->BlendState.IndependentBlendEnable ? i : 0];
+        if (desc->BlendState.IndependentBlendEnable && rt_desc->LogicOpEnable)
+        {
+            WARN("IndependentBlendEnable must be FALSE when logic operations are enabled.\n");
+            hr = E_INVALIDARG;
+            goto fail;
+        }
+        if (rt_desc->BlendEnable && rt_desc->LogicOpEnable)
+        {
+            WARN("Only one of BlendEnable or LogicOpEnable can be set to TRUE.");
             hr = E_INVALIDARG;
             goto fail;
         }
@@ -1968,7 +1985,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         graphics->attachment_references[idx].attachment = idx;
         graphics->attachment_references[idx].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-        blend_attachment_from_d3d12(&graphics->blend_attachments[i], &desc->BlendState.RenderTarget[blend_idx]);
+        blend_attachment_from_d3d12(&graphics->blend_attachments[i], rt_desc);
     }
     graphics->attachment_count = graphics->rt_idx + rt_count;
 
@@ -1983,8 +2000,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     shader_interface.uav_counters = NULL;
     shader_interface.uav_counter_count = 0;
 
-    memset(&input_signature, 0, sizeof(input_signature));
-    for (i = 0, graphics->stage_count = 0; i < ARRAY_SIZE(shader_stages); ++i)
+    for (i = 0; i < ARRAY_SIZE(shader_stages); ++i)
     {
         const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
         const struct vkd3d_shader_code dxbc = {b->pShaderBytecode, b->BytecodeLength};
