@@ -2268,7 +2268,7 @@ static void test_root_signature_limits(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_pipeline_state(void)
+static void test_create_compute_pipeline_state(void)
 {
     D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_state_desc;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -2302,7 +2302,7 @@ static void test_create_pipeline_state(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
 
     refcount = get_refcount(device);
     ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
@@ -2315,7 +2315,7 @@ static void test_create_pipeline_state(void)
 
     hr = ID3D12Device_CreateComputePipelineState(device, &pipeline_state_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create compute pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", hr);
 
     refcount = get_refcount(root_signature);
     ok(refcount == 1, "Got unexpected refcount %u.\n", (unsigned int)refcount);
@@ -2323,7 +2323,7 @@ static void test_create_pipeline_state(void)
     refcount = get_refcount(device);
     ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
     hr = ID3D12PipelineState_GetDevice(pipeline_state, &IID_ID3D12Device, (void **)&tmp_device);
-    ok(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
     refcount = get_refcount(device);
     ok(refcount == 4, "Got unexpected refcount %u.\n", (unsigned int)refcount);
     refcount = ID3D12Device_Release(tmp_device);
@@ -2339,6 +2339,110 @@ static void test_create_pipeline_state(void)
     refcount = ID3D12RootSignature_Release(root_signature);
     ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
 
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
+static void test_create_graphics_pipeline_state(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12RootSignature *root_signature;
+    ID3D12PipelineState *pipeline_state;
+    ID3D12Device *device, *tmp_device;
+    D3D12_BLEND_DESC *blend;
+    ULONG refcount;
+    unsigned int i;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    root_signature_desc.NumParameters = 0;
+    root_signature_desc.pParameters = NULL;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    refcount = get_refcount(device);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    init_pipeline_state_desc(&pso_desc, root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, NULL, NULL, NULL);
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    refcount = get_refcount(root_signature);
+    ok(refcount == 1, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    refcount = get_refcount(device);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    hr = ID3D12PipelineState_GetDevice(pipeline_state, &IID_ID3D12Device, (void **)&tmp_device);
+    ok(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
+    refcount = get_refcount(device);
+    ok(refcount == 4, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    refcount = ID3D12Device_Release(tmp_device);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    check_interface(pipeline_state, &IID_ID3D12Object, TRUE);
+    check_interface(pipeline_state, &IID_ID3D12DeviceChild, TRUE);
+    check_interface(pipeline_state, &IID_ID3D12Pageable, TRUE);
+    check_interface(pipeline_state, &IID_ID3D12PipelineState, TRUE);
+
+    refcount = ID3D12PipelineState_Release(pipeline_state);
+    ok(!refcount, "ID3D12PipelineState has %u references left.\n", (unsigned int)refcount);
+
+    blend = &pso_desc.BlendState;
+    blend->IndependentBlendEnable = FALSE;
+    blend->RenderTarget[0].BlendEnable = TRUE;
+    blend->RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_COLOR;
+    blend->RenderTarget[0].DestBlend = D3D12_BLEND_DEST_COLOR;
+    blend->RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    blend->RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_SRC_ALPHA;
+    blend->RenderTarget[0].DestBlendAlpha = D3D12_BLEND_DEST_ALPHA;
+    blend->RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    blend->RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ID3D12PipelineState_Release(pipeline_state);
+
+    /* Only one of BlendEnable or LogicOpEnable can be set to true. */
+    blend->IndependentBlendEnable = FALSE;
+    blend->RenderTarget[0].BlendEnable = TRUE;
+    blend->RenderTarget[0].LogicOpEnable = TRUE;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    pso_desc.RTVFormats[0] = DXGI_FORMAT_R32_UINT;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    blend->IndependentBlendEnable = FALSE;
+    blend->RenderTarget[0].BlendEnable = FALSE;
+    blend->RenderTarget[0].LogicOpEnable = TRUE;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ID3D12PipelineState_Release(pipeline_state);
+
+    /* IndependentBlendEnable must be set to false when logic operations are enabled. */
+    blend->IndependentBlendEnable = TRUE;
+    blend->RenderTarget[0].LogicOpEnable = TRUE;
+    for (i = 1; i < ARRAY_SIZE(blend->RenderTarget); ++i)
+        blend->RenderTarget[i] = blend->RenderTarget[0];
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    refcount = ID3D12RootSignature_Release(root_signature);
+    ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
@@ -18238,7 +18342,8 @@ START_TEST(d3d12)
     run_test(test_create_unordered_access_view);
     run_test(test_create_root_signature);
     run_test(test_root_signature_limits);
-    run_test(test_create_pipeline_state);
+    run_test(test_create_compute_pipeline_state);
+    run_test(test_create_graphics_pipeline_state);
     run_test(test_create_fence);
     run_test(test_reset_command_allocator);
     run_test(test_cpu_signal_fence);
