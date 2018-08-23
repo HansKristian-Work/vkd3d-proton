@@ -3464,6 +3464,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
     VkBuffer buffers[ARRAY_SIZE(list->strides)];
     unsigned int i, first, count, stride;
     struct d3d12_resource *resource;
+    bool invalidate = false;
 
     TRACE("iface %p, start_slot %u, view_count %u, views %p.\n", iface, start_slot, view_count, views);
 
@@ -3499,13 +3500,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
             count = 0;
         }
 
+        invalidate |= list->strides[start_slot + i] != stride;
         list->strides[start_slot + i] = stride;
     }
 
     if (count)
         VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer, first, count, buffers, offsets));
 
-    d3d12_command_list_invalidate_current_pipeline(list);
+    if (invalidate)
+        d3d12_command_list_invalidate_current_pipeline(list);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(ID3D12GraphicsCommandList *iface,
