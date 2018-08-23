@@ -15777,19 +15777,19 @@ static void test_create_query_heap(void)
 
 static void test_query_timestamp(void)
 {
-    ID3D12GraphicsCommandList *command_list;
-    struct test_context_desc desc;
-    struct test_context context;
-    ID3D12CommandQueue *queue;
-    ID3D12Device *device;
-    D3D12_QUERY_HEAP_DESC heap_desc;
-    ID3D12QueryHeap *query_heap;
-    ID3D12Resource *resource;
-    struct resource_readback rb;
     UINT64 timestamps[4], timestamp_frequency, timestamp_diff, time_diff;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_QUERY_HEAP_DESC heap_desc;
+    struct test_context_desc desc;
+    ID3D12QueryHeap *query_heap;
+    struct resource_readback rb;
+    struct test_context context;
     time_t time_start, time_end;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    unsigned int i;
     HRESULT hr;
-    int i;
 
     time_start = time(NULL);
 
@@ -15813,11 +15813,12 @@ static void test_query_timestamp(void)
     resource = create_readback_buffer(device, sizeof(timestamps));
 
     for (i = 0; i < ARRAY_SIZE(timestamps); ++i)
-    {
         ID3D12GraphicsCommandList_EndQuery(command_list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, i);
-        ID3D12GraphicsCommandList_ResolveQueryData(command_list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, i, 1,
-                resource, i * sizeof(UINT64));
-    }
+
+    ID3D12GraphicsCommandList_ResolveQueryData(command_list, query_heap,
+            D3D12_QUERY_TYPE_TIMESTAMP, 0, 1, resource, 0);
+    ID3D12GraphicsCommandList_ResolveQueryData(command_list, query_heap,
+            D3D12_QUERY_TYPE_TIMESTAMP, 1, 3, resource, sizeof(UINT64));
 
     get_buffer_readback_with_command_list(resource, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
 
@@ -15827,14 +15828,16 @@ static void test_query_timestamp(void)
         timestamps[i] = get_readback_uint64(&rb, i, 0);
 
     for (i = 0; i < ARRAY_SIZE(timestamps) - 1; ++i)
+    {
         ok(timestamps[i] <= timestamps[i + 1], "Expected timestamps to monotonically increase, "
                 "but got %"PRIu64" > %"PRIu64".\n", timestamps[i], timestamps[i + 1]);
+    }
 
     time_diff = (UINT64)difftime(time_end, time_start) * timestamp_frequency;
     timestamp_diff = timestamps[ARRAY_SIZE(timestamps) - 1] - timestamps[0];
 
     ok(timestamp_diff <= time_diff, "Expected timestamp difference to be bounded by CPU time difference, "
-            "but got  %"PRIu64" > %"PRIu64".\n", timestamp_diff, time_diff);
+            "but got %"PRIu64" > %"PRIu64".\n", timestamp_diff, time_diff);
 
     release_resource_readback(&rb);
     ID3D12QueryHeap_Release(query_heap);
