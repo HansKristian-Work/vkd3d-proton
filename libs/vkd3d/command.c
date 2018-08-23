@@ -3885,8 +3885,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *buffer = unsafe_impl_from_ID3D12Resource(dst_buffer);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkDeviceSize stride = sizeof(uint64_t);
-    unsigned int i;
+    VkDeviceSize offset, stride = sizeof(uint64_t);
+    unsigned int i, first, count;
 
     TRACE("iface %p, heap %p, type %#x, start_index %u, query_count %u, "
             "dst_buffer %p, aligned_dst_buffer_offset %#"PRIx64".\n",
@@ -3914,26 +3914,45 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
     if (type == D3D12_QUERY_TYPE_PIPELINE_STATISTICS)
         stride = sizeof(struct D3D12_QUERY_DATA_PIPELINE_STATISTICS);
 
-    /* We cannot copy query results if a query was not issued:
-     *
-     *   "If the query does not become available in a finite amount of time
-     *   (e.g. due to not issuing a query since the last reset),
-     *   a VK_ERROR_DEVICE_LOST error may occur."
-     */
+    count = 0;
+    first = start_index;
+    offset = aligned_dst_buffer_offset;
     for (i = 0; i < query_count; ++i)
     {
-        const UINT64 offset = aligned_dst_buffer_offset + i * stride;
-        const unsigned int query_index = start_index + i;
-
-        if (!d3d12_query_heap_is_result_available(query_heap, query_index))
+        if (d3d12_query_heap_is_result_available(query_heap, start_index + i))
         {
+            ++count;
+        }
+        else
+        {
+            if (count)
+            {
+                VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
+                        query_heap->vk_query_pool, first, count, buffer->u.vk_buffer,
+                        offset, stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+            }
+            count = 0;
+            first = start_index + i;
+            offset = aligned_dst_buffer_offset + i * stride;
+
+            /* We cannot copy query results if a query was not issued:
+             *
+             *   "If the query does not become available in a finite amount of
+             *   time (e.g. due to not issuing a query since the last reset),
+             *   a VK_ERROR_DEVICE_LOST error may occur."
+             */
             VK_CALL(vkCmdFillBuffer(list->vk_command_buffer,
                     buffer->u.vk_buffer, offset, stride, 0x00000000));
-            continue;
-        }
 
+            ++first;
+            offset += stride;
+        }
+    }
+
+    if (count)
+    {
         VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
-                query_heap->vk_query_pool, query_index, 1, buffer->u.vk_buffer,
+                query_heap->vk_query_pool, first, count, buffer->u.vk_buffer,
                 offset, stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
     }
 }
