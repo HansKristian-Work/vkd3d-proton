@@ -31,6 +31,17 @@ static void set_rect(RECT *rect, int left, int top, int right, int bottom)
     rect->bottom = bottom;
 }
 
+static inline void set_box(D3D12_BOX *box, unsigned int left, unsigned int top, unsigned int front,
+        unsigned int right, unsigned int bottom, unsigned int back)
+{
+    box->left = left;
+    box->top = top;
+    box->front = front;
+    box->right = right;
+    box->bottom = bottom;
+    box->back = back;
+}
+
 static void set_viewport(D3D12_VIEWPORT *vp, float x, float y,
         float width, float height, float min_depth, float max_depth)
 {
@@ -197,6 +208,7 @@ struct resource_readback
 {
     unsigned int width;
     unsigned int height;
+    unsigned int depth;
     ID3D12Resource *resource;
     unsigned int row_pitch;
     void *data;
@@ -219,18 +231,18 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
     resource_desc = ID3D12Resource_GetDesc(texture);
     ok(resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER,
             "Resource %p is not texture.\n", texture);
-    ok(resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D,
-            "Readback not implemented for 3D textures.\n");
 
     miplevel = sub_resource % resource_desc.MipLevels;
     rb->width = max(1, resource_desc.Width >> miplevel);
     rb->height = max(1, resource_desc.Height >> miplevel);
+    rb->depth = resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+            ? resource_desc.DepthOrArraySize : 1;
     rb->row_pitch = align(rb->width * format_size(resource_desc.Format), D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
     rb->data = NULL;
 
     format = resource_desc.Format;
 
-    rb->resource = create_readback_buffer(device, rb->row_pitch * rb->height);
+    rb->resource = create_readback_buffer(device, rb->row_pitch * rb->height * rb->depth);
 
     dst_location.pResource = rb->resource;
     dst_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
@@ -238,7 +250,7 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
     dst_location.PlacedFootprint.Footprint.Format = format;
     dst_location.PlacedFootprint.Footprint.Width = rb->width;
     dst_location.PlacedFootprint.Footprint.Height = rb->height;
-    dst_location.PlacedFootprint.Footprint.Depth = 1;
+    dst_location.PlacedFootprint.Footprint.Depth = rb->depth;
     dst_location.PlacedFootprint.Footprint.RowPitch = rb->row_pitch;
 
     src_location.pResource = texture;
@@ -259,15 +271,17 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
     ok(SUCCEEDED(hr), "Failed to map readback buffer, hr %#x.\n", hr);
 }
 
-static void *get_readback_data(struct resource_readback *rb, unsigned int x, unsigned int y,
-        size_t element_size)
+static void *get_readback_data(struct resource_readback *rb,
+        unsigned int x, unsigned int y, unsigned int z, size_t element_size)
 {
-    return &((BYTE *)rb->data)[rb->row_pitch * y + x * element_size];
+    unsigned int slice_pitch = rb->row_pitch * rb->depth;
+    return &((BYTE *)rb->data)[slice_pitch * z + rb->row_pitch * y + x * element_size];
 }
 
-static unsigned int get_readback_uint(struct resource_readback *rb, unsigned int x, unsigned int y)
+static unsigned int get_readback_uint(struct resource_readback *rb,
+        unsigned int x, unsigned int y, unsigned int z)
 {
-    return *(unsigned int *)get_readback_data(rb, x, y, sizeof(unsigned int));
+    return *(unsigned int *)get_readback_data(rb, x, y, z, sizeof(unsigned int));
 }
 
 static void release_resource_readback(struct resource_readback *rb)
@@ -279,31 +293,36 @@ static void release_resource_readback(struct resource_readback *rb)
 
 #define check_readback_data_uint(a, b, c, d) check_readback_data_uint_(__LINE__, a, b, c, d)
 static void check_readback_data_uint_(unsigned int line, struct resource_readback *rb,
-        const RECT *rect, unsigned int expected, unsigned int max_diff)
+        const D3D12_BOX *box, unsigned int expected, unsigned int max_diff)
 {
-    RECT r = {0, 0, rb->width, rb->height};
-    unsigned int x = 0, y;
+    D3D12_BOX b = {0, 0, 0, rb->width, rb->height, rb->depth};
+    unsigned int x = 0, y = 0, z;
     bool all_match = true;
     unsigned int got = 0;
 
-    if (rect)
-        r = *rect;
+    if (box)
+        b = *box;
 
-    for (y = r.top; y < r.bottom; ++y)
+    for (z = b.front; z < b.back; ++z)
     {
-        for (x = r.left; x < r.right; ++x)
+        for (y = b.top; y < b.bottom; ++y)
         {
-            got = get_readback_uint(rb, x, y);
-            if (!compare_color(got, expected, max_diff))
+            for (x = b.left; x < b.right; ++x)
             {
-                all_match = false;
-                break;
+                got = get_readback_uint(rb, x, y, z);
+                if (!compare_color(got, expected, max_diff))
+                {
+                    all_match = false;
+                    break;
+                }
             }
+            if (!all_match)
+                break;
         }
         if (!all_match)
             break;
     }
-    ok_(line)(all_match, "Got 0x%08x, expected 0x%08x at (%u, %u).\n", got, expected, x, y);
+    ok_(line)(all_match, "Got 0x%08x, expected 0x%08x at (%u, %u, %u).\n", got, expected, x, y, z);
 }
 
 #define check_sub_resource_uint(a, b, c, d, e, f) check_sub_resource_uint_(__LINE__, a, b, c, d, e, f)

@@ -57,17 +57,6 @@ typedef int HRESULT;
 
 #include "vkd3d_d3d12_test.h"
 
-static void set_box(D3D12_BOX *box, unsigned int left, unsigned int top, unsigned int front,
-        unsigned int right, unsigned int bottom, unsigned int back)
-{
-    box->left = left;
-    box->top = top;
-    box->front = front;
-    box->right = right;
-    box->bottom = bottom;
-    box->back = back;
-}
-
 struct vec2
 {
     float x, y;
@@ -634,6 +623,7 @@ static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_F
 
     rb->width = resource_desc.Width / format_size(format);
     rb->height = 1;
+    rb->depth = 1;
     rb->resource = rb_buffer;
     rb->row_pitch = resource_desc.Width;
     rb->data = NULL;
@@ -646,32 +636,32 @@ static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_F
 
 static uint8_t get_readback_uint8(struct resource_readback *rb, unsigned int x, unsigned int y)
 {
-    return *(uint8_t *)get_readback_data(rb, x, y, sizeof(uint8_t));
+    return *(uint8_t *)get_readback_data(rb, x, y, 0, sizeof(uint8_t));
 }
 
 static uint16_t get_readback_uint16(struct resource_readback *rb, unsigned int x, unsigned int y)
 {
-    return *(uint16_t *)get_readback_data(rb, x, y, sizeof(uint16_t));
+    return *(uint16_t *)get_readback_data(rb, x, y, 0, sizeof(uint16_t));
 }
 
 static UINT64 get_readback_uint64(struct resource_readback *rb, unsigned int x, unsigned int y)
 {
-    return *(UINT64 *)get_readback_data(rb, x, y, sizeof(UINT64));
+    return *(UINT64 *)get_readback_data(rb, x, y, 0, sizeof(UINT64));
 }
 
 static float get_readback_float(struct resource_readback *rb, unsigned int x, unsigned int y)
 {
-    return *(float *)get_readback_data(rb, x, y, sizeof(float));
+    return *(float *)get_readback_data(rb, x, y, 0, sizeof(float));
 }
 
 static const struct vec4 *get_readback_vec4(struct resource_readback *rb, unsigned int x, unsigned int y)
 {
-    return get_readback_data(rb, x, y, sizeof(struct vec4));
+    return get_readback_data(rb, x, y, 0, sizeof(struct vec4));
 }
 
 static const struct uvec4 *get_readback_uvec4(struct resource_readback *rb, unsigned int x, unsigned int y)
 {
-    return get_readback_data(rb, x, y, sizeof(struct uvec4));
+    return get_readback_data(rb, x, y, 0, sizeof(struct uvec4));
 }
 
 #define check_readback_data_float(a, b, c, d) check_readback_data_float_(__LINE__, a, b, c, d)
@@ -3416,7 +3406,7 @@ static void test_clear_unordered_access_view(void)
     ID3D12Device *device;
     UINT clear_value[4];
     unsigned int i, j;
-    RECT rect;
+    D3D12_BOX box;
 
 #define BUFFER_SIZE (1024 * 1024)
     static const struct
@@ -3507,20 +3497,19 @@ static void test_clear_unordered_access_view(void)
                 get_cpu_descriptor_handle(&context, cpu_heap, 0),
                 buffer, tests[i].values, 0, NULL);
 
-        rect.top = 0;
-        rect.bottom = 1;
+        set_box(&box, 0, 0, 0, 1, 1, 1);
         transition_resource_state(command_list, buffer,
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
         get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_TYPELESS, &rb, queue, command_list);
-        rect.left = 0;
-        rect.right = uav_desc.Buffer.FirstElement;
-        check_readback_data_uint(&rb, &rect, clear_value[0], 0);
-        rect.left = uav_desc.Buffer.FirstElement;
-        rect.right = uav_desc.Buffer.FirstElement + uav_desc.Buffer.NumElements;
-        check_readback_data_uint(&rb, &rect, tests[i].values[0], 0);
-        rect.left = uav_desc.Buffer.FirstElement + uav_desc.Buffer.NumElements;
-        rect.right = BUFFER_SIZE / format_size(uav_desc.Format);
-        check_readback_data_uint(&rb, &rect, clear_value[0], 0);
+        box.left = 0;
+        box.right = uav_desc.Buffer.FirstElement;
+        check_readback_data_uint(&rb, &box, clear_value[0], 0);
+        box.left = uav_desc.Buffer.FirstElement;
+        box.right = uav_desc.Buffer.FirstElement + uav_desc.Buffer.NumElements;
+        check_readback_data_uint(&rb, &box, tests[i].values[0], 0);
+        box.left = uav_desc.Buffer.FirstElement + uav_desc.Buffer.NumElements;
+        box.right = BUFFER_SIZE / format_size(uav_desc.Format);
+        check_readback_data_uint(&rb, &box, clear_value[0], 0);
         release_resource_readback(&rb);
 
         reset_command_list(command_list, context.allocator);
@@ -3994,13 +3983,13 @@ static void test_append_aligned_element(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    color = get_readback_uint(&rb, 80, 16);
+    color = get_readback_uint(&rb, 80, 16, 0);
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 240, 16);
+    color = get_readback_uint(&rb, 240, 16, 0);
     ok(compare_color(color, 0xff00ff00, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 400, 16);
+    color = get_readback_uint(&rb, 400, 16, 0);
     ok(compare_color(color, 0xffff0000, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 560, 16);
+    color = get_readback_uint(&rb, 560, 16, 0);
     ok(compare_color(color, 0xffff00ff, 1), "Got unexpected color 0x%08x.\n", color);
     release_resource_readback(&rb);
 
@@ -4414,15 +4403,15 @@ static void test_scissor(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    color = get_readback_uint(&rb, 320, 60);
+    color = get_readback_uint(&rb, 320, 60, 0);
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 80, 240);
+    color = get_readback_uint(&rb, 80, 240, 0);
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 320, 240);
+    color = get_readback_uint(&rb, 320, 240, 0);
     ok(compare_color(color, 0xff00ff00, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 560, 240);
+    color = get_readback_uint(&rb, 560, 240, 0);
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 320, 420);
+    color = get_readback_uint(&rb, 320, 420, 0);
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
     release_resource_readback(&rb);
 
@@ -5117,7 +5106,7 @@ static void test_bundle_state_inheritance(void)
     {
         for (x = 0; x < rb.width; ++x)
         {
-           unsigned int v = get_readback_uint(&rb, x, y);
+           unsigned int v = get_readback_uint(&rb, x, y, 0);
            /* This works on AMD. */
            ok(v == 0xffffffff || v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
         }
@@ -5154,7 +5143,7 @@ static void test_bundle_state_inheritance(void)
     {
         for (x = 0; x < rb.width; ++x)
         {
-           unsigned int v = get_readback_uint(&rb, x, y);
+           unsigned int v = get_readback_uint(&rb, x, y, 0);
            /* This works on AMD, even though the debug layer says that the primitive topology is undefined. */
            ok(v == 0xffffffff || v == 0xff00ff00, "Got unexpected value 0x%08x at (%u, %u).\n", v, x, y);
         }
@@ -8505,7 +8494,7 @@ static void test_constant_buffer_relative_addressing(void)
     get_buffer_readback_with_command_list(uav, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     for (i = 0; i < rb.width; ++i)
     {
-        unsigned int got = get_readback_uint(&rb, i, 0);
+        unsigned int got = get_readback_uint(&rb, i, 0, 0);
         const unsigned int *expected = &cb_data[1].x;
         ok(got == expected[i], "Got %#x, expected %#x at %u.\n", got, expected[i], i);
     }
@@ -9148,7 +9137,7 @@ static void test_texture(void)
         {
             for (x = 0; x < tests[i].width; ++x)
             {
-                unsigned int color = get_readback_uint(&rb, x * x_step + x_step / 2, y * y_step + y_step / 2);
+                unsigned int color = get_readback_uint(&rb, x * x_step + x_step / 2, y * y_step + y_step / 2, 0);
                 ok(compare_color(color, tests[i].expected_data[tests[i].width * y + x], 1),
                         "Got color 0x%08x, expected 0x%08x at (%u, %u).\n",
                         color, tests[i].expected_data[tests[i].width * y + x], x, y);
@@ -10210,7 +10199,7 @@ static void test_descriptor_tables_overlapping_bindings(void)
     get_buffer_readback_with_command_list(output_buffers[0], DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     for (i = 0; i < ARRAY_SIZE(buffer_data); ++i)
     {
-        unsigned int value = get_readback_uint(&rb, i, 0);
+        unsigned int value = get_readback_uint(&rb, i, 0, 0);
         ok(value == buffer_data[i], "Got %#x, expected %#x.\n", value, buffer_data[i]);
     }
     release_resource_readback(&rb);
@@ -10218,7 +10207,7 @@ static void test_descriptor_tables_overlapping_bindings(void)
     get_buffer_readback_with_command_list(output_buffers[1], DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     for (i = 0; i < ARRAY_SIZE(buffer_data2); ++i)
     {
-        unsigned int value = get_readback_uint(&rb, i, 0);
+        unsigned int value = get_readback_uint(&rb, i, 0, 0);
         ok(value == buffer_data2[i], "Got %#x, expected %#x.\n", value, buffer_data2[i]);
     }
     release_resource_readback(&rb);
@@ -10336,7 +10325,7 @@ static void test_update_root_descriptors(void)
     for (i = 0; i < ARRAY_SIZE(input); ++i)
     {
         unsigned int offset = input[i].uav_offset + input[i].offset;
-        unsigned int value = get_readback_uint(&rb, offset, 0);
+        unsigned int value = get_readback_uint(&rb, offset, 0, 0);
         ok(value == input[i].value, "Got %#x, expected %#x.\n", value, input[i].value);
     }
     release_resource_readback(&rb);
@@ -10364,6 +10353,7 @@ static void test_update_descriptor_tables(void)
     ID3D12Resource *textures[3];
     ID3D12CommandQueue *queue;
     unsigned int i;
+    D3D12_BOX box;
     HRESULT hr;
     RECT rect;
 
@@ -10505,10 +10495,10 @@ static void test_update_descriptor_tables(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    set_rect(&rect, 0, 0, 16, 32);
-    check_readback_data_uint(&rb, &rect, 0xff00407f, 1);
-    set_rect(&rect, 16, 0, 32, 32);
-    check_readback_data_uint(&rb, &rect, 0xff007f40, 1);
+    set_box(&box, 0, 0, 0, 16, 32, 1);
+    check_readback_data_uint(&rb, &box, 0xff00407f, 1);
+    set_box(&box, 16, 0, 0, 32, 32, 1);
+    check_readback_data_uint(&rb, &box, 0xff007f40, 1);
     release_resource_readback(&rb);
 
     for (i = 0; i < ARRAY_SIZE(textures); ++i)
@@ -10634,7 +10624,7 @@ static void test_update_descriptor_heap_after_closing_command_list(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    value = get_readback_uint(&rb, 0, 0);
+    value = get_readback_uint(&rb, 0, 0, 0);
     todo(value == 0xff00ff00, "Got unexpected value %#x.\n", value);
     release_resource_readback(&rb);
 
@@ -11153,7 +11143,7 @@ static void test_update_compute_descriptor_tables(void)
     get_buffer_readback_with_command_list(output_buffers[0], DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     for (i = 0; i < ARRAY_SIZE(expected_output0); ++i)
     {
-        data = get_readback_uint(&rb, i, 0);
+        data = get_readback_uint(&rb, i, 0, 0);
         ok(data == expected_output0[i], "Got %#x, expected %#x at %u.\n", data, expected_output0[i], i);
     }
     release_resource_readback(&rb);
@@ -11164,7 +11154,7 @@ static void test_update_compute_descriptor_tables(void)
     get_buffer_readback_with_command_list(output_buffers[1], DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     for (i = 0; i < ARRAY_SIZE(expected_output1); ++i)
     {
-        data = get_readback_uint(&rb, i, 0);
+        data = get_readback_uint(&rb, i, 0, 0);
         ok(data == expected_output1[i], "Got %#x, expected %#x at %u.\n", data, expected_output1[i], i);
     }
     release_resource_readback(&rb);
@@ -11669,7 +11659,7 @@ static void test_copy_descriptors(void)
     transition_sub_resource_state(command_list, u[2], 0,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(u[2], DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
-    result = get_readback_data(&rb, 0, 0, sizeof(*result));
+    result = get_readback_data(&rb, 0, 0, 0, sizeof(*result));
     ok(result[ 0] == cb0_data, "Got unexpected value %#x.\n", result[0]);
     ok(result[ 1] == cb1_data, "Got unexpected value %#x.\n", result[1]);
     ok(result[ 2] == cb2_data, "Got unexpected value %#x.\n", result[2]);
@@ -11747,7 +11737,7 @@ static void test_copy_descriptors_range_sizes(void)
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
     unsigned int i;
-    RECT rect;
+    D3D12_BOX box;
 
     static const DWORD ps_code[] =
     {
@@ -11883,8 +11873,8 @@ static void test_copy_descriptors_range_sizes(void)
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
     for (i = 0; i < desc.rt_width; ++i)
     {
-        set_rect(&rect, i, 0, i + 1, desc.rt_height);
-        check_readback_data_uint(&rb, &rect, i % 2 ? 0xffff0000 : 0xff00ff00, 0);
+        set_box(&box, i, 0, 0, i + 1, desc.rt_height, 1);
+        check_readback_data_uint(&rb, &box, i % 2 ? 0xffff0000 : 0xff00ff00, 0);
     }
     release_resource_readback(&rb);
 
@@ -13838,7 +13828,7 @@ static void test_tgsm(void)
     get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     for (i = 0; i < 64; ++i)
     {
-        data = get_readback_uint(&rb, i, 0);
+        data = get_readback_uint(&rb, i, 0, 0);
         expected = 33 * i;
         ok(data == expected, "Got %u, expected %u (index %u).\n", data, expected, i);
     }
@@ -13887,7 +13877,7 @@ static void test_tgsm(void)
     for (i = 0; i < 32; ++i)
     {
         expected = 64 * i + 32;
-        data = get_readback_uint(&rb, i, 0);
+        data = get_readback_uint(&rb, i, 0, 0);
         ok(data == expected, "Got %u, expected %u (index %u).\n", data, expected, i);
     }
     release_resource_readback(&rb);
@@ -13896,7 +13886,7 @@ static void test_tgsm(void)
     for (i = 0; i < 32; ++i)
     {
         expected = 64 * i + 32;
-        data = get_readback_uint(&rb, i, 0);
+        data = get_readback_uint(&rb, i, 0, 0);
         ok(data == expected || !data, "Got %u, expected %u (index %u).\n", data, expected, i);
     }
     release_resource_readback(&rb);
@@ -13945,7 +13935,7 @@ static void test_tgsm(void)
     for (i = 0; i < 96; ++i)
     {
         expected = (i % 32 + 1) * (i / 32);
-        data = get_readback_uint(&rb, i, 0);
+        data = get_readback_uint(&rb, i, 0, 0);
         ok(data == expected, "Got %u, expected %u (index %u).\n", data, expected, i);
     }
     release_resource_readback(&rb);
@@ -14352,7 +14342,7 @@ static void test_uav_load(void)
             for (x = 0; x < 4; ++x)
             {
                 unsigned int expected = test->expected_colors[y * 4 + x];
-                unsigned int color = get_readback_uint(&rb, 80 + x * 160, 60 + y * 120);
+                unsigned int color = get_readback_uint(&rb, 80 + x * 160, 60 + y * 120, 0);
                 ok(compare_color(color, expected, 0),
                         "Test %u: Got 0x%08x, expected 0x%08x at (%u, %u).\n",
                         i, color, expected, x, y);
@@ -14770,7 +14760,7 @@ static unsigned int read_uav_counter(const struct test_context *context,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(counter_buffer, DXGI_FORMAT_R32_UINT, &rb,
             context->queue, context->list);
-    counter = get_readback_uint(&rb, offset / sizeof(counter), 0);
+    counter = get_readback_uint(&rb, offset / sizeof(counter), 0, 0);
     release_resource_readback(&rb);
     reset_command_list(context->list, context->allocator);
     transition_sub_resource_state(context->list, counter_buffer, 0,
@@ -14989,7 +14979,7 @@ static void test_uav_counters(void)
     get_buffer_readback_with_command_list(out_buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     for (i = 0; i < 8; ++i)
     {
-        data = get_readback_uint(&rb, i, 0);
+        data = get_readback_uint(&rb, i, 0, 0);
         ok(data == 0xdeadbeef, "Got data %u at %u.\n", data, i);
     }
     release_resource_readback(&rb);
@@ -15359,7 +15349,7 @@ static void test_atomic_instructions(void)
         get_buffer_readback_with_command_list(ps_buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
         for (j = 0; j < ARRAY_SIZE(instructions); ++j)
         {
-            unsigned int value = get_readback_uint(&rb, j, 0);
+            unsigned int value = get_readback_uint(&rb, j, 0, 0);
             unsigned int expected = test->expected_result[j];
 
             if (test->i.x < 0
@@ -15384,7 +15374,7 @@ static void test_atomic_instructions(void)
         {
             BOOL todo_instruction = !strcmp(imm_instructions[j], "imm_atomic_imax")
                     || !strcmp(imm_instructions[j], "imm_atomic_imin");
-            unsigned int value = get_readback_uint(&rb, j, 0);
+            unsigned int value = get_readback_uint(&rb, j, 0, 0);
             unsigned int expected = test->expected_result[j];
 
             if (test->i.x < 0 && todo_instruction)
@@ -15406,7 +15396,7 @@ static void test_atomic_instructions(void)
         get_buffer_readback_with_command_list(cs_buffer2, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
         for (j = 0; j < ARRAY_SIZE(instructions); ++j)
         {
-            unsigned int out_value = get_readback_uint(&rb, j, 0);
+            unsigned int out_value = get_readback_uint(&rb, j, 0, 0);
             ok(out_value == test->input[j], "Got original value %u, expected %u for '%s'.\n",
                     out_value, test->input[j], imm_instructions[j]);
         }
@@ -15708,7 +15698,7 @@ static void test_buffer_srv(void)
         {
             for (x = 0; x < 4; ++x)
             {
-                color = get_readback_uint(&rb, 80 + x * 160, 60 + y * 120);
+                color = get_readback_uint(&rb, 80 + x * 160, 60 + y * 120, 0);
                 expected_color = test->expected_colors[y * 4 + x];
                 ok(compare_color(color, expected_color, 1),
                         "Test %u: Got 0x%08x, expected 0x%08x at (%u, %u).\n",
@@ -15905,7 +15895,7 @@ static void test_query_pipeline_statistics(void)
         ok(!value, "Element %d: Got %"PRIu64", expected 0.\n", i, value);
     }
 
-    pipeline_statistics = get_readback_data(&rb, 1, 0, sizeof(*pipeline_statistics));
+    pipeline_statistics = get_readback_data(&rb, 1, 0, 0, sizeof(*pipeline_statistics));
 
     /* We read 3 vertices that formed one primitive. */
     ok(pipeline_statistics->IAVertices == 3, "IAVertices: Got %"PRIu64", expected 3.\n",
@@ -16118,7 +16108,7 @@ static void test_resolve_non_issued_query_data(void)
             D3D12_QUERY_TYPE_TIMESTAMP, 0, 4, readback_buffer, 0);
 
     get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
-    timestamps = get_readback_data(&rb, 0, 0, sizeof(*timestamps));
+    timestamps = get_readback_data(&rb, 0, 0, 0, sizeof(*timestamps));
     ok(timestamps[0] != initial_data[0] && timestamps[0] > 0,
             "Got unexpected timestamp %#"PRIx64".\n", timestamps[0]);
     ok(!timestamps[1], "Got unexpected timestamp %#"PRIx64".\n", timestamps[1]);
@@ -16405,7 +16395,7 @@ static void test_execute_indirect(void)
     get_buffer_readback_with_command_list(uav, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     for (i = 0; i < rb.width; ++i)
     {
-        unsigned int ret = get_readback_uint(&rb, i, 0);
+        unsigned int ret = get_readback_uint(&rb, i, 0, 0);
         ok(ret == i, "Got unexpected result %#x at index %u.\n", ret, i);
     }
     release_resource_readback(&rb);
@@ -16533,9 +16523,9 @@ static void test_dispatch_zero_thread_groups(void)
     transition_sub_resource_state(command_list, uav, 0,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(uav, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
-    ret = get_readback_uint(&rb, 0, 0);
+    ret = get_readback_uint(&rb, 0, 0, 0);
     ok(ret == 10, "Got unexpected result %#x.\n", ret);
-    ret = get_readback_uint(&rb, 64, 0);
+    ret = get_readback_uint(&rb, 64, 0, 0);
     ok(ret == 50, "Got unexpected result %#x.\n", ret);
     release_resource_readback(&rb);
 
@@ -16685,29 +16675,29 @@ static void test_instance_id(void)
     };
     static const struct
     {
-        RECT rect;
+        D3D12_BOX box;
         unsigned int color;
         unsigned int instance_id;
     }
     expected_results[] =
     {
-        {{ 0, 0, 10, 10}, 0xfff0f0f0, 0},
-        {{10, 0, 20, 10}, 0xff808080, 1},
-        {{20, 0, 30, 10}, 0xff101010, 2},
-        {{30, 0, 40, 10}, 0xff404040, 3},
-        {{40, 0, 50, 10}, 0xffaaaaaa, 0},
-        {{50, 0, 60, 10}, 0xffbbbbbb, 1},
-        {{60, 0, 70, 10}, 0xffcccccc, 2},
-        {{70, 0, 80, 10}, 0xff909090, 3},
+        {{ 0, 0, 0, 10, 10, 1}, 0xfff0f0f0, 0},
+        {{10, 0, 0, 20, 10, 1}, 0xff808080, 1},
+        {{20, 0, 0, 30, 10, 1}, 0xff101010, 2},
+        {{30, 0, 0, 40, 10, 1}, 0xff404040, 3},
+        {{40, 0, 0, 50, 10, 1}, 0xffaaaaaa, 0},
+        {{50, 0, 0, 60, 10, 1}, 0xffbbbbbb, 1},
+        {{60, 0, 0, 70, 10, 1}, 0xffcccccc, 2},
+        {{70, 0, 0, 80, 10, 1}, 0xff909090, 3},
         /* indirect draws results */
-        {{ 0, 10, 10, 20}, 0xfff0f0f0, 0},
-        {{10, 10, 20, 20}, 0xff808080, 1},
-        {{20, 10, 30, 20}, 0xff101010, 2},
-        {{30, 10, 40, 20}, 0xff404040, 3},
-        {{40, 10, 50, 20}, 0xffaaaaaa, 0},
-        {{50, 10, 60, 20}, 0xffbbbbbb, 1},
-        {{60, 10, 70, 20}, 0xffcccccc, 2},
-        {{70, 10, 80, 20}, 0xff909090, 3},
+        {{ 0, 10, 0, 10, 20, 1}, 0xfff0f0f0, 0},
+        {{10, 10, 0, 20, 20, 1}, 0xff808080, 1},
+        {{20, 10, 0, 30, 20, 1}, 0xff101010, 2},
+        {{30, 10, 0, 40, 20, 1}, 0xff404040, 3},
+        {{40, 10, 0, 50, 20, 1}, 0xffaaaaaa, 0},
+        {{50, 10, 0, 60, 20, 1}, 0xffbbbbbb, 1},
+        {{60, 10, 0, 70, 20, 1}, 0xffcccccc, 2},
+        {{70, 10, 0, 80, 20, 1}, 0xff909090, 3},
     };
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
@@ -16779,14 +16769,14 @@ static void test_instance_id(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
     for (i = 0; i < ARRAY_SIZE(expected_results); ++i)
-        check_readback_data_uint(&rb, &expected_results[i].rect, expected_results[i].color, 1);
+        check_readback_data_uint(&rb, &expected_results[i].box, expected_results[i].color, 1);
     release_resource_readback(&rb);
     reset_command_list(command_list, context.allocator);
     transition_resource_state(command_list, render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_texture_readback_with_command_list(render_target, 0, &rb, queue, command_list);
     for (i = 0; i < ARRAY_SIZE(expected_results); ++i)
-        check_readback_data_uint(&rb, &expected_results[i].rect, expected_results[i].instance_id, 0);
+        check_readback_data_uint(&rb, &expected_results[i].box, expected_results[i].instance_id, 0);
     release_resource_readback(&rb);
 
     ID3D12CommandSignature_Release(command_signature);
@@ -16910,7 +16900,7 @@ static void test_copy_texture_region(void)
         {
             for (x = 0; x < 4; ++x)
             {
-                unsigned int color = get_readback_uint(&rb, x, y);
+                unsigned int color = get_readback_uint(&rb, x, y, 0);
                 unsigned int expected = result_data[y * 4 + x];
 
                 ok(color == expected,
@@ -17895,29 +17885,29 @@ static void test_geometry_shader(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    color = get_readback_uint(&rb, 320, 190);
+    color = get_readback_uint(&rb, 320, 190, 0);
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 255, 240);
+    color = get_readback_uint(&rb, 255, 240, 0);
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 320, 240);
+    color = get_readback_uint(&rb, 320, 240, 0);
     ok(compare_color(color, 0xffffff00, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 385, 240);
+    color = get_readback_uint(&rb, 385, 240, 0);
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 320, 290);
+    color = get_readback_uint(&rb, 320, 290, 0);
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
     release_resource_readback(&rb);
 
     reset_command_list(command_list, context.allocator);
     get_texture_readback_with_command_list(texture, 0, &rb, queue, command_list);
-    color = get_readback_uint(&rb, 320, 190);
+    color = get_readback_uint(&rb, 320, 190, 0);
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 255, 240);
+    color = get_readback_uint(&rb, 255, 240, 0);
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 320, 240);
+    color = get_readback_uint(&rb, 320, 240, 0);
     ok(compare_color(color, 0xffffff00, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 385, 240);
+    color = get_readback_uint(&rb, 385, 240, 0);
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
-    color = get_readback_uint(&rb, 320, 290);
+    color = get_readback_uint(&rb, 320, 290, 0);
     ok(compare_color(color, 0xff0000ff, 1), "Got unexpected color 0x%08x.\n", color);
     release_resource_readback(&rb);
 
