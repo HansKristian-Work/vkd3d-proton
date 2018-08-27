@@ -78,7 +78,7 @@ static void vkd3d_queue_release(struct vkd3d_queue *queue)
 }
 
 /* Fence worker thread */
-static HRESULT vkd3d_queue_gpu_fence(struct vkd3d_fence_worker *worker,
+static HRESULT vkd3d_enqueue_gpu_fence(struct vkd3d_fence_worker *worker,
         VkFence vk_fence, ID3D12Fence *fence, UINT64 value)
 {
     int rc;
@@ -4486,7 +4486,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
         return hresult_from_vk_result(vr);
     }
 
-    return vkd3d_queue_gpu_fence(&device->fence_worker, vk_fence, fence, value);
+    return vkd3d_enqueue_gpu_fence(&device->fence_worker, vk_fence, fence, value);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Wait(ID3D12CommandQueue *iface,
