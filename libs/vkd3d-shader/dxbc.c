@@ -1622,7 +1622,7 @@ static void shader_sm4_read_instruction_modifier(DWORD modifier, struct vkd3d_sh
 
     if (modifier & ~recognized_bits)
     {
-        FIXME("Unhandled modifier 0x%08x.\n", modifier);
+        WARN("Unhandled modifier 0x%08x.\n", modifier);
     }
     else
     {
