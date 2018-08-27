@@ -2180,6 +2180,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     ds_desc_from_d3d12(&graphics->ds_desc, &desc->DepthStencilState);
 
+    if (desc->SampleDesc.Count != 1)
+        FIXME("Ignoring sample desc %u, %u.\n", desc->SampleDesc.Count, desc->SampleDesc.Quality);
+
     graphics->root_signature = root_signature;
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
