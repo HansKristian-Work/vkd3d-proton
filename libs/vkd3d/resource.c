@@ -1327,13 +1327,15 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
     return true;
 }
 
-static VkResult vkd3d_create_texture_view(struct d3d12_device *device,
+static HRESULT vkd3d_create_texture_view(struct d3d12_device *device,
         struct d3d12_resource *resource, const struct vkd3d_texture_view_desc *desc,
-        VkImageView *vk_view)
+        struct vkd3d_view **view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_format *format = desc->format;
     struct VkImageViewCreateInfo view_desc;
+    struct vkd3d_view *object;
+    VkImageView vk_view;
     VkResult vr;
 
     assert(d3d12_resource_is_texture(resource));
@@ -1350,9 +1352,21 @@ static VkResult vkd3d_create_texture_view(struct d3d12_device *device,
     view_desc.subresourceRange.levelCount = desc->miplevel_count;
     view_desc.subresourceRange.baseArrayLayer = desc->layer_idx;
     view_desc.subresourceRange.layerCount = desc->layer_count;
-    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, vk_view))) < 0)
+    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &vk_view))) < 0)
+    {
         WARN("Failed to create Vulkan image view, vr %d.\n", vr);
-    return vr;
+        return hresult_from_vk_result(vr);
+    }
+
+    if (!(object = vkd3d_view_create()))
+    {
+        VK_CALL(vkDestroyImageView(device->vk_device, vk_view, NULL));
+        return E_OUTOFMEMORY;
+    }
+
+    object->u.vk_image_view = vk_view;
+    *view = object;
+    return S_OK;
 }
 
 void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
@@ -1519,14 +1533,8 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
         }
     }
 
-    if (!(view = vkd3d_view_create()))
+    if (FAILED(vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view)))
         return;
-
-    if (vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view->u.vk_image_view) < 0)
-    {
-        vkd3d_free(view);
-        return;
-    }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -1648,14 +1656,8 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         }
     }
 
-    if (!(view = vkd3d_view_create()))
+    if (FAILED(vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view)))
         return;
-
-    if (vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view->u.vk_image_view) < 0)
-    {
-        vkd3d_free(view);
-        return;
-    }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -1904,14 +1906,8 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
         vkd3d_desc.layer_count = resource->desc.DepthOrArraySize;
     }
 
-    if (!(view = vkd3d_view_create()))
+    if (FAILED(vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view)))
         return;
-
-    if (vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view->u.vk_image_view) < 0)
-    {
-        vkd3d_free(view);
-        return;
-    }
 
     rtv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_RTV;
     rtv_desc->format = vkd3d_desc.format->vk_format;
@@ -1982,10 +1978,7 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
         }
     }
 
-    if (!(view = vkd3d_view_create()))
-        return;
-
-    if (vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view->u.vk_image_view) < 0)
+    if (FAILED(vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view)))
         return;
 
     dsv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_DSV;
