@@ -1312,6 +1312,11 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
                     ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
             break;
 
+        case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
+            desc->view_type = VK_IMAGE_VIEW_TYPE_3D;
+            desc->layer_count = 1;
+            break;
+
         default:
             FIXME("Resource dimension %#x not implemented.\n", resource->desc.Dimension);
             return false;
@@ -1896,6 +1901,12 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
     if (!resource)
     {
         FIXME("NULL resource DSV not implemented.\n");
+        return;
+    }
+
+    if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+    {
+        WARN("Cannot create DSV for 3D texture.\n");
         return;
     }
 
