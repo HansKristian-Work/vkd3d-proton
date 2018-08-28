@@ -144,6 +144,7 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
 HRESULT vkd3d_create_root_signature_deserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer);
 
+DXGI_FORMAT vkd3d_get_dxgi_format(VkFormat format);
 VkFormat vkd3d_get_vk_format(DXGI_FORMAT format);
 
 #endif  /* VKD3D_NO_PROTOTYPES */

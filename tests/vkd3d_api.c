@@ -899,6 +899,69 @@ static void test_vulkan_resource_present_state(void)
     destroy_test_context(&context);
 }
 
+static void test_formats(void)
+{
+    DXGI_FORMAT dxgi_format, format;
+    VkFormat vk_format;
+    unsigned int i;
+
+    static const DXGI_FORMAT formats[] =
+    {
+        DXGI_FORMAT_R32G32B32A32_FLOAT,
+        DXGI_FORMAT_R32G32B32A32_UINT,
+        DXGI_FORMAT_R32G32B32A32_SINT,
+        DXGI_FORMAT_R32G32B32_FLOAT,
+        DXGI_FORMAT_R32G32B32_UINT,
+        DXGI_FORMAT_R32G32B32_SINT,
+        DXGI_FORMAT_R16G16B16A16_FLOAT,
+        DXGI_FORMAT_R16G16B16A16_UNORM,
+        DXGI_FORMAT_R16G16B16A16_UINT,
+        DXGI_FORMAT_R16G16B16A16_SNORM,
+        DXGI_FORMAT_R16G16B16A16_SINT,
+        DXGI_FORMAT_R32G32_FLOAT,
+        DXGI_FORMAT_R32G32_UINT,
+        DXGI_FORMAT_R32G32_SINT,
+        DXGI_FORMAT_R10G10B10A2_UNORM,
+        DXGI_FORMAT_R11G11B10_FLOAT,
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+        DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+        DXGI_FORMAT_R8G8B8A8_UINT,
+        DXGI_FORMAT_R8G8B8A8_SNORM,
+        DXGI_FORMAT_R8G8B8A8_SINT,
+        DXGI_FORMAT_R16G16_FLOAT,
+        DXGI_FORMAT_R16G16_UNORM,
+        DXGI_FORMAT_R16G16_UINT,
+        DXGI_FORMAT_R16G16_SNORM,
+        DXGI_FORMAT_R16G16_SINT,
+        DXGI_FORMAT_D32_FLOAT,
+        DXGI_FORMAT_R32_FLOAT,
+        DXGI_FORMAT_R32_UINT,
+        DXGI_FORMAT_R32_SINT,
+        DXGI_FORMAT_R8G8_UNORM,
+        DXGI_FORMAT_R8G8_UINT,
+        DXGI_FORMAT_R8G8_SNORM,
+        DXGI_FORMAT_R8G8_SINT,
+        DXGI_FORMAT_R16_FLOAT,
+        DXGI_FORMAT_D16_UNORM,
+        DXGI_FORMAT_R16_UNORM,
+        DXGI_FORMAT_R16_UINT,
+        DXGI_FORMAT_R16_SNORM,
+        DXGI_FORMAT_R16_SINT,
+        DXGI_FORMAT_R8_UNORM,
+        DXGI_FORMAT_R8_UINT,
+        DXGI_FORMAT_R8_SNORM,
+        DXGI_FORMAT_R8_SINT,
+    };
+
+    for (i = 0; i < ARRAY_SIZE(formats); ++i)
+    {
+        format = formats[i];
+        vk_format = vkd3d_get_vk_format(format);
+        dxgi_format = vkd3d_get_dxgi_format(vk_format);
+        ok(dxgi_format == format, "Got format %#x, expected %#x.\n", dxgi_format, format);
+    }
+}
+
 static bool have_d3d12_device(void)
 {
     ID3D12Device *device;
@@ -927,4 +990,5 @@ START_TEST(vkd3d_api)
     run_test(test_vkd3d_queue);
     run_test(test_resource_internal_refcount);
     run_test(test_vulkan_resource_present_state);
+    run_test(test_formats);
 }

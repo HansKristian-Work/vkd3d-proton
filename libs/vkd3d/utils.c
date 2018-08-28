@@ -200,6 +200,24 @@ bool dxgi_format_is_typeless(DXGI_FORMAT dxgi_format)
     }
 }
 
+DXGI_FORMAT vkd3d_get_dxgi_format(VkFormat format)
+{
+    DXGI_FORMAT dxgi_format;
+    VkFormat vk_format;
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(vkd3d_formats); ++i)
+    {
+        vk_format = vkd3d_formats[i].vk_format;
+        dxgi_format = vkd3d_formats[i].dxgi_format;
+        if (vk_format == format && !dxgi_format_is_typeless(dxgi_format))
+            return dxgi_format;
+    }
+
+    FIXME("Unhandled Vulkan format %#x.\n", format);
+    return DXGI_FORMAT_UNKNOWN;
+}
+
 bool is_valid_feature_level(D3D_FEATURE_LEVEL feature_level)
 {
     static const D3D_FEATURE_LEVEL valid_feature_levels[] =
