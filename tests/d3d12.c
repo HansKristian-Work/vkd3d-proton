@@ -3311,10 +3311,12 @@ static void test_clear_render_target_view(void)
     ID3D12DescriptorHeap *rtv_heap;
     D3D12_CLEAR_VALUE clear_value;
     struct test_context_desc desc;
+    struct resource_readback rb;
     struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Resource *resource;
     ID3D12Device *device;
+    D3D12_BOX box;
     HRESULT hr;
 
     memset(&desc, 0, sizeof(desc));
@@ -3387,6 +3389,48 @@ static void test_clear_render_target_view(void)
     transition_resource_state(command_list, resource,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_uint(resource, 0, queue, command_list, 0xbf95bc59, 2);
+
+    /* 3D texture */
+    ID3D12Resource_Release(resource);
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+    resource_desc.DepthOrArraySize = 32;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+
+    ID3D12Device_CreateRenderTargetView(device, resource, NULL, rtv_handle);
+
+    reset_command_list(command_list, context.allocator);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, color, 0, NULL);
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(resource, 0, queue, command_list, 0xbf4c7f19, 2);
+
+    memset(&rtv_desc, 0, sizeof(rtv_desc));
+    rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE3D;
+    rtv_desc.Texture3D.FirstWSlice = 2;
+    rtv_desc.Texture3D.WSize = 2;
+    ID3D12Device_CreateRenderTargetView(device, resource, &rtv_desc, rtv_handle);
+
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, green, 0, NULL);
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
+    set_box(&box, 0, 0, 0, 32, 32, 2);
+    check_readback_data_uint(&rb, &box, 0xbf4c7f19, 1);
+    set_box(&box, 0, 0, 2, 32, 32, 4);
+    check_readback_data_uint(&rb, &box, 0xff00ff00, 1);
+    set_box(&box, 0, 0, 4, 32, 32, 32);
+    check_readback_data_uint(&rb, &box, 0xbf4c7f19, 1);
+    release_resource_readback(&rb);
 
     ID3D12Resource_Release(resource);
     ID3D12DescriptorHeap_Release(rtv_heap);
