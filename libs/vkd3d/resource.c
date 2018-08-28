@@ -1295,15 +1295,21 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
         return false;
     }
 
+    desc->miplevel_idx = 0;
+    desc->miplevel_count = 1;
+    desc->layer_idx = 0;
+    desc->layer_count = VK_REMAINING_ARRAY_LAYERS;
+
     switch (resource->desc.Dimension)
     {
+        case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
+            desc->view_type = resource->desc.DepthOrArraySize > 1
+                    ? VK_IMAGE_VIEW_TYPE_1D_ARRAY : VK_IMAGE_VIEW_TYPE_1D;
+            break;
+
         case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
             desc->view_type = resource->desc.DepthOrArraySize > 1
                     ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
-            desc->miplevel_idx = 0;
-            desc->miplevel_count = 1;
-            desc->layer_idx = 0;
-            desc->layer_count = VK_REMAINING_ARRAY_LAYERS;
             break;
 
         default:
@@ -1324,7 +1330,7 @@ static VkResult vkd3d_create_texture_view(struct d3d12_device *device,
     struct VkImageViewCreateInfo view_desc;
     VkResult vr;
 
-    assert(resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D);
+    assert(d3d12_resource_is_texture(resource));
 
     view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_desc.pNext = NULL;
