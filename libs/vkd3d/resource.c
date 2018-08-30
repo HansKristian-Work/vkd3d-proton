@@ -1341,7 +1341,7 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
     return true;
 }
 
-static HRESULT vkd3d_create_texture_view(struct d3d12_device *device,
+static bool vkd3d_create_texture_view(struct d3d12_device *device,
         struct d3d12_resource *resource, const struct vkd3d_texture_view_desc *desc,
         struct vkd3d_view **view)
 {
@@ -1369,18 +1369,18 @@ static HRESULT vkd3d_create_texture_view(struct d3d12_device *device,
     if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &vk_view))) < 0)
     {
         WARN("Failed to create Vulkan image view, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
+        return false;
     }
 
     if (!(object = vkd3d_view_create()))
     {
         VK_CALL(vkDestroyImageView(device->vk_device, vk_view, NULL));
-        return E_OUTOFMEMORY;
+        return false;
     }
 
     object->u.vk_image_view = vk_view;
     *view = object;
-    return S_OK;
+    return true;
 }
 
 void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
@@ -1541,7 +1541,7 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
         }
     }
 
-    if (FAILED(vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view)))
+    if (!vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view))
         return;
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
@@ -1663,7 +1663,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         }
     }
 
-    if (FAILED(vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view)))
+    if (!vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view))
         return;
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
@@ -1913,7 +1913,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
         vkd3d_desc.layer_count = resource->desc.DepthOrArraySize;
     }
 
-    if (FAILED(vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view)))
+    if (!vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view))
         return;
 
     rtv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_RTV;
@@ -1985,7 +1985,7 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
         }
     }
 
-    if (FAILED(vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view)))
+    if (!vkd3d_create_texture_view(device, resource, &vkd3d_desc, &view))
         return;
 
     dsv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_DSV;
