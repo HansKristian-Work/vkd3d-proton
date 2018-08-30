@@ -1206,10 +1206,13 @@ static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
 static bool vkd3d_create_buffer_view(struct d3d12_device *device,
         struct d3d12_resource *resource, DXGI_FORMAT view_format,
         unsigned int offset, unsigned int size, unsigned int structure_stride,
-        unsigned int flags, VkBufferView *vk_view)
+        unsigned int flags, struct vkd3d_view **view)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_format *format;
+    struct vkd3d_view *object;
     unsigned int element_size;
+    VkBufferView vk_view;
 
     if (view_format == DXGI_FORMAT_R32_TYPELESS && (flags & VKD3D_VIEW_RAW_BUFFER))
     {
@@ -1231,8 +1234,19 @@ static bool vkd3d_create_buffer_view(struct d3d12_device *device,
         return false;
     }
 
-    return vkd3d_create_vk_buffer_view(device, resource, format,
-            offset * element_size, size * element_size, vk_view);
+    if (!vkd3d_create_vk_buffer_view(device, resource, format,
+            offset * element_size, size * element_size, &vk_view))
+        return false;
+
+    if (!(object = vkd3d_view_create()))
+    {
+        VK_CALL(vkDestroyBufferView(device->vk_device, vk_view, NULL));
+        return false;
+    }
+
+    object->u.vk_buffer_view = vk_view;
+    *view = object;
+    return true;
 }
 
 static void vkd3d_set_view_swizzle_for_format(VkComponentMapping *components,
@@ -1419,6 +1433,7 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
 {
     struct vkd3d_view *view;
+    unsigned int flags;
 
     if (!desc)
     {
@@ -1432,18 +1447,11 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
         return;
     }
 
-    if (!(view = vkd3d_view_create()))
-        return;
-
+    flags = vkd3d_view_flags_from_d3d12_buffer_srv_flags(desc->u.Buffer.Flags);
     if (!vkd3d_create_buffer_view(device, resource, desc->Format,
             desc->u.Buffer.FirstElement, desc->u.Buffer.NumElements,
-            desc->u.Buffer.StructureByteStride,
-            vkd3d_view_flags_from_d3d12_buffer_srv_flags(desc->u.Buffer.Flags),
-            &view->u.vk_buffer_view))
-    {
-        vkd3d_free(view);
+            desc->u.Buffer.StructureByteStride, flags, &view))
         return;
-    }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
@@ -1555,6 +1563,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
     struct vkd3d_view *view;
+    unsigned int flags;
 
     if (!desc)
     {
@@ -1571,18 +1580,11 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     if (desc->u.Buffer.CounterOffsetInBytes)
         FIXME("Ignoring counter offset %"PRIu64".\n", desc->u.Buffer.CounterOffsetInBytes);
 
-    if (!(view = vkd3d_view_create()))
-        return;
-
+    flags = vkd3d_view_flags_from_d3d12_buffer_uav_flags(desc->u.Buffer.Flags);
     if (!vkd3d_create_buffer_view(device, resource, desc->Format,
             desc->u.Buffer.FirstElement, desc->u.Buffer.NumElements,
-            desc->u.Buffer.StructureByteStride,
-            vkd3d_view_flags_from_d3d12_buffer_uav_flags(desc->u.Buffer.Flags),
-            &view->u.vk_buffer_view))
-    {
-        vkd3d_free(view);
+            desc->u.Buffer.StructureByteStride, flags, &view))
         return;
-    }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
