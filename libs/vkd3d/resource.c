@@ -1590,11 +1590,16 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
 
     if (counter_resource)
     {
+        const struct vkd3d_format *format;
+
         assert(d3d12_resource_is_buffer(counter_resource));
         assert(desc->u.Buffer.StructureByteStride);
-        if (!vkd3d_create_buffer_view(device, counter_resource, DXGI_FORMAT_R32_UINT,
-                desc->u.Buffer.CounterOffsetInBytes / sizeof(uint32_t), 1, 0, 0, &view->vk_counter_view))
+
+        format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
+        if (!vkd3d_create_vk_buffer_view(device, counter_resource, format,
+                desc->u.Buffer.CounterOffsetInBytes, sizeof(uint32_t), &view->vk_counter_view))
         {
+            WARN("Failed to create counter buffer view.\n");
             view->vk_counter_view = VK_NULL_HANDLE;
             d3d12_desc_destroy(descriptor, device);
         }
