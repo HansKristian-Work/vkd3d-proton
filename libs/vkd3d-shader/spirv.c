@@ -2978,6 +2978,7 @@ vkd3d_system_value_builtins[] =
     {VKD3D_SIV_IS_FRONT_FACE, {VKD3D_TYPE_BOOL, 1, SpvBuiltInFrontFacing, sv_front_face_fixup}},
 
     {VKD3D_SIV_CLIP_DISTANCE, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInClipDistance, NULL, true}},
+    {VKD3D_SIV_CULL_DISTANCE, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInCullDistance, NULL, true}},
 };
 static const struct
 {
@@ -3257,12 +3258,25 @@ static unsigned int get_shader_output_swizzle(struct vkd3d_dxbc_compiler *compil
     return compile_args->output_swizzles[register_idx];
 }
 
+static void calculate_clip_or_cull_distance_mask(const struct vkd3d_shader_signature_element *e,
+        uint32_t *mask)
+{
+    if (e->semantic_index >= sizeof(*mask) * CHAR_BIT / VKD3D_VEC4_SIZE)
+    {
+        FIXME("Invalid semantic index %u for clip/cull distance.\n", e->semantic_index);
+        return;
+    }
+
+    *mask |= (e->mask & VKD3DSP_WRITEMASK_ALL) << (VKD3D_VEC4_SIZE * e->semantic_index);
+}
+
 /* Emits arrayed SPIR-V built-in variables. */
 static void vkd3d_dxbc_compiler_emit_shader_signature_outputs(struct vkd3d_dxbc_compiler *compiler)
 {
     const struct vkd3d_shader_signature *output_signature = compiler->output_signature;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t clip_distance_mask = 0, clip_distance_id = 0;
+    uint32_t cull_distance_mask = 0, cull_distance_id = 0;
     const struct vkd3d_spirv_builtin *builtin;
     unsigned int i, count;
 
@@ -3273,13 +3287,11 @@ static void vkd3d_dxbc_compiler_emit_shader_signature_outputs(struct vkd3d_dxbc_
         switch (e->sysval_semantic)
         {
             case VKD3D_SV_CLIP_DISTANCE:
-                if (e->semantic_index >= sizeof(clip_distance_mask) * CHAR_BIT / VKD3D_VEC4_SIZE)
-                {
-                    ERR("Invalid semantic index %u for clip distance.\n", e->semantic_index);
-                    break;
-                }
+                calculate_clip_or_cull_distance_mask(e, &clip_distance_mask);
+                break;
 
-                clip_distance_mask |= (e->mask & VKD3DSP_WRITEMASK_ALL) << (VKD3D_VEC4_SIZE * e->semantic_index);
+            case VKD3D_SV_CULL_DISTANCE:
+                calculate_clip_or_cull_distance_mask(e, &cull_distance_mask);
                 break;
 
             default:
@@ -3287,14 +3299,23 @@ static void vkd3d_dxbc_compiler_emit_shader_signature_outputs(struct vkd3d_dxbc_
         }
     }
 
-    if (!clip_distance_mask)
-        return;
+    if (clip_distance_mask)
+    {
+        count = vkd3d_popcount(clip_distance_mask);
+        builtin = get_spirv_builtin_for_sysval(VKD3D_SIV_CLIP_DISTANCE);
+        clip_distance_id = vkd3d_dxbc_compiler_emit_array_variable(compiler, &builder->global_stream,
+                SpvStorageClassOutput, builtin->component_type, builtin->component_count, count);
+        vkd3d_spirv_add_iface_variable(builder, clip_distance_id);
+    }
 
-    count = vkd3d_popcount(clip_distance_mask);
-    builtin = get_spirv_builtin_for_sysval(VKD3D_SIV_CLIP_DISTANCE);
-    clip_distance_id = vkd3d_dxbc_compiler_emit_array_variable(compiler, &builder->global_stream,
-            SpvStorageClassOutput, builtin->component_type, builtin->component_count, count);
-    vkd3d_spirv_add_iface_variable(builder, clip_distance_id);
+    if (cull_distance_mask)
+    {
+        count = vkd3d_popcount(cull_distance_mask);
+        builtin = get_spirv_builtin_for_sysval(VKD3D_SIV_CULL_DISTANCE);
+        cull_distance_id = vkd3d_dxbc_compiler_emit_array_variable(compiler, &builder->global_stream,
+                SpvStorageClassOutput, builtin->component_type, builtin->component_count, count);
+        vkd3d_spirv_add_iface_variable(builder, cull_distance_id);
+    }
 
     for (i = 0; i < output_signature->element_count; ++i)
     {
@@ -3304,6 +3325,10 @@ static void vkd3d_dxbc_compiler_emit_shader_signature_outputs(struct vkd3d_dxbc_
         {
             case VKD3D_SV_CLIP_DISTANCE:
                 compiler->output_info[i].id = clip_distance_id;
+                break;
+
+            case VKD3D_SV_CULL_DISTANCE:
+                compiler->output_info[i].id = cull_distance_id;
                 break;
 
             default:
