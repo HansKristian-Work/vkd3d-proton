@@ -2150,6 +2150,22 @@ static uint32_t vkd3d_dxbc_compiler_get_constant_float_vector(struct vkd3d_dxbc_
             VKD3D_TYPE_FLOAT, component_count, (const uint32_t *)values);
 }
 
+static uint32_t vkd3d_dxbc_compiler_get_type_id_for_reg(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg, DWORD write_mask)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    return vkd3d_spirv_get_type_id(builder,
+            vkd3d_component_type_from_data_type(reg->data_type),
+            vkd3d_write_mask_component_count(write_mask));
+}
+
+static uint32_t vkd3d_dxbc_compiler_get_type_id_for_dst(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_dst_param *dst)
+{
+    return vkd3d_dxbc_compiler_get_type_id_for_reg(compiler, &dst->reg, dst->write_mask);
+}
+
 static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buffer_size,
         const struct vkd3d_shader_register *reg)
 {
@@ -2655,12 +2671,10 @@ static uint32_t vkd3d_dxbc_compiler_emit_abs(struct vkd3d_dxbc_compiler *compile
 static uint32_t vkd3d_dxbc_compiler_emit_neg(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, DWORD write_mask, uint32_t val_id)
 {
-    unsigned int component_count = vkd3d_write_mask_component_count(write_mask);
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t type_id;
 
-    type_id = vkd3d_spirv_get_type_id(builder,
-            vkd3d_component_type_from_data_type(reg->data_type), component_count);
+    type_id = vkd3d_dxbc_compiler_get_type_id_for_reg(compiler, reg, write_mask);
     if (reg->data_type == VKD3D_DATA_FLOAT)
         return vkd3d_spirv_build_op_fnegate(builder, type_id, val_id);
     else if (reg->data_type == VKD3D_DATA_INT)
@@ -2771,8 +2785,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_sat(struct vkd3d_dxbc_compiler *compile
     zero_id = vkd3d_dxbc_compiler_get_constant_float_vector(compiler, 0.0f, component_count);
     one_id = vkd3d_dxbc_compiler_get_constant_float_vector(compiler, 1.0f, component_count);
 
-    type_id = vkd3d_spirv_get_type_id(builder,
-            vkd3d_component_type_from_data_type(reg->data_type), component_count);
+    type_id = vkd3d_dxbc_compiler_get_type_id_for_reg(compiler, reg, write_mask);
     if (reg->data_type == VKD3D_DATA_FLOAT)
         return vkd3d_spirv_build_op_glsl_std450_nclamp(builder, type_id, val_id, zero_id, one_id);
 
@@ -4092,7 +4105,6 @@ static void vkd3d_dxbc_compiler_emit_alu_instruction(struct vkd3d_dxbc_compiler 
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
     uint32_t src_ids[VKD3D_DXBC_MAX_SOURCE_COUNT];
-    unsigned int component_count;
     uint32_t type_id, val_id;
     unsigned int i;
     SpvOp op;
@@ -4107,9 +4119,7 @@ static void vkd3d_dxbc_compiler_emit_alu_instruction(struct vkd3d_dxbc_compiler 
     assert(instruction->dst_count == 1);
     assert(instruction->src_count <= VKD3D_DXBC_MAX_SOURCE_COUNT);
 
-    component_count = vkd3d_write_mask_component_count(dst->write_mask);
-    type_id = vkd3d_spirv_get_type_id(builder,
-            vkd3d_component_type_from_data_type(dst->reg.data_type), component_count);
+    type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, dst);
 
     for (i = 0; i < instruction->src_count; ++i)
         src_ids[i] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[i], dst->write_mask);
@@ -4169,7 +4179,6 @@ static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_comp
     const struct vkd3d_shader_src_param *src = instruction->src;
     uint32_t src_id[VKD3D_DXBC_MAX_SOURCE_COUNT];
     uint32_t instr_set_id, type_id, val_id;
-    unsigned int component_count;
     enum GLSLstd450 glsl_inst;
     unsigned int i;
 
@@ -4185,9 +4194,7 @@ static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_comp
     assert(instruction->dst_count == 1);
     assert(instruction->src_count <= VKD3D_DXBC_MAX_SOURCE_COUNT);
 
-    component_count = vkd3d_write_mask_component_count(dst->write_mask);
-    type_id = vkd3d_spirv_get_type_id(builder,
-            vkd3d_component_type_from_data_type(dst->reg.data_type), component_count);
+    type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, dst);
 
     for (i = 0; i < instruction->src_count; ++i)
         src_id[i] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[i], dst->write_mask);
@@ -4353,8 +4360,7 @@ static void vkd3d_dxbc_compiler_emit_rcp(struct vkd3d_dxbc_compiler *compiler,
     unsigned int component_count;
 
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
-    type_id = vkd3d_spirv_get_type_id(builder,
-            vkd3d_component_type_from_data_type(dst->reg.data_type), component_count);
+    type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, dst);
 
     src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst->write_mask);
     val_id = vkd3d_spirv_build_op_fdiv(builder, type_id,
@@ -4370,14 +4376,10 @@ static void vkd3d_dxbc_compiler_emit_sincos(struct vkd3d_dxbc_compiler *compiler
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_src_param *src = instruction->src;
     uint32_t type_id, src_id, sin_id = 0, cos_id = 0;
-    unsigned int component_count;
 
     if (dst_sin->reg.type != VKD3DSPR_NULL)
     {
-        component_count = vkd3d_write_mask_component_count(dst_sin->write_mask);
-        type_id = vkd3d_spirv_get_type_id(builder,
-                vkd3d_component_type_from_data_type(dst_sin->reg.data_type), component_count);
-
+        type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, dst_sin);
         src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst_sin->write_mask);
 
         sin_id = vkd3d_spirv_build_op_glsl_std450_sin(builder, type_id, src_id);
@@ -4387,10 +4389,7 @@ static void vkd3d_dxbc_compiler_emit_sincos(struct vkd3d_dxbc_compiler *compiler
     {
         if (dst_sin->reg.type == VKD3DSPR_NULL || dst_cos->write_mask != dst_sin->write_mask)
         {
-            component_count = vkd3d_write_mask_component_count(dst_cos->write_mask);
-            type_id = vkd3d_spirv_get_type_id(builder,
-                    vkd3d_component_type_from_data_type(dst_cos->reg.data_type), component_count);
-
+            type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, dst_cos);
             src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst_cos->write_mask);
         }
 
@@ -4411,7 +4410,6 @@ static void vkd3d_dxbc_compiler_emit_imul(struct vkd3d_dxbc_compiler *compiler,
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
     uint32_t type_id, val_id, src0_id, src1_id;
-    unsigned int component_count;
 
     if (dst[0].reg.type != VKD3DSPR_NULL)
         FIXME("Extended multiplies not implemented.\n"); /* SpvOpSMulExtended */
@@ -4419,9 +4417,7 @@ static void vkd3d_dxbc_compiler_emit_imul(struct vkd3d_dxbc_compiler *compiler,
     if (dst[1].reg.type == VKD3DSPR_NULL)
         return;
 
-    component_count = vkd3d_write_mask_component_count(dst[1].write_mask);
-    type_id = vkd3d_spirv_get_type_id(builder,
-            vkd3d_component_type_from_data_type(dst[1].reg.data_type), component_count);
+    type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, &dst[1]);
 
     src0_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], dst[1].write_mask);
     src1_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], dst[1].write_mask);
@@ -4464,8 +4460,7 @@ static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
     if (dst[0].reg.type != VKD3DSPR_NULL)
     {
         component_count = vkd3d_write_mask_component_count(dst[0].write_mask);
-        type_id = vkd3d_spirv_get_type_id(builder,
-                vkd3d_component_type_from_data_type(dst[0].reg.data_type), component_count);
+        type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, &dst[0]);
 
         src0_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], dst[0].write_mask);
         src1_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], dst[0].write_mask);
@@ -4487,8 +4482,7 @@ static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
         if (!component_count || dst[0].write_mask != dst[1].write_mask)
         {
             component_count = vkd3d_write_mask_component_count(dst[1].write_mask);
-            type_id = vkd3d_spirv_get_type_id(builder,
-                    vkd3d_component_type_from_data_type(dst[1].reg.data_type), component_count);
+            type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, &dst[1]);
 
             src0_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], dst[1].write_mask);
             src1_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], dst[1].write_mask);
@@ -5023,7 +5017,6 @@ static void vkd3d_dxbc_compiler_emit_deriv_instruction(struct vkd3d_dxbc_compile
     const struct vkd3d_shader_src_param *src = instruction->src;
     const struct instruction_info *info;
     uint32_t type_id, src_id, val_id;
-    unsigned int component_count;
     unsigned int i;
 
     static const struct instruction_info
@@ -5063,10 +5056,7 @@ static void vkd3d_dxbc_compiler_emit_deriv_instruction(struct vkd3d_dxbc_compile
     assert(instruction->dst_count == 1);
     assert(instruction->src_count == 1);
 
-    component_count = vkd3d_write_mask_component_count(dst->write_mask);
-    type_id = vkd3d_spirv_get_type_id(builder,
-            vkd3d_component_type_from_data_type(dst->reg.data_type), component_count);
-
+    type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, dst);
     src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst->write_mask);
     val_id = vkd3d_spirv_build_op_tr1(builder, &builder->function_stream, info->op, type_id, src_id);
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
