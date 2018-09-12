@@ -548,6 +548,8 @@ struct d3d12_command_allocator
 
     VkCommandPool vk_command_pool;
 
+    VkDescriptorPool vk_descriptor_pool;
+
     VkRenderPass *passes;
     size_t passes_size;
     size_t pass_count;
