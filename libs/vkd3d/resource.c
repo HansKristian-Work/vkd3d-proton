@@ -501,27 +501,25 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
     return S_OK;
 }
 
-static HRESULT vkd3d_allocate_image_memory(struct d3d12_resource *resource, struct d3d12_device *device,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
+static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_image,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        VkDeviceMemory *vk_memory)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryRequirements memory_requirements;
     VkResult vr;
     HRESULT hr;
 
-    assert(D3D12_RESOURCE_DIMENSION_TEXTURE1D <= resource->desc.Dimension
-            && resource->desc.Dimension <= D3D12_RESOURCE_DIMENSION_TEXTURE3D);
-
-    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->u.vk_image, &memory_requirements));
+    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, vk_image, &memory_requirements));
     if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
-            &memory_requirements, &resource->vk_memory)))
+            &memory_requirements, vk_memory)))
         return hr;
 
-    if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, resource->u.vk_image, resource->vk_memory, 0))) < 0)
+    if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, vk_image, *vk_memory, 0))) < 0)
     {
         WARN("Failed to bind memory, vr %d.\n", vr);
-        VK_CALL(vkFreeMemory(device->vk_device, resource->vk_memory, NULL));
-        resource->vk_memory = VK_NULL_HANDLE;
+        VK_CALL(vkFreeMemory(device->vk_device, *vk_memory, NULL));
+        *vk_memory = VK_NULL_HANDLE;
         return hresult_from_vk_result(vr);
     }
 
@@ -977,7 +975,8 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
             resource->flags |= VKD3D_RESOURCE_INITIAL_STATE_TRANSITION;
             if (FAILED(hr = vkd3d_create_image(resource, device, heap_properties, heap_flags)))
                 return hr;
-            if (FAILED(hr = vkd3d_allocate_image_memory(resource, device, heap_properties, heap_flags)))
+            if (FAILED(hr = vkd3d_allocate_image_memory(device, resource->u.vk_image,
+                    heap_properties, heap_flags, &resource->vk_memory)))
             {
                 d3d12_resource_destroy(resource, device);
                 return hr;
