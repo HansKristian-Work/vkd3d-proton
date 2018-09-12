@@ -1713,15 +1713,39 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(ID3D12GraphicsCommandL
     return S_OK;
 }
 
+static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
+        ID3D12PipelineState *initial_pipeline_state)
+{
+    ID3D12GraphicsCommandList *iface = &list->ID3D12GraphicsCommandList_iface;
+
+    memset(list->strides, 0, sizeof(list->strides));
+    list->primitive_topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+
+    memset(list->views, 0, sizeof(list->views));
+    list->fb_width = 0;
+    list->fb_height = 0;
+    list->fb_layer_count = 0;
+
+    list->current_framebuffer = VK_NULL_HANDLE;
+    list->current_pipeline = VK_NULL_HANDLE;
+    list->current_render_pass = VK_NULL_HANDLE;
+
+    memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
+
+    list->state = NULL;
+
+    ID3D12GraphicsCommandList_SetPipelineState(iface, initial_pipeline_state);
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(ID3D12GraphicsCommandList *iface,
-        ID3D12CommandAllocator *allocator, ID3D12PipelineState *initial_state)
+        ID3D12CommandAllocator *allocator, ID3D12PipelineState *initial_pipeline_state)
 {
     struct d3d12_command_allocator *allocator_impl = unsafe_impl_from_ID3D12CommandAllocator(allocator);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     HRESULT hr;
 
-    TRACE("iface %p, allocator %p, initial_state %p.\n",
-            iface, allocator, initial_state);
+    TRACE("iface %p, allocator %p, initial_pipeline_state %p.\n",
+            iface, allocator, initial_pipeline_state);
 
     if (!allocator_impl)
     {
@@ -1738,11 +1762,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(ID3D12GraphicsCommandL
     if (SUCCEEDED(hr = d3d12_command_allocator_allocate_command_buffer(allocator_impl, list)))
     {
         list->allocator = allocator_impl;
-
-        ID3D12GraphicsCommandList_SetPipelineState(&list->ID3D12GraphicsCommandList_iface, initial_state);
+        d3d12_command_list_reset_state(list, initial_pipeline_state);
     }
-
-    memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
 
     return hr;
 }
@@ -4239,30 +4260,12 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
 
     list->allocator = allocator;
 
-    memset(list->strides, 0, sizeof(list->strides));
-    list->primitive_topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-
-    memset(list->views, 0, sizeof(list->views));
-    list->fb_width = 0;
-    list->fb_height = 0;
-    list->fb_layer_count = 0;
-
-    list->current_framebuffer = VK_NULL_HANDLE;
-    list->current_pipeline = VK_NULL_HANDLE;
-    list->current_render_pass = VK_NULL_HANDLE;
-    memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
-
-    list->state = NULL;
-
-    if (FAILED(hr = d3d12_command_allocator_allocate_command_buffer(allocator, list)))
-    {
+    if (SUCCEEDED(hr = d3d12_command_allocator_allocate_command_buffer(allocator, list)))
+        d3d12_command_list_reset_state(list, initial_pipeline_state);
+    else
         ID3D12Device_Release(&device->ID3D12Device_iface);
-        return hr;
-    }
 
-    ID3D12GraphicsCommandList_SetPipelineState(&list->ID3D12GraphicsCommandList_iface, initial_pipeline_state);
-
-    return S_OK;
+    return hr;
 }
 
 HRESULT d3d12_command_list_create(struct d3d12_device *device,
