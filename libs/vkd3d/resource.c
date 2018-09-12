@@ -893,7 +893,7 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc)
     return S_OK;
 }
 
-static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, struct d3d12_device *device,
+static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value)
@@ -941,6 +941,7 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
         WARN("Ignoring optimized clear value.\n");
 
     resource->gpu_address = 0;
+    resource->vk_memory = VK_NULL_HANDLE;
     resource->flags = 0;
 
     if (FAILED(hr = d3d12_resource_validate_desc(&resource->desc)))
@@ -959,12 +960,6 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
                 d3d12_resource_destroy(resource, device);
                 return E_OUTOFMEMORY;
             }
-            if (FAILED(hr = vkd3d_allocate_buffer_memory(device, resource->u.vk_buffer,
-                    heap_properties, heap_flags, &resource->vk_memory)))
-            {
-                d3d12_resource_destroy(resource, device);
-                return hr;
-            }
             break;
 
         case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
@@ -975,12 +970,6 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
             resource->flags |= VKD3D_RESOURCE_INITIAL_STATE_TRANSITION;
             if (FAILED(hr = vkd3d_create_image(resource, device, heap_properties, heap_flags)))
                 return hr;
-            if (FAILED(hr = vkd3d_allocate_image_memory(device, resource->u.vk_image,
-                    heap_properties, heap_flags, &resource->vk_memory)))
-            {
-                d3d12_resource_destroy(resource, device);
-                return hr;
-            }
             break;
 
         default:
@@ -1001,7 +990,7 @@ static HRESULT d3d12_committed_resource_init(struct d3d12_resource *resource, st
     return S_OK;
 }
 
-HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
+static HRESULT d3d12_resource_create(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
@@ -1012,10 +1001,44 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    if (FAILED(hr = d3d12_committed_resource_init(object, device, heap_properties, heap_flags,
+    if (FAILED(hr = d3d12_resource_init(object, device, heap_properties, heap_flags,
             desc, initial_state, optimized_clear_value)))
     {
         vkd3d_free(object);
+        return hr;
+    }
+
+    *resource = object;
+
+    return hr;
+}
+
+HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
+{
+    struct d3d12_resource *object;
+    HRESULT hr;
+
+    if (FAILED(hr = d3d12_resource_create(device, heap_properties, heap_flags,
+            desc, initial_state, optimized_clear_value, &object)))
+        return hr;
+
+    if (d3d12_resource_is_buffer(object))
+    {
+        hr = vkd3d_allocate_buffer_memory(device, object->u.vk_buffer,
+                heap_properties, heap_flags, &object->vk_memory);
+    }
+    else
+    {
+        hr = vkd3d_allocate_image_memory(device, object->u.vk_image,
+                heap_properties, heap_flags, &object->vk_memory);
+    }
+
+    if (FAILED(hr))
+    {
+        d3d12_resource_Release(&object->ID3D12Resource_iface);
         return hr;
     }
 
