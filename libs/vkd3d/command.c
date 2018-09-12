@@ -806,16 +806,25 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
     VkDescriptorPool vk_pool;
     VkResult vr;
 
-    pool_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_desc.pNext = NULL;
-    pool_desc.flags = 0;
-    pool_desc.maxSets = 512;
-    pool_desc.poolSizeCount = ARRAY_SIZE(pool_sizes);
-    pool_desc.pPoolSizes = pool_sizes;
-    if ((vr = VK_CALL(vkCreateDescriptorPool(vk_device, &pool_desc, NULL, &vk_pool))) < 0)
+    if (allocator->free_descriptor_pool_count > 0)
     {
-        ERR("Failed to create descriptor pool, vr %d.\n", vr);
-        return VK_NULL_HANDLE;
+        vk_pool = allocator->free_descriptor_pools[allocator->free_descriptor_pool_count - 1];
+        allocator->free_descriptor_pools[allocator->free_descriptor_pool_count - 1] = VK_NULL_HANDLE;
+        --allocator->free_descriptor_pool_count;
+    }
+    else
+    {
+        pool_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool_desc.pNext = NULL;
+        pool_desc.flags = 0;
+        pool_desc.maxSets = 512;
+        pool_desc.poolSizeCount = ARRAY_SIZE(pool_sizes);
+        pool_desc.pPoolSizes = pool_sizes;
+        if ((vr = VK_CALL(vkCreateDescriptorPool(vk_device, &pool_desc, NULL, &vk_pool))) < 0)
+        {
+            ERR("Failed to create descriptor pool, vr %d.\n", vr);
+            return VK_NULL_HANDLE;
+        }
     }
 
     if (!(d3d12_command_allocator_add_descriptor_pool(allocator, vk_pool)))
@@ -886,13 +895,39 @@ static void vkd3d_buffer_destroy(struct vkd3d_buffer *buffer, struct d3d12_devic
     VK_CALL(vkDestroyBuffer(device->vk_device, buffer->vk_buffer, NULL));
 }
 
-static void d3d12_command_allocator_free_resources(struct d3d12_command_allocator *allocator)
+static void d3d12_command_allocator_free_resources(struct d3d12_command_allocator *allocator,
+        bool keep_reusable_resources)
 {
     struct d3d12_device *device = allocator->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    unsigned int i;
+    unsigned int i, j;
 
     allocator->vk_descriptor_pool = VK_NULL_HANDLE;
+
+    if (keep_reusable_resources)
+    {
+        if (vkd3d_array_reserve((void **)&allocator->free_descriptor_pools,
+                &allocator->free_descriptor_pools_size,
+                allocator->free_descriptor_pool_count + allocator->descriptor_pool_count,
+                sizeof(*allocator->free_descriptor_pools)))
+        {
+            for (i = 0, j = allocator->free_descriptor_pool_count; i < allocator->descriptor_pool_count; ++i, ++j)
+            {
+                VK_CALL(vkResetDescriptorPool(device->vk_device, allocator->descriptor_pools[i], 0));
+                allocator->free_descriptor_pools[j] = allocator->descriptor_pools[i];
+            }
+            allocator->free_descriptor_pool_count += allocator->descriptor_pool_count;
+            allocator->descriptor_pool_count = 0;
+        }
+    }
+    else
+    {
+        for (i = 0; i < allocator->free_descriptor_pool_count; ++i)
+        {
+            VK_CALL(vkDestroyDescriptorPool(device->vk_device, allocator->free_descriptor_pools[i], NULL));
+        }
+        allocator->free_descriptor_pool_count = 0;
+    }
 
     for (i = 0; i < allocator->transfer_buffer_count; ++i)
     {
@@ -990,11 +1025,12 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
         if (allocator->current_command_list)
             d3d12_command_list_allocator_destroyed(allocator->current_command_list);
 
-        d3d12_command_allocator_free_resources(allocator);
+        d3d12_command_allocator_free_resources(allocator, false);
         vkd3d_free(allocator->transfer_buffers);
         vkd3d_free(allocator->buffer_views);
         vkd3d_free(allocator->views);
         vkd3d_free(allocator->descriptor_pools);
+        vkd3d_free(allocator->free_descriptor_pools);
         vkd3d_free(allocator->pipelines);
         vkd3d_free(allocator->framebuffers);
         vkd3d_free(allocator->passes);
@@ -1078,7 +1114,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
     device = allocator->device;
     vk_procs = &device->vk_procs;
 
-    d3d12_command_allocator_free_resources(allocator);
+    d3d12_command_allocator_free_resources(allocator, true);
     if (allocator->command_buffer_count)
     {
         VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
@@ -1167,6 +1203,10 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     }
 
     allocator->vk_descriptor_pool = VK_NULL_HANDLE;
+
+    allocator->free_descriptor_pools = NULL;
+    allocator->free_descriptor_pools_size = 0;
+    allocator->free_descriptor_pool_count = 0;
 
     allocator->passes = NULL;
     allocator->passes_size = 0;
