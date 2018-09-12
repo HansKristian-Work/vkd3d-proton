@@ -1817,7 +1817,8 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
     return true;
 }
 
-static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list *list)
+static VkPipeline d3d12_command_list_create_graphics_pipeline(struct d3d12_command_list *list,
+        const struct d3d12_graphics_pipeline_state *state)
 {
     struct VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -1826,7 +1827,6 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     struct VkPipelineColorBlendStateCreateInfo blend_desc;
     struct VkGraphicsPipelineCreateInfo pipeline_desc;
     const struct d3d12_device *device = list->device;
-    struct d3d12_graphics_pipeline_state *state;
     size_t binding_count = 0;
     VkPipeline vk_pipeline;
     unsigned int i;
@@ -1857,17 +1857,6 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
         .dynamicStateCount = ARRAY_SIZE(dynamic_states),
         .pDynamicStates = dynamic_states,
     };
-
-    if (list->current_pipeline != VK_NULL_HANDLE)
-        return true;
-
-    if (list->state->vk_bind_point != VK_PIPELINE_BIND_POINT_GRAPHICS)
-    {
-        WARN("Pipeline state %p has bind point %#x.\n", list->state, list->state->vk_bind_point);
-        return false;
-    }
-
-    state = &list->state->u.graphics;
 
     for (i = 0, mask = 0; i < state->attribute_count; ++i)
     {
@@ -1945,15 +1934,35 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
             1, &pipeline_desc, NULL, &vk_pipeline))) < 0)
     {
         WARN("Failed to create Vulkan graphics pipeline, vr %d.\n", vr);
-        return false;
+        return VK_NULL_HANDLE;
     }
 
     if (!d3d12_command_allocator_add_pipeline(list->allocator, vk_pipeline))
     {
         WARN("Failed to add pipeline.\n");
         VK_CALL(vkDestroyPipeline(device->vk_device, vk_pipeline, NULL));
+        return VK_NULL_HANDLE;
+    }
+
+    return vk_pipeline;
+}
+
+static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkPipeline vk_pipeline;
+
+    if (list->current_pipeline != VK_NULL_HANDLE)
+        return true;
+
+    if (list->state->vk_bind_point != VK_PIPELINE_BIND_POINT_GRAPHICS)
+    {
+        WARN("Pipeline state %p has bind point %#x.\n", list->state, list->state->vk_bind_point);
         return false;
     }
+
+    if (!(vk_pipeline = d3d12_command_list_create_graphics_pipeline(list, &list->state->u.graphics)))
+        return false;
 
     VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, vk_pipeline));
     list->current_pipeline = vk_pipeline;
