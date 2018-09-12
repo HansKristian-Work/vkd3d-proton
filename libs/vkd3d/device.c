@@ -1946,7 +1946,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateHeap(ID3D12Device *iface,
             iface, desc, debugstr_guid(iid), heap);
 
     if (FAILED(hr = d3d12_heap_create(device, desc, &object)))
+    {
+        *heap = NULL;
         return hr;
+    }
 
     return return_interface(&object->ID3D12Heap_iface, &IID_ID3D12Heap, iid, heap);
 }

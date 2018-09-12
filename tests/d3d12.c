@@ -1854,9 +1854,12 @@ static void test_create_heap(void)
     desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES | D3D12_HEAP_FLAG_ALLOW_DISPLAY;
     hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    heap = (void *)0xdeadbeef;
     desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES | D3D12_HEAP_FLAG_ALLOW_DISPLAY;
     hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(!heap, "Got unexpected pointer %p.\n", heap);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
