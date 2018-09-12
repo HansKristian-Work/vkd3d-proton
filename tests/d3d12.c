@@ -1656,10 +1656,19 @@ static void test_create_committed_resource(void)
 
     /* A texture cannot be created on a UPLOAD heap. */
     heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+    resource = (void *)0xdeadbeef;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
             &IID_ID3D12Resource, (void **)&resource);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(!resource, "Got unexpected pointer %p.\n", resource);
+
+    resource = (void *)0xdeadbeef;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
+            &IID_ID3D12Device, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(!resource, "Got unexpected pointer %p.\n", resource);
 
     /* A texture cannot be created on a READBACK heap. */
     heap_properties.Type = D3D12_HEAP_TYPE_READBACK;

@@ -1914,22 +1914,25 @@ static D3D12_HEAP_PROPERTIES * STDMETHODCALLTYPE d3d12_device_GetCustomHeapPrope
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource(ID3D12Device *iface,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value, REFIID riid, void **resource)
+        const D3D12_CLEAR_VALUE *optimized_clear_value, REFIID iid, void **resource)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     struct d3d12_resource *object;
     HRESULT hr;
 
     TRACE("iface %p, heap_properties %p, heap_flags %#x,  desc %p, initial_state %#x, "
-            "optimized_clear_value %p, riid %s, resource %p.\n",
+            "optimized_clear_value %p, iid %s, resource %p.\n",
             iface, heap_properties, heap_flags, desc, initial_state,
-            optimized_clear_value, debugstr_guid(riid), resource);
+            optimized_clear_value, debugstr_guid(iid), resource);
 
     if (FAILED(hr = d3d12_committed_resource_create(device, heap_properties, heap_flags,
             desc, initial_state, optimized_clear_value, &object)))
+    {
+        *resource = NULL;
         return hr;
+    }
 
-    return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, riid, resource);
+    return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateHeap(ID3D12Device *iface,
