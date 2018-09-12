@@ -725,17 +725,6 @@ static bool d3d12_command_allocator_add_framebuffer(struct d3d12_command_allocat
     return true;
 }
 
-static bool d3d12_command_allocator_add_pipeline(struct d3d12_command_allocator *allocator, VkPipeline pipeline)
-{
-    if (!vkd3d_array_reserve((void **)&allocator->pipelines, &allocator->pipelines_size,
-            allocator->pipeline_count + 1, sizeof(*allocator->pipelines)))
-        return false;
-
-    allocator->pipelines[allocator->pipeline_count++] = pipeline;
-
-    return true;
-}
-
 static bool d3d12_command_allocator_add_descriptor_pool(struct d3d12_command_allocator *allocator,
         VkDescriptorPool pool)
 {
@@ -951,12 +940,6 @@ static void d3d12_command_allocator_free_resources(struct d3d12_command_allocato
     }
     allocator->descriptor_pool_count = 0;
 
-    for (i = 0; i < allocator->pipeline_count; ++i)
-    {
-        VK_CALL(vkDestroyPipeline(device->vk_device, allocator->pipelines[i], NULL));
-    }
-    allocator->pipeline_count = 0;
-
     for (i = 0; i < allocator->framebuffer_count; ++i)
     {
         VK_CALL(vkDestroyFramebuffer(device->vk_device, allocator->framebuffers[i], NULL));
@@ -1029,7 +1012,6 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
         vkd3d_free(allocator->views);
         vkd3d_free(allocator->descriptor_pools);
         vkd3d_free(allocator->free_descriptor_pools);
-        vkd3d_free(allocator->pipelines);
         vkd3d_free(allocator->framebuffers);
         vkd3d_free(allocator->passes);
 
@@ -1213,10 +1195,6 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     allocator->framebuffers = NULL;
     allocator->framebuffers_size = 0;
     allocator->framebuffer_count = 0;
-
-    allocator->pipelines = NULL;
-    allocator->pipelines_size = 0;
-    allocator->pipeline_count = 0;
 
     allocator->descriptor_pools = NULL;
     allocator->descriptor_pools_size = 0;
@@ -1837,8 +1815,8 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
     return true;
 }
 
-static VkPipeline d3d12_command_list_create_graphics_pipeline(struct d3d12_command_list *list,
-        const struct d3d12_graphics_pipeline_state *state)
+static VkPipeline d3d12_command_list_get_or_create_pipeline(struct d3d12_command_list *list,
+        struct d3d12_graphics_pipeline_state *state)
 {
     struct VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -1846,7 +1824,8 @@ static VkPipeline d3d12_command_list_create_graphics_pipeline(struct d3d12_comma
     struct VkPipelineInputAssemblyStateCreateInfo ia_desc;
     struct VkPipelineColorBlendStateCreateInfo blend_desc;
     struct VkGraphicsPipelineCreateInfo pipeline_desc;
-    const struct d3d12_device *device = list->device;
+    struct d3d12_device *device = list->device;
+    struct vkd3d_pipeline_key pipeline_key;
     size_t binding_count = 0;
     VkPipeline vk_pipeline;
     unsigned int i;
@@ -1878,6 +1857,10 @@ static VkPipeline d3d12_command_list_create_graphics_pipeline(struct d3d12_comma
         .pDynamicStates = dynamic_states,
     };
 
+    memset(&pipeline_key, 0, sizeof(pipeline_key));
+    pipeline_key.state = state;
+    pipeline_key.topology = list->primitive_topology;
+
     for (i = 0, mask = 0; i < state->attribute_count; ++i)
     {
         struct VkVertexInputBindingDescription *b;
@@ -1902,8 +1885,13 @@ static VkPipeline d3d12_command_list_create_graphics_pipeline(struct d3d12_comma
         if (!b->stride)
             FIXME("Invalid stride for input slot %u.\n", binding);
 
+        pipeline_key.strides[binding_count] = list->strides[binding];
+
         ++binding_count;
     }
+
+    if ((vk_pipeline = d3d12_device_find_cached_pipeline(device, &pipeline_key)))
+        return vk_pipeline;
 
     input_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     input_desc.pNext = NULL;
@@ -1957,13 +1945,14 @@ static VkPipeline d3d12_command_list_create_graphics_pipeline(struct d3d12_comma
         return VK_NULL_HANDLE;
     }
 
-    if (!d3d12_command_allocator_add_pipeline(list->allocator, vk_pipeline))
-    {
-        WARN("Failed to add pipeline.\n");
-        VK_CALL(vkDestroyPipeline(device->vk_device, vk_pipeline, NULL));
-        return VK_NULL_HANDLE;
-    }
+    if (d3d12_device_put_pipeline_to_cache(device, &pipeline_key, vk_pipeline, &state->compiled_pipelines))
+        return vk_pipeline;
 
+    /* Other thread compiled the pipeline before us. */
+    VK_CALL(vkDestroyPipeline(device->vk_device, vk_pipeline, NULL));
+    vk_pipeline = d3d12_device_find_cached_pipeline(device, &pipeline_key);
+    if (!vk_pipeline)
+        ERR("Could not get the pipeline compiled by other thread from the cache.\n");
     return vk_pipeline;
 }
 
@@ -1981,7 +1970,7 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
         return false;
     }
 
-    if (!(vk_pipeline = d3d12_command_list_create_graphics_pipeline(list, &list->state->u.graphics)))
+    if (!(vk_pipeline = d3d12_command_list_get_or_create_pipeline(list, &list->state->u.graphics)))
         return false;
 
     VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, vk_pipeline));

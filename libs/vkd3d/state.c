@@ -1095,11 +1095,15 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState 
 
         if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
         {
-            for (i = 0; i < state->u.graphics.stage_count; ++i)
+            struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
+
+            for (i = 0; i < graphics->stage_count; ++i)
             {
-                VK_CALL(vkDestroyShaderModule(device->vk_device, state->u.graphics.stages[i].module, NULL));
+                VK_CALL(vkDestroyShaderModule(device->vk_device, graphics->stages[i].module, NULL));
             }
-            VK_CALL(vkDestroyRenderPass(device->vk_device, state->u.graphics.render_pass, NULL));
+            VK_CALL(vkDestroyRenderPass(device->vk_device, graphics->render_pass, NULL));
+
+            d3d12_device_destroy_compiled_pipelines(device, &graphics->compiled_pipelines);
         }
         else if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
         {
@@ -2184,6 +2188,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         FIXME("Ignoring sample desc %u, %u.\n", desc->SampleDesc.Count, desc->SampleDesc.Quality);
 
     graphics->root_signature = root_signature;
+
+    list_init(&graphics->compiled_pipelines);
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
     state->device = device;
