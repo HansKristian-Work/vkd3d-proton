@@ -634,8 +634,6 @@ static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list
     list->is_recording = true;
     list->is_valid = true;
 
-    ID3D12GraphicsCommandList_SetPipelineState(&list->ID3D12GraphicsCommandList_iface, list->pipeline_state);
-
     return S_OK;
 }
 
@@ -1740,7 +1738,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(ID3D12GraphicsCommandL
     if (SUCCEEDED(hr = d3d12_command_allocator_allocate_command_buffer(allocator_impl, list)))
     {
         list->allocator = allocator_impl;
-        list->pipeline_state = initial_state;
+
+        ID3D12GraphicsCommandList_SetPipelineState(&list->ID3D12GraphicsCommandList_iface, initial_state);
     }
 
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
@@ -4239,7 +4238,6 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
 
     list->allocator = allocator;
-    list->pipeline_state = initial_pipeline_state;
 
     memset(list->strides, 0, sizeof(list->strides));
     list->primitive_topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
@@ -4261,6 +4259,8 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
         ID3D12Device_Release(&device->ID3D12Device_iface);
         return hr;
     }
+
+    ID3D12GraphicsCommandList_SetPipelineState(&list->ID3D12GraphicsCommandList_iface, initial_pipeline_state);
 
     return S_OK;
 }
