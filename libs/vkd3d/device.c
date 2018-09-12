@@ -2282,6 +2282,7 @@ struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface)
 static HRESULT d3d12_device_init(struct d3d12_device *device,
         struct vkd3d_instance *instance, const struct vkd3d_device_create_info *create_info)
 {
+    const struct vkd3d_vk_device_procs *vk_procs;
     HRESULT hr;
 
     device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl;
@@ -2295,30 +2296,22 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     device->wchar_size = instance->wchar_size;
 
     device->adapter_luid = create_info->adapter_luid;
+    device->removed_reason = S_OK;
+
+    device->vk_device = VK_NULL_HANDLE;
+    device->vk_dummy_sampler = VK_NULL_HANDLE;
 
     if (FAILED(hr = vkd3d_create_vk_device(device, create_info)))
-    {
-        vkd3d_instance_decref(device->vkd3d_instance);
-        return hr;
-    }
+        goto out_free_instance;
 
     if (FAILED(hr = d3d12_device_create_dummy_sampler(device)))
     {
-        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
         ERR("Failed to create dummy sampler, hr %#x.\n", hr);
-        VK_CALL(vkDestroyDevice(device->vk_device, NULL));
-        vkd3d_instance_decref(device->vkd3d_instance);
-        return hr;
+        goto out_free_vk_resources;
     }
 
     if (FAILED(hr = vkd3d_fence_worker_start(&device->fence_worker, device)))
-    {
-        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-        VK_CALL(vkDestroySampler(device->vk_device, device->vk_dummy_sampler, NULL));
-        VK_CALL(vkDestroyDevice(device->vk_device, NULL));
-        vkd3d_instance_decref(device->vkd3d_instance);
-        return hr;
-    }
+        goto out_free_vk_resources;
 
     vkd3d_gpu_va_allocator_init(&device->gpu_va_allocator);
 
@@ -2327,9 +2320,15 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if ((device->parent = create_info->parent))
         IUnknown_AddRef(device->parent);
 
-    device->removed_reason = S_OK;
-
     return S_OK;
+
+out_free_vk_resources:
+    vk_procs = &device->vk_procs;
+    VK_CALL(vkDestroySampler(device->vk_device, device->vk_dummy_sampler, NULL));
+    VK_CALL(vkDestroyDevice(device->vk_device, NULL));
+out_free_instance:
+    vkd3d_instance_decref(device->vkd3d_instance);
+    return hr;
 }
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
