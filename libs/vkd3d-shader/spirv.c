@@ -5322,7 +5322,7 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
     SpvImageOperandsMask operands_mask = 0;
     unsigned int image_operand_count = 0;
     struct vkd3d_shader_image image;
-    uint32_t image_operands[1];
+    uint32_t image_operands[2];
     SpvOp op;
 
     switch (instruction->handler_idx)
@@ -5341,11 +5341,16 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
             return;
     }
 
-    if (vkd3d_shader_instruction_has_texel_offset(instruction))
-        FIXME("Texel offset not supported.\n");
-
     vkd3d_dxbc_compiler_prepare_sampled_image(compiler, &image,
             &src[1].reg, &src[2].reg, VKD3D_IMAGE_FLAG_NONE);
+
+    if (vkd3d_shader_instruction_has_texel_offset(instruction))
+    {
+        operands_mask |= SpvImageOperandsConstOffsetMask;
+        image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_texel_offset(compiler,
+                instruction, image.resource_type_info);
+    }
+
     sampled_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
     coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_ALL);
     val_id = vkd3d_spirv_build_op_image_sample(builder, op, sampled_type_id,
