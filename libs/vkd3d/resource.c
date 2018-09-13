@@ -1635,8 +1635,8 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     {
         const struct vkd3d_format *format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
 
-        descriptor->view_offset = desc->u.Buffer.FirstElement * format->byte_count;
-        descriptor->view_size = desc->u.Buffer.NumElements * format->byte_count;
+        descriptor->uav.buffer.offset = desc->u.Buffer.FirstElement * format->byte_count;
+        descriptor->uav.buffer.size = desc->u.Buffer.NumElements * format->byte_count;
     }
 }
 
@@ -1691,6 +1691,10 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     descriptor->u.view = view;
+
+    descriptor->uav.texture.miplevel_idx = vkd3d_desc.miplevel_idx;
+    descriptor->uav.texture.layer_idx = vkd3d_desc.layer_idx;
+    descriptor->uav.texture.layer_count = vkd3d_desc.layer_count;
 }
 
 void d3d12_desc_create_uav(struct d3d12_desc *descriptor, struct d3d12_device *device,

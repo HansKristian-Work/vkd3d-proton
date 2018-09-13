@@ -3881,6 +3881,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
     const struct vkd3d_vk_device_procs *vk_procs;
     const struct d3d12_desc *cpu_descriptor;
     struct d3d12_resource *resource_impl;
+    VkImageSubresourceRange range;
+    VkClearColorValue color;
 
     TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
@@ -3891,11 +3893,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
 
     d3d12_command_list_track_resource_usage(list, resource_impl);
 
-    if (d3d12_resource_is_texture(resource_impl))
-    {
-        FIXME("Not implemented for textures.\n");
-        return;
-    }
     if (rect_count)
     {
         FIXME("Clear rects not supported.\n");
@@ -3905,14 +3902,34 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
     d3d12_command_list_end_current_render_pass(list);
 
     cpu_descriptor = d3d12_desc_from_cpu_handle(cpu_handle);
-    if (!cpu_descriptor->view_size)
-    {
-        FIXME("Not supported for UAV descriptor %p.\n", cpu_descriptor);
-        return;
-    }
 
-    VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, resource_impl->u.vk_buffer,
-            cpu_descriptor->view_offset, cpu_descriptor->view_size, values[0]));
+    if (d3d12_resource_is_buffer(resource_impl))
+    {
+        if (!cpu_descriptor->uav.buffer.size)
+        {
+            FIXME("Not supported for UAV descriptor %p.\n", cpu_descriptor);
+            return;
+        }
+
+        VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, resource_impl->u.vk_buffer,
+                cpu_descriptor->uav.buffer.offset, cpu_descriptor->uav.buffer.size, values[0]));
+    }
+    else
+    {
+        color.uint32[0] = values[0];
+        color.uint32[1] = values[1];
+        color.uint32[2] = values[2];
+        color.uint32[3] = values[3];
+
+        range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        range.baseMipLevel = cpu_descriptor->uav.texture.miplevel_idx;
+        range.levelCount = 1;
+        range.baseArrayLayer = cpu_descriptor->uav.texture.layer_idx;
+        range.layerCount = cpu_descriptor->uav.texture.layer_count;
+
+        VK_CALL(vkCmdClearColorImage(list->vk_command_buffer,
+                resource_impl->u.vk_image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range));
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(ID3D12GraphicsCommandList *iface,
