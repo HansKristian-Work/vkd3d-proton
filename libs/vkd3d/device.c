@@ -1280,6 +1280,14 @@ static HRESULT d3d12_device_init_pipeline_cache(struct d3d12_device *device)
     VkResult vr;
     int rc;
 
+    if ((rc = pthread_mutex_init(&device->pipeline_cache_mutex, NULL)))
+    {
+        ERR("Failed to initialize mutex, error %d.\n", rc);
+        return E_FAIL;
+    }
+
+    rb_init(&device->pipeline_cache, compare_pipeline_cache_entry);
+
     cache_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
     cache_info.pNext = NULL;
     cache_info.flags = 0;
@@ -1290,14 +1298,6 @@ static HRESULT d3d12_device_init_pipeline_cache(struct d3d12_device *device)
     {
         ERR("Failed to create Vulkan pipeline cache, vr %d.\n", vr);
         device->vk_pipeline_cache = VK_NULL_HANDLE;
-    }
-
-    rb_init(&device->pipeline_cache, compare_pipeline_cache_entry);
-
-    if ((rc = pthread_mutex_init(&device->pipeline_cache_mutex, NULL)))
-    {
-        ERR("Failed to initialize mutex, error %d.\n", rc);
-        return E_FAIL;
     }
 
     return S_OK;
