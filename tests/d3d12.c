@@ -5272,6 +5272,7 @@ static void test_shader_instructions(void)
     ID3D12CommandQueue *queue;
     unsigned int i, x, y;
     ID3D12Resource *cb;
+    HRESULT hr;
 
     static const DWORD ps_div_code[] =
     {
@@ -7392,6 +7393,9 @@ static void test_shader_instructions(void)
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
 
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
+    reset_command_list(command_list, context.allocator);
     ID3D12Resource_Release(context.render_target);
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_UINT;
     create_render_target(&context, &desc, &context.render_target, &context.rtv);
