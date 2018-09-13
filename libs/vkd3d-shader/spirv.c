@@ -5262,6 +5262,17 @@ static void vkd3d_dxbc_compiler_prepare_sampled_image(struct vkd3d_dxbc_compiler
             vkd3d_dxbc_compiler_get_register_id(compiler, sampler_reg), depth_comparison);
 }
 
+static uint32_t vkd3d_dxbc_compiler_emit_texel_offset(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction,
+        const struct vkd3d_spirv_resource_type *resource_type_info)
+{
+    const struct vkd3d_shader_texel_offset *offset = &instruction->texel_offset;
+    unsigned int component_count = resource_type_info->offset_component_count;
+    int32_t data[4] = {offset->u, offset->v, offset->w, 0};
+    return vkd3d_dxbc_compiler_get_constant(compiler,
+            VKD3D_TYPE_INT, component_count, (const uint32_t *)data);
+}
+
 static void vkd3d_dxbc_compiler_emit_ld(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -5275,9 +5286,6 @@ static void vkd3d_dxbc_compiler_emit_ld(struct vkd3d_dxbc_compiler *compiler,
     uint32_t image_operands[2];
     DWORD coordinate_mask;
 
-    if (vkd3d_shader_instruction_has_texel_offset(instruction))
-        FIXME("Texel offset not supported.\n");
-
     /* OpImageFetch must be used with a sampled image. */
     vkd3d_dxbc_compiler_prepare_dummy_sampled_image(compiler, &image, &src[1].reg);
     image_id = vkd3d_spirv_build_op_image(builder, image.image_type_id, image.sampled_image_id);
@@ -5290,6 +5298,12 @@ static void vkd3d_dxbc_compiler_emit_ld(struct vkd3d_dxbc_compiler *compiler,
         operands_mask |= SpvImageOperandsLodMask;
         image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_load_src(compiler,
                 &src[0], VKD3DSP_WRITEMASK_3);
+    }
+    if (vkd3d_shader_instruction_has_texel_offset(instruction))
+    {
+        operands_mask |= SpvImageOperandsConstOffsetMask;
+        image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_texel_offset(compiler,
+                instruction, image.resource_type_info);
     }
     val_id = vkd3d_spirv_build_op_image_fetch(builder, type_id,
             image_id, coordinate_id, operands_mask, image_operands, image_operand_count);
@@ -5384,17 +5398,6 @@ static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compil
 
     vkd3d_dxbc_compiler_emit_store_dst_scalar(compiler,
             dst, val_id, image.sampled_type, src[1].swizzle);
-}
-
-static uint32_t vkd3d_dxbc_compiler_emit_texel_offset(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_instruction *instruction,
-        const struct vkd3d_spirv_resource_type *resource_type_info)
-{
-    const struct vkd3d_shader_texel_offset *offset = &instruction->texel_offset;
-    unsigned int component_count = resource_type_info->offset_component_count;
-    int32_t data[4] = {offset->u, offset->v, offset->w, 0};
-    return vkd3d_dxbc_compiler_get_constant(compiler,
-            VKD3D_TYPE_INT, component_count, (const uint32_t *)data);
 }
 
 static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compiler,
