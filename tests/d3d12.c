@@ -9203,6 +9203,8 @@ static void test_texture(void)
 
         ID3D12Resource_Release(texture);
         reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
 
     ID3D12DescriptorHeap_Release(heap);
