@@ -9209,6 +9209,224 @@ static void test_texture(void)
     destroy_test_context(&context);
 }
 
+static void test_texture_ld(void)
+{
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *texture;
+    unsigned int i;
+
+    static const DWORD ps_ld_code[] =
+    {
+#if 0
+        Texture2D t;
+
+        int2 offset;
+        uint2 location;
+
+        float4 main() : SV_Target
+        {
+            switch (offset.x)
+            {
+                case -1:
+                    switch (offset.y)
+                    {
+                        case -2: return t.Load(uint3(location, 0), int2(-1, -2));
+                        case -1: return t.Load(uint3(location, 0), int2(-1, -1));
+                        case  0: return t.Load(uint3(location, 0), int2(-1,  0));
+                        case  1: return t.Load(uint3(location, 0), int2(-1,  1));
+                        case  2: return t.Load(uint3(location, 0), int2(-1,  2));
+                    }
+                    break;
+                case 0:
+                    switch (offset.y)
+                    {
+                        case -2: return t.Load(uint3(location, 0), int2(0, -2));
+                        case -1: return t.Load(uint3(location, 0), int2(0, -1));
+                        case  0: return t.Load(uint3(location, 0), int2(0,  0));
+                        case  1: return t.Load(uint3(location, 0), int2(0,  1));
+                        case  2: return t.Load(uint3(location, 0), int2(0,  2));
+                    }
+                    break;
+                case 1:
+                    switch (offset.y)
+                    {
+                        case -2: return t.Load(uint3(location, 0), int2(1, -2));
+                        case -1: return t.Load(uint3(location, 0), int2(1, -1));
+                        case  0: return t.Load(uint3(location, 0), int2(1,  0));
+                        case  1: return t.Load(uint3(location, 0), int2(1,  1));
+                        case  2: return t.Load(uint3(location, 0), int2(1,  2));
+                    }
+                    break;
+            }
+
+            return t.Load(uint3(location, 0));
+        }
+#endif
+        0x43425844, 0xe925cc02, 0x43ea9623, 0xb67c6425, 0xb4503305, 0x00000001, 0x00000844, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000007cc, 0x00000050, 0x000001f3,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04001858, 0x00107000, 0x00000000,
+        0x00005555, 0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0400004c, 0x0020800a,
+        0x00000000, 0x00000000, 0x03000006, 0x00004001, 0xffffffff, 0x0400004c, 0x0020801a, 0x00000000,
+        0x00000000, 0x03000006, 0x00004001, 0xfffffffe, 0x06000036, 0x00100032, 0x00000000, 0x00208ae6,
+        0x00000000, 0x00000000, 0x08000036, 0x001000c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x8a00002d, 0x8001de01, 0x800000c2, 0x00155543, 0x001020f2, 0x00000000,
+        0x00100e46, 0x00000000, 0x00107e46, 0x00000000, 0x0100003e, 0x03000006, 0x00004001, 0xffffffff,
+        0x06000036, 0x00100032, 0x00000000, 0x00208ae6, 0x00000000, 0x00000000, 0x08000036, 0x001000c2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x8a00002d, 0x8001fe01,
+        0x800000c2, 0x00155543, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x00107e46, 0x00000000,
+        0x0100003e, 0x03000006, 0x00004001, 0x00000000, 0x06000036, 0x00100032, 0x00000000, 0x00208ae6,
+        0x00000000, 0x00000000, 0x08000036, 0x001000c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x8a00002d, 0x80001e01, 0x800000c2, 0x00155543, 0x001020f2, 0x00000000,
+        0x00100e46, 0x00000000, 0x00107e46, 0x00000000, 0x0100003e, 0x03000006, 0x00004001, 0x00000001,
+        0x06000036, 0x00100032, 0x00000000, 0x00208ae6, 0x00000000, 0x00000000, 0x08000036, 0x001000c2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x8a00002d, 0x80003e01,
+        0x800000c2, 0x00155543, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x00107e46, 0x00000000,
+        0x0100003e, 0x03000006, 0x00004001, 0x00000002, 0x06000036, 0x00100032, 0x00000000, 0x00208ae6,
+        0x00000000, 0x00000000, 0x08000036, 0x001000c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x8a00002d, 0x80005e01, 0x800000c2, 0x00155543, 0x001020f2, 0x00000000,
+        0x00100e46, 0x00000000, 0x00107e46, 0x00000000, 0x0100003e, 0x0100000a, 0x01000002, 0x01000017,
+        0x01000002, 0x03000006, 0x00004001, 0x00000000, 0x0400004c, 0x0020801a, 0x00000000, 0x00000000,
+        0x03000006, 0x00004001, 0xfffffffe, 0x06000036, 0x00100032, 0x00000000, 0x00208ae6, 0x00000000,
+        0x00000000, 0x08000036, 0x001000c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x8a00002d, 0x8001c001, 0x800000c2, 0x00155543, 0x001020f2, 0x00000000, 0x00100e46,
+        0x00000000, 0x00107e46, 0x00000000, 0x0100003e, 0x03000006, 0x00004001, 0xffffffff, 0x06000036,
+        0x00100032, 0x00000000, 0x00208ae6, 0x00000000, 0x00000000, 0x08000036, 0x001000c2, 0x00000000,
+        0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x8a00002d, 0x8001e001, 0x800000c2,
+        0x00155543, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x00107e46, 0x00000000, 0x0100003e,
+        0x03000006, 0x00004001, 0x00000000, 0x06000036, 0x00100032, 0x00000000, 0x00208ae6, 0x00000000,
+        0x00000000, 0x08000036, 0x001000c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x8900002d, 0x800000c2, 0x00155543, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000,
+        0x00107e46, 0x00000000, 0x0100003e, 0x03000006, 0x00004001, 0x00000001, 0x06000036, 0x00100032,
+        0x00000000, 0x00208ae6, 0x00000000, 0x00000000, 0x08000036, 0x001000c2, 0x00000000, 0x00004002,
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x8a00002d, 0x80002001, 0x800000c2, 0x00155543,
+        0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x00107e46, 0x00000000, 0x0100003e, 0x03000006,
+        0x00004001, 0x00000002, 0x06000036, 0x00100032, 0x00000000, 0x00208ae6, 0x00000000, 0x00000000,
+        0x08000036, 0x001000c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x8a00002d, 0x80004001, 0x800000c2, 0x00155543, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000,
+        0x00107e46, 0x00000000, 0x0100003e, 0x0100000a, 0x01000002, 0x01000017, 0x01000002, 0x03000006,
+        0x00004001, 0x00000001, 0x0400004c, 0x0020801a, 0x00000000, 0x00000000, 0x03000006, 0x00004001,
+        0xfffffffe, 0x06000036, 0x00100032, 0x00000000, 0x00208ae6, 0x00000000, 0x00000000, 0x08000036,
+        0x001000c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x8a00002d,
+        0x8001c201, 0x800000c2, 0x00155543, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x00107e46,
+        0x00000000, 0x0100003e, 0x03000006, 0x00004001, 0xffffffff, 0x06000036, 0x00100032, 0x00000000,
+        0x00208ae6, 0x00000000, 0x00000000, 0x08000036, 0x001000c2, 0x00000000, 0x00004002, 0x00000000,
+        0x00000000, 0x00000000, 0x00000000, 0x8a00002d, 0x8001e201, 0x800000c2, 0x00155543, 0x001020f2,
+        0x00000000, 0x00100e46, 0x00000000, 0x00107e46, 0x00000000, 0x0100003e, 0x03000006, 0x00004001,
+        0x00000000, 0x06000036, 0x00100032, 0x00000000, 0x00208ae6, 0x00000000, 0x00000000, 0x08000036,
+        0x001000c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x8a00002d,
+        0x80000201, 0x800000c2, 0x00155543, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x00107e46,
+        0x00000000, 0x0100003e, 0x03000006, 0x00004001, 0x00000001, 0x06000036, 0x00100032, 0x00000000,
+        0x00208ae6, 0x00000000, 0x00000000, 0x08000036, 0x001000c2, 0x00000000, 0x00004002, 0x00000000,
+        0x00000000, 0x00000000, 0x00000000, 0x8a00002d, 0x80002201, 0x800000c2, 0x00155543, 0x001020f2,
+        0x00000000, 0x00100e46, 0x00000000, 0x00107e46, 0x00000000, 0x0100003e, 0x03000006, 0x00004001,
+        0x00000002, 0x06000036, 0x00100032, 0x00000000, 0x00208ae6, 0x00000000, 0x00000000, 0x08000036,
+        0x001000c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x8a00002d,
+        0x80004201, 0x800000c2, 0x00155543, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x00107e46,
+        0x00000000, 0x0100003e, 0x0100000a, 0x01000002, 0x01000017, 0x01000002, 0x0100000a, 0x01000002,
+        0x01000017, 0x06000036, 0x00100032, 0x00000000, 0x00208ae6, 0x00000000, 0x00000000, 0x08000036,
+        0x001000c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x8900002d,
+        0x800000c2, 0x00155543, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x00107e46, 0x00000000,
+        0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_ld = {ps_ld_code, sizeof(ps_ld_code)};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const unsigned int texture_data[] =
+    {
+        0xff0008ff, 0xff00ffff, 0xff00ff05, 0xffffff01,
+        0xffff0007, 0xffff00ff, 0x11111101, 0xff7f7f7f,
+        0x44444f44, 0x88888888, 0x22222222, 0xff000002,
+        0x66f66666, 0xff000000, 0xff000003, 0x55555555,
+    };
+    static const D3D12_SUBRESOURCE_DATA resource_data = {&texture_data, sizeof(texture_data) / 4};
+    static const struct
+    {
+        int32_t constants[4];
+        unsigned int expected_color;
+    }
+    tests[] =
+    {
+        {{ 0,  0, 0, 0}, 0xff0008ff},
+        {{ 1,  0, 0, 0}, 0xff00ffff},
+        {{ 0,  1, 0, 0}, 0xffff0007},
+        {{ 1,  1, 0, 0}, 0xffff00ff},
+        {{ 3,  3, 0, 0}, 0xff0008ff},
+        {{ 3,  3, 1, 1}, 0xffff00ff},
+        {{ 0,  0, 3, 3}, 0x55555555},
+        {{-1, -1, 3, 3}, 0x22222222},
+        {{-1, -2, 3, 3}, 0x11111101},
+        {{ 0, -1, 3, 3}, 0xff000002},
+        {{ 0, -2, 3, 3}, 0xff7f7f7f},
+        {{ 3,  3, 3, 3}, 0x55555555},
+    };
+
+    if (use_warp_device)
+    {
+        skip("WARP device is removed when ps_ld is used.\n");
+        return;
+    }
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = desc.rt_height = 32;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_texture_root_signature(context.device,
+            D3D12_SHADER_VISIBILITY_PIXEL, 4, 0);
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, context.render_target_desc.Format, NULL, &ps_ld, NULL);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
+
+    texture = create_default_texture(context.device,
+            4, 4, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    upload_texture_data(texture, &resource_data, 1, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    ID3D12Device_CreateShaderResourceView(context.device, texture, NULL,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+        ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1,
+                ARRAY_SIZE(tests[i].constants), &tests[i].constants, 0);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(context.render_target, 0, queue, command_list, tests[i].expected_color, 0);
+
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+
+    ID3D12Resource_Release(texture);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
 static void test_gather(void)
 {
     struct
@@ -19285,6 +19503,7 @@ START_TEST(d3d12)
     run_test(test_immediate_constant_buffer);
     run_test(test_root_constants);
     run_test(test_texture);
+    run_test(test_texture_ld);
     run_test(test_gather);
     run_test(test_cube_maps);
     run_test(test_descriptor_tables);
