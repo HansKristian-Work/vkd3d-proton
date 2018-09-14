@@ -3921,7 +3921,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
         color.uint32[2] = values[2];
         color.uint32[3] = values[3];
 
-        range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        range.aspectMask = cpu_descriptor->uav.texture.vk_aspect_mask;
         range.baseMipLevel = cpu_descriptor->uav.texture.miplevel_idx;
         range.levelCount = 1;
         range.baseArrayLayer = cpu_descriptor->uav.texture.layer_idx;

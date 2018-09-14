@@ -1692,6 +1692,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     descriptor->u.view = view;
 
+    descriptor->uav.texture.vk_aspect_mask = vkd3d_desc.format->vk_aspect_mask;
     descriptor->uav.texture.miplevel_idx = vkd3d_desc.miplevel_idx;
     descriptor->uav.texture.layer_idx = vkd3d_desc.layer_idx;
     descriptor->uav.texture.layer_count = vkd3d_desc.layer_count;

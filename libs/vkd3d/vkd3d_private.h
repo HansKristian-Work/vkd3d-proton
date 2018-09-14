@@ -281,6 +281,7 @@ struct d3d12_desc
         } buffer;
         struct
         {
+            VkImageAspectFlags vk_aspect_mask;
             unsigned int miplevel_idx;
             unsigned int layer_idx;
             unsigned int layer_count;
