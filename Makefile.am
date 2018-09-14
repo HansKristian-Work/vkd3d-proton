@@ -157,7 +157,7 @@ if HAVE_WIDL
 	$(AM_V_at)$(SED) -e '/#include <rpc.h>/d' -e '/#include <rpcndr.h>/d' <$@.tmp >$@
 	$(AM_V_at)$(RM) $@.tmp
 else
-	@echo "widl is required to generate $<"
+	@echo "widl is required to generate $@"
 endif
 
 EXTRA_DIST += $(vkd3d_demos_shaders)
