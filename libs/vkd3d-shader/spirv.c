@@ -2537,8 +2537,8 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_constant(struct vkd3d_dxbc_compile
 
     if (reg->immconst_type == VKD3D_IMMCONST_SCALAR)
     {
-        assert(component_count == 1);
-        values[0] = *reg->u.immconst_uint;
+        for (i = 0; i < component_count; ++i)
+            values[i] = *reg->u.immconst_uint;
     }
     else
     {

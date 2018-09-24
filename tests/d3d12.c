@@ -6136,6 +6136,24 @@ static void test_shader_instructions(void)
         0x00000001, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_ishl = {ps_ishl_code, sizeof(ps_ishl_code)};
+    static const DWORD ps_ishl_const_code[] =
+    {
+#if 0
+        uint4 src;
+
+        void main(out uint4 dst : SV_Target)
+        {
+            dst = src << 2;
+        }
+#endif
+        0x43425844, 0x5b749bf4, 0xe24de3dc, 0xbbd75bc9, 0xc6fc9eca, 0x00000001, 0x000000c0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x00000048, 0x00000040, 0x00000012,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x08000029,
+        0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x00004001, 0x00000002, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_ishl_const = {ps_ishl_const_code, sizeof(ps_ishl_const_code)};
     static const DWORD ps_not_code[] =
     {
 #if 0
@@ -6955,6 +6973,11 @@ static void test_shader_instructions(void)
                    {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
         {&ps_ishl, {{{0x00000001, 0x00000001, 0x00000001, 0x800feac1}, {    31, 7, 15, 11}}},
                    {{0x80000000, 0x00000080, 0x00008000, 0x7f560800}}},
+
+        {&ps_ishl_const, {{{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+                          {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+        {&ps_ishl_const, {{{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
+                          {{0xfffffffc, 0xfffffffc, 0xfffffffc, 0xfffffffc}}},
 
         {&ps_not, {{{0x00000000, 0xffffffff}}}, {{0xffffffff, 0x00000000, 0x00000000, 0xffffffff}}},
         {&ps_not, {{{0xf0f0f0f0, 0x0f0f0f0f}}}, {{0x0f0f0f0f, 0xf0f0f0f0, 0xf0f0f0f0, 0x0f0f0f0f}}},
