@@ -4850,6 +4850,20 @@ static void vkd3d_dxbc_compiler_pop_control_flow_level(struct vkd3d_dxbc_compile
     memset(cf_info, 0, sizeof(*cf_info));
 }
 
+static struct vkd3d_control_flow_info *vkd3d_dxbc_compiler_find_innermost_loop(
+        struct vkd3d_dxbc_compiler *compiler)
+{
+    int depth;
+
+    for (depth = compiler->control_flow_depth - 1; depth >= 0; --depth)
+    {
+        if (compiler->control_flow_info[depth].current_block == VKD3D_BLOCK_LOOP)
+            return &compiler->control_flow_info[depth];
+    }
+
+    return NULL;
+}
+
 static struct vkd3d_control_flow_info *vkd3d_dxbc_compiler_find_innermost_breakable_cf_construct(
         struct vkd3d_dxbc_compiler *compiler)
 {
@@ -5079,8 +5093,6 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
                 return;
             }
 
-            assert(compiler->control_flow_depth);
-
             if (breakable_cf_info->current_block == VKD3D_BLOCK_LOOP)
             {
                 vkd3d_spirv_build_op_branch(builder, breakable_cf_info->u.loop.merge_block_id);
@@ -5101,6 +5113,22 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
             vkd3d_dxbc_compiler_emit_breakc(compiler, instruction, cf_info->u.loop.merge_block_id);
             break;
+
+        case VKD3DSIH_CONTINUE:
+        {
+            struct vkd3d_control_flow_info *loop_cf_info;
+
+            if (!(loop_cf_info = vkd3d_dxbc_compiler_find_innermost_loop(compiler)))
+            {
+                ERR("Invalid 'continue' instruction outside loop.\n");
+                return;
+            }
+
+            vkd3d_spirv_build_op_branch(builder, loop_cf_info->u.loop.continue_block_id);
+
+            cf_info->inside_block = false;
+            break;
+        }
 
         case VKD3DSIH_RET:
             vkd3d_dxbc_compiler_emit_return(compiler, instruction);
@@ -6278,6 +6306,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_BREAK:
         case VKD3DSIH_BREAKP:
         case VKD3DSIH_CASE:
+        case VKD3DSIH_CONTINUE:
         case VKD3DSIH_DEFAULT:
         case VKD3DSIH_ELSE:
         case VKD3DSIH_ENDIF:
