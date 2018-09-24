@@ -4186,6 +4186,7 @@ static SpvOp vkd3d_dxbc_compiler_map_alu_instruction(const struct vkd3d_shader_i
         {VKD3DSIH_FTOI,       SpvOpConvertFToS},
         {VKD3DSIH_FTOU,       SpvOpConvertFToU},
         {VKD3DSIH_IADD,       SpvOpIAdd},
+        {VKD3DSIH_INEG,       SpvOpSNegate},
         {VKD3DSIH_ISHL,       SpvOpShiftLeftLogical},
         {VKD3DSIH_ISHR,       SpvOpShiftRightArithmetic},
         {VKD3DSIH_ITOF,       SpvOpConvertSToF},
@@ -6198,6 +6199,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_FTOI:
         case VKD3DSIH_FTOU:
         case VKD3DSIH_IADD:
+        case VKD3DSIH_INEG:
         case VKD3DSIH_ISHL:
         case VKD3DSIH_ISHR:
         case VKD3DSIH_ITOF:
