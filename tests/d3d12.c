@@ -9870,7 +9870,7 @@ static void test_gather(void)
         {
             const struct vec4 *expected = &expected_gather4_offset[y * rb.width + x];
             const struct vec4 *got = get_readback_vec4(&rb, x, y);
-            todo(compare_vec4(got, expected, 0),
+            ok(compare_vec4(got, expected, 0),
                     "Got {%.8e, %.8e, %.8e, %.8e}, expected {%.8e, %.8e, %.8e, %.8e}.\n",
                     got->x, got->y, got->z, got->w, expected->x, expected->y, expected->z, expected->w);
         }
@@ -9906,7 +9906,7 @@ static void test_gather(void)
         {
             const struct vec4 *expected = &expected_gather4[y * rb.width + x];
             const struct vec4 *got = get_readback_vec4(&rb, x, y);
-            todo(compare_vec4(got, expected, 0),
+            ok(compare_vec4(got, expected, 0),
                     "Got {%.8e, %.8e, %.8e, %.8e}, expected {%.8e, %.8e, %.8e, %.8e}.\n",
                     got->x, got->y, got->z, got->w, expected->x, expected->y, expected->z, expected->w);
         }
