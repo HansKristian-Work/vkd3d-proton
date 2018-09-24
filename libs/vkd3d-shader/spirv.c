@@ -4761,7 +4761,7 @@ static void vkd3d_dxbc_compiler_emit_comparison_instruction(struct vkd3d_dxbc_co
     vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, result_id);
 }
 
-static void vkd3d_dxbc_compiler_emit_breakc(struct vkd3d_dxbc_compiler *compiler,
+static void vkd3d_dxbc_compiler_emit_conditional_branch(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction, uint32_t target_block_id)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -5111,7 +5111,8 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             assert(compiler->control_flow_depth);
             assert(cf_info->current_block == VKD3D_BLOCK_LOOP);
 
-            vkd3d_dxbc_compiler_emit_breakc(compiler, instruction, cf_info->u.loop.merge_block_id);
+            vkd3d_dxbc_compiler_emit_conditional_branch(compiler,
+                    instruction, cf_info->u.loop.merge_block_id);
             break;
 
         case VKD3DSIH_CONTINUE:
@@ -5127,6 +5128,21 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             vkd3d_spirv_build_op_branch(builder, loop_cf_info->u.loop.continue_block_id);
 
             cf_info->inside_block = false;
+            break;
+        }
+
+        case VKD3DSIH_CONTINUEP:
+        {
+            struct vkd3d_control_flow_info *loop_cf_info;
+
+            if (!(loop_cf_info = vkd3d_dxbc_compiler_find_innermost_loop(compiler)))
+            {
+                ERR("Invalid 'continuec' instruction outside loop.\n");
+                return;
+            }
+
+            vkd3d_dxbc_compiler_emit_conditional_branch(compiler,
+                    instruction, loop_cf_info->u.loop.continue_block_id);
             break;
         }
 
@@ -6307,6 +6323,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_BREAKP:
         case VKD3DSIH_CASE:
         case VKD3DSIH_CONTINUE:
+        case VKD3DSIH_CONTINUEP:
         case VKD3DSIH_DEFAULT:
         case VKD3DSIH_ELSE:
         case VKD3DSIH_ENDIF:
