@@ -5108,12 +5108,19 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
         }
 
         case VKD3DSIH_BREAKP:
-            assert(compiler->control_flow_depth);
-            assert(cf_info->current_block == VKD3D_BLOCK_LOOP);
+        {
+            struct vkd3d_control_flow_info *loop_cf_info;
+
+            if (!(loop_cf_info = vkd3d_dxbc_compiler_find_innermost_loop(compiler)))
+            {
+                ERR("Invalid 'breakc' instruction outside loop.\n");
+                return;
+            }
 
             vkd3d_dxbc_compiler_emit_conditional_branch(compiler,
-                    instruction, cf_info->u.loop.merge_block_id);
+                    instruction, loop_cf_info->u.loop.merge_block_id);
             break;
+        }
 
         case VKD3DSIH_CONTINUE:
         {
