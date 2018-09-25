@@ -19558,6 +19558,79 @@ static void test_combined_clip_and_cull_distances(void)
     destroy_test_context(&context);
 }
 
+static void test_resource_allocation_info(void)
+{
+    D3D12_RESOURCE_ALLOCATION_INFO info;
+    D3D12_RESOURCE_DESC desc;
+    ID3D12Device *device;
+    unsigned int i, j;
+    ULONG refcount;
+
+    static const unsigned int alignments[] =
+    {
+        0,
+        D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT,
+        D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+        D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT,
+    };
+    static const unsigned int buffer_sizes[] =
+    {
+        1,
+        16,
+        256,
+        1024,
+        D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT,
+        D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT + 1,
+        D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+        D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT + 1,
+        D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT,
+        D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT + 1,
+    };
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Alignment = 0;
+    desc.Width = 32;
+    desc.Height = 1;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.Format = DXGI_FORMAT_UNKNOWN;
+    desc.SampleDesc.Count = 1;
+    desc.SampleDesc.Quality = 0;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    desc.Flags = 0;
+
+    for (i = 0; i < ARRAY_SIZE(alignments); ++i)
+    {
+        for (j = 0; j < ARRAY_SIZE(buffer_sizes); ++j)
+        {
+            desc.Alignment = alignments[i];
+            desc.Width = buffer_sizes[j];
+            info = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &desc);
+            if (!desc.Alignment || desc.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+            {
+                check_alignment(info.SizeInBytes, info.Alignment);
+            }
+            else
+            {
+                ok(info.SizeInBytes == ~(UINT64)0,
+                        "Got unexpected size %"PRIu64".\n", info.SizeInBytes);
+                ok(info.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+                        "Got unexpected alignment %"PRIu64".\n", info.Alignment);
+            }
+        }
+    }
+
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 static void test_suballocate_small_textures(void)
 {
     D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
@@ -19758,5 +19831,6 @@ START_TEST(d3d12)
     run_test(test_cpu_descriptors_lifetime);
     run_test(test_clip_distance);
     run_test(test_combined_clip_and_cull_distances);
+    run_test(test_resource_allocation_info);
     run_test(test_suballocate_small_textures);
 }
