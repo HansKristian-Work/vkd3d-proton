@@ -18,6 +18,79 @@
 
 #include "vkd3d_private.h"
 
+static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32_t memory_type_mask,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
+{
+    VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
+    VkMemoryPropertyFlags required_flags;
+    unsigned int i;
+
+    switch (heap_properties->Type)
+    {
+        case D3D12_HEAP_TYPE_DEFAULT:
+            required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+            break;
+
+        case D3D12_HEAP_TYPE_CUSTOM:
+            FIXME("Custom heaps not supported yet.\n");
+            /* fall-through */
+        case D3D12_HEAP_TYPE_UPLOAD:
+        case D3D12_HEAP_TYPE_READBACK:
+            required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            break;
+
+        default:
+            WARN("Invalid heap type %#x.\n", heap_properties->Type);
+            return ~0u;
+    }
+
+    for (i = 0; i < memory_info->memoryTypeCount; ++i)
+    {
+        if (!(memory_type_mask & (1u << i)))
+            continue;
+        if ((memory_info->memoryTypes[i].propertyFlags & required_flags) == required_flags)
+            return i;
+    }
+
+    return ~0u;
+}
+
+static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const VkMemoryRequirements *memory_requirements, VkDeviceMemory *vk_memory)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryAllocateInfo allocate_info;
+    VkResult vr;
+
+    TRACE("Memory requirements: size %#"PRIx64", alignment %#"PRIx64".\n",
+            memory_requirements->size, memory_requirements->alignment);
+
+    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocate_info.pNext = NULL;
+    allocate_info.allocationSize = memory_requirements->size;
+    allocate_info.memoryTypeIndex = vkd3d_select_memory_type(device,
+            memory_requirements->memoryTypeBits, heap_properties, heap_flags);
+
+    if (allocate_info.memoryTypeIndex == ~0u)
+    {
+        FIXME("Failed to find suitable memory type (allowed types %#x).\n", memory_requirements->memoryTypeBits);
+        *vk_memory = VK_NULL_HANDLE;
+        return E_FAIL;
+    }
+
+    TRACE("Allocating memory type %u.\n", allocate_info.memoryTypeIndex);
+
+    if ((vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, vk_memory))) < 0)
+    {
+        WARN("Failed to allocate device memory, vr %d.\n", vr);
+        *vk_memory = VK_NULL_HANDLE;
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
 /* ID3D12Heap */
 static inline struct d3d12_heap *impl_from_ID3D12Heap(ID3D12Heap *iface)
 {
@@ -66,6 +139,9 @@ static ULONG STDMETHODCALLTYPE d3d12_heap_Release(ID3D12Heap *iface)
     if (!refcount)
     {
         struct d3d12_device *device = heap->device;
+        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+        VK_CALL(vkFreeMemory(device->vk_device, heap->vk_memory, NULL));
 
         vkd3d_free(heap);
 
@@ -181,6 +257,7 @@ static HRESULT validate_heap_desc(const D3D12_HEAP_DESC *desc)
 static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
         struct d3d12_device *device, const D3D12_HEAP_DESC *desc)
 {
+    VkMemoryRequirements memory_requirements;
     HRESULT hr;
 
     heap->ID3D12Heap_iface.lpVtbl = &d3d12_heap_vtbl;
@@ -200,6 +277,14 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
         heap->desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 
     if (FAILED(hr = validate_heap_desc(&heap->desc)))
+        return hr;
+
+    memory_requirements.size = heap->desc.SizeInBytes;
+    memory_requirements.alignment = heap->desc.Alignment;
+    memory_requirements.memoryTypeBits = ~(uint32_t)0;
+
+    if (FAILED(hr = vkd3d_allocate_device_memory(device, &heap->desc.Properties,
+            heap->desc.Flags, &memory_requirements, &heap->vk_memory)))
         return hr;
 
     heap->device = device;
@@ -431,79 +516,6 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     }
 
     return hr;
-}
-
-static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32_t memory_type_mask,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
-{
-    VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
-    VkMemoryPropertyFlags required_flags;
-    unsigned int i;
-
-    switch (heap_properties->Type)
-    {
-        case D3D12_HEAP_TYPE_DEFAULT:
-            required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-            break;
-
-        case D3D12_HEAP_TYPE_CUSTOM:
-            FIXME("Custom heaps not supported yet.\n");
-            /* fall-through */
-        case D3D12_HEAP_TYPE_UPLOAD:
-        case D3D12_HEAP_TYPE_READBACK:
-            required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-            break;
-
-        default:
-            WARN("Invalid heap type %#x.\n", heap_properties->Type);
-            return ~0u;
-    }
-
-    for (i = 0; i < memory_info->memoryTypeCount; ++i)
-    {
-        if (!(memory_type_mask & (1u << i)))
-            continue;
-        if ((memory_info->memoryTypes[i].propertyFlags & required_flags) == required_flags)
-            return i;
-    }
-
-    return ~0u;
-}
-
-static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        const VkMemoryRequirements *memory_requirements, VkDeviceMemory *vk_memory)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkMemoryAllocateInfo allocate_info;
-    VkResult vr;
-
-    TRACE("Memory requirements: size %#"PRIx64", alignment %#"PRIx64".\n",
-            memory_requirements->size, memory_requirements->alignment);
-
-    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocate_info.pNext = NULL;
-    allocate_info.allocationSize = memory_requirements->size;
-    allocate_info.memoryTypeIndex = vkd3d_select_memory_type(device,
-            memory_requirements->memoryTypeBits, heap_properties, heap_flags);
-
-    if (allocate_info.memoryTypeIndex == ~0u)
-    {
-        FIXME("Failed to find suitable memory type (allowed types %#x).\n", memory_requirements->memoryTypeBits);
-        *vk_memory = VK_NULL_HANDLE;
-        return E_FAIL;
-    }
-
-    TRACE("Allocating memory type %u.\n", allocate_info.memoryTypeIndex);
-
-    if ((vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, vk_memory))) < 0)
-    {
-        WARN("Failed to allocate device memory, vr %d.\n", vr);
-        *vk_memory = VK_NULL_HANDLE;
-        return hresult_from_vk_result(vr);
-    }
-
-    return S_OK;
 }
 
 HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,

@@ -190,6 +190,8 @@ struct d3d12_heap
 
     D3D12_HEAP_DESC desc;
 
+    VkDeviceMemory vk_memory;
+
     struct d3d12_device *device;
 };
 
