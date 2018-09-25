@@ -2022,16 +2022,43 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple(ID3D12Device *i
 }
 
 static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo(
-        ID3D12Device *iface, D3D12_RESOURCE_ALLOCATION_INFO *allocation_info, UINT visible_mask,
-        UINT resource_desc_count, const D3D12_RESOURCE_DESC *resource_descs)
+        ID3D12Device *iface, D3D12_RESOURCE_ALLOCATION_INFO *info, UINT visible_mask,
+        UINT count, const D3D12_RESOURCE_DESC *resource_descs)
 {
-    FIXME("iface %p, allocation_info %p, visible_mask 0x%08x, resource_desc_count %u, "
-            "resource_descs %p stub!\n",
-            iface, allocation_info, visible_mask, resource_desc_count, resource_descs);
+    const D3D12_RESOURCE_DESC *desc;
+
+    TRACE("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p.\n",
+            iface, info, visible_mask, count, resource_descs);
 
     debug_ignored_node_mask(visible_mask);
 
-    return allocation_info;
+    info->SizeInBytes = 0;
+    info->Alignment = 0;
+
+    if (count != 1)
+    {
+        FIXME("Multiple resource descriptions not supported.\n");
+        return info;
+    }
+
+    desc = &resource_descs[0];
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+    {
+        info->SizeInBytes = align(desc->Width, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
+        info->Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    }
+    else
+    {
+        FIXME("Unhandled dimension %#x.\n", desc->Dimension);
+    }
+
+    if (FAILED(d3d12_resource_validate_desc(desc)))
+    {
+        WARN("Invalid resource desc.\n");
+        info->SizeInBytes = ~(UINT64)0;
+    }
+
+    return info;
 }
 
 static D3D12_HEAP_PROPERTIES * STDMETHODCALLTYPE d3d12_device_GetCustomHeapProperties(ID3D12Device *iface,
