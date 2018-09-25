@@ -193,6 +193,14 @@ static void check_heap_desc_(unsigned int line, const D3D12_HEAP_DESC *desc,
             "Got flags %#x, expected %#x.\n", desc->Flags, expected.Flags);
 }
 
+#define check_alignment(a, b) check_alignment_(__LINE__, a, b)
+static void check_alignment_(unsigned int line, uint64_t size, uint64_t alignment)
+{
+    uint64_t aligned_size = align(size, alignment);
+    ok_(line)(aligned_size == size, "Got unaligned size %"PRIu64", expected %"PRIu64".\n",
+            size, aligned_size);
+}
+
 static void uav_barrier(ID3D12GraphicsCommandList *list, ID3D12Resource *resource)
 {
     D3D12_RESOURCE_BARRIER barrier;
@@ -19550,6 +19558,89 @@ static void test_combined_clip_and_cull_distances(void)
     destroy_test_context(&context);
 }
 
+static void test_suballocate_small_textures(void)
+{
+    D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
+    D3D12_RESOURCE_ALLOCATION_INFO info;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *textures[10];
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Device *device;
+    ID3D12Heap *heap;
+    unsigned int i;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 32;
+    resource_desc.Height = 32;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = 0;
+
+    resource_desc.Alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
+
+    info = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &resource_desc);
+    trace("Size %"PRIu64", alignment %"PRIu64".\n", info.SizeInBytes, info.Alignment);
+    check_alignment(info.SizeInBytes, info.Alignment);
+    if (info.Alignment != D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT)
+    {
+        resource_desc.Alignment = 0;
+        info = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &resource_desc);
+        trace("Size %"PRIu64", alignment %"PRIu64".\n", info.SizeInBytes, info.Alignment);
+        check_alignment(info.SizeInBytes, info.Alignment);
+    }
+
+    heap_desc.SizeInBytes = ARRAY_SIZE(textures) * info.SizeInBytes;
+    memset(&heap_desc.Properties, 0, sizeof(heap_desc.Properties));
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.Alignment = 0;
+    heap_desc.Flags = D3D12_HEAP_FLAG_DENY_BUFFERS | D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES;
+    hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(textures); ++i)
+    {
+        hr = ID3D12Device_CreatePlacedResource(device, heap, i * info.SizeInBytes,
+                &resource_desc, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                NULL, &IID_ID3D12Resource, (void **)&textures[i]);
+        ok(hr == S_OK, "Failed to create placed resource %u, hr %#x.\n", i, hr);
+
+        check_interface(textures[i], &IID_ID3D12Object, TRUE);
+        check_interface(textures[i], &IID_ID3D12DeviceChild, TRUE);
+        check_interface(textures[i], &IID_ID3D12Pageable, TRUE);
+        check_interface(textures[i], &IID_ID3D12Resource, TRUE);
+
+        gpu_address = ID3D12Resource_GetGPUVirtualAddress(textures[i]);
+        ok(!gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
+    }
+
+    refcount = get_refcount(heap);
+    ok(refcount == 1, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    for (i = 0; i < ARRAY_SIZE(textures); ++i)
+    {
+        refcount = ID3D12Resource_Release(textures[i]);
+        ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+    }
+
+    refcount = ID3D12Heap_Release(heap);
+    ok(!refcount, "ID3D12Heap has %u references left.\n", (unsigned int)refcount);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12)
 {
     bool enable_debug_layer = false;
@@ -19667,4 +19758,5 @@ START_TEST(d3d12)
     run_test(test_cpu_descriptors_lifetime);
     run_test(test_clip_distance);
     run_test(test_combined_clip_and_cull_distances);
+    run_test(test_suballocate_small_textures);
 }
