@@ -195,6 +195,7 @@ struct d3d12_heap
 
 HRESULT d3d12_heap_create(struct d3d12_device *device,
         const D3D12_HEAP_DESC *desc, struct d3d12_heap **heap) DECLSPEC_HIDDEN;
+struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface) DECLSPEC_HIDDEN;
 
 #define VKD3D_RESOURCE_PUBLIC_FLAGS \
         (VKD3D_RESOURCE_INITIAL_STATE_TRANSITION | VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)
@@ -243,6 +244,9 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc) DECLSPEC_H
 
 HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource) DECLSPEC_HIDDEN;
+HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_heap *heap, UINT64 heap_offset,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource) DECLSPEC_HIDDEN;
 struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface) DECLSPEC_HIDDEN;

@@ -2091,15 +2091,25 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateHeap(ID3D12Device *iface,
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource(ID3D12Device *iface,
         ID3D12Heap *heap, UINT64 heap_offset,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value,
-        REFIID riid, void **resource)
+        const D3D12_CLEAR_VALUE *optimized_clear_value, REFIID iid, void **resource)
 {
-    FIXME("iface %p, heap %p, heap_offset %#"PRIx64", desc %p, initial_state %#x, "
-            "optimized_clear_value %p, riid %s, resource %p stub!\n",
-            iface, heap, heap_offset, desc, initial_state,
-            optimized_clear_value, debugstr_guid(riid), resource);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_heap *heap_object;
+    struct d3d12_resource *object;
+    HRESULT hr;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, heap %p, heap_offset %#"PRIx64", desc %p, initial_state %#x, "
+            "optimized_clear_value %p, iid %s, resource %p.\n",
+            iface, heap, heap_offset, desc, initial_state,
+            optimized_clear_value, debugstr_guid(iid), resource);
+
+    heap_object = unsafe_impl_from_ID3D12Heap(heap);
+
+    if (FAILED(hr = d3d12_placed_resource_create(device, heap_object, heap_offset,
+            desc, initial_state, optimized_clear_value, &object)))
+        return hr;
+
+    return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource(ID3D12Device *iface,

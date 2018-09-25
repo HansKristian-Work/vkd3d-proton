@@ -146,6 +146,14 @@ static const struct ID3D12HeapVtbl d3d12_heap_vtbl =
     d3d12_heap_GetDesc,
 };
 
+struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface)
+{
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_heap_vtbl);
+    return impl_from_ID3D12Heap(iface);
+}
+
 static HRESULT validate_heap_desc(const D3D12_HEAP_DESC *desc)
 {
     if (!desc->SizeInBytes)
@@ -1047,6 +1055,18 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
     *resource = object;
 
     return S_OK;
+}
+
+HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_heap *heap, UINT64 heap_offset,
+        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
+{
+    const D3D12_HEAP_DESC *heap_desc = &heap->desc;
+
+    FIXME("Ignoring heap %p, offset %"PRIu64".\n", heap, heap_offset);
+
+    return d3d12_committed_resource_create(device, &heap_desc->Properties, heap_desc->Flags,
+            desc, initial_state, optimized_clear_value, resource);
 }
 
 HRESULT vkd3d_create_image_resource(ID3D12Device *device,
