@@ -2025,7 +2025,10 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
         ID3D12Device *iface, D3D12_RESOURCE_ALLOCATION_INFO *info, UINT visible_mask,
         UINT count, const D3D12_RESOURCE_DESC *resource_descs)
 {
+    UINT64 default_alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
     const D3D12_RESOURCE_DESC *desc;
+    bool valid = true;
 
     TRACE("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p.\n",
             iface, info, visible_mask, count, resource_descs);
@@ -2042,21 +2045,48 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
     }
 
     desc = &resource_descs[0];
-    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
-    {
-        info->SizeInBytes = align(desc->Width, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
-        info->Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-    }
-    else
-    {
-        FIXME("Unhandled dimension %#x.\n", desc->Dimension);
-    }
 
     if (FAILED(d3d12_resource_validate_desc(desc)))
     {
         WARN("Invalid resource desc.\n");
-        info->SizeInBytes = ~(UINT64)0;
+        valid = false;
     }
+
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+    {
+        info->SizeInBytes = desc->Width;
+        info->Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    }
+    else
+    {
+        if (desc->SampleDesc.Count != 1)
+            default_alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
+
+        if (valid && FAILED(vkd3d_get_image_allocation_info(device, desc, info)))
+        {
+            WARN("Failed to get allocation info for texture.\n");
+            valid = false;
+        }
+    }
+
+    if (desc->Alignment % info->Alignment)
+    {
+        WARN("Invalid resource alignment %#"PRIx64" (required %#"PRIx64").\n",
+                desc->Alignment, info->Alignment);
+        valid = false;
+    }
+
+    if (valid)
+    {
+        info->SizeInBytes = align(info->SizeInBytes, info->Alignment);
+    }
+    else
+    {
+        info->SizeInBytes = ~(UINT64)0;
+        info->Alignment = default_alignment;
+    }
+
+    TRACE("Size %#"PRIx64", alignment %#"PRIx64".\n", info->SizeInBytes, info->Alignment);
 
     return info;
 }

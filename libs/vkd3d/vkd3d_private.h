@@ -251,6 +251,15 @@ HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_h
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource) DECLSPEC_HIDDEN;
 struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface) DECLSPEC_HIDDEN;
 
+HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        VkDeviceMemory *vk_memory) DECLSPEC_HIDDEN;
+HRESULT vkd3d_create_buffer(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_RESOURCE_DESC *desc, VkBuffer *vk_buffer) DECLSPEC_HIDDEN;
+HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
+        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_ALLOCATION_INFO *allocation_info) DECLSPEC_HIDDEN;
+
 struct vkd3d_view
 {
     LONG refcount;
@@ -772,13 +781,6 @@ VkPipeline d3d12_device_find_cached_pipeline(struct d3d12_device *device,
         const struct vkd3d_pipeline_key *key) DECLSPEC_HIDDEN;
 bool d3d12_device_put_pipeline_to_cache(struct d3d12_device *device,
         const struct vkd3d_pipeline_key *key, VkPipeline vk_pipeline, struct list *list) DECLSPEC_HIDDEN;
-
-HRESULT vkd3d_create_buffer(struct d3d12_device *device,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        const D3D12_RESOURCE_DESC *desc, VkBuffer *vk_buffer) DECLSPEC_HIDDEN;
-HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        VkDeviceMemory *vk_memory) DECLSPEC_HIDDEN;
 
 /* utils */
 struct vkd3d_format

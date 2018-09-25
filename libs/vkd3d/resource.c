@@ -409,6 +409,30 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     return S_OK;
 }
 
+HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
+        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_ALLOCATION_INFO *allocation_info)
+{
+    static const D3D12_HEAP_PROPERTIES heap_properties = {D3D12_HEAP_TYPE_DEFAULT};
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryRequirements requirements;
+    VkImage vk_image;
+    HRESULT hr;
+
+    assert(desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER);
+
+    /* XXX: We have to create an image to get its memory requirements. */
+    if (SUCCEEDED(hr = vkd3d_create_image(device, &heap_properties, 0, desc, &vk_image)))
+    {
+        VK_CALL(vkGetImageMemoryRequirements(device->vk_device, vk_image, &requirements));
+        VK_CALL(vkDestroyImage(device->vk_device, vk_image, NULL));
+
+        allocation_info->SizeInBytes = requirements.size;
+        allocation_info->Alignment = requirements.alignment;
+    }
+
+    return hr;
+}
+
 static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32_t memory_type_mask,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
 {
