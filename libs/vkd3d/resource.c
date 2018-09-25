@@ -321,16 +321,14 @@ static unsigned int max_miplevel_count(const D3D12_RESOURCE_DESC *desc)
     return vkd3d_log2i(size) + 1;
 }
 
-static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_device *device,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
+static HRESULT vkd3d_create_image(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_RESOURCE_DESC *desc, VkImage *vk_image)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_format *format;
-    const D3D12_RESOURCE_DESC *desc;
     VkImageCreateInfo image_info;
     VkResult vr;
-
-    desc = &resource->desc;
 
     if (!(format = vkd3d_format_from_d3d12_resource_desc(desc, 0)))
     {
@@ -402,7 +400,7 @@ static HRESULT vkd3d_create_image(struct d3d12_resource *resource, struct d3d12_
     image_info.initialLayout = is_cpu_accessible_heap(heap_properties) ?
             VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
 
-    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &resource->u.vk_image))) < 0)
+    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, vk_image))) < 0)
     {
         WARN("Failed to create Vulkan image, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -976,7 +974,8 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
             if (!resource->desc.MipLevels)
                 resource->desc.MipLevels = max_miplevel_count(desc);
             resource->flags |= VKD3D_RESOURCE_INITIAL_STATE_TRANSITION;
-            if (FAILED(hr = vkd3d_create_image(resource, device, heap_properties, heap_flags)))
+            if (FAILED(hr = vkd3d_create_image(device, heap_properties, heap_flags,
+                    &resource->desc, &resource->u.vk_image)))
                 return hr;
             break;
 
