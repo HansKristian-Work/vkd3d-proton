@@ -57,7 +57,7 @@ static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32
 
 static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        const VkMemoryRequirements *memory_requirements, VkDeviceMemory *vk_memory)
+        const VkMemoryRequirements *memory_requirements, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryAllocateInfo allocate_info;
@@ -87,6 +87,9 @@ static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
         *vk_memory = VK_NULL_HANDLE;
         return hresult_from_vk_result(vr);
     }
+
+    if (vk_memory_type)
+        *vk_memory_type = allocate_info.memoryTypeIndex;
 
     return S_OK;
 }
@@ -284,7 +287,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     memory_requirements.memoryTypeBits = ~(uint32_t)0;
 
     if (FAILED(hr = vkd3d_allocate_device_memory(device, &heap->desc.Properties,
-            heap->desc.Flags, &memory_requirements, &heap->vk_memory)))
+            heap->desc.Flags, &memory_requirements, &heap->vk_memory, &heap->vk_memory_type)))
         return hr;
 
     heap->device = device;
@@ -529,7 +532,7 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
 
     VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, vk_buffer, &memory_requirements));
     if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
-            &memory_requirements, vk_memory)))
+            &memory_requirements, vk_memory, NULL)))
         return hr;
 
     if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, vk_buffer, *vk_memory, 0))) < 0)
@@ -554,7 +557,7 @@ static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage 
 
     VK_CALL(vkGetImageMemoryRequirements(device->vk_device, vk_image, &memory_requirements));
     if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
-            &memory_requirements, vk_memory)))
+            &memory_requirements, vk_memory, NULL)))
         return hr;
 
     if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, vk_image, *vk_memory, 0))) < 0)
@@ -1056,6 +1059,22 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device,
     return hr;
 }
 
+static HRESULT vkd3d_allocate_resource_memory(
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
+{
+    if (d3d12_resource_is_buffer(resource))
+    {
+        return vkd3d_allocate_buffer_memory(device, resource->u.vk_buffer,
+                heap_properties, heap_flags, &resource->vk_memory);
+    }
+    else
+    {
+        return vkd3d_allocate_image_memory(device, resource->u.vk_image,
+                heap_properties, heap_flags, &resource->vk_memory);
+    }
+}
+
 HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
@@ -1068,18 +1087,7 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
             desc, initial_state, optimized_clear_value, &object)))
         return hr;
 
-    if (d3d12_resource_is_buffer(object))
-    {
-        hr = vkd3d_allocate_buffer_memory(device, object->u.vk_buffer,
-                heap_properties, heap_flags, &object->vk_memory);
-    }
-    else
-    {
-        hr = vkd3d_allocate_image_memory(device, object->u.vk_image,
-                heap_properties, heap_flags, &object->vk_memory);
-    }
-
-    if (FAILED(hr))
+    if (FAILED(hr = vkd3d_allocate_resource_memory(device, object, heap_properties, heap_flags)))
     {
         d3d12_resource_Release(&object->ID3D12Resource_iface);
         return hr;
@@ -1092,16 +1100,65 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
     return S_OK;
 }
 
+static HRESULT vkd3d_bind_heap_memory(struct d3d12_device *device,
+        struct d3d12_resource *resource, struct d3d12_heap *heap, UINT64 heap_offset)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkDevice vk_device = device->vk_device;
+    VkMemoryRequirements requirements;
+    VkResult vr;
+
+    if (d3d12_resource_is_buffer(resource))
+        VK_CALL(vkGetBufferMemoryRequirements(vk_device, resource->u.vk_buffer, &requirements));
+    else
+        VK_CALL(vkGetImageMemoryRequirements(vk_device, resource->u.vk_image, &requirements));
+
+    if (heap_offset % requirements.alignment)
+    {
+        FIXME("Invalid heap offset %#"PRIx64".\n", heap_offset);
+        return E_INVALIDARG;
+    }
+
+    if (!(requirements.memoryTypeBits & (1u << heap->vk_memory_type)))
+    {
+        FIXME("Memory type %u cannot be bound to resource %p (allowed types %#x).\n",
+                heap->vk_memory_type, resource, requirements.memoryTypeBits);
+        return E_NOTIMPL;
+    }
+
+    if (d3d12_resource_is_buffer(resource))
+        vr = VK_CALL(vkBindBufferMemory(vk_device, resource->u.vk_buffer, heap->vk_memory, heap_offset));
+    else
+        vr = VK_CALL(vkBindImageMemory(vk_device, resource->u.vk_image, heap->vk_memory, heap_offset));
+
+    if (vr < 0)
+        WARN("Failed to bind memory, vr %d.\n", vr);
+
+    return hresult_from_vk_result(vr);
+}
+
 HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_heap *heap, UINT64 heap_offset,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
 {
-    const D3D12_HEAP_DESC *heap_desc = &heap->desc;
+    struct d3d12_resource *object;
+    HRESULT hr;
 
-    FIXME("Ignoring heap %p, offset %"PRIu64".\n", heap, heap_offset);
+    if (FAILED(hr = d3d12_resource_create(device, &heap->desc.Properties, heap->desc.Flags,
+            desc, initial_state, optimized_clear_value, &object)))
+        return hr;
 
-    return d3d12_committed_resource_create(device, &heap_desc->Properties, heap_desc->Flags,
-            desc, initial_state, optimized_clear_value, resource);
+    if (FAILED(hr = vkd3d_bind_heap_memory(device, object, heap, heap_offset)))
+    {
+        d3d12_resource_Release(&object->ID3D12Resource_iface);
+        return hr;
+    }
+
+    TRACE("Created placed resource %p.\n", object);
+
+    *resource = object;
+
+    return S_OK;
 }
 
 HRESULT vkd3d_create_image_resource(ID3D12Device *device,
