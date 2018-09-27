@@ -4770,7 +4770,7 @@ static void vkd3d_dxbc_compiler_emit_comparison_instruction(struct vkd3d_dxbc_co
     vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, result_id);
 }
 
-static void vkd3d_dxbc_compiler_emit_conditional_branch(struct vkd3d_dxbc_compiler *compiler,
+static uint32_t vkd3d_dxbc_compiler_emit_conditional_branch(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction, uint32_t target_block_id)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -4784,7 +4784,8 @@ static void vkd3d_dxbc_compiler_emit_conditional_branch(struct vkd3d_dxbc_compil
 
     vkd3d_spirv_build_op_selection_merge(builder, merge_block_id, SpvSelectionControlMaskNone);
     vkd3d_spirv_build_op_branch_conditional(builder, condition_id, target_block_id, merge_block_id);
-    vkd3d_spirv_build_op_label(builder, merge_block_id);
+
+    return merge_block_id;
 }
 
 static void vkd3d_dxbc_compiler_emit_output_setup_invocation(struct vkd3d_dxbc_compiler *compiler)
@@ -4820,18 +4821,12 @@ static void vkd3d_dxbc_compiler_emit_kill(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    const struct vkd3d_shader_src_param *src = instruction->src;
-    uint32_t condition_id, target_block_id, merge_block_id;
+    uint32_t target_id, merge_block_id;
 
-    condition_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, VKD3DSP_WRITEMASK_0);
-    condition_id = vkd3d_dxbc_compiler_emit_int_to_bool(compiler, instruction->flags, 1, condition_id);
+    target_id = vkd3d_spirv_alloc_id(builder);
+    merge_block_id = vkd3d_dxbc_compiler_emit_conditional_branch(compiler, instruction, target_id);
 
-    merge_block_id = vkd3d_spirv_alloc_id(builder);
-    target_block_id = vkd3d_spirv_alloc_id(builder);
-
-    vkd3d_spirv_build_op_selection_merge(builder, merge_block_id, SpvSelectionControlMaskNone);
-    vkd3d_spirv_build_op_branch_conditional(builder, condition_id, target_block_id, merge_block_id);
-    vkd3d_spirv_build_op_label(builder, target_block_id);
+    vkd3d_spirv_build_op_label(builder, target_id);
     vkd3d_spirv_build_op_kill(builder);
     vkd3d_spirv_build_op_label(builder, merge_block_id);
 }
@@ -5126,8 +5121,9 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
                 return;
             }
 
-            vkd3d_dxbc_compiler_emit_conditional_branch(compiler,
+            merge_block_id = vkd3d_dxbc_compiler_emit_conditional_branch(compiler,
                     instruction, loop_cf_info->u.loop.merge_block_id);
+            vkd3d_spirv_build_op_label(builder, merge_block_id);
             break;
         }
 
@@ -5157,8 +5153,9 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
                 return;
             }
 
-            vkd3d_dxbc_compiler_emit_conditional_branch(compiler,
+            merge_block_id = vkd3d_dxbc_compiler_emit_conditional_branch(compiler,
                     instruction, loop_cf_info->u.loop.continue_block_id);
+            vkd3d_spirv_build_op_label(builder, merge_block_id);
             break;
         }
 
