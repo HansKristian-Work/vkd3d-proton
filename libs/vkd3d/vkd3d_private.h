@@ -696,7 +696,8 @@ struct vkd3d_queue
 };
 
 HRESULT vkd3d_queue_create(struct d3d12_device *device,
-        uint32_t family_index, uint32_t timestamp_bits, struct vkd3d_queue **queue) DECLSPEC_HIDDEN;
+        uint32_t family_index, const VkQueueFamilyProperties *properties,
+        struct vkd3d_queue **queue) DECLSPEC_HIDDEN;
 void vkd3d_queue_destroy(struct vkd3d_queue *queue) DECLSPEC_HIDDEN;
 
 /* ID3D12CommandQueue */

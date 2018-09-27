@@ -20,7 +20,7 @@
 #include "vkd3d_private.h"
 
 HRESULT vkd3d_queue_create(struct d3d12_device *device,
-        uint32_t family_index, uint32_t timestamp_bits, struct vkd3d_queue **queue)
+        uint32_t family_index, const VkQueueFamilyProperties *properties, struct vkd3d_queue **queue)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_queue *object;
@@ -37,7 +37,7 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device,
     }
 
     object->vk_family_index = family_index;
-    object->timestamp_bits = timestamp_bits;
+    object->timestamp_bits = properties->timestampValidBits;
 
     VK_CALL(vkGetDeviceQueue(device->vk_device, family_index, 0, &object->vk_queue));
 

@@ -952,9 +952,8 @@ static void d3d12_device_destroy_vkd3d_queues(struct d3d12_device *device)
 }
 
 static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
-        uint32_t direct_queue_family_index, uint32_t direct_queue_timestamp_bits,
-        uint32_t compute_queue_family_index, uint32_t compute_queue_timestamp_bits,
-        uint32_t copy_queue_family_index, uint32_t copy_queue_timestamp_bits)
+        const VkQueueFamilyProperties *queue_properties, uint32_t direct_queue_family_index,
+        uint32_t compute_queue_family_index, uint32_t copy_queue_family_index)
 {
     HRESULT hr;
 
@@ -963,39 +962,33 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
     device->copy_queue = NULL;
 
     if (FAILED((hr = vkd3d_queue_create(device, direct_queue_family_index,
-            direct_queue_timestamp_bits, &device->direct_queue))))
-    {
-        d3d12_device_destroy_vkd3d_queues(device);
-        return hr;
-    }
+            &queue_properties[direct_queue_family_index], &device->direct_queue))))
+        goto out_destroy_queues;
 
     if (compute_queue_family_index == direct_queue_family_index)
         device->compute_queue = device->direct_queue;
     else if (FAILED(hr = vkd3d_queue_create(device, compute_queue_family_index,
-            compute_queue_timestamp_bits, &device->compute_queue)))
-    {
-        d3d12_device_destroy_vkd3d_queues(device);
-        return hr;
-    }
+            &queue_properties[compute_queue_family_index], &device->compute_queue)))
+        goto out_destroy_queues;
 
     if (copy_queue_family_index == direct_queue_family_index)
         device->copy_queue = device->direct_queue;
     else if (copy_queue_family_index == compute_queue_family_index)
         device->copy_queue = device->compute_queue;
     else if (FAILED(hr = vkd3d_queue_create(device, copy_queue_family_index,
-            copy_queue_timestamp_bits, &device->copy_queue)))
-    {
-        d3d12_device_destroy_vkd3d_queues(device);
-        return hr;
-    }
+            &queue_properties[copy_queue_family_index], &device->copy_queue)))
+        goto out_destroy_queues;
 
     return S_OK;
+
+out_destroy_queues:
+    d3d12_device_destroy_vkd3d_queues(device);
+    return hr;
 }
 
 static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         const struct vkd3d_device_create_info *create_info)
 {
-    uint32_t direct_queue_timestamp_bits, copy_queue_timestamp_bits, compute_queue_timestamp_bits;
     unsigned int direct_queue_family_index, copy_queue_family_index, compute_queue_family_index;
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkQueueFamilyProperties *queue_properties = NULL;
@@ -1032,11 +1025,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     }
 
     direct_queue_family_index = ~0u;
-    direct_queue_timestamp_bits = 0;
     copy_queue_family_index = ~0u;
-    copy_queue_timestamp_bits = 0;
     compute_queue_family_index = ~0u;
-    compute_queue_timestamp_bits = 0;
     for (i = 0; i < queue_family_count; ++i)
     {
         static float priorities[] = {1.0f};
@@ -1052,18 +1042,15 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
                 == (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
         {
             direct_queue_family_index = i;
-            direct_queue_timestamp_bits = queue_properties[i].timestampValidBits;
         }
         if (queue_properties[i].queueFlags & VK_QUEUE_TRANSFER_BIT)
         {
             copy_queue_family_index = i;
-            copy_queue_timestamp_bits = queue_properties[i].timestampValidBits;
         }
         if ((queue_properties[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
                 == VK_QUEUE_COMPUTE_BIT)
         {
             compute_queue_family_index = i;
-            compute_queue_timestamp_bits = queue_properties[i].timestampValidBits;
         }
     }
 
@@ -1083,7 +1070,6 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     {
         /* No compute-only queue family, reuse the direct queue family with graphics and compute. */
         compute_queue_family_index = direct_queue_family_index;
-        compute_queue_timestamp_bits = direct_queue_timestamp_bits;
     }
 
     TRACE("Using queue family %u for direct command queues.\n", direct_queue_family_index);
@@ -1137,10 +1123,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     device->vk_device = vk_device;
 
-    if (FAILED(hr = d3d12_device_create_vkd3d_queues(device,
-            direct_queue_family_index, direct_queue_timestamp_bits,
-            compute_queue_family_index, compute_queue_timestamp_bits,
-            copy_queue_family_index, copy_queue_timestamp_bits)))
+    if (FAILED(hr = d3d12_device_create_vkd3d_queues(device, queue_properties,
+            direct_queue_family_index, compute_queue_family_index, copy_queue_family_index)))
     {
         ERR("Failed to create queues, hr %#x.\n", hr);
         device->vk_procs.vkDestroyDevice(vk_device, NULL);
