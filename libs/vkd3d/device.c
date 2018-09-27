@@ -998,9 +998,9 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     uint32_t direct_queue_timestamp_bits, copy_queue_timestamp_bits, compute_queue_timestamp_bits;
     unsigned int direct_queue_family_index, copy_queue_family_index, compute_queue_family_index;
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
-    VkQueueFamilyProperties *queue_properties;
+    VkQueueFamilyProperties *queue_properties = NULL;
+    VkDeviceQueueCreateInfo *queue_info = NULL;
     VkPhysicalDeviceFeatures device_features;
-    VkDeviceQueueCreateInfo *queue_info;
     VkPhysicalDevice physical_device;
     VkDeviceCreateInfo device_info;
     uint32_t queue_family_count;
@@ -1027,8 +1027,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     if (!(queue_info = vkd3d_calloc(queue_family_count, sizeof(*queue_info))))
     {
-        vkd3d_free(queue_properties);
-        return E_OUTOFMEMORY;
+        hr = E_OUTOFMEMORY;
+        goto fail;
     }
 
     direct_queue_family_index = ~0u;
@@ -1066,19 +1066,18 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
             compute_queue_timestamp_bits = queue_properties[i].timestampValidBits;
         }
     }
-    vkd3d_free(queue_properties);
 
     if (direct_queue_family_index == ~0u)
     {
         FIXME("Could not find a suitable queue family for a direct command queue.\n");
-        vkd3d_free(queue_info);
-        return E_FAIL;
+        hr = E_FAIL;
+        goto fail;
     }
     if (copy_queue_family_index == ~0u)
     {
         FIXME("Could not find a suitable queue family for a copy command queue.\n");
-        vkd3d_free(queue_info);
-        return E_FAIL;
+        hr = E_FAIL;
+        goto fail;
     }
     if (compute_queue_family_index == ~0u)
     {
@@ -1096,15 +1095,12 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &device_features));
     device->vk_physical_device = physical_device;
     if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &device_features, &extension_count)))
-    {
-        vkd3d_free(queue_info);
-        return E_FAIL;
-    }
+        goto fail;
 
     if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
     {
-        vkd3d_free(queue_info);
-        return E_OUTOFMEMORY;
+        hr = E_OUTOFMEMORY;
+        goto fail;
     }
 
     /* Create device */
@@ -1125,7 +1121,6 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     vr = VK_CALL(vkCreateDevice(physical_device, &device_info, NULL, &vk_device));
     vkd3d_free(extensions);
-    vkd3d_free(queue_info);
     if (vr < 0)
     {
         ERR("Failed to create Vulkan device, vr %d.\n", vr);
@@ -1137,7 +1132,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         ERR("Failed to load device procs, hr %#x.\n", hr);
         if (device->vk_procs.vkDestroyDevice)
             device->vk_procs.vkDestroyDevice(vk_device, NULL);
-        return hr;
+        goto fail;
     }
 
     device->vk_device = vk_device;
@@ -1149,12 +1144,17 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     {
         ERR("Failed to create queues, hr %#x.\n", hr);
         device->vk_procs.vkDestroyDevice(vk_device, NULL);
-        return hr;
+        goto fail;
     }
 
     TRACE("Created Vulkan device %p.\n", vk_device);
 
-    return S_OK;
+fail:
+    if (queue_properties)
+        vkd3d_free(queue_properties);
+    if (queue_info)
+        vkd3d_free(queue_info);
+    return hr;
 }
 
 static HRESULT d3d12_device_create_dummy_sampler(struct d3d12_device *device)
