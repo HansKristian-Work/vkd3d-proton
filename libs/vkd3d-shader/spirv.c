@@ -5332,10 +5332,10 @@ static void vkd3d_dxbc_compiler_prepare_dummy_sampled_image(struct vkd3d_dxbc_co
 
 static void vkd3d_dxbc_compiler_prepare_sampled_image(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_image *image, const struct vkd3d_shader_register *resource_reg,
-        const struct vkd3d_shader_register *sampler_reg, bool depth_comparison)
+        const struct vkd3d_shader_register *sampler_reg, unsigned int flags)
 {
     vkd3d_dxbc_compiler_prepare_sampled_image_for_sampler(compiler, image, resource_reg,
-            vkd3d_dxbc_compiler_get_register_id(compiler, sampler_reg), depth_comparison);
+            vkd3d_dxbc_compiler_get_register_id(compiler, sampler_reg), flags);
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_texel_offset(struct vkd3d_dxbc_compiler *compiler,
@@ -5489,6 +5489,7 @@ static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compile
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
+    unsigned int image_flags = VKD3D_IMAGE_FLAG_NONE;
     SpvImageOperandsMask operands_mask = 0;
     unsigned int image_operand_count = 0;
     struct vkd3d_shader_image image;
@@ -5496,6 +5497,10 @@ static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compile
     uint32_t image_operands[1];
     DWORD coordinate_mask;
     bool extended_offset;
+
+    if (instruction->handler_idx == VKD3DSIH_GATHER4_C
+            || instruction->handler_idx == VKD3DSIH_GATHER4_PO_C)
+        image_flags |= VKD3D_IMAGE_FLAG_DEPTH;
 
     extended_offset = instruction->handler_idx == VKD3DSIH_GATHER4_PO
             || instruction->handler_idx == VKD3DSIH_GATHER4_PO_C;
@@ -5506,7 +5511,7 @@ static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compile
     sampler = &src[2 + extended_offset];
 
     vkd3d_dxbc_compiler_prepare_sampled_image(compiler, &image,
-            &resource->reg, &sampler->reg, VKD3D_IMAGE_FLAG_NONE);
+            &resource->reg, &sampler->reg, image_flags);
 
     if (offset)
     {
@@ -5525,7 +5530,7 @@ static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compile
     sampled_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
     coordinate_mask = (1u << image.resource_type_info->coordinate_component_count) - 1;
     coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, addr, coordinate_mask);
-    if (instruction->handler_idx == VKD3DSIH_GATHER4_C)
+    if (image_flags & VKD3D_IMAGE_FLAG_DEPTH)
     {
         dref_id = vkd3d_dxbc_compiler_emit_load_src(compiler,
                 &src[3 + extended_offset], VKD3DSP_WRITEMASK_0);
@@ -6414,6 +6419,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_GATHER4:
         case VKD3DSIH_GATHER4_C:
         case VKD3DSIH_GATHER4_PO:
+        case VKD3DSIH_GATHER4_PO_C:
             vkd3d_dxbc_compiler_emit_gather4(compiler, instruction);
             break;
         case VKD3DSIH_LD_RAW:
