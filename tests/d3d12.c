@@ -5718,6 +5718,38 @@ static void test_shader_instructions(void)
         0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_continuec_nz = {ps_continuec_nz_code, sizeof(ps_continuec_nz_code)};
+    static const DWORD ps_retc_nz_code[] =
+    {
+#if 0
+        float src;
+
+        float4 main() : SV_TARGET
+        {
+            for (int i = 0; i < 255; ++i)
+            {
+                if (i == src)
+                    return float4(1, 0, 0, 0);
+            }
+
+            return 0;
+        }
+#endif
+        /* compiled with /Gfa */
+        0x43425844, 0xf829c302, 0xf21361cb, 0x963b87e9, 0x92f9470e, 0x00000001, 0x00000188, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x52444853, 0x00000110, 0x00000040, 0x00000044,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x02000068,
+        0x00000001, 0x05000036, 0x00100012, 0x00000000, 0x00004001, 0x00000000, 0x01000030, 0x07000021,
+        0x00100022, 0x00000000, 0x0010000a, 0x00000000, 0x00004001, 0x000000ff, 0x03040003, 0x0010001a,
+        0x00000000, 0x0500002b, 0x00100022, 0x00000000, 0x0010000a, 0x00000000, 0x08000018, 0x00100022,
+        0x00000000, 0x0010001a, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x08000036, 0x001020f2,
+        0x00000000, 0x00004002, 0x3f800000, 0x00000000, 0x00000000, 0x00000000, 0x0304003f, 0x0010001a,
+        0x00000000, 0x0700001e, 0x00100012, 0x00000000, 0x0010000a, 0x00000000, 0x00004001, 0x00000001,
+        0x01000016, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_retc_nz = {ps_retc_nz_code, sizeof(ps_retc_nz_code)};
     static const DWORD ps_src_modifiers_code[] =
     {
 #if 0
@@ -6822,6 +6854,11 @@ static void test_shader_instructions(void)
 
         {&ps_continue,     {}, {{254.0f}}, TRUE},
         {&ps_continuec_nz, {}, {{509.0f}}},
+
+        {&ps_retc_nz, {{  0.0f}}, {{1.0f}}},
+        {&ps_retc_nz, {{ 10.0f}}, {{1.0f}}},
+        {&ps_retc_nz, {{ 99.0f}}, {{1.0f}}},
+        {&ps_retc_nz, {{300.0f}}, {{0.0f}}},
 
         {&ps_src_modifiers, {{ 1.0f,  1.0f,  1.0f,  2.0f}}, {{-1.0f, 1.0f, -1.0f, -2.0f}}},
         {&ps_src_modifiers, {{-1.0f, -1.0f, -1.0f, -2.0f}}, {{ 1.0f, 1.0f, -1.0f, -2.0f}}},
