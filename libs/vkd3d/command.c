@@ -37,6 +37,7 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device,
     }
 
     object->vk_family_index = family_index;
+    object->vk_queue_flags = properties->queueFlags;
     object->timestamp_bits = properties->timestampValidBits;
 
     VK_CALL(vkGetDeviceQueue(device->vk_device, family_index, 0, &object->vk_queue));
@@ -667,6 +668,8 @@ static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_comm
         return hresult_from_vk_result(vr);
     }
 
+    list->vk_queue_flags = allocator->vk_queue_flags;
+
     if (FAILED(hr = d3d12_command_list_begin_command_buffer(list)))
     {
         VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
@@ -1169,6 +1172,7 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     allocator->refcount = 1;
 
     allocator->type = type;
+    allocator->vk_queue_flags = queue->vk_queue_flags;
 
     command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     command_pool_info.pNext = NULL;
@@ -1297,9 +1301,22 @@ static void d3d12_command_list_invalidate_bindings(struct d3d12_command_list *li
 }
 
 static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
-        bool is_swapchain_image, D3D12_RESOURCE_STATES present_state,
+        bool is_swapchain_image, D3D12_RESOURCE_STATES present_state, VkQueueFlags vk_queue_flags,
         VkAccessFlags *access_mask, VkPipelineStageFlags *stage_flags, VkImageLayout *image_layout)
 {
+    VkPipelineStageFlags queue_shader_stages = 0;
+
+    if (vk_queue_flags & VK_QUEUE_GRAPHICS_BIT)
+    {
+        queue_shader_stages |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT
+                | VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT
+                | VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT
+                | VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT
+                | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+    if (vk_queue_flags & VK_QUEUE_COMPUTE_BIT)
+        queue_shader_stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+
     switch (state)
     {
         case D3D12_RESOURCE_STATE_COMMON: /* D3D12_RESOURCE_STATE_PRESENT */
@@ -1321,7 +1338,7 @@ static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
                 else
                 {
                     vk_barrier_parameters_from_d3d12_resource_state(present_state,
-                            false, 0, access_mask, stage_flags, image_layout);
+                            false, 0, vk_queue_flags, access_mask, stage_flags, image_layout);
                 }
             }
             else
@@ -1344,12 +1361,7 @@ static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
 
         case D3D12_RESOURCE_STATE_UNORDERED_ACCESS:
             *access_mask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-            *stage_flags = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT
-                    | VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT
-                    | VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT
-                    | VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT
-                    | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
-                    | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+            *stage_flags = queue_shader_stages;
             if (image_layout)
                 *image_layout = VK_IMAGE_LAYOUT_GENERAL;
             return true;
@@ -1419,12 +1431,7 @@ static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
         *access_mask |= VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT
                 | VK_ACCESS_UNIFORM_READ_BIT;
         *stage_flags |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT
-                | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT
-                | VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT
-                | VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT
-                | VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT
-                | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
-                | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+                | queue_shader_stages;
         state &= ~D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
     }
 
@@ -1446,11 +1453,7 @@ static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
     if (state & D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
     {
         *access_mask |= VK_ACCESS_SHADER_READ_BIT;
-        *stage_flags |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT
-                | VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT
-                | VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT
-                | VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT
-                | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        *stage_flags |= (queue_shader_stages & ~VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
         state &= ~D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     }
     if (state & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
@@ -1509,7 +1512,7 @@ static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12
 
     if (!vk_barrier_parameters_from_d3d12_resource_state(resource->initial_state,
             resource->flags & VKD3D_RESOURCE_PRESENT_STATE_TRANSITION, resource->present_state,
-            &barrier.dstAccessMask, &dst_stage_mask, &barrier.newLayout))
+            list->vk_queue_flags, &barrier.dstAccessMask, &dst_stage_mask, &barrier.newLayout))
     {
         FIXME("Unhandled state %#x.\n", resource->initial_state);
         return;
@@ -3069,14 +3072,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
 
                 if (!vk_barrier_parameters_from_d3d12_resource_state(transition->StateBefore,
                         resource->flags & VKD3D_RESOURCE_PRESENT_STATE_TRANSITION, resource->present_state,
-                        &src_access_mask, &src_stage_mask, &layout_before))
+                        list->vk_queue_flags, &src_access_mask, &src_stage_mask, &layout_before))
                 {
                     FIXME("Unhandled state %#x.\n", transition->StateBefore);
                     continue;
                 }
                 if (!vk_barrier_parameters_from_d3d12_resource_state(transition->StateAfter,
                         resource->flags & VKD3D_RESOURCE_PRESENT_STATE_TRANSITION, resource->present_state,
-                        &dst_access_mask, &dst_stage_mask, &layout_after))
+                        list->vk_queue_flags, &dst_access_mask, &dst_stage_mask, &layout_after))
                 {
                     FIXME("Unhandled state %#x.\n", transition->StateAfter);
                     continue;
@@ -3097,7 +3100,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
                 resource = unsafe_impl_from_ID3D12Resource(uav->pResource);
                 vk_barrier_parameters_from_d3d12_resource_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                         resource && (resource->flags & VKD3D_RESOURCE_PRESENT_STATE_TRANSITION),
-                        resource ? resource->present_state : 0,
+                        resource ? resource->present_state : 0, list->vk_queue_flags,
                         &access_mask, &stage_mask, &image_layout);
                 src_access_mask = dst_access_mask = access_mask;
                 src_stage_mask = dst_stage_mask = stage_mask;

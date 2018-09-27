@@ -593,6 +593,7 @@ struct d3d12_command_allocator
     LONG refcount;
 
     D3D12_COMMAND_LIST_TYPE type;
+    VkQueueFlags vk_queue_flags;
 
     VkCommandPool vk_command_pool;
 
@@ -658,10 +659,11 @@ struct d3d12_command_list
     LONG refcount;
 
     D3D12_COMMAND_LIST_TYPE type;
+    VkQueueFlags vk_queue_flags;
 
-    VkCommandBuffer vk_command_buffer;
     bool is_recording;
     bool is_valid;
+    VkCommandBuffer vk_command_buffer;
 
     uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     VkPrimitiveTopology primitive_topology;
@@ -692,6 +694,7 @@ struct vkd3d_queue
     pthread_mutex_t mutex;
     VkQueue vk_queue;
     uint32_t vk_family_index;
+    VkQueueFlags vk_queue_flags;
     uint32_t timestamp_bits;
 };
 
