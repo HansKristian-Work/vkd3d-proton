@@ -1025,7 +1025,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     if (!(queue_info = vkd3d_calloc(queue_family_count, sizeof(*queue_info))))
     {
         hr = E_OUTOFMEMORY;
-        goto fail;
+        goto done;
     }
 
     direct_queue_family_index = ~0u;
@@ -1062,13 +1062,13 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     {
         FIXME("Could not find a suitable queue family for a direct command queue.\n");
         hr = E_FAIL;
-        goto fail;
+        goto done;
     }
     if (copy_queue_family_index == ~0u)
     {
         FIXME("Could not find a suitable queue family for a copy command queue.\n");
         hr = E_FAIL;
-        goto fail;
+        goto done;
     }
     if (compute_queue_family_index == ~0u)
     {
@@ -1085,12 +1085,12 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &device_features));
     device->vk_physical_device = physical_device;
     if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &device_features, &extension_count)))
-        goto fail;
+        goto done;
 
     if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
     {
         hr = E_OUTOFMEMORY;
-        goto fail;
+        goto done;
     }
 
     /* Create device */
@@ -1114,7 +1114,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     if (vr < 0)
     {
         ERR("Failed to create Vulkan device, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
+        hr = hresult_from_vk_result(vr);
+        goto done;
     }
 
     if (FAILED(hr = vkd3d_load_vk_device_procs(&device->vk_procs, vk_procs, vk_device)))
@@ -1122,7 +1123,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         ERR("Failed to load device procs, hr %#x.\n", hr);
         if (device->vk_procs.vkDestroyDevice)
             device->vk_procs.vkDestroyDevice(vk_device, NULL);
-        goto fail;
+        goto done;
     }
 
     device->vk_device = vk_device;
@@ -1132,12 +1133,12 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     {
         ERR("Failed to create queues, hr %#x.\n", hr);
         device->vk_procs.vkDestroyDevice(vk_device, NULL);
-        goto fail;
+        goto done;
     }
 
     TRACE("Created Vulkan device %p.\n", vk_device);
 
-fail:
+done:
     if (queue_properties)
         vkd3d_free(queue_properties);
     if (queue_info)
