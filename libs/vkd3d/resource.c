@@ -2131,6 +2131,7 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
     dsv_desc->format = vkd3d_desc.format->vk_format;
     dsv_desc->width = d3d12_resource_desc_get_width(&resource->desc, vkd3d_desc.miplevel_idx);
     dsv_desc->height = d3d12_resource_desc_get_height(&resource->desc, vkd3d_desc.miplevel_idx);
+    dsv_desc->layer_count = vkd3d_desc.layer_count;
     dsv_desc->view = view;
     dsv_desc->resource = resource;
 }

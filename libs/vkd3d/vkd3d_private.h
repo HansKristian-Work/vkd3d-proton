@@ -358,6 +358,7 @@ struct d3d12_dsv_desc
     VkFormat format;
     uint64_t width;
     unsigned int height;
+    unsigned int layer_count;
     struct vkd3d_view *view;
     struct d3d12_resource *resource;
 };

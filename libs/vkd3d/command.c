@@ -3681,7 +3681,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
         list->views[0] = view->u.vk_image_view;
         list->fb_width = max(list->fb_width, dsv_desc->width);
         list->fb_height = max(list->fb_height, dsv_desc->height);
-        list->fb_layer_count = max(list->fb_layer_count, 1);
+        list->fb_layer_count = max(list->fb_layer_count, dsv_desc->layer_count);
     }
 
     d3d12_command_list_invalidate_current_framebuffer(list);
@@ -3841,7 +3841,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(ID3D12Gra
     ds_reference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     d3d12_command_list_clear(list, &attachment_desc, NULL, &ds_reference,
-            dsv_desc->view, dsv_desc->width, dsv_desc->height, 1, &clear_value, rect_count, rects);
+            dsv_desc->view, dsv_desc->width, dsv_desc->height, dsv_desc->layer_count,
+            &clear_value, rect_count, rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12GraphicsCommandList *iface,
