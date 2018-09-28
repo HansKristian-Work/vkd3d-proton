@@ -1058,9 +1058,9 @@ struct depth_stencil_resource
     D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle;
 };
 
-#define init_depth_stencil(a, b, c, d, e, f, g) init_depth_stencil_(__LINE__, a, b, c, d, e, f, g)
+#define init_depth_stencil(a, b, c, d, e, f, g, h) init_depth_stencil_(__LINE__, a, b, c, d, e, f, g, h)
 static void init_depth_stencil_(unsigned int line, struct depth_stencil_resource *ds,
-        ID3D12Device *device, unsigned int width, unsigned int height,
+        ID3D12Device *device, unsigned int width, unsigned int height, unsigned int array_size,
         DXGI_FORMAT format, DXGI_FORMAT view_format, const D3D12_CLEAR_VALUE *clear_value)
 {
     D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc, *view_desc;
@@ -1078,7 +1078,7 @@ static void init_depth_stencil_(unsigned int line, struct depth_stencil_resource
     resource_desc.Alignment = 0;
     resource_desc.Width = width;
     resource_desc.Height = height;
-    resource_desc.DepthOrArraySize = 1;
+    resource_desc.DepthOrArraySize = array_size;
     resource_desc.MipLevels = 1;
     resource_desc.Format = format;
     resource_desc.SampleDesc.Count = 1;
@@ -3289,7 +3289,9 @@ static void test_multithread_fence_wait(void)
 
 static void test_clear_depth_stencil_view(void)
 {
+    static const float expected_values[] = {0.5f, 0.1f, 0.1f, 0.6, 1.0f, 0.5f};
     ID3D12GraphicsCommandList *command_list;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
     struct depth_stencil_resource ds;
     unsigned int dsv_increment_size;
     D3D12_CLEAR_VALUE clear_value;
@@ -3297,6 +3299,7 @@ static void test_clear_depth_stencil_view(void)
     struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
+    unsigned int i;
 
     memset(&desc, 0, sizeof(desc));
     desc.no_render_target = true;
@@ -3314,13 +3317,45 @@ static void test_clear_depth_stencil_view(void)
     clear_value.Format = DXGI_FORMAT_D32_FLOAT;
     clear_value.DepthStencil.Depth = 0.5f;
     clear_value.DepthStencil.Stencil = 0x3;
-    init_depth_stencil(&ds, device, 32, 32, DXGI_FORMAT_D32_FLOAT, 0, &clear_value);
+    init_depth_stencil(&ds, device, 32, 32, 1, DXGI_FORMAT_D32_FLOAT, 0, &clear_value);
 
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
             D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.75f, 0x7, 0, NULL);
     transition_resource_state(command_list, ds.texture,
             D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    check_sub_resource_uint(ds.texture, 0, queue, command_list, 0x3f400000, 0);
+    check_sub_resource_float(ds.texture, 0, queue, command_list, 0.75f, 1);
+
+    destroy_depth_stencil(&ds);
+    reset_command_list(command_list, context.allocator);
+    init_depth_stencil(&ds, device, 32, 32, 6, DXGI_FORMAT_D32_FLOAT, 0, &clear_value);
+
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+            D3D12_CLEAR_FLAG_DEPTH, expected_values[0], 0, 0, NULL);
+    memset(&dsv_desc, 0, sizeof(dsv_desc));
+    dsv_desc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
+    dsv_desc.Texture2DArray.FirstArraySlice = 1;
+    dsv_desc.Texture2DArray.ArraySize = 2;
+    ID3D12Device_CreateDepthStencilView(device, ds.texture, &dsv_desc, ds.dsv_handle);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+            D3D12_CLEAR_FLAG_DEPTH, expected_values[1], 0, 0, NULL);
+    dsv_desc.Texture2DArray.FirstArraySlice = 3;
+    dsv_desc.Texture2DArray.ArraySize = 1;
+    ID3D12Device_CreateDepthStencilView(device, ds.texture, &dsv_desc, ds.dsv_handle);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+            D3D12_CLEAR_FLAG_DEPTH, expected_values[3], 0, 0, NULL);
+    dsv_desc.Texture2DArray.FirstArraySlice = 4;
+    ID3D12Device_CreateDepthStencilView(device, ds.texture, &dsv_desc, ds.dsv_handle);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+            D3D12_CLEAR_FLAG_DEPTH, expected_values[4], 0, 0, NULL);
+
+    transition_resource_state(command_list, ds.texture,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    for (i = 0; i < ARRAY_SIZE(expected_values); ++i)
+    {
+        check_sub_resource_float(ds.texture, i, queue, command_list, expected_values[i], 1);
+        reset_command_list(command_list, context.allocator);
+    }
 
     destroy_depth_stencil(&ds);
     destroy_test_context(&context);
@@ -4546,7 +4581,7 @@ static void test_draw_depth_only(void)
     command_list = context.list;
     queue = context.queue;
 
-    init_depth_stencil(&ds, context.device, 640, 480, DXGI_FORMAT_D32_FLOAT, 0, NULL);
+    init_depth_stencil(&ds, context.device, 640, 480, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
     set_viewport(&context.viewport, 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f);
     set_rect(&context.scissor_rect, 0, 0, 640, 480);
 
@@ -12156,7 +12191,7 @@ static void test_copy_descriptors(void)
     transition_resource_state(command_list, t[5],
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-    init_depth_stencil(&ds, device, 32, 32, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, NULL);
+    init_depth_stencil(&ds, device, 32, 32, 1, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, NULL);
     t[6] = ds.texture;
     ID3D12Resource_AddRef(t[6]);
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
@@ -13509,7 +13544,7 @@ static void test_depth_stencil_sampling(void)
         reset_command_list(command_list, context.allocator);
 
         init_depth_stencil(&ds, device, context.render_target_desc.Width,
-                context.render_target_desc.Height, tests[i].typeless_format,
+                context.render_target_desc.Height, 1, tests[i].typeless_format,
                 tests[i].dsv_format, NULL);
         texture = ds.texture;
         dsv_handle = ds.dsv_handle;
@@ -13722,7 +13757,7 @@ static void test_depth_load(void)
     heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
 
     init_depth_stencil(&ds, device, context.render_target_desc.Width,
-            context.render_target_desc.Height, DXGI_FORMAT_R32_TYPELESS,
+            context.render_target_desc.Height, 1, DXGI_FORMAT_R32_TYPELESS,
             DXGI_FORMAT_D32_FLOAT, NULL);
     memset(&srv_desc, 0, sizeof(srv_desc));
     srv_desc.Format = DXGI_FORMAT_R32_FLOAT;
@@ -13854,7 +13889,7 @@ static void test_depth_read_only_view(void)
     clear_value.DepthStencil.Depth = 0.5f;
     clear_value.DepthStencil.Stencil = 0;
     init_depth_stencil(&ds, device, context.render_target_desc.Width,
-            context.render_target_desc.Height, DXGI_FORMAT_R32_TYPELESS,
+            context.render_target_desc.Height, 1, DXGI_FORMAT_R32_TYPELESS,
             DXGI_FORMAT_D32_FLOAT, &clear_value);
     memset(&dsv_desc, 0, sizeof(dsv_desc));
     dsv_desc.Format = DXGI_FORMAT_D32_FLOAT;
@@ -16705,7 +16740,7 @@ static void test_query_occlusion(void)
     command_list = context.list;
     queue = context.queue;
 
-    init_depth_stencil(&ds, context.device, 640, 480, DXGI_FORMAT_D32_FLOAT, 0, NULL);
+    init_depth_stencil(&ds, context.device, 640, 480, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
     set_viewport(&context.viewport, 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f);
     set_rect(&context.scissor_rect, 0, 0, 640, 480);
 
@@ -17632,7 +17667,7 @@ static void test_copy_texture_region(void)
     for (i = 0; i < ARRAY_SIZE(depth_values); ++i)
     {
         init_depth_stencil(&ds, device, context.render_target_desc.Width,
-                context.render_target_desc.Height, DXGI_FORMAT_D32_FLOAT,
+                context.render_target_desc.Height, 1, DXGI_FORMAT_D32_FLOAT,
                 DXGI_FORMAT_D32_FLOAT, NULL);
         ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
                 D3D12_CLEAR_FLAG_DEPTH, depth_values[i], 0, 0, NULL);
