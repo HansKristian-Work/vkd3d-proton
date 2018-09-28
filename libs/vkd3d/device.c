@@ -777,9 +777,13 @@ static void vkd3d_check_feature_level_11_requirements(const VkPhysicalDeviceLimi
 
     CHECK_MIN_REQUIREMENT(maxPushConstantsSize, D3D12_MAX_ROOT_COST * sizeof(uint32_t));
     CHECK_MIN_REQUIREMENT(maxComputeSharedMemorySize, D3D12_CS_TGSM_REGISTER_COUNT * sizeof(uint32_t));
+
     CHECK_MAX_REQUIREMENT(viewportBoundsRange[0], D3D12_VIEWPORT_BOUNDS_MIN);
     CHECK_MIN_REQUIREMENT(viewportBoundsRange[1], D3D12_VIEWPORT_BOUNDS_MAX);
     CHECK_MIN_REQUIREMENT(viewportSubPixelBits, 8);
+
+    CHECK_MIN_REQUIREMENT(maxPerStageDescriptorUniformBuffers,
+            D3D12_COMMONSHADER_CONSTANT_BUFFER_REGISTER_COUNT);
 
     CHECK_FEATURE(imageCubeArray);
     CHECK_FEATURE(independentBlend);
