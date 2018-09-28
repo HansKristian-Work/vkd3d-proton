@@ -19970,7 +19970,6 @@ static void test_resource_allocation_info(void)
         }
     }
 
-
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
@@ -20134,6 +20133,73 @@ static void test_command_list_initial_pipeline_state(void)
     destroy_test_context(&context);
 }
 
+static void test_blend_factor(void)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    unsigned int i;
+    HRESULT hr;
+
+    static const struct
+    {
+        float blend_factor[4];
+        unsigned int expected_color;
+    }
+    tests[] =
+    {
+        {{0.0f, 0.0f, 0.0f, 0.0f}, 0xffffffff},
+        {{0.0f, 1.0f, 0.0f, 1.0f}, 0xffffffff},
+        {{0.5f, 0.5f, 0.5f, 0.5f}, 0xff80ff80},
+        {{1.0f, 1.0f, 1.0f, 1.0f}, 0xff00ff00},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, NULL, NULL, NULL);
+    pso_desc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+    pso_desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_BLEND_FACTOR;
+    pso_desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_BLEND_FACTOR;
+    pso_desc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    pso_desc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_BLEND_FACTOR;
+    pso_desc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_BLEND_FACTOR;
+    pso_desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_OMSetBlendFactor(command_list, tests[i].blend_factor);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(context.render_target, 0, queue, command_list, tests[i].expected_color, 1);
+
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     bool enable_debug_layer = false;
@@ -20255,4 +20321,5 @@ START_TEST(d3d12)
     run_test(test_resource_allocation_info);
     run_test(test_suballocate_small_textures);
     run_test(test_command_list_initial_pipeline_state);
+    run_test(test_blend_factor);
 }
