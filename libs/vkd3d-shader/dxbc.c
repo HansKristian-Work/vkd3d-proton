@@ -2040,7 +2040,7 @@ static int shdr_handler(const char *data, DWORD data_size, DWORD tag, void *cont
             break;
 
         default:
-            FIXME("Unhandled chunk %#x.\n", tag);
+            TRACE("Skipping chunk %#x.\n", tag);
             break;
     }
 
