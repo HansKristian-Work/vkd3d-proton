@@ -1849,6 +1849,7 @@ static VkPipeline d3d12_command_list_get_or_create_pipeline(struct d3d12_command
     {
         VK_DYNAMIC_STATE_VIEWPORT,
         VK_DYNAMIC_STATE_SCISSOR,
+        VK_DYNAMIC_STATE_BLEND_CONSTANTS,
         VK_DYNAMIC_STATE_STENCIL_REFERENCE,
     };
     static const struct VkPipelineDynamicStateCreateInfo dynamic_desc =
@@ -2972,7 +2973,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(ID3D12Graphic
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetBlendFactor(ID3D12GraphicsCommandList *iface,
         const FLOAT blend_factor[4])
 {
-    FIXME("iface %p, blend_factor %p stub!\n", iface, blend_factor);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
+
+    TRACE("iface %p, blend_factor %p.\n", iface, blend_factor);
+
+    vk_procs = &list->device->vk_procs;
+    VK_CALL(vkCmdSetBlendConstants(list->vk_command_buffer, blend_factor));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetStencilRef(ID3D12GraphicsCommandList *iface,
