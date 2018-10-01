@@ -1121,9 +1121,10 @@ static HRESULT vkd3d_bind_heap_memory(struct d3d12_device *device,
 
     if (!(requirements.memoryTypeBits & (1u << heap->vk_memory_type)))
     {
-        FIXME("Memory type %u cannot be bound to resource %p (allowed types %#x).\n",
+        FIXME("Memory type %u cannot be bound to resource %p (allowed types %#x), "
+                "allocating device memory.\n",
                 heap->vk_memory_type, resource, requirements.memoryTypeBits);
-        return E_NOTIMPL;
+        return vkd3d_allocate_resource_memory(device, resource, &heap->desc.Properties, heap->desc.Flags);
     }
 
     if (d3d12_resource_is_buffer(resource))
