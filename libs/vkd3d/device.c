@@ -1015,6 +1015,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
             && FAILED(hr = vkd3d_select_physical_device(device->vkd3d_instance, &physical_device)))
         return hr;
 
+    device->vk_physical_device = physical_device;
+
     /* Create command queues */
     VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, NULL));
     if (!(queue_properties = vkd3d_calloc(queue_family_count, sizeof(*queue_properties))))
@@ -1083,9 +1085,10 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 
     VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &device_features));
-    device->vk_physical_device = physical_device;
     if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &device_features, &extension_count)))
         goto done;
+
+    device_features.shaderTessellationAndGeometryPointSize = VK_FALSE;
 
     if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
     {
