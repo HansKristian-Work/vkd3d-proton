@@ -90,6 +90,12 @@ vkd3d_test_platform_is_windows(void)
     return !strcmp(vkd3d_test_platform, "windows");
 }
 
+static inline bool
+broken(bool condition)
+{
+    return condition && vkd3d_test_platform_is_windows();
+}
+
 static void
 vkd3d_test_check_ok(unsigned int line, bool result, const char *fmt, va_list args)
 {

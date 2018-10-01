@@ -869,6 +869,11 @@ static ID3D12Device *create_device(void)
     return device;
 }
 
+static bool broken_on_warp(bool condition)
+{
+    return broken(use_warp_device && condition);
+}
+
 static bool is_min_max_filtering_supported(ID3D12Device *device)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS options;
@@ -1307,12 +1312,18 @@ static void test_format_support(void)
     unsigned int i;
     HRESULT hr;
 
-    static const D3D12_FEATURE_DATA_FORMAT_SUPPORT unsupported_format_features[] =
+    static const struct
     {
-        {DXGI_FORMAT_B8G8R8A8_TYPELESS, D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
-                D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE},
-        {DXGI_FORMAT_B8G8R8A8_UNORM,    D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
-                D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE},
+        D3D12_FEATURE_DATA_FORMAT_SUPPORT f;
+        bool broken;
+    }
+    unsupported_format_features[] =
+    {
+        /* A recent version of WARP suppots B8G8R8A8 UAVs even on D3D_FEATURE_LEVEL_11_0. */
+        {{DXGI_FORMAT_B8G8R8A8_TYPELESS, D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
+                D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE}, true},
+        {{DXGI_FORMAT_B8G8R8A8_UNORM,    D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
+                D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE}, true},
     };
 
     if (!(device = create_device()))
@@ -1333,16 +1344,18 @@ static void test_format_support(void)
     for (i = 0; i < ARRAY_SIZE(unsupported_format_features); ++i)
     {
         memset(&format_support, 0, sizeof(format_support));
-        format_support.Format = unsupported_format_features[i].Format;
+        format_support.Format = unsupported_format_features[i].f.Format;
         hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT,
                 &format_support, sizeof(format_support));
         ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
-        ok(!(format_support.Support1 & unsupported_format_features[i].Support1),
-                "Format %#x supports %#x.\n", unsupported_format_features[i].Format,
-                format_support.Support1 & unsupported_format_features[i].Support1);
-        ok(!(format_support.Support2 & unsupported_format_features[i].Support2),
-                "Format %#x supports %#x.\n", unsupported_format_features[i].Format,
-                format_support.Support2 & unsupported_format_features[i].Support2);
+        ok(!(format_support.Support1 & unsupported_format_features[i].f.Support1)
+                || broken_on_warp(unsupported_format_features[i].broken),
+                "Format %#x supports %#x.\n", unsupported_format_features[i].f.Format,
+                format_support.Support1 & unsupported_format_features[i].f.Support1);
+        ok(!(format_support.Support2 & unsupported_format_features[i].f.Support2)
+                || broken_on_warp(unsupported_format_features[i].broken),
+                "Format %#x supports %#x.\n", unsupported_format_features[i].f.Format,
+                format_support.Support2 & unsupported_format_features[i].f.Support2);
     }
 
     refcount = ID3D12Device_Release(device);
@@ -1709,7 +1722,7 @@ static void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    todo(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo(hr == E_INVALIDARG || broken_on_warp(true), "Got unexpected hr %#x.\n", hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
