@@ -1921,6 +1921,92 @@ done:
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_create_placed_resource(void)
+{
+    D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Device *device, *tmp_device;
+    D3D12_CLEAR_VALUE clear_value;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Resource *resource;
+    ID3D12Heap *heap;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    heap_desc.SizeInBytes = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    memset(&heap_desc.Properties, 0, sizeof(heap_desc.Properties));
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.Alignment = 0;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 32;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = 0;
+
+    clear_value.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    clear_value.Color[0] = 1.0f;
+    clear_value.Color[1] = 0.0f;
+    clear_value.Color[2] = 0.0f;
+    clear_value.Color[3] = 1.0f;
+
+    refcount = get_refcount(heap);
+    ok(refcount == 1, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    hr = ID3D12Device_CreatePlacedResource(device, heap, 0,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", hr);
+
+    refcount = get_refcount(heap);
+    ok(refcount == 1, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    refcount = get_refcount(device);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    hr = ID3D12Resource_GetDevice(resource, &IID_ID3D12Device, (void **)&tmp_device);
+    ok(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
+    refcount = get_refcount(device);
+    ok(refcount == 4, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    refcount = ID3D12Device_Release(tmp_device);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+
+    check_interface(resource, &IID_ID3D12Object, TRUE);
+    check_interface(resource, &IID_ID3D12DeviceChild, TRUE);
+    check_interface(resource, &IID_ID3D12Pageable, TRUE);
+    check_interface(resource, &IID_ID3D12Resource, TRUE);
+
+    gpu_address = ID3D12Resource_GetGPUVirtualAddress(resource);
+    ok(gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
+
+    refcount = ID3D12Resource_Release(resource);
+    ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+
+    /* The clear value must be NULL for buffers. */
+    hr = ID3D12Device_CreatePlacedResource(device, heap, 0,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, &clear_value,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    ID3D12Heap_Release(heap);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 static void test_create_descriptor_heap(void)
 {
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
@@ -20415,6 +20501,7 @@ START_TEST(d3d12)
     run_test(test_create_command_queue);
     run_test(test_create_committed_resource);
     run_test(test_create_heap);
+    run_test(test_create_placed_resource);
     run_test(test_create_descriptor_heap);
     run_test(test_create_sampler);
     run_test(test_create_unordered_access_view);
