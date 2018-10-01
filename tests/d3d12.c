@@ -7656,6 +7656,192 @@ static void test_shader_instructions(void)
     destroy_test_context(&context);
 }
 
+static void test_compute_shader_instructions(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    const D3D12_SHADER_BYTECODE *current_cs;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *buffer;
+    ID3D12Device *device;
+    unsigned int i, j;
+    uint32_t value;
+    HRESULT hr;
+
+    static const DWORD cs_atomic_iadd_tgsm_raw_code[] =
+    {
+#if 0
+        RWByteAddressBuffer buffer;
+
+        groupshared uint m0;
+        groupshared uint m1;
+
+        uint4 u;
+        int4 s;
+
+        [numthreads(1, 1, 1)]
+        void main()
+        {
+            m0 = buffer.Load(0 * 4);
+            m1 = buffer.Load(1 * 4);
+
+            InterlockedAdd(m0, u.x);
+            InterlockedAdd(m1, s.x);
+
+            GroupMemoryBarrierWithGroupSync();
+
+            buffer.Store(0 * 4, m0);
+            buffer.Store(1 * 4, m1);
+        }
+#endif
+        0x43425844, 0xcd7bfbec, 0x273e77a4, 0x49b75eb9, 0xe7d291f4, 0x00000001, 0x000001d0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x0000017c, 0x00050050, 0x0000005f, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000002, 0x0300009d, 0x0011e000, 0x00000000, 0x02000068,
+        0x00000001, 0x0400009f, 0x0011f000, 0x00000000, 0x00000004, 0x0400009f, 0x0011f000, 0x00000001,
+        0x00000004, 0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x890000a5, 0x800002c2, 0x00199983,
+        0x00100012, 0x00000000, 0x00004001, 0x00000000, 0x0011e006, 0x00000000, 0x070000a6, 0x0011f012,
+        0x00000000, 0x00004001, 0x00000000, 0x0010000a, 0x00000000, 0x080000ad, 0x0011f000, 0x00000000,
+        0x00004001, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x890000a5, 0x800002c2, 0x00199983,
+        0x00100012, 0x00000000, 0x00004001, 0x00000004, 0x0011e006, 0x00000000, 0x070000a6, 0x0011f012,
+        0x00000001, 0x00004001, 0x00000000, 0x0010000a, 0x00000000, 0x080000ad, 0x0011f000, 0x00000001,
+        0x00004001, 0x00000000, 0x0020800a, 0x00000000, 0x00000001, 0x010018be, 0x070000a5, 0x00100022,
+        0x00000000, 0x00004001, 0x00000000, 0x0011f006, 0x00000001, 0x070000a5, 0x00100012, 0x00000000,
+        0x00004001, 0x00000000, 0x0011f006, 0x00000000, 0x070000a6, 0x0011e032, 0x00000000, 0x00004001,
+        0x00000000, 0x00100046, 0x00000000, 0x0100003e,
+    };
+    static D3D12_SHADER_BYTECODE cs_atomic_iadd_tgsm_raw
+            = {cs_atomic_iadd_tgsm_raw_code, sizeof(cs_atomic_iadd_tgsm_raw_code)};
+    static const DWORD cs_atomic_iadd_const_code[] =
+    {
+#if 0
+        RWByteAddressBuffer buffer;
+
+        groupshared uint m;
+
+        [numthreads(1, 1, 1)]
+        void main()
+        {
+            m = buffer.Load(0 * 4);
+
+            InterlockedAdd(m, -1);
+            buffer.InterlockedAdd(1 * 4, -1);
+
+            GroupMemoryBarrierWithGroupSync();
+
+            buffer.Store(0 * 4, m);
+        }
+#endif
+        0x43425844, 0x85f9168a, 0x5fe0c4d5, 0x5989b572, 0xecb6ce3c, 0x00000001, 0x0000014c, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000f8, 0x00050050, 0x0000003e, 0x0100086a,
+        0x0300009d, 0x0011e000, 0x00000000, 0x02000068, 0x00000001, 0x0400009f, 0x0011f000, 0x00000000,
+        0x00000004, 0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x890000a5, 0x800002c2, 0x00199983,
+        0x00100012, 0x00000000, 0x00004001, 0x00000000, 0x0011e006, 0x00000000, 0x070000a6, 0x0011f012,
+        0x00000000, 0x00004001, 0x00000000, 0x0010000a, 0x00000000, 0x070000ad, 0x0011f000, 0x00000000,
+        0x00004001, 0x00000000, 0x00004001, 0xffffffff, 0x070000ad, 0x0011e000, 0x00000000, 0x00004001,
+        0x00000004, 0x00004001, 0xffffffff, 0x010018be, 0x070000a5, 0x00100012, 0x00000000, 0x00004001,
+        0x00000000, 0x0011f006, 0x00000000, 0x070000a6, 0x0011e012, 0x00000000, 0x00004001, 0x00000000,
+        0x0010000a, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE cs_atomic_iadd_const
+            = {cs_atomic_iadd_const_code, sizeof(cs_atomic_iadd_const_code)};
+    static const struct
+    {
+        const D3D12_SHADER_BYTECODE *cs;
+        struct uvec4 u;
+        struct ivec4 s;
+        uint32_t input_data[10];
+        uint32_t expected_data[10];
+    }
+    tests[] =
+    {
+        {&cs_atomic_iadd_tgsm_raw, {         0}, { 0}, {0, 0}, {0, 0}},
+        {&cs_atomic_iadd_tgsm_raw, {         0}, { 0}, {1, 1}, {1, 1}},
+        {&cs_atomic_iadd_tgsm_raw, {         1}, { 1}, {0, 0}, {1, 1}},
+        {&cs_atomic_iadd_tgsm_raw, {0xffffffff}, {-1}, {1, 1}, {0, 0}},
+        {&cs_atomic_iadd_tgsm_raw, {0xffffffff}, {-1}, {4, 4}, {3, 3}},
+
+        {&cs_atomic_iadd_const, {}, {}, {0x00000000, 0x00000000}, {0xffffffff, 0xffffffff}},
+        {&cs_atomic_iadd_const, {}, {}, {0x00000001, 0x00000001}, {0x00000000, 0x00000000}},
+        {&cs_atomic_iadd_const, {}, {}, {0xffffffff, 0xffffffff}, {0xfffffffe, 0xfffffffe}},
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[0].Descriptor.ShaderRegister = 0;
+    root_parameters[0].Descriptor.RegisterSpace = 0;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[1].Constants.ShaderRegister = 0;
+    root_parameters[1].Constants.RegisterSpace = 0;
+    root_parameters[1].Constants.Num32BitValues = 8;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    buffer = create_default_buffer(device, 512,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    current_cs = NULL;
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        if (current_cs != tests[i].cs)
+        {
+            if (context.pipeline_state)
+                ID3D12PipelineState_Release(context.pipeline_state);
+            current_cs = tests[i].cs;
+            context.pipeline_state = create_compute_pipeline_state(device,
+                    context.root_signature, *current_cs);
+        }
+
+        upload_buffer_data(buffer, 0, sizeof(tests[i].input_data), tests[i].input_data,
+                queue, command_list);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, buffer,
+                    D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list,
+                0, ID3D12Resource_GetGPUVirtualAddress(buffer));
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(command_list, 1, 4, &tests[i].u, 0);
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(command_list, 1, 4, &tests[i].s, 4);
+
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
+
+        transition_resource_state(command_list, buffer,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+        for (j = 0; j < ARRAY_SIZE(tests[i].expected_data); ++j)
+        {
+            value = get_readback_uint(&rb, j, 0, 0);
+            ok(value == tests[i].expected_data[j], "Test %u: Got 0x%08x, expected 0x%08x at %u.\n",
+                    i, value, tests[i].expected_data[j], j);
+        }
+        release_resource_readback(&rb);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, buffer,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+    }
+
+    ID3D12Resource_Release(buffer);
+    destroy_test_context(&context);
+}
+
 static void test_discard_instruction(void)
 {
     ID3D12PipelineState *pso_discard_nz, *pso_discard_z;
@@ -20261,6 +20447,7 @@ START_TEST(d3d12)
     run_test(test_map_resource);
     run_test(test_bundle_state_inheritance);
     run_test(test_shader_instructions);
+    run_test(test_compute_shader_instructions);
     run_test(test_discard_instruction);
     run_test(test_shader_interstage_interface);
     run_test(test_incompletely_initialized_shader_outputs);
