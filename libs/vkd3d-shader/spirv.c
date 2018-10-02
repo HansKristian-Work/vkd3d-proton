@@ -96,7 +96,7 @@ static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv) {}
 
 #define VKD3D_SPIRV_VERSION 0x00010000
 #define VKD3D_SPIRV_GENERATOR_ID 18
-#define VKD3D_SPIRV_GENERATOR_VERSION 0
+#define VKD3D_SPIRV_GENERATOR_VERSION 1
 #define VKD3D_SPIRV_GENERATOR_MAGIC ((VKD3D_SPIRV_GENERATOR_ID << 16) | VKD3D_SPIRV_GENERATOR_VERSION)
 
 struct vkd3d_spirv_stream
