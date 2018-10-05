@@ -1,16 +1,16 @@
-The Wine team is proud to announce that release 1.0 of vkd3d, the
+The Wine team is proud to announce that release 1.1 of vkd3d, the
 Direct3D 12 to Vulkan translation library, is now available.
 
-This is the first release of vkd3d. A lot of Direct3D 12 features are still
-missing and bugs are expected. The current version was tested mainly with demo
-applications. A number of features that are being worked on have been deferred
-to the next development cycle. This includes in particular geometry and
-tessellation shaders support, various shader translation improvements, as well
-as various improvements for core Direct3D 12 methods.
+This release contains improvements that are listed in the release notes below.
+The main highlights are:
+
+  - Initial support for placed resources.
+  - MoltenVK support.
+  - Support for geometry shaders.
 
 The source is available from the following location:
 
-  https://dl.winehq.org/vkd3d/source/vkd3d-1.0.tar.xz
+  https://dl.winehq.org/vkd3d/source/vkd3d-1.1.tar.xz
 
 The current source can also be pulled directly from the git repository:
 
@@ -21,70 +21,65 @@ for the complete list.
 
 ----------------------------------------------------------------
 
-What's included in vkd3d 1.0
-============================
+What's new in vkd3d 1.1
+=======================
 
 
 *** libvkd3d
 
-- libvkd3d is the main component of the vkd3d project. It's a 3D graphics
-  library built on top of Vulkan with an API very similar to Direct3D 12.
+- Initial support for memory heaps and placed resources.
 
-- A significant number of Direct3D 12 features are implemented, including:
-  - Graphics and compute pipelines.
-  - Command lists, command allocators and command queues.
-  - Descriptors and descriptor heaps.
-  - Root signatures.
-  - Constant buffer, shader resource, unordered access, render target and depth
-    stencil views.
-  - Samplers.
-  - Static samplers.
-  - Descriptors copying.
-  - Committed resources.
-  - Fences.
-  - Queries and query heaps.
-  - Resource barriers.
-  - Root constants.
-  - Basic support for indirect draws and dispatches.
-  - Basic support for command signatures.
-  - Various Clear*() methods.
-  - Various Copy*() methods.
+- Improved support for resource views.
+
+- ClearUnorderedAccessViewUint() is implemented for textures.
+
+- Blend factor is implemented.
+
+- Performance improvements.
+
+- A new interface is available for enabling additional Vulkan instance
+  extensions.
+
+- A new public function is available for mapping VkFormats to DXGI_FORMATs.
+
+- Support for more DXGI formats.
+
+- Various bug fixes.
 
 
 *** libvkd3d-shader
 
-- libvkd3d-shader is a library which translates shader model 4 and 5 bytecode
-  to SPIR-V. In this release, libvkd3d-shader is an internal library. Its API
-  isn't set in stone yet.
+- Support for geometry shaders.
 
-- Vertex, pixel and compute shaders are supported. Also, very simple geometry
-  shaders should be translated correctly. Issues are expected when trying to
-  translate tessellation shaders or more complex geometry shaders.
+- Pretty printing is implemented for shader code extracted from DXBC.
 
-- A significant number of shader instructions are supported in this release,
-  including:
-  - Arithmetic instructions.
-  - Bit instructions.
-  - Comparison instructions.
-  - Control flow instructions.
-  - Sample, gather and load instructions.
-  - Atomic instructions.
-  - UAV instructions.
+- Clip and cull distances are supported.
 
-- Root signature serialization and deserialization is implemented.
+- Support for more shader instructions:
+  - round_ne,
+  - sincos,
+  - ineg,
+  - continue,
+  - continuec,
+  - gather4_po,
+  - gather4_po_c,
+  - gather4_c.
 
-- Shader model 4 and 5 bytecode parser is imported from wined3d.
+- Texel offsets are supported.
 
-- Shader model 5.1 is not supported yet.
+- Various shader translation fixes.
 
 
 *** libvkd3d-utils
 
-- libvkd3d-utils contains simple implementations of various functions which
-  might be useful for source ports of Direct3D 12 applications.
+- Vulkan WSI extensions are detected at runtime.
 
 
-*** demos
+*** build
 
-- A simple hello triangle Direct3D 12 demo.
-- A Direct3D 12 port of glxgears.
+- Demos are not built by default.
+
+- libxcb is now an optional dependency required only for demos.
+
+- MoltenVK is supported.
+
