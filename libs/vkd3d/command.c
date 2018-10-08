@@ -3554,7 +3554,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(ID3D12Graphics
             index_type = VK_INDEX_TYPE_UINT32;
             break;
         default:
-            FIXME("Unhandled format %#x.\n", view->Format);
+            WARN("Invalid index format %#x.\n", view->Format);
             return;
     }
 
