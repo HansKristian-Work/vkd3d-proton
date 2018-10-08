@@ -1203,11 +1203,14 @@ struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12Pipeline
 
 static void dump_shader(const char *path, const char *prefix, const void *data, size_t size)
 {
-    static unsigned int shader_id = 0;
+    static int shader_id = 0;
     char filename[1024];
+    unsigned int id;
     FILE *f;
 
-    snprintf(filename, ARRAY_SIZE(filename), "%s/vkd3d-shader-%s-%u.dxbc", path, prefix, shader_id);
+    id = InterlockedIncrement(&shader_id) - 1;
+
+    snprintf(filename, ARRAY_SIZE(filename), "%s/vkd3d-shader-%s-%u.dxbc", path, prefix, id);
     if (!(f = fopen(filename, "wb")))
     {
         ERR("Failed to open %s for dumping shader.\n", filename);
@@ -1218,8 +1221,6 @@ static void dump_shader(const char *path, const char *prefix, const void *data, 
         ERR("Failed to write shader to %s.\n", filename);
     if (fclose(f))
         ERR("Failed to close stream %s.\n", filename);
-
-    ++shader_id;
 }
 
 static void dump_shader_stage(VkShaderStageFlagBits stage, const void *data, size_t size)
