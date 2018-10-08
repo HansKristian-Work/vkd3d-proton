@@ -1529,9 +1529,11 @@ static void test_create_command_list(void)
 
 static void test_create_command_queue(void)
 {
+    ID3D12CommandQueue* direct_queues[32], *compute_queues[32];
     D3D12_COMMAND_QUEUE_DESC desc, result_desc;
     ID3D12Device *device, *tmp_device;
     ID3D12CommandQueue *queue;
+    unsigned int i;
     ULONG refcount;
     HRESULT hr;
 
@@ -1583,6 +1585,24 @@ static void test_create_command_queue(void)
 
     refcount = ID3D12CommandQueue_Release(queue);
     ok(!refcount, "ID3D12CommandQueue has %u references left.\n", (unsigned int)refcount);
+
+    desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    for (i = 0; i < ARRAY_SIZE(direct_queues); ++i)
+    {
+        hr = ID3D12Device_CreateCommandQueue(device, &desc, &IID_ID3D12CommandQueue, (void **)&direct_queues[i]);
+        ok(hr == S_OK, "Failed to create direct command queue %u, hr %#x.\n", hr, i);
+    }
+    desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    for (i = 0; i < ARRAY_SIZE(compute_queues); ++i)
+    {
+        hr = ID3D12Device_CreateCommandQueue(device, &desc, &IID_ID3D12CommandQueue, (void **)&compute_queues[i]);
+        ok(hr == S_OK, "Failed to create compute command queue %u, hr %#x.\n", hr, i);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(direct_queues); ++i)
+        ID3D12CommandQueue_Release(direct_queues[i]);
+    for (i = 0; i < ARRAY_SIZE(compute_queues); ++i)
+        ID3D12CommandQueue_Release(compute_queues[i]);
 
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
