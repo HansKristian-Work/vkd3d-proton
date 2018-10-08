@@ -2958,6 +2958,14 @@ static uint32_t sv_front_face_fixup(struct vkd3d_dxbc_compiler *compiler,
     return vkd3d_dxbc_compiler_emit_bool_to_int(compiler, 1, front_facing_id);
 }
 
+static uint32_t sv_sample_index(struct vkd3d_dxbc_compiler *compiler, uint32_t id)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    vkd3d_spirv_enable_capability(builder, SpvCapabilitySampleRateShading);
+    return id;
+}
+
 struct vkd3d_spirv_builtin
 {
     enum vkd3d_component_type component_type;
@@ -2985,6 +2993,8 @@ vkd3d_system_value_builtins[] =
     {VKD3D_SIV_RENDER_TARGET_ARRAY_INDEX, {VKD3D_TYPE_INT, 1, SpvBuiltInLayer}},
 
     {VKD3D_SIV_IS_FRONT_FACE, {VKD3D_TYPE_BOOL, 1, SpvBuiltInFrontFacing, sv_front_face_fixup}},
+
+    {VKD3D_SIV_SAMPLE_INDEX, {VKD3D_TYPE_UINT, 1, SpvBuiltInSampleId, sv_sample_index}},
 
     {VKD3D_SIV_CLIP_DISTANCE, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInClipDistance, NULL, true}},
     {VKD3D_SIV_CULL_DISTANCE, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInCullDistance, NULL, true}},
