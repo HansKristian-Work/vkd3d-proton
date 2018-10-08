@@ -1804,9 +1804,32 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             return S_OK;
         }
 
+        case D3D12_FEATURE_SHADER_MODEL:
+        {
+            D3D12_FEATURE_DATA_SHADER_MODEL *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            TRACE("Request shader model %#x.\n", data->HighestShaderModel);
+
+            data->HighestShaderModel = D3D_SHADER_MODEL_5_1;
+            return S_OK;
+        }
+
         case D3D12_FEATURE_ROOT_SIGNATURE:
         {
             D3D12_FEATURE_DATA_ROOT_SIGNATURE *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
             FIXME("Root signature version 1_1 not supported yet.\n");
             data->HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
             return S_OK;
