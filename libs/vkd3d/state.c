@@ -1994,6 +1994,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
     graphics->attachment_count = graphics->rt_idx + rt_count;
 
+    ps_compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
     ps_compile_args.output_swizzles = ps_output_swizzle;
     ps_compile_args.output_swizzle_count = rt_count;
 

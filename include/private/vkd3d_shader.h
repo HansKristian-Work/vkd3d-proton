@@ -125,8 +125,18 @@ struct vkd3d_shader_interface
     unsigned int uav_counter_count;
 };
 
+enum vkd3d_shader_target
+{
+    VKD3D_SHADER_TARGET_NONE,
+    VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5,
+    VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0, /* default target */
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_TARGET),
+};
+
 struct vkd3d_shader_compile_arguments
 {
+    enum vkd3d_shader_target target;
     unsigned int *output_swizzles;
     unsigned int output_swizzle_count;
 };
