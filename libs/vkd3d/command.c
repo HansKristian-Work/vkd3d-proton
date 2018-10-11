@@ -3383,12 +3383,8 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
     buffer_info.offset = gpu_address - resource->gpu_address;
     buffer_info.range = VK_WHOLE_SIZE;
 
-    if (!vk_info->KHR_push_descriptor)
-        d3d12_command_list_prepare_descriptors(list, bind_point);
-
     descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptor_write.pNext = NULL;
-    descriptor_write.dstSet = bindings->descriptor_set;
     descriptor_write.dstBinding = root_descriptor->binding;
     descriptor_write.dstArrayElement = 0;
     descriptor_write.descriptorCount = 1;
@@ -3399,11 +3395,14 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
 
     if (vk_info->KHR_push_descriptor)
     {
+        descriptor_write.dstSet = VK_NULL_HANDLE;
         VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, bind_point,
                 root_signature->vk_pipeline_layout, 0, 1, &descriptor_write));
     }
     else
     {
+        d3d12_command_list_prepare_descriptors(list, bind_point);
+        descriptor_write.dstSet = bindings->descriptor_set;
         VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &descriptor_write, 0, NULL));
     }
 }
