@@ -2220,8 +2220,6 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
 
     descriptor = d3d12_desc_from_gpu_handle(base_descriptor);
 
-    d3d12_command_list_prepare_descriptors(list, bind_point);
-
     descriptor_count = 0;
     current_descriptor_write = descriptor_writes;
     current_image_info = image_infos;
@@ -2328,6 +2326,9 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
 
     if (!rs || !rs->pool_size_count || !rs->vk_set_layout)
         return;
+
+    if (bindings->descriptor_table_dirty_mask)
+        d3d12_command_list_prepare_descriptors(list, bind_point);
 
     for (i = 0; i < ARRAY_SIZE(bindings->descriptor_tables); ++i)
     {
