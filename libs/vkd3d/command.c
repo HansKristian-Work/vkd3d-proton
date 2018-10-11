@@ -1983,98 +1983,11 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     return true;
 }
 
-static void d3d12_command_list_copy_descriptors(struct d3d12_command_list *list,
-        const struct vkd3d_pipeline_bindings *bindings, VkDescriptorSet src_set)
-{
-    const struct d3d12_root_signature *root_signature = bindings->root_signature;
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    const struct d3d12_root_descriptor_table *descriptor_table;
-    const struct d3d12_root_descriptor_table_range *range;
-    VkDevice vk_device = list->device->vk_device;
-    VkCopyDescriptorSet *descriptor_copies;
-    unsigned int copy_descriptor_count;
-    unsigned int i, j, k, count;
-    unsigned int idx;
-
-    count = 0;
-    for (i = 0; i < root_signature->parameter_count; ++i)
-    {
-        if (root_signature->parameters[i].parameter_type != D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
-            continue;
-        if (bindings->descriptor_table_dirty_mask & ((uint64_t)1 << i))
-            continue;
-
-        descriptor_table = &root_signature->parameters[i].u.descriptor_table;
-        for (j = 0; j < descriptor_table->range_count; ++j)
-        {
-            range = &descriptor_table->ranges[j];
-            switch (range->descriptor_magic)
-            {
-                case VKD3D_DESCRIPTOR_MAGIC_SRV:
-                case VKD3D_DESCRIPTOR_MAGIC_UAV:
-                    count += 2 * range->descriptor_count;
-                    break;
-                default:
-                    ++count;
-                    break;
-            }
-        }
-    }
-
-    if (!count)
-        return;
-
-    if (!(descriptor_copies = vkd3d_calloc(count, sizeof(*descriptor_copies))))
-        return;
-
-    idx = 0;
-    for (i = 0; i < root_signature->parameter_count; ++i)
-    {
-        if (root_signature->parameters[i].parameter_type != D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
-            continue;
-        if (bindings->descriptor_table_dirty_mask & ((uint64_t)1 << i))
-            continue;
-
-        descriptor_table = &root_signature->parameters[i].u.descriptor_table;
-        for (j = 0; j < descriptor_table->range_count; ++j)
-        {
-            range = &descriptor_table->ranges[j];
-            if (range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_SRV
-                    || range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
-                copy_descriptor_count = 2 * range->descriptor_count;
-            else
-                copy_descriptor_count = 1;
-            for (k = 0; k < copy_descriptor_count; ++k)
-            {
-                descriptor_copies[idx].sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
-                descriptor_copies[idx].pNext = NULL;
-                descriptor_copies[idx].srcSet = src_set;
-                descriptor_copies[idx].srcBinding = range->binding + k;
-                descriptor_copies[idx].srcArrayElement = 0;
-                descriptor_copies[idx].dstSet = bindings->descriptor_set;
-                descriptor_copies[idx].dstBinding = range->binding + k;
-                descriptor_copies[idx].dstArrayElement = 0;
-                if (range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_SRV
-                        || range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
-                    descriptor_copies[idx].descriptorCount = 1;
-                else
-                    descriptor_copies[idx].descriptorCount = range->descriptor_count;
-                ++idx;
-            }
-        }
-    }
-    assert(count == idx);
-    VK_CALL(vkUpdateDescriptorSets(vk_device, 0, NULL, count, descriptor_copies));
-
-    vkd3d_free(descriptor_copies);
-}
-
 static void d3d12_command_list_prepare_descriptors(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
-    VkDescriptorSet previous_descriptor_set = bindings->descriptor_set;
 
     if (bindings->descriptor_set && !bindings->in_use)
         return;
@@ -2095,10 +2008,8 @@ static void d3d12_command_list_prepare_descriptors(struct d3d12_command_list *li
             root_signature->vk_set_layout);
     bindings->in_use = false;
 
+    bindings->descriptor_table_dirty_mask |= bindings->descriptor_table_active_mask;
     bindings->push_descriptor_dirty_mask |= bindings->push_descriptor_active_mask;
-
-    if (previous_descriptor_set)
-        d3d12_command_list_copy_descriptors(list, bindings, previous_descriptor_set);
 }
 
 static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_descriptor_write,
@@ -2193,6 +2104,12 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
     if (!descriptor_count)
         return;
 
+    if (!(descriptor = d3d12_desc_from_gpu_handle(base_descriptor)))
+    {
+        WARN("Descriptor table %u is not set.\n", index);
+        return;
+    }
+
     if (!(descriptor_writes = vkd3d_calloc(descriptor_count, sizeof(*descriptor_writes))))
         return;
     if (!(image_infos = vkd3d_calloc(descriptor_count, sizeof(*image_infos))))
@@ -2200,8 +2117,6 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
         vkd3d_free(descriptor_writes);
         return;
     }
-
-    descriptor = d3d12_desc_from_gpu_handle(base_descriptor);
 
     descriptor_count = 0;
     current_descriptor_write = descriptor_writes;
@@ -3329,6 +3244,7 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
 
     bindings->root_signature = root_signature;
     bindings->descriptor_set = VK_NULL_HANDLE;
+    bindings->descriptor_table_active_mask = 0;
     bindings->push_descriptor_active_mask = 0;
 }
 
@@ -3365,6 +3281,7 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
     assert(index < ARRAY_SIZE(bindings->descriptor_tables));
     bindings->descriptor_tables[index] = base_descriptor;
     bindings->descriptor_table_dirty_mask |= (uint64_t)1 << index;
+    bindings->descriptor_table_active_mask |= (uint64_t)1 << index;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable(ID3D12GraphicsCommandList *iface,

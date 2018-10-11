@@ -661,6 +661,7 @@ struct vkd3d_pipeline_bindings
 
     D3D12_GPU_DESCRIPTOR_HANDLE descriptor_tables[D3D12_MAX_ROOT_COST];
     uint64_t descriptor_table_dirty_mask;
+    uint64_t descriptor_table_active_mask;
 
     VkBufferView vk_uav_counter_views[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS];
     uint8_t uav_counter_dirty_mask;
