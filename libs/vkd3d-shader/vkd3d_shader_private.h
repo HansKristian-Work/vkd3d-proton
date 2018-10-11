@@ -439,9 +439,10 @@ enum vkd3d_shader_interpolation_mode
 
 enum vkd3d_shader_global_flags
 {
-    VKD3DSGF_REFACTORING_ALLOWED               = 0x1,
-    VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL         = 0x4,
-    VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS = 0x8,
+    VKD3DSGF_REFACTORING_ALLOWED               = 0x01,
+    VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL         = 0x04,
+    VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS = 0x08,
+    VKD3DSGF_ENABLE_MINIMUM_PRECISION          = 0x20
 };
 
 enum vkd3d_shader_sync_flags

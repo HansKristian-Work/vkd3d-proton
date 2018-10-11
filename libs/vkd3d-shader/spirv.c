@@ -3468,7 +3468,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_global_flags(struct vkd3d_dxbc_compiler
         const struct vkd3d_shader_instruction *instruction)
 {
     if (instruction->flags & ~(VKD3DSGF_REFACTORING_ALLOWED | VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS))
-        FIXME("Unrecognized global flags %#x.\n", instruction->flags);
+        FIXME("Unhandled global flags %#x.\n", instruction->flags);
     else
         WARN("Unhandled global flags %#x.\n", instruction->flags);
 }

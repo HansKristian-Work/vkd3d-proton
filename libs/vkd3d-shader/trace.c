@@ -398,26 +398,30 @@ static unsigned int shader_get_float_offset(enum vkd3d_shader_register_type regi
 
 static void shader_dump_global_flags(struct vkd3d_string_buffer *buffer, DWORD global_flags)
 {
-    if (global_flags & VKD3DSGF_REFACTORING_ALLOWED)
-    {
-        shader_addline(buffer, "refactoringAllowed");
-        global_flags &= ~VKD3DSGF_REFACTORING_ALLOWED;
-        if (global_flags)
-            shader_addline(buffer, " | ");
-    }
+    unsigned int i;
 
-    if (global_flags & VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL)
+    static const struct
     {
-        shader_addline(buffer, "forceEarlyDepthStencil");
-        global_flags &= ~VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL;
-        if (global_flags)
-            shader_addline(buffer, " | ");
+        unsigned int flag;
+        const char *name;
     }
-
-    if (global_flags & VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS)
+    global_flag_info[] =
     {
-        shader_addline(buffer, "enableRawAndStructuredBuffers");
-        global_flags &= ~VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS;
+        {VKD3DSGF_REFACTORING_ALLOWED,               "refactoringAllowed"},
+        {VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL,         "forceEarlyDepthStencil"},
+        {VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS, "enableRawAndStructuredBuffers"},
+        {VKD3DSGF_ENABLE_MINIMUM_PRECISION,          "enableMinimumPrecision"},
+    };
+
+    for (i = 0; i < ARRAY_SIZE(global_flag_info); ++i)
+    {
+        if (global_flags & global_flag_info[i].flag)
+        {
+            shader_addline(buffer, global_flag_info[i].name);
+            global_flags &= ~global_flag_info[i].flag;
+            if (global_flags)
+                shader_addline(buffer, " | ");
+        }
     }
 
     if (global_flags)
