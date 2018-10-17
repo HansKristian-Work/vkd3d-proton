@@ -1988,6 +1988,11 @@ static enum vkd3d_shader_target vkd3d_dxbc_compiler_get_target(const struct vkd3
     return args ? args->target : VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
 }
 
+static bool vkd3d_dxbc_compiler_is_opengl_target(const struct vkd3d_dxbc_compiler *compiler)
+{
+    return vkd3d_dxbc_compiler_get_target(compiler) == VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5;
+}
+
 static bool vkd3d_dxbc_compiler_check_shader_visibility(const struct vkd3d_dxbc_compiler *compiler,
         enum vkd3d_shader_visibility visibility)
 {
@@ -2061,6 +2066,9 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
         for (i = 0; i < shader_interface->uav_counter_count; ++i)
         {
             const struct vkd3d_shader_uav_counter_binding *current = &shader_interface->uav_counters[i];
+
+            if (current->offset)
+                FIXME("Atomic counter offsets are not supported yet.\n");
 
             /* FIXME: Implement shader visibility for UAV counters. */
             if (current->register_index == reg_idx)
@@ -3837,11 +3845,11 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
         const struct vkd3d_shader_register *reg, enum vkd3d_shader_resource_type resource_type,
         enum vkd3d_data_type resource_data_type, unsigned int structure_stride, bool raw)
 {
-    const SpvStorageClass storage_class = SpvStorageClassUniformConstant;
+    uint32_t counter_type_id, type_id, ptr_type_id, var_id, counter_var_id = 0;
     const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     const struct vkd3d_spirv_resource_type *resource_type_info;
-    uint32_t type_id, ptr_type_id, var_id, counter_var_id = 0;
     enum vkd3d_component_type sampled_type;
     struct vkd3d_symbol resource_symbol;
     bool is_uav;
@@ -3872,6 +3880,15 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     if (is_uav && (scan_info->uav_counter_mask & (1u << reg->idx[0].offset)))
     {
         assert(structure_stride); /* counters are valid only for structured buffers */
+
+        if (vkd3d_dxbc_compiler_is_opengl_target(compiler))
+        {
+            vkd3d_spirv_enable_capability(builder, SpvCapabilityAtomicStorage);
+            storage_class = SpvStorageClassAtomicCounter;
+            counter_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+            ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, counter_type_id);
+        }
+
         counter_var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
                 ptr_type_id, storage_class, 0);
 
@@ -5901,7 +5918,8 @@ static void vkd3d_dxbc_compiler_emit_uav_counter_instruction(struct vkd3d_dxbc_c
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    uint32_t ptr_type_id, type_id, image_id, result_id;
+    unsigned int memory_semantics = SpvMemorySemanticsMaskNone;
+    uint32_t ptr_type_id, type_id, counter_id, result_id;
     uint32_t coordinate_id, sample_id, pointer_id;
     const struct vkd3d_symbol *resource_symbol;
     uint32_t operands[3];
@@ -5911,18 +5929,26 @@ static void vkd3d_dxbc_compiler_emit_uav_counter_instruction(struct vkd3d_dxbc_c
             ? SpvOpAtomicIIncrement : SpvOpAtomicIDecrement;
 
     resource_symbol = vkd3d_dxbc_compiler_find_resource(compiler, &src->reg);
-    image_id = resource_symbol->info.resource.uav_counter_id;
-    assert(image_id);
+    counter_id = resource_symbol->info.resource.uav_counter_id;
+    assert(counter_id);
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassImage, type_id);
-    coordinate_id = sample_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
-    pointer_id = vkd3d_spirv_build_op_image_texel_pointer(builder,
-            ptr_type_id, image_id, coordinate_id, sample_id);
+    if (vkd3d_dxbc_compiler_is_opengl_target(compiler))
+    {
+        pointer_id = counter_id;
+        memory_semantics |= SpvMemorySemanticsAtomicCounterMemoryMask;
+    }
+    else
+    {
+        ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassImage, type_id);
+        coordinate_id = sample_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
+        pointer_id = vkd3d_spirv_build_op_image_texel_pointer(builder,
+                ptr_type_id, counter_id, coordinate_id, sample_id);
+    }
 
     operands[0] = pointer_id;
     operands[1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvScopeDevice);
-    operands[2] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvMemorySemanticsMaskNone);
+    operands[2] = vkd3d_dxbc_compiler_get_constant_uint(compiler, memory_semantics);
     result_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
             op, type_id, operands, ARRAY_SIZE(operands));
     if (op == SpvOpAtomicIDecrement)

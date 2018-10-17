@@ -96,6 +96,7 @@ struct vkd3d_shader_uav_counter_binding
     unsigned int register_index; /* u# */
 
     struct vkd3d_shader_descriptor_binding binding;
+    unsigned int offset;
 };
 
 struct vkd3d_shader_push_constant_buffer
