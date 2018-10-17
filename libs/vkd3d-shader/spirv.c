@@ -5448,6 +5448,12 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_SAMPLE:
             op = SpvOpImageSampleImplicitLod;
             break;
+        case VKD3DSIH_SAMPLE_B:
+            op = SpvOpImageSampleImplicitLod;
+            operands_mask |= SpvImageOperandsBiasMask;
+            image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_load_src(compiler,
+                    &src[3], VKD3DSP_WRITEMASK_0);
+            break;
         case VKD3DSIH_SAMPLE_GRAD:
             op = SpvOpImageSampleExplicitLod;
             operands_mask |= SpvImageOperandsGradMask;
@@ -6458,6 +6464,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             vkd3d_dxbc_compiler_emit_ld(compiler, instruction);
             break;
         case VKD3DSIH_SAMPLE:
+        case VKD3DSIH_SAMPLE_B:
         case VKD3DSIH_SAMPLE_GRAD:
         case VKD3DSIH_SAMPLE_LOD:
             vkd3d_dxbc_compiler_emit_sample(compiler, instruction);
