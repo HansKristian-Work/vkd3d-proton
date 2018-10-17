@@ -1335,7 +1335,7 @@ static uint32_t vkd3d_spirv_build_op_image_sample(struct vkd3d_spirv_builder *bu
     const uint32_t operands[] = {sampled_image_id, coordinate_id};
 
     if (op == SpvOpImageSampleExplicitLod)
-        assert(image_operands_mask & SpvImageOperandsLodMask);
+        assert(image_operands_mask & (SpvImageOperandsLodMask | SpvImageOperandsGradMask));
     else
         assert(op == SpvOpImageSampleImplicitLod);
 
@@ -1350,7 +1350,7 @@ static uint32_t vkd3d_spirv_build_op_image_sample_dref(struct vkd3d_spirv_builde
     const uint32_t operands[] = {sampled_image_id, coordinate_id, dref_id};
 
     if (op == SpvOpImageSampleDrefExplicitLod)
-        assert(image_operands_mask & SpvImageOperandsLodMask);
+        assert(image_operands_mask & (SpvImageOperandsLodMask | SpvImageOperandsGradMask));
     else
         assert(op == SpvOpImageSampleDrefImplicitLod);
 
@@ -5436,13 +5436,26 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
     SpvImageOperandsMask operands_mask = 0;
     unsigned int image_operand_count = 0;
     struct vkd3d_shader_image image;
-    uint32_t image_operands[2];
+    uint32_t image_operands[3];
+    DWORD coordinate_mask;
     SpvOp op;
+
+    vkd3d_dxbc_compiler_prepare_sampled_image(compiler, &image,
+            &src[1].reg, &src[2].reg, VKD3D_IMAGE_FLAG_NONE);
 
     switch (instruction->handler_idx)
     {
         case VKD3DSIH_SAMPLE:
             op = SpvOpImageSampleImplicitLod;
+            break;
+        case VKD3DSIH_SAMPLE_GRAD:
+            op = SpvOpImageSampleExplicitLod;
+            operands_mask |= SpvImageOperandsGradMask;
+            coordinate_mask = (1u << image.resource_type_info->offset_component_count) - 1;
+            image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_load_src(compiler,
+                    &src[3], coordinate_mask);
+            image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_load_src(compiler,
+                    &src[4], coordinate_mask);
             break;
         case VKD3DSIH_SAMPLE_LOD:
             op = SpvOpImageSampleExplicitLod;
@@ -5455,9 +5468,6 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
             return;
     }
 
-    vkd3d_dxbc_compiler_prepare_sampled_image(compiler, &image,
-            &src[1].reg, &src[2].reg, VKD3D_IMAGE_FLAG_NONE);
-
     if (vkd3d_shader_instruction_has_texel_offset(instruction))
     {
         operands_mask |= SpvImageOperandsConstOffsetMask;
@@ -5467,6 +5477,7 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
 
     sampled_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
     coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_ALL);
+    assert(image_operand_count <= ARRAY_SIZE(image_operands));
     val_id = vkd3d_spirv_build_op_image_sample(builder, op, sampled_type_id,
             image.sampled_image_id, coordinate_id, operands_mask, image_operands, image_operand_count);
 
@@ -6447,6 +6458,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
             vkd3d_dxbc_compiler_emit_ld(compiler, instruction);
             break;
         case VKD3DSIH_SAMPLE:
+        case VKD3DSIH_SAMPLE_GRAD:
         case VKD3DSIH_SAMPLE_LOD:
             vkd3d_dxbc_compiler_emit_sample(compiler, instruction);
             break;
