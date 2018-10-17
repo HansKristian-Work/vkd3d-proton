@@ -2207,6 +2207,7 @@ static void d3d12_command_list_update_push_descriptors(struct d3d12_command_list
     VkWriteDescriptorSet *descriptor_writes = NULL, *current_descriptor_write;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkDescriptorBufferInfo *buffer_infos = NULL, *current_buffer_info;
+    const struct d3d12_root_parameter *root_parameter;
     struct vkd3d_push_descriptor *push_descriptor;
     struct d3d12_device *device = list->device;
     VkDescriptorBufferInfo *vk_buffer_info;
@@ -2231,9 +2232,10 @@ static void d3d12_command_list_update_push_descriptors(struct d3d12_command_list
         if (!(bindings->push_descriptor_dirty_mask & (1u << i)))
             continue;
 
+        root_parameter = &root_signature->parameters[i];
         push_descriptor = &bindings->push_descriptors[i];
 
-        if (root_signature->parameters[i].parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV)
+        if (root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV)
         {
             vk_buffer_view = NULL;
             vk_buffer_info = current_buffer_info;
@@ -2248,8 +2250,7 @@ static void d3d12_command_list_update_push_descriptors(struct d3d12_command_list
         }
 
         if (!vk_write_descriptor_set_from_root_descriptor(current_descriptor_write,
-                &root_signature->parameters[i], bindings->descriptor_set,
-                vk_buffer_view, vk_buffer_info))
+                root_parameter, bindings->descriptor_set, vk_buffer_view, vk_buffer_info))
             continue;
 
         ++descriptor_count;
@@ -3377,39 +3378,31 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
-    const struct d3d12_root_descriptor *root_descriptor;
+    const struct d3d12_root_parameter *root_parameter;
     struct VkWriteDescriptorSet descriptor_write;
     struct VkDescriptorBufferInfo buffer_info;
     struct d3d12_resource *resource;
 
-    assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV);
-    root_descriptor = &root_signature->parameters[index].u.descriptor;
+    root_parameter = &root_signature->parameters[index];
+    assert(root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV);
 
     resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, gpu_address);
     buffer_info.buffer = resource->u.vk_buffer;
     buffer_info.offset = gpu_address - resource->gpu_address;
     buffer_info.range = VK_WHOLE_SIZE;
 
-    descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptor_write.pNext = NULL;
-    descriptor_write.dstBinding = root_descriptor->binding;
-    descriptor_write.dstArrayElement = 0;
-    descriptor_write.descriptorCount = 1;
-    descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    descriptor_write.pImageInfo = NULL;
-    descriptor_write.pBufferInfo = &buffer_info;
-    descriptor_write.pTexelBufferView = NULL;
-
     if (vk_info->KHR_push_descriptor)
     {
-        descriptor_write.dstSet = VK_NULL_HANDLE;
+        vk_write_descriptor_set_from_root_descriptor(&descriptor_write,
+                root_parameter, VK_NULL_HANDLE, NULL, &buffer_info);
         VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, bind_point,
                 root_signature->vk_pipeline_layout, 0, 1, &descriptor_write));
     }
     else
     {
         d3d12_command_list_prepare_descriptors(list, bind_point);
-        descriptor_write.dstSet = bindings->descriptor_set;
+        vk_write_descriptor_set_from_root_descriptor(&descriptor_write,
+                root_parameter, bindings->descriptor_set, NULL, &buffer_info);
         VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &descriptor_write, 0, NULL));
 
         bindings->push_descriptors[index].u.cbv.vk_buffer = buffer_info.buffer;
@@ -3448,20 +3441,14 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
-    const struct d3d12_root_descriptor *root_descriptor;
+    const struct d3d12_root_parameter *root_parameter;
     struct VkWriteDescriptorSet descriptor_write;
     VkDevice vk_device = list->device->vk_device;
-    VkDescriptorType descriptor_type;
     VkBufferView vk_buffer_view;
 
-    assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_SRV
-            || root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_UAV);
-    root_descriptor = &root_signature->parameters[index].u.descriptor;
-
-    if (root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_SRV)
-        descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-    else
-        descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+    root_parameter = &root_signature->parameters[index];
+    assert(root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_SRV
+        || root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_UAV);
 
     /* FIXME: Re-use buffer views. */
     if (!vkd3d_create_raw_buffer_view(list->device, gpu_address, &vk_buffer_view))
@@ -3477,26 +3464,18 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
         return;
     }
 
-    descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptor_write.pNext = NULL;
-    descriptor_write.dstBinding = root_descriptor->binding;
-    descriptor_write.dstArrayElement = 0;
-    descriptor_write.descriptorCount = 1;
-    descriptor_write.descriptorType = descriptor_type;
-    descriptor_write.pImageInfo = NULL;
-    descriptor_write.pBufferInfo = NULL;
-    descriptor_write.pTexelBufferView = &vk_buffer_view;
-
     if (vk_info->KHR_push_descriptor)
     {
-        descriptor_write.dstSet = VK_NULL_HANDLE;
+        vk_write_descriptor_set_from_root_descriptor(&descriptor_write,
+                root_parameter, VK_NULL_HANDLE, &vk_buffer_view, NULL);
         VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, bind_point,
                 root_signature->vk_pipeline_layout, 0, 1, &descriptor_write));
     }
     else
     {
         d3d12_command_list_prepare_descriptors(list, bind_point);
-        descriptor_write.dstSet = bindings->descriptor_set;
+        vk_write_descriptor_set_from_root_descriptor(&descriptor_write,
+                root_parameter, bindings->descriptor_set, &vk_buffer_view,  NULL);
         VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &descriptor_write, 0, NULL));
 
         bindings->push_descriptors[index].u.vk_buffer_view = vk_buffer_view;
