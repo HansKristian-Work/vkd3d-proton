@@ -1982,13 +1982,13 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
     return compiler;
 }
 
-static enum vkd3d_shader_target vkd3d_dxbc_compiler_get_target(struct vkd3d_dxbc_compiler *compiler)
+static enum vkd3d_shader_target vkd3d_dxbc_compiler_get_target(const struct vkd3d_dxbc_compiler *compiler)
 {
     const struct vkd3d_shader_compile_arguments *args = compiler->compile_args;
     return args ? args->target : VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
 }
 
-static bool vkd3d_dxbc_compiler_check_shader_visibility(struct vkd3d_dxbc_compiler *compiler,
+static bool vkd3d_dxbc_compiler_check_shader_visibility(const struct vkd3d_dxbc_compiler *compiler,
         enum vkd3d_shader_visibility visibility)
 {
     switch (visibility)
@@ -2012,7 +2012,7 @@ static bool vkd3d_dxbc_compiler_check_shader_visibility(struct vkd3d_dxbc_compil
 }
 
 static struct vkd3d_push_constant_buffer_binding *vkd3d_dxbc_compiler_find_push_constant_buffer(
-        struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg)
+        const struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg)
 {
     unsigned int reg_idx = reg->idx[0].offset;
     unsigned int i;
@@ -2362,7 +2362,7 @@ struct vkd3d_shader_register_info
     unsigned int structure_stride;
 };
 
-static bool vkd3d_dxbc_compiler_get_register_info(struct vkd3d_dxbc_compiler *compiler,
+static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, struct vkd3d_shader_register_info *register_info)
 {
     struct vkd3d_symbol reg_symbol, *symbol;
@@ -3044,7 +3044,7 @@ vkd3d_register_builtins[] =
 };
 
 static const struct vkd3d_spirv_builtin *get_spirv_builtin_for_sysval(
-        struct vkd3d_dxbc_compiler *compiler, enum vkd3d_shader_input_sysval_semantic sysval)
+        const struct vkd3d_dxbc_compiler *compiler, enum vkd3d_shader_input_sysval_semantic sysval)
 {
     enum vkd3d_shader_target target;
     unsigned int i;
@@ -3080,7 +3080,7 @@ static const struct vkd3d_spirv_builtin *get_spirv_builtin_for_register(
     return NULL;
 }
 
-static const struct vkd3d_spirv_builtin *vkd3d_get_spirv_builtin(struct vkd3d_dxbc_compiler *compiler,
+static const struct vkd3d_spirv_builtin *vkd3d_get_spirv_builtin(const struct vkd3d_dxbc_compiler *compiler,
         enum vkd3d_shader_register_type reg_type, enum vkd3d_shader_input_sysval_semantic sysval)
 {
     const struct vkd3d_spirv_builtin *builtin;
@@ -3293,7 +3293,7 @@ static unsigned int vkd3d_dxbc_compiler_get_output_variable_index(
     return register_idx;
 }
 
-static unsigned int get_shader_output_swizzle(struct vkd3d_dxbc_compiler *compiler,
+static unsigned int get_shader_output_swizzle(const struct vkd3d_dxbc_compiler *compiler,
         unsigned int register_idx)
 {
     const struct vkd3d_shader_compile_arguments *compile_args;
