@@ -475,8 +475,6 @@ HRESULT vkd3d_create_instance(const struct vkd3d_instance_create_info *create_in
         WARN("Invalid structure type %#x.\n", create_info->type);
         return E_INVALIDARG;
     }
-    if (create_info->next)
-        WARN("Unhandled next %p.\n", create_info->next);
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
