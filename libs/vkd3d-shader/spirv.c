@@ -3503,10 +3503,18 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
 static void vkd3d_dxbc_compiler_emit_dcl_global_flags(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    if (instruction->flags & ~(VKD3DSGF_REFACTORING_ALLOWED | VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS))
-        FIXME("Unhandled global flags %#x.\n", instruction->flags);
+    unsigned int flags = instruction->flags;
+
+    if (flags & VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL)
+    {
+        vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeEarlyFragmentTests, NULL, 0);
+        flags &= ~VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL;
+    }
+
+    if (flags & ~(VKD3DSGF_REFACTORING_ALLOWED | VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS))
+        FIXME("Unhandled global flags %#x.\n", flags);
     else
-        WARN("Unhandled global flags %#x.\n", instruction->flags);
+        WARN("Unhandled global flags %#x.\n", flags);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_temps(struct vkd3d_dxbc_compiler *compiler,
