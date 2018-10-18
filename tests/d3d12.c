@@ -6608,6 +6608,29 @@ static void test_shader_instructions(void)
         0x06000082, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_f32tof16 = {ps_f32tof16_code, sizeof(ps_f32tof16_code)};
+    static const DWORD ps_f32tof16_2_code[] =
+    {
+#if 0
+        ps_5_0
+        dcl_globalFlags refactoringAllowed
+        dcl_constantbuffer cb0[1], immediateIndexed
+        dcl_output o0.xyzw
+        dcl_temps 1
+        mov r0.xyzw, cb0[0].xyzw
+        f32tof16 r0.xyzw, r0.wzyx
+        mov o0.xyzw, r0.xyzw
+        ret
+#endif
+        0x43425844, 0x607c82d2, 0x940cc7c2, 0xe9de23c6, 0x696beb90, 0x00000001, 0x000000ec, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000074, 0x00000050, 0x0000001d,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x06000036, 0x001000f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000,
+        0x05000082, 0x001000f2, 0x00000000, 0x001001b6, 0x00000000, 0x05000036, 0x001020f2, 0x00000000,
+        0x00100e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_f32tof16_2 = {ps_f32tof16_2_code, sizeof(ps_f32tof16_2_code)};
     static const DWORD ps_imad_code[] =
     {
 #if 0
@@ -7354,6 +7377,8 @@ static void test_shader_instructions(void)
         {&ps_f16tof32_2, {{{0xffff0000, 0xffff3c00, 0xffff5640, 0xffff5bd0}}}, {{250, 100, 1, 0}}},
 
         {&ps_f32tof16, {.f = {{0.0f, 1.0f, -1.0f, 666.0f}}}, {{0, 0x3c00, 0xbc00, 0x6134}}},
+
+        {&ps_f32tof16_2, {.f = {{0.0f, 1.0f, -1.0f, 666.0f}}}, {{0x6134, 0xbc00, 0x3c00, 0}}},
 
         {&ps_imad, {{{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}}, {{ 0,  0,  0,  0}}},
         {&ps_imad, {{{0, 0, 0, 0}, {0, 0, 0, 0}, {1, 2, 0, 0}}}, {{ 1,  2,  0,  0}}},

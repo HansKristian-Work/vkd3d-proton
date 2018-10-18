@@ -4760,12 +4760,13 @@ static void vkd3d_dxbc_compiler_emit_f16tof32(struct vkd3d_dxbc_compiler *compil
 static void vkd3d_dxbc_compiler_emit_f32tof16(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    uint32_t instr_set_id, type_id, scalar_type_id, src_id, zero_id, constituents[2], result_id;
+    uint32_t instr_set_id, type_id, scalar_type_id, src_id, zero_id, constituents[2];
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t components[VKD3D_VEC4_SIZE];
+    unsigned int i, j;
     DWORD write_mask;
-    unsigned int i;
 
     instr_set_id = vkd3d_spirv_get_glsl_std450_instr_set(builder);
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 2);
@@ -4773,7 +4774,7 @@ static void vkd3d_dxbc_compiler_emit_f32tof16(struct vkd3d_dxbc_compiler *compil
     zero_id = vkd3d_dxbc_compiler_get_constant_float(compiler, 0.0f);
 
     /* FIXME: Consider a single PackHalf2x16 intruction per 2 components. */
-    for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
+    for (i = 0, j = 0; i < VKD3D_VEC4_SIZE; ++i)
     {
         if (!(write_mask = dst->write_mask & (VKD3DSP_WRITEMASK_0 << i)))
             continue;
@@ -4783,10 +4784,12 @@ static void vkd3d_dxbc_compiler_emit_f32tof16(struct vkd3d_dxbc_compiler *compil
         constituents[1] = zero_id;
         src_id = vkd3d_spirv_build_op_composite_construct(builder,
                 type_id, constituents, ARRAY_SIZE(constituents));
-        result_id = vkd3d_spirv_build_op_ext_inst(builder, scalar_type_id,
+        components[j++] = vkd3d_spirv_build_op_ext_inst(builder, scalar_type_id,
                 instr_set_id, GLSLstd450PackHalf2x16, &src_id, 1);
-        vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, write_mask, result_id);
     }
+
+    vkd3d_dxbc_compiler_emit_store_dst_components(compiler,
+            dst, vkd3d_component_type_from_data_type(dst->reg.data_type), components);
 }
 
 static void vkd3d_dxbc_compiler_emit_comparison_instruction(struct vkd3d_dxbc_compiler *compiler,
