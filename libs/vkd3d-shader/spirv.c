@@ -6115,6 +6115,7 @@ static void vkd3d_dxbc_compiler_emit_resinfo(struct vkd3d_dxbc_compiler *compile
     uint32_t constituents[VKD3D_VEC4_SIZE];
     unsigned int i, size_component_count;
     struct vkd3d_shader_image image;
+    bool supports_mipmaps;
 
     vkd3d_spirv_enable_capability(builder, SpvCapabilityImageQuery);
 
@@ -6122,23 +6123,19 @@ static void vkd3d_dxbc_compiler_emit_resinfo(struct vkd3d_dxbc_compiler *compile
     size_component_count = image.resource_type_info->coordinate_component_count;
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, size_component_count);
 
-    if (src[1].reg.type == VKD3DSPR_RESOURCE)
+    supports_mipmaps = src[1].reg.type != VKD3DSPR_UAV && !image.resource_type_info->ms;
+    if (supports_mipmaps)
     {
         lod_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_0);
         val_id = vkd3d_spirv_build_op_image_query_size_lod(builder, type_id, image.image_id, lod_id);
         type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
         miplevel_count_id = vkd3d_spirv_build_op_image_query_levels(builder, type_id, image.image_id);
     }
-    else if (src[1].reg.type == VKD3DSPR_UAV)
+    else
     {
         val_id = vkd3d_spirv_build_op_image_query_size(builder, type_id, image.image_id);
         /* For UAVs the returned miplevel count is always 1. */
         miplevel_count_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 1);
-    }
-    else
-    {
-        ERR("Unexpected register type %#x.\n", src[1].reg.type);
-        return;
     }
 
     constituents[0] = val_id;
