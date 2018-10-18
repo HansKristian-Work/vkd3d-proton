@@ -4678,11 +4678,11 @@ static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
 static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
+    uint32_t src_ids[4], constituents[VKD3D_VEC4_SIZE], type_id, mask_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    uint32_t src_ids[4], result_id, type_id, mask_id;
-    unsigned int i, j, src_count;
+    unsigned int i, j, k, src_count;
     DWORD write_mask;
     SpvOp op;
 
@@ -4702,7 +4702,7 @@ static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_comp
             return;
     }
 
-    for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
+    for (i = 0, k = 0; i < VKD3D_VEC4_SIZE; ++i)
     {
         if (!(write_mask = dst->write_mask & (VKD3DSP_WRITEMASK_0 << i)))
             continue;
@@ -4717,11 +4717,12 @@ static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_comp
             src_ids[j] = vkd3d_spirv_build_op_and(builder, int_type_id, src_ids[j], mask_id);
         }
 
-        result_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
+        constituents[k++] = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
                 op, type_id, src_ids, src_count);
-
-        vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, write_mask, result_id);
     }
+
+    vkd3d_dxbc_compiler_emit_store_dst_components(compiler,
+            dst, vkd3d_component_type_from_data_type(dst->reg.data_type), constituents);
 }
 
 static void vkd3d_dxbc_compiler_emit_f16tof32(struct vkd3d_dxbc_compiler *compiler,

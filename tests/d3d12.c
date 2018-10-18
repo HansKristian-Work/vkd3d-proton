@@ -6285,6 +6285,29 @@ static void test_shader_instructions(void)
         0x00000000, 0x00208aa6, 0x00000000, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_ibfe = {ps_ibfe_code, sizeof(ps_ibfe_code)};
+    static const DWORD ps_ibfe2_code[] =
+    {
+#if 0
+        ps_5_0
+        dcl_globalFlags refactoringAllowed
+        dcl_constantbuffer cb0[1], immediateIndexed
+        dcl_output o0.xyzw
+        dcl_temps 1
+        mov r0.xyzw, cb0[0].xyzw
+        ibfe r0.xyzw, r0.xxxx, r0.yyyy, r0.zzzz
+        mov o0.xyzw, r0.xyzw
+        ret
+#endif
+        0x43425844, 0x347a9c0e, 0x3eff39a4, 0x3dd41cc5, 0xff87ec8d, 0x00000001, 0x000000fc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000084, 0x00000050, 0x00000021,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x06000036, 0x001000f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000,
+        0x0900008b, 0x001000f2, 0x00000000, 0x00100006, 0x00000000, 0x00100556, 0x00000000, 0x00100aa6,
+        0x00000000, 0x05000036, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_ibfe2 = {ps_ibfe2_code, sizeof(ps_ibfe2_code)};
     static const DWORD ps_ubfe_code[] =
     {
 #if 0
@@ -7202,6 +7225,8 @@ static void test_shader_instructions(void)
         {&ps_ibfe, {{{31, 31, 0xffffffff}}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
         {&ps_ibfe, {{{31, 31, 0x80000000}}}, {{0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff}}},
         {&ps_ibfe, {{{31, 31, 0x7fffffff}}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
+
+        {&ps_ibfe2, {{{16, 15, 0x3fffffff}}}, {{0x00007fff, 0x00007fff, 0x00007fff, 0x00007fff}}},
 
         {&ps_ubfe, {{{0x00000000}}}, {{0x00000000, 0x00000000, 0x00000000, 0x00000000}}},
         {&ps_ubfe, {{{0xffffffff}}}, {{0x0000000f, 0x007fffff, 0x0000007f, 0x3fffffff}}},
