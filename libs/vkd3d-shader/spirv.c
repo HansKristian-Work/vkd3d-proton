@@ -5423,6 +5423,9 @@ static void vkd3d_dxbc_compiler_emit_ld(struct vkd3d_dxbc_compiler *compiler,
     struct vkd3d_shader_image image;
     uint32_t image_operands[2];
     DWORD coordinate_mask;
+    bool multisample;
+
+    multisample = instruction->handler_idx == VKD3DSIH_LD2DMS;
 
     /* OpImageFetch must be used with a sampled image. */
     vkd3d_dxbc_compiler_prepare_dummy_sampled_image(compiler, &image, &src[1].reg);
@@ -5431,7 +5434,7 @@ static void vkd3d_dxbc_compiler_emit_ld(struct vkd3d_dxbc_compiler *compiler,
     type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
     coordinate_mask = (1u << image.resource_type_info->coordinate_component_count) - 1;
     coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], coordinate_mask);
-    if (image.resource_type_info->resource_type != VKD3D_SHADER_RESOURCE_BUFFER)
+    if (image.resource_type_info->resource_type != VKD3D_SHADER_RESOURCE_BUFFER && !multisample)
     {
         operands_mask |= SpvImageOperandsLodMask;
         image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_load_src(compiler,
@@ -5443,6 +5446,13 @@ static void vkd3d_dxbc_compiler_emit_ld(struct vkd3d_dxbc_compiler *compiler,
         image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_texel_offset(compiler,
                 instruction, image.resource_type_info);
     }
+    if (multisample)
+    {
+        operands_mask |= SpvImageOperandsSampleMask;
+        image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_load_src(compiler,
+                &src[2], VKD3DSP_WRITEMASK_0);
+    }
+    assert(image_operand_count <= ARRAY_SIZE(image_operands));
     val_id = vkd3d_spirv_build_op_image_fetch(builder, type_id,
             image_id, coordinate_id, operands_mask, image_operands, image_operand_count);
 
@@ -6490,6 +6500,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_DSY_FINE:
             vkd3d_dxbc_compiler_emit_deriv_instruction(compiler, instruction);
             break;
+        case VKD3DSIH_LD2DMS:
         case VKD3DSIH_LD:
             vkd3d_dxbc_compiler_emit_ld(compiler, instruction);
             break;
