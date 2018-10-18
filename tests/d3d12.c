@@ -6567,6 +6567,29 @@ static void test_shader_instructions(void)
         0x0500001c, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_f16tof32 = {ps_f16tof32_code, sizeof(ps_f16tof32_code)};
+    static const DWORD ps_f16tof32_2_code[] =
+    {
+#if 0
+        ps_5_0
+        dcl_globalFlags refactoringAllowed
+        dcl_constantbuffer cb0[1], immediateIndexed
+        dcl_output o0.xyzw
+        dcl_temps 1
+        mov r0.xyzw, cb0[0].xyzw
+        f16tof32 r0.xyzw, r0.wzyx
+        ftou o0.xyzw, r0.xyzw
+        ret
+#endif
+        0x43425844, 0x38472f03, 0x2c49b7dd, 0xc2d76bbf, 0xfc093e1d, 0x00000001, 0x000000ec, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000074, 0x00000050, 0x0000001d,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x06000036, 0x001000f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000,
+        0x05000083, 0x001000f2, 0x00000000, 0x001001b6, 0x00000000, 0x0500001c, 0x001020f2, 0x00000000,
+        0x00100e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_f16tof32_2 = {ps_f16tof32_2_code, sizeof(ps_f16tof32_2_code)};
     static const DWORD ps_f32tof16_code[] =
     {
 #if 0
@@ -7324,6 +7347,11 @@ static void test_shader_instructions(void)
         {&ps_f16tof32, {{{0x00010000, 0x00013c00, 0x00015640, 0x00015bd0}}}, {{0, 1, 100, 250}}},
         {&ps_f16tof32, {{{0x000f0000, 0x000f3c00, 0x000f5640, 0x000f5bd0}}}, {{0, 1, 100, 250}}},
         {&ps_f16tof32, {{{0xffff0000, 0xffff3c00, 0xffff5640, 0xffff5bd0}}}, {{0, 1, 100, 250}}},
+
+        {&ps_f16tof32_2, {{{0x00000000, 0x00003c00, 0x00005640, 0x00005bd0}}}, {{250, 100, 1, 0}}},
+        {&ps_f16tof32_2, {{{0x00010000, 0x00013c00, 0x00015640, 0x00015bd0}}}, {{250, 100, 1, 0}}},
+        {&ps_f16tof32_2, {{{0x000f0000, 0x000f3c00, 0x000f5640, 0x000f5bd0}}}, {{250, 100, 1, 0}}},
+        {&ps_f16tof32_2, {{{0xffff0000, 0xffff3c00, 0xffff5640, 0xffff5bd0}}}, {{250, 100, 1, 0}}},
 
         {&ps_f32tof16, {.f = {{0.0f, 1.0f, -1.0f, 666.0f}}}, {{0, 0x3c00, 0xbc00, 0x6134}}},
 
