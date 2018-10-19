@@ -2246,6 +2246,8 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
             snprintf(buffer, buffer_size, "o%u", idx);
             break;
         case VKD3DSPR_DEPTHOUT:
+        case VKD3DSPR_DEPTHOUTGE:
+        case VKD3DSPR_DEPTHOUTLE:
             snprintf(buffer, buffer_size, "oDepth");
             break;
         case VKD3DSPR_TESSCOORD:
@@ -2470,6 +2472,8 @@ static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *
         case VKD3DSPR_OUTPUT:
         case VKD3DSPR_COLOROUT:
         case VKD3DSPR_DEPTHOUT:
+        case VKD3DSPR_DEPTHOUTGE:
+        case VKD3DSPR_DEPTHOUTLE:
         case VKD3DSPR_CONSTBUFFER:
         case VKD3DSPR_IMMCONSTBUFFER:
         case VKD3DSPR_SAMPLER:
@@ -3056,7 +3060,25 @@ vkd3d_register_builtins[] =
     {VKD3DSPR_TESSCOORD,        {VKD3D_TYPE_FLOAT, 3, SpvBuiltInTessCoord}},
 
     {VKD3DSPR_DEPTHOUT,         {VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth}},
+    {VKD3DSPR_DEPTHOUTGE,       {VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth}},
+    {VKD3DSPR_DEPTHOUTLE,       {VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth}},
 };
+
+static void vkd3d_dxbc_compiler_emit_register_execution_mode(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg)
+{
+    switch (reg->type)
+    {
+        case VKD3DSPR_DEPTHOUTGE:
+            vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeDepthGreater, NULL, 0);
+            break;
+        case VKD3DSPR_DEPTHOUTLE:
+            vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeDepthLess, NULL, 0);
+            break;
+        default:
+            return;
+    }
+}
 
 static const struct vkd3d_spirv_builtin *get_spirv_builtin_for_sysval(
         const struct vkd3d_dxbc_compiler *compiler, enum vkd3d_shader_input_sysval_semantic sysval)
@@ -3458,6 +3480,7 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         if (builtin)
         {
             vkd3d_dxbc_compiler_decorate_builtin(compiler, id, builtin->spirv_builtin);
+            vkd3d_dxbc_compiler_emit_register_execution_mode(compiler, &dst->reg);
             if (component_idx)
                 FIXME("Unhandled component index %u.\n", component_idx);
         }
