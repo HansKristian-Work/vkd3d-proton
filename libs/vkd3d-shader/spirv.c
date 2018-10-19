@@ -1263,6 +1263,13 @@ static uint32_t vkd3d_spirv_build_op_and(struct vkd3d_spirv_builder *builder,
             SpvOpBitwiseAnd, result_type, operand0, operand1);
 }
 
+static uint32_t vkd3d_spirv_build_op_shift_left_logical(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t base, uint32_t shift)
+{
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            SpvOpShiftLeftLogical, result_type, base, shift);
+}
+
 static uint32_t vkd3d_spirv_build_op_shift_right_logical(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t base, uint32_t shift)
 {
@@ -6123,6 +6130,46 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
         vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, result_id);
 }
 
+static void vkd3d_dxbc_compiler_emit_bufinfo(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t type_id, val_id, stride_id;
+    struct vkd3d_shader_image image;
+    uint32_t constituents[2];
+    unsigned int write_mask;
+
+    vkd3d_spirv_enable_capability(builder, SpvCapabilityImageQuery);
+
+    vkd3d_dxbc_compiler_prepare_image(compiler, &image, &src->reg, VKD3D_IMAGE_FLAG_NONE);
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    val_id = vkd3d_spirv_build_op_image_query_size(builder, type_id, image.image_id);
+    write_mask = VKD3DSP_WRITEMASK_0;
+
+    if (image.structure_stride)
+    {
+        stride_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, image.structure_stride);
+        constituents[0] = vkd3d_spirv_build_op_udiv(builder, type_id, val_id, stride_id);
+        constituents[1] = stride_id;
+        type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, ARRAY_SIZE(constituents));
+        val_id = vkd3d_spirv_build_op_composite_construct(builder,
+                type_id, constituents, ARRAY_SIZE(constituents));
+        write_mask |= VKD3DSP_WRITEMASK_1;
+    }
+    else if (image.raw)
+    {
+        val_id = vkd3d_spirv_build_op_shift_left_logical(builder, type_id,
+                val_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, 2));
+    }
+
+    val_id = vkd3d_dxbc_compiler_emit_swizzle_ext(compiler,
+            val_id, write_mask, VKD3D_TYPE_UINT, src->swizzle, dst->write_mask);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
+}
+
 static void vkd3d_dxbc_compiler_emit_resinfo(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -6566,6 +6613,9 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_IMM_ATOMIC_UMIN:
         case VKD3DSIH_IMM_ATOMIC_XOR:
             vkd3d_dxbc_compiler_emit_atomic_instruction(compiler, instruction);
+            break;
+        case VKD3DSIH_BUFINFO:
+            vkd3d_dxbc_compiler_emit_bufinfo(compiler, instruction);
             break;
         case VKD3DSIH_RESINFO:
             vkd3d_dxbc_compiler_emit_resinfo(compiler, instruction);
