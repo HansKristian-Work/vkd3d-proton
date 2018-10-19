@@ -2084,13 +2084,13 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
         VkPipelineBindPoint bind_point, unsigned int index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    struct VkWriteDescriptorSet descriptor_writes[24], *current_descriptor_write;
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
-    struct VkWriteDescriptorSet *descriptor_writes, *current_descriptor_write;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    struct VkDescriptorImageInfo *image_infos, *current_image_info;
+    struct VkDescriptorImageInfo image_infos[24], *current_image_info;
     const struct d3d12_root_descriptor_table *descriptor_table;
     const struct d3d12_root_descriptor_table_range *range;
-    struct d3d12_device *device = list->device;
+    VkDevice vk_device = list->device->vk_device;
     unsigned int i, j, descriptor_count;
     struct d3d12_desc *descriptor;
 
@@ -2107,14 +2107,6 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
     if (!(descriptor = d3d12_desc_from_gpu_handle(base_descriptor)))
     {
         WARN("Descriptor table %u is not set.\n", index);
-        return;
-    }
-
-    if (!(descriptor_writes = vkd3d_calloc(descriptor_count, sizeof(*descriptor_writes))))
-        return;
-    if (!(image_infos = vkd3d_calloc(descriptor_count, sizeof(*image_infos))))
-    {
-        vkd3d_free(descriptor_writes);
         return;
     }
 
@@ -2153,13 +2145,18 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
             ++descriptor_count;
             ++current_descriptor_write;
             ++current_image_info;
+
+            if (descriptor_count == ARRAY_SIZE(descriptor_writes))
+            {
+                VK_CALL(vkUpdateDescriptorSets(vk_device, descriptor_count, descriptor_writes, 0, NULL));
+                descriptor_count = 0;
+                current_descriptor_write = descriptor_writes;
+                current_image_info = image_infos;
+            }
         }
     }
 
-    VK_CALL(vkUpdateDescriptorSets(device->vk_device, descriptor_count, descriptor_writes, 0, NULL));
-
-    vkd3d_free(descriptor_writes);
-    vkd3d_free(image_infos);
+    VK_CALL(vkUpdateDescriptorSets(vk_device, descriptor_count, descriptor_writes, 0, NULL));
 }
 
 static bool vk_write_descriptor_set_from_root_descriptor(VkWriteDescriptorSet *vk_descriptor_write,
