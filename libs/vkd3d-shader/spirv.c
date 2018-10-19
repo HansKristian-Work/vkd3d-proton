@@ -248,14 +248,6 @@ struct vkd3d_spirv_builder
 
     struct vkd3d_spirv_stream execution_mode_stream; /* execution mode instructions */
 
-    union
-    {
-        struct
-        {
-            bool depth_replacing;
-        } fragment;
-    } u;
-
     struct vkd3d_spirv_stream original_function_stream;
     struct vkd3d_spirv_stream insertion_stream;
     size_t insertion_location;
@@ -330,13 +322,6 @@ static void vkd3d_spirv_set_execution_model(struct vkd3d_spirv_builder *builder,
         default:
             ERR("Unhandled execution model %#x.\n", model);
     }
-}
-
-static void vkd3d_spirv_enable_depth_replacing(struct vkd3d_spirv_builder *builder)
-{
-    assert(builder->execution_model == SpvExecutionModelFragment);
-
-    builder->u.fragment.depth_replacing = true;
 }
 
 static uint32_t vkd3d_spirv_opcode_word(SpvOp op, unsigned int word_count)
@@ -1568,24 +1553,6 @@ static void vkd3d_spirv_builder_free(struct vkd3d_spirv_builder *builder)
     vkd3d_free(builder->iface);
 }
 
-static void vkd3d_spirv_build_additional_execution_modes(struct vkd3d_spirv_builder *builder,
-        struct vkd3d_spirv_stream *stream)
-{
-    const uint32_t function_id = builder->main_function_id;
-
-    switch (builder->execution_model)
-    {
-        case SpvExecutionModelFragment:
-            if (builder->u.fragment.depth_replacing)
-                vkd3d_spirv_build_op_execution_mode(stream, function_id,
-                        SpvExecutionModeDepthReplacing, NULL, 0);
-            break;
-
-        default:
-            break;
-    }
-}
-
 static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
         struct vkd3d_shader_code *spirv)
 {
@@ -1627,7 +1594,6 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
 
     /* execution mode declarations */
     vkd3d_spirv_stream_append(&stream, &builder->execution_mode_stream);
-    vkd3d_spirv_build_additional_execution_modes(builder, &stream);
 
     vkd3d_spirv_stream_append(&stream, &builder->debug_stream);
     vkd3d_spirv_stream_append(&stream, &builder->annotation_stream);
@@ -2922,7 +2888,7 @@ static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *com
                 builtin = SpvBuiltInFragCoord;
             break;
         case SpvBuiltInFragDepth:
-            vkd3d_spirv_enable_depth_replacing(builder);
+            vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeDepthReplacing, NULL, 0);
             break;
         case SpvBuiltInLayer:
             vkd3d_spirv_enable_capability(builder, SpvCapabilityGeometry);
