@@ -345,6 +345,7 @@ struct vkd3d_shader_scan_info
 {
     unsigned int uav_read_mask : VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS;
     unsigned int uav_counter_mask : VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS;
+    uint32_t sampler_comparison_mode_mask;
 };
 
 int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,

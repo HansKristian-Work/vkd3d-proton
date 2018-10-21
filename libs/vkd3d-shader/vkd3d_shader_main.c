@@ -160,10 +160,24 @@ static void vkd3d_shader_scan_record_uav_counter(struct vkd3d_shader_scan_info *
     scan_info->uav_counter_mask |= 1u << reg->idx[0].offset;
 }
 
+static void vkd3d_shader_scan_sampler_declaration(struct vkd3d_shader_scan_info *scan_info,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    unsigned int sampler_index = instruction->declaration.dst.reg.idx[0].offset;
+    if (instruction->flags & VKD3DSI_SAMPLER_COMPARISON_MODE)
+    {
+        assert(sampler_index < CHAR_BIT * sizeof(scan_info->sampler_comparison_mode_mask));
+        scan_info->sampler_comparison_mode_mask |= 1u << sampler_index;
+    }
+}
+
 static void vkd3d_shader_scan_handle_instruction(struct vkd3d_shader_scan_info *scan_info,
         const struct vkd3d_shader_instruction *instruction)
 {
     unsigned int i;
+
+    if (instruction->handler_idx == VKD3DSIH_DCL_SAMPLER)
+        vkd3d_shader_scan_sampler_declaration(scan_info, instruction);
 
     if (vkd3d_shader_instruction_is_uav_read(instruction))
     {
