@@ -1434,6 +1434,8 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.binding_count = root_signature->descriptor_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
+    shader_interface.combined_samplers = NULL;
+    shader_interface.combined_sampler_count = 0;
     shader_interface.dummy_sampler = root_signature->dummy_sampler;
     shader_interface.uav_counters = state->uav_counters;
     shader_interface.uav_counter_count = vkd3d_popcount(state->uav_counter_mask);
@@ -2002,6 +2004,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     shader_interface.binding_count = root_signature->descriptor_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
+    shader_interface.combined_samplers = NULL;
+    shader_interface.combined_sampler_count = 0;
     shader_interface.dummy_sampler = root_signature->dummy_sampler;
     shader_interface.uav_counters = NULL;
     shader_interface.uav_counter_count = 0;

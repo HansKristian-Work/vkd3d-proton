@@ -91,6 +91,18 @@ struct vkd3d_shader_resource_binding
     struct vkd3d_shader_descriptor_binding binding;
 };
 
+#define VKD3D_DUMMY_SAMPLER_INDEX ~0u
+
+struct vkd3d_shader_combined_resource_sampler
+{
+    unsigned int resource_index;
+    unsigned int sampler_index;
+    enum vkd3d_shader_visibility shader_visibility;
+    bool is_buffer;
+
+    struct vkd3d_shader_descriptor_binding binding;
+};
+
 struct vkd3d_shader_uav_counter_binding
 {
     unsigned int register_index; /* u# */
@@ -115,6 +127,9 @@ struct vkd3d_shader_interface
 
     const struct vkd3d_shader_push_constant_buffer *push_constant_buffers;
     unsigned int push_constant_buffer_count;
+
+    const struct vkd3d_shader_combined_resource_sampler *combined_samplers;
+    unsigned int combined_sampler_count;
 
     /* A sampler used by OpImageFetches generated for SM4 ld instructions.
      *
