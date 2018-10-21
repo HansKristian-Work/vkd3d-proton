@@ -5317,7 +5317,6 @@ struct vkd3d_shader_image
 {
     uint32_t id;
     uint32_t image_id;
-    uint32_t sampler_id;
     uint32_t sampled_image_id;
 
     enum vkd3d_component_type sampled_type;
@@ -5370,7 +5369,6 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
             resource_reg, image->resource_type_info, image->sampled_type,
             image->structure_stride || image->raw, depth_comparison);
 
-    image->sampler_id = 0;
     image->sampled_image_id = 0;
 }
 
@@ -5379,14 +5377,14 @@ static void vkd3d_dxbc_compiler_prepare_sampled_image_for_sampler(struct vkd3d_d
         uint32_t sampler_var_id, unsigned int flags)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    uint32_t sampled_image_type_id;
+    uint32_t sampler_id, sampled_image_type_id;
 
     vkd3d_dxbc_compiler_prepare_image(compiler, image, resource_reg, flags);
-    image->sampler_id = vkd3d_spirv_build_op_load(builder,
+    sampler_id = vkd3d_spirv_build_op_load(builder,
             vkd3d_spirv_get_op_type_sampler(builder), sampler_var_id, SpvMemoryAccessMaskNone);
     sampled_image_type_id = vkd3d_spirv_get_op_type_sampled_image(builder, image->image_type_id);
     image->sampled_image_id = vkd3d_spirv_build_op_sampled_image(builder,
-            sampled_image_type_id, image->image_id, image->sampler_id);
+            sampled_image_type_id, image->image_id, sampler_id);
 }
 
 static void vkd3d_dxbc_compiler_prepare_dummy_sampled_image(struct vkd3d_dxbc_compiler *compiler,
