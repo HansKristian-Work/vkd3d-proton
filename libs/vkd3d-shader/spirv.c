@@ -5484,21 +5484,17 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
         struct vkd3d_shader_image *image, const struct vkd3d_shader_register *resource_reg,
         const struct vkd3d_shader_register *sampler_reg, unsigned int flags)
 {
-    const struct vkd3d_symbol *symbol = NULL, *combined_sampler = NULL;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t sampler_var_id, sampler_id, sampled_image_type_id;
-    bool load, depth_comparison;
+    const struct vkd3d_symbol *symbol = NULL;
+    bool load, sampled, depth_comparison;
 
     load = !(flags & VKD3D_IMAGE_FLAG_NO_LOAD);
+    sampled = flags & VKD3D_IMAGE_FLAG_SAMPLED;
     depth_comparison = flags & VKD3D_IMAGE_FLAG_DEPTH;
 
-    if (flags & VKD3D_IMAGE_FLAG_SAMPLED)
-    {
-        assert(load);
-        combined_sampler = vkd3d_dxbc_compiler_find_combined_sampler(compiler,
-                resource_reg, sampler_reg);
-        symbol = combined_sampler;
-    }
+    if (resource_reg->type == VKD3DSPR_RESOURCE)
+        symbol = vkd3d_dxbc_compiler_find_combined_sampler(compiler, resource_reg, sampler_reg);
     if (!symbol)
         symbol = vkd3d_dxbc_compiler_find_resource(compiler, resource_reg);
 
@@ -5509,13 +5505,13 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
     image->structure_stride = symbol->info.resource.structure_stride;
     image->raw = symbol->info.resource.raw;
 
-    if (combined_sampler)
+    if (symbol->type == VKD3D_SYMBOL_COMBINED_SAMPLER)
     {
         sampled_image_type_id = vkd3d_spirv_get_op_type_sampled_image(builder, image->image_type_id);
         image->sampled_image_id = vkd3d_spirv_build_op_load(builder,
                 sampled_image_type_id, image->id, SpvMemoryAccessMaskNone);
-        image->image_id = vkd3d_spirv_build_op_image(builder,
-                image->image_type_id, image->sampled_image_id);
+        image->image_id = !sampled ? vkd3d_spirv_build_op_image(builder,
+                image->image_type_id, image->sampled_image_id) : 0;
         return;
     }
 
@@ -5526,8 +5522,10 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
             resource_reg, image->resource_type_info, image->sampled_type,
             image->structure_stride || image->raw, depth_comparison);
 
-    if (flags & VKD3D_IMAGE_FLAG_SAMPLED)
+    if (sampled)
     {
+        assert(image->image_id);
+
         if (sampler_reg)
             sampler_var_id = vkd3d_dxbc_compiler_get_register_id(compiler, sampler_reg);
         else
