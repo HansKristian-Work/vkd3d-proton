@@ -2043,7 +2043,7 @@ static bool vkd3d_dxbc_compiler_have_combined_sampler(const struct vkd3d_dxbc_co
     {
         combined_sampler = &shader_interface->combined_samplers[i];
 
-        if (!(resource || combined_sampler->resource_index == resource->idx[0].offset)
+        if ((!resource || combined_sampler->resource_index == resource->idx[0].offset)
                 && (!sampler || combined_sampler->sampler_index == sampler->idx[0].offset))
             return true;
     }
