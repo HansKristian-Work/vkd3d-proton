@@ -142,7 +142,8 @@ static void cxt_wait_for_previous_frame(struct cx_triangle *cxt)
 
     if (ID3D12Fence_GetCompletedValue(fence->fence) < v)
     {
-        ID3D12Fence_SetEventOnCompletion(fence->fence, v, fence->event);
+        hr = ID3D12Fence_SetEventOnCompletion(fence->fence, v, fence->event);
+        assert(SUCCEEDED(hr));
         demo_wait_event(fence->event, INFINITE);
     }
 
