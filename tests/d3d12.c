@@ -14534,6 +14534,7 @@ static void test_typed_uav_store(void)
         {
             default:
                 trace("Unhandled format %#x.\n", tests[i].format);
+                /* fall-through */
             case DXGI_FORMAT_R32_FLOAT:
                 check_sub_resource_float(resource, 0, queue, command_list, tests[i].result.f, 2);
                 break;
