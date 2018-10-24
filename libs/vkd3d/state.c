@@ -1042,6 +1042,19 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
     return S_OK;
 }
 
+struct vkd3d_pipeline_key
+{
+    VkPrimitiveTopology topology;
+    uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+};
+
+struct vkd3d_compiled_pipeline
+{
+    struct list entry;
+    struct vkd3d_pipeline_key key;
+    VkPipeline vk_pipeline;
+};
+
 /* ID3D12PipelineState */
 static inline struct d3d12_pipeline_state *impl_from_ID3D12PipelineState(ID3D12PipelineState *iface)
 {
@@ -1080,6 +1093,27 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_AddRef(ID3D12PipelineState *
     return refcount;
 }
 
+static void d3d12_pipeline_state_destroy_graphics(struct d3d12_pipeline_state *state,
+        struct d3d12_device *device)
+{
+    struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_compiled_pipeline *current, *e;
+    unsigned int i;
+
+    for (i = 0; i < graphics->stage_count; ++i)
+    {
+        VK_CALL(vkDestroyShaderModule(device->vk_device, graphics->stages[i].module, NULL));
+    }
+    VK_CALL(vkDestroyRenderPass(device->vk_device, graphics->render_pass, NULL));
+
+    LIST_FOR_EACH_ENTRY_SAFE(current, e, &graphics->compiled_pipelines, struct vkd3d_compiled_pipeline, entry)
+    {
+        VK_CALL(vkDestroyPipeline(device->vk_device, current->vk_pipeline, NULL));
+        vkd3d_free(current);
+    }
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState *iface)
 {
     struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
@@ -1091,24 +1125,11 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState 
     {
         struct d3d12_device *device = state->device;
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-        unsigned int i;
 
         if (d3d12_pipeline_state_is_graphics(state))
-        {
-            struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
-
-            for (i = 0; i < graphics->stage_count; ++i)
-            {
-                VK_CALL(vkDestroyShaderModule(device->vk_device, graphics->stages[i].module, NULL));
-            }
-            VK_CALL(vkDestroyRenderPass(device->vk_device, graphics->render_pass, NULL));
-
-            d3d12_device_destroy_compiled_pipelines(device, &graphics->compiled_pipelines);
-        }
+            d3d12_pipeline_state_destroy_graphics(state, device);
         else if (d3d12_pipeline_state_is_compute(state))
-        {
             VK_CALL(vkDestroyPipeline(device->vk_device, state->u.compute.vk_pipeline, NULL));
-        }
 
         if (state->vk_set_layout)
             VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout, NULL));
@@ -2235,6 +2256,73 @@ HRESULT d3d12_pipeline_state_create_graphics(struct d3d12_device *device,
     return S_OK;
 }
 
+static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(const struct d3d12_pipeline_state *state,
+        const struct vkd3d_pipeline_key *key)
+{
+    const struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
+    struct d3d12_device *device = state->device;
+    VkPipeline vk_pipeline = VK_NULL_HANDLE;
+    struct vkd3d_compiled_pipeline *current;
+    int rc;
+
+    if (!(rc = pthread_mutex_lock(&device->pipeline_cache_mutex)))
+    {
+        LIST_FOR_EACH_ENTRY(current, &graphics->compiled_pipelines, struct vkd3d_compiled_pipeline, entry)
+        {
+            if (!memcmp(&current->key, key, sizeof(*key)))
+            {
+                vk_pipeline = current->vk_pipeline;
+                break;
+            }
+        }
+        pthread_mutex_unlock(&device->pipeline_cache_mutex);
+    }
+    else
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+    }
+
+    return vk_pipeline;
+}
+
+static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_state *state,
+        const struct vkd3d_pipeline_key *key, VkPipeline vk_pipeline)
+{
+    struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
+    struct vkd3d_compiled_pipeline *compiled_pipeline, *current;
+    struct d3d12_device *device = state->device;
+    int rc;
+
+    if (!(compiled_pipeline = vkd3d_malloc(sizeof(*compiled_pipeline))))
+        return false;
+
+    compiled_pipeline->key = *key;
+    compiled_pipeline->vk_pipeline = vk_pipeline;
+
+    if ((rc = pthread_mutex_lock(&device->pipeline_cache_mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        vkd3d_free(compiled_pipeline);
+        return false;
+    }
+
+    LIST_FOR_EACH_ENTRY(current, &graphics->compiled_pipelines, struct vkd3d_compiled_pipeline, entry)
+    {
+        if (!memcmp(&current->key, key, sizeof(*key)))
+        {
+            vkd3d_free(compiled_pipeline);
+            compiled_pipeline = NULL;
+            break;
+        }
+    }
+
+    if (compiled_pipeline)
+        list_add_tail(&graphics->compiled_pipelines, &compiled_pipeline->entry);
+
+    pthread_mutex_unlock(&device->pipeline_cache_mutex);
+    return compiled_pipeline;
+}
+
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
         VkPrimitiveTopology topology, const uint32_t *strides)
 {
@@ -2313,7 +2401,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         ++binding_count;
     }
 
-    if ((vk_pipeline = d3d12_device_find_cached_pipeline(device, &pipeline_key)))
+    if ((vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key)))
         return vk_pipeline;
 
     input_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -2368,12 +2456,12 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         return VK_NULL_HANDLE;
     }
 
-    if (d3d12_device_put_pipeline_to_cache(device, &pipeline_key, vk_pipeline, &graphics->compiled_pipelines))
+    if (d3d12_pipeline_state_put_pipeline_to_cache(state, &pipeline_key, vk_pipeline))
         return vk_pipeline;
 
     /* Other thread compiled the pipeline before us. */
     VK_CALL(vkDestroyPipeline(device->vk_device, vk_pipeline, NULL));
-    vk_pipeline = d3d12_device_find_cached_pipeline(device, &pipeline_key);
+    vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key);
     if (!vk_pipeline)
         ERR("Could not get the pipeline compiled by other thread from the cache.\n");
     return vk_pipeline;

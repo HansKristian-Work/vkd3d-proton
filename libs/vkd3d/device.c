@@ -1159,110 +1159,6 @@ static HRESULT d3d12_device_create_dummy_sampler(struct d3d12_device *device)
     return vkd3d_create_static_sampler(device, &sampler_desc, &device->vk_dummy_sampler);
 }
 
-static void destroy_compiled_pipeline(struct vkd3d_compiled_pipeline *pipeline,
-        struct d3d12_device *device)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-
-    VK_CALL(vkDestroyPipeline(device->vk_device, pipeline->vk_pipeline, NULL));
-    vkd3d_free(pipeline);
-}
-
-static int compare_pipeline_cache_entry(const void *key, const struct rb_entry *entry)
-{
-    const struct vkd3d_compiled_pipeline *compiled_pipeline;
-    const struct vkd3d_pipeline_key *pipeline_key;
-
-    pipeline_key = key;
-    compiled_pipeline = RB_ENTRY_VALUE(entry, const struct vkd3d_compiled_pipeline, entry);
-    return memcmp(&compiled_pipeline->key, pipeline_key, sizeof(*pipeline_key));
-}
-
-static void destroy_pipeline_cache_entry(struct rb_entry *entry, void *context)
-{
-    struct vkd3d_compiled_pipeline *pipeline;
-    struct d3d12_device *device = context;
-
-    pipeline = RB_ENTRY_VALUE(entry, struct vkd3d_compiled_pipeline, entry);
-    destroy_compiled_pipeline(pipeline, device);
-}
-
-VkPipeline d3d12_device_find_cached_pipeline(struct d3d12_device *device,
-        const struct vkd3d_pipeline_key *key)
-{
-    VkPipeline vk_pipeline = VK_NULL_HANDLE;
-    struct rb_entry *entry;
-    int rc;
-
-    if (!(rc = pthread_mutex_lock(&device->pipeline_cache_mutex)))
-    {
-        if ((entry = rb_get(&device->pipeline_cache, key)))
-            vk_pipeline = RB_ENTRY_VALUE(entry, struct vkd3d_compiled_pipeline, entry)->vk_pipeline;
-        pthread_mutex_unlock(&device->pipeline_cache_mutex);
-    }
-    else
-    {
-        ERR("Failed to lock mutex, error %d.\n", rc);
-    }
-
-    return vk_pipeline;
-}
-
-bool d3d12_device_put_pipeline_to_cache(struct d3d12_device *device,
-        const struct vkd3d_pipeline_key *key, VkPipeline vk_pipeline, struct list *list)
-{
-    struct vkd3d_compiled_pipeline *compiled_pipeline;
-    bool ret = true;
-    int rc;
-
-    if (!(compiled_pipeline = vkd3d_malloc(sizeof(*compiled_pipeline))))
-        return false;
-
-    compiled_pipeline->key = *key;
-    compiled_pipeline->vk_pipeline = vk_pipeline;
-
-    if ((rc = pthread_mutex_lock(&device->pipeline_cache_mutex)))
-    {
-        ERR("Failed to lock mutex, error %d.\n", rc);
-        vkd3d_free(compiled_pipeline);
-        return false;
-    }
-
-    if (rb_put(&device->pipeline_cache, key, &compiled_pipeline->entry) >= 0)
-    {
-        list_add_tail(list, &compiled_pipeline->list);
-    }
-    else
-    {
-        WARN("Failed to put pipeline to cache.\n");
-        vkd3d_free(compiled_pipeline);
-        ret = false;
-    }
-
-    pthread_mutex_unlock(&device->pipeline_cache_mutex);
-    return ret;
-}
-
-void d3d12_device_destroy_compiled_pipelines(struct d3d12_device *device, struct list *list)
-{
-    struct vkd3d_compiled_pipeline *pipeline, *cursor;
-    int rc;
-
-    if ((rc = pthread_mutex_lock(&device->pipeline_cache_mutex)))
-    {
-        ERR("Failed to lock mutex, error %d.\n", rc);
-        return;
-    }
-
-    LIST_FOR_EACH_ENTRY_SAFE(pipeline, cursor, list, struct vkd3d_compiled_pipeline, list)
-    {
-        rb_remove(&device->pipeline_cache, &pipeline->entry);
-        destroy_compiled_pipeline(pipeline, device);
-    }
-
-    pthread_mutex_unlock(&device->pipeline_cache_mutex);
-}
-
 static HRESULT d3d12_device_init_pipeline_cache(struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -1275,8 +1171,6 @@ static HRESULT d3d12_device_init_pipeline_cache(struct d3d12_device *device)
         ERR("Failed to initialize mutex, error %d.\n", rc);
         return E_FAIL;
     }
-
-    rb_init(&device->pipeline_cache, compare_pipeline_cache_entry);
 
     cache_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
     cache_info.pNext = NULL;
@@ -1296,20 +1190,10 @@ static HRESULT d3d12_device_init_pipeline_cache(struct d3d12_device *device)
 static void d3d12_device_destroy_pipeline_cache(struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    int rc;
 
     if (device->vk_pipeline_cache)
         VK_CALL(vkDestroyPipelineCache(device->vk_device, device->vk_pipeline_cache, NULL));
 
-    if ((rc = pthread_mutex_lock(&device->pipeline_cache_mutex)))
-    {
-        ERR("Failed to lock mutex, error %d.\n", rc);
-        return;
-    }
-
-    rb_destroy(&device->pipeline_cache, destroy_pipeline_cache_entry, device);
-
-    pthread_mutex_unlock(&device->pipeline_cache_mutex);
     pthread_mutex_destroy(&device->pipeline_cache_mutex);
 }
 

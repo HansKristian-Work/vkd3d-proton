@@ -573,21 +573,6 @@ bool d3d12_pipeline_state_is_render_pass_compatible(const struct d3d12_pipeline_
         const struct d3d12_pipeline_state *state_b) DECLSPEC_HIDDEN;
 struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface) DECLSPEC_HIDDEN;
 
-struct vkd3d_pipeline_key
-{
-    const struct d3d12_graphics_pipeline_state *state;
-    VkPrimitiveTopology topology;
-    uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
-};
-
-struct vkd3d_compiled_pipeline
-{
-    struct rb_entry entry;
-    struct vkd3d_pipeline_key key;
-    VkPipeline vk_pipeline;
-    struct list list;
-};
-
 struct vkd3d_buffer
 {
     VkBuffer vk_buffer;
@@ -809,12 +794,6 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
         const char *message, ...) VKD3D_PRINTF_FUNC(3, 4) DECLSPEC_HIDDEN;
 struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface) DECLSPEC_HIDDEN;
-
-void d3d12_device_destroy_compiled_pipelines(struct d3d12_device *device, struct list *list) DECLSPEC_HIDDEN;
-VkPipeline d3d12_device_find_cached_pipeline(struct d3d12_device *device,
-        const struct vkd3d_pipeline_key *key) DECLSPEC_HIDDEN;
-bool d3d12_device_put_pipeline_to_cache(struct d3d12_device *device,
-        const struct vkd3d_pipeline_key *key, VkPipeline vk_pipeline, struct list *list) DECLSPEC_HIDDEN;
 
 /* utils */
 struct vkd3d_format
