@@ -1818,148 +1818,6 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
     return true;
 }
 
-static VkPipeline d3d12_command_list_get_or_create_pipeline(struct d3d12_command_list *list,
-        struct d3d12_graphics_pipeline_state *state)
-{
-    struct VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    struct VkPipelineVertexInputStateCreateInfo input_desc;
-    struct VkPipelineInputAssemblyStateCreateInfo ia_desc;
-    struct VkPipelineColorBlendStateCreateInfo blend_desc;
-    struct VkGraphicsPipelineCreateInfo pipeline_desc;
-    struct d3d12_device *device = list->device;
-    struct vkd3d_pipeline_key pipeline_key;
-    size_t binding_count = 0;
-    VkPipeline vk_pipeline;
-    unsigned int i;
-    uint32_t mask;
-    VkResult vr;
-
-    static const struct VkPipelineViewportStateCreateInfo vp_desc =
-    {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .viewportCount = 1,
-        .pViewports = NULL,
-        .scissorCount = 1,
-        .pScissors = NULL,
-    };
-    static const enum VkDynamicState dynamic_states[] =
-    {
-        VK_DYNAMIC_STATE_VIEWPORT,
-        VK_DYNAMIC_STATE_SCISSOR,
-        VK_DYNAMIC_STATE_BLEND_CONSTANTS,
-        VK_DYNAMIC_STATE_STENCIL_REFERENCE,
-    };
-    static const struct VkPipelineDynamicStateCreateInfo dynamic_desc =
-    {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .dynamicStateCount = ARRAY_SIZE(dynamic_states),
-        .pDynamicStates = dynamic_states,
-    };
-
-    memset(&pipeline_key, 0, sizeof(pipeline_key));
-    pipeline_key.state = state;
-    pipeline_key.topology = list->primitive_topology;
-
-    for (i = 0, mask = 0; i < state->attribute_count; ++i)
-    {
-        struct VkVertexInputBindingDescription *b;
-        uint32_t binding;
-
-        binding = state->attributes[i].binding;
-        if (mask & (1u << binding))
-            continue;
-
-        if (binding_count == ARRAY_SIZE(bindings))
-        {
-            FIXME("Maximum binding count exceeded.\n");
-            break;
-        }
-
-        mask |= 1u << binding;
-        b = &bindings[binding_count];
-        b->binding = binding;
-        b->stride = list->strides[binding];
-        b->inputRate = state->input_rates[binding];
-
-        if (!b->stride)
-            FIXME("Invalid stride for input slot %u.\n", binding);
-
-        pipeline_key.strides[binding_count] = list->strides[binding];
-
-        ++binding_count;
-    }
-
-    if ((vk_pipeline = d3d12_device_find_cached_pipeline(device, &pipeline_key)))
-        return vk_pipeline;
-
-    input_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    input_desc.pNext = NULL;
-    input_desc.flags = 0;
-    input_desc.vertexBindingDescriptionCount = binding_count;
-    input_desc.pVertexBindingDescriptions = bindings;
-    input_desc.vertexAttributeDescriptionCount = state->attribute_count;
-    input_desc.pVertexAttributeDescriptions = state->attributes;
-
-    ia_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    ia_desc.pNext = NULL;
-    ia_desc.flags = 0;
-    ia_desc.topology = list->primitive_topology;
-    ia_desc.primitiveRestartEnable = VK_FALSE;
-
-    blend_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    blend_desc.pNext = NULL;
-    blend_desc.flags = 0;
-    blend_desc.logicOpEnable = VK_FALSE;
-    blend_desc.logicOp = VK_LOGIC_OP_COPY;
-    blend_desc.attachmentCount = state->attachment_count - state->rt_idx;
-    blend_desc.pAttachments = state->blend_attachments;
-    blend_desc.blendConstants[0] = D3D12_DEFAULT_BLEND_FACTOR_RED;
-    blend_desc.blendConstants[1] = D3D12_DEFAULT_BLEND_FACTOR_GREEN;
-    blend_desc.blendConstants[2] = D3D12_DEFAULT_BLEND_FACTOR_BLUE;
-    blend_desc.blendConstants[3] = D3D12_DEFAULT_BLEND_FACTOR_ALPHA;
-
-    pipeline_desc.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_desc.pNext = NULL;
-    pipeline_desc.flags = 0;
-    pipeline_desc.stageCount = state->stage_count;
-    pipeline_desc.pStages = state->stages;
-    pipeline_desc.pVertexInputState = &input_desc;
-    pipeline_desc.pInputAssemblyState = &ia_desc;
-    pipeline_desc.pTessellationState = NULL;
-    pipeline_desc.pViewportState = &vp_desc;
-    pipeline_desc.pRasterizationState = &state->rs_desc;
-    pipeline_desc.pMultisampleState = &state->ms_desc;
-    pipeline_desc.pDepthStencilState = &state->ds_desc;
-    pipeline_desc.pColorBlendState = &blend_desc;
-    pipeline_desc.pDynamicState = &dynamic_desc;
-    pipeline_desc.layout = state->root_signature->vk_pipeline_layout;
-    pipeline_desc.renderPass = state->render_pass;
-    pipeline_desc.subpass = 0;
-    pipeline_desc.basePipelineHandle = VK_NULL_HANDLE;
-    pipeline_desc.basePipelineIndex = -1;
-    if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device, device->vk_pipeline_cache,
-            1, &pipeline_desc, NULL, &vk_pipeline))) < 0)
-    {
-        WARN("Failed to create Vulkan graphics pipeline, vr %d.\n", vr);
-        return VK_NULL_HANDLE;
-    }
-
-    if (d3d12_device_put_pipeline_to_cache(device, &pipeline_key, vk_pipeline, &state->compiled_pipelines))
-        return vk_pipeline;
-
-    /* Other thread compiled the pipeline before us. */
-    VK_CALL(vkDestroyPipeline(device->vk_device, vk_pipeline, NULL));
-    vk_pipeline = d3d12_device_find_cached_pipeline(device, &pipeline_key);
-    if (!vk_pipeline)
-        ERR("Could not get the pipeline compiled by other thread from the cache.\n");
-    return vk_pipeline;
-}
-
 static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -1968,13 +1826,14 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     if (list->current_pipeline != VK_NULL_HANDLE)
         return true;
 
-    if (list->state->vk_bind_point != VK_PIPELINE_BIND_POINT_GRAPHICS)
+    if (!d3d12_pipeline_state_is_graphics(list->state))
     {
-        WARN("Pipeline state %p has bind point %#x.\n", list->state, list->state->vk_bind_point);
+        WARN("Pipeline state %p is not a graphics pipeline.\n", list->state);
         return false;
     }
 
-    if (!(vk_pipeline = d3d12_command_list_get_or_create_pipeline(list, &list->state->u.graphics)))
+    if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
+            list->primitive_topology, list->strides)))
         return false;
 
     VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, vk_pipeline));

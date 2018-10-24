@@ -558,10 +558,17 @@ static inline bool d3d12_pipeline_state_is_compute(const struct d3d12_pipeline_s
     return state && state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE;
 }
 
+static inline bool d3d12_pipeline_state_is_graphics(const struct d3d12_pipeline_state *state)
+{
+    return state && state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS;
+}
+
 HRESULT d3d12_pipeline_state_create_compute(struct d3d12_device *device,
         const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
 HRESULT d3d12_pipeline_state_create_graphics(struct d3d12_device *device,
         const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
+VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
+        VkPrimitiveTopology topology, const uint32_t *strides) DECLSPEC_HIDDEN;
 bool d3d12_pipeline_state_is_render_pass_compatible(const struct d3d12_pipeline_state *state_a,
         const struct d3d12_pipeline_state *state_b) DECLSPEC_HIDDEN;
 struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface) DECLSPEC_HIDDEN;
