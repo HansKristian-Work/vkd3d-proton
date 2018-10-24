@@ -826,47 +826,68 @@ static void check_sub_resource_vec4_(unsigned int line, ID3D12Resource *texture,
             got.x, got.y, got.z, got.w, expected->x, expected->y, expected->z, expected->w, x, y);
 }
 
+static bool use_warp_device;
+static unsigned int use_adapter_idx;
+
 #ifdef _WIN32
-static IUnknown *create_warp_adapter(void)
+static IUnknown *create_warp_adapter(IDXGIFactory4 *factory)
 {
-    IDXGIFactory4 *factory;
     IUnknown *adapter;
     HRESULT hr;
 
-    hr = CreateDXGIFactory1(&IID_IDXGIFactory4, (void **)&factory);
-    ok(SUCCEEDED(hr), "Failed to create IDXGIFactory4, hr %#x.\n", hr);
-
     adapter = NULL;
     hr = IDXGIFactory4_EnumWarpAdapter(factory, &IID_IUnknown, (void **)&adapter);
-    IDXGIFactory4_Release(factory);
     if (FAILED(hr))
         trace("Failed to get WARP adapter, hr %#x.\n", hr);
     return adapter;
 }
+
+static IUnknown *create_adapter(void)
+{
+    IUnknown *adapter = NULL;
+    IDXGIFactory4 *factory;
+    HRESULT hr;
+
+    hr = CreateDXGIFactory1(&IID_IDXGIFactory4, (void **)&factory);
+    ok(hr == S_OK, "Failed to create IDXGIFactory4, hr %#x.\n", hr);
+
+    if (use_warp_device && !(adapter = create_warp_adapter(factory)))
+    {
+        IDXGIFactory4_Release(factory);
+        return adapter;
+    }
+
+    if (use_adapter_idx)
+        hr = IDXGIFactory4_EnumAdapters(factory, use_adapter_idx, (IDXGIAdapter **)&adapter);
+    IDXGIFactory4_Release(factory);
+    if (FAILED(hr))
+        trace("Failed to get adapter, hr %#x.\n", hr);
+    return adapter;
+}
 #else
-static IUnknown *create_warp_adapter(void)
+static IUnknown *create_adapter(void)
 {
     return NULL;
 }
 #endif
 
-static bool use_warp_device;
-
 static ID3D12Device *create_device(void)
 {
     IUnknown *adapter = NULL;
     ID3D12Device *device;
+    HRESULT hr;
 
-    if (use_warp_device && !(adapter = create_warp_adapter()))
+    if ((use_warp_device || use_adapter_idx) && !(adapter = create_adapter()))
     {
-        trace("Failed to create WARP device.\n");
+        trace("Failed to create adapter.\n");
         return NULL;
     }
 
-    if (FAILED(D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device)))
-        return NULL;
+    hr = D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device);
+    if (adapter)
+        IUnknown_Release(adapter);
 
-    return device;
+    return SUCCEEDED(hr) ? device : NULL;
 }
 
 static bool broken_on_warp(bool condition)
@@ -20596,6 +20617,8 @@ START_TEST(d3d12)
             enable_debug_layer = true;
         else if (!strcmp(argv[i], "--warp"))
             use_warp_device = true;
+        else if (!strcmp(argv[i], "--adapter") && i + 1 < argc)
+            use_adapter_idx = atoi(argv[++i]);
     }
 
     if (enable_debug_layer && SUCCEEDED(D3D12GetDebugInterface(&IID_ID3D12Debug, (void **)&debug)))
