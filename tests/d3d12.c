@@ -20605,6 +20605,182 @@ static void test_blend_factor(void)
     destroy_test_context(&context);
 }
 
+static void test_multisample_rendering(void)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList *command_list;
+    ID3D12PipelineState *ms_pipeline_state;
+    D3D12_CPU_DESCRIPTOR_HANDLE ms_rtv;
+    ID3D12Resource *ms_render_target;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    uint32_t sample;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD ps_color_code[] =
+    {
+#if 0
+        float4 main(uint id : SV_SampleIndex) : SV_Target
+        {
+            switch (id)
+            {
+                case 0:  return float4(1.0f, 0.0f, 0.0f, 1.0f);
+                case 1:  return float4(0.0f, 1.0f, 0.0f, 1.0f);
+                case 2:  return float4(0.0f, 0.0f, 1.0f, 1.0f);
+                default: return float4(0.0f, 0.0f, 0.0f, 1.0f);
+            }
+        }
+#endif
+        0x43425844, 0x94c35f48, 0x04c6b0f7, 0x407d8214, 0xc24f01e5, 0x00000001, 0x00000194, 0x00000003,
+        0x0000002c, 0x00000064, 0x00000098, 0x4e475349, 0x00000030, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x0000000a, 0x00000001, 0x00000000, 0x00000101, 0x535f5653, 0x6c706d61, 0x646e4965,
+        0xab007865, 0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000,
+        0x00000003, 0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000f4,
+        0x00000050, 0x0000003d, 0x0100086a, 0x04000863, 0x00101012, 0x00000000, 0x0000000a, 0x03000065,
+        0x001020f2, 0x00000000, 0x0300004c, 0x0010100a, 0x00000000, 0x03000006, 0x00004001, 0x00000000,
+        0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x3f800000, 0x00000000, 0x00000000, 0x3f800000,
+        0x0100003e, 0x03000006, 0x00004001, 0x00000001, 0x08000036, 0x001020f2, 0x00000000, 0x00004002,
+        0x00000000, 0x3f800000, 0x00000000, 0x3f800000, 0x0100003e, 0x03000006, 0x00004001, 0x00000002,
+        0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x3f800000, 0x3f800000,
+        0x0100003e, 0x0100000a, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000, 0x00000000,
+        0x00000000, 0x3f800000, 0x0100003e, 0x01000017, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_color = {ps_color_code, sizeof(ps_color_code)};
+    static const DWORD ps_resolve_code[] =
+    {
+#if 0
+        Texture2DMS<float4> t;
+
+        uint sample;
+        uint rt_size;
+
+        float4 main(float4 position : SV_Position) : SV_Target
+        {
+            float3 p;
+            t.GetDimensions(p.x, p.y, p.z);
+            p *= float3(position.x / rt_size, position.y / rt_size, 0);
+            return t.Load((int2)p.xy, sample);
+        }
+#endif
+        0x43425844, 0x68a4590b, 0xc1ec3070, 0x1b957c43, 0x0c080741, 0x00000001, 0x000001c8, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x7469736f, 0x006e6f69,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x0000012c, 0x00000050,
+        0x0000004b, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04002058, 0x00107000,
+        0x00000000, 0x00005555, 0x04002064, 0x00101032, 0x00000000, 0x00000001, 0x03000065, 0x001020f2,
+        0x00000000, 0x02000068, 0x00000001, 0x06000056, 0x00100012, 0x00000000, 0x0020801a, 0x00000000,
+        0x00000000, 0x0700000e, 0x00100032, 0x00000000, 0x00101046, 0x00000000, 0x00100006, 0x00000000,
+        0x8900003d, 0x80000102, 0x00155543, 0x001000c2, 0x00000000, 0x00004001, 0x00000000, 0x001074e6,
+        0x00000000, 0x07000038, 0x00100032, 0x00000000, 0x00100046, 0x00000000, 0x00100ae6, 0x00000000,
+        0x0500001b, 0x00100032, 0x00000000, 0x00100046, 0x00000000, 0x08000036, 0x001000c2, 0x00000000,
+        0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x8c00002e, 0x80000102, 0x00155543,
+        0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x00107e46, 0x00000000, 0x0020800a, 0x00000000,
+        0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_resolve = {ps_resolve_code, sizeof(ps_resolve_code)};
+    static const unsigned int expected_colors[] = {0xff0000ff, 0xff00ff00, 0xffff0000, 0xff000000};
+
+    if (use_warp_device)
+    {
+        skip("Sample shading tests fail on WARP.\n");
+        return;
+    }
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = desc.rt_height = 32;
+    desc.rt_descriptor_count = 2;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_texture_root_signature(context.device,
+            D3D12_SHADER_VISIBILITY_PIXEL, 2, 0);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, NULL, &ps_resolve, NULL);
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    pso_desc.PS = ps_color;
+    pso_desc.SampleDesc.Count = 4;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&ms_pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    ms_rtv = get_cpu_rtv_handle(&context, context.rtv_heap, 1);
+    desc.sample_desc.Count = 4;
+    create_render_target(&context, &desc, &ms_render_target, &ms_rtv);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    ID3D12Device_CreateShaderResourceView(context.device, ms_render_target, NULL,
+            get_cpu_descriptor_handle(&context, heap, 0));
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, ms_rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &ms_rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, ms_pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0,
+            get_gpu_descriptor_handle(&context, heap, 0));
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, ms_render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+    ID3D12GraphicsCommandList_ResolveSubresource(command_list,
+            context.render_target, 0, ms_render_target, 0, context.render_target_desc.Format);
+    transition_resource_state(command_list, ms_render_target,
+            D3D12_RESOURCE_STATE_RESOLVE_SOURCE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff404040, 2);
+
+    for (i = 0; i < ARRAY_SIZE(expected_colors); ++i)
+    {
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+        ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0,
+                get_gpu_descriptor_handle(&context, heap, 0));
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 1, &desc.rt_width, 1);
+
+        sample = i;
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 1, &sample, 0);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(context.render_target, 0, queue, command_list, expected_colors[i], 0);
+    }
+
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12Resource_Release(ms_render_target);
+    ID3D12PipelineState_Release(ms_pipeline_state);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     bool enable_debug_layer = false;
@@ -20731,4 +20907,5 @@ START_TEST(d3d12)
     run_test(test_suballocate_small_textures);
     run_test(test_command_list_initial_pipeline_state);
     run_test(test_blend_factor);
+    run_test(test_multisample_rendering);
 }

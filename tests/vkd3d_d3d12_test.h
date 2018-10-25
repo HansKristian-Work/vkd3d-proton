@@ -513,6 +513,7 @@ struct test_context_desc
 {
     unsigned int rt_width, rt_height, rt_array_size;
     DXGI_FORMAT rt_format;
+    DXGI_SAMPLE_DESC sample_desc;
     unsigned int rt_descriptor_count;
     unsigned int root_signature_flags;
     bool no_render_target;
@@ -562,8 +563,8 @@ static void create_render_target_(unsigned int line, struct test_context *contex
     resource_desc.DepthOrArraySize = desc && desc->rt_array_size ? desc->rt_array_size : 1;
     resource_desc.MipLevels = 1;
     resource_desc.Format = desc && desc->rt_format ? desc->rt_format : DXGI_FORMAT_R8G8B8A8_UNORM;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.SampleDesc.Count = desc && desc->sample_desc.Count ? desc->sample_desc.Count : 1;
+    resource_desc.SampleDesc.Quality = desc ? desc->sample_desc.Quality : 0;
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     clear_value.Format = resource_desc.Format;
