@@ -64,6 +64,8 @@ static const char * const required_device_extensions[] =
 static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 {
     {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_push_descriptor)},
+    {VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME,
+            offsetof(struct vkd3d_vulkan_info, EXT_vertex_attribute_divisor)},
 };
 
 static bool is_extension_disabled(const char *extension_name)
@@ -993,9 +995,11 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 {
     unsigned int direct_queue_family_index, copy_queue_family_index, compute_queue_family_index;
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
+    struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
     VkQueueFamilyProperties *queue_properties = NULL;
     VkDeviceQueueCreateInfo *queue_info = NULL;
-    VkPhysicalDeviceFeatures device_features;
+    VkPhysicalDeviceFeatures2 features2;
     VkPhysicalDevice physical_device;
     VkDeviceCreateInfo device_info;
     uint32_t queue_family_count;
@@ -1082,11 +1086,19 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 
-    VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &device_features));
-    if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &device_features, &extension_count)))
+    memset(&vertex_divisor_features, 0, sizeof(vertex_divisor_features));
+    vertex_divisor_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT;
+    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    features2.pNext = &vertex_divisor_features;
+    if (vulkan_info->KHR_get_physical_device_properties2)
+        VK_CALL(vkGetPhysicalDeviceFeatures2KHR(physical_device, &features2));
+    else
+        VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &features2.features));
+
+    if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &features2.features, &extension_count)))
         goto done;
 
-    device_features.shaderTessellationAndGeometryPointSize = VK_FALSE;
+    features2.features.shaderTessellationAndGeometryPointSize = VK_FALSE;
 
     if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
     {
@@ -1096,7 +1108,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     /* Create device */
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_info.pNext = NULL;
+    device_info.pNext = &vertex_divisor_features;
     device_info.flags = 0;
     device_info.queueCreateInfoCount = queue_family_count;
     device_info.pQueueCreateInfos = queue_info;
@@ -1108,7 +1120,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
             create_info->device_extensions, create_info->device_extension_count,
             NULL, 0, NULL, &device->vk_info);
     device_info.ppEnabledExtensionNames = extensions;
-    device_info.pEnabledFeatures = &device_features;
+    device_info.pEnabledFeatures = &features2.features;
 
     vr = VK_CALL(vkCreateDevice(physical_device, &device_info, NULL, &vk_device));
     vkd3d_free(extensions);

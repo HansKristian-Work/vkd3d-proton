@@ -46,6 +46,8 @@ VK_INSTANCE_PFN(vkGetPhysicalDeviceMemoryProperties)
 VK_INSTANCE_PFN(vkGetPhysicalDeviceProperties)
 VK_INSTANCE_PFN(vkGetPhysicalDeviceQueueFamilyProperties)
 VK_INSTANCE_PFN(vkGetPhysicalDeviceSparseImageFormatProperties)
+/* VK_KHR_get_physical_device_properties2 */
+VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceFeatures2KHR)
 /* VK_EXT_debug_report */
 VK_INSTANCE_EXT_PFN(vkCreateDebugReportCallbackEXT)
 VK_INSTANCE_EXT_PFN(vkDestroyDebugReportCallbackEXT)
