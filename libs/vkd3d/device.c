@@ -542,7 +542,6 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
     VkPhysicalDeviceMemoryProperties memory_properties;
     VkPhysicalDeviceProperties device_properties;
     VkQueueFamilyProperties *queue_properties;
-    VkPhysicalDeviceFeatures features;
     VkPhysicalDeviceLimits *limits;
     unsigned int i, j;
     uint32_t count;
@@ -702,64 +701,68 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
     TRACE("  optimalBufferCopyOffsetAlignment: %#"PRIx64".\n", limits->optimalBufferCopyOffsetAlignment);
     TRACE("  optimalBufferCopyRowPitchAlignment: %#"PRIx64".\n", limits->optimalBufferCopyRowPitchAlignment);
     TRACE("  nonCoherentAtomSize: %#"PRIx64".\n", limits->nonCoherentAtomSize);
+}
 
-    VK_CALL(vkGetPhysicalDeviceFeatures(device, &features));
+static void vkd3d_trace_physical_device_features(const VkPhysicalDeviceFeatures2KHR *features2)
+{
+    const VkPhysicalDeviceFeatures *features = &features2->features;
+
     TRACE("Device features:\n");
-    TRACE("  robustBufferAccess: %#x.\n", features.robustBufferAccess);
-    TRACE("  fullDrawIndexUint32: %#x.\n", features.fullDrawIndexUint32);
-    TRACE("  imageCubeArray: %#x.\n", features.imageCubeArray);
-    TRACE("  independentBlend: %#x.\n", features.independentBlend);
-    TRACE("  geometryShader: %#x.\n", features.geometryShader);
-    TRACE("  tessellationShader: %#x.\n", features.tessellationShader);
-    TRACE("  sampleRateShading: %#x.\n", features.sampleRateShading);
-    TRACE("  dualSrcBlend: %#x.\n", features.dualSrcBlend);
-    TRACE("  logicOp: %#x.\n", features.logicOp);
-    TRACE("  multiDrawIndirect: %#x.\n", features.multiDrawIndirect);
-    TRACE("  drawIndirectFirstInstance: %#x.\n", features.drawIndirectFirstInstance);
-    TRACE("  depthClamp: %#x.\n", features.depthClamp);
-    TRACE("  depthBiasClamp: %#x.\n", features.depthBiasClamp);
-    TRACE("  fillModeNonSolid: %#x.\n", features.fillModeNonSolid);
-    TRACE("  depthBounds: %#x.\n", features.depthBounds);
-    TRACE("  wideLines: %#x.\n", features.wideLines);
-    TRACE("  largePoints: %#x.\n", features.largePoints);
-    TRACE("  alphaToOne: %#x.\n", features.alphaToOne);
-    TRACE("  multiViewport: %#x.\n", features.multiViewport);
-    TRACE("  samplerAnisotropy: %#x.\n", features.samplerAnisotropy);
-    TRACE("  textureCompressionETC2: %#x.\n", features.textureCompressionETC2);
-    TRACE("  textureCompressionASTC_LDR: %#x.\n", features.textureCompressionASTC_LDR);
-    TRACE("  textureCompressionBC: %#x.\n", features.textureCompressionBC);
-    TRACE("  occlusionQueryPrecise: %#x.\n", features.occlusionQueryPrecise);
-    TRACE("  pipelineStatisticsQuery: %#x.\n", features.pipelineStatisticsQuery);
-    TRACE("  vertexOipelineStoresAndAtomics: %#x.\n", features.vertexPipelineStoresAndAtomics);
-    TRACE("  fragmentStoresAndAtomics: %#x.\n", features.fragmentStoresAndAtomics);
-    TRACE("  shaderTessellationAndGeometryPointSize: %#x.\n", features.shaderTessellationAndGeometryPointSize);
-    TRACE("  shaderImageGatherExtended: %#x.\n", features.shaderImageGatherExtended);
-    TRACE("  shaderStorageImageExtendedFormats: %#x.\n", features.shaderStorageImageExtendedFormats);
-    TRACE("  shaderStorageImageMultisample: %#x.\n", features.shaderStorageImageMultisample);
-    TRACE("  shaderStorageImageReadWithoutFormat: %#x.\n", features.shaderStorageImageReadWithoutFormat);
-    TRACE("  shaderStorageImageWriteWithoutFormat: %#x.\n", features.shaderStorageImageWriteWithoutFormat);
-    TRACE("  shaderUniformBufferArrayDynamicIndexing: %#x.\n", features.shaderUniformBufferArrayDynamicIndexing);
-    TRACE("  shaderSampledImageArrayDynamicIndexing: %#x.\n", features.shaderSampledImageArrayDynamicIndexing);
-    TRACE("  shaderStorageBufferArrayDynamicIndexing: %#x.\n", features.shaderStorageBufferArrayDynamicIndexing);
-    TRACE("  shaderStorageImageArrayDynamicIndexing: %#x.\n", features.shaderStorageImageArrayDynamicIndexing);
-    TRACE("  shaderClipDistance: %#x.\n", features.shaderClipDistance);
-    TRACE("  shaderCullDistance: %#x.\n", features.shaderCullDistance);
-    TRACE("  shaderFloat64: %#x.\n", features.shaderFloat64);
-    TRACE("  shaderInt64: %#x.\n", features.shaderInt64);
-    TRACE("  shaderInt16: %#x.\n", features.shaderInt16);
-    TRACE("  shaderResourceResidency: %#x.\n", features.shaderResourceResidency);
-    TRACE("  shaderResourceMinLod: %#x.\n", features.shaderResourceMinLod);
-    TRACE("  sparseBinding: %#x.\n", features.sparseBinding);
-    TRACE("  sparseResidencyBuffer: %#x.\n", features.sparseResidencyBuffer);
-    TRACE("  sparseResidencyImage2D: %#x.\n", features.sparseResidencyImage2D);
-    TRACE("  sparseResidencyImage3D: %#x.\n", features.sparseResidencyImage3D);
-    TRACE("  sparseResidency2Samples: %#x.\n", features.sparseResidency2Samples);
-    TRACE("  sparseResidency4Samples: %#x.\n", features.sparseResidency4Samples);
-    TRACE("  sparseResidency8Samples: %#x.\n", features.sparseResidency8Samples);
-    TRACE("  sparseResidency16Samples: %#x.\n", features.sparseResidency16Samples);
-    TRACE("  sparseResidencyAliased: %#x.\n", features.sparseResidencyAliased);
-    TRACE("  variableMultisampleRate: %#x.\n", features.variableMultisampleRate);
-    TRACE("  inheritedQueries: %#x.\n", features.inheritedQueries);
+    TRACE("  robustBufferAccess: %#x.\n", features->robustBufferAccess);
+    TRACE("  fullDrawIndexUint32: %#x.\n", features->fullDrawIndexUint32);
+    TRACE("  imageCubeArray: %#x.\n", features->imageCubeArray);
+    TRACE("  independentBlend: %#x.\n", features->independentBlend);
+    TRACE("  geometryShader: %#x.\n", features->geometryShader);
+    TRACE("  tessellationShader: %#x.\n", features->tessellationShader);
+    TRACE("  sampleRateShading: %#x.\n", features->sampleRateShading);
+    TRACE("  dualSrcBlend: %#x.\n", features->dualSrcBlend);
+    TRACE("  logicOp: %#x.\n", features->logicOp);
+    TRACE("  multiDrawIndirect: %#x.\n", features->multiDrawIndirect);
+    TRACE("  drawIndirectFirstInstance: %#x.\n", features->drawIndirectFirstInstance);
+    TRACE("  depthClamp: %#x.\n", features->depthClamp);
+    TRACE("  depthBiasClamp: %#x.\n", features->depthBiasClamp);
+    TRACE("  fillModeNonSolid: %#x.\n", features->fillModeNonSolid);
+    TRACE("  depthBounds: %#x.\n", features->depthBounds);
+    TRACE("  wideLines: %#x.\n", features->wideLines);
+    TRACE("  largePoints: %#x.\n", features->largePoints);
+    TRACE("  alphaToOne: %#x.\n", features->alphaToOne);
+    TRACE("  multiViewport: %#x.\n", features->multiViewport);
+    TRACE("  samplerAnisotropy: %#x.\n", features->samplerAnisotropy);
+    TRACE("  textureCompressionETC2: %#x.\n", features->textureCompressionETC2);
+    TRACE("  textureCompressionASTC_LDR: %#x.\n", features->textureCompressionASTC_LDR);
+    TRACE("  textureCompressionBC: %#x.\n", features->textureCompressionBC);
+    TRACE("  occlusionQueryPrecise: %#x.\n", features->occlusionQueryPrecise);
+    TRACE("  pipelineStatisticsQuery: %#x.\n", features->pipelineStatisticsQuery);
+    TRACE("  vertexOipelineStoresAndAtomics: %#x.\n", features->vertexPipelineStoresAndAtomics);
+    TRACE("  fragmentStoresAndAtomics: %#x.\n", features->fragmentStoresAndAtomics);
+    TRACE("  shaderTessellationAndGeometryPointSize: %#x.\n", features->shaderTessellationAndGeometryPointSize);
+    TRACE("  shaderImageGatherExtended: %#x.\n", features->shaderImageGatherExtended);
+    TRACE("  shaderStorageImageExtendedFormats: %#x.\n", features->shaderStorageImageExtendedFormats);
+    TRACE("  shaderStorageImageMultisample: %#x.\n", features->shaderStorageImageMultisample);
+    TRACE("  shaderStorageImageReadWithoutFormat: %#x.\n", features->shaderStorageImageReadWithoutFormat);
+    TRACE("  shaderStorageImageWriteWithoutFormat: %#x.\n", features->shaderStorageImageWriteWithoutFormat);
+    TRACE("  shaderUniformBufferArrayDynamicIndexing: %#x.\n", features->shaderUniformBufferArrayDynamicIndexing);
+    TRACE("  shaderSampledImageArrayDynamicIndexing: %#x.\n", features->shaderSampledImageArrayDynamicIndexing);
+    TRACE("  shaderStorageBufferArrayDynamicIndexing: %#x.\n", features->shaderStorageBufferArrayDynamicIndexing);
+    TRACE("  shaderStorageImageArrayDynamicIndexing: %#x.\n", features->shaderStorageImageArrayDynamicIndexing);
+    TRACE("  shaderClipDistance: %#x.\n", features->shaderClipDistance);
+    TRACE("  shaderCullDistance: %#x.\n", features->shaderCullDistance);
+    TRACE("  shaderFloat64: %#x.\n", features->shaderFloat64);
+    TRACE("  shaderInt64: %#x.\n", features->shaderInt64);
+    TRACE("  shaderInt16: %#x.\n", features->shaderInt16);
+    TRACE("  shaderResourceResidency: %#x.\n", features->shaderResourceResidency);
+    TRACE("  shaderResourceMinLod: %#x.\n", features->shaderResourceMinLod);
+    TRACE("  sparseBinding: %#x.\n", features->sparseBinding);
+    TRACE("  sparseResidencyBuffer: %#x.\n", features->sparseResidencyBuffer);
+    TRACE("  sparseResidencyImage2D: %#x.\n", features->sparseResidencyImage2D);
+    TRACE("  sparseResidencyImage3D: %#x.\n", features->sparseResidencyImage3D);
+    TRACE("  sparseResidency2Samples: %#x.\n", features->sparseResidency2Samples);
+    TRACE("  sparseResidency4Samples: %#x.\n", features->sparseResidency4Samples);
+    TRACE("  sparseResidency8Samples: %#x.\n", features->sparseResidency8Samples);
+    TRACE("  sparseResidency16Samples: %#x.\n", features->sparseResidency16Samples);
+    TRACE("  sparseResidencyAliased: %#x.\n", features->sparseResidencyAliased);
+    TRACE("  variableMultisampleRate: %#x.\n", features->variableMultisampleRate);
+    TRACE("  inheritedQueries: %#x.\n", features->inheritedQueries);
 }
 
 static void vkd3d_check_feature_level_11_requirements(const VkPhysicalDeviceLimits *limits,
@@ -1094,6 +1097,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         VK_CALL(vkGetPhysicalDeviceFeatures2KHR(physical_device, &features2));
     else
         VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &features2.features));
+
+    vkd3d_trace_physical_device_features(&features2);
 
     if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &features2.features, &extension_count)))
         goto done;
