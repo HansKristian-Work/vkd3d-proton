@@ -17692,24 +17692,24 @@ static void test_instance_id(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_INPUT_LAYOUT_DESC input_layout;
     D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2];
-    D3D12_VERTEX_BUFFER_VIEW vbv[2];
+    D3D12_VERTEX_BUFFER_VIEW vbv[3];
     ID3D12Resource *argument_buffer;
     ID3D12Resource *render_target;
     struct test_context_desc desc;
     struct test_context context;
     struct resource_readback rb;
     ID3D12CommandQueue *queue;
-    ID3D12Resource *vb[2];
-    unsigned int i;
+    ID3D12Resource *vb[3];
+    unsigned int i, j;
     HRESULT hr;
 
-    static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
+    D3D12_INPUT_ELEMENT_DESC layout_desc[] =
     {
         {"position", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT,
                 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"color",    0, DXGI_FORMAT_R8_UNORM,           1, D3D12_APPEND_ALIGNED_ELEMENT,
                 D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
-        {"v_offset", 0, DXGI_FORMAT_R32_FLOAT,          1, D3D12_APPEND_ALIGNED_ELEMENT,
+        {"v_offset", 0, DXGI_FORMAT_R32_FLOAT,          2, D3D12_APPEND_ALIGNED_ELEMENT,
                 D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
     };
     static const DWORD vs_code[] =
@@ -17799,22 +17799,29 @@ static void test_instance_id(void)
         {-0.75f, -1.0f, 0.0f, 1.0f},
         {-0.75f,  0.0f, 0.0f, 1.0f},
     };
-    static const struct
+    static const BYTE stream1[] =
     {
-        BYTE color;
-        float v_offset;
-    }
-    stream1[] =
-    {
-        {0xf0, 0.00f},
-        {0x80, 0.25f},
-        {0x10, 0.50f},
-        {0x40, 0.75f},
+        0xf0,
+        0x80,
+        0x10,
+        0x40,
 
-        {0xaa, 1.00f},
-        {0xbb, 1.25f},
-        {0xcc, 1.50f},
-        {0x90, 1.75f},
+        0xaa,
+        0xbb,
+        0xcc,
+        0x90,
+    };
+    static const float stream2[] =
+    {
+        0.00f,
+        0.25f,
+        0.50f,
+        0.75f,
+
+        1.00f,
+        1.25f,
+        1.50f,
+        1.75f,
     };
     static const D3D12_DRAW_ARGUMENTS argument_data[] =
     {
@@ -17823,31 +17830,46 @@ static void test_instance_id(void)
     };
     static const struct
     {
+        unsigned int color_step_rate;
+        unsigned int expected_colors[16];
+    }
+    tests[] =
+    {
+        {0, {0xfff0f0f0, 0xfff0f0f0, 0xfff0f0f0, 0xfff0f0f0, 0xffaaaaaa, 0xffaaaaaa, 0xffaaaaaa, 0xffaaaaaa,
+             0xfff0f0f0, 0xfff0f0f0, 0xfff0f0f0, 0xfff0f0f0, 0xffaaaaaa, 0xffaaaaaa, 0xffaaaaaa, 0xffaaaaaa}},
+        {1, {0xfff0f0f0, 0xff808080, 0xff101010, 0xff404040, 0xffaaaaaa, 0xffbbbbbb, 0xffcccccc, 0xff909090,
+             0xfff0f0f0, 0xff808080, 0xff101010, 0xff404040, 0xffaaaaaa, 0xffbbbbbb, 0xffcccccc, 0xff909090}},
+        {2, {0xfff0f0f0, 0xfff0f0f0, 0xff808080, 0xff808080, 0xffaaaaaa, 0xffaaaaaa, 0xffbbbbbb, 0xffbbbbbb,
+             0xfff0f0f0, 0xfff0f0f0, 0xff808080, 0xff808080, 0xffaaaaaa, 0xffaaaaaa, 0xffbbbbbb, 0xffbbbbbb}},
+    };
+    static const struct
+    {
         D3D12_BOX box;
-        unsigned int color;
         unsigned int instance_id;
     }
     expected_results[] =
     {
-        {{ 0, 0, 0, 10, 10, 1}, 0xfff0f0f0, 0},
-        {{10, 0, 0, 20, 10, 1}, 0xff808080, 1},
-        {{20, 0, 0, 30, 10, 1}, 0xff101010, 2},
-        {{30, 0, 0, 40, 10, 1}, 0xff404040, 3},
-        {{40, 0, 0, 50, 10, 1}, 0xffaaaaaa, 0},
-        {{50, 0, 0, 60, 10, 1}, 0xffbbbbbb, 1},
-        {{60, 0, 0, 70, 10, 1}, 0xffcccccc, 2},
-        {{70, 0, 0, 80, 10, 1}, 0xff909090, 3},
+        {{ 0, 0, 0, 10, 10, 1}, 0},
+        {{10, 0, 0, 20, 10, 1}, 1},
+        {{20, 0, 0, 30, 10, 1}, 2},
+        {{30, 0, 0, 40, 10, 1}, 3},
+        {{40, 0, 0, 50, 10, 1}, 0},
+        {{50, 0, 0, 60, 10, 1}, 1},
+        {{60, 0, 0, 70, 10, 1}, 2},
+        {{70, 0, 0, 80, 10, 1}, 3},
         /* indirect draws results */
-        {{ 0, 10, 0, 10, 20, 1}, 0xfff0f0f0, 0},
-        {{10, 10, 0, 20, 20, 1}, 0xff808080, 1},
-        {{20, 10, 0, 30, 20, 1}, 0xff101010, 2},
-        {{30, 10, 0, 40, 20, 1}, 0xff404040, 3},
-        {{40, 10, 0, 50, 20, 1}, 0xffaaaaaa, 0},
-        {{50, 10, 0, 60, 20, 1}, 0xffbbbbbb, 1},
-        {{60, 10, 0, 70, 20, 1}, 0xffcccccc, 2},
-        {{70, 10, 0, 80, 20, 1}, 0xff909090, 3},
+        {{ 0, 10, 0, 10, 20, 1}, 0},
+        {{10, 10, 0, 20, 20, 1}, 1},
+        {{20, 10, 0, 30, 20, 1}, 2},
+        {{30, 10, 0, 40, 20, 1}, 3},
+        {{40, 10, 0, 50, 20, 1}, 0},
+        {{50, 10, 0, 60, 20, 1}, 1},
+        {{60, 10, 0, 70, 20, 1}, 2},
+        {{70, 10, 0, 80, 20, 1}, 3},
     };
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+    assert(ARRAY_SIZE(tests->expected_colors) == ARRAY_SIZE(expected_results));
 
     memset(&desc, 0, sizeof(desc));
     desc.rt_width = 80;
@@ -17859,23 +17881,14 @@ static void test_instance_id(void)
     command_list = context.list;
     queue = context.queue;
 
+    context.root_signature = create_empty_root_signature(context.device,
+            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
     rtvs[0] = context.rtv;
     rtvs[1] = get_cpu_rtv_handle(&context, context.rtv_heap, 1);
 
     desc.rt_format = DXGI_FORMAT_R32_UINT;
     create_render_target(&context, &desc, &render_target, &rtvs[1]);
-
-    context.root_signature = create_empty_root_signature(context.device,
-            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
-    input_layout.pInputElementDescs = layout_desc;
-    input_layout.NumElements = ARRAY_SIZE(layout_desc);
-    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, &vs, &ps, &input_layout);
-    pso_desc.NumRenderTargets = 2;
-    pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-    pso_desc.RTVFormats[1] = DXGI_FORMAT_R32_UINT;
-    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
-            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
 
     vb[0] = create_upload_buffer(context.device, sizeof(stream0), stream0);
     vbv[0].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb[0]);
@@ -17887,18 +17900,10 @@ static void test_instance_id(void)
     vbv[1].StrideInBytes = sizeof(*stream1);
     vbv[1].SizeInBytes = sizeof(stream1);
 
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[0], white, 0, NULL);
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[1], white, 0, NULL);
-
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 2, rtvs, FALSE, NULL);
-    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
-    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, ARRAY_SIZE(vbv), vbv);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
-    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
-    ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 4, 0, 0);
-    ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 4, 0, 4);
+    vb[2] = create_upload_buffer(context.device, sizeof(stream2), stream2);
+    vbv[2].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb[2]);
+    vbv[2].StrideInBytes = sizeof(*stream2);
+    vbv[2].SizeInBytes = sizeof(stream2);
 
     argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
     signature_desc.ByteStride = sizeof(D3D12_DRAW_ARGUMENTS);
@@ -17907,31 +17912,68 @@ static void test_instance_id(void)
     signature_desc.NodeMask = 0;
     hr = ID3D12Device_CreateCommandSignature(context.device, &signature_desc,
             NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(SUCCEEDED(hr), "Failed to create command signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
 
     argument_buffer = create_upload_buffer(context.device, sizeof(argument_data), &argument_data);
-    ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature,
-            2, argument_buffer, 0, NULL, 0);
 
-    transition_resource_state(command_list, context.render_target,
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (i = 0; i < ARRAY_SIZE(expected_results); ++i)
-        check_readback_data_uint(&rb, &expected_results[i].box, expected_results[i].color, 1);
-    release_resource_readback(&rb);
-    reset_command_list(command_list, context.allocator);
-    transition_resource_state(command_list, render_target,
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    get_texture_readback_with_command_list(render_target, 0, &rb, queue, command_list);
-    for (i = 0; i < ARRAY_SIZE(expected_results); ++i)
-        check_readback_data_uint(&rb, &expected_results[i].box, expected_results[i].instance_id, 0);
-    release_resource_readback(&rb);
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        layout_desc[1].InstanceDataStepRate = tests[i].color_step_rate;
+        input_layout.pInputElementDescs = layout_desc;
+        input_layout.NumElements = ARRAY_SIZE(layout_desc);
+        init_pipeline_state_desc(&pso_desc, context.root_signature, 0, &vs, &ps, &input_layout);
+        pso_desc.NumRenderTargets = 2;
+        pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        pso_desc.RTVFormats[1] = DXGI_FORMAT_R32_UINT;
+        hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+                &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+        ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[0], white, 0, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[1], white, 0, NULL);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 2, rtvs, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, ARRAY_SIZE(vbv), vbv);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 4, 0, 0);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 4, 0, 4);
+
+        ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature,
+                2, argument_buffer, 0, NULL, 0);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+        for (j = 0; j < ARRAY_SIZE(expected_results); ++j)
+            check_readback_data_uint(&rb, &expected_results[j].box, tests[i].expected_colors[j], 1);
+        release_resource_readback(&rb);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_texture_readback_with_command_list(render_target, 0, &rb, queue, command_list);
+        for (j = 0; j < ARRAY_SIZE(expected_results); ++j)
+            check_readback_data_uint(&rb, &expected_results[j].box, expected_results[j].instance_id, 0);
+        release_resource_readback(&rb);
+
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        transition_resource_state(command_list, render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ID3D12PipelineState_Release(context.pipeline_state);
+        context.pipeline_state = NULL;
+    }
 
     ID3D12CommandSignature_Release(command_signature);
     ID3D12Resource_Release(argument_buffer);
     ID3D12Resource_Release(render_target);
-    ID3D12Resource_Release(vb[0]);
-    ID3D12Resource_Release(vb[1]);
+    for (i = 0; i < ARRAY_SIZE(vb); ++i)
+        ID3D12Resource_Release(vb[i]);
     destroy_test_context(&context);
 }
 
