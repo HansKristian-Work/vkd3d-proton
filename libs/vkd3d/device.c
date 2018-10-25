@@ -41,6 +41,26 @@ static const void *vkd3d_find_struct_(const struct vkd3d_struct *chain,
     return NULL;
 }
 
+struct vk_struct
+{
+    VkStructureType sType;
+    struct vk_struct *pNext;
+};
+
+#define vk_find_struct(c, t) vk_find_struct_(c, VK_STRUCTURE_TYPE_##t)
+static const void *vk_find_struct_(struct vk_struct *chain, VkStructureType sType)
+{
+    while (chain)
+    {
+        if (chain->sType == sType)
+            return chain;
+
+        chain = chain->pNext;
+    }
+
+    return NULL;
+}
+
 struct vkd3d_optional_extension_info
 {
     const char *extension_name;
@@ -67,6 +87,19 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     {VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME,
             offsetof(struct vkd3d_vulkan_info, EXT_vertex_attribute_divisor)},
 };
+
+static unsigned int get_spec_version(const VkExtensionProperties *extensions,
+        unsigned int count, const char *extension_name)
+{
+    unsigned int i;
+
+    for (i = 0; i < count; ++i)
+    {
+        if (!strcmp(extensions[i].extensionName, extension_name))
+            return extensions[i].specVersion;
+    }
+    return 0;
+}
 
 static bool is_extension_disabled(const char *extension_name)
 {
@@ -705,6 +738,7 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
 
 static void vkd3d_trace_physical_device_features(const VkPhysicalDeviceFeatures2KHR *features2)
 {
+    const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
     const VkPhysicalDeviceFeatures *features = &features2->features;
 
     TRACE("Device features:\n");
@@ -763,16 +797,26 @@ static void vkd3d_trace_physical_device_features(const VkPhysicalDeviceFeatures2
     TRACE("  sparseResidencyAliased: %#x.\n", features->sparseResidencyAliased);
     TRACE("  variableMultisampleRate: %#x.\n", features->variableMultisampleRate);
     TRACE("  inheritedQueries: %#x.\n", features->inheritedQueries);
+
+    divisor_features = vk_find_struct(features2->pNext, PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT);
+    if (divisor_features)
+    {
+        TRACE("  VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT:\n");
+        TRACE("    vertexAttributeInstanceRateDivisor: %#x.\n",
+                divisor_features->vertexAttributeInstanceRateDivisor);
+        TRACE("    vertexAttributeInstanceRateZeroDivisor: %#x.\n",
+                divisor_features->vertexAttributeInstanceRateZeroDivisor);
+    }
 }
 
-static void vkd3d_check_feature_level_11_requirements(const VkPhysicalDeviceLimits *limits,
+static void vkd3d_check_feature_level_11_requirements(const struct vkd3d_vulkan_info *vk_info,
         const VkPhysicalDeviceFeatures *features)
 {
 #define CHECK_MIN_REQUIREMENT(name, value) \
-    if (limits->name < value) \
+    if (vk_info->device_limits.name < value) \
         WARN(#name " does not meet feature level 11_0 requirements.\n");
 #define CHECK_MAX_REQUIREMENT(name, value) \
-    if (limits->name > value) \
+    if (vk_info->device_limits.name > value) \
         WARN(#name " does not meet feature level 11_0 requirements.\n");
 #define CHECK_FEATURE(name) \
     if (!features->name) \
@@ -807,6 +851,11 @@ static void vkd3d_check_feature_level_11_requirements(const VkPhysicalDeviceLimi
     CHECK_FEATURE(shaderClipDistance);
     CHECK_FEATURE(shaderCullDistance);
 
+    if (!vk_info->EXT_vertex_attribute_divisor)
+        WARN("Vertex attribute instance rate divisor is not supported.\n");
+    else if (!vk_info->vertex_attrib_zero_divisor)
+        WARN("Vertex attribute instance rate zero divisor is not supported.\n");
+
 #undef CHECK_MIN_REQUIREMENT
 #undef CHECK_MAX_REQUIREMENT
 #undef CHECK_FEATURE
@@ -814,10 +863,12 @@ static void vkd3d_check_feature_level_11_requirements(const VkPhysicalDeviceLimi
 
 static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         const struct vkd3d_device_create_info *create_info,
-        const VkPhysicalDeviceFeatures *features, uint32_t *device_extension_count)
+        VkPhysicalDeviceFeatures2KHR *features2, uint32_t *device_extension_count)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
     VkPhysicalDevice physical_device = device->vk_physical_device;
+    VkPhysicalDeviceFeatures *features = &features2->features;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
     VkPhysicalDeviceProperties device_properties;
     VkExtensionProperties *vk_extensions;
@@ -826,11 +877,11 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 
     *device_extension_count = 0;
 
+    vkd3d_trace_physical_device_features(features2);
+
     VK_CALL(vkGetPhysicalDeviceProperties(physical_device, &device_properties));
     vulkan_info->device_limits = device_properties.limits;
     vulkan_info->sparse_properties = device_properties.sparseProperties;
-
-    vkd3d_check_feature_level_11_requirements(&device_properties.limits, features);
 
     device->feature_options.DoublePrecisionFloatShaderOps = features->shaderFloat64;
     device->feature_options.OutputMergerLogicOp = features->logicOp;
@@ -894,7 +945,25 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
             create_info->device_extensions, create_info->device_extension_count,
             NULL, 0, NULL, vulkan_info, "device");
 
+    divisor_features = vk_find_struct(features2->pNext, PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT);
+    if (get_spec_version(vk_extensions, count, VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME) >= 3
+            && divisor_features)
+    {
+        if (!divisor_features->vertexAttributeInstanceRateDivisor)
+            vulkan_info->EXT_vertex_attribute_divisor = false;
+        vulkan_info->vertex_attrib_zero_divisor = divisor_features->vertexAttributeInstanceRateZeroDivisor;
+    }
+    else
+    {
+        vulkan_info->vertex_attrib_zero_divisor = false;
+    }
+
+    vkd3d_check_feature_level_11_requirements(vulkan_info, features);
+
+    features->shaderTessellationAndGeometryPointSize = VK_FALSE;
+
     vkd3d_free(vk_extensions);
+
     return S_OK;
 }
 
@@ -1098,12 +1167,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     else
         VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &features2.features));
 
-    vkd3d_trace_physical_device_features(&features2);
-
-    if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &features2.features, &extension_count)))
+    if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &features2, &extension_count)))
         goto done;
-
-    features2.features.shaderTessellationAndGeometryPointSize = VK_FALSE;
 
     if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
     {

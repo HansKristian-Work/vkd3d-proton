@@ -85,6 +85,8 @@ struct vkd3d_vulkan_info
     bool KHR_push_descriptor;
     bool EXT_vertex_attribute_divisor;
 
+    bool vertex_attrib_zero_divisor;
+
     VkPhysicalDeviceLimits device_limits;
     VkPhysicalDeviceSparseProperties sparse_properties;
 };
