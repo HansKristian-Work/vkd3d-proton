@@ -337,6 +337,7 @@ struct d3d12_rtv_desc
 {
     uint32_t magic;
     VkFormat format;
+    VkSampleCountFlagBits sample_count;
     uint64_t width;
     unsigned int height;
     unsigned int layer_count;
@@ -356,6 +357,7 @@ struct d3d12_dsv_desc
 {
     uint32_t magic;
     VkFormat format;
+    VkSampleCountFlagBits sample_count;
     uint64_t width;
     unsigned int height;
     unsigned int layer_count;

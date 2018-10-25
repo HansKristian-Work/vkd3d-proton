@@ -3677,7 +3677,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(ID3D12Gra
 
     attachment_desc.flags = 0;
     attachment_desc.format = dsv_desc->format;
-    attachment_desc.samples = VK_SAMPLE_COUNT_1_BIT;
+    attachment_desc.samples = dsv_desc->sample_count;
     if (flags & D3D12_CLEAR_FLAG_DEPTH)
     {
         attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -3725,7 +3725,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
 
     attachment_desc.flags = 0;
     attachment_desc.format = rtv_desc->format;
-    attachment_desc.samples = VK_SAMPLE_COUNT_1_BIT;
+    attachment_desc.samples = rtv_desc->sample_count;
     attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
