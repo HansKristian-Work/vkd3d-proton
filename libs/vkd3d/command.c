@@ -1409,6 +1409,7 @@ static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
             break;
 
         case D3D12_RESOURCE_STATE_COPY_SOURCE:
+        case D3D12_RESOURCE_STATE_RESOLVE_SOURCE:
             *access_mask = 0;
             *stage_flags = 0;
             if (image_layout)
@@ -2463,6 +2464,8 @@ static HRESULT d3d12_command_list_allocate_transfer_buffer(struct d3d12_command_
 /* In Vulkan, each depth/stencil format is only compatible with itself.
  * This means that we are not allowed to copy texture regions directly between
  * depth/stencil and color formats.
+ *
+ * FIXME: Implement color <-> depth/stencil blits in shaders.
  */
 static void d3d12_command_list_copy_incompatible_texture_region(struct d3d12_command_list *list,
         struct d3d12_resource *dst_resource, unsigned int dst_sub_resource_idx,
@@ -2736,12 +2739,69 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(ID3D12GraphicsCommand
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(ID3D12GraphicsCommandList *iface,
-        ID3D12Resource *dst_resource, UINT dst_sub_resource,
-        ID3D12Resource *src_resource, UINT src_sub_resource, DXGI_FORMAT format)
+        ID3D12Resource *dst, UINT dst_sub_resource_idx,
+        ID3D12Resource *src, UINT src_sub_resource_idx, DXGI_FORMAT format)
 {
-    FIXME("iface %p, dst_resource %p, dst_sub_resource %u, src_resource %p, src_sub_resource %u, "
-            "format %#x stub!\n",
-            iface, dst_resource, dst_sub_resource, src_resource, src_sub_resource, format);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_resource *dst_resource, *src_resource;
+    const struct vkd3d_format *src_format, *dst_format;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkImageResolve vk_image_resolve;
+
+    TRACE("iface %p, dst_resource %p, dst_sub_resource_idx %u, src_resource %p, src_sub_resource_idx %u, "
+            "format %#x.\n", iface, dst, dst_sub_resource_idx, src, src_sub_resource_idx, format);
+
+    vk_procs = &list->device->vk_procs;
+
+    dst_resource = unsafe_impl_from_ID3D12Resource(dst);
+    src_resource = unsafe_impl_from_ID3D12Resource(src);
+
+    assert(d3d12_resource_is_texture(dst_resource));
+    assert(d3d12_resource_is_texture(src_resource));
+
+    d3d12_command_list_track_resource_usage(list, dst_resource);
+    d3d12_command_list_track_resource_usage(list, src_resource);
+
+    d3d12_command_list_end_current_render_pass(list);
+
+    if (dxgi_format_is_typeless(dst_resource->desc.Format)
+            || dxgi_format_is_typeless(src_resource->desc.Format))
+    {
+        FIXME("Not implemented for typeless resources.\n");
+        return;
+    }
+
+    if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(&dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
+    {
+        WARN("Invalid format %#x.\n", dst_resource->desc.Format);
+        return;
+    }
+    if (!(src_format = vkd3d_format_from_d3d12_resource_desc(&src_resource->desc, DXGI_FORMAT_UNKNOWN)))
+    {
+        WARN("Invalid format %#x.\n", src_resource->desc.Format);
+        return;
+    }
+
+    /* Resolve of depth/stencil images is not supported in Vulkan. */
+    if ((dst_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+            || (src_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
+    {
+        FIXME("Resolve of depth/stencil images is not implemented yet.\n");
+        return;
+    }
+
+    vk_image_subresource_layers_from_d3d12(&vk_image_resolve.srcSubresource,
+            src_format, src_sub_resource_idx, src_resource->desc.MipLevels);
+    memset(&vk_image_resolve.srcOffset, 0, sizeof(vk_image_resolve.srcOffset));
+    vk_image_subresource_layers_from_d3d12(&vk_image_resolve.dstSubresource,
+            dst_format, dst_sub_resource_idx, dst_resource->desc.MipLevels);
+    memset(&vk_image_resolve.dstOffset, 0, sizeof(vk_image_resolve.dstOffset));
+    vk_extent_3d_from_d3d12_miplevel(&vk_image_resolve.extent,
+            &dst_resource->desc, vk_image_resolve.dstSubresource.mipLevel);
+
+    VK_CALL(vkCmdResolveImage(list->vk_command_buffer, src_resource->u.vk_image,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->u.vk_image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &vk_image_resolve));
 }
 
 static enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_TOPOLOGY topology)
