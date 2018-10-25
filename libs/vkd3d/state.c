@@ -1874,6 +1874,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     struct vkd3d_shader_signature input_signature;
     struct VkSubpassDescription sub_pass_desc;
     struct VkRenderPassCreateInfo pass_desc;
+    VkSampleCountFlagBits sample_count;
     const struct vkd3d_format *format;
     enum VkVertexInputRate input_rate;
     unsigned int i, j;
@@ -1914,6 +1915,10 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         return E_INVALIDARG;
     }
 
+    sample_count = vk_samples_from_dxgi_sample_desc(&desc->SampleDesc);
+    if (desc->SampleDesc.Count != 1 && desc->SampleDesc.Quality)
+        WARN("Ignoring sample quality %u.\n", desc->SampleDesc.Quality);
+
     rt_count = desc->NumRenderTargets;
     if (rt_count > ARRAY_SIZE(graphics->attachments) - 1)
     {
@@ -1943,7 +1948,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
         graphics->attachments[0].flags = 0;
         graphics->attachments[0].format = format->vk_format;
-        graphics->attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+        graphics->attachments[0].samples = sample_count;
         if (desc->DepthStencilState.DepthEnable)
         {
             graphics->attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -2002,7 +2007,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
         graphics->attachments[idx].flags = 0;
         graphics->attachments[idx].format = format->vk_format;
-        graphics->attachments[idx].samples = VK_SAMPLE_COUNT_1_BIT;
+        graphics->attachments[idx].samples = sample_count;
         graphics->attachments[idx].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
         graphics->attachments[idx].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         graphics->attachments[idx].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -2202,7 +2207,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->ms_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     graphics->ms_desc.pNext = NULL;
     graphics->ms_desc.flags = 0;
-    graphics->ms_desc.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    graphics->ms_desc.rasterizationSamples = sample_count;
     graphics->ms_desc.sampleShadingEnable = VK_FALSE;
     graphics->ms_desc.minSampleShading = 0.0f;
     graphics->ms_desc.pSampleMask = NULL;
@@ -2210,9 +2215,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->ms_desc.alphaToOneEnable = VK_FALSE;
 
     ds_desc_from_d3d12(&graphics->ds_desc, &desc->DepthStencilState);
-
-    if (desc->SampleDesc.Count != 1)
-        FIXME("Ignoring sample desc %u, %u.\n", desc->SampleDesc.Count, desc->SampleDesc.Quality);
 
     graphics->root_signature = root_signature;
 

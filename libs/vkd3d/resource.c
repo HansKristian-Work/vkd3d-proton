@@ -334,7 +334,7 @@ static VkImageType vk_image_type_from_d3d12_resource_dimension(D3D12_RESOURCE_DI
     }
 }
 
-static VkSampleCountFlagBits vk_samples_from_dxgi_sample_desc(const DXGI_SAMPLE_DESC *desc)
+VkSampleCountFlagBits vk_samples_from_dxgi_sample_desc(const DXGI_SAMPLE_DESC *desc)
 {
     switch (desc->Count)
     {
