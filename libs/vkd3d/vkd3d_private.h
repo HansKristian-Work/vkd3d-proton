@@ -86,6 +86,7 @@ struct vkd3d_vulkan_info
     bool EXT_vertex_attribute_divisor;
 
     bool vertex_attrib_zero_divisor;
+    unsigned int max_vertex_attrib_divisor;
 
     VkPhysicalDeviceLimits device_limits;
     VkPhysicalDeviceSparseProperties sparse_properties;
@@ -513,6 +514,8 @@ struct d3d12_graphics_pipeline_state
 
     struct VkVertexInputAttributeDescription attributes[D3D12_VS_INPUT_REGISTER_COUNT];
     enum VkVertexInputRate input_rates[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    VkVertexInputBindingDivisorDescriptionEXT instance_divisors[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    size_t instance_divisor_count;
     size_t attribute_count;
 
     struct VkAttachmentDescription attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
@@ -767,7 +770,6 @@ struct d3d12_device
     struct vkd3d_fence_worker fence_worker;
 
     pthread_mutex_t pipeline_cache_mutex;
-    struct rb_tree pipeline_cache;
     VkPipelineCache vk_pipeline_cache;
 
     /* A sampler used for SpvOpImageFetch. */

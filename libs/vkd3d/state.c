@@ -1866,7 +1866,10 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     unsigned int ps_output_swizzle[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkVertexInputBindingDivisorDescriptionEXT *binding_divisor;
+    const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
     const struct vkd3d_shader_compile_arguments *compile_args;
+    uint32_t instance_divisors[D3D12_VS_INPUT_REGISTER_COUNT];
     uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
     struct vkd3d_shader_compile_arguments ps_compile_args;
     const struct d3d12_root_signature *root_signature;
@@ -1877,6 +1880,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     VkSampleCountFlagBits sample_count;
     const struct vkd3d_format *format;
     enum VkVertexInputRate input_rate;
+    unsigned int instance_divisor;
     unsigned int i, j;
     size_t rt_count;
     uint32_t mask;
@@ -2106,6 +2110,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     if (FAILED(hr = compute_input_layout_offsets(&desc->InputLayout, aligned_offsets)))
         goto fail;
 
+    graphics->instance_divisor_count = 0;
     for (i = 0, j = 0, mask = 0; i < graphics->attribute_count; ++i)
     {
         const D3D12_INPUT_ELEMENT_DESC *e = &desc->InputLayout.pInputElementDescs[i];
@@ -2118,7 +2123,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
         }
 
-        if (e->InputSlot >= ARRAY_SIZE(graphics->input_rates))
+        if (e->InputSlot >= ARRAY_SIZE(graphics->input_rates)
+                || e->InputSlot >= ARRAY_SIZE(instance_divisors))
         {
             WARN("Invalid input slot %#x.\n", e->InputSlot);
             hr = E_INVALIDARG;
@@ -2145,12 +2151,18 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         {
             case D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA:
                 input_rate = VK_VERTEX_INPUT_RATE_VERTEX;
+                instance_divisor = 1;
                 break;
 
             case D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA:
-                if (e->InstanceDataStepRate != 1)
-                    FIXME("Ignoring step rate %#x on input element %u.\n", e->InstanceDataStepRate, i);
                 input_rate = VK_VERTEX_INPUT_RATE_INSTANCE;
+                instance_divisor = e->InstanceDataStepRate;
+                if (instance_divisor > vk_info->max_vertex_attrib_divisor
+                        || (!instance_divisor && !vk_info->vertex_attrib_zero_divisor))
+                {
+                    FIXME("Instance divisor %u not supported by Vulkan implementation.\n", instance_divisor);
+                    instance_divisor = 1;
+                }
                 break;
 
             default:
@@ -2159,14 +2171,25 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 goto fail;
         }
 
-        if (mask & (1u << e->InputSlot) && graphics->input_rates[e->InputSlot] != input_rate)
+        if (mask & (1u << e->InputSlot) && (graphics->input_rates[e->InputSlot] != input_rate
+                || instance_divisors[e->InputSlot] != instance_divisor))
         {
-            FIXME("Input slot class %#x on input element %u conflicts with earlier input slot class %#x.\n",
-                    e->InputSlotClass, e->InputSlot, graphics->input_rates[e->InputSlot]);
+            FIXME("Input slot rate %#x, instance divisor %u on input element %u conflicts "
+                    "with earlier input slot rate %#x, instance divisor %u.\n",
+                    input_rate, instance_divisor, e->InputSlot,
+                    graphics->input_rates[e->InputSlot], instance_divisors[e->InputSlot]);
             hr = E_INVALIDARG;
             goto fail;
         }
+
         graphics->input_rates[e->InputSlot] = input_rate;
+        instance_divisors[e->InputSlot] = instance_divisor;
+        if (instance_divisor != 1 && !(mask & (1u << e->InputSlot)))
+        {
+            binding_divisor = &graphics->instance_divisors[graphics->instance_divisor_count++];
+            binding_divisor->binding = e->InputSlot;
+            binding_divisor->divisor = instance_divisor;
+        }
         mask |= 1u << e->InputSlot;
     }
     graphics->attribute_count = j;
@@ -2331,6 +2354,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     struct VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
     struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
+    VkPipelineVertexInputDivisorStateCreateInfoEXT input_divisor_info;
     struct VkPipelineVertexInputStateCreateInfo input_desc;
     struct VkPipelineInputAssemblyStateCreateInfo ia_desc;
     struct VkPipelineColorBlendStateCreateInfo blend_desc;
@@ -2413,6 +2437,15 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     input_desc.pVertexBindingDescriptions = bindings;
     input_desc.vertexAttributeDescriptionCount = graphics->attribute_count;
     input_desc.pVertexAttributeDescriptions = graphics->attributes;
+
+    if (graphics->instance_divisor_count)
+    {
+        input_desc.pNext = &input_divisor_info;
+        input_divisor_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_DIVISOR_STATE_CREATE_INFO_EXT;
+        input_divisor_info.pNext = NULL;
+        input_divisor_info.vertexBindingDivisorCount = graphics->instance_divisor_count;
+        input_divisor_info.pVertexBindingDivisors = graphics->instance_divisors;
+    }
 
     ia_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     ia_desc.pNext = NULL;
