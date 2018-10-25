@@ -575,7 +575,6 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
     VkPhysicalDeviceMemoryProperties memory_properties;
     VkPhysicalDeviceProperties device_properties;
     VkQueueFamilyProperties *queue_properties;
-    VkPhysicalDeviceLimits *limits;
     unsigned int i, j;
     uint32_t count;
 
@@ -616,8 +615,13 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
             TRACE("  Memory type [%u]: flags %s.\n", j, debug_vk_memory_property_flags(type->propertyFlags));
         }
     }
+}
 
-    limits = &device_properties.limits;
+static void vkd3d_trace_physical_device_limits(const VkPhysicalDeviceProperties2KHR *properties2)
+{
+    const VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT *divisor_properties;
+    const VkPhysicalDeviceLimits *limits = &properties2->properties.limits;
+
     TRACE("Device limits:\n");
     TRACE("  maxImageDimension1D: %u.\n", limits->maxImageDimension1D);
     TRACE("  maxImageDimension2D: %u.\n", limits->maxImageDimension2D);
@@ -734,6 +738,14 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
     TRACE("  optimalBufferCopyOffsetAlignment: %#"PRIx64".\n", limits->optimalBufferCopyOffsetAlignment);
     TRACE("  optimalBufferCopyRowPitchAlignment: %#"PRIx64".\n", limits->optimalBufferCopyRowPitchAlignment);
     TRACE("  nonCoherentAtomSize: %#"PRIx64".\n", limits->nonCoherentAtomSize);
+
+    divisor_properties
+            = vk_find_struct(properties2->pNext, PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES_EXT);
+    if (divisor_properties)
+    {
+        TRACE("  VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT:\n");
+        TRACE("    maxVertexAttribDivisor: %u.\n", divisor_properties->maxVertexAttribDivisor);
+    }
 }
 
 static void vkd3d_trace_physical_device_features(const VkPhysicalDeviceFeatures2KHR *features2)
@@ -866,11 +878,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         VkPhysicalDeviceFeatures2KHR *features2, uint32_t *device_extension_count)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
     const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
     VkPhysicalDevice physical_device = device->vk_physical_device;
     VkPhysicalDeviceFeatures *features = &features2->features;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
-    VkPhysicalDeviceProperties device_properties;
+    VkPhysicalDeviceProperties2KHR device_properties2;
     VkExtensionProperties *vk_extensions;
     uint32_t count;
     VkResult vr;
@@ -879,9 +892,19 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 
     vkd3d_trace_physical_device_features(features2);
 
-    VK_CALL(vkGetPhysicalDeviceProperties(physical_device, &device_properties));
-    vulkan_info->device_limits = device_properties.limits;
-    vulkan_info->sparse_properties = device_properties.sparseProperties;
+    memset(&vertex_divisor_properties, 0, sizeof(vertex_divisor_properties));
+    vertex_divisor_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES_EXT;
+    device_properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    device_properties2.pNext = &vertex_divisor_properties;
+    if (vulkan_info->KHR_get_physical_device_properties2)
+        VK_CALL(vkGetPhysicalDeviceProperties2KHR(physical_device, &device_properties2));
+    else
+        VK_CALL(vkGetPhysicalDeviceProperties(physical_device, &device_properties2.properties));
+
+    vkd3d_trace_physical_device_limits(&device_properties2);
+
+    vulkan_info->device_limits = device_properties2.properties.limits;
+    vulkan_info->sparse_properties = device_properties2.properties.sparseProperties;
 
     device->feature_options.DoublePrecisionFloatShaderOps = features->shaderFloat64;
     device->feature_options.OutputMergerLogicOp = features->logicOp;
