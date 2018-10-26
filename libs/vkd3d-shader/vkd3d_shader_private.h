@@ -809,7 +809,7 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
         const struct vkd3d_shader_interface *shader_interface,
         const struct vkd3d_shader_compile_arguments *compile_args,
         const struct vkd3d_shader_scan_info *scan_info) DECLSPEC_HIDDEN;
-void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
+int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction) DECLSPEC_HIDDEN;
 int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_code *spirv) DECLSPEC_HIDDEN;

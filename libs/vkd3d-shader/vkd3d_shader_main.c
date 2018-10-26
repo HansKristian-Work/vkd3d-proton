@@ -120,10 +120,13 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
             return VKD3D_ERROR_INVALID_ARGUMENT;
         }
 
-        vkd3d_dxbc_compiler_handle_instruction(spirv_compiler, &instruction);
+        if ((ret = vkd3d_dxbc_compiler_handle_instruction(spirv_compiler, &instruction)) < 0)
+            break;
     }
 
-    ret = vkd3d_dxbc_compiler_generate_spirv(spirv_compiler, spirv);
+    if (ret >= 0)
+        ret = vkd3d_dxbc_compiler_generate_spirv(spirv_compiler, spirv);
+
     vkd3d_dxbc_compiler_destroy(spirv_compiler);
     vkd3d_shader_parser_destroy(&parser);
     return ret;

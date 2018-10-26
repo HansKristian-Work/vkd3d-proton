@@ -5079,7 +5079,7 @@ static struct vkd3d_control_flow_info *vkd3d_dxbc_compiler_find_innermost_breaka
     return NULL;
 }
 
-static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_compiler *compiler,
+static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     uint32_t loop_header_block_id, loop_body_block_id, continue_block_id;
@@ -5095,7 +5095,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
     {
         case VKD3DSIH_IF:
             if (!(cf_info = vkd3d_dxbc_compiler_push_control_flow_level(compiler)))
-                return;
+                return VKD3D_ERROR_OUT_OF_MEMORY;
 
             val_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, VKD3DSP_WRITEMASK_0);
             condition_id = vkd3d_dxbc_compiler_emit_int_to_bool(compiler, instruction->flags, 1, val_id);
@@ -5149,7 +5149,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
         case VKD3DSIH_LOOP:
             if (!(cf_info = vkd3d_dxbc_compiler_push_control_flow_level(compiler)))
-                return;
+                return VKD3D_ERROR_OUT_OF_MEMORY;
 
             loop_header_block_id = vkd3d_spirv_alloc_id(builder);
             loop_body_block_id = vkd3d_spirv_alloc_id(builder);
@@ -5190,7 +5190,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
         case VKD3DSIH_SWITCH:
             if (!(cf_info = vkd3d_dxbc_compiler_push_control_flow_level(compiler)))
-                return;
+                return VKD3D_ERROR_OUT_OF_MEMORY;
 
             merge_block_id = vkd3d_spirv_alloc_id(builder);
 
@@ -5206,8 +5206,6 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             cf_info->u.switch_.case_blocks = NULL;
             cf_info->u.switch_.case_blocks_size = 0;
             cf_info->u.switch_.case_block_count = 0;
-            vkd3d_array_reserve((void **)&cf_info->u.switch_.case_blocks, &cf_info->u.switch_.case_blocks_size,
-                    10, sizeof(*cf_info->u.switch_.case_blocks));
             cf_info->u.switch_.default_block_id = 0;
             cf_info->inside_block = false;
             cf_info->current_block = VKD3D_BLOCK_SWITCH;
@@ -5215,6 +5213,11 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             vkd3d_spirv_build_op_name(builder, merge_block_id, "switch%u_merge", compiler->switch_id);
 
             ++compiler->switch_id;
+
+            if (!vkd3d_array_reserve((void **)&cf_info->u.switch_.case_blocks, &cf_info->u.switch_.case_blocks_size,
+                    10, sizeof(*cf_info->u.switch_.case_blocks)))
+                return VKD3D_ERROR_OUT_OF_MEMORY;
+
             break;
 
         case VKD3DSIH_ENDSWITCH:
@@ -5252,7 +5255,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
 
             if (!vkd3d_array_reserve((void **)&cf_info->u.switch_.case_blocks, &cf_info->u.switch_.case_blocks_size,
                     2 * (cf_info->u.switch_.case_block_count + 1), sizeof(*cf_info->u.switch_.case_blocks)))
-                return;
+                return VKD3D_ERROR_OUT_OF_MEMORY;
 
             label_id = vkd3d_spirv_alloc_id(builder);
             if (cf_info->inside_block) /* fall-through */
@@ -5292,7 +5295,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             if (!(breakable_cf_info = vkd3d_dxbc_compiler_find_innermost_breakable_cf_construct(compiler)))
             {
                 FIXME("Unhandled break instruction.\n");
-                return;
+                return VKD3D_ERROR_INVALID_SHADER;
             }
 
             if (breakable_cf_info->current_block == VKD3D_BLOCK_LOOP)
@@ -5318,7 +5321,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             if (!(loop_cf_info = vkd3d_dxbc_compiler_find_innermost_loop(compiler)))
             {
                 ERR("Invalid 'breakc' instruction outside loop.\n");
-                return;
+                return VKD3D_ERROR_INVALID_SHADER;
             }
 
             merge_block_id = vkd3d_dxbc_compiler_emit_conditional_branch(compiler,
@@ -5336,7 +5339,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             if (!(loop_cf_info = vkd3d_dxbc_compiler_find_innermost_loop(compiler)))
             {
                 ERR("Invalid 'continue' instruction outside loop.\n");
-                return;
+                return VKD3D_ERROR_INVALID_SHADER;
             }
 
             vkd3d_spirv_build_op_branch(builder, loop_cf_info->u.loop.continue_block_id);
@@ -5352,7 +5355,7 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             if (!(loop_cf_info = vkd3d_dxbc_compiler_find_innermost_loop(compiler)))
             {
                 ERR("Invalid 'continuec' instruction outside loop.\n");
-                return;
+                return VKD3D_ERROR_INVALID_SHADER;
             }
 
             merge_block_id = vkd3d_dxbc_compiler_emit_conditional_branch(compiler,
@@ -5380,6 +5383,8 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
             ERR("Unexpected instruction %#x.\n", instruction->handler_idx);
             break;
     }
+
+    return VKD3D_OK;
 }
 
 static void vkd3d_dxbc_compiler_emit_deriv_instruction(struct vkd3d_dxbc_compiler *compiler,
@@ -6474,9 +6479,11 @@ static bool is_dcl_instruction(enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx
     return VKD3DSIH_DCL <= handler_idx && handler_idx <= VKD3DSIH_DCL_VERTICES_OUT;
 }
 
-void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
+int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
+    int ret = VKD3D_OK;
+
     if (!is_dcl_instruction(instruction->handler_idx) && !compiler->after_declarations_section)
     {
         compiler->after_declarations_section = true;
@@ -6681,7 +6688,7 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         case VKD3DSIH_RETP:
         case VKD3DSIH_SWITCH:
         case VKD3DSIH_TEXKILL:
-            vkd3d_dxbc_compiler_emit_control_flow_instruction(compiler, instruction);
+            ret = vkd3d_dxbc_compiler_emit_control_flow_instruction(compiler, instruction);
             break;
         case VKD3DSIH_DSX:
         case VKD3DSIH_DSX_COARSE:
@@ -6774,6 +6781,8 @@ void vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler
         default:
             FIXME("Unhandled instruction %#x.\n", instruction->handler_idx);
     }
+
+    return ret;
 }
 
 static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compiler *compiler,
