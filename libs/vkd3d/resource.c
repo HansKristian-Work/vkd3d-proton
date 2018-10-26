@@ -1667,7 +1667,9 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
                 vkd3d_desc.miplevel_idx = desc->u.TextureCubeArray.MostDetailedMip;
                 vkd3d_desc.miplevel_count = desc->u.TextureCubeArray.MipLevels;
                 vkd3d_desc.layer_idx = desc->u.TextureCubeArray.First2DArrayFace;
-                vkd3d_desc.layer_count = 6 * desc->u.TextureCubeArray.NumCubes;
+                vkd3d_desc.layer_count = desc->u.TextureCubeArray.NumCubes;
+                if (vkd3d_desc.layer_count != VK_REMAINING_ARRAY_LAYERS)
+                    vkd3d_desc.layer_count *= 6;
                 if (desc->u.TextureCubeArray.ResourceMinLODClamp)
                     FIXME("Unhandled min LOD clamp %.8e.\n", desc->u.TextureCubeArray.ResourceMinLODClamp);
                 break;

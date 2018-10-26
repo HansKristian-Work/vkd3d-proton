@@ -10845,16 +10845,20 @@ static void test_cube_maps(void)
         const D3D12_SHADER_BYTECODE *ps;
         unsigned int miplevel_count;
         unsigned int array_size;
+        unsigned int cube_count;
     }
     ps_tests[] =
     {
-        {&ps_cube, 1, 6},
-        {&ps_cube, 2, 6},
-        {&ps_cube, 3, 6},
+        {&ps_cube, 1, 6, 1},
+        {&ps_cube, 2, 6, 1},
+        {&ps_cube, 3, 6, 1},
+        {&ps_cube, 3, 6, ~0u},
 
-        {&ps_cube_array, 1, 12},
-        {&ps_cube_array, 2, 12},
-        {&ps_cube_array, 3, 12},
+        {&ps_cube_array, 1, 12, 2},
+        {&ps_cube_array, 1, 12, ~0u},
+        {&ps_cube_array, 2, 12, 2},
+        {&ps_cube_array, 3, 12, 2},
+        {&ps_cube_array, 3, 12, ~0u},
     };
 
     memset(&desc, 0, sizeof(desc));
@@ -10913,7 +10917,7 @@ static void test_cube_maps(void)
             srv_desc.TextureCubeArray.MostDetailedMip = 0;
             srv_desc.TextureCubeArray.MipLevels = test->miplevel_count;
             srv_desc.TextureCubeArray.First2DArrayFace = 0;
-            srv_desc.TextureCubeArray.NumCubes = test->array_size / 6;
+            srv_desc.TextureCubeArray.NumCubes = test->cube_count;
             srv_desc.TextureCubeArray.ResourceMinLODClamp = 0.0f;
         }
         ID3D12Device_CreateShaderResourceView(context.device, texture, &srv_desc, cpu_handle);
