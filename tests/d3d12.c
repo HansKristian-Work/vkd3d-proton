@@ -15457,6 +15457,7 @@ static void test_uav_load(void)
         {
             default:
                 trace("Unhandled format %#x.\n", test->uav_desc.Format);
+                /* fall-through */
             case DXGI_FORMAT_R32_FLOAT:
                 cpu_handle = rtv_float;
                 break;
