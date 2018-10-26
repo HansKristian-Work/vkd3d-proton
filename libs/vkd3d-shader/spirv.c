@@ -5287,6 +5287,8 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
         {
             struct vkd3d_control_flow_info *breakable_cf_info;
 
+            assert(compiler->control_flow_depth);
+
             if (!(breakable_cf_info = vkd3d_dxbc_compiler_find_innermost_breakable_cf_construct(compiler)))
             {
                 FIXME("Unhandled break instruction.\n");
@@ -5311,6 +5313,8 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
         {
             struct vkd3d_control_flow_info *loop_cf_info;
 
+            assert(compiler->control_flow_depth);
+
             if (!(loop_cf_info = vkd3d_dxbc_compiler_find_innermost_loop(compiler)))
             {
                 ERR("Invalid 'breakc' instruction outside loop.\n");
@@ -5326,6 +5330,8 @@ static void vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_
         case VKD3DSIH_CONTINUE:
         {
             struct vkd3d_control_flow_info *loop_cf_info;
+
+            assert(compiler->control_flow_depth);
 
             if (!(loop_cf_info = vkd3d_dxbc_compiler_find_innermost_loop(compiler)))
             {
