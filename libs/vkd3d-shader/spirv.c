@@ -3238,7 +3238,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
             vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationComponent, component_idx);
     }
 
-    use_private_var = component_type != VKD3D_TYPE_FLOAT || component_count != VKD3D_VEC4_SIZE;
+    use_private_var = component_count != VKD3D_VEC4_SIZE || (builtin && builtin->fixup_pfn);
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
 
@@ -3256,7 +3256,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     {
         reg_symbol.id = var_id;
         reg_symbol.info.reg.storage_class = storage_class;
-        reg_symbol.info.reg.component_type = VKD3D_TYPE_FLOAT;
+        reg_symbol.info.reg.component_type = use_private_var ? VKD3D_TYPE_FLOAT : component_type;
         reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_ALL;
         vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 
