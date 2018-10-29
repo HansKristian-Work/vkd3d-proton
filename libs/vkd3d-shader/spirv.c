@@ -2057,9 +2057,9 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
 {
     const struct vkd3d_shader_interface *shader_interface = &compiler->shader_interface;
     enum vkd3d_shader_descriptor_type descriptor_type;
+    enum vkd3d_shader_binding_flag resource_type_flag;
     struct vkd3d_shader_descriptor_binding binding;
     unsigned int reg_idx = reg->idx[0].offset;
-    bool is_buffer_resource;
     unsigned int i;
 
     descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN;
@@ -2074,7 +2074,9 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
     else
         FIXME("Unhandled register type %#x.\n", reg->type);
 
-    is_buffer_resource = resource_type == VKD3D_SHADER_RESOURCE_BUFFER;
+    resource_type_flag = resource_type == VKD3D_SHADER_RESOURCE_BUFFER
+            ? VKD3D_SHADER_BINDING_FLAG_BUFFER : VKD3D_SHADER_BINDING_FLAG_IMAGE;
+
     if (is_uav_counter)
     {
         assert(descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV);
@@ -2098,11 +2100,13 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
         {
             const struct vkd3d_shader_resource_binding *current = &shader_interface->bindings[i];
 
+            if (!(current->flags & resource_type_flag))
+                continue;
+
             if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
                 continue;
 
-            if (current->type == descriptor_type && current->register_index == reg_idx
-                    && current->is_buffer == is_buffer_resource)
+            if (current->type == descriptor_type && current->register_index == reg_idx)
                 return current->binding;
         }
         if (shader_interface->binding_count)
@@ -3908,17 +3912,22 @@ static void vkd3d_dxbc_compiler_emit_combined_sampler_declarations(struct vkd3d_
     const struct vkd3d_shader_combined_resource_sampler *current;
     const unsigned int resource_index = resource->idx[0].offset;
     uint32_t image_type_id, type_id, ptr_type_id, var_id;
-    bool is_buffer_resource, depth;
+    enum vkd3d_shader_binding_flag resource_type_flag;
     struct vkd3d_symbol symbol;
     unsigned int i;
+    bool depth;
 
-    is_buffer_resource = resource_type == VKD3D_SHADER_RESOURCE_BUFFER;
+    resource_type_flag = resource_type == VKD3D_SHADER_RESOURCE_BUFFER
+            ? VKD3D_SHADER_BINDING_FLAG_BUFFER : VKD3D_SHADER_BINDING_FLAG_IMAGE;
 
     for (i = 0; i < shader_interface->combined_sampler_count; ++i)
     {
         current = &shader_interface->combined_samplers[i];
 
-        if (current->resource_index != resource_index || current->is_buffer != is_buffer_resource)
+        if (current->resource_index != resource_index)
+            continue;
+
+        if (!(current->flags & resource_type_flag))
             continue;
 
         if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))

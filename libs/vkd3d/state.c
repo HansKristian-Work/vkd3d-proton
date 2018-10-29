@@ -607,14 +607,15 @@ static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *
         bool buffer_descriptor, enum vkd3d_shader_visibility shader_visibility,
         struct vkd3d_descriptor_set_context *context)
 {
-    unsigned int i = context->descriptor_index++;
+    struct vkd3d_shader_resource_binding *mapping
+            = &root_signature->descriptor_mapping[context->descriptor_index++];
 
-    root_signature->descriptor_mapping[i].type = descriptor_type;
-    root_signature->descriptor_mapping[i].register_index = register_idx;
-    root_signature->descriptor_mapping[i].shader_visibility = shader_visibility;
-    root_signature->descriptor_mapping[i].is_buffer = buffer_descriptor;
-    root_signature->descriptor_mapping[i].binding.set = context->set_index;
-    root_signature->descriptor_mapping[i].binding.binding = context->descriptor_binding++;
+    mapping->type = descriptor_type;
+    mapping->register_index = register_idx;
+    mapping->shader_visibility = shader_visibility;
+    mapping->flags = buffer_descriptor ? VKD3D_SHADER_BINDING_FLAG_BUFFER : VKD3D_SHADER_BINDING_FLAG_IMAGE;
+    mapping->binding.set = context->set_index;
+    mapping->binding.binding = context->descriptor_binding++;
 }
 
 static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signature *root_signature,

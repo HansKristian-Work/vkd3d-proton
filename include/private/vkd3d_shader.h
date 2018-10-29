@@ -19,7 +19,6 @@
 #ifndef __VKD3D_SHADER_H
 #define __VKD3D_SHADER_H
 
-#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -82,12 +81,20 @@ struct vkd3d_shader_descriptor_binding
     uint32_t binding;
 };
 
+enum vkd3d_shader_binding_flag
+{
+    VKD3D_SHADER_BINDING_FLAG_BUFFER = 0x00000001,
+    VKD3D_SHADER_BINDING_FLAG_IMAGE  = 0x00000002,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_BINDING_FLAG),
+};
+
 struct vkd3d_shader_resource_binding
 {
     enum vkd3d_shader_descriptor_type type;
     unsigned int register_index;
     enum vkd3d_shader_visibility shader_visibility;
-    bool is_buffer;
+    unsigned int flags; /* vkd3d_shader_binding_flags */
 
     struct vkd3d_shader_descriptor_binding binding;
 };
@@ -99,7 +106,7 @@ struct vkd3d_shader_combined_resource_sampler
     unsigned int resource_index;
     unsigned int sampler_index;
     enum vkd3d_shader_visibility shader_visibility;
-    bool is_buffer;
+    unsigned int flags; /* vkd3d_shader_binding_flags */
 
     struct vkd3d_shader_descriptor_binding binding;
 };
