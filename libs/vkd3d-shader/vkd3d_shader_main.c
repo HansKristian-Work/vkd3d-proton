@@ -75,7 +75,7 @@ static int vkd3d_shader_validate_compile_args(const struct vkd3d_shader_compile_
 }
 
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_code *spirv, uint32_t compiler_options,
+        struct vkd3d_shader_code *spirv, unsigned int compiler_options,
         const struct vkd3d_shader_interface *shader_interface,
         const struct vkd3d_shader_compile_arguments *compile_args)
 {

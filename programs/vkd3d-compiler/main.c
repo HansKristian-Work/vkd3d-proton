@@ -107,7 +107,7 @@ struct options
 {
     const char *filename;
     const char *output_filename;
-    uint32_t compiler_options;
+    unsigned int compiler_options;
 };
 
 static bool parse_command_line(int argc, char **argv, struct options *options)

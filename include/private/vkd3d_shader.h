@@ -19,8 +19,6 @@
 #ifndef __VKD3D_SHADER_H
 #define __VKD3D_SHADER_H
 
-#include <stdint.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif  /* __cplusplus */
@@ -79,8 +77,8 @@ enum vkd3d_shader_descriptor_type
 
 struct vkd3d_shader_descriptor_binding
 {
-    uint32_t set;
-    uint32_t binding;
+    unsigned int set;
+    unsigned int binding;
 };
 
 enum vkd3d_shader_binding_flag
@@ -168,7 +166,7 @@ struct vkd3d_shader_compile_arguments
 };
 
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_code *spirv, uint32_t compiler_options,
+        struct vkd3d_shader_code *spirv, unsigned int compiler_options,
         const struct vkd3d_shader_interface *shader_interface,
         const struct vkd3d_shader_compile_arguments *compile_args);
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
@@ -370,7 +368,7 @@ struct vkd3d_shader_scan_info
 {
     unsigned int uav_read_mask : VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS;
     unsigned int uav_counter_mask : VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS;
-    uint32_t sampler_comparison_mode_mask;
+    unsigned int sampler_comparison_mode_mask;
 };
 
 int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
