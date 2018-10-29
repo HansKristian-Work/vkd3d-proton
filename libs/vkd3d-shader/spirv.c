@@ -2000,6 +2000,8 @@ static bool vkd3d_dxbc_compiler_check_shader_visibility(const struct vkd3d_dxbc_
             return compiler->shader_type == VKD3D_SHADER_TYPE_GEOMETRY;
         case VKD3D_SHADER_VISIBILITY_PIXEL:
             return compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL;
+        case VKD3D_SHADER_VISIBILITY_COMPUTE:
+            return compiler->shader_type == VKD3D_SHADER_TYPE_COMPUTE;
         default:
             ERR("Invalid shader visibility %#x.\n", visibility);
             return false;
