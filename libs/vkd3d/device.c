@@ -2072,7 +2072,7 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
         }
     }
 
-    if (desc->Alignment % info->Alignment)
+    if (valid && desc->Alignment % info->Alignment)
     {
         WARN("Invalid resource alignment %#"PRIx64" (required %#"PRIx64").\n",
                 desc->Alignment, info->Alignment);
