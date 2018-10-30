@@ -866,16 +866,8 @@ static inline unsigned int vkd3d_write_mask_get_component_idx(DWORD write_mask)
 
 static inline unsigned int vkd3d_write_mask_component_count(DWORD write_mask)
 {
-    unsigned int i, count = 0;
-
     assert(write_mask);
-    for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
-    {
-        if (write_mask & (VKD3DSP_WRITEMASK_0 << i))
-            ++count;
-    }
-
-    return count;
+    return vkd3d_popcount(write_mask & VKD3DSP_WRITEMASK_ALL);
 }
 
 static inline unsigned int vkd3d_write_mask_from_component_count(unsigned int component_count)
