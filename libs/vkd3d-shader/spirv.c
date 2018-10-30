@@ -1883,7 +1883,7 @@ struct vkd3d_dxbc_compiler
         uint32_t array_element_mask;
     } *output_info;
     uint32_t private_output_variable[MAX_REG_OUTPUT + 1]; /* 1 entry for oDepth */
-    uint32_t output_setup_function_id;
+    uint32_t epilogue_function_id;
     uint32_t dummy_sampler_id;
 
     uint32_t binding_idx;
@@ -3545,8 +3545,8 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
     {
         unsigned int idx = vkd3d_dxbc_compiler_get_output_variable_index(compiler, reg->idx[0].offset);
         compiler->private_output_variable[idx] = var_id;
-        if (!compiler->output_setup_function_id)
-            compiler->output_setup_function_id = vkd3d_spirv_alloc_id(builder);
+        if (!compiler->epilogue_function_id)
+            compiler->epilogue_function_id = vkd3d_spirv_alloc_id(builder);
     }
 }
 
@@ -4981,13 +4981,13 @@ static uint32_t vkd3d_dxbc_compiler_emit_conditional_branch(struct vkd3d_dxbc_co
     return merge_block_id;
 }
 
-static void vkd3d_dxbc_compiler_emit_output_setup_invocation(struct vkd3d_dxbc_compiler *compiler)
+static void vkd3d_dxbc_compiler_emit_shader_epilogue_invocation(struct vkd3d_dxbc_compiler *compiler)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t void_id, function_id, arguments[MAX_REG_OUTPUT];
     unsigned int i, count;
 
-    if ((function_id = compiler->output_setup_function_id))
+    if ((function_id = compiler->epilogue_function_id))
     {
         void_id = vkd3d_spirv_get_op_type_void(builder);
         for (i = 0, count = 0; i < ARRAY_SIZE(compiler->private_output_variable); ++i)
@@ -5006,7 +5006,7 @@ static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
 
     if (compiler->shader_type != VKD3D_SHADER_TYPE_GEOMETRY)
-        vkd3d_dxbc_compiler_emit_output_setup_invocation(compiler);
+        vkd3d_dxbc_compiler_emit_shader_epilogue_invocation(compiler);
     vkd3d_spirv_build_op_return(builder);
 }
 
@@ -6455,7 +6455,7 @@ static void vkd3d_dxbc_compiler_emit_emit_stream(struct vkd3d_dxbc_compiler *com
         return;
     }
 
-    vkd3d_dxbc_compiler_emit_output_setup_invocation(compiler);
+    vkd3d_dxbc_compiler_emit_shader_epilogue_invocation(compiler);
     vkd3d_spirv_build_op_emit_vertex(builder);
 }
 
@@ -6857,7 +6857,7 @@ static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compi
     }
 }
 
-static void vkd3d_dxbc_compiler_emit_output_setup_function(struct vkd3d_dxbc_compiler *compiler)
+static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_compiler *compiler)
 {
     uint32_t param_type_id[MAX_REG_OUTPUT + 1], param_id[MAX_REG_OUTPUT + 1] = {};
     const struct vkd3d_shader_signature *signature = compiler->output_signature;
@@ -6866,7 +6866,7 @@ static void vkd3d_dxbc_compiler_emit_output_setup_function(struct vkd3d_dxbc_com
     unsigned int i, count;
     DWORD variable_idx;
 
-    function_id = compiler->output_setup_function_id;
+    function_id = compiler->epilogue_function_id;
 
     assert(ARRAY_SIZE(compiler->private_output_variable) == ARRAY_SIZE(param_id));
     assert(ARRAY_SIZE(compiler->private_output_variable) == ARRAY_SIZE(param_type_id));
@@ -6883,7 +6883,7 @@ static void vkd3d_dxbc_compiler_emit_output_setup_function(struct vkd3d_dxbc_com
 
     vkd3d_spirv_build_op_function(builder, void_id, function_id,
             SpvFunctionControlMaskNone, function_type_id);
-    vkd3d_spirv_build_op_name(builder, function_id, "setup_output");
+    vkd3d_spirv_build_op_name(builder, function_id, "epilogue");
 
     for (i = 0; i < ARRAY_SIZE(compiler->private_output_variable); ++i)
     {
@@ -6922,8 +6922,8 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
 
     vkd3d_spirv_build_op_function_end(builder);
 
-    if (compiler->output_setup_function_id)
-        vkd3d_dxbc_compiler_emit_output_setup_function(compiler);
+    if (compiler->epilogue_function_id)
+        vkd3d_dxbc_compiler_emit_shader_epilogue_function(compiler);
 
     if (compiler->options & VKD3D_SHADER_STRIP_DEBUG)
         vkd3d_spirv_stream_clear(&builder->debug_stream);
