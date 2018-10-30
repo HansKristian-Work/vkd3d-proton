@@ -2789,19 +2789,22 @@ static void vkd3d_dxbc_compiler_emit_store_scalar(struct vkd3d_dxbc_compiler *co
         const struct vkd3d_shader_register_info *reg_info, uint32_t val_id)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    uint32_t type_id, ptr_type_id, chain_id, index[1];
+    uint32_t type_id, ptr_type_id, id, index[1];
     unsigned int component_idx;
 
     assert(reg->type != VKD3DSPR_IMMCONST);
 
-    type_id = vkd3d_spirv_get_type_id(builder, reg_info->component_type, 1);
-    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, reg_info->storage_class, type_id);
-    component_idx = vkd3d_write_mask_get_component_idx(write_mask);
-    index[0] = vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx);
-    chain_id = vkd3d_spirv_build_op_in_bounds_access_chain(builder,
-            ptr_type_id, reg_info->id, index, ARRAY_SIZE(index));
+    id = reg_info->id;
+    if (vkd3d_write_mask_component_count(reg_info->write_mask) > 1)
+    {
+        type_id = vkd3d_spirv_get_type_id(builder, reg_info->component_type, 1);
+        ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, reg_info->storage_class, type_id);
+        component_idx = vkd3d_write_mask_get_component_idx(write_mask);
+        index[0] = vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx);
+        id = vkd3d_spirv_build_op_in_bounds_access_chain(builder, ptr_type_id, id, index, ARRAY_SIZE(index));
+    }
 
-    vkd3d_spirv_build_op_store(builder, chain_id, val_id, SpvMemoryAccessMaskNone);
+    vkd3d_spirv_build_op_store(builder, id, val_id, SpvMemoryAccessMaskNone);
 }
 
 static void vkd3d_dxbc_compiler_emit_store_reg(struct vkd3d_dxbc_compiler *compiler,
