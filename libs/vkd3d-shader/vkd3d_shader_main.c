@@ -61,6 +61,12 @@ static int vkd3d_shader_validate_compile_args(const struct vkd3d_shader_compile_
     if (!compile_args)
         return VKD3D_OK;
 
+    if (compile_args->type != VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS)
+    {
+        WARN("Invalid structure type %#x.\n", compile_args->type);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+
     switch (compile_args->target)
     {
         case VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5:
@@ -88,9 +94,17 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, shader_interface %p, compile_args %p.\n",
             dxbc->code, dxbc->size, spirv, compiler_options, shader_interface, compile_args);
 
+    if (shader_interface && shader_interface->type != VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE)
+    {
+        WARN("Invalid structure type %#x.\n", shader_interface->type);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+
     if ((ret = vkd3d_shader_validate_compile_args(compile_args)) < 0)
         return ret;
 
+    scan_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
+    scan_info.next = NULL;
     if ((ret = vkd3d_shader_scan_dxbc(dxbc, &scan_info)) < 0)
         return ret;
 
@@ -208,6 +222,12 @@ int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
     int ret;
 
     TRACE("dxbc {%p, %zu}, scan_info %p.\n", dxbc->code, dxbc->size, scan_info);
+
+    if (scan_info->type != VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO)
+    {
+        WARN("Invalid structure type %#x.\n", scan_info->type);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
 
     if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
         return ret;

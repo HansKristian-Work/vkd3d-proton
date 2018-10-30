@@ -25,6 +25,15 @@ extern "C" {
 
 #define VKD3D_FORCE_32_BIT_ENUM(name) name##_FORCE_32BIT = 0x7fffffff
 
+enum vkd3d_shader_structure_type
+{
+    VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE,
+    VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS,
+    VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_STRUCTURE_TYPE),
+};
+
 enum vkd3d_result
 {
     VKD3D_OK = 0,
@@ -130,6 +139,9 @@ struct vkd3d_shader_push_constant_buffer
 
 struct vkd3d_shader_interface
 {
+    enum vkd3d_shader_structure_type type;
+    const void *next;
+
     const struct vkd3d_shader_resource_binding *bindings;
     unsigned int binding_count;
 
@@ -160,8 +172,11 @@ enum vkd3d_shader_target
 
 struct vkd3d_shader_compile_arguments
 {
+    enum vkd3d_shader_structure_type type;
+    const void *next;
+
     enum vkd3d_shader_target target;
-    unsigned int *output_swizzles;
+    const unsigned int *output_swizzles;
     unsigned int output_swizzle_count;
 };
 
@@ -366,6 +381,9 @@ int vkd3d_shader_serialize_root_signature(const struct vkd3d_root_signature_desc
 
 struct vkd3d_shader_scan_info
 {
+    enum vkd3d_shader_structure_type type;
+    void *next;
+
     unsigned int uav_read_mask : VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS;
     unsigned int uav_counter_mask : VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS;
     unsigned int sampler_comparison_mode_mask;

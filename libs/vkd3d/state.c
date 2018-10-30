@@ -1439,6 +1439,8 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
 
     dxbc.code = desc->CS.pShaderBytecode;
     dxbc.size = desc->CS.BytecodeLength;
+    shader_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
+    shader_info.next = NULL;
     if ((ret = vkd3d_shader_scan_dxbc(&dxbc, &shader_info)) < 0)
     {
         WARN("Failed to scan shader bytecode, vkd3d result %d.\n", ret);
@@ -1452,6 +1454,8 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
         return hr;
     }
 
+    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE;
+    shader_interface.next = NULL;
     shader_interface.bindings = root_signature->descriptor_mapping;
     shader_interface.binding_count = root_signature->descriptor_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
@@ -2027,10 +2031,14 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
     graphics->attachment_count = graphics->rt_idx + rt_count;
 
+    ps_compile_args.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS;
+    ps_compile_args.next = NULL;
     ps_compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
     ps_compile_args.output_swizzles = ps_output_swizzle;
     ps_compile_args.output_swizzle_count = rt_count;
 
+    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE;
+    shader_interface.next = NULL;
     shader_interface.bindings = root_signature->descriptor_mapping;
     shader_interface.binding_count = root_signature->descriptor_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
@@ -2044,8 +2052,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     for (i = 0; i < ARRAY_SIZE(shader_stages); ++i)
     {
         const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
+        struct vkd3d_shader_scan_info shader_info = {VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO};
         const struct vkd3d_shader_code dxbc = {b->pShaderBytecode, b->BytecodeLength};
-        struct vkd3d_shader_scan_info shader_info;
 
         if (!b->pShaderBytecode)
             continue;
