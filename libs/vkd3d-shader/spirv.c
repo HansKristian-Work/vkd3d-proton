@@ -3206,6 +3206,13 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         reg_idx = reg->idx[0].offset;
     }
 
+    if (!(signature_element = vkd3d_find_signature_element_for_reg(compiler->input_signature,
+            NULL, reg_idx, dst->write_mask)))
+    {
+        FIXME("No signature element for shader input, ignoring shader input.\n");
+        return 0;
+    }
+
     builtin = get_spirv_builtin_for_sysval(compiler, sysval);
 
     component_idx = vkd3d_write_mask_get_component_idx(dst->write_mask);
@@ -3217,9 +3224,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     }
     else
     {
-        signature_element = vkd3d_find_signature_element_for_reg(compiler->input_signature,
-                NULL, reg_idx, dst->write_mask);
-        component_type = signature_element ? signature_element->component_type : VKD3D_TYPE_FLOAT;
+        component_type = signature_element->component_type;
         input_component_count = component_count;
     }
     assert(component_count <= input_component_count);
@@ -4187,18 +4192,18 @@ static void vkd3d_dxbc_compiler_emit_dcl_input_ps(struct vkd3d_dxbc_compiler *co
 {
     uint32_t input_id;
 
-    input_id = vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.dst, VKD3D_SIV_NONE);
-    vkd3d_dxbc_compiler_emit_interpolation_decorations(compiler, input_id, instruction->flags);
+    if ((input_id = vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.dst, VKD3D_SIV_NONE)))
+        vkd3d_dxbc_compiler_emit_interpolation_decorations(compiler, input_id, instruction->flags);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_input_ps_sysval(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
+    const struct vkd3d_shader_register_semantic *semantic = &instruction->declaration.register_semantic;
     uint32_t input_id;
 
-    input_id = vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.register_semantic.reg,
-            instruction->declaration.register_semantic.sysval_semantic);
-    if (!instruction->declaration.register_semantic.sysval_semantic)
+    input_id = vkd3d_dxbc_compiler_emit_input(compiler, &semantic->reg, semantic->sysval_semantic);
+    if (input_id && !semantic->sysval_semantic)
         vkd3d_dxbc_compiler_emit_interpolation_decorations(compiler, input_id, instruction->flags);
 }
 
