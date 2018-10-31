@@ -2442,8 +2442,8 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
         const struct vkd3d_shader_register *reg, struct vkd3d_shader_register_info *register_info)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    unsigned int component_count, index_count = 0;
     uint32_t type_id, ptr_type_id;
-    unsigned int index_count = 0;
     uint32_t indexes[2];
 
     if (reg->type == VKD3DSPR_CONSTBUFFER)
@@ -2472,7 +2472,8 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
 
     if (index_count)
     {
-        type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
+        component_count = vkd3d_write_mask_component_count(register_info->write_mask);
+        type_id = vkd3d_spirv_get_type_id(builder, register_info->component_type, component_count);
         ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, register_info->storage_class, type_id);
         register_info->id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
                 register_info->id, indexes, index_count);
@@ -2642,8 +2643,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_scalar(struct vkd3d_dxbc_compiler 
 
     reg_component_count = vkd3d_write_mask_component_count(reg_info->write_mask);
 
-    if (component_idx > reg_component_count)
-        ERR("Invalid component_idx for register %#x, %u.\n", reg->type, reg->idx[0].offset);
+    if (!(reg_info->write_mask & (VKD3DSP_WRITEMASK_0 << component_idx)))
+        ERR("Invalid component_idx for register %#x, %u (write_mask %#x).\n",
+                reg->type, reg->idx[0].offset, reg_info->write_mask);
 
     type_id = vkd3d_spirv_get_type_id(builder, reg_info->component_type, 1);
     reg_id = reg_info->id;
@@ -3175,6 +3177,20 @@ static const struct vkd3d_shader_signature_element *vkd3d_find_signature_element
     return NULL;
 }
 
+static unsigned int vkd3d_count_signature_elements_for_reg(
+        const struct vkd3d_shader_signature *signature, unsigned int reg_idx)
+{
+    unsigned int i, count;
+
+    count = 0;
+    for (i = 0; i < signature->element_count; ++i)
+    {
+        if (signature->elements[i].register_index == reg_idx)
+            ++count;
+    }
+    return count;
+}
+
 static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval)
 {
@@ -3228,9 +3244,17 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     else
     {
         component_type = signature_element->component_type;
-        input_component_count = component_count;
+        input_component_count = vkd3d_write_mask_component_count(signature_element->mask & 0xff);
+        component_idx = vkd3d_write_mask_get_component_idx(signature_element->mask & 0xff);
     }
-    assert(component_count <= input_component_count);
+
+    use_private_var = builtin && builtin->fixup_pfn;
+    if (input_component_count != VKD3D_VEC4_SIZE
+            && vkd3d_count_signature_elements_for_reg(compiler->input_signature, reg_idx) > 1)
+    {
+        use_private_var = true;
+        component_count = VKD3D_VEC4_SIZE;
+    }
 
     storage_class = SpvStorageClassInput;
     input_id = vkd3d_dxbc_compiler_emit_array_variable(compiler, &builder->global_stream,
@@ -3247,8 +3271,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
             vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationComponent, component_idx);
     }
 
-    use_private_var = component_count != VKD3D_VEC4_SIZE || (builtin && builtin->fixup_pfn);
-
     vkd3d_symbol_make_register(&reg_symbol, reg);
 
     if (!use_private_var)
@@ -3259,14 +3281,15 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     {
         storage_class = SpvStorageClassPrivate;
         var_id = vkd3d_dxbc_compiler_emit_array_variable(compiler, &builder->global_stream,
-                storage_class, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE, array_size);
+                storage_class, VKD3D_TYPE_FLOAT, component_count, array_size);
     }
     if (!entry)
     {
         reg_symbol.id = var_id;
         reg_symbol.info.reg.storage_class = storage_class;
         reg_symbol.info.reg.component_type = use_private_var ? VKD3D_TYPE_FLOAT : component_type;
-        reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_ALL;
+        reg_symbol.info.reg.write_mask = use_private_var
+                ? vkd3d_write_mask_from_component_count(component_count) : signature_element->mask & 0xff;
         vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 
         vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
