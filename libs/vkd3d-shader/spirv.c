@@ -3223,6 +3223,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     {
         component_type = builtin->component_type;
         input_component_count = builtin->component_count;
+        component_idx = 0;
     }
     else
     {
@@ -3238,8 +3239,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     if (builtin)
     {
         vkd3d_dxbc_compiler_decorate_builtin(compiler, input_id, builtin->spirv_builtin);
-        if (component_idx)
-            FIXME("Unhandled component index %u.\n", component_idx);
     }
     else
     {
@@ -3301,9 +3300,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
                 val_id = vkd3d_spirv_build_op_bitcast(builder, float_type_id, val_id);
             }
 
-            if (input_component_count != component_count)
-                val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-                        val_id, VKD3D_TYPE_FLOAT, VKD3D_NO_SWIZZLE, dst->write_mask);
+            val_id = vkd3d_dxbc_compiler_emit_swizzle_ext(compiler, val_id,
+                    vkd3d_write_mask_from_component_count(input_component_count) << component_idx,
+                    VKD3D_TYPE_FLOAT, VKD3D_NO_SWIZZLE, dst->write_mask);
 
             vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst_reg, dst->write_mask, val_id);
         }
