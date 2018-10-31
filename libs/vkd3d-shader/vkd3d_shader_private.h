@@ -882,6 +882,22 @@ static inline unsigned int vkd3d_swizzle_get_component(DWORD swizzle,
     return (swizzle >> VKD3D_SWIZZLE_SHIFT(idx)) & VKD3D_SWIZZLE_MASK;
 }
 
+static inline unsigned int vkd3d_compact_swizzle(unsigned int swizzle, unsigned int write_mask)
+{
+    unsigned int i, compacted_swizzle = 0;
+
+    for (i = 0; i < VKD3D_VEC4_SIZE; ++i)
+    {
+        if (write_mask & (VKD3DSP_WRITEMASK_0 << i))
+        {
+            compacted_swizzle <<= VKD3D_SWIZZLE_SHIFT(1);
+            compacted_swizzle |= vkd3d_swizzle_get_component(swizzle, i);
+        }
+    }
+
+    return compacted_swizzle;
+}
+
 #define VKD3D_DXBC_MAX_SOURCE_COUNT 6
 #define VKD3D_DXBC_HEADER_SIZE (8 * sizeof(uint32_t))
 

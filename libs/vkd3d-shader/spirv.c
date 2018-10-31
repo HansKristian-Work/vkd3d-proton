@@ -2528,10 +2528,13 @@ static uint32_t vkd3d_dxbc_compiler_emit_swizzle_ext(struct vkd3d_dxbc_compiler 
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t type_id, components[VKD3D_VEC4_SIZE];
 
-    if (swizzle == VKD3D_NO_SWIZZLE && write_mask == val_write_mask)
+    component_count = vkd3d_write_mask_component_count(write_mask);
+    val_component_count = vkd3d_write_mask_component_count(val_write_mask);
+
+    if (component_count == val_component_count
+            && vkd3d_compact_swizzle(swizzle, write_mask) == vkd3d_compact_swizzle(VKD3D_NO_SWIZZLE, val_write_mask))
         return val_id;
 
-    component_count = vkd3d_write_mask_component_count(write_mask);
     type_id = vkd3d_spirv_get_type_id(builder, component_type, component_count);
 
     if (component_count == 1)
@@ -2541,7 +2544,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_swizzle_ext(struct vkd3d_dxbc_compiler 
         return vkd3d_spirv_build_op_composite_extract1(builder, type_id, val_id, component_idx);
     }
 
-    val_component_count = vkd3d_write_mask_component_count(val_write_mask);
     if (val_component_count == 1)
     {
         for (i = 0, component_idx = 0; i < VKD3D_VEC4_SIZE; ++i)
