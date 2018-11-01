@@ -749,7 +749,7 @@ static void check_sub_resource_uint8_(unsigned int line, ID3D12Resource *texture
 {
     struct resource_readback rb;
 
-    get_texture_readback_with_command_list(texture, 0, &rb, queue, command_list);
+    get_texture_readback_with_command_list(texture, sub_resource_idx, &rb, queue, command_list);
     check_readback_data_uint8_(line, &rb, NULL, expected, max_diff);
     release_resource_readback(&rb);
 }
@@ -805,7 +805,7 @@ static void check_sub_resource_vec4_(unsigned int line, ID3D12Resource *texture,
     bool all_match = true;
     struct vec4 got = {};
 
-    get_texture_readback_with_command_list(texture, 0, &rb, queue, command_list);
+    get_texture_readback_with_command_list(texture, sub_resource_idx, &rb, queue, command_list);
     for (y = 0; y < rb.height; ++y)
     {
         for (x = 0; x < rb.width; ++x)
@@ -824,6 +824,39 @@ static void check_sub_resource_vec4_(unsigned int line, ID3D12Resource *texture,
 
     ok_(line)(all_match, "Got {%.8e, %.8e, %.8e, %.8e}, expected {%.8e, %.8e, %.8e, %.8e} at (%u, %u).\n",
             got.x, got.y, got.z, got.w, expected->x, expected->y, expected->z, expected->w, x, y);
+}
+
+#define check_sub_resource_uvec4(a, b, c, d, e) check_sub_resource_uvec4_(__LINE__, a, b, c, d, e)
+static void check_sub_resource_uvec4_(unsigned int line, ID3D12Resource *texture,
+        unsigned int sub_resource_idx, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list,
+        const struct uvec4 *expected_value)
+{
+    struct resource_readback rb;
+    struct uvec4 value = {};
+    unsigned int x = 0, y;
+    bool all_match = true;
+
+    get_texture_readback_with_command_list(texture, sub_resource_idx, &rb, queue, command_list);
+    for (y = 0; y < rb.height; ++y)
+    {
+        for (x = 0; x < rb.width; ++x)
+        {
+            value = *get_readback_uvec4(&rb, x, y);
+            if (!compare_uvec4(&value, expected_value))
+            {
+                all_match = false;
+                break;
+            }
+        }
+        if (!all_match)
+            break;
+    }
+    release_resource_readback(&rb);
+
+    ok_(line)(all_match,
+            "Got {0x%08x, 0x%08x, 0x%08x, 0x%08x}, expected {0x%08x, 0x%08x, 0x%08x, 0x%08x} at (%u, %u).\n",
+            value.x, value.y, value.z, value.w,
+            expected_value->x, expected_value->y, expected_value->z, expected_value->w, x, y);
 }
 
 static bool use_warp_device;
@@ -5459,10 +5492,9 @@ static void test_shader_instructions(void)
     ID3D12GraphicsCommandList *command_list;
     struct test_context_desc desc;
     struct test_context context;
-    struct resource_readback rb;
     ID3D12CommandQueue *queue;
-    unsigned int i, x, y;
     ID3D12Resource *cb;
+    unsigned int i;
     HRESULT hr;
 
     static const DWORD ps_div_code[] =
@@ -7850,20 +7882,7 @@ static void test_shader_instructions(void)
 
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-
-        get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-        for (y = 0; y < rb.height; ++y)
-        {
-            for (x = 0; x < rb.width; ++x)
-            {
-                const struct uvec4 *v = get_readback_uvec4(&rb, x, y);
-                ok(compare_uvec4(v, &uint_tests[i].output.u),
-                        "Got 0x%08x, 0x%08x, 0x%08x, 0x%08x expected 0x%08x, 0x%08x, 0x%08x, 0x%08x.\n",
-                        v->x, v->y, v->z, v->w, uint_tests[i].output.u.x, uint_tests[i].output.u.y,
-                        uint_tests[i].output.u.z, uint_tests[i].output.u.w);
-            }
-        }
-        release_resource_readback(&rb);
+        check_sub_resource_uvec4(context.render_target, 0, queue, command_list, &uint_tests[i].output.u);
 
         reset_command_list(command_list, context.allocator);
         transition_resource_state(command_list, context.render_target,
