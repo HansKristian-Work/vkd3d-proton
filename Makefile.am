@@ -19,6 +19,7 @@ vkd3d_public_headers = \
 	include/vkd3d_d3dcommon.h \
 	include/vkd3d_dxgibase.h \
 	include/vkd3d_dxgiformat.h \
+	include/vkd3d_shader.h \
 	include/vkd3d_utils.h \
 	include/vkd3d_windows.h
 
@@ -51,13 +52,13 @@ vkd3d_demos_headers = \
 
 BUILT_SOURCES = $(widl_headers)
 
-noinst_LTLIBRARIES = libvkd3d-common.la libvkd3d-shader.la
+noinst_LTLIBRARIES = libvkd3d-common.la
 libvkd3d_common_la_SOURCES = \
 	include/private/vkd3d_debug.h \
 	libs/vkd3d-common/debug.c \
 	libs/vkd3d-common/memory.c
 
-lib_LTLIBRARIES = libvkd3d.la libvkd3d-utils.la
+lib_LTLIBRARIES = libvkd3d-shader.la libvkd3d.la libvkd3d-utils.la
 
 libvkd3d_shader_la_SOURCES = \
 	include/private/list.h \
@@ -73,9 +74,10 @@ libvkd3d_shader_la_SOURCES = \
 	libs/vkd3d-shader/vkd3d_shader_main.c \
 	libs/vkd3d-shader/vkd3d_shader_private.h
 libvkd3d_shader_la_CFLAGS = $(AM_CFLAGS) @SPIRV_TOOLS_CFLAGS@
-libvkd3d_shader_la_LIBADD = @SPIRV_TOOLS_LIBS@
+libvkd3d_shader_la_LDFLAGS = -version-info 1:0:0
+libvkd3d_shader_la_LIBADD = libvkd3d-common.la @SPIRV_TOOLS_LIBS@
 if HAVE_LD_VERSION_SCRIPT
-libvkd3d_shader_la_LDFLAGS = -Wl,--version-script=$(srcdir)/libs/vkd3d-shader/vkd3d_shader.map
+libvkd3d_shader_la_LDFLAGS += -Wl,--version-script=$(srcdir)/libs/vkd3d-shader/vkd3d_shader.map
 endif
 
 libvkd3d_la_SOURCES = \
@@ -116,13 +118,16 @@ EXTRA_DIST = LICENSE
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkginclude_HEADERS = $(vkd3d_public_headers)
-nodist_pkgconfig_DATA = libvkd3d.pc libvkd3d-utils.pc
-CLEANFILES = libvkd3d.pc libvkd3d-utils.pc
-EXTRA_DIST += libs/vkd3d/libvkd3d.pc.in libs/vkd3d-utils/libvkd3d-utils.pc.in
+nodist_pkgconfig_DATA = libvkd3d.pc libvkd3d-shader.pc libvkd3d-utils.pc
+CLEANFILES = libvkd3d.pc libvkd3d-shader.pc libvkd3d-utils.pc
+EXTRA_DIST += \
+	libs/vkd3d/libvkd3d.pc.in \
+	libs/vkd3d-shader/libvkd3d-shader.pc.in \
+	libs/vkd3d-utils/libvkd3d-utils.pc.in
 
 noinst_PROGRAMS = vkd3d-compiler
 vkd3d_compiler_SOURCES = programs/vkd3d-compiler/main.c
-vkd3d_compiler_LDADD = libvkd3d-shader.la libvkd3d-common.la
+vkd3d_compiler_LDADD = libvkd3d-shader.la
 
 LDADD = libvkd3d.la libvkd3d-utils.la
 check_PROGRAMS = $(vkd3d_tests) $(vkd3d_cross_tests)
@@ -163,6 +168,14 @@ endif
 EXTRA_DIST += $(vkd3d_demos_shaders)
 
 libvkd3d-utils.pc: $(srcdir)/libs/vkd3d-utils/libvkd3d-utils.pc.in
+	$(AM_V_GEN)$(SED) -e 's![@]prefix[@]!$(prefix)!g' \
+		-e 's![@]exec_prefix[@]!$(exec_prefix)!g' \
+		-e 's![@]includedir[@]!$(includedir)!g' \
+		-e 's![@]libdir[@]!$(libdir)!g' \
+		-e 's![@]PACKAGE_VERSION[@]!$(PACKAGE_VERSION)!g' \
+		$< > $@
+
+libvkd3d-shader.pc: $(srcdir)/libs/vkd3d-shader/libvkd3d-shader.pc.in
 	$(AM_V_GEN)$(SED) -e 's![@]prefix[@]!$(prefix)!g' \
 		-e 's![@]exec_prefix[@]!$(exec_prefix)!g' \
 		-e 's![@]includedir[@]!$(includedir)!g' \
