@@ -2542,6 +2542,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_swizzle_ext(struct vkd3d_dxbc_compiler 
     {
         component_idx = vkd3d_write_mask_get_component_idx(write_mask);
         component_idx = vkd3d_swizzle_get_component(swizzle, component_idx);
+        component_idx -= vkd3d_write_mask_get_component_idx(val_write_mask);
         return vkd3d_spirv_build_op_composite_extract1(builder, type_id, val_id, component_idx);
     }
 

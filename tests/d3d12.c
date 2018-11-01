@@ -8505,6 +8505,42 @@ static void test_shader_input_output_components(void)
         0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps2 = {ps2_code, sizeof(ps2_code)};
+    static const DWORD ps3_code[] =
+    {
+#if 0
+        void main(float4 position : Sv_Position,
+                float2 texcoord0 : TEXCOORD0, float2 texcoord1 : TEXCOORD1,
+                float4 texcoord2 : TEXCOORD2, float3 texcoord3 : TEXCOORD3,
+                out float4 target0 : Sv_Target0, out uint4 target1 : SV_Target1)
+        {
+            target0.x = texcoord0.x;
+            target0.y = texcoord1.y;
+            target0.z = texcoord3.z;
+            target0.w = texcoord3.z;
+
+            target1.x = texcoord2.x;
+            target1.y = 0;
+            target1.w = texcoord2.w;
+            target1.z = 0;
+        }
+#endif
+        0x43425844, 0x2df3a11d, 0x885fc859, 0x332d922b, 0xf8e01020, 0x00000001, 0x000001d8, 0x00000003,
+        0x0000002c, 0x000000cc, 0x00000120, 0x4e475349, 0x00000098, 0x00000005, 0x00000008, 0x00000080,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x0000008c, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000103, 0x0000008c, 0x00000001, 0x00000000, 0x00000003, 0x00000001,
+        0x0000080c, 0x0000008c, 0x00000002, 0x00000000, 0x00000003, 0x00000002, 0x0000090f, 0x0000008c,
+        0x00000003, 0x00000000, 0x00000003, 0x00000003, 0x00000407, 0x505f7653, 0x7469736f, 0x006e6f69,
+        0x43584554, 0x44524f4f, 0xababab00, 0x4e47534f, 0x0000004c, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x0000000f, 0x00000042, 0x00000001, 0x00000000,
+        0x00000001, 0x00000001, 0x0000000f, 0x545f7653, 0x65677261, 0x56530074, 0x7261545f, 0x00746567,
+        0x52444853, 0x000000b0, 0x00000040, 0x0000002c, 0x03001062, 0x00101012, 0x00000001, 0x03001062,
+        0x00101082, 0x00000001, 0x03001062, 0x00101092, 0x00000002, 0x03001062, 0x00101042, 0x00000003,
+        0x03000065, 0x001020f2, 0x00000000, 0x03000065, 0x001020f2, 0x00000001, 0x05000036, 0x00102032,
+        0x00000000, 0x001010c6, 0x00000001, 0x05000036, 0x001020c2, 0x00000000, 0x00101aa6, 0x00000003,
+        0x0500001c, 0x00102092, 0x00000001, 0x00101c06, 0x00000002, 0x08000036, 0x00102062, 0x00000001,
+        0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps3 = {ps3_code, sizeof(ps3_code)};
     static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
     {
         {"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT,       0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
@@ -8523,13 +8559,23 @@ static void test_shader_input_output_components(void)
     }
     quad[] =
     {
-        {{-1.0f, -1.0f}, {1, 2, 3, 4}, {3.0f, 3.0f, 8.0f, 4.0f}, {9.0f, 5.0f, 3.0f, 1.0f}, {7.0f, 2.0f}},
-        {{-1.0f,  1.0f}, {1, 2, 3, 4}, {3.0f, 3.0f, 8.0f, 4.0f}, {9.0f, 5.0f, 3.0f, 1.0f}, {7.0f, 2.0f}},
-        {{ 1.0f, -1.0f}, {1, 2, 3, 4}, {3.0f, 3.0f, 8.0f, 4.0f}, {9.0f, 5.0f, 3.0f, 1.0f}, {7.0f, 2.0f}},
-        {{ 1.0f,  1.0f}, {1, 2, 3, 4}, {3.0f, 3.0f, 8.0f, 4.0f}, {9.0f, 5.0f, 3.0f, 1.0f}, {7.0f, 2.0f}},
+        {{-1.0f, -1.0f}, {1, 2, 3, 4}, {3.0f, 3.0f, 8.0f, 4.0f}, {9.0f, 5.0f, 3.0f, 1.0f}, {7.0f, 2.0f, 5.0f}},
+        {{-1.0f,  1.0f}, {1, 2, 3, 4}, {3.0f, 3.0f, 8.0f, 4.0f}, {9.0f, 5.0f, 3.0f, 1.0f}, {7.0f, 2.0f, 5.0f}},
+        {{ 1.0f, -1.0f}, {1, 2, 3, 4}, {3.0f, 3.0f, 8.0f, 4.0f}, {9.0f, 5.0f, 3.0f, 1.0f}, {7.0f, 2.0f, 5.0f}},
+        {{ 1.0f,  1.0f}, {1, 2, 3, 4}, {3.0f, 3.0f, 8.0f, 4.0f}, {9.0f, 5.0f, 3.0f, 1.0f}, {7.0f, 2.0f, 5.0f}},
     };
-    static const struct vec4 expected_vec4[] = {{1.0f, 2.0f, 3.0f, 0.0f}, {6.0f, 4.0f, 7.0f, 8.0f}};
-    static const struct uvec4 expected_uvec4[] = {{0xdeadbeef, 0, 2, 3}, {9, 5, 0, 1}};
+    static const struct vec4 expected_vec4[] =
+    {
+        {1.0f, 2.0f, 3.0f, 0.0f},
+        {6.0f, 4.0f, 7.0f, 8.0f},
+        {3.0f, 8.0f, 7.0f, 7.0f},
+    };
+    static const struct uvec4 expected_uvec4[] =
+    {
+        {0xdeadbeef, 0, 2, 3},
+        {         9, 5, 0, 1},
+        {         9, 0, 0, 1},
+    };
 
     memset(&desc, 0, sizeof(desc));
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
@@ -8580,18 +8626,17 @@ static void test_shader_input_output_components(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_uvec4(uint_render_target, 0, queue, command_list, &expected_uvec4[0]);
 
-    reset_command_list(command_list, context.allocator);
-    transition_resource_state(command_list, context.render_target,
-            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    transition_resource_state(command_list, uint_render_target,
-            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-
     ID3D12PipelineState_Release(context.pipeline_state);
     pso_desc.VS = vs2;
     pso_desc.PS = ps2;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    transition_resource_state(command_list, uint_render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 2, &context.rtv, TRUE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -8609,6 +8654,35 @@ static void test_shader_input_output_components(void)
     transition_resource_state(command_list, uint_render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_uvec4(uint_render_target, 0, queue, command_list, &expected_uvec4[1]);
+
+    ID3D12PipelineState_Release(context.pipeline_state);
+    pso_desc.VS = vs2;
+    pso_desc.PS = ps3;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    transition_resource_state(command_list, uint_render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 2, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_vec4[2], 0);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, uint_render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uvec4(uint_render_target, 0, queue, command_list, &expected_uvec4[2]);
 
     ID3D12Resource_Release(vb);
     ID3D12Resource_Release(uint_render_target);
