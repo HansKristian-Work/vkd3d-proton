@@ -7786,7 +7786,7 @@ static void test_shader_instructions(void)
         },
     };
 
-    assert(sizeof(tests->input) == sizeof(uint_tests->input));
+    STATIC_ASSERT(sizeof(tests->input) == sizeof(uint_tests->input));
 
     memset(&desc, 0, sizeof(desc));
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;

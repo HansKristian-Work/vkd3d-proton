@@ -6897,10 +6897,10 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_
     unsigned int i, count;
     DWORD variable_idx;
 
-    function_id = compiler->epilogue_function_id;
+    STATIC_ASSERT(ARRAY_SIZE(compiler->private_output_variable) == ARRAY_SIZE(param_id));
+    STATIC_ASSERT(ARRAY_SIZE(compiler->private_output_variable) == ARRAY_SIZE(param_type_id));
 
-    assert(ARRAY_SIZE(compiler->private_output_variable) == ARRAY_SIZE(param_id));
-    assert(ARRAY_SIZE(compiler->private_output_variable) == ARRAY_SIZE(param_type_id));
+    function_id = compiler->epilogue_function_id;
 
     void_id = vkd3d_spirv_get_op_type_void(builder);
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 4);

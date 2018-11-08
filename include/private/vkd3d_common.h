@@ -26,6 +26,8 @@
 
 #define DIV_ROUND_UP(a, b) ((a) % (b) == 0 ? (a) / (b) : (a) / (b) + 1)
 
+#define STATIC_ASSERT(e) extern void __VKD3D_STATIC_ASSERT__(int [(e) ? 1 : -1])
+
 static inline size_t align(size_t addr, size_t alignment)
 {
     return (addr + (alignment - 1)) & ~(alignment - 1);

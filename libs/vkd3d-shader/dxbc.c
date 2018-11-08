@@ -1788,7 +1788,7 @@ static void read_dword(const char **ptr, DWORD *d)
 
 static void read_float(const char **ptr, float *f)
 {
-    assert(sizeof(float) == sizeof(DWORD)); /* FIXME: use static assert */
+    STATIC_ASSERT(sizeof(float) == sizeof(DWORD));
     read_dword(ptr, (DWORD *)f);
 }
 
