@@ -22,8 +22,8 @@
 #include <vkd3d_types.h>
 
 #ifndef VKD3D_NO_WIN32_TYPES
-# include "vkd3d_windows.h"
-# include "vkd3d_d3d12.h"
+# include <vkd3d_windows.h>
+# include <vkd3d_d3d12.h>
 #endif  /* VKD3D_NO_WIN32_TYPES */
 
 #ifndef VKD3D_NO_VULKAN_H
