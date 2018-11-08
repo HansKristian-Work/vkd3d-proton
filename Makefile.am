@@ -20,6 +20,7 @@ vkd3d_public_headers = \
 	include/vkd3d_dxgibase.h \
 	include/vkd3d_dxgiformat.h \
 	include/vkd3d_shader.h \
+	include/vkd3d_types.h \
 	include/vkd3d_utils.h \
 	include/vkd3d_windows.h
 

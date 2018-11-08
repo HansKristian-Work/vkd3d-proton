@@ -19,6 +19,8 @@
 #ifndef __VKD3D_H
 #define __VKD3D_H
 
+#include <vkd3d_types.h>
+
 #ifndef VKD3D_NO_WIN32_TYPES
 # include "vkd3d_windows.h"
 # include "vkd3d_d3d12.h"
@@ -31,8 +33,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif  /* __cplusplus */
-
-#define VKD3D_FORCE_32_BIT_ENUM(name) name##_FORCE_32BIT = 0x7fffffff
 
 enum vkd3d_structure_type
 {
