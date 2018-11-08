@@ -28,6 +28,8 @@
 
 #define STATIC_ASSERT(e) extern void __VKD3D_STATIC_ASSERT__(int [(e) ? 1 : -1])
 
+#define MEMBER_SIZE(t, m) sizeof(((t *)0)->m)
+
 static inline size_t align(size_t addr, size_t alignment)
 {
     return (addr + (alignment - 1)) & ~(alignment - 1);

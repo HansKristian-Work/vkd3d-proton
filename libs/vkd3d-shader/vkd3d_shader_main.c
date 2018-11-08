@@ -18,6 +18,9 @@
 
 #include "vkd3d_shader_private.h"
 
+STATIC_ASSERT(MEMBER_SIZE(struct vkd3d_shader_scan_info, uav_counter_mask) * CHAR_BIT >= VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
+STATIC_ASSERT(MEMBER_SIZE(struct vkd3d_shader_scan_info, uav_read_mask) * CHAR_BIT >= VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
+
 struct vkd3d_shader_parser
 {
     struct vkd3d_shader_desc shader_desc;
