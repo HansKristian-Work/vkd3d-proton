@@ -4840,7 +4840,6 @@ static void test_draw_uav_only(void)
 {
     ID3D12DescriptorHeap *cpu_descriptor_heap, *descriptor_heap;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     D3D12_DESCRIPTOR_RANGE descriptor_range;
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
@@ -4896,11 +4895,7 @@ static void test_draw_uav_only(void)
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
     ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
 
-    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
-    pso_desc.NumRenderTargets = 0;
-    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
-            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    context.pipeline_state = create_pipeline_state(context.device, context.root_signature, 0, NULL, &ps, NULL);
 
     resource = create_default_texture(context.device, 1, 1, DXGI_FORMAT_R32_SINT,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -16633,7 +16628,6 @@ static void test_atomic_instructions(void)
 {
     ID3D12Resource *ps_buffer, *cs_buffer, *cs_buffer2;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[3];
     ID3D12PipelineState *pipeline_state;
@@ -16799,11 +16793,7 @@ static void test_atomic_instructions(void)
     cs_buffer2 = create_default_buffer(device, sizeof(tests->input),
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
 
-    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps_atomics, NULL);
-    pso_desc.NumRenderTargets = 0;
-    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
-            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    context.pipeline_state = create_pipeline_state(context.device, context.root_signature, 0, NULL, &ps_atomics, NULL);
 
     pipeline_state = create_compute_pipeline_state(device, context.root_signature, cs_atomics);
 
@@ -20426,7 +20416,6 @@ static void test_clip_distance(void)
 
 static void test_combined_clip_and_cull_distances(void)
 {
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
     D3D12_INPUT_LAYOUT_DESC input_layout;
     D3D12_VERTEX_BUFFER_VIEW vbv[2];
@@ -20437,7 +20426,6 @@ static void test_combined_clip_and_cull_distances(void)
     ID3D12Resource *vb[2];
     ID3D12Device *device;
     unsigned int i, j, k;
-    HRESULT hr;
 
     static const DWORD vs_code[] =
     {
@@ -20575,11 +20563,8 @@ static void test_combined_clip_and_cull_distances(void)
     input_layout.pInputElementDescs = layout_desc;
     input_layout.NumElements = ARRAY_SIZE(layout_desc);
 
-    init_pipeline_state_desc(&pso_desc, context.root_signature,
+    context.pipeline_state = create_pipeline_state(device, context.root_signature,
             context.render_target_desc.Format, &vs, NULL, &input_layout);
-    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
-            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
 
     vb[0] = create_upload_buffer(device, sizeof(quad), quad);
     vbv[0].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb[0]);

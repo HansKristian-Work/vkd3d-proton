@@ -486,8 +486,11 @@ static void init_pipeline_state_desc(D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc,
         desc->InputLayout = *input_layout;
     desc->SampleMask = ~(UINT)0;
     desc->PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    desc->NumRenderTargets = 1;
-    desc->RTVFormats[0] = rt_format;
+    if (rt_format)
+    {
+        desc->NumRenderTargets = 1;
+        desc->RTVFormats[0] = rt_format;
+    }
     desc->SampleDesc.Count = 1;
 }
 
