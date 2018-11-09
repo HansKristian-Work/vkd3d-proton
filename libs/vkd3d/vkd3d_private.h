@@ -194,7 +194,11 @@ struct d3d12_heap
 
     D3D12_HEAP_DESC desc;
 
+    pthread_mutex_t mutex;
+
     VkDeviceMemory vk_memory;
+    void *map_ptr;
+    unsigned int map_count;
     uint32_t vk_memory_type;
 
     struct d3d12_device *device;
@@ -228,6 +232,9 @@ struct d3d12_resource
 
     unsigned int map_count;
     void *map_data;
+
+    struct d3d12_heap *heap;
+    UINT64 heap_offset;
 
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_HEAP_FLAGS heap_flags;
