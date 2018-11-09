@@ -896,6 +896,7 @@ static inline void debug_ignored_node_mask(unsigned int mask)
         FIXME("Ignoring node mask 0x%08x.\n", mask);
 }
 
+HRESULT hresult_from_errno(int rc) DECLSPEC_HIDDEN;
 HRESULT hresult_from_vk_result(VkResult vr) DECLSPEC_HIDDEN;
 HRESULT hresult_from_vkd3d_result(int vkd3d_result) DECLSPEC_HIDDEN;
 

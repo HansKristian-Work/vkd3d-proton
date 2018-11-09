@@ -18,6 +18,8 @@
 
 #include "vkd3d_private.h"
 
+#include <errno.h>
+
 #define COLOR         (VK_IMAGE_ASPECT_COLOR_BIT)
 #define DEPTH         (VK_IMAGE_ASPECT_DEPTH_BIT)
 #define STENCIL       (VK_IMAGE_ASPECT_STENCIL_BIT)
@@ -379,6 +381,22 @@ const char *debug_vk_memory_property_flags(VkMemoryPropertyFlags flags)
     if (!buffer[0])
         return "0";
     return vkd3d_dbg_sprintf("%s", &buffer[3]);
+}
+
+HRESULT hresult_from_errno(int rc)
+{
+    switch (rc)
+    {
+        case 0:
+            return S_OK;
+        case ENOMEM:
+            return E_OUTOFMEMORY;
+        case EINVAL:
+            return E_INVALIDARG;
+        default:
+            FIXME("Unhandled errno %d.\n", rc);
+            return E_FAIL;
+    }
 }
 
 HRESULT hresult_from_vk_result(VkResult vr)

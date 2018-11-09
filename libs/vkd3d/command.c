@@ -33,7 +33,7 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device,
     {
         ERR("Failed to initialize mutex, error %d.\n", rc);
         vkd3d_free(object);
-        return E_FAIL;
+        return hresult_from_errno(rc);
     }
 
     object->vk_family_index = family_index;
@@ -89,7 +89,7 @@ static HRESULT vkd3d_enqueue_gpu_fence(struct vkd3d_fence_worker *worker,
     if ((rc = pthread_mutex_lock(&worker->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
-        return E_FAIL;
+        return hresult_from_errno(rc);
     }
 
     if (!vkd3d_array_reserve((void **)&worker->vk_fences, &worker->vk_fences_size,
@@ -255,14 +255,14 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
     if ((rc = pthread_mutex_init(&worker->mutex, NULL)))
     {
         ERR("Failed to initialize mutex, error %d.\n", rc);
-        return E_FAIL;
+        return hresult_from_errno(rc);
     }
 
     if ((rc = pthread_cond_init(&worker->cond, NULL)))
     {
         ERR("Failed to initialize condition variable, error %d.\n", rc);
         pthread_mutex_destroy(&worker->mutex);
-        return E_FAIL;
+        return hresult_from_errno(rc);
     }
 
     if (device->create_thread)
@@ -283,7 +283,7 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
         ERR("Failed to create fence worker thread, error %d.\n", rc);
         pthread_mutex_destroy(&worker->mutex);
         pthread_cond_destroy(&worker->cond);
-        return E_FAIL;
+        return hresult_from_errno(rc);
     }
 
     return S_OK;
@@ -300,7 +300,7 @@ HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
     if ((rc = pthread_mutex_lock(&worker->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
-        return E_FAIL;
+        return hresult_from_errno(rc);
     }
 
     worker->should_exit = true;
@@ -321,7 +321,7 @@ HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
         if ((rc = pthread_join(worker->u.thread, NULL)))
         {
             ERR("Failed to join fence worker thread, error %d.\n", rc);
-            return E_FAIL;
+            return hresult_from_errno(rc);
         }
     }
 
@@ -472,7 +472,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(ID3D12Fence *i
     if ((rc = pthread_mutex_lock(&fence->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
-        return E_FAIL;
+        return hresult_from_errno(rc);
     }
 
     if (value <= fence->value)
@@ -521,7 +521,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_Signal(ID3D12Fence *iface, UINT64 v
     if ((rc = pthread_mutex_lock(&fence->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
-        return E_FAIL;
+        return hresult_from_errno(rc);
     }
 
     fence->value = value;
@@ -580,7 +580,7 @@ static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *
     if ((rc = pthread_mutex_init(&fence->mutex, NULL)))
     {
         ERR("Failed to initialize mutex, error %d.\n", rc);
-        return E_FAIL;
+        return hresult_from_errno(rc);
     }
 
     if (flags)

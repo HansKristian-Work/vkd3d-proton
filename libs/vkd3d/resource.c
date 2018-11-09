@@ -245,7 +245,7 @@ static HRESULT d3d12_heap_map(struct d3d12_heap *heap, UINT64 offset, void **dat
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
         *data = NULL;
-        return E_FAIL;
+        return hresult_from_errno(rc);
     }
 
     if (!heap->map_ptr)
@@ -365,7 +365,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     if ((rc = pthread_mutex_init(&heap->mutex, NULL)))
     {
         ERR("Failed to initialize mutex, error %d.\n", rc);
-        return E_FAIL;
+        return hresult_from_errno(rc);
     }
 
     if (FAILED(hr = vkd3d_allocate_device_memory(device, &heap->desc.Properties,

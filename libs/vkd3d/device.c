@@ -1275,7 +1275,7 @@ static HRESULT d3d12_device_init_pipeline_cache(struct d3d12_device *device)
     if ((rc = pthread_mutex_init(&device->pipeline_cache_mutex, NULL)))
     {
         ERR("Failed to initialize mutex, error %d.\n", rc);
-        return E_FAIL;
+        return hresult_from_errno(rc);
     }
 
     cache_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
