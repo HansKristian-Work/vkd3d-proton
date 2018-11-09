@@ -1051,12 +1051,20 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
 
     resource->desc = *desc;
 
-    if (d3d12_resource_is_texture(resource)
-            && (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD
-            || heap_properties->Type == D3D12_HEAP_TYPE_READBACK))
+    if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD
+            || heap_properties->Type == D3D12_HEAP_TYPE_READBACK)
     {
-        WARN("Texture cannot be created on a UPLOAD/READBACK heap.\n");
-        return E_INVALIDARG;
+        if (d3d12_resource_is_texture(resource))
+        {
+            WARN("Textures cannot be created on upload/readback heaps.\n");
+            return E_INVALIDARG;
+        }
+
+        if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
+        {
+            WARN("Render target and unordered access buffers cannot be created on upload/readback heaps.\n");
+            return E_INVALIDARG;
+        }
     }
 
     if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD && initial_state != D3D12_RESOURCE_STATE_GENERIC_READ)

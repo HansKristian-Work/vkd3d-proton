@@ -1669,9 +1669,25 @@ static void test_create_committed_resource(void)
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Device *device, *tmp_device;
     D3D12_CLEAR_VALUE clear_value;
+    D3D12_RESOURCE_STATES state;
     ID3D12Resource *resource;
+    unsigned int i;
     ULONG refcount;
     HRESULT hr;
+
+    static const struct
+    {
+        D3D12_HEAP_TYPE heap_type;
+        D3D12_RESOURCE_FLAGS flags;
+    }
+    invalid_buffer_desc_tests[] =
+    {
+        /* Render target or unordered access resources are not allowed with UPLOAD or READBACK. */
+        {D3D12_HEAP_TYPE_UPLOAD,   D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET},
+        {D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET},
+        {D3D12_HEAP_TYPE_UPLOAD,   D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
+        {D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
+    };
 
     if (!(device = create_device()))
     {
@@ -1876,6 +1892,33 @@ static void test_create_committed_resource(void)
             &IID_ID3D12Resource, (void **)&resource);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
+    for (i = 0; i < ARRAY_SIZE(invalid_buffer_desc_tests); ++i)
+    {
+        memset(&heap_properties, 0, sizeof(heap_properties));
+        heap_properties.Type = invalid_buffer_desc_tests[i].heap_type;
+
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        resource_desc.Alignment = 0;
+        resource_desc.Width = 32;
+        resource_desc.Height = 1;
+        resource_desc.DepthOrArraySize = 1;
+        resource_desc.MipLevels = 1;
+        resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.SampleDesc.Quality = 0;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        resource_desc.Flags = invalid_buffer_desc_tests[i].flags;
+
+        if (invalid_buffer_desc_tests[i].heap_type == D3D12_HEAP_TYPE_UPLOAD)
+            state = D3D12_RESOURCE_STATE_GENERIC_READ;
+        else
+            state = D3D12_RESOURCE_STATE_COPY_DEST;
+
+        hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, state, NULL, &IID_ID3D12Resource, (void **)&resource);
+        ok(hr == E_INVALIDARG, "Test %u: Got unexpected hr %#x.\n", i, hr);
+    }
+
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
@@ -2014,11 +2057,27 @@ static void test_create_placed_resource(void)
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Device *device, *tmp_device;
     D3D12_CLEAR_VALUE clear_value;
+    D3D12_RESOURCE_STATES state;
     D3D12_HEAP_DESC heap_desc;
     ID3D12Resource *resource;
     ID3D12Heap *heap;
+    unsigned int i;
     ULONG refcount;
     HRESULT hr;
+
+    static const struct
+    {
+        D3D12_HEAP_TYPE heap_type;
+        D3D12_RESOURCE_FLAGS flags;
+    }
+    invalid_buffer_desc_tests[] =
+    {
+        /* Render target or unordered access resources are not allowed with UPLOAD or READBACK. */
+        {D3D12_HEAP_TYPE_UPLOAD,   D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET},
+        {D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET},
+        {D3D12_HEAP_TYPE_UPLOAD,   D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
+        {D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
+    };
 
     if (!(device = create_device()))
     {
@@ -2090,6 +2149,41 @@ static void test_create_placed_resource(void)
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     ID3D12Heap_Release(heap);
+
+    for (i = 0; i < ARRAY_SIZE(invalid_buffer_desc_tests); ++i)
+    {
+        heap_desc.SizeInBytes = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        memset(&heap_desc.Properties, 0, sizeof(heap_desc.Properties));
+        heap_desc.Properties.Type = invalid_buffer_desc_tests[i].heap_type;
+        heap_desc.Alignment = 0;
+        heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+        hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+        ok(hr == S_OK, "Test %u: Failed to create heap, hr %#x.\n", i, hr);
+
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        resource_desc.Alignment = 0;
+        resource_desc.Width = 32;
+        resource_desc.Height = 1;
+        resource_desc.DepthOrArraySize = 1;
+        resource_desc.MipLevels = 1;
+        resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.SampleDesc.Quality = 0;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        resource_desc.Flags = invalid_buffer_desc_tests[i].flags;
+
+        if (invalid_buffer_desc_tests[i].heap_type == D3D12_HEAP_TYPE_UPLOAD)
+            state = D3D12_RESOURCE_STATE_GENERIC_READ;
+        else
+            state = D3D12_RESOURCE_STATE_COPY_DEST;
+
+        hr = ID3D12Device_CreatePlacedResource(device, heap, 0,
+                &resource_desc, state, &clear_value, &IID_ID3D12Resource, (void **)&resource);
+        ok(hr == E_INVALIDARG, "Test %u: Got unexpected hr %#x.\n", i, hr);
+
+        ID3D12Heap_Release(heap);
+    }
+
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
