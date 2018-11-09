@@ -5319,6 +5319,192 @@ static void test_map_resource(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_map_placed_resources(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12GraphicsCommandList *command_list;
+    ID3D12Heap *upload_heap, *readback_heap;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *readback_buffer;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *uav_buffer;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *cb[4];
+    uint32_t *cb_data[4];
+    ID3D12Device *device;
+    D3D12_RANGE range;
+    unsigned int i;
+    uint32_t *ptr;
+    HRESULT hr;
+
+    STATIC_ASSERT(ARRAY_SIZE(cb) == ARRAY_SIZE(cb_data));
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        uint offset;
+        uint value;
+
+        RWByteAddressBuffer u;
+
+        void main()
+        {
+            u.Store(offset, value);
+        }
+#endif
+        0x43425844, 0x0dcbdd90, 0x7dad2857, 0x4ee149ee, 0x72a13d21, 0x00000001, 0x000000a4, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000050, 0x00000050, 0x00000014, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300009d, 0x0011e000, 0x00000000, 0x090000a6,
+        0x0011e012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0020801a, 0x00000000, 0x00000000,
+        0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const uint32_t expected_values[] = {0xdead, 0xbeef, 0xfeed, 0xc0de};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[0].Descriptor.ShaderRegister = 0;
+    root_parameters[0].Descriptor.RegisterSpace = 0;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    root_parameters[1].Descriptor.ShaderRegister = 0;
+    root_parameters[1].Descriptor.RegisterSpace = 0;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    context.pipeline_state = create_pipeline_state(device, context.root_signature, 0, NULL, &ps, NULL);
+
+    heap_desc.SizeInBytes = ARRAY_SIZE(cb) * D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    memset(&heap_desc.Properties, 0, sizeof(heap_desc.Properties));
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+    heap_desc.Alignment = 0;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&upload_heap);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+
+    heap_desc.SizeInBytes = 1024;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_READBACK;
+    hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&readback_heap);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = 0;
+
+    for (i = 0; i < ARRAY_SIZE(cb); ++i)
+    {
+        hr = ID3D12Device_CreatePlacedResource(device, upload_heap,
+                i * D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+                &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
+                &IID_ID3D12Resource, (void **)&cb[i]);
+        ok(hr == S_OK, "Failed to create placed resource %u, hr %#x.\n", i, hr);
+    }
+
+    resource_desc.Width = 1024;
+    hr = ID3D12Device_CreatePlacedResource(device, readback_heap, 0,
+            &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+            &IID_ID3D12Resource, (void **)&readback_buffer);
+    ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", hr);
+
+    uav_buffer = create_default_buffer(device, resource_desc.Width,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    for (i = 0; i < ARRAY_SIZE(cb); ++i)
+    {
+        hr = ID3D12Resource_Map(cb[i], 0, NULL, (void **)&cb_data[i]);
+        ok(hr == S_OK, "Failed to map buffer %u, hr %#x.\n", i, hr);
+    }
+
+    hr = ID3D12Resource_Map(cb[0], 0, NULL, (void **)&ptr);
+    ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", hr);
+    ok(ptr == cb_data[0], "Got map ptr %p, expected %p.\n", ptr, cb_data[0]);
+    cb_data[0][0] = 0;
+    cb_data[0][1] = expected_values[0];
+    ID3D12Resource_Unmap(cb[0], 0, NULL);
+    ID3D12Resource_Unmap(cb[0], 0, NULL);
+    cb_data[0] = NULL;
+
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(command_list, 0,
+            ID3D12Resource_GetGPUVirtualAddress(uav_buffer));
+
+    ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 1,
+            ID3D12Resource_GetGPUVirtualAddress(cb[0]));
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 1,
+            ID3D12Resource_GetGPUVirtualAddress(cb[2]));
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    cb_data[2][0] = 4;
+    cb_data[2][1] = expected_values[1];
+
+    ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 1,
+            ID3D12Resource_GetGPUVirtualAddress(cb[1]));
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    cb_data[1][0] = 8;
+    cb_data[1][1] = expected_values[2];
+
+    ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 1,
+            ID3D12Resource_GetGPUVirtualAddress(cb[3]));
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    cb_data[3][0] = 12;
+    cb_data[3][1] = expected_values[3];
+    range.Begin = 0;
+    range.End = 2 * sizeof(uint32_t);
+    ID3D12Resource_Unmap(cb[3], 0, &range);
+    cb_data[3] = NULL;
+
+    transition_resource_state(command_list, uav_buffer,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    ID3D12GraphicsCommandList_CopyResource(command_list, readback_buffer, uav_buffer);
+
+    get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (i = 0; i < ARRAY_SIZE(expected_values); ++i)
+    {
+        unsigned int value = get_readback_uint(&rb, i, 0, 0);
+        ok(value == expected_values[i], "Got %#x, expected %#x at %u.\n", value, expected_values[i], i);
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(uav_buffer);
+    for (i = 0; i < ARRAY_SIZE(cb); ++i)
+        ID3D12Resource_Release(cb[i]);
+    ID3D12Resource_Release(readback_buffer);
+    ID3D12Heap_Release(upload_heap);
+    ID3D12Heap_Release(readback_heap);
+    destroy_test_context(&context);
+}
+
 static void test_bundle_state_inheritance(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -21227,6 +21413,7 @@ START_TEST(d3d12)
     run_test(test_invalid_texture_resource_barriers);
     run_test(test_device_removed_reason);
     run_test(test_map_resource);
+    run_test(test_map_placed_resources);
     run_test(test_bundle_state_inheritance);
     run_test(test_shader_instructions);
     run_test(test_compute_shader_instructions);
