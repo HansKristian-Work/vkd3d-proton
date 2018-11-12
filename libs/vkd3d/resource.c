@@ -1138,6 +1138,9 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     resource->heap_flags = heap_flags;
     resource->initial_state = initial_state;
 
+    resource->heap = NULL;
+    resource->heap_offset = 0;
+
     resource->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
 
@@ -1201,9 +1204,6 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
         return hr;
     }
 
-    object->heap = NULL;
-    object->heap_offset = 0;
-
     TRACE("Created committed resource %p.\n", object);
 
     *resource = object;
@@ -1243,8 +1243,15 @@ static HRESULT vkd3d_bind_heap_memory(struct d3d12_device *device,
     else
         vr = VK_CALL(vkBindImageMemory(vk_device, resource->u.vk_image, heap->vk_memory, heap_offset));
 
-    if (vr < 0)
+    if (vr == VK_SUCCESS)
+    {
+        resource->heap = heap;
+        resource->heap_offset = heap_offset;
+    }
+    else
+    {
         WARN("Failed to bind memory, vr %d.\n", vr);
+    }
 
     return hresult_from_vk_result(vr);
 }
@@ -1265,9 +1272,6 @@ HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_h
         d3d12_resource_Release(&object->ID3D12Resource_iface);
         return hr;
     }
-
-    object->heap = heap;
-    object->heap_offset = heap_offset;
 
     TRACE("Created placed resource %p.\n", object);
 
