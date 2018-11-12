@@ -1321,16 +1321,15 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device,
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
+    memset(object, 0, sizeof(*object));
+
     object->ID3D12Resource_iface.lpVtbl = &d3d12_resource_vtbl;
     object->refcount = 1;
     object->internal_refcount = 1;
     object->desc = create_info->desc;
     object->u.vk_image = create_info->vk_image;
-    object->vk_memory = VK_NULL_HANDLE;
     object->flags = VKD3D_RESOURCE_EXTERNAL;
     object->flags |= create_info->flags & VKD3D_RESOURCE_PUBLIC_FLAGS;
-    object->map_count = 0;
-    object->map_ptr = NULL;
     memset(&object->heap_properties, 0, sizeof(object->heap_properties));
     object->heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
     object->initial_state = D3D12_RESOURCE_STATE_COMMON;
