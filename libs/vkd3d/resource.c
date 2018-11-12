@@ -885,10 +885,18 @@ static void STDMETHODCALLTYPE d3d12_resource_Unmap(ID3D12Resource *iface, UINT s
         const D3D12_RANGE *written_range)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
+    unsigned int sub_resource_count;
     struct d3d12_device *device;
 
     TRACE("iface %p, sub_resource %u, written_range %p.\n",
             iface, sub_resource, written_range);
+
+    sub_resource_count = d3d12_resource_desc_get_sub_resource_count(&resource->desc);
+    if (sub_resource >= sub_resource_count)
+    {
+        WARN("Sub-resource index %u is out of range (%u sub-resources).\n", sub_resource, sub_resource_count);
+        return;
+    }
 
     if (!resource->map_count)
     {
