@@ -816,7 +816,62 @@ static VkDeviceMemory allocate_vulkan_image_memory(ID3D12Device *device,
     return vk_memory;
 }
 
-static void test_vulkan_resource_present_state(void)
+static void test_external_resource_map(void)
+{
+    struct vkd3d_image_resource_create_info resource_create_info;
+    D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
+    ID3D12Resource *vk_resource;
+    VkDeviceMemory vk_memory;
+    ID3D12Device *device;
+    VkDevice vk_device;
+    VkImage vk_image;
+    ULONG refcount;
+    HRESULT hr;
+    void *ptr;
+
+    device = create_device();
+    ok(device, "Failed to create device.\n");
+
+    vk_image = create_vulkan_image(device, 32, 32,
+            VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+    vk_memory = allocate_vulkan_image_memory(device,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vk_image);
+
+    resource_create_info.type = VKD3D_STRUCTURE_TYPE_IMAGE_RESOURCE_CREATE_INFO;
+    resource_create_info.next = NULL;
+    resource_create_info.vk_image = vk_image;
+    resource_create_info.desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_create_info.desc.Alignment = 0;
+    resource_create_info.desc.Width = 32;
+    resource_create_info.desc.Height = 32;
+    resource_create_info.desc.DepthOrArraySize = 1;
+    resource_create_info.desc.MipLevels = 1;
+    resource_create_info.desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_create_info.desc.SampleDesc.Count = 1;
+    resource_create_info.desc.SampleDesc.Quality = 0;
+    resource_create_info.desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_create_info.desc.Flags = 0;
+    resource_create_info.flags = VKD3D_RESOURCE_INITIAL_STATE_TRANSITION;
+    hr = vkd3d_create_image_resource(device, &resource_create_info, &vk_resource);
+    ok(hr == S_OK, "Failed to create D3D12 resource for Vulkan image, hr %#x.\n", hr);
+
+    ptr = (void *)0xdeadbeef;
+    hr = ID3D12Resource_Map(vk_resource, 0, NULL, &ptr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(ptr == (void *)0xdeadbeef, "Pointer was modified %p.\n", ptr);
+
+    gpu_address = ID3D12Resource_GetGPUVirtualAddress(vk_resource);
+    ok(!gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
+
+    ID3D12Resource_Release(vk_resource);
+    vk_device = vkd3d_get_vk_device(device);
+    vkDestroyImage(vk_device, vk_image, NULL);
+    vkFreeMemory(vk_device, vk_memory, NULL);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+}
+
+static void test_external_resource_present_state(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
@@ -989,6 +1044,7 @@ START_TEST(vkd3d_api)
     run_test(test_device_parent);
     run_test(test_vkd3d_queue);
     run_test(test_resource_internal_refcount);
-    run_test(test_vulkan_resource_present_state);
+    run_test(test_external_resource_map);
+    run_test(test_external_resource_present_state);
     run_test(test_formats);
 }
