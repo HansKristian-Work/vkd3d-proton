@@ -5364,11 +5364,13 @@ static void test_map_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
 
     /* Resources on a DEFAULT heap cannot be mapped. */
+    data = (void *)0xdeadbeef;
     hr = ID3D12Resource_Map(resource, 0, NULL, &data);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(data == (void *)0xdeadbeef, "Pointer was modified %p.\n", data);
 
     ID3D12Resource_Release(resource);
 
@@ -5385,8 +5387,10 @@ static void test_map_resource(void)
     else
     {
         /* The data pointer must be NULL for the UNKNOWN layout. */
+        data = (void *)0xdeadbeef;
         hr = ID3D12Resource_Map(resource, 0, NULL, &data);
         ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(data == (void *)0xdeadbeef, "Pointer was modified %p.\n", data);
 
         ID3D12Resource_Release(resource);
     }
@@ -5401,11 +5405,39 @@ static void test_map_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
 
     /* Resources on a DEFAULT heap cannot be mapped. */
+    data = (void *)0xdeadbeef;
     hr = ID3D12Resource_Map(resource, 0, NULL, &data);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(data == (void *)0xdeadbeef, "Pointer was modified %p.\n", data);
+
+    ID3D12Resource_Release(resource);
+
+    heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+
+    data = NULL;
+    hr = ID3D12Resource_Map(resource, 0, NULL, &data);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(data, "Got NULL pointer.\n");
+    ID3D12Resource_Unmap(resource, 0, NULL);
+
+    data = (void *)0xdeadbeef;
+    hr = ID3D12Resource_Map(resource, 1, NULL, &data);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(data == (void *)0xdeadbeef, "Pointer was modified %p.\n", data);
+
+    data = NULL;
+    hr = ID3D12Resource_Map(resource, 0, NULL, &data);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(data, "Got NULL pointer.\n");
+    ID3D12Resource_Unmap(resource, 1, NULL);
+    ID3D12Resource_Unmap(resource, 0, NULL);
 
     ID3D12Resource_Release(resource);
 
