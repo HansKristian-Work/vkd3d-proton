@@ -811,6 +811,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
         const D3D12_RANGE *read_range, void **data)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
+    unsigned int sub_resource_count;
     struct d3d12_device *device;
     VkResult vr;
     HRESULT hr;
@@ -823,6 +824,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
     if (!is_cpu_accessible_heap(&resource->heap_properties))
     {
         WARN("Resource is not CPU accessible.\n");
+        return E_INVALIDARG;
+    }
+
+    sub_resource_count = d3d12_resource_desc_get_sub_resource_count(&resource->desc);
+    if (sub_resource >= sub_resource_count)
+    {
+        WARN("Sub-resource index %u is out of range (%u sub-resources).\n", sub_resource, sub_resource_count);
         return E_INVALIDARG;
     }
 
