@@ -1651,7 +1651,7 @@ void shader_sm4_read_instruction(void *data, const DWORD **ptr, struct vkd3d_sha
     DWORD opcode_token, opcode, previous_token;
     struct vkd3d_sm4_data *priv = data;
     unsigned int i, len;
-    SIZE_T remaining;
+    size_t remaining;
     const DWORD *p;
     DWORD precise;
 
@@ -1679,7 +1679,7 @@ void shader_sm4_read_instruction(void *data, const DWORD **ptr, struct vkd3d_sha
     }
     if (!len || remaining < len)
     {
-        WARN("Read invalid length %u (remaining %lu).\n", len, remaining);
+        WARN("Read invalid length %u (remaining %zu).\n", len, remaining);
         goto fail;
     }
     --len;
@@ -1980,7 +1980,7 @@ static int isgn_handler(const char *data, DWORD data_size, DWORD tag, void *ctx)
     return shader_parse_signature(tag, data, data_size, is);
 }
 
-int shader_parse_input_signature(const void *dxbc, SIZE_T dxbc_length,
+int shader_parse_input_signature(const void *dxbc, size_t dxbc_length,
         struct vkd3d_shader_signature *signature)
 {
     int ret;
@@ -2056,7 +2056,7 @@ void free_shader_desc(struct vkd3d_shader_desc *desc)
     vkd3d_shader_free_shader_signature(&desc->patch_constant_signature);
 }
 
-int shader_extract_from_dxbc(const void *dxbc, SIZE_T dxbc_length,
+int shader_extract_from_dxbc(const void *dxbc, size_t dxbc_length,
         struct vkd3d_shader_desc *desc)
 {
     int ret;
