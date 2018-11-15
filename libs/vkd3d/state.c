@@ -2235,6 +2235,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
 
     rs_desc_from_d3d12(&graphics->rs_desc, &desc->RasterizerState);
+    if (!graphics->attachment_count && !(desc->PS.pShaderBytecode && desc->PS.BytecodeLength))
+        graphics->rs_desc.rasterizerDiscardEnable = VK_TRUE;
 
     graphics->ms_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     graphics->ms_desc.pNext = NULL;
