@@ -2086,10 +2086,12 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
         {
             const struct vkd3d_shader_uav_counter_binding *current = &shader_interface->uav_counters[i];
 
+            if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
+                continue;
+
             if (current->offset)
                 FIXME("Atomic counter offsets are not supported yet.\n");
 
-            /* FIXME: Implement shader visibility for UAV counters. */
             if (current->register_index == reg_idx)
                 return current->binding;
         }

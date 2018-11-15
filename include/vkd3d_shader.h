@@ -111,6 +111,7 @@ struct vkd3d_shader_combined_resource_sampler
 struct vkd3d_shader_uav_counter_binding
 {
     unsigned int register_index; /* u# */
+    enum vkd3d_shader_visibility shader_visibility;
 
     struct vkd3d_shader_descriptor_binding binding;
     unsigned int offset;

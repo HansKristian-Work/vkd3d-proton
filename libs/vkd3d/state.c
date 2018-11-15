@@ -1367,6 +1367,7 @@ static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipel
             continue;
 
         state->uav_counters[j].register_index = i;
+        state->uav_counters[j].shader_visibility = VKD3D_SHADER_VISIBILITY_COMPUTE;
         state->uav_counters[j].binding.set = context.set_index;
         state->uav_counters[j].binding.binding = context.descriptor_binding;
 
