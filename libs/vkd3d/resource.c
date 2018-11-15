@@ -1482,8 +1482,8 @@ static bool vkd3d_create_buffer_view(struct d3d12_device *device,
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_format *format;
+    VkDeviceSize element_size;
     struct vkd3d_view *object;
-    unsigned int element_size;
     VkBufferView vk_view;
 
     if (view_format == DXGI_FORMAT_R32_TYPELESS && (flags & VKD3D_VIEW_RAW_BUFFER))
