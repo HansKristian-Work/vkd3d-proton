@@ -21218,6 +21218,8 @@ static void test_suballocate_small_textures(void)
         check_alignment(info.SizeInBytes, info.Alignment);
     }
 
+    ok(info.Alignment >= D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT, "Got alignment %"PRIu64".\n", info.Alignment);
+
     heap_desc.SizeInBytes = ARRAY_SIZE(textures) * info.SizeInBytes;
     memset(&heap_desc.Properties, 0, sizeof(heap_desc.Properties));
     heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;

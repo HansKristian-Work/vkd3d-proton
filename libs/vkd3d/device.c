@@ -2062,6 +2062,7 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
     }
     else
     {
+        /* FIXME: Should we support D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT for small MSSA resources? */
         if (desc->SampleDesc.Count != 1)
             default_alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
 
@@ -2070,6 +2071,8 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
             WARN("Failed to get allocation info for texture.\n");
             valid = false;
         }
+
+        info->Alignment = max(info->Alignment, D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT);
     }
 
     if (valid && desc->Alignment % info->Alignment)
