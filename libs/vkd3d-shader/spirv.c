@@ -1418,6 +1418,13 @@ static uint32_t vkd3d_spirv_build_op_image_query_levels(struct vkd3d_spirv_build
             SpvOpImageQueryLevels, result_type, image_id);
 }
 
+static uint32_t vkd3d_spirv_build_op_image_query_samples(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t image_id)
+{
+    return vkd3d_spirv_build_op_tr1(builder, &builder->function_stream,
+            SpvOpImageQuerySamples, result_type, image_id);
+}
+
 static void vkd3d_spirv_build_op_emit_vertex(struct vkd3d_spirv_builder *builder)
 {
     return vkd3d_spirv_build_op(&builder->function_stream, SpvOpEmitVertex);
@@ -6414,6 +6421,53 @@ static void vkd3d_dxbc_compiler_emit_resinfo(struct vkd3d_dxbc_compiler *compile
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
+static void vkd3d_dxbc_compiler_emit_sample_info(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t constituents[VKD3D_VEC4_SIZE];
+    struct vkd3d_shader_image image;
+    uint32_t type_id, val_id;
+    unsigned int i;
+
+    if (src->reg.type == VKD3DSPR_RASTERIZER)
+    {
+        FIXME("Rasterizer not supported.\n");
+        return;
+    }
+
+    vkd3d_spirv_enable_capability(builder, SpvCapabilityImageQuery);
+
+    vkd3d_dxbc_compiler_prepare_image(compiler, &image, &src->reg, NULL, VKD3D_IMAGE_FLAG_NONE);
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    val_id = vkd3d_spirv_build_op_image_query_samples(builder, type_id, image.image_id);
+
+    constituents[0] = val_id;
+    for (i = 1; i < VKD3D_VEC4_SIZE; ++i)
+        constituents[i] = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, VKD3D_VEC4_SIZE);
+    val_id = vkd3d_spirv_build_op_composite_construct(builder, type_id, constituents, VKD3D_VEC4_SIZE);
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
+    if (instruction->flags == VKD3DSI_SAMPLE_INFO_UINT)
+    {
+        val_id = vkd3d_spirv_build_op_bitcast(builder, type_id, val_id);
+    }
+    else
+    {
+        if (instruction->flags)
+            FIXME("Unhandled flags %#x.\n", instruction->flags);
+        val_id = vkd3d_spirv_build_op_convert_utof(builder, type_id, val_id);
+    }
+
+    val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
+            val_id, VKD3D_TYPE_FLOAT, src->swizzle, dst->write_mask);
+
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
+}
+
 /* From the Vulkan spec:
  *
  *   "Scope for execution must be limited to: * Workgroup * Subgroup"
@@ -6807,6 +6861,9 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             break;
         case VKD3DSIH_RESINFO:
             vkd3d_dxbc_compiler_emit_resinfo(compiler, instruction);
+            break;
+        case VKD3DSIH_SAMPLE_INFO:
+            vkd3d_dxbc_compiler_emit_sample_info(compiler, instruction);
             break;
         case VKD3DSIH_SYNC:
             vkd3d_dxbc_compiler_emit_sync(compiler, instruction);
