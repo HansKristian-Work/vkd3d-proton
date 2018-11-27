@@ -3630,8 +3630,16 @@ static void test_clear_depth_stencil_view(void)
 
 static void test_clear_render_target_view(void)
 {
+    static const unsigned int array_expected_colors[] = {0xff0000ff, 0xff00ff00, 0xffff0000};
+    static const struct vec4 array_colors[] =
+    {
+        {1.0f, 0.0f, 0.0f, 1.0f},
+        {0.0f, 1.0f, 0.0f, 1.0f},
+        {0.0f, 0.0f, 1.0f, 1.0f},
+    };
     static const float color[] = {0.1f, 0.5f, 0.3f, 0.75f};
     static const float green[] = {0.0f, 1.0f, 0.0f, 1.0f};
+    ID3D12Resource *resource, *resolved_resource;
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle;
     D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
@@ -3644,10 +3652,12 @@ static void test_clear_render_target_view(void)
     struct resource_readback rb;
     struct test_context context;
     ID3D12CommandQueue *queue;
-    ID3D12Resource *resource;
     ID3D12Device *device;
+    unsigned int i;
     D3D12_BOX box;
     HRESULT hr;
+
+    STATIC_ASSERT(ARRAY_SIZE(array_colors) == ARRAY_SIZE(array_expected_colors));
 
     memset(&desc, 0, sizeof(desc));
     desc.no_render_target = true;
@@ -3687,7 +3697,7 @@ static void test_clear_render_target_view(void)
             &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
             D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
 
     memset(&rtv_desc, 0, sizeof(rtv_desc));
     rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -3720,12 +3730,88 @@ static void test_clear_render_target_view(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_uint(resource, 0, queue, command_list, 0xbf95bc59, 2);
 
+    /* 2D array texture */
+    ID3D12Resource_Release(resource);
+    resource_desc.DepthOrArraySize = ARRAY_SIZE(array_colors);
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+
+    reset_command_list(command_list, context.allocator);
+    for (i = 0; i < ARRAY_SIZE(array_colors); ++i)
+    {
+        memset(&rtv_desc, 0, sizeof(rtv_desc));
+        rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+        rtv_desc.Texture2DArray.FirstArraySlice = i;
+        rtv_desc.Texture2DArray.ArraySize = 1;
+
+        ID3D12Device_CreateRenderTargetView(device, resource, &rtv_desc, rtv_handle);
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, &array_colors[i].x, 0, NULL);
+    }
+
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    for (i = 0; i < ARRAY_SIZE(array_expected_colors); ++i)
+    {
+        check_sub_resource_uint(resource, i, queue, command_list, array_expected_colors[i], 2);
+        reset_command_list(command_list, context.allocator);
+    }
+
+    /* 2D multisample array texture */
+    ID3D12Resource_Release(resource);
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.SampleDesc.Count = 4;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.SampleDesc.Count = 1;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, NULL,
+            &IID_ID3D12Resource, (void **)&resolved_resource);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(array_colors); ++i)
+    {
+        memset(&rtv_desc, 0, sizeof(rtv_desc));
+        rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY;
+        rtv_desc.Texture2DMSArray.FirstArraySlice = i;
+        rtv_desc.Texture2DMSArray.ArraySize = 1;
+
+        ID3D12Device_CreateRenderTargetView(device, resource, &rtv_desc, rtv_handle);
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, &array_colors[i].x, 0, NULL);
+    }
+
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    for (i = 0; i < ARRAY_SIZE(array_expected_colors); ++i)
+    {
+        transition_resource_state(command_list, resolved_resource,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+        ID3D12GraphicsCommandList_ResolveSubresource(command_list,
+                resolved_resource, 0, resource, i, DXGI_FORMAT_R8G8B8A8_UNORM);
+        transition_resource_state(command_list, resolved_resource,
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(resolved_resource, 0, queue, command_list, array_expected_colors[i], 2);
+        reset_command_list(command_list, context.allocator);
+    }
+
+    ID3D12Resource_Release(resolved_resource);
+
     /* 3D texture */
     ID3D12Resource_Release(resource);
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
     resource_desc.DepthOrArraySize = 32;
     resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     hr = ID3D12Device_CreateCommittedResource(device,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
             D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
@@ -3734,7 +3820,6 @@ static void test_clear_render_target_view(void)
 
     ID3D12Device_CreateRenderTargetView(device, resource, NULL, rtv_handle);
 
-    reset_command_list(command_list, context.allocator);
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, color, 0, NULL);
     transition_resource_state(command_list, resource,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
