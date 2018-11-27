@@ -1809,7 +1809,7 @@ static HRESULT compute_input_layout_offsets(const D3D12_INPUT_LAYOUT_DESC *input
 
         if (!(format = vkd3d_get_format(e->Format, false)))
         {
-            WARN("Invalid DXGI format %#x.\n", e->Format);
+            WARN("Invalid input element format %#x.\n", e->Format);
             return E_INVALIDARG;
         }
 
@@ -1956,7 +1956,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
         if (!(format = vkd3d_get_format(desc->DSVFormat, true)))
         {
-            WARN("Invalid DXGI format %#x.\n", desc->DSVFormat);
+            WARN("Invalid DSV format %#x.\n", desc->DSVFormat);
             hr = E_INVALIDARG;
             goto fail;
         }
@@ -2014,7 +2014,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
         if (!(format = vkd3d_get_format(desc->RTVFormats[i], false)))
         {
-            WARN("Invalid DXGI format %#x.\n", desc->RTVFormats[i]);
+            WARN("Invalid RTV format %#x.\n", desc->RTVFormats[i]);
             hr = E_INVALIDARG;
             goto fail;
         }
@@ -2148,7 +2148,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
         if (!(format = vkd3d_get_format(e->Format, false)))
         {
-            WARN("Invalid DXGI format %#x.\n", e->Format);
+            WARN("Invalid input element format %#x.\n", e->Format);
             hr = E_INVALIDARG;
             goto fail;
         }
