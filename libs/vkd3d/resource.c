@@ -2522,6 +2522,13 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
+    if ((desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
+            && (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_RTV || desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_DSV))
+    {
+        WARN("RTV/DSV descriptor heaps cannot be shader visible.\n");
+        return E_INVALIDARG;
+    }
+
     max_descriptor_count = (~(size_t)0 - sizeof(*object)) / descriptor_size;
     if (desc->NumDescriptors > max_descriptor_count)
     {
