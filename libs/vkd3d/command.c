@@ -3570,9 +3570,21 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
     for (i = 0; i < render_target_descriptor_count; ++i)
     {
         if (single_descriptor_handle)
-            rtv_desc = d3d12_rtv_desc_from_cpu_handle(*render_target_descriptors) + i;
+        {
+            if ((rtv_desc = d3d12_rtv_desc_from_cpu_handle(*render_target_descriptors)))
+                rtv_desc += i;
+        }
         else
+        {
             rtv_desc = d3d12_rtv_desc_from_cpu_handle(render_target_descriptors[i]);
+        }
+
+        if (!rtv_desc)
+        {
+            WARN("RTV descriptor %u is not initialized.\n", i);
+            list->views[i + 1] = VK_NULL_HANDLE;
+            continue;
+        }
 
         d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
 
@@ -3591,21 +3603,28 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
 
     if (depth_stencil_descriptor)
     {
-        dsv_desc = d3d12_dsv_desc_from_cpu_handle(*depth_stencil_descriptor);
-
-        d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
-
-        /* In D3D12 CPU descriptors are consumed when a command is recorded. */
-        view = dsv_desc->view;
-        if (!d3d12_command_allocator_add_view(list->allocator, view))
+        if ((dsv_desc = d3d12_dsv_desc_from_cpu_handle(*depth_stencil_descriptor)))
         {
-            WARN("Failed to add view.\n");
-        }
+            d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
 
-        list->views[0] = view->u.vk_image_view;
-        list->fb_width = max(list->fb_width, dsv_desc->width);
-        list->fb_height = max(list->fb_height, dsv_desc->height);
-        list->fb_layer_count = max(list->fb_layer_count, dsv_desc->layer_count);
+            /* In D3D12 CPU descriptors are consumed when a command is recorded. */
+            view = dsv_desc->view;
+            if (!d3d12_command_allocator_add_view(list->allocator, view))
+            {
+                WARN("Failed to add view.\n");
+                list->views[0] = VK_NULL_HANDLE;
+            }
+
+            list->views[0] = view->u.vk_image_view;
+            list->fb_width = max(list->fb_width, dsv_desc->width);
+            list->fb_height = max(list->fb_height, dsv_desc->height);
+            list->fb_layer_count = max(list->fb_layer_count, dsv_desc->layer_count);
+        }
+        else
+        {
+            WARN("DSV descriptor is not initialized.\n");
+            list->views[0] = VK_NULL_HANDLE;
+        }
     }
 
     d3d12_command_list_invalidate_current_framebuffer(list);
