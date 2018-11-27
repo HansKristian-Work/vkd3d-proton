@@ -159,6 +159,28 @@ static inline ID3D12DescriptorHeap *create_gpu_descriptor_heap_(unsigned int lin
     return descriptor_heap;
 }
 
+static void transition_sub_resource_state(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
+        unsigned int sub_resource_idx, D3D12_RESOURCE_STATES state_before, D3D12_RESOURCE_STATES state_after)
+{
+    D3D12_RESOURCE_BARRIER barrier;
+
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.Transition.pResource = resource;
+    barrier.Transition.Subresource = sub_resource_idx;
+    barrier.Transition.StateBefore = state_before;
+    barrier.Transition.StateAfter = state_after;
+
+    ID3D12GraphicsCommandList_ResourceBarrier(list, 1, &barrier);
+}
+
+static void transition_resource_state(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
+        D3D12_RESOURCE_STATES state_before, D3D12_RESOURCE_STATES state_after)
+{
+    transition_sub_resource_state(list, resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+            state_before, state_after);
+}
+
 static unsigned int format_size(DXGI_FORMAT format)
 {
     switch (format)
@@ -218,15 +240,16 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
         struct resource_readback *rb, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
 {
     D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
+    D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *src_resource;
     D3D12_RANGE read_range;
     unsigned int miplevel;
     ID3D12Device *device;
-    DXGI_FORMAT format;
     HRESULT hr;
 
     hr = ID3D12Resource_GetDevice(texture, &IID_ID3D12Device, (void **)&device);
-    ok(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
 
     resource_desc = ID3D12Resource_GetDesc(texture);
     ok(resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER,
@@ -240,35 +263,62 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
     rb->row_pitch = align(rb->width * format_size(resource_desc.Format), D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
     rb->data = NULL;
 
-    format = resource_desc.Format;
+    if (resource_desc.SampleDesc.Count > 1)
+    {
+        memset(&heap_properties, 0, sizeof(heap_properties));
+        heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+        resource_desc.Alignment = 0;
+        resource_desc.DepthOrArraySize = 1;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.SampleDesc.Quality = 0;
+        hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+                &IID_ID3D12Resource, (void **)&src_resource);
+        ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+
+        ID3D12GraphicsCommandList_ResolveSubresource(command_list,
+                src_resource, 0, texture, sub_resource, resource_desc.Format);
+        transition_resource_state(command_list, src_resource,
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        sub_resource = 0;
+    }
+    else
+    {
+        src_resource = texture;
+    }
 
     rb->resource = create_readback_buffer(device, rb->row_pitch * rb->height * rb->depth);
 
     dst_location.pResource = rb->resource;
     dst_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
     dst_location.PlacedFootprint.Offset = 0;
-    dst_location.PlacedFootprint.Footprint.Format = format;
+    dst_location.PlacedFootprint.Footprint.Format = resource_desc.Format;
     dst_location.PlacedFootprint.Footprint.Width = rb->width;
     dst_location.PlacedFootprint.Footprint.Height = rb->height;
     dst_location.PlacedFootprint.Footprint.Depth = rb->depth;
     dst_location.PlacedFootprint.Footprint.RowPitch = rb->row_pitch;
 
-    src_location.pResource = texture;
+    src_location.pResource = src_resource;
     src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     src_location.SubresourceIndex = sub_resource;
 
     ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst_location, 0, 0, 0, &src_location, NULL);
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
 
     exec_command_list(queue, command_list);
     wait_queue_idle(device, queue);
     ID3D12Device_Release(device);
 
+    if (src_resource != texture)
+        ID3D12Resource_Release(src_resource);
+
     read_range.Begin = 0;
     read_range.End = resource_desc.Width;
     hr = ID3D12Resource_Map(rb->resource, 0, &read_range, &rb->data);
-    ok(SUCCEEDED(hr), "Failed to map readback buffer, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to map readback buffer, hr %#x.\n", hr);
 }
 
 static void *get_readback_data(struct resource_readback *rb,
@@ -365,28 +415,6 @@ static ID3D12Resource *create_default_texture2d_(unsigned int line, ID3D12Device
     ok_(line)(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
 
     return texture;
-}
-
-static void transition_sub_resource_state(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
-        unsigned int sub_resource_idx, D3D12_RESOURCE_STATES state_before, D3D12_RESOURCE_STATES state_after)
-{
-    D3D12_RESOURCE_BARRIER barrier;
-
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    barrier.Transition.pResource = resource;
-    barrier.Transition.Subresource = sub_resource_idx;
-    barrier.Transition.StateBefore = state_before;
-    barrier.Transition.StateAfter = state_after;
-
-    ID3D12GraphicsCommandList_ResourceBarrier(list, 1, &barrier);
-}
-
-static void transition_resource_state(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
-        D3D12_RESOURCE_STATES state_before, D3D12_RESOURCE_STATES state_after)
-{
-    transition_sub_resource_state(list, resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-            state_before, state_after);
 }
 
 static HRESULT create_root_signature(ID3D12Device *device, const D3D12_ROOT_SIGNATURE_DESC *desc,
