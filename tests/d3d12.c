@@ -3956,6 +3956,9 @@ static void test_clear_unordered_access_view(void)
                 get_gpu_descriptor_handle(&context, gpu_heap, 1),
                 get_cpu_descriptor_handle(&context, cpu_heap, 1),
                 buffer, clear_value, 0, NULL);
+
+        uav_barrier(command_list, buffer);
+
         ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list,
                 get_gpu_descriptor_handle(&context, gpu_heap, 0),
                 get_cpu_descriptor_handle(&context, cpu_heap, 0),
