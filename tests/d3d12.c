@@ -2734,6 +2734,17 @@ static void test_create_graphics_pipeline_state(void)
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
+    /* DSVFormat = DXGI_FORMAT_UNKNOWN */
+    memset(blend, 0, sizeof(*blend));
+    pso_desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ID3D12PipelineState_Release(pipeline_state);
+
     refcount = ID3D12RootSignature_Release(root_signature);
     ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
     refcount = ID3D12Device_Release(device);

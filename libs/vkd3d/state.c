@@ -1948,8 +1948,13 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         rt_count = ARRAY_SIZE(graphics->attachments) - 1;
     }
 
+    if (desc->DSVFormat == DXGI_FORMAT_UNKNOWN
+            && (desc->DepthStencilState.DepthEnable || desc->DepthStencilState.StencilEnable))
+        FIXME("DSV format is DXGI_FORMAT_UNKNOWN, disabling depth/stencil tests.\n");
+
     graphics->rt_idx = 0;
-    if (desc->DepthStencilState.DepthEnable || desc->DepthStencilState.StencilEnable)
+    if (desc->DSVFormat != DXGI_FORMAT_UNKNOWN
+            && (desc->DepthStencilState.DepthEnable || desc->DepthStencilState.StencilEnable))
     {
         const D3D12_DEPTH_STENCIL_DESC *ds_desc = &desc->DepthStencilState;
         VkImageLayout depth_layout;
