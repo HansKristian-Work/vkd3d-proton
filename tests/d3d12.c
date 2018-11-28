@@ -2745,6 +2745,14 @@ static void test_create_graphics_pipeline_state(void)
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
     ID3D12PipelineState_Release(pipeline_state);
 
+    /* Invalid DSVFormat */
+    pso_desc.DSVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ID3D12PipelineState_Release(pipeline_state);
+
     refcount = ID3D12RootSignature_Release(root_signature);
     ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
     refcount = ID3D12Device_Release(device);

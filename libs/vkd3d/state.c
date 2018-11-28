@@ -1966,6 +1966,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
         }
 
+        if (!(format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
+            FIXME("Format %#x is not depth/stencil format.\n", format->dxgi_format);
+
         if ((ds_desc->DepthEnable && ds_desc->DepthWriteMask)
                 || (ds_desc->StencilEnable && ds_desc->StencilWriteMask))
             depth_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
