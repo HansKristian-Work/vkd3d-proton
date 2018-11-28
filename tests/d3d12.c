@@ -55,7 +55,7 @@ typedef int HRESULT;
 # include "vkd3d_utils.h"
 #endif
 
-#include "vkd3d_d3d12_test.h"
+#include "d3d12_test_utils.h"
 
 struct vec2
 {

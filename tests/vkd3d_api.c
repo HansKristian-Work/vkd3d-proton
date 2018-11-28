@@ -22,7 +22,7 @@
 #include "vkd3d_test.h"
 #include <vkd3d.h>
 
-#include "vkd3d_d3d12_test.h"
+#include "d3d12_test_utils.h"
 
 HRESULT WINAPI D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob)
