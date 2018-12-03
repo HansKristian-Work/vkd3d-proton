@@ -32,12 +32,15 @@ static void vkd3d_test_main(int argc, char **argv);
 static const char *vkd3d_test_name;
 static const char *vkd3d_test_platform = "other";
 
+static void vkd3d_test_start_todo(bool is_todo);
+static int vkd3d_test_loop_todo(void);
+static void vkd3d_test_end_todo(void);
+
 #define START_TEST(name) \
         static const char *vkd3d_test_name = #name; \
         static void vkd3d_test_main(int argc, char **argv)
 
 #define ok ok_(__LINE__)
-#define todo todo_(__LINE__)
 #define skip skip_(__LINE__)
 #define trace trace_(__LINE__)
 
@@ -73,6 +76,11 @@ static const char *vkd3d_test_platform = "other";
 #define VKD3D_TEST_TRACE(args...) \
         vkd3d_test_trace(vkd3d_line, args); } while (0)
 
+#define todo_if(is_todo) \
+    for (vkd3d_test_start_todo(is_todo); vkd3d_test_loop_todo(); vkd3d_test_end_todo())
+
+#define todo todo_if(true)
+
 static struct
 {
     LONG success_count;
@@ -82,6 +90,9 @@ static struct
     LONG todo_success_count;
 
     unsigned int debug_level;
+
+    unsigned int todo_level;
+    bool todo_do_loop;
 } vkd3d_test_state;
 
 static bool
@@ -99,7 +110,24 @@ broken(bool condition)
 static void
 vkd3d_test_check_ok(unsigned int line, bool result, const char *fmt, va_list args)
 {
-    if (result)
+    bool is_todo = vkd3d_test_state.todo_level && !vkd3d_test_platform_is_windows();
+
+    if (is_todo)
+    {
+        if (result)
+        {
+            printf("%s:%d Todo succeeded: ", vkd3d_test_name, line);
+            vprintf(fmt, args);
+            InterlockedIncrement(&vkd3d_test_state.todo_success_count);
+        }
+        else
+        {
+            printf("%s:%d: Todo: ", vkd3d_test_name, line);
+            vprintf(fmt, args);
+            InterlockedIncrement(&vkd3d_test_state.todo_count);
+        }
+    }
+    else if (result)
     {
         if (vkd3d_test_state.debug_level > 1)
             printf("%s:%d: Test succeeded.\n", vkd3d_test_name, line);
@@ -120,31 +148,6 @@ vkd3d_test_ok(unsigned int line, bool result, const char *fmt, ...)
 
     va_start(args, fmt);
     vkd3d_test_check_ok(line, result, fmt, args);
-    va_end(args);
-}
-
-static void VKD3D_PRINTF_FUNC(3, 4) VKD3D_UNUSED
-vkd3d_test_todo(unsigned int line, bool result, const char *fmt, ...)
-{
-    va_list args;
-
-    va_start(args, fmt);
-    if (vkd3d_test_platform_is_windows())
-    {
-        vkd3d_test_check_ok(line, result, fmt, args);
-    }
-    else if (result)
-    {
-        printf("%s:%d Todo succeeded: ", vkd3d_test_name, line);
-        vprintf(fmt, args);
-        InterlockedIncrement(&vkd3d_test_state.todo_success_count);
-    }
-    else
-    {
-        printf("%s:%d: Todo: ", vkd3d_test_name, line);
-        vprintf(fmt, args);
-        InterlockedIncrement(&vkd3d_test_state.todo_count);
-    }
     va_end(args);
 }
 
@@ -281,6 +284,24 @@ static inline void vkd3d_run_test(const char *name, vkd3d_test_pfn test_pfn)
 {
     vkd3d_test_debug("%s", name);
     test_pfn();
+}
+
+static inline void vkd3d_test_start_todo(bool is_todo)
+{
+    vkd3d_test_state.todo_level = (vkd3d_test_state.todo_level << 1) | is_todo;
+    vkd3d_test_state.todo_do_loop = true;
+}
+
+static inline int vkd3d_test_loop_todo(void)
+{
+    bool do_loop = vkd3d_test_state.todo_do_loop;
+    vkd3d_test_state.todo_do_loop = false;
+    return do_loop;
+}
+
+static inline void vkd3d_test_end_todo(void)
+{
+    vkd3d_test_state.todo_level >>= 1;
 }
 
 #define run_test(test_pfn) \

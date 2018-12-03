@@ -1412,8 +1412,8 @@ static void test_format_support(void)
     memset(&format_support, 0, sizeof(format_support));
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT,
             &format_support, sizeof(format_support));
-    todo(hr == S_OK, "Got unexpected hr %#x.\n", hr);
-    todo(format_support.Support1 == D3D12_FORMAT_SUPPORT1_BUFFER,
+    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    todo ok(format_support.Support1 == D3D12_FORMAT_SUPPORT1_BUFFER,
             "Got unexpected support1 %#x.\n", format_support.Support1);
     ok(!format_support.Support2 || format_support.Support2 == D3D12_FORMAT_SUPPORT2_TILED,
             "Got unexpected support2 %#x.\n", format_support.Support2);
@@ -1792,7 +1792,7 @@ static void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    todo(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
@@ -1835,7 +1835,7 @@ static void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    todo(hr == E_INVALIDARG || broken_on_warp(true), "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG || broken_on_warp(true), "Got unexpected hr %#x.\n", hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
@@ -2487,7 +2487,7 @@ static void test_create_root_signature(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    todo(hr == E_FAIL || hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_FAIL || hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
     if (SUCCEEDED(hr))
         ID3D12RootSignature_Release(root_signature);
     root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
@@ -2522,7 +2522,7 @@ static void test_create_root_signature(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    todo(hr == E_FAIL || hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_FAIL || hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
     if (SUCCEEDED(hr))
         ID3D12RootSignature_Release(root_signature);
     root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_GEOMETRY;
@@ -5472,7 +5472,7 @@ static void test_invalid_texture_resource_barriers(void)
     transition_resource_state(command_list, readback_buffer,
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    todo(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12CommandAllocator_Reset(command_allocator);
     ok(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
@@ -5485,7 +5485,7 @@ static void test_invalid_texture_resource_barriers(void)
     transition_resource_state(command_list, upload_buffer,
             D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_COMMON);
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    todo(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     ID3D12CommandAllocator_Release(command_allocator);
     ID3D12CommandQueue_Release(queue);
@@ -5540,7 +5540,7 @@ static void test_device_removed_reason(void)
 
     hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
             &IID_ID3D12CommandQueue, (void **)&tmp_queue);
-    todo(hr == DXGI_ERROR_DEVICE_REMOVED, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == DXGI_ERROR_DEVICE_REMOVED, "Got unexpected hr %#x.\n", hr);
     if (SUCCEEDED(hr))
         ID3D12CommandQueue_Release(tmp_queue);
 
@@ -9484,7 +9484,7 @@ static void test_root_signature_serialization_(unsigned int line, const DWORD *c
             (unsigned int)blob_buffer[0], (unsigned int)code[0]);
     for (i = 1; i < 5; ++i)
     {
-        todo_(line)(blob_buffer[i] == code[i], "Got checksum %#x, expected %#x at %u.\n",
+        todo ok_(line)(blob_buffer[i] == code[i], "Got checksum %#x, expected %#x at %u.\n",
                 (unsigned int)blob_buffer[i], (unsigned int)code[i], i - 1);
     }
     for (; i < code_size / sizeof(DWORD); ++i)
@@ -12880,7 +12880,7 @@ static void test_update_descriptor_heap_after_closing_command_list(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
     value = get_readback_uint(&rb, 0, 0, 0);
-    todo(value == 0xff00ff00, "Got unexpected value %#x.\n", value);
+    todo ok(value == 0xff00ff00, "Got unexpected value %#x.\n", value);
     release_resource_readback(&rb);
 
     ID3D12DescriptorHeap_Release(cpu_heap);
@@ -17604,17 +17604,12 @@ static void test_atomic_instructions(void)
             unsigned int value = get_readback_uint(&rb, j, 0, 0);
             unsigned int expected = test->expected_result[j];
 
-            if (test->i.x < 0
+            todo_if(test->i.x < 0
                     && (!strcmp(instructions[j], "atomic_imax") || !strcmp(instructions[j], "atomic_imin")))
-                todo(value == expected, "Test %u: Got %#x (%d), expected %#x (%d) for '%s' "
-                        "with inputs (%u, %u), (%d), %#x (%d).\n",
-                        i, value, value, expected, expected, instructions[j],
-                        test->v.x, test->v.y, test->i.x, test->input[j], test->input[j]);
-            else
-                ok(value == expected, "Test %u: Got %#x (%d), expected %#x (%d) for '%s' "
-                        "with inputs (%u, %u), (%d), %#x (%d).\n",
-                        i, value, value, expected, expected, instructions[j],
-                        test->v.x, test->v.y, test->i.x, test->input[j], test->input[j]);
+            ok(value == expected, "Test %u: Got %#x (%d), expected %#x (%d) for '%s' "
+                    "with inputs (%u, %u), (%d), %#x (%d).\n",
+                    i, value, value, expected, expected, instructions[j],
+                    test->v.x, test->v.y, test->i.x, test->input[j], test->input[j]);
         }
         release_resource_readback(&rb);
         reset_command_list(command_list, context.allocator);
@@ -17629,16 +17624,11 @@ static void test_atomic_instructions(void)
             unsigned int value = get_readback_uint(&rb, j, 0, 0);
             unsigned int expected = test->expected_result[j];
 
-            if (test->i.x < 0 && todo_instruction)
-                todo(value == expected, "Test %u: Got %#x (%d), expected %#x (%d) for '%s' "
-                        "with inputs (%u, %u), (%d), %#x (%d).\n",
-                        i, value, value, expected, expected, imm_instructions[j],
-                        test->v.x, test->v.y, test->i.x, test->input[j], test->input[j]);
-            else
-                ok(value == expected, "Test %u: Got %#x (%d), expected %#x (%d) for '%s' "
-                        "with inputs (%u, %u), (%d), %#x (%d).\n",
-                        i, value, value, expected, expected, imm_instructions[j],
-                        test->v.x, test->v.y, test->i.x, test->input[j], test->input[j]);
+            todo_if(test->i.x < 0 && todo_instruction)
+            ok(value == expected, "Test %u: Got %#x (%d), expected %#x (%d) for '%s' "
+                    "with inputs (%u, %u), (%d), %#x (%d).\n",
+                    i, value, value, expected, expected, imm_instructions[j],
+                    test->v.x, test->v.y, test->i.x, test->input[j], test->input[j]);
         }
         release_resource_readback(&rb);
         reset_command_list(command_list, context.allocator);
@@ -18008,7 +17998,7 @@ static void test_create_query_heap(void)
     heap_desc.NodeMask = 0;
 
     hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
-    todo(hr == S_OK, "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, hr);
+    todo ok(hr == S_OK, "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, hr);
 
     if (hr == S_OK)
         ID3D12QueryHeap_Release(query_heap);
@@ -18516,7 +18506,7 @@ static void test_resolve_query_data_in_reordered_command_list(void)
     reset_command_list(command_lists[0], context.allocator);
     get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_UNKNOWN, &rb, queue, command_lists[0]);
     result = get_readback_uint64(&rb, 0, 0);
-    todo(result == context.render_target_desc.Width * context.render_target_desc.Height,
+    todo ok(result == context.render_target_desc.Width * context.render_target_desc.Height,
             "Got unexpected result %"PRIu64".\n", result);
     release_resource_readback(&rb);
 
