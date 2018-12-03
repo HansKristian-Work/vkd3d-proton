@@ -1703,6 +1703,8 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     memset(list->strides, 0, sizeof(list->strides));
     list->primitive_topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
 
+    list->index_buffer_format = DXGI_FORMAT_UNKNOWN;
+
     memset(list->views, 0, sizeof(list->views));
     list->fb_width = 0;
     list->fb_height = 0;
@@ -2291,6 +2293,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(ID3D12Grap
     {
         WARN("Failed to begin render pass, ignoring draw call.\n");
         return;
+    }
+
+    switch (list->state->u.graphics.index_buffer_strip_cut_value)
+    {
+        case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF:
+            if (list->index_buffer_format != DXGI_FORMAT_R16_UINT)
+                FIXME("Strip cut value 0xffff is not supported with index buffer format %#x.\n", list->index_buffer_format);
+            break;
+        case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF:
+            if (list->index_buffer_format != DXGI_FORMAT_R32_UINT)
+                FIXME("Strip cut value 0xffffffff is not supported with index buffer format %#x.\n", list->index_buffer_format);
+            break;
+        default:
+            break;
     }
 
     VK_CALL(vkCmdDrawIndexed(list->vk_command_buffer, index_count_per_instance,
@@ -3474,6 +3490,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(ID3D12Graphics
             WARN("Invalid index format %#x.\n", view->Format);
             return;
     }
+
+    list->index_buffer_format = view->Format;
 
     resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, view->BufferLocation);
     VK_CALL(vkCmdBindIndexBuffer(list->vk_command_buffer, resource->u.vk_buffer,

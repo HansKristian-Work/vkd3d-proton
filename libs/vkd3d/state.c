@@ -2236,11 +2236,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     switch (desc->IBStripCutValue)
     {
         case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED:
-            graphics->primitive_restart_enable = VK_FALSE;
-            break;
         case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF:
         case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF:
-            graphics->primitive_restart_enable = VK_TRUE;
+            graphics->index_buffer_strip_cut_value = desc->IBStripCutValue;
             break;
         default:
             WARN("Invalid index buffer strip cut value %#x.\n", desc->IBStripCutValue);
@@ -2506,7 +2504,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     ia_desc.pNext = NULL;
     ia_desc.flags = 0;
     ia_desc.topology = topology;
-    ia_desc.primitiveRestartEnable = graphics->primitive_restart_enable;
+    ia_desc.primitiveRestartEnable = !!graphics->index_buffer_strip_cut_value;
 
     blend_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     blend_desc.pNext = NULL;

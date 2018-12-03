@@ -531,7 +531,7 @@ struct d3d12_graphics_pipeline_state
     size_t attachment_count, rt_idx;
     VkRenderPass render_pass;
 
-    VkBool32 primitive_restart_enable;
+    D3D12_INDEX_BUFFER_STRIP_CUT_VALUE index_buffer_strip_cut_value;
     struct VkPipelineRasterizationStateCreateInfo rs_desc;
     struct VkPipelineMultisampleStateCreateInfo ms_desc;
     struct VkPipelineDepthStencilStateCreateInfo ds_desc;
@@ -695,6 +695,8 @@ struct d3d12_command_list
 
     uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     VkPrimitiveTopology primitive_topology;
+
+    DXGI_FORMAT index_buffer_format;
 
     VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
     unsigned int fb_width;
