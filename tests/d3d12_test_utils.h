@@ -203,6 +203,7 @@ static unsigned int format_size(DXGI_FORMAT format)
             return 4;
         case DXGI_FORMAT_R16_FLOAT:
         case DXGI_FORMAT_R16_UNORM:
+        case DXGI_FORMAT_R16_UINT:
             return 2;
         case DXGI_FORMAT_BC1_UNORM:
         case DXGI_FORMAT_BC1_UNORM_SRGB:
