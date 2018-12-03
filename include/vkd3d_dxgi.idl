@@ -38,7 +38,6 @@ typedef enum DXGI_MODE_ROTATION
     DXGI_MODE_ROTATION_ROTATE270   = 0x4,
 } DXGI_MODE_ROTATION;
 
-interface IDXGIAdapter;
 interface IDXGIAdapter1;
 interface IDXGIOutput;
 typedef struct DXGI_SWAP_CHAIN_DESC DXGI_SWAP_CHAIN_DESC;
@@ -53,6 +52,19 @@ const DXGI_USAGE DXGI_USAGE_SHARED               = 0x00000080ul;
 const DXGI_USAGE DXGI_USAGE_READ_ONLY            = 0x00000100ul;
 const DXGI_USAGE DXGI_USAGE_DISCARD_ON_PRESENT   = 0x00000200ul;
 const DXGI_USAGE DXGI_USAGE_UNORDERED_ACCESS     = 0x00000400ul;
+
+typedef struct DXGI_ADAPTER_DESC
+{
+    WCHAR Description[128];
+    UINT VendorId;
+    UINT DeviceId;
+    UINT SubSysId;
+    UINT Revision;
+    SIZE_T DedicatedVideoMemory;
+    SIZE_T DedicatedSystemMemory;
+    SIZE_T SharedSystemMemory;
+    LUID AdapterLuid;
+} DXGI_ADAPTER_DESC;
 
 [
     local,
@@ -77,6 +89,18 @@ interface IDXGIObject : IUnknown
 interface IDXGIDeviceSubObject : IDXGIObject
 {
     HRESULT GetDevice(REFIID riid, void **device);
+}
+
+[
+    object,
+    local,
+    uuid(2411e7e1-12ac-4ccf-bd14-9798e8534dc0)
+]
+interface IDXGIAdapter : IDXGIObject
+{
+    HRESULT EnumOutputs(UINT output_idx, IDXGIOutput **output);
+    HRESULT GetDesc(DXGI_ADAPTER_DESC *desc);
+    HRESULT CheckInterfaceSupport(REFGUID guid, void *umd_version);
 }
 
 [

@@ -890,18 +890,41 @@ static IUnknown *create_adapter(void)
         return adapter;
     }
 
-    if (use_adapter_idx)
-        hr = IDXGIFactory4_EnumAdapters(factory, use_adapter_idx, (IDXGIAdapter **)&adapter);
+    hr = IDXGIFactory4_EnumAdapters(factory, use_adapter_idx, (IDXGIAdapter **)&adapter);
     IDXGIFactory4_Release(factory);
     if (FAILED(hr))
         trace("Failed to get adapter, hr %#x.\n", hr);
     return adapter;
+}
+
+static void print_adapter_info(void)
+{
+    IDXGIAdapter *dxgi_adapter;
+    DXGI_ADAPTER_DESC desc;
+    IUnknown *adapter;
+    HRESULT hr;
+
+    if (!(adapter = create_adapter()))
+        return;
+
+    hr = IUnknown_QueryInterface(adapter, &IID_IDXGIAdapter, (void **)&dxgi_adapter);
+    ok(hr == S_OK, "Failed to query IDXGIAdapter, hr %#x.\n", hr);
+    IUnknown_Release(adapter);
+
+    hr = IDXGIAdapter_GetDesc(dxgi_adapter, &desc);
+    ok(hr == S_OK, "Failed to get adapter desc, hr %#x.\n", hr);
+
+    trace("Adapter: %04x:%04x.\n", desc.VendorId, desc.DeviceId);
+
+    IDXGIAdapter_Release(dxgi_adapter);
 }
 #else
 static IUnknown *create_adapter(void)
 {
     return NULL;
 }
+
+static void print_adapter_info(void) {}
 #endif
 
 static ID3D12Device *create_device(void)
@@ -21922,6 +21945,8 @@ START_TEST(d3d12)
         ID3D12Debug_EnableDebugLayer(debug);
         ID3D12Debug_Release(debug);
     }
+
+    print_adapter_info();
 
     run_test(test_create_device);
     run_test(test_node_count);
