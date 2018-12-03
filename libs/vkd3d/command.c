@@ -2251,6 +2251,34 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     return true;
 }
 
+static void d3d12_command_list_check_index_buffer_strip_cut_value(struct d3d12_command_list *list)
+{
+    struct d3d12_graphics_pipeline_state *graphics = &list->state->u.graphics;
+
+    /* In Vulkan, the strip cut value is derived from the index buffer format. */
+    switch (graphics->index_buffer_strip_cut_value)
+    {
+        case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF:
+            if (list->index_buffer_format != DXGI_FORMAT_R16_UINT)
+            {
+                FIXME("Strip cut value 0xffff is not supported with index buffer format %#x.\n",
+                        list->index_buffer_format);
+            }
+            break;
+
+        case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF:
+            if (list->index_buffer_format != DXGI_FORMAT_R32_UINT)
+            {
+                FIXME("Strip cut value 0xffffffff is not supported with index buffer format %#x.\n",
+                        list->index_buffer_format);
+            }
+            break;
+
+        default:
+            break;
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(ID3D12GraphicsCommandList *iface,
         UINT vertex_count_per_instance, UINT instance_count, UINT start_vertex_location,
         UINT start_instance_location)
@@ -2287,27 +2315,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(ID3D12Grap
             iface, index_count_per_instance, instance_count, start_vertex_location,
             base_vertex_location, start_instance_location);
 
-    vk_procs = &list->device->vk_procs;
-
     if (!d3d12_command_list_begin_render_pass(list))
     {
         WARN("Failed to begin render pass, ignoring draw call.\n");
         return;
     }
 
-    switch (list->state->u.graphics.index_buffer_strip_cut_value)
-    {
-        case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF:
-            if (list->index_buffer_format != DXGI_FORMAT_R16_UINT)
-                FIXME("Strip cut value 0xffff is not supported with index buffer format %#x.\n", list->index_buffer_format);
-            break;
-        case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF:
-            if (list->index_buffer_format != DXGI_FORMAT_R32_UINT)
-                FIXME("Strip cut value 0xffffffff is not supported with index buffer format %#x.\n", list->index_buffer_format);
-            break;
-        default:
-            break;
-    }
+    vk_procs = &list->device->vk_procs;
+
+    d3d12_command_list_check_index_buffer_strip_cut_value(list);
 
     VK_CALL(vkCmdDrawIndexed(list->vk_command_buffer, index_count_per_instance,
             instance_count, start_vertex_location, base_vertex_location, start_instance_location));
@@ -4110,6 +4126,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(ID3D12GraphicsC
                 }
 
                 VK_CALL(vkCmdDrawIndirect(list->vk_command_buffer, arg_impl->u.vk_buffer,
+                        arg_buffer_offset, max_command_count, signature_desc->ByteStride));
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
+                if (!d3d12_command_list_begin_render_pass(list))
+                {
+                    WARN("Failed to begin render pass, ignoring draw.\n");
+                    break;
+                }
+
+                d3d12_command_list_check_index_buffer_strip_cut_value(list);
+
+                VK_CALL(vkCmdDrawIndexedIndirect(list->vk_command_buffer, arg_impl->u.vk_buffer,
                         arg_buffer_offset, max_command_count, signature_desc->ByteStride));
                 break;
 
