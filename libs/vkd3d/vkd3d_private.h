@@ -531,6 +531,7 @@ struct d3d12_graphics_pipeline_state
     size_t attachment_count, rt_idx;
     VkRenderPass render_pass;
 
+    VkBool32 primitive_restart_enable;
     struct VkPipelineRasterizationStateCreateInfo rs_desc;
     struct VkPipelineMultisampleStateCreateInfo ms_desc;
     struct VkPipelineDepthStencilStateCreateInfo ds_desc;
