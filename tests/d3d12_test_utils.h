@@ -16,8 +16,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef __VKD3D_D3D12_TEST_H
-#define __VKD3D_D3D12_TEST_H
+#ifndef __VKD3D_D3D12_TEST_UTILS_H
+#define __VKD3D_D3D12_TEST_UTILS_H
 
 #define wait_queue_idle(a, b) wait_queue_idle_(__LINE__, a, b)
 static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12CommandQueue *queue);
@@ -769,4 +769,4 @@ static inline D3D12_GPU_DESCRIPTOR_HANDLE get_gpu_sampler_handle(struct test_con
     return get_gpu_handle(context->device, heap, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, offset);
 }
 
-#endif  /* __VKD3D_D3D12_TEST_H */
+#endif  /* __VKD3D_D3D12_TEST_UTILS_H */
