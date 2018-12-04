@@ -37,7 +37,8 @@ vkd3d_tests = \
 	tests/vkd3d_api
 
 vkd3d_cross_tests = \
-	tests/d3d12
+	tests/d3d12 \
+	tests/d3d12_invalid_usage
 
 vkd3d_test_headers = \
 	tests/vkd3d_d3d12_test.h
