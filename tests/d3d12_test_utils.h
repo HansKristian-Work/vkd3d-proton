@@ -81,6 +81,18 @@ static void exec_command_list(ID3D12CommandQueue *queue, ID3D12GraphicsCommandLi
     ID3D12CommandQueue_ExecuteCommandLists(queue, 1, lists);
 }
 
+#define reset_command_list(a, b) reset_command_list_(__LINE__, a, b)
+static inline void reset_command_list_(unsigned int line,
+        ID3D12GraphicsCommandList *list, ID3D12CommandAllocator *allocator)
+{
+    HRESULT hr;
+
+    hr = ID3D12CommandAllocator_Reset(allocator);
+    ok_(line)(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(list, allocator, NULL);
+    ok_(line)(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+}
+
 #define create_buffer(a, b, c, d, e) create_buffer_(__LINE__, a, b, c, d, e)
 static ID3D12Resource *create_buffer_(unsigned int line, ID3D12Device *device,
         D3D12_HEAP_TYPE heap_type, size_t size, D3D12_RESOURCE_FLAGS resource_flags,
@@ -119,6 +131,34 @@ static ID3D12Resource *create_readback_buffer_(unsigned int line, ID3D12Device *
 {
     return create_buffer_(line, device, D3D12_HEAP_TYPE_READBACK, size,
             D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+}
+
+#define update_buffer_data(a, b, c, d) update_buffer_data_(__LINE__, a, b, c, d)
+static inline void update_buffer_data_(unsigned int line, ID3D12Resource *buffer,
+        size_t offset, size_t size, const void *data)
+{
+    D3D12_RANGE range;
+    HRESULT hr;
+    void *ptr;
+
+    range.Begin = range.End = 0;
+    hr = ID3D12Resource_Map(buffer, 0, &range, &ptr);
+    ok_(line)(hr == S_OK, "Failed to map buffer, hr %#x.\n", hr);
+    memcpy((BYTE *)ptr + offset, data, size);
+    ID3D12Resource_Unmap(buffer, 0, NULL);
+}
+
+#define create_upload_buffer(a, b, c) create_upload_buffer_(__LINE__, a, b, c)
+static inline ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Device *device,
+        size_t size, const void *data)
+{
+    ID3D12Resource *buffer;
+
+    buffer = create_buffer_(line, device, D3D12_HEAP_TYPE_UPLOAD, size,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
+    if (data)
+        update_buffer_data_(line, buffer, 0, size, data);
+    return buffer;
 }
 
 #define create_cpu_descriptor_heap(a, b, c) create_cpu_descriptor_heap_(__LINE__, a, b, c)
@@ -377,7 +417,7 @@ static void check_readback_data_uint_(unsigned int line, struct resource_readbac
 }
 
 #define check_sub_resource_uint(a, b, c, d, e, f) check_sub_resource_uint_(__LINE__, a, b, c, d, e, f)
-static void check_sub_resource_uint_(unsigned int line, ID3D12Resource *texture,
+static inline void check_sub_resource_uint_(unsigned int line, ID3D12Resource *texture,
         unsigned int sub_resource_idx, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list,
         unsigned int expected, unsigned int max_diff)
 {
@@ -617,7 +657,7 @@ static void create_render_target_(unsigned int line, struct test_context *contex
 }
 
 #define init_test_context(context, desc) init_test_context_(__LINE__, context, desc)
-static bool init_test_context_(unsigned int line, struct test_context *context,
+static inline bool init_test_context_(unsigned int line, struct test_context *context,
         const struct test_context_desc *desc)
 {
     D3D12_COMMAND_QUEUE_DESC command_queue_desc;
@@ -687,7 +727,7 @@ static bool init_test_context_(unsigned int line, struct test_context *context,
 }
 
 #define destroy_test_context(context) destroy_test_context_(__LINE__, context)
-static void destroy_test_context_(unsigned int line, struct test_context *context)
+static inline void destroy_test_context_(unsigned int line, struct test_context *context)
 {
     ULONG refcount;
 

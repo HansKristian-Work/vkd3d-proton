@@ -173,18 +173,6 @@ static void uav_barrier(ID3D12GraphicsCommandList *list, ID3D12Resource *resourc
     ID3D12GraphicsCommandList_ResourceBarrier(list, 1, &barrier);
 }
 
-#define reset_command_list(a, b) reset_command_list_(__LINE__, a, b)
-static void reset_command_list_(unsigned int line,
-        ID3D12GraphicsCommandList *list, ID3D12CommandAllocator *allocator)
-{
-    HRESULT hr;
-
-    hr = ID3D12CommandAllocator_Reset(allocator);
-    ok_(line)(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
-    hr = ID3D12GraphicsCommandList_Reset(list, allocator, NULL);
-    ok_(line)(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
-}
-
 #ifdef _WIN32
 static HANDLE create_event(void)
 {
@@ -354,40 +342,12 @@ static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12Comm
     ID3D12Fence_Release(fence);
 }
 
-#define update_buffer_data(a, b, c, d) update_buffer_data_(__LINE__, a, b, c, d)
-static void update_buffer_data_(unsigned int line, ID3D12Resource *buffer,
-        size_t offset, size_t size, const void *data)
-{
-    D3D12_RANGE range;
-    HRESULT hr;
-    void *ptr;
-
-    range.Begin = range.End = 0;
-    hr = ID3D12Resource_Map(buffer, 0, &range, &ptr);
-    ok_(line)(SUCCEEDED(hr), "Failed to map buffer, hr %#x.\n", hr);
-    memcpy((BYTE *)ptr + offset, data, size);
-    ID3D12Resource_Unmap(buffer, 0, NULL);
-}
-
 #define create_default_buffer(a, b, c, d) create_default_buffer_(__LINE__, a, b, c, d)
 static ID3D12Resource *create_default_buffer_(unsigned int line, ID3D12Device *device,
         size_t size, D3D12_RESOURCE_FLAGS resource_flags, D3D12_RESOURCE_STATES initial_resource_state)
 {
     return create_buffer_(line, device, D3D12_HEAP_TYPE_DEFAULT, size,
             resource_flags, initial_resource_state);
-}
-
-#define create_upload_buffer(a, b, c) create_upload_buffer_(__LINE__, a, b, c)
-static ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Device *device,
-        size_t size, const void *data)
-{
-    ID3D12Resource *buffer;
-
-    buffer = create_buffer_(line, device, D3D12_HEAP_TYPE_UPLOAD, size,
-            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
-    if (data)
-        update_buffer_data_(line, buffer, 0, size, data);
-    return buffer;
 }
 
 static void copy_sub_resource_data(const D3D12_MEMCPY_DEST *dst, const D3D12_SUBRESOURCE_DATA *src,
