@@ -318,6 +318,19 @@ static ID3D12Device *create_device(void)
 
 static void parse_args(int argc, char **argv)
 {
+    unsigned int i;
+
+    for (i = 1; i < argc; ++i)
+    {
+        if (!strcmp(argv[i], "--warp"))
+            use_warp_device = true;
+        else if (!strcmp(argv[i], "--adapter") && i + 1 < argc)
+            use_adapter_idx = atoi(argv[++i]);
+    }
+}
+
+static void enable_d3d12_debug_layer(int argc, char **argv)
+{
     bool enable_debug_layer = false;
     ID3D12Debug *debug;
     unsigned int i;
@@ -326,10 +339,6 @@ static void parse_args(int argc, char **argv)
     {
         if (!strcmp(argv[i], "--validate"))
             enable_debug_layer = true;
-        else if (!strcmp(argv[i], "--warp"))
-            use_warp_device = true;
-        else if (!strcmp(argv[i], "--adapter") && i + 1 < argc)
-            use_adapter_idx = atoi(argv[++i]);
     }
 
     if (enable_debug_layer && SUCCEEDED(D3D12GetDebugInterface(&IID_ID3D12Debug, (void **)&debug)))

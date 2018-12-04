@@ -153,6 +153,7 @@ static void test_invalid_texture_resource_barriers(void)
 START_TEST(d3d12_invalid_usage)
 {
     parse_args(argc, argv);
+    enable_d3d12_debug_layer(argc, argv);
     print_adapter_info();
 
     run_test(test_invalid_texture_resource_barriers);
