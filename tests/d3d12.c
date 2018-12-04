@@ -18575,15 +18575,96 @@ static void test_execute_indirect(void)
     ID3D12CommandSignature *command_signature;
     ID3D12GraphicsCommandList *command_list;
     ID3D12Resource *argument_buffer, *uav;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
     D3D12_ROOT_PARAMETER root_parameter;
     ID3D12PipelineState *pipeline_state;
     ID3D12RootSignature *root_signature;
+    struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    D3D12_INDEX_BUFFER_VIEW ibv;
     struct resource_readback rb;
     struct test_context context;
     ID3D12CommandQueue *queue;
+    ID3D12Resource *vb, *ib;
     unsigned int i;
+    D3D12_BOX box;
     HRESULT hr;
 
+    static const struct
+    {
+        struct vec4 position;
+        uint32_t color;
+    }
+    vertices[] =
+    {
+        {{-1.0f, -1.0f, 0.0f, 1.0f}, 0xffffff00},
+        {{-1.0f,  1.0f, 0.0f, 1.0f}, 0xffffff00},
+        {{ 1.0f, -1.0f, 0.0f, 1.0f}, 0xffffff00},
+        {{ 1.0f,  1.0f, 0.0f, 1.0f}, 0xffffff00},
+
+        {{-1.0f, -1.0f, 0.0f, 1.0f}, 0xff00ff00},
+        {{-1.0f,  0.5f, 0.0f, 1.0f}, 0xff00ff00},
+        {{ 0.5f, -1.0f, 0.0f, 1.0f}, 0xff00ff00},
+        {{ 0.5f,  0.5f, 0.0f, 1.0f}, 0xff00ff00},
+    };
+    static const uint32_t indices[] = {0, 1, 2, 3, 2, 1};
+    static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
+    {
+        {"SV_POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"COLOR",       0, DXGI_FORMAT_R8G8B8A8_UNORM,     0, 16, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+    static const DWORD vs_code[] =
+    {
+#if 0
+        struct vs_data
+        {
+            float4 pos : SV_POSITION;
+            float4 color : COLOR;
+        };
+
+        void main(in struct vs_data vs_input, out struct vs_data vs_output)
+        {
+            vs_output.pos = vs_input.pos;
+            vs_output.color = vs_input.color;
+        }
+#endif
+        0x43425844, 0xd5b32785, 0x35332906, 0x4d05e031, 0xf66a58af, 0x00000001, 0x00000144, 0x00000003,
+        0x0000002c, 0x00000080, 0x000000d4, 0x4e475349, 0x0000004c, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x00000044, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000f0f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x4f4c4f43, 0xabab0052,
+        0x4e47534f, 0x0000004c, 0x00000002, 0x00000008, 0x00000038, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x00000044, 0x00000000, 0x00000000, 0x00000003, 0x00000001, 0x0000000f,
+        0x505f5653, 0x5449534f, 0x004e4f49, 0x4f4c4f43, 0xabab0052, 0x52444853, 0x00000068, 0x00010040,
+        0x0000001a, 0x0300005f, 0x001010f2, 0x00000000, 0x0300005f, 0x001010f2, 0x00000001, 0x04000067,
+        0x001020f2, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000001, 0x05000036, 0x001020f2,
+        0x00000000, 0x00101e46, 0x00000000, 0x05000036, 0x001020f2, 0x00000001, 0x00101e46, 0x00000001,
+        0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs = {vs_code, sizeof(vs_code)};
+    static const DWORD ps_code[] =
+    {
+#if 0
+        struct ps_data
+        {
+            float4 pos : SV_POSITION;
+            float4 color : COLOR;
+        };
+
+        float4 main(struct ps_data ps_input) : SV_Target
+        {
+            return ps_input.color;
+        }
+#endif
+        0x43425844, 0x89803e59, 0x3f798934, 0xf99181df, 0xf5556512, 0x00000001, 0x000000f4, 0x00000003,
+        0x0000002c, 0x00000080, 0x000000b4, 0x4e475349, 0x0000004c, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x00000044, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000f0f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x4f4c4f43, 0xabab0052,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x00000038, 0x00000040,
+        0x0000000e, 0x03001062, 0x001010f2, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x05000036,
+        0x001020f2, 0x00000000, 0x00101e46, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
     static const DWORD cs_code[] =
     {
 #if 0
@@ -18610,15 +18691,19 @@ static void test_execute_indirect(void)
     {
         D3D12_DRAW_ARGUMENTS draw;
         D3D12_DISPATCH_ARGUMENTS dispatch;
+        D3D12_DRAW_INDEXED_ARGUMENTS indexed_draws[2];
     }
     argument_data =
     {
         {3, 1, 0, 0},
         {2, 3, 4},
+        {{6, 1, 0, 0, 0}, {6, 1, 0, 4, 0}},
     };
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
-    if (!init_test_context(&context, NULL))
+    memset(&desc, 0, sizeof(desc));
+    desc.root_signature_flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    if (!init_test_context(&context, &desc))
         return;
     command_list = context.list;
     queue = context.queue;
@@ -18633,7 +18718,7 @@ static void test_execute_indirect(void)
     signature_desc.NodeMask = 0;
     hr = ID3D12Device_CreateCommandSignature(context.device, &signature_desc,
             NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(SUCCEEDED(hr), "Failed to create command signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -18656,7 +18741,7 @@ static void test_execute_indirect(void)
     signature_desc.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS);
     hr = ID3D12Device_CreateCommandSignature(context.device, &signature_desc,
             NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(SUCCEEDED(hr), "Failed to create command signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
 
     uav = create_default_buffer(context.device, 2 * 3 * 4 * sizeof(UINT),
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -18671,7 +18756,7 @@ static void test_execute_indirect(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(context.device, &root_signature_desc, &root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
     pipeline_state = create_compute_pipeline_state(context.device, root_signature,
@@ -18692,9 +18777,63 @@ static void test_execute_indirect(void)
     }
     release_resource_readback(&rb);
 
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12CommandSignature_Release(command_signature);
+    argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+    signature_desc.ByteStride = sizeof(*argument_data.indexed_draws);
+    hr = ID3D12Device_CreateCommandSignature(context.device, &signature_desc,
+            NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
+    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+
+    ID3D12PipelineState_Release(context.pipeline_state);
+    input_layout.pInputElementDescs = layout_desc;
+    input_layout.NumElements = ARRAY_SIZE(layout_desc);
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, context.render_target_desc.Format, &vs, &ps, &input_layout);
+
+    vb = create_upload_buffer(context.device, sizeof(vertices), vertices);
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
+    vbv.StrideInBytes = sizeof(*vertices);
+    vbv.SizeInBytes = sizeof(vertices);
+
+    ib = create_upload_buffer(context.device, sizeof(indices), indices);
+    ibv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(ib);
+    ibv.SizeInBytes = sizeof(indices);
+    ibv.Format = DXGI_FORMAT_R32_UINT;
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_IASetIndexBuffer(command_list, &ibv);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature,
+            ARRAY_SIZE(argument_data.indexed_draws), argument_buffer,
+            offsetof(struct argument_data, indexed_draws), NULL, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    set_box(&box, 0, 0, 0, 32, 8, 1);
+    check_readback_data_uint(&rb, &box, 0xffffff00, 0);
+    set_box(&box, 24, 8, 0, 32, 32, 1);
+    check_readback_data_uint(&rb, &box, 0xffffff00, 0);
+    set_box(&box, 0, 8, 0, 24, 32, 1);
+    check_readback_data_uint(&rb, &box, 0xff00ff00, 0);
+    release_resource_readback(&rb);
+
     ID3D12PipelineState_Release(pipeline_state);
     ID3D12RootSignature_Release(root_signature);
+    ID3D12Resource_Release(ib);
     ID3D12Resource_Release(uav);
+    ID3D12Resource_Release(vb);
     ID3D12CommandSignature_Release(command_signature);
     ID3D12Resource_Release(argument_buffer);
     destroy_test_context(&context);
