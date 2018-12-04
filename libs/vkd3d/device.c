@@ -1997,17 +1997,14 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(ID3D12Device *iface,
                 dst_range_size = dst_descriptor_range_sizes ? dst_descriptor_range_sizes[dst_range_idx] : 1;
             }
 
-            assert(dst_range_idx < dst_descriptor_range_count);
-            assert(dst_idx < dst_range_size);
+            if (dst_range_idx >= dst_descriptor_range_count)
+                break;
 
             d3d12_desc_copy(dst++, src++, device);
 
             ++dst_idx;
         }
     }
-
-    assert(dst_idx == dst_range_size);
-    assert(dst_range_idx == dst_descriptor_range_count - 1);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple(ID3D12Device *iface,
