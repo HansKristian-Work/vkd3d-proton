@@ -60,4 +60,260 @@ typedef int HRESULT;
 
 #include "d3d12_test_utils.h"
 
+#ifdef _WIN32
+static inline HANDLE create_event(void)
+{
+    return CreateEventA(NULL, FALSE, FALSE, NULL);
+}
+
+static inline void signal_event(HANDLE event)
+{
+    SetEvent(event);
+}
+
+static inline unsigned int wait_event(HANDLE event, unsigned int milliseconds)
+{
+    return WaitForSingleObject(event, milliseconds);
+}
+
+static inline void destroy_event(HANDLE event)
+{
+    CloseHandle(event);
+}
+#else
+#define INFINITE VKD3D_INFINITE
+#define WAIT_OBJECT_0 VKD3D_WAIT_OBJECT_0
+#define WAIT_TIMEOUT VKD3D_WAIT_TIMEOUT
+
+static inline HANDLE create_event(void)
+{
+    return vkd3d_create_event();
+}
+
+static inline void signal_event(HANDLE event)
+{
+    vkd3d_signal_event(event);
+}
+
+static inline unsigned int wait_event(HANDLE event, unsigned int milliseconds)
+{
+    return vkd3d_wait_event(event, milliseconds);
+}
+
+static inline void destroy_event(HANDLE event)
+{
+    vkd3d_destroy_event(event);
+}
+#endif
+
+typedef void (*thread_main_pfn)(void *data);
+
+struct test_thread_data
+{
+    thread_main_pfn main_pfn;
+    void *user_data;
+};
+
+#ifdef _WIN32
+static inline DWORD WINAPI test_thread_main(void *untyped_data)
+{
+    struct test_thread_data *data = untyped_data;
+    data->main_pfn(data->user_data);
+    free(untyped_data);
+    return 0;
+}
+
+static inline HANDLE create_thread(thread_main_pfn main_pfn, void *user_data)
+{
+    struct test_thread_data *data;
+
+    if (!(data = malloc(sizeof(*data))))
+        return NULL;
+    data->main_pfn = main_pfn;
+    data->user_data = user_data;
+
+    return CreateThread(NULL, 0, test_thread_main, data, 0, NULL);
+}
+
+static inline bool join_thread(HANDLE thread)
+{
+    unsigned int ret;
+
+    ret = WaitForSingleObject(thread, INFINITE);
+    CloseHandle(thread);
+    return ret == WAIT_OBJECT_0;
+}
+#else
+static void *test_thread_main(void *untyped_data)
+{
+    struct test_thread_data *data = untyped_data;
+    data->main_pfn(data->user_data);
+    free(untyped_data);
+    return NULL;
+}
+
+static inline HANDLE create_thread(thread_main_pfn main_pfn, void *user_data)
+{
+    struct test_thread_data *data;
+    pthread_t *thread;
+
+    if (!(thread = malloc(sizeof(*thread))))
+        return NULL;
+
+    if (!(data = malloc(sizeof(*data))))
+    {
+        free(thread);
+        return NULL;
+    }
+    data->main_pfn = main_pfn;
+    data->user_data = user_data;
+
+    if (pthread_create(thread, NULL, test_thread_main, data))
+    {
+        free(data);
+        free(thread);
+        return NULL;
+    }
+
+    return thread;
+}
+
+static inline bool join_thread(HANDLE untyped_thread)
+{
+    pthread_t *thread = untyped_thread;
+    int rc;
+
+    rc = pthread_join(*thread, NULL);
+    free(thread);
+    return !rc;
+}
+#endif
+
+static HRESULT wait_for_fence(ID3D12Fence *fence, UINT64 value)
+{
+    unsigned int ret;
+    HANDLE event;
+    HRESULT hr;
+
+    if (ID3D12Fence_GetCompletedValue(fence) >= value)
+        return S_OK;
+
+    if (!(event = create_event()))
+        return E_FAIL;
+
+    if (FAILED(hr = ID3D12Fence_SetEventOnCompletion(fence, value, event)))
+    {
+        destroy_event(event);
+        return hr;
+    }
+
+    ret = wait_event(event, INFINITE);
+    destroy_event(event);
+    return ret == WAIT_OBJECT_0 ? S_OK : E_FAIL;
+}
+
+static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12CommandQueue *queue)
+{
+    ID3D12Fence *fence;
+    HRESULT hr;
+
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence);
+    ok_(line)(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+
+    hr = ID3D12CommandQueue_Signal(queue, fence, 1);
+    ok_(line)(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    hr = wait_for_fence(fence, 1);
+    ok_(line)(hr == S_OK, "Failed to wait for fence, hr %#x.\n", hr);
+
+    ID3D12Fence_Release(fence);
+}
+
+static bool use_warp_device;
+static unsigned int use_adapter_idx;
+
+#ifdef _WIN32
+static IUnknown *create_warp_adapter(IDXGIFactory4 *factory)
+{
+    IUnknown *adapter;
+    HRESULT hr;
+
+    adapter = NULL;
+    hr = IDXGIFactory4_EnumWarpAdapter(factory, &IID_IUnknown, (void **)&adapter);
+    if (FAILED(hr))
+        trace("Failed to get WARP adapter, hr %#x.\n", hr);
+    return adapter;
+}
+
+static IUnknown *create_adapter(void)
+{
+    IUnknown *adapter = NULL;
+    IDXGIFactory4 *factory;
+    HRESULT hr;
+
+    hr = CreateDXGIFactory1(&IID_IDXGIFactory4, (void **)&factory);
+    ok(hr == S_OK, "Failed to create IDXGIFactory4, hr %#x.\n", hr);
+
+    if (use_warp_device && !(adapter = create_warp_adapter(factory)))
+    {
+        IDXGIFactory4_Release(factory);
+        return adapter;
+    }
+
+    hr = IDXGIFactory4_EnumAdapters(factory, use_adapter_idx, (IDXGIAdapter **)&adapter);
+    IDXGIFactory4_Release(factory);
+    if (FAILED(hr))
+        trace("Failed to get adapter, hr %#x.\n", hr);
+    return adapter;
+}
+
+static void print_adapter_info(void)
+{
+    IDXGIAdapter *dxgi_adapter;
+    DXGI_ADAPTER_DESC desc;
+    IUnknown *adapter;
+    HRESULT hr;
+
+    if (!(adapter = create_adapter()))
+        return;
+
+    hr = IUnknown_QueryInterface(adapter, &IID_IDXGIAdapter, (void **)&dxgi_adapter);
+    ok(hr == S_OK, "Failed to query IDXGIAdapter, hr %#x.\n", hr);
+    IUnknown_Release(adapter);
+
+    hr = IDXGIAdapter_GetDesc(dxgi_adapter, &desc);
+    ok(hr == S_OK, "Failed to get adapter desc, hr %#x.\n", hr);
+
+    trace("Adapter: %04x:%04x.\n", desc.VendorId, desc.DeviceId);
+
+    IDXGIAdapter_Release(dxgi_adapter);
+}
+#else
+static IUnknown *create_adapter(void)
+{
+    return NULL;
+}
+
+static void print_adapter_info(void) {}
+#endif
+
+static ID3D12Device *create_device(void)
+{
+    IUnknown *adapter = NULL;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    if ((use_warp_device || use_adapter_idx) && !(adapter = create_adapter()))
+    {
+        trace("Failed to create adapter.\n");
+        return NULL;
+    }
+
+    hr = D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device);
+    if (adapter)
+        IUnknown_Release(adapter);
+
+    return SUCCEEDED(hr) ? device : NULL;
+}
+
 #endif  /* __VKD3D_D3D12_CROSSTEST_H */
