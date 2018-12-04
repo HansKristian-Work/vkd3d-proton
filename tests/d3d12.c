@@ -1685,6 +1685,56 @@ static void test_create_command_queue(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_create_command_signature(void)
+{
+    D3D12_INDIRECT_ARGUMENT_DESC argument_desc[3];
+    D3D12_COMMAND_SIGNATURE_DESC signature_desc;
+    ID3D12CommandSignature *command_signature;
+    ID3D12Device *device;
+    unsigned int i;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    signature_desc.ByteStride = 1024;
+    signature_desc.NumArgumentDescs = ARRAY_SIZE(argument_desc);
+    signature_desc.pArgumentDescs = argument_desc;
+    signature_desc.NodeMask = 0;
+
+    for (i = 0; i < ARRAY_SIZE(argument_desc); ++i)
+        argument_desc[i].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+    hr = ID3D12Device_CreateCommandSignature(device, &signature_desc,
+            NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(argument_desc); ++i)
+        argument_desc[i].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+    hr = ID3D12Device_CreateCommandSignature(device, &signature_desc,
+            NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(argument_desc); ++i)
+        argument_desc[i].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    hr = ID3D12Device_CreateCommandSignature(device, &signature_desc,
+            NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    argument_desc[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    argument_desc[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+    signature_desc.NumArgumentDescs = 2;
+    hr = ID3D12Device_CreateCommandSignature(device, &signature_desc,
+            NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 static void test_create_committed_resource(void)
 {
     D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
@@ -22116,6 +22166,7 @@ START_TEST(d3d12)
     run_test(test_create_command_allocator);
     run_test(test_create_command_list);
     run_test(test_create_command_queue);
+    run_test(test_create_command_signature);
     run_test(test_create_committed_resource);
     run_test(test_create_heap);
     run_test(test_create_placed_resource);

@@ -4850,6 +4850,26 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_
         struct d3d12_command_signature **signature)
 {
     struct d3d12_command_signature *object;
+    unsigned int i;
+
+    for (i = 0; i < desc->NumArgumentDescs; ++i)
+    {
+        const D3D12_INDIRECT_ARGUMENT_DESC *argument_desc = &desc->pArgumentDescs[i];
+        switch (argument_desc->Type)
+        {
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
+                if (i != desc->NumArgumentDescs - 1)
+                {
+                    WARN("Draw/dispatch must be the last element of a command signature.\n");
+                    return E_INVALIDARG;
+                }
+                break;
+            default:
+                break;
+        }
+    }
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
