@@ -21809,26 +21809,7 @@ static void test_primitive_restart(void)
 
 START_TEST(d3d12)
 {
-    bool enable_debug_layer = false;
-    ID3D12Debug *debug;
-    unsigned int i;
-
-    for (i = 1; i < argc; ++i)
-    {
-        if (!strcmp(argv[i], "--validate"))
-            enable_debug_layer = true;
-        else if (!strcmp(argv[i], "--warp"))
-            use_warp_device = true;
-        else if (!strcmp(argv[i], "--adapter") && i + 1 < argc)
-            use_adapter_idx = atoi(argv[++i]);
-    }
-
-    if (enable_debug_layer && SUCCEEDED(D3D12GetDebugInterface(&IID_ID3D12Debug, (void **)&debug)))
-    {
-        ID3D12Debug_EnableDebugLayer(debug);
-        ID3D12Debug_Release(debug);
-    }
-
+    parse_args(argc, argv);
     print_adapter_info();
 
     run_test(test_create_device);
