@@ -1993,12 +1993,13 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(ID3D12Device *iface,
             {
                 dst_idx = 0;
                 ++dst_range_idx;
+
+                if (dst_range_idx >= dst_descriptor_range_count)
+                    return;
+
                 dst = d3d12_desc_from_cpu_handle(dst_descriptor_range_offsets[dst_range_idx]);
                 dst_range_size = dst_descriptor_range_sizes ? dst_descriptor_range_sizes[dst_range_idx] : 1;
             }
-
-            if (dst_range_idx >= dst_descriptor_range_count)
-                break;
 
             d3d12_desc_copy(dst++, src++, device);
 
