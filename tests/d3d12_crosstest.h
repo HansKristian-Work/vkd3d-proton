@@ -267,7 +267,7 @@ static IUnknown *create_adapter(void)
     return adapter;
 }
 
-static void print_adapter_info(void)
+static void init_adapter_info(void)
 {
     IDXGIAdapter *dxgi_adapter;
     DXGI_ADAPTER_DESC desc;
@@ -286,6 +286,12 @@ static void print_adapter_info(void)
 
     trace("Adapter: %04x:%04x.\n", desc.VendorId, desc.DeviceId);
 
+    if (desc.VendorId == 0x1414 && desc.DeviceId == 0x008c)
+    {
+        trace("Using WARP device.\n");
+        use_warp_device = true;
+    }
+
     IDXGIAdapter_Release(dxgi_adapter);
 }
 #else
@@ -294,7 +300,7 @@ static IUnknown *create_adapter(void)
     return NULL;
 }
 
-static void print_adapter_info(void) {}
+static void init_adapter_info(void) {}
 #endif
 
 static ID3D12Device *create_device(void)
