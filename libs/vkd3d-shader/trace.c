@@ -313,17 +313,17 @@ static void string_buffer_clear(struct vkd3d_string_buffer *buffer)
     buffer->content_size = 0;
 }
 
-static BOOL string_buffer_init(struct vkd3d_string_buffer *buffer)
+static bool string_buffer_init(struct vkd3d_string_buffer *buffer)
 {
     buffer->buffer_size = 32;
     if (!(buffer->buffer = vkd3d_malloc(buffer->buffer_size)))
     {
         ERR("Failed to allocate shader buffer memory.\n");
-        return FALSE;
+        return false;
     }
 
     string_buffer_clear(buffer);
-    return TRUE;
+    return true;
 }
 
 static void string_buffer_free(struct vkd3d_string_buffer *buffer)
@@ -331,7 +331,7 @@ static void string_buffer_free(struct vkd3d_string_buffer *buffer)
     vkd3d_free(buffer->buffer);
 }
 
-static BOOL string_buffer_resize(struct vkd3d_string_buffer *buffer, int rc)
+static bool string_buffer_resize(struct vkd3d_string_buffer *buffer, int rc)
 {
     unsigned int new_buffer_size = buffer->buffer_size * 2;
     char *new_buffer;
@@ -342,11 +342,11 @@ static BOOL string_buffer_resize(struct vkd3d_string_buffer *buffer, int rc)
     {
         ERR("Failed to grow buffer.\n");
         buffer->buffer[buffer->content_size] = '\0';
-        return FALSE;
+        return false;
     }
     buffer->buffer = new_buffer;
     buffer->buffer_size = new_buffer_size;
-    return TRUE;
+    return true;
 }
 
 static int shader_vaddline(struct vkd3d_string_buffer *buffer, const char *format, va_list args)

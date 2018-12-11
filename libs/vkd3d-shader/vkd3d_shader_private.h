@@ -774,7 +774,7 @@ struct vkd3d_shader_instruction
     } declaration;
 };
 
-static inline BOOL vkd3d_shader_instruction_has_texel_offset(const struct vkd3d_shader_instruction *ins)
+static inline bool vkd3d_shader_instruction_has_texel_offset(const struct vkd3d_shader_instruction *ins)
 {
     return ins->texel_offset.u || ins->texel_offset.v || ins->texel_offset.w;
 }
@@ -793,7 +793,7 @@ void shader_sm4_read_header(void *data, const DWORD **ptr,
         struct vkd3d_shader_version *shader_version) DECLSPEC_HIDDEN;
 void shader_sm4_read_instruction(void *data, const DWORD **ptr,
         struct vkd3d_shader_instruction *ins) DECLSPEC_HIDDEN;
-BOOL shader_sm4_is_end(void *data, const DWORD **ptr) DECLSPEC_HIDDEN;
+bool shader_sm4_is_end(void *data, const DWORD **ptr) DECLSPEC_HIDDEN;
 
 int shader_extract_from_dxbc(const void *dxbc, size_t dxbc_length,
         struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;

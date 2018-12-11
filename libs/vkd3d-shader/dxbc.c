@@ -511,9 +511,9 @@ static const enum vkd3d_data_type data_type_table[] =
     /* VKD3D_SM4_DATA_FLOAT */    VKD3D_DATA_FLOAT,
 };
 
-static BOOL shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
+static bool shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
         enum vkd3d_data_type data_type, struct vkd3d_shader_src_param *src_param);
-static BOOL shader_sm4_read_dst_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
+static bool shader_sm4_read_dst_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
         enum vkd3d_data_type data_type, struct vkd3d_shader_dst_param *dst_param);
 
 static void shader_sm4_read_conditional_op(struct vkd3d_shader_instruction *ins,
@@ -1345,7 +1345,7 @@ void shader_sm4_read_header(void *data, const DWORD **ptr, struct vkd3d_shader_v
     *shader_version = priv->shader_version;
 }
 
-static BOOL shader_sm4_read_reg_idx(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
+static bool shader_sm4_read_reg_idx(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
         DWORD addressing, struct vkd3d_shader_register_index *reg_idx)
 {
     if (addressing & VKD3D_SM4_ADDRESSING_RELATIVE)
@@ -1355,7 +1355,7 @@ static BOOL shader_sm4_read_reg_idx(struct vkd3d_sm4_data *priv, const DWORD **p
         if (!(reg_idx->rel_addr = rel_addr))
         {
             ERR("Failed to get src param for relative addressing.\n");
-            return FALSE;
+            return false;
         }
 
         if (addressing & VKD3D_SM4_ADDRESSING_OFFSET)
@@ -1370,10 +1370,10 @@ static BOOL shader_sm4_read_reg_idx(struct vkd3d_sm4_data *priv, const DWORD **p
         reg_idx->offset = *(*ptr)++;
     }
 
-    return TRUE;
+    return true;
 }
 
-static BOOL shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
+static bool shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
         enum vkd3d_data_type data_type, struct vkd3d_shader_register *param,
         enum vkd3d_shader_src_modifier *modifier)
 {
@@ -1383,7 +1383,7 @@ static BOOL shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
     if (*ptr >= end)
     {
         WARN("Invalid ptr %p >= end %p.\n", *ptr, end);
-        return FALSE;
+        return false;
     }
     token = *(*ptr)++;
 
@@ -1407,7 +1407,7 @@ static BOOL shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
         if (*ptr >= end)
         {
             WARN("Invalid ptr %p >= end %p.\n", *ptr, end);
-            return FALSE;
+            return false;
         }
         m = *(*ptr)++;
 
@@ -1449,7 +1449,7 @@ static BOOL shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
         if (!(shader_sm4_read_reg_idx(priv, ptr, end, addressing, &param->idx[0])))
         {
             ERR("Failed to read register index.\n");
-            return FALSE;
+            return false;
         }
     }
 
@@ -1464,7 +1464,7 @@ static BOOL shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
         if (!(shader_sm4_read_reg_idx(priv, ptr, end, addressing, &param->idx[1])))
         {
             ERR("Failed to read register index.\n");
-            return FALSE;
+            return false;
         }
     }
 
@@ -1483,7 +1483,7 @@ static BOOL shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
                 if (end - *ptr < 1)
                 {
                     WARN("Invalid ptr %p, end %p.\n", *ptr, end);
-                    return FALSE;
+                    return false;
                 }
                 memcpy(param->u.immconst_uint, *ptr, 1 * sizeof(DWORD));
                 *ptr += 1;
@@ -1494,7 +1494,7 @@ static BOOL shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
                 if (end - *ptr < VKD3D_VEC4_SIZE)
                 {
                     WARN("Invalid ptr %p, end %p.\n", *ptr, end);
-                    return FALSE;
+                    return false;
                 }
                 memcpy(param->u.immconst_uint, *ptr, VKD3D_VEC4_SIZE * sizeof(DWORD));
                 *ptr += 4;
@@ -1508,10 +1508,10 @@ static BOOL shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
 
     map_register(priv, param);
 
-    return TRUE;
+    return true;
 }
 
-static BOOL shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
+static bool shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
         enum vkd3d_data_type data_type, struct vkd3d_shader_src_param *src_param)
 {
     DWORD token;
@@ -1519,14 +1519,14 @@ static BOOL shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD *
     if (*ptr >= end)
     {
         WARN("Invalid ptr %p >= end %p.\n", *ptr, end);
-        return FALSE;
+        return false;
     }
     token = **ptr;
 
     if (!shader_sm4_read_param(priv, ptr, end, data_type, &src_param->reg, &src_param->modifiers))
     {
         ERR("Failed to read parameter.\n");
-        return FALSE;
+        return false;
     }
 
     if (src_param->reg.type == VKD3DSPR_IMMCONST)
@@ -1559,7 +1559,7 @@ static BOOL shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD *
         }
     }
 
-    return TRUE;
+    return true;
 }
 
 static bool shader_sm4_is_scalar_register(const struct vkd3d_shader_register *reg)
@@ -1579,7 +1579,7 @@ static bool shader_sm4_is_scalar_register(const struct vkd3d_shader_register *re
     }
 }
 
-static BOOL shader_sm4_read_dst_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
+static bool shader_sm4_read_dst_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
         enum vkd3d_data_type data_type, struct vkd3d_shader_dst_param *dst_param)
 {
     enum vkd3d_shader_src_modifier modifier;
@@ -1588,20 +1588,20 @@ static BOOL shader_sm4_read_dst_param(struct vkd3d_sm4_data *priv, const DWORD *
     if (*ptr >= end)
     {
         WARN("Invalid ptr %p >= end %p.\n", *ptr, end);
-        return FALSE;
+        return false;
     }
     token = **ptr;
 
     if (!shader_sm4_read_param(priv, ptr, end, data_type, &dst_param->reg, &modifier))
     {
         ERR("Failed to read parameter.\n");
-        return FALSE;
+        return false;
     }
 
     if (modifier != VKD3DSPSM_NONE)
     {
         ERR("Invalid source modifier %#x on destination register.\n", modifier);
-        return FALSE;
+        return false;
     }
 
     dst_param->write_mask = (token & VKD3D_SM4_WRITEMASK_MASK) >> VKD3D_SM4_WRITEMASK_SHIFT;
@@ -1611,7 +1611,7 @@ static BOOL shader_sm4_read_dst_param(struct vkd3d_sm4_data *priv, const DWORD *
     dst_param->modifiers = 0;
     dst_param->shift = 0;
 
-    return TRUE;
+    return true;
 }
 
 static void shader_sm4_read_instruction_modifier(DWORD modifier, struct vkd3d_shader_instruction *ins)
@@ -1756,7 +1756,7 @@ fail:
     return;
 }
 
-BOOL shader_sm4_is_end(void *data, const DWORD **ptr)
+bool shader_sm4_is_end(void *data, const DWORD **ptr)
 {
     struct vkd3d_sm4_data *priv = data;
     return *ptr == priv->end;
@@ -1775,7 +1775,7 @@ BOOL shader_sm4_is_end(void *data, const DWORD **ptr)
 #define TAG_AON9 MAKE_TAG('A', 'o', 'n', '9')
 #define TAG_RTS0 MAKE_TAG('R', 'T', 'S', '0')
 
-static BOOL require_space(size_t offset, size_t count, size_t size, size_t data_size)
+static bool require_space(size_t offset, size_t count, size_t size, size_t data_size)
 {
     return !count || (data_size - offset) / count >= size;
 }
