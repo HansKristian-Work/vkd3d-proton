@@ -18734,6 +18734,8 @@ static void test_instance_id(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         layout_desc[1].InstanceDataStepRate = tests[i].color_step_rate;
         input_layout.pInputElementDescs = layout_desc;
         input_layout.NumElements = ARRAY_SIZE(layout_desc);
@@ -18784,6 +18786,7 @@ static void test_instance_id(void)
         ID3D12PipelineState_Release(context.pipeline_state);
         context.pipeline_state = NULL;
     }
+    vkd3d_test_set_context(NULL);
 
     ID3D12CommandSignature_Release(command_signature);
     ID3D12Resource_Release(argument_buffer);

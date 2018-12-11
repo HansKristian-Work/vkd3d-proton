@@ -93,6 +93,8 @@ static struct
 
     unsigned int todo_level;
     bool todo_do_loop;
+
+    char context[1024];
 } vkd3d_test_state;
 
 static bool
@@ -116,13 +118,13 @@ vkd3d_test_check_ok(unsigned int line, bool result, const char *fmt, va_list arg
     {
         if (result)
         {
-            printf("%s:%d Todo succeeded: ", vkd3d_test_name, line);
+            printf("%s:%d%s: Todo succeeded: ", vkd3d_test_name, line, vkd3d_test_state.context);
             vprintf(fmt, args);
             InterlockedIncrement(&vkd3d_test_state.todo_success_count);
         }
         else
         {
-            printf("%s:%d: Todo: ", vkd3d_test_name, line);
+            printf("%s:%d%s: Todo: ", vkd3d_test_name, line, vkd3d_test_state.context);
             vprintf(fmt, args);
             InterlockedIncrement(&vkd3d_test_state.todo_count);
         }
@@ -130,12 +132,12 @@ vkd3d_test_check_ok(unsigned int line, bool result, const char *fmt, va_list arg
     else if (result)
     {
         if (vkd3d_test_state.debug_level > 1)
-            printf("%s:%d: Test succeeded.\n", vkd3d_test_name, line);
+            printf("%s:%d%s: Test succeeded.\n", vkd3d_test_name, line, vkd3d_test_state.context);
         InterlockedIncrement(&vkd3d_test_state.success_count);
     }
     else
     {
-        printf("%s:%d: Test failed: ", vkd3d_test_name, line);
+        printf("%s:%d%s: Test failed: ", vkd3d_test_name, line, vkd3d_test_state.context);
         vprintf(fmt, args);
         InterlockedIncrement(&vkd3d_test_state.failure_count);
     }
@@ -156,7 +158,7 @@ vkd3d_test_skip(unsigned int line, const char *fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
-    printf("%s:%d: Test skipped: ", vkd3d_test_name, line);
+    printf("%s:%d%s: Test skipped: ", vkd3d_test_name, line, vkd3d_test_state.context);
     vprintf(fmt, args);
     va_end(args);
     InterlockedIncrement(&vkd3d_test_state.skip_count);
@@ -167,7 +169,7 @@ vkd3d_test_trace(unsigned int line, const char *fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
-    printf("%s:%d: ", vkd3d_test_name, line);
+    printf("%s:%d%s: ", vkd3d_test_name, line, vkd3d_test_state.context);
     vprintf(fmt, args);
     va_end(args);
 }
@@ -302,6 +304,23 @@ static inline int vkd3d_test_loop_todo(void)
 static inline void vkd3d_test_end_todo(void)
 {
     vkd3d_test_state.todo_level >>= 1;
+}
+
+static inline void vkd3d_test_set_context(const char *fmt, ...)
+{
+    va_list args;
+
+    if (!fmt)
+    {
+        vkd3d_test_state.context[0] = '\0';
+        return;
+    }
+
+    vkd3d_test_state.context[0] = ':';
+    va_start(args, fmt);
+    vsnprintf(&vkd3d_test_state.context[1], sizeof(vkd3d_test_state.context) - 1, fmt, args);
+    va_end(args);
+    vkd3d_test_state.context[sizeof(vkd3d_test_state.context) - 1] = '\0';
 }
 
 #define run_test(test_pfn) \
