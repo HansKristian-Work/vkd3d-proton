@@ -545,8 +545,8 @@ enum vkd3d_shader_type
 struct vkd3d_shader_version
 {
     enum vkd3d_shader_type type;
-    BYTE major;
-    BYTE minor;
+    uint8_t major;
+    uint8_t minor;
 };
 
 struct vkd3d_shader_immediate_constant_buffer
