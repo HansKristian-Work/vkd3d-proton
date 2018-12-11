@@ -254,7 +254,7 @@ static IUnknown *create_adapter(void)
     hr = CreateDXGIFactory1(&IID_IDXGIFactory4, (void **)&factory);
     ok(hr == S_OK, "Failed to create IDXGIFactory4, hr %#x.\n", hr);
 
-    if (use_warp_device && !(adapter = create_warp_adapter(factory)))
+    if (use_warp_device && (adapter = create_warp_adapter(factory)))
     {
         IDXGIFactory4_Release(factory);
         return adapter;
