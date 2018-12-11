@@ -7986,6 +7986,12 @@ static void test_shader_instructions(void)
             continue;
         }
 
+        if (uint_tests[i].ps == &ps_movc && is_amd_device(context.device))
+        {
+            skip("ps_movc crashes on Windows with AMD GPUs.\n");
+            continue;
+        }
+
         if (current_ps != uint_tests[i].ps)
         {
             if (context.pipeline_state)

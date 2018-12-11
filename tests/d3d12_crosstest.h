@@ -294,6 +294,32 @@ static void init_adapter_info(void)
 
     IDXGIAdapter_Release(dxgi_adapter);
 }
+
+static inline bool is_amd_device(ID3D12Device *device)
+{
+    DXGI_ADAPTER_DESC desc = {0};
+    IDXGIFactory4 *factory;
+    IDXGIAdapter *adapter;
+    HRESULT hr;
+    LUID luid;
+
+    luid = ID3D12Device_GetAdapterLuid(device);
+
+    hr = CreateDXGIFactory1(&IID_IDXGIFactory4, (void **)&factory);
+    ok(hr == S_OK, "Failed to create IDXGIFactory4, hr %#x.\n", hr);
+
+    hr = IDXGIFactory4_EnumAdapterByLuid(factory, luid, &IID_IDXGIAdapter, (void **)&adapter);
+    if (SUCCEEDED(hr))
+    {
+        hr = IDXGIAdapter_GetDesc(adapter, &desc);
+        ok(hr == S_OK, "Failed to get adapter desc, hr %#x.\n", hr);
+        IDXGIAdapter_Release(adapter);
+    }
+
+    IDXGIFactory4_Release(factory);
+
+    return desc.VendorId == 0x1002;
+}
 #else
 static IUnknown *create_adapter(void)
 {
@@ -301,6 +327,11 @@ static IUnknown *create_adapter(void)
 }
 
 static void init_adapter_info(void) {}
+
+static inline bool is_amd_device(ID3D12Device *device)
+{
+    return false;
+}
 #endif
 
 static ID3D12Device *create_device(void)
