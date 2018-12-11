@@ -423,12 +423,14 @@ HRESULT hresult_from_vkd3d_result(int vkd3d_result)
     {
         case VKD3D_OK:
             return S_OK;
+        case VKD3D_ERROR_INVALID_SHADER:
+            WARN("Invalid shader bytecode.\n");
+            /* fall-through */
         case VKD3D_ERROR:
             return E_FAIL;
         case VKD3D_ERROR_OUT_OF_MEMORY:
             return E_OUTOFMEMORY;
         case VKD3D_ERROR_INVALID_ARGUMENT:
-        case VKD3D_ERROR_INVALID_SHADER:
             return E_INVALIDARG;
         case VKD3D_ERROR_NOT_IMPLEMENTED:
             return E_NOTIMPL;
