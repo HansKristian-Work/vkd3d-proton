@@ -5600,10 +5600,18 @@ static void test_bundle_state_inheritance(void)
 
 static void test_shader_instructions(void)
 {
+    struct named_shader
+    {
+        const char *name;
+        const void *code;
+        size_t size;
+    };
+
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
-    const D3D12_SHADER_BYTECODE *current_ps;
     ID3D12GraphicsCommandList *command_list;
+    const struct named_shader *current_ps;
     struct test_context_desc desc;
+    D3D12_SHADER_BYTECODE shader;
     struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Resource *cb;
@@ -5631,7 +5639,7 @@ static void test_shader_instructions(void)
         0x00000001, 0x08000036, 0x001020e2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
         0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_div = {ps_div_code, sizeof(ps_div_code)};
+    static const struct named_shader ps_div = {"div", ps_div_code, sizeof(ps_div_code)};
     static const DWORD ps_dot2_code[] =
     {
 #if 0
@@ -5653,7 +5661,7 @@ static void test_shader_instructions(void)
         0x00000001, 0x08000036, 0x001020e2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
         0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_dot2 = {ps_dot2_code, sizeof(ps_dot2_code)};
+    static struct named_shader ps_dot2 = {"dot2", ps_dot2_code, sizeof(ps_dot2_code)};
     static const DWORD ps_dot3_code[] =
     {
 #if 0
@@ -5673,7 +5681,7 @@ static void test_shader_instructions(void)
         0x09000010, 0x001020f2, 0x00000000, 0x00208246, 0x00000000, 0x00000000, 0x00208246, 0x00000000,
         0x00000001, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_dot3 = {ps_dot3_code, sizeof(ps_dot3_code)};
+    static struct named_shader ps_dot3 = {"dot3", ps_dot3_code, sizeof(ps_dot3_code)};
     static const DWORD ps_eq_code[] =
     {
 #if 0
@@ -5696,7 +5704,7 @@ static void test_shader_instructions(void)
         0x00000001, 0x08000036, 0x001020e2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
         0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_eq = {ps_eq_code, sizeof(ps_eq_code)};
+    static struct named_shader ps_eq = {"eq", ps_eq_code, sizeof(ps_eq_code)};
     static const DWORD ps_ne_code[] =
     {
 #if 0
@@ -5719,7 +5727,7 @@ static void test_shader_instructions(void)
         0x00000001, 0x08000036, 0x001020e2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
         0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_ne = {ps_ne_code, sizeof(ps_ne_code)};
+    static struct named_shader ps_ne = {"ne", ps_ne_code, sizeof(ps_ne_code)};
     static const DWORD ps_if_code[] =
     {
         /* compiled with /Gfp option */
@@ -5745,7 +5753,7 @@ static void test_shader_instructions(void)
         0x01000012, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x3f800000, 0x00000000, 0x00000000,
         0x3f800000, 0x01000015, 0x0100003e
     };
-    static const D3D12_SHADER_BYTECODE ps_if = {ps_if_code, sizeof(ps_if_code)};
+    static struct named_shader ps_if = {"if", ps_if_code, sizeof(ps_if_code)};
     static const DWORD ps_if_return_code[] =
     {
 #if 0
@@ -5786,7 +5794,7 @@ static void test_shader_instructions(void)
         0x00004002, 0x3f800000, 0x3f800000, 0x3f800000, 0x00000000, 0x0100003e, 0x01000015, 0x08000036,
         0x001020f2, 0x00000000, 0x00004002, 0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_if_return = {ps_if_return_code, sizeof(ps_if_return_code)};
+    static struct named_shader ps_if_return = {"if_return", ps_if_return_code, sizeof(ps_if_return_code)};
     static const DWORD ps_nested_if_code[] =
     {
         /* compiled with /Gfp option */
@@ -5828,7 +5836,7 @@ static void test_shader_instructions(void)
         0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x3f800000,
         0x01000015, 0x01000015, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_nested_if = {ps_nested_if_code, sizeof(ps_nested_if_code)};
+    static struct named_shader ps_nested_if = {"nested_if", ps_nested_if_code, sizeof(ps_nested_if_code)};
     static const DWORD ps_loop_break_code[] =
     {
 #if 0
@@ -5866,7 +5874,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x08000036, 0x001020e2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
         0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_loop_break = {ps_loop_break_code, sizeof(ps_loop_break_code)};
+    static struct named_shader ps_loop_break = {"loop_break", ps_loop_break_code, sizeof(ps_loop_break_code)};
     static const DWORD ps_loop_ret_code[] =
     {
 #if 0
@@ -5904,7 +5912,7 @@ static void test_shader_instructions(void)
         0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x08000036, 0x001020e2, 0x00000000, 0x00004002,
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_loop_ret = {ps_loop_ret_code, sizeof(ps_loop_ret_code)};
+    static struct named_shader ps_loop_ret = {"loop_ret", ps_loop_ret_code, sizeof(ps_loop_ret_code)};
     static const DWORD ps_breakc_nz_code[] =
     {
 #if 0
@@ -5935,7 +5943,7 @@ static void test_shader_instructions(void)
         0x001020f2, 0x00000000, 0x00004002, 0x3f800000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e,
         0x01000015, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_breakc_nz = {ps_breakc_nz_code, sizeof(ps_breakc_nz_code)};
+    static struct named_shader ps_breakc_nz = {"breakc_nz", ps_breakc_nz_code, sizeof(ps_breakc_nz_code)};
     static const DWORD ps_breakc_z_code[] =
     {
 #if 0
@@ -5967,7 +5975,7 @@ static void test_shader_instructions(void)
         0x3f800000, 0x00000000, 0x3f800000, 0x0100003e, 0x01000012, 0x08000036, 0x001020f2, 0x00000000,
         0x00004002, 0x3f800000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e, 0x01000015, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_breakc_z = {ps_breakc_z_code, sizeof(ps_breakc_z_code)};
+    static struct named_shader ps_breakc_z = {"breakc_z", ps_breakc_z_code, sizeof(ps_breakc_z_code)};
     static const DWORD ps_continue_code[] =
     {
 #if 0
@@ -6001,7 +6009,7 @@ static void test_shader_instructions(void)
         0x08000036, 0x001020e2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
         0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_continue = {ps_continue_code, sizeof(ps_continue_code)};
+    static struct named_shader ps_continue = {"continue", ps_continue_code, sizeof(ps_continue_code)};
     static const DWORD ps_continuec_nz_code[] =
     {
 #if 0
@@ -6045,7 +6053,7 @@ static void test_shader_instructions(void)
         0x05000056, 0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x08000036, 0x001020e2, 0x00000000,
         0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_continuec_nz = {ps_continuec_nz_code, sizeof(ps_continuec_nz_code)};
+    static struct named_shader ps_continuec_nz = {"continuec_nz", ps_continuec_nz_code, sizeof(ps_continuec_nz_code)};
     static const DWORD ps_retc_nz_code[] =
     {
 #if 0
@@ -6077,7 +6085,7 @@ static void test_shader_instructions(void)
         0x01000016, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
         0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_retc_nz = {ps_retc_nz_code, sizeof(ps_retc_nz_code)};
+    static struct named_shader ps_retc_nz = {"retc_nz", ps_retc_nz_code, sizeof(ps_retc_nz_code)};
     static const DWORD ps_src_modifiers_code[] =
     {
 #if 0
@@ -6099,7 +6107,7 @@ static void test_shader_instructions(void)
         0x00102022, 0x00000000, 0x8020801a, 0x00000081, 0x00000000, 0x00000000, 0x07000036, 0x001020c2,
         0x00000000, 0x80208ea6, 0x000000c1, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_src_modifiers = {ps_src_modifiers_code, sizeof(ps_src_modifiers_code)};
+    static struct named_shader ps_src_modifiers = {"src_modifiers", ps_src_modifiers_code, sizeof(ps_src_modifiers_code)};
     static const DWORD ps_sat_code[] =
     {
 #if 0
@@ -6117,7 +6125,7 @@ static void test_shader_instructions(void)
         0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
         0x06002036, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_sat = {ps_sat_code, sizeof(ps_sat_code)};
+    static struct named_shader ps_sat = {"sat", ps_sat_code, sizeof(ps_sat_code)};
     static const DWORD ps_min_max_code[] =
     {
 #if 0
@@ -6141,7 +6149,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x00000001, 0x08000036, 0x001020c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000,
         0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_min_max = {ps_min_max_code, sizeof(ps_min_max_code)};
+    static struct named_shader ps_min_max = {"min_max", ps_min_max_code, sizeof(ps_min_max_code)};
     static const DWORD ps_ftou_code[] =
     {
 #if 0
@@ -6161,7 +6169,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x8020800a, 0x00000041, 0x00000000, 0x00000000, 0x08000036, 0x001020c2, 0x00000000,
         0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_ftou = {ps_ftou_code, sizeof(ps_ftou_code)};
+    static struct named_shader ps_ftou = {"ftou", ps_ftou_code, sizeof(ps_ftou_code)};
     static const DWORD ps_ftoi_code[] =
     {
 #if 0
@@ -6181,7 +6189,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x8020800a, 0x00000041, 0x00000000, 0x00000000, 0x08000036, 0x001020c2, 0x00000000,
         0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_ftoi = {ps_ftoi_code, sizeof(ps_ftoi_code)};
+    static struct named_shader ps_ftoi = {"ftoi", ps_ftoi_code, sizeof(ps_ftoi_code)};
     static const DWORD ps_round_code[] =
     {
 #if 0
@@ -6204,7 +6212,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x06000043, 0x00102042, 0x00000000, 0x0020800a,
         0x00000000, 0x00000000, 0x05000036, 0x00102082, 0x00000000, 0x00004001, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_round = {ps_round_code, sizeof(ps_round_code)};
+    static struct named_shader ps_round = {"round", ps_round_code, sizeof(ps_round_code)};
     static const DWORD ps_round_ne_code[] =
     {
 #if 0
@@ -6222,7 +6230,7 @@ static void test_shader_instructions(void)
         0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
         0x06000040, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_round_ne = {ps_round_ne_code, sizeof(ps_round_ne_code)};
+    static struct named_shader ps_round_ne = {"round_ne", ps_round_ne_code, sizeof(ps_round_ne_code)};
     static const DWORD ps_frc_code[] =
     {
 #if 0
@@ -6244,7 +6252,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x8020800a, 0x00000041, 0x00000000, 0x00000000, 0x08000036, 0x001020c2, 0x00000000,
         0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_frc = {ps_frc_code, sizeof(ps_frc_code)};
+    static struct named_shader ps_frc = {"frc", ps_frc_code, sizeof(ps_frc_code)};
     static const DWORD ps_exp_code[] =
     {
 #if 0
@@ -6264,7 +6272,7 @@ static void test_shader_instructions(void)
         0x06000019, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x08000036, 0x001020e2,
         0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_exp = {ps_exp_code, sizeof(ps_exp_code)};
+    static struct named_shader ps_exp = {"exp", ps_exp_code, sizeof(ps_exp_code)};
     static const DWORD ps_log_code[] =
     {
 #if 0
@@ -6284,7 +6292,7 @@ static void test_shader_instructions(void)
         0x0600002f, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x08000036, 0x001020e2,
         0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_log = {ps_log_code, sizeof(ps_log_code)};
+    static struct named_shader ps_log = {"log", ps_log_code, sizeof(ps_log_code)};
     static const DWORD ps_rcp_code[] =
     {
 #if 0
@@ -6304,7 +6312,7 @@ static void test_shader_instructions(void)
         0x06000081, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x08000036, 0x001020e2,
         0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_rcp = {ps_rcp_code, sizeof(ps_rcp_code)};
+    static struct named_shader ps_rcp = {"rcp", ps_rcp_code, sizeof(ps_rcp_code)};
     static const DWORD ps_rcp_vector_code[] =
     {
 #if 0
@@ -6322,7 +6330,7 @@ static void test_shader_instructions(void)
         0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
         0x06000081, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_rcp_vector = {ps_rcp_vector_code, sizeof(ps_rcp_vector_code)};
+    static struct named_shader ps_rcp_vector = {"rcp_vector", ps_rcp_vector_code, sizeof(ps_rcp_vector_code)};
     static const DWORD ps_sincos_code[] =
     {
 #if 0
@@ -6341,7 +6349,7 @@ static void test_shader_instructions(void)
         0x0700004d, 0x00102032, 0x00000000, 0x0000d000, 0x00208046, 0x00000000, 0x00000000, 0x0700004d,
         0x0000d000, 0x001020c2, 0x00000000, 0x00208406, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_sincos = {ps_sincos_code, sizeof(ps_sincos_code)};
+    static struct named_shader ps_sincos = {"sincos", ps_sincos_code, sizeof(ps_sincos_code)};
     static const DWORD ps_indexable_temp_code[] =
     {
 #if 0
@@ -6371,7 +6379,7 @@ static void test_shader_instructions(void)
         0x00102072, 0x00000000, 0x04203246, 0x00000000, 0x0010000a, 0x00000000, 0x05000036, 0x00102082,
         0x00000000, 0x00004001, 0x3f800000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_indexable_temp = {ps_indexable_temp_code, sizeof(ps_indexable_temp_code)};
+    static struct named_shader ps_indexable_temp = {"indexable_temp", ps_indexable_temp_code, sizeof(ps_indexable_temp_code)};
     static const DWORD ps_indexable_temp2_code[] =
     {
 #if 0
@@ -6411,7 +6419,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x04203246, 0x00000001, 0x0010000a, 0x00000000, 0x05000036, 0x00102082, 0x00000000,
         0x00004001, 0x3f800000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_indexable_temp2 = {ps_indexable_temp2_code, sizeof(ps_indexable_temp2_code)};
+    static struct named_shader ps_indexable_temp2 = {"indexable_temp2", ps_indexable_temp2_code, sizeof(ps_indexable_temp2_code)};
     static const DWORD ps_bfi_code[] =
     {
 #if 0
@@ -6431,7 +6439,7 @@ static void test_shader_instructions(void)
         0x0f00008c, 0x001020f2, 0x00000000, 0x00208006, 0x00000000, 0x00000000, 0x00208556, 0x00000000,
         0x00000000, 0x00208aa6, 0x00000000, 0x00000000, 0x00208ff6, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_bfi = {ps_bfi_code, sizeof(ps_bfi_code)};
+    static struct named_shader ps_bfi = {"bfi", ps_bfi_code, sizeof(ps_bfi_code)};
     static const DWORD ps_ibfe_code[] =
     {
 #if 0
@@ -6450,7 +6458,7 @@ static void test_shader_instructions(void)
         0x0c00008b, 0x001020f2, 0x00000000, 0x00208006, 0x00000000, 0x00000000, 0x00208556, 0x00000000,
         0x00000000, 0x00208aa6, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_ibfe = {ps_ibfe_code, sizeof(ps_ibfe_code)};
+    static struct named_shader ps_ibfe = {"ibfe", ps_ibfe_code, sizeof(ps_ibfe_code)};
     static const DWORD ps_ibfe2_code[] =
     {
 #if 0
@@ -6473,7 +6481,7 @@ static void test_shader_instructions(void)
         0x0900008b, 0x001000f2, 0x00000000, 0x00100006, 0x00000000, 0x00100556, 0x00000000, 0x00100aa6,
         0x00000000, 0x05000036, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_ibfe2 = {ps_ibfe2_code, sizeof(ps_ibfe2_code)};
+    static struct named_shader ps_ibfe2 = {"ibfe2", ps_ibfe2_code, sizeof(ps_ibfe2_code)};
     static const DWORD ps_ubfe_code[] =
     {
 #if 0
@@ -6493,7 +6501,7 @@ static void test_shader_instructions(void)
         0x00004002, 0x00000004, 0x00000008, 0x00000001, 0x00000001, 0x00208006, 0x00000000, 0x00000000,
         0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_ubfe = {ps_ubfe_code, sizeof(ps_ubfe_code)};
+    static struct named_shader ps_ubfe = {"ubfe", ps_ubfe_code, sizeof(ps_ubfe_code)};
     static const DWORD ps_bfrev_code[] =
     {
 #if 0
@@ -6517,7 +6525,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x00000000, 0x0500008d, 0x00102022, 0x00000000, 0x0010000a, 0x00000000, 0x05000036,
         0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_bfrev = {ps_bfrev_code, sizeof(ps_bfrev_code)};
+    static struct named_shader ps_bfrev = {"bfrev", ps_bfrev_code, sizeof(ps_bfrev_code)};
     static const DWORD ps_bits_code[] =
     {
 #if 0
@@ -6544,7 +6552,7 @@ static void test_shader_instructions(void)
         0x06000086, 0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x06000088, 0x00102022,
         0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_bits = {ps_bits_code, sizeof(ps_bits_code)};
+    static struct named_shader ps_bits = {"bits", ps_bits_code, sizeof(ps_bits_code)};
     static const DWORD ps_ishr_code[] =
     {
 #if 0
@@ -6564,7 +6572,7 @@ static void test_shader_instructions(void)
         0x0900002a, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x00208e46, 0x00000000,
         0x00000001, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_ishr = {ps_ishr_code, sizeof(ps_ishr_code)};
+    static struct named_shader ps_ishr = {"ishr", ps_ishr_code, sizeof(ps_ishr_code)};
     static const DWORD ps_ushr_code[] =
     {
 #if 0
@@ -6584,7 +6592,7 @@ static void test_shader_instructions(void)
         0x09000055, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x00208e46, 0x00000000,
         0x00000001, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_ushr = {ps_ushr_code, sizeof(ps_ushr_code)};
+    static struct named_shader ps_ushr = {"ushr", ps_ushr_code, sizeof(ps_ushr_code)};
     static const DWORD ps_ishl_code[] =
     {
 #if 0
@@ -6604,7 +6612,7 @@ static void test_shader_instructions(void)
         0x09000029, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x00208e46, 0x00000000,
         0x00000001, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_ishl = {ps_ishl_code, sizeof(ps_ishl_code)};
+    static struct named_shader ps_ishl = {"ishl", ps_ishl_code, sizeof(ps_ishl_code)};
     static const DWORD ps_ishl_const_code[] =
     {
 #if 0
@@ -6622,7 +6630,7 @@ static void test_shader_instructions(void)
         0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x08000029,
         0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x00004001, 0x00000002, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_ishl_const = {ps_ishl_const_code, sizeof(ps_ishl_const_code)};
+    static struct named_shader ps_ishl_const = {"ishl_const", ps_ishl_const_code, sizeof(ps_ishl_const_code)};
     static const DWORD ps_not_code[] =
     {
 #if 0
@@ -6642,7 +6650,7 @@ static void test_shader_instructions(void)
         0xffffffff, 0xffffffff, 0x00000000, 0x00000000, 0x0500003b, 0x001020a2, 0x00000000, 0x00100406,
         0x00000000, 0x0600003b, 0x00102052, 0x00000000, 0x00208106, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_not = {ps_not_code, sizeof(ps_not_code)};
+    static struct named_shader ps_not = {"not", ps_not_code, sizeof(ps_not_code)};
     static const DWORD ps_icmp_code[] =
     {
 #if 0
@@ -6667,7 +6675,7 @@ static void test_shader_instructions(void)
         0x0020801a, 0x00000000, 0x00000000, 0x09000027, 0x00102082, 0x00000000, 0x0020800a, 0x00000000,
         0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_icmp = {ps_icmp_code, sizeof(ps_icmp_code)};
+    static struct named_shader ps_icmp = {"icmp", ps_icmp_code, sizeof(ps_icmp_code)};
     static const DWORD ps_ucmp_code[] =
     {
 #if 0
@@ -6690,7 +6698,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x00000000, 0x08000036, 0x001020c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000,
         0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_ucmp = {ps_ucmp_code, sizeof(ps_ucmp_code)};
+    static struct named_shader ps_ucmp = {"ucmp", ps_ucmp_code, sizeof(ps_ucmp_code)};
     static const DWORD ps_umin_umax_code[] =
     {
 #if 0
@@ -6713,7 +6721,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x00000000, 0x08000036, 0x001020c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000,
         0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_umin_umax = {ps_umin_umax_code, sizeof(ps_umin_umax_code)};
+    static struct named_shader ps_umin_umax = {"umin_umax", ps_umin_umax_code, sizeof(ps_umin_umax_code)};
     static const DWORD ps_f16tof32_code[] =
     {
 #if 0
@@ -6732,7 +6740,7 @@ static void test_shader_instructions(void)
         0x02000068, 0x00000001, 0x06000083, 0x001000f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000,
         0x0500001c, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_f16tof32 = {ps_f16tof32_code, sizeof(ps_f16tof32_code)};
+    static struct named_shader ps_f16tof32 = {"f16tof32", ps_f16tof32_code, sizeof(ps_f16tof32_code)};
     static const DWORD ps_f16tof32_2_code[] =
     {
 #if 0
@@ -6755,7 +6763,7 @@ static void test_shader_instructions(void)
         0x05000083, 0x001000f2, 0x00000000, 0x001001b6, 0x00000000, 0x0500001c, 0x001020f2, 0x00000000,
         0x00100e46, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_f16tof32_2 = {ps_f16tof32_2_code, sizeof(ps_f16tof32_2_code)};
+    static struct named_shader ps_f16tof32_2 = {"f16tof32_2", ps_f16tof32_2_code, sizeof(ps_f16tof32_2_code)};
     static const DWORD ps_f32tof16_code[] =
     {
 #if 0
@@ -6773,7 +6781,7 @@ static void test_shader_instructions(void)
         0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
         0x06000082, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_f32tof16 = {ps_f32tof16_code, sizeof(ps_f32tof16_code)};
+    static struct named_shader ps_f32tof16 = {"f32tof16", ps_f32tof16_code, sizeof(ps_f32tof16_code)};
     static const DWORD ps_f32tof16_2_code[] =
     {
 #if 0
@@ -6796,7 +6804,7 @@ static void test_shader_instructions(void)
         0x05000082, 0x001000f2, 0x00000000, 0x001001b6, 0x00000000, 0x05000036, 0x001020f2, 0x00000000,
         0x00100e46, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_f32tof16_2 = {ps_f32tof16_2_code, sizeof(ps_f32tof16_2_code)};
+    static struct named_shader ps_f32tof16_2 = {"f32tof16_2", ps_f32tof16_2_code, sizeof(ps_f32tof16_2_code)};
     static const DWORD ps_imad_code[] =
     {
 #if 0
@@ -6820,7 +6828,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x00000000, 0x00208ea6, 0x00000000, 0x00000001, 0x80208ea6, 0x00000041, 0x00000000,
         0x00000002, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_imad = {ps_imad_code, sizeof(ps_imad_code)};
+    static struct named_shader ps_imad = {"imad", ps_imad_code, sizeof(ps_imad_code)};
     static const DWORD ps_imul_code[] =
     {
 #if 0
@@ -6842,7 +6850,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x00000001, 0x08000036, 0x001020e2, 0x00000000, 0x00004002, 0x00000000, 0x00000000,
         0x00000000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_imul = {ps_imul_code, sizeof(ps_imul_code)};
+    static struct named_shader ps_imul = {"imul", ps_imul_code, sizeof(ps_imul_code)};
     static const DWORD ps_udiv_code[] =
     {
 #if 0
@@ -6866,7 +6874,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x00000000, 0x0020800a, 0x00000000, 0x00000001, 0x05000036, 0x00102012, 0x00000000,
         0x0010000a, 0x00000000, 0x05000036, 0x00102022, 0x00000000, 0x0010000a, 0x00000001, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_udiv = {ps_udiv_code, sizeof(ps_udiv_code)};
+    static struct named_shader ps_udiv = {"udiv", ps_udiv_code, sizeof(ps_udiv_code)};
     static const DWORD ps_nested_switch_code[] =
     {
 #if 0
@@ -6950,7 +6958,7 @@ static void test_shader_instructions(void)
         0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x01000002, 0x01000017, 0x05000036,
         0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_nested_switch = {ps_nested_switch_code, sizeof(ps_nested_switch_code)};
+    static struct named_shader ps_nested_switch = {"nested_switch", ps_nested_switch_code, sizeof(ps_nested_switch_code)};
     static const DWORD ps_switch_no_default_code[] =
     {
 #if 0
@@ -6982,7 +6990,8 @@ static void test_shader_instructions(void)
         0x00000002, 0x00000002, 0x00000002, 0x0100003e, 0x01000017, 0x0100003a, 0x0100003a, 0x08000036,
         0x001020f2, 0x00000000, 0x00004002, 0x00000003, 0x00000003, 0x00000003, 0x00000003, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_switch_no_default = {ps_switch_no_default_code, sizeof(ps_switch_no_default_code)};
+    static const struct named_shader ps_switch_no_default
+            = {"switch_no_default", ps_switch_no_default_code, sizeof(ps_switch_no_default_code)};
     static const DWORD ps_movc_code[] =
     {
 #if 0
@@ -7003,7 +7012,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x00102e46, 0x00000000, 0x00208e46, 0x00000000, 0x00000001, 0x00208e46, 0x00000000,
         0x00000002, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_movc = {ps_movc_code, sizeof(ps_movc_code)};
+    static struct named_shader ps_movc = {"movc", ps_movc_code, sizeof(ps_movc_code)};
     static const DWORD ps_swapc0_code[] =
     {
 #if 0
@@ -7025,7 +7034,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x00000000, 0x00208e46, 0x00000000, 0x00000001, 0x00208e46, 0x00000000, 0x00000002,
         0x05000036, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_swapc0 = {ps_swapc0_code, sizeof(ps_swapc0_code)};
+    static struct named_shader ps_swapc0 = {"swapc0", ps_swapc0_code, sizeof(ps_swapc0_code)};
     static const DWORD ps_swapc1_code[] =
     {
 #if 0
@@ -7047,7 +7056,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x00000000, 0x00208e46, 0x00000000, 0x00000001, 0x00208e46, 0x00000000, 0x00000002,
         0x05000036, 0x001020f2, 0x00000000, 0x00100e46, 0x00000001, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_swapc1 = {ps_swapc1_code, sizeof(ps_swapc1_code)};
+    static struct named_shader ps_swapc1 = {"swapc1", ps_swapc1_code, sizeof(ps_swapc1_code)};
     static const DWORD ps_swapc2_code[] =
     {
 #if 0
@@ -7072,7 +7081,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x001000f2, 0x00000001, 0x00208e46, 0x00000000, 0x00000000, 0x00100e46, 0x00000000,
         0x00100e46, 0x00000001, 0x05000036, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_swapc2 = {ps_swapc2_code, sizeof(ps_swapc2_code)};
+    static struct named_shader ps_swapc2 = {"swapc2", ps_swapc2_code, sizeof(ps_swapc2_code)};
     static const DWORD ps_swapc3_code[] =
     {
 #if 0
@@ -7097,7 +7106,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x001000f2, 0x00000001, 0x00208e46, 0x00000000, 0x00000000, 0x00100e46, 0x00000000,
         0x00100e46, 0x00000001, 0x05000036, 0x001020f2, 0x00000000, 0x00100e46, 0x00000001, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_swapc3 = {ps_swapc3_code, sizeof(ps_swapc3_code)};
+    static struct named_shader ps_swapc3 = {"swapc3", ps_swapc3_code, sizeof(ps_swapc3_code)};
     static const DWORD ps_swapc4_code[] =
     {
 #if 0
@@ -7121,7 +7130,7 @@ static void test_shader_instructions(void)
         0x00000000, 0x00000001, 0x00208e46, 0x00000000, 0x00000002, 0x05000036, 0x001020f2, 0x00000000,
         0x00100e46, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_swapc4 = {ps_swapc4_code, sizeof(ps_swapc4_code)};
+    static struct named_shader ps_swapc4 = {"swapc4", ps_swapc4_code, sizeof(ps_swapc4_code)};
     static const DWORD ps_swapc5_code[] =
     {
 #if 0
@@ -7145,10 +7154,10 @@ static void test_shader_instructions(void)
         0x00000000, 0x00000001, 0x00208e46, 0x00000000, 0x00000002, 0x05000036, 0x001020f2, 0x00000000,
         0x00100e46, 0x00000001, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps_swapc5 = {ps_swapc5_code, sizeof(ps_swapc5_code)};
+    static struct named_shader ps_swapc5 = {"swapc5", ps_swapc5_code, sizeof(ps_swapc5_code)};
     static const struct
     {
-        const D3D12_SHADER_BYTECODE *ps;
+        const struct named_shader *ps;
         struct
         {
             struct vec4 src0;
@@ -7359,7 +7368,7 @@ static void test_shader_instructions(void)
 
     static const struct
     {
-        const D3D12_SHADER_BYTECODE *ps;
+        const struct named_shader *ps;
         union
         {
             struct
@@ -7917,9 +7926,11 @@ static void test_shader_instructions(void)
     current_ps = NULL;
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("%u:%s", i, tests[i].ps->name);
+
         if (tests[i].skip_on_warp && use_warp_device)
         {
-            skip("Skipping shader test on WARP.\n");
+            skip("Skipping shader '%s' test on WARP.\n", tests[i].ps->name);
             continue;
         }
 
@@ -7928,8 +7939,10 @@ static void test_shader_instructions(void)
             if (context.pipeline_state)
                 ID3D12PipelineState_Release(context.pipeline_state);
             current_ps = tests[i].ps;
+            shader.pShaderBytecode = current_ps->code;
+            shader.BytecodeLength = current_ps->size;
             context.pipeline_state = create_pipeline_state(context.device,
-                    context.root_signature, desc.rt_format, NULL, current_ps, NULL);
+                    context.root_signature, desc.rt_format, NULL, &shader, NULL);
         }
 
         update_buffer_data(cb, 0, sizeof(tests[i].input), &tests[i].input);
@@ -7954,6 +7967,7 @@ static void test_shader_instructions(void)
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
+    vkd3d_test_set_context(NULL);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
@@ -7964,9 +7978,11 @@ static void test_shader_instructions(void)
 
     for (i = 0; i < ARRAY_SIZE(uint_tests); ++i)
     {
+        vkd3d_test_set_context("%u:%s", i, uint_tests[i].ps->name);
+
         if (uint_tests[i].skip_on_warp && use_warp_device)
         {
-            skip("Skipping shader test on WARP.\n");
+            skip("Skipping shader '%s' test on WARP.\n", uint_tests[i].ps->name);
             continue;
         }
 
@@ -7975,8 +7991,10 @@ static void test_shader_instructions(void)
             if (context.pipeline_state)
                 ID3D12PipelineState_Release(context.pipeline_state);
             current_ps = uint_tests[i].ps;
+            shader.pShaderBytecode = current_ps->code;
+            shader.BytecodeLength = current_ps->size;
             context.pipeline_state = create_pipeline_state(context.device,
-                    context.root_signature, desc.rt_format, NULL, current_ps, NULL);
+                    context.root_signature, desc.rt_format, NULL, &shader, NULL);
         }
 
         update_buffer_data(cb, 0, sizeof(uint_tests[i].input), &uint_tests[i].input);
@@ -8001,6 +8019,7 @@ static void test_shader_instructions(void)
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
+    vkd3d_test_set_context(NULL);
 
     ID3D12Resource_Release(cb);
     destroy_test_context(&context);
