@@ -34,7 +34,8 @@ vkd3d_demos_shaders = \
 	demos/triangle_vs.h
 
 vkd3d_tests = \
-	tests/vkd3d_api
+	tests/vkd3d_api \
+	tests/vkd3d_shader_api
 
 vkd3d_cross_tests = \
 	tests/d3d12 \
@@ -137,6 +138,7 @@ AM_DEFAULT_SOURCE_EXT = .c
 TESTS = $(vkd3d_tests) $(vkd3d_cross_tests)
 tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@
 tests_vkd3d_api_LDADD = libvkd3d.la @VULKAN_LIBS@
+tests_vkd3d_shader_api_LDADD = libvkd3d-shader.la
 
 if BUILD_DEMOS
 DEMOS_LDADD = $(LDADD) libvkd3d-shader.la @XCB_LIBS@ @VULKAN_LIBS@
