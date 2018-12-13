@@ -303,6 +303,9 @@ static inline bool is_amd_device(ID3D12Device *device)
     HRESULT hr;
     LUID luid;
 
+    if (!vkd3d_test_platform_is_windows())
+        return false;
+
     luid = ID3D12Device_GetAdapterLuid(device);
 
     hr = CreateDXGIFactory1(&IID_IDXGIFactory4, (void **)&factory);
