@@ -21488,6 +21488,136 @@ static void test_blend_factor(void)
     destroy_test_context(&context);
 }
 
+static void test_dual_source_blending(void)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float4 c0;
+        float4 c1;
+
+        void main(out float4 o0 : SV_Target0, out float4 o1 : SV_Target1)
+        {
+            o0 = c0;
+            o1 = c1;
+        }
+#endif
+        0x43425844, 0x823a4ecf, 0xd409abf6, 0xe76697ab, 0x9b53c9a5, 0x00000001, 0x000000f8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000088, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000044, 0x00000002, 0x00000008, 0x00000038, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x00000038, 0x00000001, 0x00000000, 0x00000003, 0x00000001, 0x0000000f, 0x545f5653,
+        0x65677261, 0xabab0074, 0x58454853, 0x00000068, 0x00000050, 0x0000001a, 0x0100086a, 0x04000059,
+        0x00208e46, 0x00000000, 0x00000002, 0x03000065, 0x001020f2, 0x00000000, 0x03000065, 0x001020f2,
+        0x00000001, 0x06000036, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x06000036,
+        0x001020f2, 0x00000001, 0x00208e46, 0x00000000, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const struct
+    {
+        struct
+        {
+            struct vec4 c0;
+            struct vec4 c1;
+        } constants;
+        unsigned int expected_color;
+    }
+    tests[] =
+    {
+        {{{0.0f, 0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f, 0.0f}}, 0x00000000},
+        {{{0.0f, 0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}}, 0xff0000ff},
+        {{{1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f, 0.0f}}, 0xff0000ff},
+        {{{1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 1.0f, 0.0f}}, 0xffffffff},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_32bit_constants_root_signature(context.device,
+            0, sizeof(tests->constants) / sizeof(uint32_t), D3D12_SHADER_VISIBILITY_PIXEL);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, NULL, &ps, NULL);
+    pso_desc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+    pso_desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_COLOR;
+    pso_desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_SRC1_COLOR;
+    pso_desc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    pso_desc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_SRC_ALPHA;
+    pso_desc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_SRC1_ALPHA;
+    pso_desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 8, &tests[i].constants, 0);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(context.render_target, 0, queue, command_list, tests[i].expected_color, 1);
+
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+
+    ID3D12PipelineState_Release(context.pipeline_state);
+    pso_desc.BlendState.IndependentBlendEnable = TRUE;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ID3D12PipelineState_Release(context.pipeline_state);
+    context.pipeline_state = NULL;
+
+    pso_desc.BlendState.RenderTarget[1] = pso_desc.BlendState.RenderTarget[0];
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    pso_desc.BlendState.RenderTarget[1].DestBlendAlpha = D3D12_BLEND_SRC_ALPHA;
+    pso_desc.BlendState.RenderTarget[1].DestBlend = D3D12_BLEND_SRC_COLOR;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    context.pipeline_state = NULL;
+
+    pso_desc.NumRenderTargets = 2;
+    pso_desc.RTVFormats[1] = pso_desc.RTVFormats[0];
+    pso_desc.BlendState.IndependentBlendEnable = FALSE;
+    pso_desc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+    pso_desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_COLOR;
+    pso_desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_SRC1_COLOR;
+    pso_desc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    pso_desc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_SRC_ALPHA;
+    pso_desc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_SRC1_ALPHA;
+    pso_desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    destroy_test_context(&context);
+}
+
 static void test_multisample_rendering(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -21949,6 +22079,7 @@ START_TEST(d3d12)
     run_test(test_suballocate_small_textures);
     run_test(test_command_list_initial_pipeline_state);
     run_test(test_blend_factor);
+    run_test(test_dual_source_blending);
     run_test(test_multisample_rendering);
     run_test(test_primitive_restart);
 }
