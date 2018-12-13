@@ -165,6 +165,7 @@ struct vkd3d_shader_compile_arguments
     const void *next;
 
     enum vkd3d_shader_target target;
+    bool dual_source_blending;
     const unsigned int *output_swizzles;
     unsigned int output_swizzle_count;
 };

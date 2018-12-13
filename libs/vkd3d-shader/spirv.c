@@ -3400,6 +3400,14 @@ static unsigned int get_shader_output_swizzle(const struct vkd3d_dxbc_compiler *
     return compile_args->output_swizzles[register_idx];
 }
 
+static bool is_dual_source_blending(const struct vkd3d_dxbc_compiler *compiler)
+{
+    const struct vkd3d_shader_compile_arguments *compile_args = compiler->compile_args;
+
+    return compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL
+            && compile_args && compile_args->dual_source_blending;
+}
+
 static void calculate_clip_or_cull_distance_mask(const struct vkd3d_shader_signature_element *e,
         uint32_t *mask)
 {
@@ -3544,7 +3552,16 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         }
         else
         {
-            vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationLocation, reg->idx[0].offset);
+            if (is_dual_source_blending(compiler) && reg->idx[0].offset < 2)
+            {
+                vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationLocation, 0);
+                vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationIndex, reg->idx[0].offset);
+            }
+            else
+            {
+                vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationLocation, reg->idx[0].offset);
+            }
+
             if (component_idx)
                 vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationComponent, component_idx);
         }
