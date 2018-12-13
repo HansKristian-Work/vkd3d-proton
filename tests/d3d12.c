@@ -14689,6 +14689,8 @@ static void test_depth_stencil_sampling(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         reset_command_list(command_list, context.allocator);
 
         init_depth_stencil(&ds, device, context.render_target_desc.Width,
@@ -14753,6 +14755,13 @@ static void test_depth_stencil_sampling(void)
             destroy_depth_stencil(&ds);
             continue;
         }
+        if (is_amd_device(device))
+        {
+            skip("Reads from depth/stencil shader resource views return stale values on some AMD drivers.\n");
+            destroy_depth_stencil(&ds);
+            continue;
+        }
+
         srv_desc.Format = tests[i].stencil_view_format;
         srv_desc.Texture2D.PlaneSlice = 1;
         ID3D12Device_CreateShaderResourceView(device, texture, &srv_desc, srv_cpu_handle);
@@ -14791,6 +14800,7 @@ static void test_depth_stencil_sampling(void)
 
         destroy_depth_stencil(&ds);
     }
+    vkd3d_test_set_context(NULL);
 
     ID3D12Resource_Release(cb);
     ID3D12DescriptorHeap_Release(srv_heap);
