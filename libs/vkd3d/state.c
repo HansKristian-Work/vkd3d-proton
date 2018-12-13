@@ -1783,6 +1783,21 @@ static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentSta
         FIXME("Ignoring LogicOpEnable %#x.\n", d3d12_desc->LogicOpEnable);
 }
 
+static bool is_dual_source_blending_blend(D3D12_BLEND b)
+{
+    return b == D3D12_BLEND_SRC1_COLOR || b == D3D12_BLEND_INV_SRC1_COLOR
+            || b == D3D12_BLEND_SRC1_ALPHA || b == D3D12_BLEND_INV_SRC1_ALPHA;
+}
+
+static bool is_dual_source_blending(const D3D12_RENDER_TARGET_BLEND_DESC *desc)
+{
+    return desc->BlendEnable
+        && (is_dual_source_blending_blend(desc->SrcBlend)
+        || is_dual_source_blending_blend(desc->DestBlend)
+        || is_dual_source_blending_blend(desc->SrcBlendAlpha)
+        || is_dual_source_blending_blend(desc->DestBlendAlpha));
+}
+
 static HRESULT compute_input_layout_offsets(const D3D12_INPUT_LAYOUT_DESC *input_layout_desc,
         uint32_t *offsets)
 {
@@ -2063,8 +2078,28 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     ps_compile_args.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS;
     ps_compile_args.next = NULL;
     ps_compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
+    ps_compile_args.dual_source_blending = is_dual_source_blending(&desc->BlendState.RenderTarget[0]);
     ps_compile_args.output_swizzles = ps_output_swizzle;
     ps_compile_args.output_swizzle_count = rt_count;
+
+    if (ps_compile_args.dual_source_blending && rt_count > 1)
+    {
+        WARN("Only one render target is allowed when dual source blending is used.\n");
+        hr = E_INVALIDARG;
+        goto fail;
+    }
+    if (ps_compile_args.dual_source_blending && desc->BlendState.IndependentBlendEnable)
+    {
+        for (i = 1; i < ARRAY_SIZE(desc->BlendState.RenderTarget); ++i)
+        {
+            if (desc->BlendState.RenderTarget[i].BlendEnable)
+            {
+                WARN("Blend enable cannot be set for render target %u when dual source blending is used.\n", i);
+                hr = E_INVALIDARG;
+                goto fail;
+            }
+        }
+    }
 
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE;
     shader_interface.next = NULL;
