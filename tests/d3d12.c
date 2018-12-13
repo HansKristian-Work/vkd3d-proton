@@ -2491,6 +2491,13 @@ static void test_create_graphics_pipeline_state(void)
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
     ID3D12PipelineState_Release(pipeline_state);
 
+    /* Inactive render targets formats must be set to DXGI_FORMAT_UNKNOWN. */
+    init_pipeline_state_desc(&pso_desc, root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, NULL, NULL, NULL);
+    pso_desc.RTVFormats[1] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
     refcount = ID3D12RootSignature_Release(root_signature);
     ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
     refcount = ID3D12Device_Release(device);

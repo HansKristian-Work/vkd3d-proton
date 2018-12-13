@@ -1945,6 +1945,15 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     memset(&input_signature, 0, sizeof(input_signature));
 
+    for (i = desc->NumRenderTargets; i < ARRAY_SIZE(desc->RTVFormats); ++i)
+    {
+        if (desc->RTVFormats[i] != DXGI_FORMAT_UNKNOWN)
+        {
+            WARN("Format must be set to DXGI_FORMAT_UNKNOWN for inactive render targets.\n");
+            return E_INVALIDARG;
+        }
+    }
+
     if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->pRootSignature)))
     {
         WARN("Root signature is NULL.\n");
