@@ -1749,6 +1749,8 @@ static void test_create_heap(void)
     {
         for (j = 0; j < ARRAY_SIZE(heap_flags); ++j)
         {
+            vkd3d_test_set_context("Test %u, %u", i, j);
+
             desc.SizeInBytes = 10 * tests[i].alignment;
             desc.Alignment = tests[i].alignment;
             desc.Flags = heap_flags[j].flags;
@@ -1765,6 +1767,7 @@ static void test_create_heap(void)
             ok(!refcount, "ID3D12Heap has %u references left.\n", (unsigned int)refcount);
         }
     }
+    vkd3d_test_set_context(NULL);
 
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
     ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
@@ -3682,6 +3685,8 @@ static void test_clear_unordered_access_view(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         buffer = create_default_buffer(device, BUFFER_SIZE,
                 D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
@@ -3735,6 +3740,7 @@ static void test_clear_unordered_access_view(void)
         reset_command_list(command_list, context.allocator);
         ID3D12Resource_Release(buffer);
     }
+    vkd3d_test_set_context(NULL);
 
     ID3D12DescriptorHeap_Release(cpu_heap);
     ID3D12DescriptorHeap_Release(gpu_heap);
@@ -4811,6 +4817,8 @@ static void test_draw_depth_only(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
                 D3D12_CLEAR_FLAG_DEPTH, tests[i].clear_depth, 0, 0, NULL);
 
@@ -4832,6 +4840,7 @@ static void test_draw_depth_only(void)
         transition_resource_state(command_list, ds.texture,
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
     }
+    vkd3d_test_set_context(NULL);
 
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
             D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
@@ -8888,6 +8897,8 @@ static void test_incompletely_initialized_shader_outputs(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
         ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
@@ -8907,6 +8918,7 @@ static void test_incompletely_initialized_shader_outputs(void)
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
+    vkd3d_test_set_context(NULL);
 
     destroy_test_context(&context);
 }
@@ -10265,6 +10277,8 @@ static void test_texture(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         texture = create_default_texture(context.device,
                 tests[i].width, tests[i].height, tests[i].format, 0, D3D12_RESOURCE_STATE_COPY_DEST);
         upload_texture_data(texture, &tests[i].data, 1, queue, command_list);
@@ -10310,6 +10324,7 @@ static void test_texture(void)
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
+    vkd3d_test_set_context(NULL);
 
     ID3D12DescriptorHeap_Release(heap);
     destroy_test_context(&context);
@@ -10505,6 +10520,8 @@ static void test_texture_ld(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
         ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
@@ -10527,6 +10544,7 @@ static void test_texture_ld(void)
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
+    vkd3d_test_set_context(NULL);
 
     ID3D12Resource_Release(texture);
     ID3D12DescriptorHeap_Release(heap);
@@ -11657,6 +11675,8 @@ static void test_multisample_array_texture(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
         ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -11679,6 +11699,7 @@ static void test_multisample_array_texture(void)
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
+    vkd3d_test_set_context(NULL);
 
     transition_resource_state(command_list, uav_buffer,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -14901,6 +14922,8 @@ static void test_depth_load(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
                 D3D12_CLEAR_FLAG_DEPTH, tests[i], 0, 0, NULL);
         transition_sub_resource_state(command_list, ds.texture, 0,
@@ -14943,6 +14966,7 @@ static void test_depth_load(void)
         transition_sub_resource_state(command_list, ds.texture, 0,
                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
     }
+    vkd3d_test_set_context(NULL);
 
     destroy_depth_stencil(&ds);
     ID3D12Resource_Release(texture);
@@ -15258,6 +15282,8 @@ static void test_typed_uav_store(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         resource = create_default_texture(device, 32, 32, tests[i].format,
                 D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         ID3D12Device_CreateUnorderedAccessView(device, resource, NULL, NULL,
@@ -15292,6 +15318,7 @@ static void test_typed_uav_store(void)
 
         reset_command_list(command_list, context.allocator);
     }
+    vkd3d_test_set_context(NULL);
 
     ID3D12DescriptorHeap_Release(descriptor_heap);
     destroy_test_context(&context);
@@ -16478,6 +16505,8 @@ static void test_cs_uav_store(void)
     pipeline_state = NULL;
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         if (current_shader != tests[i].shader)
         {
             if (pipeline_state)
@@ -16510,6 +16539,7 @@ static void test_cs_uav_store(void)
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
         check_sub_resource_float(resource, 0, queue, command_list, tests[i].value, 2);
     }
+    vkd3d_test_set_context(NULL);
 
     ID3D12PipelineState_Release(pipeline_state);
     pipeline_state = create_compute_pipeline_state(device, root_signature, cs_1_store);
@@ -16958,6 +16988,8 @@ static void test_decrement_uav_counter(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         transition_sub_resource_state(command_list, buffer, 0,
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
         counter = 0xffffffff;
@@ -16989,6 +17021,7 @@ static void test_decrement_uav_counter(void)
         ok(counter == tests[i].expected_min_value, "Got %u, expected %u.\n",
                 counter, tests[i].expected_min_value);
     }
+    vkd3d_test_set_context(NULL);
 
     ID3D12Resource_Release(buffer);
     ID3D12Resource_Release(counter_buffer);
@@ -17496,6 +17529,8 @@ static void test_buffer_srv(void)
     {
         const struct test *test = &tests[i];
 
+        vkd3d_test_set_context("Test %u", i);
+
         if (current_shader != test->shader)
         {
             if (context.pipeline_state)
@@ -17568,6 +17603,7 @@ static void test_buffer_srv(void)
         transition_sub_resource_state(command_list, context.render_target, 0,
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
+    vkd3d_test_set_context(NULL);
 
     ID3D12DescriptorHeap_Release(descriptor_heap);
     ID3D12Resource_Release(buffer);
@@ -17887,6 +17923,8 @@ static void test_query_occlusion(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
                 D3D12_CLEAR_FLAG_DEPTH, tests[i].clear_depth, 0, 0, NULL);
 
@@ -17902,6 +17940,7 @@ static void test_query_occlusion(void)
         ID3D12GraphicsCommandList_ResolveQueryData(command_list, query_heap, tests[i].type, i, 1,
                 resource, i * sizeof(UINT64));
     }
+    vkd3d_test_set_context(NULL);
 
     get_buffer_readback_with_command_list(resource, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
@@ -19483,6 +19522,8 @@ static void test_face_culling(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         init_pipeline_state_desc(&pso_desc, context.root_signature,
                 context.render_target_desc.Format, NULL, &ps_color, NULL);
         pso_desc.RasterizerState.CullMode = tests[i].cull_mode;
@@ -19535,10 +19576,13 @@ static void test_face_culling(void)
 
         ID3D12PipelineState_Release(pso);
     }
+    vkd3d_test_set_context(NULL);
 
     /* Test SV_IsFrontFace. */
     for (i = 0; i < ARRAY_SIZE(front_tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         init_pipeline_state_desc(&pso_desc, context.root_signature,
                 context.render_target_desc.Format, NULL, &ps_front, NULL);
         pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
@@ -19589,6 +19633,7 @@ static void test_face_culling(void)
 
         ID3D12PipelineState_Release(pso);
     }
+    vkd3d_test_set_context(NULL);
 
     ID3D12PipelineState_Release(color_pso);
     ID3D12PipelineState_Release(ccw_color_pso);
@@ -21474,6 +21519,8 @@ static void test_blend_factor(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
         ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -21491,6 +21538,7 @@ static void test_blend_factor(void)
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
+    vkd3d_test_set_context(NULL);
 
     destroy_test_context(&context);
 }
@@ -21570,6 +21618,8 @@ static void test_dual_source_blending(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
         ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -21587,6 +21637,7 @@ static void test_dual_source_blending(void)
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
+    vkd3d_test_set_context(NULL);
 
     ID3D12PipelineState_Release(context.pipeline_state);
     pso_desc.BlendState.IndependentBlendEnable = TRUE;
@@ -21905,6 +21956,8 @@ static void test_primitive_restart(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
+        vkd3d_test_set_context("Test %u", i);
+
         buffer_size = (tests[i].last_index + 1) * sizeof(*quad);
 
         vb = create_upload_buffer(context.device, buffer_size, NULL);
@@ -21968,6 +22021,7 @@ static void test_primitive_restart(void)
         ID3D12PipelineState_Release(context.pipeline_state);
         context.pipeline_state = NULL;
     }
+    vkd3d_test_set_context(NULL);
 
     destroy_test_context(&context);
 }
