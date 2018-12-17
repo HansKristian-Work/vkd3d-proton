@@ -35,11 +35,15 @@
 
 #include "vkd3d_shader_private.h"
 
+#define DXBC_CHECKSUM_BLOCK_SIZE 64
+
+STATIC_ASSERT(sizeof(unsigned int) == 4);
+
 struct md5_ctx
 {
     unsigned int i[2];
     unsigned int buf[4];
-    unsigned char in[64];
+    unsigned char in[DXBC_CHECKSUM_BLOCK_SIZE];
     unsigned char digest[16];
 };
 
@@ -163,7 +167,7 @@ static void byte_reverse(unsigned char *buf, unsigned longs)
  * Start MD5 accumulation. Set bit count to 0 and buffer to mysterious
  * initialization constants.
  */
-void md5_init(struct md5_ctx *ctx)
+static void md5_init(struct md5_ctx *ctx)
 {
     ctx->buf[0] = 0x67452301;
     ctx->buf[1] = 0xefcdab89;
@@ -177,7 +181,7 @@ void md5_init(struct md5_ctx *ctx)
  * Update context to reflect the concatenation of another buffer full
  * of bytes.
  */
-void md5_update(struct md5_ctx *ctx, const unsigned char *buf, unsigned int len)
+static void md5_update(struct md5_ctx *ctx, const unsigned char *buf, unsigned int len)
 {
     unsigned int t;
 
@@ -194,7 +198,7 @@ void md5_update(struct md5_ctx *ctx, const unsigned char *buf, unsigned int len)
     if (t)
     {
         unsigned char *p = (unsigned char *)ctx->in + t;
-        t = 64 - t;
+        t = DXBC_CHECKSUM_BLOCK_SIZE - t;
 
         if (len < t)
         {
@@ -212,27 +216,25 @@ void md5_update(struct md5_ctx *ctx, const unsigned char *buf, unsigned int len)
     }
 
     /* Process data in 64-byte chunks */
-    while (len >= 64)
+    while (len >= DXBC_CHECKSUM_BLOCK_SIZE)
     {
-        memcpy(ctx->in, buf, 64);
+        memcpy(ctx->in, buf, DXBC_CHECKSUM_BLOCK_SIZE);
         byte_reverse(ctx->in, 16);
 
         md5_transform(ctx->buf, (unsigned int *)ctx->in);
 
-        buf += 64;
-        len -= 64;
+        buf += DXBC_CHECKSUM_BLOCK_SIZE;
+        len -= DXBC_CHECKSUM_BLOCK_SIZE;
     }
 
     /* Handle any remaining bytes of data. */
     memcpy(ctx->in, buf, len);
 }
 
-/*
- * Final wrapup - pad to 64-byte boundary with the bit pattern
- * 1 0* (64-bit count of bits processed, MSB-first)
- */
-void md5_final(struct md5_ctx *ctx)
+static void dxbc_checksum_final(struct md5_ctx *ctx)
 {
+    unsigned int padding;
+    unsigned int length;
     unsigned int count;
     unsigned char *p;
 
@@ -243,34 +245,57 @@ void md5_final(struct md5_ctx *ctx)
        always at least one byte free */
     p = ctx->in + count;
     *p++ = 0x80;
+    ++count;
 
     /* Bytes of padding needed to make 64 bytes */
-    count = 64 - 1 - count;
+    padding = DXBC_CHECKSUM_BLOCK_SIZE - count;
 
     /* Pad out to 56 mod 64 */
-    if (count < 8)
+    if (padding < 8)
     {
         /* Two lots of padding:  Pad the first block to 64 bytes */
-        memset(p, 0, count);
+        memset(p, 0, padding);
         byte_reverse(ctx->in, 16);
         md5_transform(ctx->buf, (unsigned int *)ctx->in);
 
-        /* Now fill the next block with 56 bytes */
-        memset(ctx->in, 0, 56);
+        /* Now fill the next block */
+        memset(ctx->in, 0, DXBC_CHECKSUM_BLOCK_SIZE);
     }
     else
     {
-        /* Pad block to 56 bytes */
-        memset(p, 0, count - 8);
+        /* Make place for bitcount at the beginning of the block */
+        memmove(&ctx->in[4], ctx->in, count);
+
+        /* Pad block to 60 bytes */
+        memset(p + 4, 0, padding - 4);
     }
 
-    byte_reverse(ctx->in, 14);
-
     /* Append length in bits and transform */
-    ((unsigned int *)ctx->in)[14] = ctx->i[0];
-    ((unsigned int *)ctx->in)[15] = ctx->i[1];
+    length = ctx->i[0];
+    memcpy(&ctx->in[0], &length, sizeof(length));
+    byte_reverse(&ctx->in[4], 14);
+    length = ctx->i[0] >> 2 | 0x1;
+    memcpy(&ctx->in[DXBC_CHECKSUM_BLOCK_SIZE - 4], &length, sizeof(length));
 
     md5_transform(ctx->buf, (unsigned int *)ctx->in);
     byte_reverse((unsigned char *)ctx->buf, 4);
     memcpy(ctx->digest, ctx->buf, 16);
+}
+
+#define DXBC_CHECKSUM_SKIP_BYTE_COUNT 20
+
+void vkd3d_compute_dxbc_checksum(const void *dxbc, size_t size, uint32_t checksum[4])
+{
+    const uint8_t *ptr = dxbc;
+    struct md5_ctx ctx;
+
+    assert(size > DXBC_CHECKSUM_SKIP_BYTE_COUNT);
+    ptr += DXBC_CHECKSUM_SKIP_BYTE_COUNT;
+    size -= DXBC_CHECKSUM_SKIP_BYTE_COUNT;
+
+    md5_init(&ctx);
+    md5_update(&ctx, ptr, size);
+    dxbc_checksum_final(&ctx);
+
+    memcpy(checksum, ctx.digest, sizeof(ctx.digest));
 }

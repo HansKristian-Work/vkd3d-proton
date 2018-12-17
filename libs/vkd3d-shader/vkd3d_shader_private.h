@@ -815,11 +815,7 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_code *spirv) DECLSPEC_HIDDEN;
 void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler) DECLSPEC_HIDDEN;
 
-struct md5_ctx;
-
-void md5_init(struct md5_ctx *ctx) DECLSPEC_HIDDEN;
-void md5_update(struct md5_ctx *ctx, const unsigned char *buf, unsigned int len) DECLSPEC_HIDDEN;
-void md5_final(struct md5_ctx *ctx) DECLSPEC_HIDDEN;
+void vkd3d_compute_dxbc_checksum(const void *dxbc, size_t size, uint32_t checksum[4]) DECLSPEC_HIDDEN;
 
 static inline enum vkd3d_component_type vkd3d_component_type_from_data_type(
         enum vkd3d_data_type data_type)

@@ -9107,14 +9107,7 @@ static void test_root_signature_serialization_(unsigned int line, const DWORD *c
     ok_(line)(blob_size == code_size, "Got size %u, expected %u.\n",
             (unsigned int)blob_size, (unsigned int)code_size);
 
-    ok_(line)(blob_buffer[0] == code[0], "Got magic %#x, expected %#x.\n",
-            (unsigned int)blob_buffer[0], (unsigned int)code[0]);
-    for (i = 1; i < 5; ++i)
-    {
-        todo ok_(line)(blob_buffer[i] == code[i], "Got checksum %#x, expected %#x at %u.\n",
-                (unsigned int)blob_buffer[i], (unsigned int)code[i], i - 1);
-    }
-    for (; i < code_size / sizeof(DWORD); ++i)
+    for (i = 0; i < code_size / sizeof(DWORD); ++i)
     {
         ok_(line)(blob_buffer[i] == code[i], "Got dword %#x, expected %#x at %u.\n",
                 (unsigned int)blob_buffer[i], (unsigned int)code[i], i);

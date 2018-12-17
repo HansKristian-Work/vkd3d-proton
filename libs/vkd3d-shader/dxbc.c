@@ -2389,7 +2389,7 @@ static int shader_write_root_signature_header(struct root_signature_writer_conte
     if (!write_dword(context, TAG_DXBC))
         return VKD3D_ERROR_OUT_OF_MEMORY;
 
-    WARN("DXBC checksum is not implemented.\n");
+    /* The checksum is computed when all data is generated. */
     if (!write_dwords(context, 4, 0x00000000))
         return VKD3D_ERROR_OUT_OF_MEMORY;
 
@@ -2596,6 +2596,7 @@ int vkd3d_shader_serialize_root_signature(const struct vkd3d_root_signature_desc
 {
     struct root_signature_writer_context context;
     size_t total_size, chunk_size;
+    uint32_t checksum[4];
     int ret;
 
     TRACE("root_signature %p, version %#x, dxbc %p.\n", root_signature, version, dxbc);
@@ -2627,6 +2628,9 @@ int vkd3d_shader_serialize_root_signature(const struct vkd3d_root_signature_desc
 
     dxbc->code = context.data;
     dxbc->size = total_size;
+
+    vkd3d_compute_dxbc_checksum(dxbc->code, dxbc->size, checksum);
+    memcpy((uint32_t *)dxbc->code + 1, checksum, sizeof(checksum));
 
     return VKD3D_OK;
 }
