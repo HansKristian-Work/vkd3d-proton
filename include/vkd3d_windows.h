@@ -48,6 +48,9 @@ typedef int HRESULT;
 # define E_OUTOFMEMORY _HRESULT_TYPEDEF_(0x8007000E)
 # define E_INVALIDARG  _HRESULT_TYPEDEF_(0x80070057)
 
+# define DXGI_ERROR_NOT_FOUND _HRESULT_TYPEDEF_(0x887a0002)
+# define DXGI_ERROR_MORE_DATA _HRESULT_TYPEDEF_(0x887a0003)
+
 /* Basic types */
 typedef unsigned char BYTE;
 typedef unsigned int DWORD;

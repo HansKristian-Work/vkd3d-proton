@@ -163,6 +163,55 @@ void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocato
 void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator,
         D3D12_GPU_VIRTUAL_ADDRESS address) DECLSPEC_HIDDEN;
 
+struct vkd3d_private_store
+{
+    struct list content;
+};
+
+struct vkd3d_private_data
+{
+    struct list entry;
+
+    GUID tag;
+    unsigned int size;
+    bool is_object;
+    union
+    {
+        BYTE data[1];
+        IUnknown *object;
+    } u;
+};
+
+static inline void vkd3d_private_data_destroy(struct vkd3d_private_data *data)
+{
+    if (data->is_object)
+        IUnknown_Release(data->u.object);
+    list_remove(&data->entry);
+    vkd3d_free(data);
+}
+
+static inline void vkd3d_private_store_init(struct vkd3d_private_store *store)
+{
+    list_init(&store->content);
+}
+
+static inline void vkd3d_private_store_destroy(struct vkd3d_private_store *store)
+{
+    struct vkd3d_private_data *data, *cursor;
+
+    LIST_FOR_EACH_ENTRY_SAFE(data, cursor, &store->content, struct vkd3d_private_data, entry)
+    {
+        vkd3d_private_data_destroy(data);
+    }
+}
+
+HRESULT vkd3d_get_private_data(struct vkd3d_private_store *store,
+        const GUID *tag, unsigned int *out_size, void *out) DECLSPEC_HIDDEN;
+HRESULT vkd3d_set_private_data(struct vkd3d_private_store *store,
+        const GUID *tag, unsigned int data_size, const void *data) DECLSPEC_HIDDEN;
+HRESULT vkd3d_set_private_data_interface(struct vkd3d_private_store *store,
+        const GUID *tag, const IUnknown *object) DECLSPEC_HIDDEN;
+
 /* ID3D12Fence */
 struct d3d12_fence
 {
@@ -744,6 +793,8 @@ struct d3d12_command_queue
     struct vkd3d_queue *vkd3d_queue;
 
     struct d3d12_device *device;
+
+    struct vkd3d_private_store private_store;
 };
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,

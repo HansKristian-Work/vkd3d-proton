@@ -4360,6 +4360,8 @@ static ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *i
     {
         struct d3d12_device *device = command_queue->device;
 
+        vkd3d_private_store_destroy(&command_queue->private_store);
+
         vkd3d_free(command_queue);
 
         ID3D12Device_Release(&device->ID3D12Device_iface);
@@ -4371,25 +4373,31 @@ static ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *i
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetPrivateData(ID3D12CommandQueue *iface,
         REFGUID guid, UINT *data_size, void *data)
 {
-    FIXME("iface %p, guid %s, data_size %p, data %p stub!", iface, debugstr_guid(guid), data_size, data);
+    struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data_size %p, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+
+    return vkd3d_get_private_data(&command_queue->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetPrivateData(ID3D12CommandQueue *iface,
         REFGUID guid, UINT data_size, const void *data)
 {
-    FIXME("iface %p, guid %s, data_size %u, data %p stub!\n", iface, debugstr_guid(guid), data_size, data);
+    struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+
+    return vkd3d_set_private_data(&command_queue->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetPrivateDataInterface(ID3D12CommandQueue *iface,
         REFGUID guid, const IUnknown *data)
 {
-    FIXME("iface %p, guid %s, data %p stub!\n", iface, debugstr_guid(guid), data);
+    struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
+
+    return vkd3d_set_private_data_interface(&command_queue->private_store, guid, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetName(ID3D12CommandQueue *iface, const WCHAR *name)
@@ -4672,6 +4680,8 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
         FIXME("Ignoring priority %#x.\n", desc->Priority);
     if (desc->Flags)
         FIXME("Ignoring flags %#x.\n", desc->Flags);
+
+    vkd3d_private_store_init(&queue->private_store);
 
     queue->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);

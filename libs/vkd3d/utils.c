@@ -506,3 +506,103 @@ HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
     TRACE("Loaded procs for VkDevice %p.\n", device);
     return S_OK;
 }
+
+static struct vkd3d_private_data *vkd3d_private_store_get_private_data(
+        const struct vkd3d_private_store *store, const GUID *tag)
+{
+    struct vkd3d_private_data *data;
+
+    LIST_FOR_EACH_ENTRY(data, &store->content, struct vkd3d_private_data, entry)
+    {
+        if (IsEqualGUID(&data->tag, tag))
+            return data;
+    }
+
+    return NULL;
+}
+
+static HRESULT vkd3d_private_store_set_private_data(struct vkd3d_private_store *store,
+        const GUID *tag, const void *data, unsigned int data_size, bool is_object)
+{
+    struct vkd3d_private_data *d, *old_data;
+    const void *ptr = data;
+
+    if (is_object)
+    {
+        if (data_size != sizeof(IUnknown *))
+            return E_INVALIDARG;
+        ptr = &data;
+    }
+
+    if (!(d = vkd3d_malloc(offsetof(struct vkd3d_private_data, u.data[data_size]))))
+        return E_OUTOFMEMORY;
+
+    d->tag = *tag;
+    d->size = data_size;
+    d->is_object = is_object;
+    memcpy(d->u.data, ptr, data_size);
+    if (is_object)
+        IUnknown_AddRef(d->u.object);
+
+    if ((old_data = vkd3d_private_store_get_private_data(store, tag)))
+        vkd3d_private_data_destroy(old_data);
+    list_add_tail(&store->content, &d->entry);
+
+    return S_OK;
+}
+
+HRESULT vkd3d_get_private_data(struct vkd3d_private_store *store,
+        const GUID *tag, unsigned int *out_size, void *out)
+{
+    const struct vkd3d_private_data *data;
+    unsigned int size;
+
+    if (!out_size)
+        return E_INVALIDARG;
+
+    if (!(data = vkd3d_private_store_get_private_data(store, tag)))
+    {
+        *out_size = 0;
+        return DXGI_ERROR_NOT_FOUND;
+    }
+
+    size = *out_size;
+    *out_size = data->size;
+    if (!out)
+        return S_OK;
+
+    if (size < data->size)
+        return DXGI_ERROR_MORE_DATA;
+
+    if (data->is_object)
+        IUnknown_AddRef(data->u.object);
+    memcpy(out, data->u.data, data->size);
+
+    return S_OK;
+}
+
+HRESULT vkd3d_set_private_data(struct vkd3d_private_store *store,
+        const GUID *tag, unsigned int data_size, const void *data)
+{
+    struct vkd3d_private_data *d;
+
+    if (!data)
+    {
+        if (!(d = vkd3d_private_store_get_private_data(store, tag)))
+            return S_FALSE;
+
+        vkd3d_private_data_destroy(d);
+        return S_OK;
+    }
+
+    return vkd3d_private_store_set_private_data(store, tag, data, data_size, false);
+}
+
+HRESULT vkd3d_set_private_data_interface(struct vkd3d_private_store *store,
+        const GUID *tag, const IUnknown *object)
+{
+    if (!object)
+        return vkd3d_set_private_data(store, tag, sizeof(object), &object);
+
+    return vkd3d_private_store_set_private_data(store, tag, object, sizeof(object), true);
+}

@@ -2557,6 +2557,143 @@ static void test_create_fence(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_private_data(void)
+{
+    D3D12_COMMAND_QUEUE_DESC queue_desc;
+    ULONG refcount, expected_refcount;
+    ID3D12CommandQueue *queue;
+    IUnknown *test_object;
+    ID3D12Device *device;
+    ID3D12Object *object;
+    unsigned int size;
+    IUnknown *ptr;
+    HRESULT hr;
+
+    static const GUID test_guid
+            = {0xfdb37466, 0x428f, 0x4edf, {0xa3, 0x7f, 0x9b, 0x1d, 0xf4, 0x88, 0xc5, 0xfc}};
+    static const GUID test_guid2
+            = {0x2e5afac2, 0x87b5, 0x4c10, {0x9b, 0x4b, 0x89, 0xd7, 0xd1, 0x12, 0xe7, 0x2b}};
+    static const DWORD data[] = {1, 2, 3, 4};
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    queue_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateCommandQueue(device, &queue_desc, &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
+    hr = ID3D12CommandQueue_QueryInterface(queue, &IID_ID3D12Object, (void **)&object);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ID3D12CommandQueue_Release(queue);
+
+    hr = ID3D12Object_SetPrivateData(object, &test_guid, 0, NULL);
+    ok(hr == S_FALSE, "Got unexpected hr %#x.\n", hr);
+    hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, NULL);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    hr = ID3D12Object_SetPrivateData(object, &test_guid, ~0u, NULL);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    hr = ID3D12Object_SetPrivateData(object, &test_guid, ~0u, NULL);
+    ok(hr == S_FALSE, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, NULL);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    size = sizeof(ptr) * 2;
+    ptr = (IUnknown *)0xdeadbeef;
+    hr = ID3D12Object_GetPrivateData(object, &test_guid, &size, &ptr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(!ptr, "Got unexpected pointer %p.\n", ptr);
+    ok(size == sizeof(IUnknown *), "Got unexpected size %u.\n", size);
+
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&test_object);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+
+    refcount = get_refcount(test_object);
+    hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, (IUnknown *)test_object);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    expected_refcount = refcount + 1;
+    refcount = get_refcount(test_object);
+    ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n",
+            (unsigned int)refcount, (unsigned int)expected_refcount);
+    hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, (IUnknown *)test_object);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    refcount = get_refcount(test_object);
+    ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n",
+            (unsigned int)refcount, (unsigned int)expected_refcount);
+
+    hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, NULL);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    --expected_refcount;
+    refcount = get_refcount(test_object);
+    ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n",
+            (unsigned int)refcount, (unsigned int)expected_refcount);
+
+    hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, (IUnknown *)test_object);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    size = sizeof(data);
+    hr = ID3D12Object_SetPrivateData(object, &test_guid, size, data);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    refcount = get_refcount(test_object);
+    ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n",
+            (unsigned int)refcount, (unsigned int)expected_refcount);
+    hr = ID3D12Object_SetPrivateData(object, &test_guid, 42, NULL);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    hr = ID3D12Object_SetPrivateData(object, &test_guid, 42, NULL);
+    ok(hr == S_FALSE, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, (IUnknown *)test_object);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ++expected_refcount;
+    size = 2 * sizeof(ptr);
+    ptr = NULL;
+    hr = ID3D12Object_GetPrivateData(object, &test_guid, &size, &ptr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(size == sizeof(test_object), "Got unexpected size %u.\n", size);
+    ++expected_refcount;
+    refcount = get_refcount(test_object);
+    ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n",
+            (unsigned int)refcount, (unsigned int)expected_refcount);
+    IUnknown_Release(ptr);
+    --expected_refcount;
+
+    ptr = (IUnknown *)0xdeadbeef;
+    size = 1;
+    hr = ID3D12Object_GetPrivateData(object, &test_guid, &size, NULL);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(size == sizeof(ptr), "Got unexpected size %u.\n", size);
+    size = 2 * sizeof(ptr);
+    hr = ID3D12Object_GetPrivateData(object, &test_guid, &size, NULL);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(size == sizeof(ptr), "Got unexpected size %u.\n", size);
+    refcount = get_refcount(test_object);
+    ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n",
+            (unsigned int)refcount, (unsigned int)expected_refcount);
+
+    size = 1;
+    hr = ID3D12Object_GetPrivateData(object, &test_guid, &size, &ptr);
+    ok(hr == DXGI_ERROR_MORE_DATA, "Got unexpected hr %#x.\n", hr);
+    ok(size == sizeof(object), "Got unexpected size %u.\n", size);
+    ok(ptr == (IUnknown *)0xdeadbeef, "Got unexpected pointer %p.\n", ptr);
+    size = 1;
+    hr = ID3D12Object_GetPrivateData(object, &test_guid2, &size, &ptr);
+    ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", hr);
+    ok(!size, "Got unexpected size %u.\n", size);
+    ok(ptr == (IUnknown *)0xdeadbeef, "Got unexpected pointer %p.\n", ptr);
+
+    ID3D12Object_Release(object);
+
+    refcount = IUnknown_Release(test_object);
+    ok(!refcount, "Test object has %u references left.\n", (unsigned int)refcount);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 static void test_reset_command_allocator(void)
 {
     ID3D12CommandAllocator *command_allocator, *command_allocator2;
@@ -22054,6 +22191,7 @@ START_TEST(d3d12)
     run_test(test_create_compute_pipeline_state);
     run_test(test_create_graphics_pipeline_state);
     run_test(test_create_fence);
+    run_test(test_private_data);
     run_test(test_reset_command_allocator);
     run_test(test_cpu_signal_fence);
     run_test(test_gpu_signal_fence);
