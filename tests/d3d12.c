@@ -2561,6 +2561,7 @@ static void test_private_data(void)
 {
     D3D12_COMMAND_QUEUE_DESC queue_desc;
     ULONG refcount, expected_refcount;
+    ID3D12CommandAllocator *allocator;
     ID3D12CommandQueue *queue;
     IUnknown *test_object;
     ID3D12Device *device;
@@ -2578,6 +2579,7 @@ static void test_private_data(void)
     static const DWORD data[] = {1, 2, 3, 4};
     static const GUID *tests[] =
     {
+        &IID_ID3D12CommandAllocator,
         &IID_ID3D12CommandQueue,
         &IID_ID3D12Fence,
     };
@@ -2591,7 +2593,17 @@ static void test_private_data(void)
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
         object = NULL;
-        if (IsEqualGUID(tests[i], &IID_ID3D12CommandQueue))
+        if (IsEqualGUID(tests[i], &IID_ID3D12CommandAllocator))
+        {
+            vkd3d_test_set_context("allocator");
+            hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                    &IID_ID3D12CommandAllocator, (void **)&allocator);
+            ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
+            hr = ID3D12CommandAllocator_QueryInterface(allocator, &IID_ID3D12Object, (void **)&object);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+            ID3D12CommandAllocator_Release(allocator);
+        }
+        else if (IsEqualGUID(tests[i], &IID_ID3D12CommandQueue))
         {
             vkd3d_test_set_context("queue");
             queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;

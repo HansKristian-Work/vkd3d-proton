@@ -1016,6 +1016,8 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
         struct d3d12_device *device = allocator->device;
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+        vkd3d_private_store_destroy(&allocator->private_store);
+
         if (allocator->current_command_list)
             d3d12_command_list_allocator_destroyed(allocator->current_command_list);
 
@@ -1043,25 +1045,31 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
 static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_GetPrivateData(ID3D12CommandAllocator *iface,
         REFGUID guid, UINT *data_size, void *data)
 {
-    FIXME("iface %p, guid %s, data_size %p, data %p stub!", iface, debugstr_guid(guid), data_size, data);
+    struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data_size %p, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+
+    return vkd3d_get_private_data(&allocator->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetPrivateData(ID3D12CommandAllocator *iface,
         REFGUID guid, UINT data_size, const void *data)
 {
-    FIXME("iface %p, guid %s, data_size %u, data %p stub!\n", iface, debugstr_guid(guid), data_size, data);
+    struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+
+    return vkd3d_set_private_data(&allocator->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetPrivateDataInterface(ID3D12CommandAllocator *iface,
         REFGUID guid, const IUnknown *data)
 {
-    FIXME("iface %p, guid %s, data %p stub!\n", iface, debugstr_guid(guid), data);
+    struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
+
+    return vkd3d_set_private_data_interface(&allocator->private_store, guid, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetName(ID3D12CommandAllocator *iface, const WCHAR *name)
@@ -1231,6 +1239,8 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     allocator->command_buffer_count = 0;
 
     allocator->current_command_list = NULL;
+
+    vkd3d_private_store_init(&allocator->private_store);
 
     allocator->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);

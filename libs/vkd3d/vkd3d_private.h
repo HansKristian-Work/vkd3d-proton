@@ -693,6 +693,8 @@ struct d3d12_command_allocator
 
     struct d3d12_command_list *current_command_list;
     struct d3d12_device *device;
+
+    struct vkd3d_private_store private_store;
 };
 
 HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
