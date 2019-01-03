@@ -1469,6 +1469,8 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
     {
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+        vkd3d_private_store_destroy(&device->private_store);
+
         vkd3d_gpu_va_allocator_cleanup(&device->gpu_va_allocator);
         vkd3d_fence_worker_stop(&device->fence_worker, device);
         VK_CALL(vkDestroySampler(device->vk_device, device->vk_dummy_sampler, NULL));
@@ -1488,27 +1490,33 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
 static HRESULT STDMETHODCALLTYPE d3d12_device_GetPrivateData(ID3D12Device *iface,
         REFGUID guid, UINT *data_size, void *data)
 {
-    FIXME("iface %p, guid %s, data_size %p, data %p stub!",
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
+    TRACE("iface %p, guid %s, data_size %p, data %p.\n",
             iface, debugstr_guid(guid), data_size, data);
 
-    return E_NOTIMPL;
+    return vkd3d_get_private_data(&device->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetPrivateData(ID3D12Device *iface,
         REFGUID guid, UINT data_size, const void *data)
 {
-    FIXME("iface %p, guid %s, data_size %u, data %p stub!\n",
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
+    TRACE("iface %p, guid %s, data_size %u, data %p.\n",
             iface, debugstr_guid(guid), data_size, data);
 
-    return E_NOTIMPL;
+    return vkd3d_set_private_data(&device->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetPrivateDataInterface(ID3D12Device *iface,
         REFGUID guid, const IUnknown *data)
 {
-    FIXME("iface %p, guid %s, data %p stub!\n", iface, debugstr_guid(guid), data);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
+
+    return vkd3d_set_private_data_interface(&device->private_store, guid, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetName(ID3D12Device *iface, const WCHAR *name)
@@ -2525,6 +2533,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     if ((device->parent = create_info->parent))
         IUnknown_AddRef(device->parent);
+
+    vkd3d_private_store_init(&device->private_store);
 
     return S_OK;
 

@@ -2581,6 +2581,7 @@ static void test_private_data(void)
         &IID_ID3D12CommandAllocator,
         &IID_ID3D12CommandList,
         &IID_ID3D12CommandQueue,
+        &IID_ID3D12Device,
         &IID_ID3D12Fence,
     };
 
@@ -2620,6 +2621,11 @@ static void test_private_data(void)
             hr = ID3D12Device_CreateCommandQueue(device, &queue_desc,
                     &IID_IUnknown, (void **)&unknown);
             ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
+        }
+        else if (IsEqualGUID(tests[i], &IID_ID3D12Device))
+        {
+            vkd3d_test_set_context("device");
+            unknown = (IUnknown *)create_device();
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12Fence))
         {
@@ -2732,6 +2738,12 @@ static void test_private_data(void)
         ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", hr);
         ok(!size, "Got unexpected size %u.\n", size);
         ok(ptr == (IUnknown *)0xdeadbeef, "Got unexpected pointer %p.\n", ptr);
+
+        if (IsEqualGUID(tests[i], &IID_ID3D12Device))
+        {
+            hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, NULL);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        }
 
         ID3D12Object_Release(object);
 

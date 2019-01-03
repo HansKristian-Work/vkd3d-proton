@@ -860,6 +860,8 @@ struct d3d12_device
     IUnknown *parent;
     LUID adapter_luid;
 
+    struct vkd3d_private_store private_store;
+
     HRESULT removed_reason;
 };
 
