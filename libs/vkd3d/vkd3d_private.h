@@ -230,6 +230,8 @@ struct d3d12_fence
     size_t event_count;
 
     struct d3d12_device *device;
+
+    struct vkd3d_private_store private_store;
 };
 
 HRESULT d3d12_fence_create(struct d3d12_device *device,
