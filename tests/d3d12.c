@@ -7215,18 +7215,21 @@ static void test_shader_instructions(void)
         dcl_globalFlags refactoringAllowed
         dcl_constantbuffer cb0[3], immediateIndexed
         dcl_output o0.xyzw
-        mov o0.xyzw, cb0[0].xyzw
-        movc o0.xyzw, o0.xyzw, cb0[1].xyzw, cb0[2].xyzw
+        dcl_temps 1
+        mov r0.xyzw, cb0[0].xyzw
+        movc r0.xyzw, r0.xyzw, cb0[1].xyzw, cb0[2].xyzw
+        mov o0.xyzw, r0.xyzw
         ret
 #endif
-        0x43425844, 0x317dec99, 0x3a8928ca, 0x5db9a8ea, 0xb4806d11, 0x00000001, 0x000000e8, 0x00000003,
+        0x43425844, 0x59a5be58, 0x260c36c0, 0x7eadcff2, 0x947f4e9d, 0x00000001, 0x00000104, 0x00000003,
         0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
         0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
-        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000070, 0x00000050, 0x0000001c,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x0000008c, 0x00000050, 0x00000023,
         0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000003, 0x03000065, 0x001020f2, 0x00000000,
-        0x06000036, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0b000037, 0x001020f2,
-        0x00000000, 0x00102e46, 0x00000000, 0x00208e46, 0x00000000, 0x00000001, 0x00208e46, 0x00000000,
-        0x00000002, 0x0100003e,
+        0x02000068, 0x00000001, 0x06000036, 0x001000f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000,
+        0x0b000037, 0x001000f2, 0x00000000, 0x00100e46, 0x00000000, 0x00208e46, 0x00000000, 0x00000001,
+        0x00208e46, 0x00000000, 0x00000002, 0x05000036, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000,
+        0x0100003e,
     };
     static struct named_shader ps_movc = {"movc", ps_movc_code, sizeof(ps_movc_code)};
     static const DWORD ps_swapc0_code[] =
@@ -7474,7 +7477,7 @@ static void test_shader_instructions(void)
         {&ps_breakc_nz, {}, {{0.0f, 1.0f, 0.0f, 1.0f}}},
         {&ps_breakc_z,  {}, {{0.0f, 1.0f, 0.0f, 1.0f}}},
 
-        {&ps_continue,     {}, {{254.0f}}, TRUE},
+        {&ps_continue,     {}, {{254.0f}}, true},
         {&ps_continuec_nz, {}, {{509.0f}}},
 
         {&ps_retc_nz, {{  0.0f}}, {{1.0f}}},
@@ -7834,12 +7837,12 @@ static void test_shader_instructions(void)
         {&ps_switch_no_default, {{{3}}}, {{2, 2, 2, 2}}},
         {&ps_switch_no_default, {{{4}}}, {{3, 3, 3, 3}}},
 
-        {&ps_movc, {{{0, 0, 0, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 6, 7, 8}}, true},
-        {&ps_movc, {{{0, 0, 0, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 6, 7, 4}}, true},
-        {&ps_movc, {{{1, 0, 0, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 6, 7, 8}}, true},
-        {&ps_movc, {{{1, 0, 0, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 6, 7, 4}}, true},
-        {&ps_movc, {{{0, 1, 1, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 2, 3, 8}}, true},
-        {&ps_movc, {{{1, 1, 1, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 2, 3, 4}}, true},
+        {&ps_movc, {{{0, 0, 0, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 6, 7, 8}}},
+        {&ps_movc, {{{0, 0, 0, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 6, 7, 4}}},
+        {&ps_movc, {{{1, 0, 0, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 6, 7, 8}}},
+        {&ps_movc, {{{1, 0, 0, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 6, 7, 4}}},
+        {&ps_movc, {{{0, 1, 1, 0}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{5, 2, 3, 8}}},
+        {&ps_movc, {{{1, 1, 1, 1}, {1, 2, 3, 4}, {5, 6, 7, 8}}}, {{1, 2, 3, 4}}},
 
         {
             &ps_swapc0,
@@ -8199,12 +8202,6 @@ static void test_shader_instructions(void)
         if (uint_tests[i].skip_on_warp && use_warp_device)
         {
             skip("Skipping shader '%s' test on WARP.\n", uint_tests[i].ps->name);
-            continue;
-        }
-
-        if (uint_tests[i].ps == &ps_movc && is_amd_device(context.device))
-        {
-            skip("ps_movc crashes on Windows with AMD GPUs.\n");
             continue;
         }
 
