@@ -2373,6 +2373,8 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
         struct d3d12_device *device = heap->device;
         unsigned int i;
 
+        vkd3d_private_store_destroy(&heap->private_store);
+
         switch (heap->desc.Type)
         {
             case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
@@ -2424,25 +2426,31 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
 static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_GetPrivateData(ID3D12DescriptorHeap *iface,
         REFGUID guid, UINT *data_size, void *data)
 {
-    FIXME("iface %p, guid %s, data_size %p, data %p stub!", iface, debugstr_guid(guid), data_size, data);
+    struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data_size %p, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+
+    return vkd3d_get_private_data(&heap->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetPrivateData(ID3D12DescriptorHeap *iface,
         REFGUID guid, UINT data_size, const void *data)
 {
-    FIXME("iface %p, guid %s, data_size %u, data %p stub!\n", iface, debugstr_guid(guid), data_size, data);
+    struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+
+    return vkd3d_set_private_data(&heap->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetPrivateDataInterface(ID3D12DescriptorHeap *iface,
         REFGUID guid, const IUnknown *data)
 {
-    FIXME("iface %p, guid %s, data %p stub!\n", iface, debugstr_guid(guid), data);
+    struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
+
+    return vkd3d_set_private_data_interface(&heap->private_store, guid, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetName(ID3D12DescriptorHeap *iface, const WCHAR *name)
@@ -2525,6 +2533,8 @@ static void d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descriptor_
     descriptor_heap->refcount = 1;
 
     descriptor_heap->desc = *desc;
+
+    vkd3d_private_store_init(&descriptor_heap->private_store);
 
     descriptor_heap->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);

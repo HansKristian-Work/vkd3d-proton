@@ -2560,6 +2560,7 @@ static void test_create_fence(void)
 static void test_private_data(void)
 {
     D3D12_COMMAND_SIGNATURE_DESC command_signature_desc;
+    D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc;
     D3D12_INDIRECT_ARGUMENT_DESC argument_desc;
     D3D12_COMMAND_QUEUE_DESC queue_desc;
     ID3D12RootSignature *root_signature;
@@ -2586,6 +2587,7 @@ static void test_private_data(void)
         &IID_ID3D12CommandList,
         &IID_ID3D12CommandQueue,
         &IID_ID3D12CommandSignature,
+        &IID_ID3D12DescriptorHeap,
         &IID_ID3D12Device,
         &IID_ID3D12Fence,
         &IID_ID3D12Heap,
@@ -2642,6 +2644,17 @@ static void test_private_data(void)
             hr = ID3D12Device_CreateCommandSignature(device, &command_signature_desc,
                     NULL, &IID_ID3D12CommandSignature, (void **)&unknown);
             ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+        }
+        else if (IsEqualGUID(tests[i], &IID_ID3D12DescriptorHeap))
+        {
+            vkd3d_test_set_context("descriptor heap");
+            descriptor_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+            descriptor_heap_desc.NumDescriptors = 16;
+            descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+            descriptor_heap_desc.NodeMask = 0;
+            hr = ID3D12Device_CreateDescriptorHeap(device, &descriptor_heap_desc,
+                    &IID_ID3D12DescriptorHeap, (void **)&unknown);
+            ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12Device))
         {

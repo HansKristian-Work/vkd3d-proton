@@ -449,6 +449,8 @@ struct d3d12_descriptor_heap
 
     struct d3d12_device *device;
 
+    struct vkd3d_private_store private_store;
+
     BYTE descriptors[];
 };
 
