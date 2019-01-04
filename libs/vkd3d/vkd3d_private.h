@@ -467,6 +467,8 @@ struct d3d12_query_heap
 
     struct d3d12_device *device;
 
+    struct vkd3d_private_store private_store;
+
     uint64_t availability_mask[];
 };
 

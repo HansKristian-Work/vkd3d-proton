@@ -2630,6 +2630,8 @@ static ULONG STDMETHODCALLTYPE d3d12_query_heap_Release(ID3D12QueryHeap *iface)
         struct d3d12_device *device = heap->device;
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+        vkd3d_private_store_destroy(&heap->private_store);
+
         VK_CALL(vkDestroyQueryPool(device->vk_device, heap->vk_query_pool, NULL));
 
         vkd3d_free(heap);
@@ -2643,25 +2645,31 @@ static ULONG STDMETHODCALLTYPE d3d12_query_heap_Release(ID3D12QueryHeap *iface)
 static HRESULT STDMETHODCALLTYPE d3d12_query_heap_GetPrivateData(ID3D12QueryHeap *iface,
         REFGUID guid, UINT *data_size, void *data)
 {
-    FIXME("iface %p, guid %s, data_size %p, data %p stub!", iface, debugstr_guid(guid), data_size, data);
+    struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data_size %p, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+
+    return vkd3d_get_private_data(&heap->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetPrivateData(ID3D12QueryHeap *iface,
         REFGUID guid, UINT data_size, const void *data)
 {
-    FIXME("iface %p, guid %s, data_size %u, data %p stub!\n", iface, debugstr_guid(guid), data_size, data);
+    struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+
+    return vkd3d_set_private_data(&heap->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetPrivateDataInterface(ID3D12QueryHeap *iface,
         REFGUID guid, const IUnknown *data)
 {
-    FIXME("iface %p, guid %s, data %p stub!\n", iface, debugstr_guid(guid), data);
+    struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
+
+    return vkd3d_set_private_data_interface(&heap->private_store, guid, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetName(ID3D12QueryHeap *iface, const WCHAR *name)
@@ -2773,6 +2781,8 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
         vkd3d_free(object);
         return hresult_from_vk_result(vr);
     }
+
+    vkd3d_private_store_init(&object->private_store);
 
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
 

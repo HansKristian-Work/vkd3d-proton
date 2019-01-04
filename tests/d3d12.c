@@ -2562,6 +2562,7 @@ static void test_private_data(void)
     D3D12_COMMAND_SIGNATURE_DESC command_signature_desc;
     D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc;
     D3D12_INDIRECT_ARGUMENT_DESC argument_desc;
+    D3D12_QUERY_HEAP_DESC query_heap_desc;
     D3D12_COMMAND_QUEUE_DESC queue_desc;
     ID3D12RootSignature *root_signature;
     ULONG refcount, expected_refcount;
@@ -2592,6 +2593,7 @@ static void test_private_data(void)
         &IID_ID3D12Fence,
         &IID_ID3D12Heap,
         &IID_ID3D12PipelineState,
+        &IID_ID3D12QueryHeap,
         &IID_ID3D12Resource,
         &IID_ID3D12RootSignature,
     };
@@ -2686,6 +2688,16 @@ static void test_private_data(void)
             unknown = (IUnknown *)create_pipeline_state(device,
                     root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, NULL, NULL, NULL);
             ID3D12RootSignature_Release(root_signature);
+        }
+        else if (IsEqualGUID(tests[i], &IID_ID3D12QueryHeap))
+        {
+            vkd3d_test_set_context("query heap");
+            query_heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
+            query_heap_desc.Count = 8;
+            query_heap_desc.NodeMask = 0;
+            hr = ID3D12Device_CreateQueryHeap(device, &query_heap_desc,
+                    &IID_ID3D12QueryHeap, (void **)&unknown);
+            ok(hr == S_OK, "Failed to create query heap, hr %#x.\n", hr);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12Resource))
         {
