@@ -2586,6 +2586,7 @@ static void test_private_data(void)
         &IID_ID3D12CommandSignature,
         &IID_ID3D12Device,
         &IID_ID3D12Fence,
+        &IID_ID3D12RootSignature,
     };
 
     if (!(device = create_device()))
@@ -2598,14 +2599,14 @@ static void test_private_data(void)
     {
         if (IsEqualGUID(tests[i], &IID_ID3D12CommandAllocator))
         {
-            vkd3d_test_set_context("allocator");
+            vkd3d_test_set_context("command allocator");
             hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
                     &IID_IUnknown, (void **)&unknown);
             ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12CommandList))
         {
-            vkd3d_test_set_context("list");
+            vkd3d_test_set_context("command list");
             hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
                     &IID_ID3D12CommandAllocator, (void **)&allocator);
             ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
@@ -2616,7 +2617,7 @@ static void test_private_data(void)
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12CommandQueue))
         {
-            vkd3d_test_set_context("queue");
+            vkd3d_test_set_context("command queue");
             queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
             queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
             queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
@@ -2648,6 +2649,11 @@ static void test_private_data(void)
             hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
                     &IID_IUnknown, (void **)&unknown);
             ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+        }
+        else if (IsEqualGUID(tests[i], &IID_ID3D12RootSignature))
+        {
+            vkd3d_test_set_context("root signature");
+            unknown = (IUnknown *)create_empty_root_signature(device, 0);
         }
         else
         {
