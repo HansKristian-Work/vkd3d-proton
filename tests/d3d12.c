@@ -2590,6 +2590,7 @@ static void test_private_data(void)
         &IID_ID3D12Fence,
         &IID_ID3D12Heap,
         &IID_ID3D12PipelineState,
+        &IID_ID3D12Resource,
         &IID_ID3D12RootSignature,
     };
 
@@ -2672,6 +2673,11 @@ static void test_private_data(void)
             unknown = (IUnknown *)create_pipeline_state(device,
                     root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, NULL, NULL, NULL);
             ID3D12RootSignature_Release(root_signature);
+        }
+        else if (IsEqualGUID(tests[i], &IID_ID3D12Resource))
+        {
+            vkd3d_test_set_context("resource");
+            unknown = (IUnknown *)create_readback_buffer(device, 512);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12RootSignature))
         {

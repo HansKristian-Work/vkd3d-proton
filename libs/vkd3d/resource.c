@@ -706,6 +706,7 @@ static ULONG d3d12_resource_decref(struct d3d12_resource *resource)
 
     if (!refcount)
     {
+        vkd3d_private_store_destroy(&resource->private_store);
         d3d12_resource_destroy(resource, resource->device);
         vkd3d_free(resource);
     }
@@ -781,25 +782,31 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_Release(ID3D12Resource *iface)
 static HRESULT STDMETHODCALLTYPE d3d12_resource_GetPrivateData(ID3D12Resource *iface,
         REFGUID guid, UINT *data_size, void *data)
 {
-    FIXME("iface %p, guid %s, data_size %p, data %p stub!", iface, debugstr_guid(guid), data_size, data);
+    struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data_size %p, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+
+    return vkd3d_get_private_data(&resource->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateData(ID3D12Resource *iface,
         REFGUID guid, UINT data_size, const void *data)
 {
-    FIXME("iface %p, guid %s, data_size %u, data %p stub!\n", iface, debugstr_guid(guid), data_size, data);
+    struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+
+    return vkd3d_set_private_data(&resource->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateDataInterface(ID3D12Resource *iface,
         REFGUID guid, const IUnknown *data)
 {
-    FIXME("iface %p, guid %s, data %p stub!\n", iface, debugstr_guid(guid), data);
+    struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
+
+    return vkd3d_set_private_data_interface(&resource->private_store, guid, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(ID3D12Resource *iface, const WCHAR *name)
@@ -1172,6 +1179,8 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     resource->heap = NULL;
     resource->heap_offset = 0;
 
+    vkd3d_private_store_init(&resource->private_store);
+
     resource->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
 
@@ -1350,6 +1359,7 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device,
         object->present_state = D3D12_RESOURCE_STATE_COMMON;
     object->device = d3d12_device;
     ID3D12Device_AddRef(&d3d12_device->ID3D12Device_iface);
+    vkd3d_private_store_init(&object->private_store);
 
     TRACE("Created resource %p.\n", object);
 

@@ -295,6 +295,8 @@ struct d3d12_resource
     D3D12_RESOURCE_STATES present_state;
 
     struct d3d12_device *device;
+
+    struct vkd3d_private_store private_store;
 };
 
 static inline bool d3d12_resource_is_buffer(const struct d3d12_resource *resource)
