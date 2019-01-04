@@ -4811,6 +4811,8 @@ static ULONG STDMETHODCALLTYPE d3d12_command_signature_Release(ID3D12CommandSign
     {
         struct d3d12_device *device = signature->device;
 
+        vkd3d_private_store_destroy(&signature->private_store);
+
         vkd3d_free((void *)signature->desc.pArgumentDescs);
         vkd3d_free(signature);
 
@@ -4823,25 +4825,31 @@ static ULONG STDMETHODCALLTYPE d3d12_command_signature_Release(ID3D12CommandSign
 static HRESULT STDMETHODCALLTYPE d3d12_command_signature_GetPrivateData(ID3D12CommandSignature *iface,
         REFGUID guid, UINT *data_size, void *data)
 {
-    FIXME("iface %p, guid %s, data_size %p, data %p stub!", iface, debugstr_guid(guid), data_size, data);
+    struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data_size %p, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+
+    return vkd3d_get_private_data(&signature->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetPrivateData(ID3D12CommandSignature *iface,
         REFGUID guid, UINT data_size, const void *data)
 {
-    FIXME("iface %p, guid %s, data_size %u, data %p stub!\n", iface, debugstr_guid(guid), data_size, data);
+    struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+
+    return vkd3d_set_private_data(&signature->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetPrivateDataInterface(ID3D12CommandSignature *iface,
         REFGUID guid, const IUnknown *data)
 {
-    FIXME("iface %p, guid %s, data %p stub!\n", iface, debugstr_guid(guid), data);
+    struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
+
+    return vkd3d_set_private_data_interface(&signature->private_store, guid, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetName(ID3D12CommandSignature *iface, const WCHAR *name)
@@ -4925,6 +4933,8 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_
     }
     memcpy((void *)object->desc.pArgumentDescs, desc->pArgumentDescs,
             desc->NumArgumentDescs * sizeof(*desc->pArgumentDescs));
+
+    vkd3d_private_store_init(&object->private_store);
 
     object->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);

@@ -815,6 +815,8 @@ struct d3d12_command_signature
     D3D12_COMMAND_SIGNATURE_DESC desc;
 
     struct d3d12_device *device;
+
+    struct vkd3d_private_store private_store;
 };
 
 HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_COMMAND_SIGNATURE_DESC *desc,

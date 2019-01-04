@@ -2559,6 +2559,8 @@ static void test_create_fence(void)
 
 static void test_private_data(void)
 {
+    D3D12_COMMAND_SIGNATURE_DESC command_signature_desc;
+    D3D12_INDIRECT_ARGUMENT_DESC argument_desc;
     D3D12_COMMAND_QUEUE_DESC queue_desc;
     ULONG refcount, expected_refcount;
     ID3D12CommandAllocator *allocator;
@@ -2581,6 +2583,7 @@ static void test_private_data(void)
         &IID_ID3D12CommandAllocator,
         &IID_ID3D12CommandList,
         &IID_ID3D12CommandQueue,
+        &IID_ID3D12CommandSignature,
         &IID_ID3D12Device,
         &IID_ID3D12Fence,
     };
@@ -2621,6 +2624,18 @@ static void test_private_data(void)
             hr = ID3D12Device_CreateCommandQueue(device, &queue_desc,
                     &IID_IUnknown, (void **)&unknown);
             ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
+        }
+        else if (IsEqualGUID(tests[i], &IID_ID3D12CommandSignature))
+        {
+            vkd3d_test_set_context("command signature");
+            argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+            command_signature_desc.ByteStride = sizeof(D3D12_DRAW_ARGUMENTS);
+            command_signature_desc.NumArgumentDescs = 1;
+            command_signature_desc.pArgumentDescs = &argument_desc;
+            command_signature_desc.NodeMask = 0;
+            hr = ID3D12Device_CreateCommandSignature(device, &command_signature_desc,
+                    NULL, &IID_ID3D12CommandSignature, (void **)&unknown);
+            ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12Device))
         {
