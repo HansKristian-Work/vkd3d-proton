@@ -2562,6 +2562,7 @@ static void test_private_data(void)
     D3D12_COMMAND_SIGNATURE_DESC command_signature_desc;
     D3D12_INDIRECT_ARGUMENT_DESC argument_desc;
     D3D12_COMMAND_QUEUE_DESC queue_desc;
+    ID3D12RootSignature *root_signature;
     ULONG refcount, expected_refcount;
     ID3D12CommandAllocator *allocator;
     IUnknown *test_object;
@@ -2586,6 +2587,7 @@ static void test_private_data(void)
         &IID_ID3D12CommandSignature,
         &IID_ID3D12Device,
         &IID_ID3D12Fence,
+        &IID_ID3D12PipelineState,
         &IID_ID3D12RootSignature,
     };
 
@@ -2649,6 +2651,14 @@ static void test_private_data(void)
             hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
                     &IID_IUnknown, (void **)&unknown);
             ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+        }
+        else if (IsEqualGUID(tests[i], &IID_ID3D12PipelineState))
+        {
+            vkd3d_test_set_context("pipeline state");
+            root_signature = create_empty_root_signature(device, 0);
+            unknown = (IUnknown *)create_pipeline_state(device,
+                    root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, NULL, NULL, NULL);
+            ID3D12RootSignature_Release(root_signature);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12RootSignature))
         {

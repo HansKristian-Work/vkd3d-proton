@@ -620,6 +620,8 @@ struct d3d12_pipeline_state
     uint8_t uav_counter_mask;
 
     struct d3d12_device *device;
+
+    struct vkd3d_private_store private_store;
 };
 
 static inline bool d3d12_pipeline_state_is_compute(const struct d3d12_pipeline_state *state)

@@ -1136,6 +1136,8 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState 
         struct d3d12_device *device = state->device;
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+        vkd3d_private_store_destroy(&state->private_store);
+
         if (d3d12_pipeline_state_is_graphics(state))
             d3d12_pipeline_state_destroy_graphics(state, device);
         else if (d3d12_pipeline_state_is_compute(state))
@@ -1159,25 +1161,31 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetPrivateData(ID3D12PipelineState *iface,
         REFGUID guid, UINT *data_size, void *data)
 {
-    FIXME("iface %p, guid %s, data_size %p, data %p stub!", iface, debugstr_guid(guid), data_size, data);
+    struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data_size %p, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+
+    return vkd3d_get_private_data(&state->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetPrivateData(ID3D12PipelineState *iface,
         REFGUID guid, UINT data_size, const void *data)
 {
-    FIXME("iface %p, guid %s, data_size %u, data %p stub!\n", iface, debugstr_guid(guid), data_size, data);
+    struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+
+    return vkd3d_set_private_data(&state->private_store, guid, data_size, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetPrivateDataInterface(ID3D12PipelineState *iface,
         REFGUID guid, const IUnknown *data)
 {
-    FIXME("iface %p, guid %s, data %p stub!\n", iface, debugstr_guid(guid), data);
+    struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
 
-    return E_NOTIMPL;
+    TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
+
+    return vkd3d_set_private_data_interface(&state->private_store, guid, data);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetName(ID3D12PipelineState *iface, const WCHAR *name)
@@ -1507,6 +1515,8 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
         vkd3d_free(state->uav_counters);
         return hresult_from_vk_result(vr);
     }
+
+    vkd3d_private_store_init(&state->private_store);
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
     state->device = device;
@@ -2348,6 +2358,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->root_signature = root_signature;
 
     list_init(&graphics->compiled_pipelines);
+
+    vkd3d_private_store_init(&state->private_store);
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
     state->device = device;
