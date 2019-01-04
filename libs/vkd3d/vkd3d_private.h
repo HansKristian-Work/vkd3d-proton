@@ -253,6 +253,8 @@ struct d3d12_heap
     uint32_t vk_memory_type;
 
     struct d3d12_device *device;
+
+    struct vkd3d_private_store private_store;
 };
 
 HRESULT d3d12_heap_create(struct d3d12_device *device,

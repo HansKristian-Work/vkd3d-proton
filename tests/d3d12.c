@@ -2565,6 +2565,7 @@ static void test_private_data(void)
     ID3D12RootSignature *root_signature;
     ULONG refcount, expected_refcount;
     ID3D12CommandAllocator *allocator;
+    D3D12_HEAP_DESC heap_desc;
     IUnknown *test_object;
     ID3D12Device *device;
     ID3D12Object *object;
@@ -2587,6 +2588,7 @@ static void test_private_data(void)
         &IID_ID3D12CommandSignature,
         &IID_ID3D12Device,
         &IID_ID3D12Fence,
+        &IID_ID3D12Heap,
         &IID_ID3D12PipelineState,
         &IID_ID3D12RootSignature,
     };
@@ -2651,6 +2653,17 @@ static void test_private_data(void)
             hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
                     &IID_IUnknown, (void **)&unknown);
             ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+        }
+        else if (IsEqualGUID(tests[i], &IID_ID3D12Heap))
+        {
+            vkd3d_test_set_context("heap");
+            heap_desc.SizeInBytes = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+            memset(&heap_desc.Properties, 0, sizeof(heap_desc.Properties));
+            heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+            heap_desc.Alignment = 0;
+            heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
+            hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&unknown);
+            ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12PipelineState))
         {
