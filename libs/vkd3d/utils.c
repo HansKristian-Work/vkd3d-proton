@@ -527,6 +527,17 @@ static HRESULT vkd3d_private_store_set_private_data(struct vkd3d_private_store *
     struct vkd3d_private_data *d, *old_data;
     const void *ptr = data;
 
+    if (!data)
+    {
+        if ((d = vkd3d_private_store_get_private_data(store, tag)))
+        {
+            vkd3d_private_data_destroy(d);
+            return S_OK;
+        }
+
+        return S_FALSE;
+    }
+
     if (is_object)
     {
         if (data_size != sizeof(IUnknown *))
@@ -584,25 +595,12 @@ HRESULT vkd3d_get_private_data(struct vkd3d_private_store *store,
 HRESULT vkd3d_set_private_data(struct vkd3d_private_store *store,
         const GUID *tag, unsigned int data_size, const void *data)
 {
-    struct vkd3d_private_data *d;
-
-    if (!data)
-    {
-        if (!(d = vkd3d_private_store_get_private_data(store, tag)))
-            return S_FALSE;
-
-        vkd3d_private_data_destroy(d);
-        return S_OK;
-    }
-
     return vkd3d_private_store_set_private_data(store, tag, data, data_size, false);
 }
 
 HRESULT vkd3d_set_private_data_interface(struct vkd3d_private_store *store,
         const GUID *tag, const IUnknown *object)
 {
-    if (!object)
-        return vkd3d_set_private_data(store, tag, sizeof(object), &object);
-
-    return vkd3d_private_store_set_private_data(store, tag, object, sizeof(object), true);
+    const void *data = object ? object : (void *)&object;
+    return vkd3d_private_store_set_private_data(store, tag, data, sizeof(object), !!object);
 }
