@@ -2832,6 +2832,159 @@ static void test_private_data(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+struct private_data
+{
+    ID3D12Object *object;
+    GUID guid;
+    unsigned int value;
+};
+
+static void private_data_thread_main(void *untyped_data)
+{
+    struct private_data *data = untyped_data;
+    unsigned int i;
+    HRESULT hr;
+
+    hr = ID3D12Object_SetPrivateData(data->object, &data->guid, sizeof(data->value), &data->value);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    for (i = 0; i < 100000; ++i)
+    {
+        hr = ID3D12Object_SetPrivateData(data->object, &data->guid, 0, NULL);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        hr = ID3D12Object_SetPrivateData(data->object, &data->guid, sizeof(data->value), &data->value);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    }
+}
+
+struct private_data_interface
+{
+    ID3D12Object *object;
+    GUID guid;
+    IUnknown *iface;
+};
+
+static void private_data_interface_thread_main(void *untyped_data)
+{
+    struct private_data_interface *data = untyped_data;
+    unsigned int i;
+    HRESULT hr;
+
+    for (i = 0; i < 100000; ++i)
+    {
+        hr = ID3D12Object_SetPrivateDataInterface(data->object, &data->guid, data->iface);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        hr = ID3D12Object_SetPrivateDataInterface(data->object, &data->guid, NULL);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        hr = ID3D12Object_SetPrivateDataInterface(data->object, &data->guid, data->iface);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    }
+}
+
+static void test_multithread_private_data(void)
+{
+    static const GUID guid = {0xfdb37466, 0x428f, 0x4edf, {0xa3, 0x7f, 0x9b, 0x1d, 0xf4, 0x88, 0xc5, 0x00}};
+    struct private_data_interface private_data_interface[4];
+    HANDLE private_data_interface_thread[4];
+    struct private_data private_data[4];
+    ID3D12RootSignature *root_signature;
+    HANDLE private_data_thread[4];
+    IUnknown *test_object, *unk;
+    ID3D12Device *device;
+    ID3D12Object *object;
+    unsigned int value;
+    unsigned int size;
+    unsigned int id;
+    unsigned int i;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    root_signature = create_empty_root_signature(device,
+            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+    hr = ID3D12RootSignature_QueryInterface(root_signature, &IID_ID3D12Object, (void **)&object);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ID3D12RootSignature_Release(root_signature);
+
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&test_object);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+
+    for (i = 0, id = 1; i < ARRAY_SIZE(private_data_interface); ++i, ++id)
+    {
+        private_data_interface[i].object = object;
+        private_data_interface[i].guid = guid;
+        private_data_interface[i].guid.Data4[7] = id;
+
+        hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
+                &IID_ID3D12Fence, (void **)&private_data_interface[i].iface);
+        ok(hr == S_OK, "Failed to create fence %u, hr %#x.\n", i, hr);
+    }
+    for (i = 0; i < ARRAY_SIZE(private_data); ++i, ++id)
+    {
+        private_data[i].object = object;
+        private_data[i].guid = guid;
+        private_data[i].guid.Data4[7] = id;
+        private_data[i].value = id;
+    }
+
+    for (i = 0; i < 4; ++i)
+    {
+        private_data_interface_thread[i] = create_thread(private_data_interface_thread_main, &private_data_interface[i]);
+        private_data_thread[i] = create_thread(private_data_thread_main, &private_data[i]);
+    }
+
+    for (i = 0; i < 100000; ++i)
+    {
+        hr = ID3D12Object_SetPrivateDataInterface(object, &guid, test_object);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        hr = ID3D12Object_SetPrivateDataInterface(object, &guid, NULL);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        hr = ID3D12Object_SetPrivateDataInterface(object, &guid, test_object);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    }
+
+    for (i = 0; i < 4; ++i)
+    {
+        ok(join_thread(private_data_interface_thread[i]), "Failed to join thread %u.\n", i);
+        ok(join_thread(private_data_thread[i]), "Failed to join thread %u.\n", i);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(private_data_interface); ++i)
+    {
+        size = sizeof(unk);
+        hr = ID3D12Object_GetPrivateData(object, &private_data_interface[i].guid, &size, &unk);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        ok(unk == private_data_interface[i].iface, "Got %p, expected %p.\n", unk, private_data_interface[i].iface);
+        IUnknown_Release(unk);
+        refcount = IUnknown_Release(private_data_interface[i].iface);
+        ok(refcount == 1, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    }
+    for (i = 0; i < ARRAY_SIZE(private_data); ++i)
+    {
+        size = sizeof(value);
+        hr = ID3D12Object_GetPrivateData(object, &private_data[i].guid, &size, &value);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        ok(value == private_data[i].value, "Got %u, expected %u.\n", value, private_data[i].value);
+    }
+
+    hr = ID3D12Object_SetPrivateDataInterface(object, &guid, NULL);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    refcount = IUnknown_Release(test_object);
+    ok(!refcount, "Test object has %u references left.\n", (unsigned int)refcount);
+    refcount = ID3D12Object_Release(object);
+    ok(!refcount, "Object has %u references left.\n", (unsigned int)refcount);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 static void test_reset_command_allocator(void)
 {
     ID3D12CommandAllocator *command_allocator, *command_allocator2;
@@ -22327,6 +22480,7 @@ START_TEST(d3d12)
     run_test(test_create_graphics_pipeline_state);
     run_test(test_create_fence);
     run_test(test_private_data);
+    run_test(test_multithread_private_data);
     run_test(test_reset_command_allocator);
     run_test(test_cpu_signal_fence);
     run_test(test_gpu_signal_fence);
