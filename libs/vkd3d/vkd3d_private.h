@@ -76,6 +76,10 @@ struct vkd3d_vk_device_procs
 };
 #undef DECLARE_VK_PFN
 
+HRESULT hresult_from_errno(int rc) DECLSPEC_HIDDEN;
+HRESULT hresult_from_vk_result(VkResult vr) DECLSPEC_HIDDEN;
+HRESULT hresult_from_vkd3d_result(int vkd3d_result) DECLSPEC_HIDDEN;
+
 struct vkd3d_vulkan_info
 {
     /* instance extensions */
@@ -165,6 +169,8 @@ void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator,
 
 struct vkd3d_private_store
 {
+    pthread_mutex_t mutex;
+
     struct list content;
 };
 
@@ -190,9 +196,16 @@ static inline void vkd3d_private_data_destroy(struct vkd3d_private_data *data)
     vkd3d_free(data);
 }
 
-static inline void vkd3d_private_store_init(struct vkd3d_private_store *store)
+static inline HRESULT vkd3d_private_store_init(struct vkd3d_private_store *store)
 {
+    int rc;
+
     list_init(&store->content);
+
+    if ((rc = pthread_mutex_init(&store->mutex, NULL)))
+        ERR("Failed to initialize mutex, error %d.\n", rc);
+
+    return hresult_from_errno(rc);
 }
 
 static inline void vkd3d_private_store_destroy(struct vkd3d_private_store *store)
@@ -203,6 +216,8 @@ static inline void vkd3d_private_store_destroy(struct vkd3d_private_store *store
     {
         vkd3d_private_data_destroy(data);
     }
+
+    pthread_mutex_destroy(&store->mutex);
 }
 
 HRESULT vkd3d_get_private_data(struct vkd3d_private_store *store,
@@ -976,10 +991,6 @@ static inline void debug_ignored_node_mask(unsigned int mask)
     if (mask && mask != 1)
         FIXME("Ignoring node mask 0x%08x.\n", mask);
 }
-
-HRESULT hresult_from_errno(int rc) DECLSPEC_HIDDEN;
-HRESULT hresult_from_vk_result(VkResult vr) DECLSPEC_HIDDEN;
-HRESULT hresult_from_vkd3d_result(int vkd3d_result) DECLSPEC_HIDDEN;
 
 HRESULT vkd3d_load_vk_global_procs(struct vkd3d_vk_global_procs *procs,
         PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr) DECLSPEC_HIDDEN;

@@ -379,14 +379,19 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
         return hresult_from_errno(rc);
     }
 
-    if (FAILED(hr = vkd3d_allocate_device_memory(device, &heap->desc.Properties,
-            heap->desc.Flags, &memory_requirements, &heap->vk_memory, &heap->vk_memory_type)))
+    if (FAILED(hr = vkd3d_private_store_init(&heap->private_store)))
     {
         pthread_mutex_destroy(&heap->mutex);
         return hr;
     }
 
-    vkd3d_private_store_init(&heap->private_store);
+    if (FAILED(hr = vkd3d_allocate_device_memory(device, &heap->desc.Properties,
+            heap->desc.Flags, &memory_requirements, &heap->vk_memory, &heap->vk_memory_type)))
+    {
+        vkd3d_private_store_destroy(&heap->private_store);
+        pthread_mutex_destroy(&heap->mutex);
+        return hr;
+    }
 
     heap->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
@@ -1179,7 +1184,11 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     resource->heap = NULL;
     resource->heap_offset = 0;
 
-    vkd3d_private_store_init(&resource->private_store);
+    if (FAILED(hr = vkd3d_private_store_init(&resource->private_store)))
+    {
+        d3d12_resource_destroy(resource, device);
+        return hr;
+    }
 
     resource->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
@@ -1325,6 +1334,7 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device,
 {
     struct d3d12_device *d3d12_device = unsafe_impl_from_ID3D12Device(device);
     struct d3d12_resource *object;
+    HRESULT hr;
 
     TRACE("device %p, create_info %p, resource %p.\n", device, create_info, resource);
 
@@ -1357,9 +1367,15 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device,
         object->present_state = create_info->present_state;
     else
         object->present_state = D3D12_RESOURCE_STATE_COMMON;
+
+    if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
+
     object->device = d3d12_device;
     ID3D12Device_AddRef(&d3d12_device->ID3D12Device_iface);
-    vkd3d_private_store_init(&object->private_store);
 
     TRACE("Created resource %p.\n", object);
 
@@ -2526,18 +2542,23 @@ static const struct ID3D12DescriptorHeapVtbl d3d12_descriptor_heap_vtbl =
     d3d12_descriptor_heap_GetGPUDescriptorHandleForHeapStart,
 };
 
-static void d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descriptor_heap,
+static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descriptor_heap,
         struct d3d12_device *device, const D3D12_DESCRIPTOR_HEAP_DESC *desc)
 {
+    HRESULT hr;
+
     descriptor_heap->ID3D12DescriptorHeap_iface.lpVtbl = &d3d12_descriptor_heap_vtbl;
     descriptor_heap->refcount = 1;
 
     descriptor_heap->desc = *desc;
 
-    vkd3d_private_store_init(&descriptor_heap->private_store);
+    if (FAILED(hr = vkd3d_private_store_init(&descriptor_heap->private_store)))
+        return hr;
 
     descriptor_heap->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
+
+    return S_OK;
 }
 
 HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
@@ -2545,6 +2566,7 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
 {
     size_t max_descriptor_count, descriptor_size;
     struct d3d12_descriptor_heap *object;
+    HRESULT hr;
 
     if (!(descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(&device->ID3D12Device_iface, desc->Type)))
     {
@@ -2570,7 +2592,12 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
             descriptors[descriptor_size * desc->NumDescriptors]))))
         return E_OUTOFMEMORY;
 
-    d3d12_descriptor_heap_init(object, device, desc);
+    if (FAILED(hr = d3d12_descriptor_heap_init(object, device, desc)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
+
     memset(object->descriptors, 0, descriptor_size * desc->NumDescriptors);
 
     TRACE("Created descriptor heap %p.\n", object);
@@ -2722,6 +2749,7 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
     VkQueryPoolCreateInfo pool_info;
     unsigned int element_count;
     VkResult vr;
+    HRESULT hr;
 
     element_count = DIV_ROUND_UP(desc->Count, sizeof(*object->availability_mask) * CHAR_BIT);
     if (!(object = vkd3d_malloc(offsetof(struct d3d12_query_heap, availability_mask[element_count]))))
@@ -2775,14 +2803,19 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
             return E_INVALIDARG;
     }
 
+    if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
+
     if ((vr = VK_CALL(vkCreateQueryPool(device->vk_device, &pool_info, NULL, &object->vk_query_pool))) < 0)
     {
         WARN("Failed to create Vulkan query pool, vr %d.\n", vr);
+        vkd3d_private_store_destroy(&object->private_store);
         vkd3d_free(object);
         return hresult_from_vk_result(vr);
     }
-
-    vkd3d_private_store_init(&object->private_store);
 
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
 

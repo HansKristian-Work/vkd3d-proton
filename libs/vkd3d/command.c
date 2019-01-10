@@ -578,6 +578,7 @@ static const struct ID3D12FenceVtbl d3d12_fence_vtbl =
 static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *device,
         UINT64 initial_value, D3D12_FENCE_FLAGS flags)
 {
+    HRESULT hr;
     int rc;
 
     fence->ID3D12Fence_iface.lpVtbl = &d3d12_fence_vtbl;
@@ -598,7 +599,11 @@ static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *
     fence->events_size = 0;
     fence->event_count = 0;
 
-    vkd3d_private_store_init(&fence->private_store);
+    if (FAILED(hr = vkd3d_private_store_init(&fence->private_store)))
+    {
+        pthread_mutex_destroy(&fence->mutex);
+        return hr;
+    }
 
     fence->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
@@ -1182,6 +1187,10 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     VkCommandPoolCreateInfo command_pool_info;
     struct vkd3d_queue *queue;
     VkResult vr;
+    HRESULT hr;
+
+    if (FAILED(hr = vkd3d_private_store_init(&allocator->private_store)))
+        return hr;
 
     if (!(queue = d3d12_device_get_vkd3d_queue(device, type)))
         queue = device->direct_queue;
@@ -1201,6 +1210,7 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
             &allocator->vk_command_pool))) < 0)
     {
         WARN("Failed to create Vulkan command pool, vr %d.\n", vr);
+        vkd3d_private_store_destroy(&allocator->private_store);
         return hresult_from_vk_result(vr);
     }
 
@@ -1239,8 +1249,6 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     allocator->command_buffer_count = 0;
 
     allocator->current_command_list = NULL;
-
-    vkd3d_private_store_init(&allocator->private_store);
 
     allocator->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
@@ -4287,17 +4295,24 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     list->refcount = 1;
 
     list->type = type;
+
+    if (FAILED(hr = vkd3d_private_store_init(&list->private_store)))
+        return hr;
+
     list->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
-
-    vkd3d_private_store_init(&list->private_store);
 
     list->allocator = allocator;
 
     if (SUCCEEDED(hr = d3d12_command_allocator_allocate_command_buffer(allocator, list)))
+    {
         d3d12_command_list_reset_state(list, initial_pipeline_state);
+    }
     else
+    {
+        vkd3d_private_store_destroy(&list->private_store);
         ID3D12Device_Release(&device->ID3D12Device_iface);
+    }
 
     return hr;
 }
@@ -4696,6 +4711,8 @@ static const struct ID3D12CommandQueueVtbl d3d12_command_queue_vtbl =
 static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
         struct d3d12_device *device, const D3D12_COMMAND_QUEUE_DESC *desc)
 {
+    HRESULT hr;
+
     queue->ID3D12CommandQueue_iface.lpVtbl = &d3d12_command_queue_vtbl;
     queue->refcount = 1;
 
@@ -4711,7 +4728,8 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     if (desc->Flags)
         FIXME("Ignoring flags %#x.\n", desc->Flags);
 
-    vkd3d_private_store_init(&queue->private_store);
+    if (FAILED(hr = vkd3d_private_store_init(&queue->private_store)))
+        return hr;
 
     queue->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
@@ -4899,6 +4917,7 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_
 {
     struct d3d12_command_signature *object;
     unsigned int i;
+    HRESULT hr;
 
     for (i = 0; i < desc->NumArgumentDescs; ++i)
     {
@@ -4934,7 +4953,12 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_
     memcpy((void *)object->desc.pArgumentDescs, desc->pArgumentDescs,
             desc->NumArgumentDescs * sizeof(*desc->pArgumentDescs));
 
-    vkd3d_private_store_init(&object->private_store);
+    if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
+    {
+        vkd3d_free((void *)object->desc.pArgumentDescs);
+        vkd3d_free(object);
+        return hr;
+    }
 
     object->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);

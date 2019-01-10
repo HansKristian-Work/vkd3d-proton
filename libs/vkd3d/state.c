@@ -999,7 +999,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             &root_signature->vk_pipeline_layout)))
         goto fail;
 
-    vkd3d_private_store_init(&root_signature->private_store);
+    if (FAILED(hr = vkd3d_private_store_init(&root_signature->private_store)))
+        goto fail;
 
     root_signature->device = device;
     ID3D12Device_AddRef(&device->ID3D12Device_iface);
@@ -1516,7 +1517,16 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
         return hresult_from_vk_result(vr);
     }
 
-    vkd3d_private_store_init(&state->private_store);
+    if (FAILED(hr = vkd3d_private_store_init(&state->private_store)))
+    {
+        VK_CALL(vkDestroyPipeline(device->vk_device, state->u.compute.vk_pipeline, NULL));
+        if (state->vk_set_layout)
+            VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout, NULL));
+        if (state->vk_pipeline_layout)
+            VK_CALL(vkDestroyPipelineLayout(device->vk_device, state->vk_pipeline_layout, NULL));
+        vkd3d_free(state->uav_counters);
+        return hr;
+    }
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
     state->device = device;
@@ -2359,7 +2369,11 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     list_init(&graphics->compiled_pipelines);
 
-    vkd3d_private_store_init(&state->private_store);
+    if (FAILED(hr = vkd3d_private_store_init(&state->private_store)))
+    {
+        VK_CALL(vkDestroyRenderPass(device->vk_device, graphics->render_pass, NULL));
+        goto fail;
+    }
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
     state->device = device;

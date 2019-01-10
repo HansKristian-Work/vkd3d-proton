@@ -2526,18 +2526,21 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = d3d12_device_init_pipeline_cache(device)))
         goto out_free_vk_resources;
 
-    if (FAILED(hr = vkd3d_fence_worker_start(&device->fence_worker, device)))
+    if (FAILED(hr = vkd3d_private_store_init(&device->private_store)))
         goto out_free_pipeline_cache;
+
+    if (FAILED(hr = vkd3d_fence_worker_start(&device->fence_worker, device)))
+        goto out_free_private_store;
 
     vkd3d_gpu_va_allocator_init(&device->gpu_va_allocator);
 
     if ((device->parent = create_info->parent))
         IUnknown_AddRef(device->parent);
 
-    vkd3d_private_store_init(&device->private_store);
-
     return S_OK;
 
+out_free_private_store:
+    vkd3d_private_store_destroy(&device->private_store);
 out_free_pipeline_cache:
     d3d12_device_destroy_pipeline_cache(device);
 out_free_vk_resources:
