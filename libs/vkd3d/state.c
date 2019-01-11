@@ -2353,6 +2353,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     if (!graphics->attachment_count && !(desc->PS.pShaderBytecode && desc->PS.BytecodeLength))
         graphics->rs_desc.rasterizerDiscardEnable = VK_TRUE;
 
+    if (desc->SampleMask != ~0u)
+        FIXME("Ignoring sample mask %#x.\n", desc->SampleMask);
+
     graphics->ms_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     graphics->ms_desc.pNext = NULL;
     graphics->ms_desc.flags = 0;
