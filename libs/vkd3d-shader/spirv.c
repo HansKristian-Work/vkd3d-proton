@@ -1901,6 +1901,21 @@ struct vkd3d_dxbc_compiler
 
 static void vkd3d_dxbc_compiler_emit_shader_signature_outputs(struct vkd3d_dxbc_compiler *compiler);
 
+static void vkd3d_dxbc_compiler_emit_execution_mode(struct vkd3d_dxbc_compiler *compiler,
+        SpvExecutionMode mode, const uint32_t *literals, unsigned int literal_count)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    vkd3d_spirv_build_op_execution_mode(&builder->execution_mode_stream,
+            builder->main_function_id, mode, literals, literal_count);
+}
+
+static void vkd3d_dxbc_compiler_emit_execution_mode1(struct vkd3d_dxbc_compiler *compiler,
+        SpvExecutionMode mode, const uint32_t literal)
+{
+    vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, &literal, 1);
+}
+
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
         const struct vkd3d_shader_desc *shader_desc, uint32_t compiler_options,
         const struct vkd3d_shader_interface *shader_interface,
@@ -1943,6 +1958,7 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
             break;
         case VKD3D_SHADER_TYPE_PIXEL:
             vkd3d_spirv_set_execution_model(&compiler->spirv_builder, SpvExecutionModelFragment);
+            vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeOriginUpperLeft, NULL, 0);
             break;
         case VKD3D_SHADER_TYPE_COMPUTE:
             vkd3d_spirv_set_execution_model(&compiler->spirv_builder, SpvExecutionModelGLCompute);
@@ -2717,21 +2733,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *co
     }
 
     return val_id;
-}
-
-static void vkd3d_dxbc_compiler_emit_execution_mode(struct vkd3d_dxbc_compiler *compiler,
-        SpvExecutionMode mode, const uint32_t *literals, unsigned int literal_count)
-{
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-
-    vkd3d_spirv_build_op_execution_mode(&builder->execution_mode_stream,
-            builder->main_function_id, mode, literals, literal_count);
-}
-
-static void vkd3d_dxbc_compiler_emit_execution_mode1(struct vkd3d_dxbc_compiler *compiler,
-        SpvExecutionMode mode, const uint32_t literal)
-{
-    vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, &literal, 1);
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_abs(struct vkd3d_dxbc_compiler *compiler,
