@@ -19,6 +19,7 @@
 #ifndef __VKD3D_SHADER_H
 #define __VKD3D_SHADER_H
 
+#include <stdbool.h>
 #include <vkd3d_types.h>
 
 #ifdef __cplusplus
