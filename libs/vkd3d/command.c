@@ -1308,13 +1308,28 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
     {
         VK_CALL(vkCmdEndTransformFeedbackEXT(list->vk_command_buffer, 0, ARRAY_SIZE(list->so_counter_buffers),
                 list->so_counter_buffers, list->so_counter_buffer_offsets));
-        list->xfb_enabled = false;
     }
 
     if (list->current_render_pass)
         VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
 
     list->current_render_pass = VK_NULL_HANDLE;
+
+    if (list->xfb_enabled)
+    {
+        VkMemoryBarrier vk_barrier;
+
+        /* We need a barrier between pause and resume. */
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        vk_barrier.pNext = NULL;
+        vk_barrier.srcAccessMask = VK_ACCESS_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT;
+        vk_barrier.dstAccessMask = VK_ACCESS_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT;
+        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+                VK_PIPELINE_STAGE_TRANSFORM_FEEDBACK_BIT_EXT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0,
+                1, &vk_barrier, 0, NULL, 0, NULL));
+
+        list->xfb_enabled = false;
+    }
 }
 
 static void d3d12_command_list_invalidate_current_render_pass(struct d3d12_command_list *list)
@@ -1419,8 +1434,14 @@ static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
             return true;
 
         case D3D12_RESOURCE_STATE_STREAM_OUT:
-            FIXME("Unhandled resource state %#x.\n", state);
-            return false;
+            *access_mask = VK_ACCESS_TRANSFORM_FEEDBACK_WRITE_BIT_EXT
+                    | VK_ACCESS_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT
+                    | VK_ACCESS_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT;
+            *stage_flags = VK_PIPELINE_STAGE_TRANSFORM_FEEDBACK_BIT_EXT
+                    | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+            if (image_layout)
+                *image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+            return true;
 
         /* Set the Vulkan image layout for read-only states. */
         case D3D12_RESOURCE_STATE_DEPTH_READ:
