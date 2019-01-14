@@ -176,6 +176,12 @@ VK_DEVICE_PFN(vkUpdateDescriptorSets)
 VK_DEVICE_PFN(vkWaitForFences)
 /* VK_KHR_push_descriptor */
 VK_DEVICE_EXT_PFN(vkCmdPushDescriptorSetKHR)
+/* VK_EXT_transform_feedback */
+VK_DEVICE_EXT_PFN(vkCmdBeginQueryIndexedEXT)
+VK_DEVICE_EXT_PFN(vkCmdBeginTransformFeedbackEXT)
+VK_DEVICE_EXT_PFN(vkCmdBindTransformFeedbackBuffersEXT)
+VK_DEVICE_EXT_PFN(vkCmdEndQueryIndexedEXT)
+VK_DEVICE_EXT_PFN(vkCmdEndTransformFeedbackEXT)
 
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN

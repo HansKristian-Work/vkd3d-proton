@@ -84,6 +84,8 @@ static const char * const required_device_extensions[] =
 static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 {
     {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_push_descriptor)},
+    {VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME,
+            offsetof(struct vkd3d_vulkan_info, EXT_transform_feedback)},
     {VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME,
             offsetof(struct vkd3d_vulkan_info, EXT_vertex_attribute_divisor)},
 };
@@ -621,6 +623,7 @@ static void vkd3d_trace_physical_device_limits(const VkPhysicalDeviceProperties2
 {
     const VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT *divisor_properties;
     const VkPhysicalDeviceLimits *limits = &properties2->properties.limits;
+    const VkPhysicalDeviceTransformFeedbackPropertiesEXT *xfb;
 
     TRACE("Device limits:\n");
     TRACE("  maxImageDimension1D: %u.\n", limits->maxImageDimension1D);
@@ -739,6 +742,22 @@ static void vkd3d_trace_physical_device_limits(const VkPhysicalDeviceProperties2
     TRACE("  optimalBufferCopyRowPitchAlignment: %#"PRIx64".\n", limits->optimalBufferCopyRowPitchAlignment);
     TRACE("  nonCoherentAtomSize: %#"PRIx64".\n", limits->nonCoherentAtomSize);
 
+    xfb = vk_find_struct(properties2->pNext, PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT);
+    if (xfb)
+    {
+        TRACE("  VkPhysicalDeviceTransformFeedbackPropertiesEXT:\n");
+        TRACE("    maxTransformFeedbackStreams: %u.\n", xfb->maxTransformFeedbackStreams);
+        TRACE("    maxTransformFeedbackBuffers: %u.\n", xfb->maxTransformFeedbackBuffers);
+        TRACE("    maxTransformFeedbackBufferSize: %#"PRIx64".\n", xfb->maxTransformFeedbackBufferSize);
+        TRACE("    maxTransformFeedbackStreamDataSize: %u.\n", xfb->maxTransformFeedbackStreamDataSize);
+        TRACE("    maxTransformFeedbackBufferDataSize: %u.\n", xfb->maxTransformFeedbackBufferDataSize);
+        TRACE("    maxTransformFeedbackBufferDataStride: %u.\n", xfb->maxTransformFeedbackBufferDataStride);
+        TRACE("    transformFeedbackQueries: %#x.\n", xfb->transformFeedbackQueries);
+        TRACE("    transformFeedbackStreamsLinesTriangles: %#x.\n", xfb->transformFeedbackStreamsLinesTriangles);
+        TRACE("    transformFeedbackRasterizationStreamSelect: %#x.\n", xfb->transformFeedbackRasterizationStreamSelect);
+        TRACE("    transformFeedbackDraw: %x.\n", xfb->transformFeedbackDraw);
+    }
+
     divisor_properties
             = vk_find_struct(properties2->pNext, PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES_EXT);
     if (divisor_properties)
@@ -752,6 +771,7 @@ static void vkd3d_trace_physical_device_features(const VkPhysicalDeviceFeatures2
 {
     const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
     const VkPhysicalDeviceFeatures *features = &features2->features;
+    const VkPhysicalDeviceTransformFeedbackFeaturesEXT *xfb;
 
     TRACE("Device features:\n");
     TRACE("  robustBufferAccess: %#x.\n", features->robustBufferAccess);
@@ -810,6 +830,14 @@ static void vkd3d_trace_physical_device_features(const VkPhysicalDeviceFeatures2
     TRACE("  variableMultisampleRate: %#x.\n", features->variableMultisampleRate);
     TRACE("  inheritedQueries: %#x.\n", features->inheritedQueries);
 
+    xfb = vk_find_struct(features2->pNext, PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT);
+    if (xfb)
+    {
+        TRACE("  VkPhysicalDeviceTransformFeedbackFeaturesEXT:\n");
+        TRACE("    transformFeedback: %#x.\n", xfb->transformFeedback);
+        TRACE("    geometryStreams: %#x.\n", xfb->geometryStreams);
+    }
+
     divisor_features = vk_find_struct(features2->pNext, PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT);
     if (divisor_features)
     {
@@ -863,6 +891,9 @@ static void vkd3d_check_feature_level_11_requirements(const struct vkd3d_vulkan_
     CHECK_FEATURE(shaderClipDistance);
     CHECK_FEATURE(shaderCullDistance);
 
+    if (!vk_info->EXT_transform_feedback)
+        WARN("Stream output is not supported.\n");
+
     if (!vk_info->EXT_vertex_attribute_divisor)
         WARN("Vertex attribute instance rate divisor is not supported.\n");
     else if (!vk_info->vertex_attrib_zero_divisor)
@@ -880,6 +911,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
     const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
+    VkPhysicalDeviceTransformFeedbackPropertiesEXT xfb_properties;
     VkPhysicalDevice physical_device = device->vk_physical_device;
     VkPhysicalDeviceFeatures *features = &features2->features;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
@@ -892,8 +924,11 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 
     vkd3d_trace_physical_device_features(features2);
 
+    memset(&xfb_properties, 0, sizeof(xfb_properties));
+    xfb_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT;
     memset(&vertex_divisor_properties, 0, sizeof(vertex_divisor_properties));
     vertex_divisor_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES_EXT;
+    vertex_divisor_properties.pNext = &xfb_properties;
     device_properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     device_properties2.pNext = &vertex_divisor_properties;
     if (vulkan_info->KHR_get_physical_device_properties2)
@@ -1092,6 +1127,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     unsigned int direct_queue_family_index, copy_queue_family_index, compute_queue_family_index;
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
+    VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
     VkQueueFamilyProperties *queue_properties = NULL;
     VkDeviceQueueCreateInfo *queue_info = NULL;
@@ -1182,8 +1218,11 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 
+    memset(&xfb_features, 0, sizeof(xfb_features));
+    xfb_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT;
     memset(&vertex_divisor_features, 0, sizeof(vertex_divisor_features));
     vertex_divisor_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT;
+    vertex_divisor_features.pNext = &xfb_features;
     features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     features2.pNext = &vertex_divisor_features;
     if (vulkan_info->KHR_get_physical_device_properties2)

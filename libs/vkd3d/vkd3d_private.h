@@ -87,6 +87,7 @@ struct vkd3d_vulkan_info
     bool EXT_debug_report;
     /* device extensions */
     bool KHR_push_descriptor;
+    bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
 
     bool vertex_attrib_zero_divisor;
