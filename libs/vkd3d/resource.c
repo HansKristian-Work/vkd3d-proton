@@ -481,6 +481,13 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
             | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
             | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
 
+    if (heap_properties->Type == D3D12_HEAP_TYPE_DEFAULT
+            && device->vk_info.EXT_transform_feedback)
+    {
+        buffer_info.usage |= VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_BUFFER_BIT_EXT
+                | VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT;
+    }
+
     if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD)
         buffer_info.usage &= ~VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     else if (heap_properties->Type == D3D12_HEAP_TYPE_READBACK)
