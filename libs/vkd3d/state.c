@@ -1931,6 +1931,8 @@ bool d3d12_pipeline_state_is_render_pass_compatible(const struct d3d12_pipeline_
     return true;
 }
 
+STATIC_ASSERT(sizeof(struct vkd3d_shader_transform_feedback_element) == sizeof(D3D12_SO_DECLARATION_ENTRY));
+
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc)
 {
@@ -1944,11 +1946,13 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     uint32_t instance_divisors[D3D12_VS_INPUT_REGISTER_COUNT];
     uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
     struct vkd3d_shader_compile_arguments ps_compile_args;
+    struct vkd3d_shader_transform_feedback_info xfb_info;
     const struct d3d12_root_signature *root_signature;
     struct vkd3d_shader_interface shader_interface;
     struct vkd3d_shader_signature input_signature;
     struct VkSubpassDescription sub_pass_desc;
     struct VkRenderPassCreateInfo pass_desc;
+    VkShaderStageFlagBits xfb_stage = 0;
     VkSampleCountFlagBits sample_count;
     const struct vkd3d_format *format;
     enum VkVertexInputRate input_rate;
@@ -2161,6 +2165,31 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         }
     }
 
+    if (so_desc->NumEntries)
+    {
+        if (!vk_info->EXT_transform_feedback)
+        {
+            hr = E_NOTIMPL;
+            FIXME("Transform feedback is not supported by Vulkan implementation.\n");
+            goto fail;
+        }
+
+        xfb_info.type = VKD3D_SHADER_STRUCTURE_TYPE_TRANSFORM_FEEDBACK_INFO;
+        xfb_info.next = NULL;
+
+        xfb_info.elements = (const struct vkd3d_shader_transform_feedback_element *)so_desc->pSODeclaration;
+        xfb_info.element_count = so_desc->NumEntries;
+        xfb_info.buffer_strides = so_desc->pBufferStrides;
+        xfb_info.buffer_stride_count = so_desc->NumStrides;
+
+        if (desc->GS.pShaderBytecode)
+            xfb_stage = VK_SHADER_STAGE_GEOMETRY_BIT;
+        else if (desc->DS.pShaderBytecode)
+            xfb_stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+        else
+            xfb_stage = VK_SHADER_STAGE_VERTEX_BIT;
+    }
+
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE;
     shader_interface.next = NULL;
     shader_interface.bindings = root_signature->descriptor_mapping;
@@ -2224,6 +2253,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 hr = E_INVALIDARG;
                 goto fail;
         }
+
+        shader_interface.next = shader_stages[i].stage == xfb_stage ? &xfb_info : NULL;
 
         if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
                 shader_stages[i].stage, b, &shader_interface, compile_args)))
