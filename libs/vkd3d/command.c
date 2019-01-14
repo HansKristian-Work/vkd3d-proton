@@ -1754,6 +1754,9 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 
     list->state = NULL;
 
+    memset(list->so_counter_buffers, 0, sizeof(list->so_counter_buffers));
+    memset(list->so_counter_buffer_offsets, 0, sizeof(list->so_counter_buffer_offsets));
+
     ID3D12GraphicsCommandList_SetPipelineState(iface, initial_pipeline_state);
 }
 
@@ -3609,7 +3612,64 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
 static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(ID3D12GraphicsCommandList *iface,
         UINT start_slot, UINT view_count, const D3D12_STREAM_OUTPUT_BUFFER_VIEW *views)
 {
-    FIXME("iface %p, start_slot %u, view_count %u, views %p stub!\n", iface, start_slot, view_count, views);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    VkDeviceSize offsets[ARRAY_SIZE(list->so_counter_buffers)];
+    VkDeviceSize sizes[ARRAY_SIZE(list->so_counter_buffers)];
+    VkBuffer buffers[ARRAY_SIZE(list->so_counter_buffers)];
+    struct vkd3d_gpu_va_allocator *gpu_va_allocator;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct d3d12_resource *resource;
+    unsigned int i, first, count;
+
+    TRACE("iface %p, start_slot %u, view_count %u, views %p.\n", iface, start_slot, view_count, views);
+
+    d3d12_command_list_end_current_render_pass(list);
+
+    if (!list->device->vk_info.EXT_transform_feedback)
+    {
+        FIXME("Transform feedback is not supported by Vulkan implementation.\n");
+        return;
+    }
+
+    if (start_slot >= ARRAY_SIZE(buffers) || view_count > ARRAY_SIZE(buffers) - start_slot)
+    {
+        WARN("Invalid start slot %u / view count %u.\n", start_slot, view_count);
+        return;
+    }
+
+    vk_procs = &list->device->vk_procs;
+    gpu_va_allocator = &list->device->gpu_va_allocator;
+
+    count = 0;
+    first = start_slot;
+    for (i = 0; i < view_count; ++i)
+    {
+        if (views[i].BufferLocation && views[i].SizeInBytes)
+        {
+            resource = vkd3d_gpu_va_allocator_dereference(gpu_va_allocator, views[i].BufferLocation);
+            buffers[count] = resource->u.vk_buffer;
+            offsets[count] = views[i].BufferLocation - resource->gpu_address;
+            sizes[count] = views[i].SizeInBytes;
+
+            resource = vkd3d_gpu_va_allocator_dereference(gpu_va_allocator, views[i].BufferFilledSizeLocation);
+            list->so_counter_buffers[start_slot + i] = resource->u.vk_buffer;
+            list->so_counter_buffer_offsets[start_slot + i] = views[i].BufferFilledSizeLocation - resource->gpu_address;
+            ++count;
+        }
+        else
+        {
+            if (count)
+                VK_CALL(vkCmdBindTransformFeedbackBuffersEXT(list->vk_command_buffer, first, count, buffers, offsets, sizes));
+            count = 0;
+            first = start_slot + i + 1;
+
+            list->so_counter_buffers[start_slot + i] = VK_NULL_HANDLE;
+            list->so_counter_buffer_offsets[start_slot + i] = 0;
+        }
+    }
+
+    if (count)
+        VK_CALL(vkCmdBindTransformFeedbackBuffersEXT(list->vk_command_buffer, first, count, buffers, offsets, sizes));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12GraphicsCommandList *iface,
