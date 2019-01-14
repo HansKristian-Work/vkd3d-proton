@@ -1614,6 +1614,27 @@ static void rs_desc_from_d3d12(struct VkPipelineRasterizationStateCreateInfo *vk
         FIXME("Ignoring ConservativeRaster %#x.\n", d3d12_desc->ConservativeRaster);
 }
 
+static void rs_stream_desc_from_d3d12(VkPipelineRasterizationStateStreamCreateInfoEXT *vk_desc,
+        VkPipelineRasterizationStateCreateInfo *vk_rs_desc, const D3D12_STREAM_OUTPUT_DESC *so_desc,
+        const struct vkd3d_vulkan_info *vk_info)
+{
+    if (!so_desc->RasterizedStream || so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM)
+        return;
+
+    if (!vk_info->rasterization_stream)
+    {
+        FIXME("Rasterization stream select is not supported by Vulkan implementation.\n");
+        return;
+    }
+
+    vk_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_STREAM_CREATE_INFO_EXT;
+    vk_desc->pNext = NULL;
+    vk_desc->flags = 0;
+    vk_desc->rasterizationStream = so_desc->RasterizedStream;
+
+    vk_rs_desc->pNext = vk_desc;
+}
+
 static enum VkStencilOp vk_stencil_op_from_d3d12(D3D12_STENCIL_OP op)
 {
     switch (op)
@@ -1916,6 +1937,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     unsigned int ps_output_swizzle[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const D3D12_STREAM_OUTPUT_DESC *so_desc = &desc->StreamOutput;
     VkVertexInputBindingDivisorDescriptionEXT *binding_divisor;
     const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
     const struct vkd3d_shader_compile_arguments *compile_args;
@@ -2350,8 +2372,11 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
 
     rs_desc_from_d3d12(&graphics->rs_desc, &desc->RasterizerState);
-    if (!graphics->attachment_count && !(desc->PS.pShaderBytecode && desc->PS.BytecodeLength))
+    if ((!graphics->attachment_count && !(desc->PS.pShaderBytecode && desc->PS.BytecodeLength))
+            || so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM)
         graphics->rs_desc.rasterizerDiscardEnable = VK_TRUE;
+
+    rs_stream_desc_from_d3d12(&graphics->rs_stream_desc, &graphics->rs_desc, so_desc, vk_info);
 
     if (desc->SampleMask != ~0u)
         FIXME("Ignoring sample mask %#x.\n", desc->SampleMask);

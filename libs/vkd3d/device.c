@@ -940,6 +940,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 
     vulkan_info->device_limits = device_properties2.properties.limits;
     vulkan_info->sparse_properties = device_properties2.properties.sparseProperties;
+    vulkan_info->rasterization_stream = xfb_properties.transformFeedbackRasterizationStreamSelect;
     vulkan_info->max_vertex_attrib_divisor = max(vertex_divisor_properties.maxVertexAttribDivisor, 1);
 
     device->feature_options.DoublePrecisionFloatShaderOps = features->shaderFloat64;

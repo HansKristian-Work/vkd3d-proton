@@ -90,6 +90,8 @@ struct vkd3d_vulkan_info
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
 
+    bool rasterization_stream;
+
     bool vertex_attrib_zero_divisor;
     unsigned int max_vertex_attrib_divisor;
 
@@ -559,7 +561,7 @@ struct d3d12_root_signature
     VkDescriptorSetLayout vk_push_set_layout;
     VkDescriptorSetLayout vk_set_layout;
 
-    struct VkDescriptorPoolSize *pool_sizes;
+    VkDescriptorPoolSize *pool_sizes;
     size_t pool_size_count;
 
     struct d3d12_root_parameter *parameters;
@@ -593,25 +595,27 @@ struct d3d12_root_signature *unsafe_impl_from_ID3D12RootSignature(ID3D12RootSign
 
 struct d3d12_graphics_pipeline_state
 {
-    struct VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
+    VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
     size_t stage_count;
 
-    struct VkVertexInputAttributeDescription attributes[D3D12_VS_INPUT_REGISTER_COUNT];
-    enum VkVertexInputRate input_rates[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    VkVertexInputAttributeDescription attributes[D3D12_VS_INPUT_REGISTER_COUNT];
+    VkVertexInputRate input_rates[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     VkVertexInputBindingDivisorDescriptionEXT instance_divisors[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     size_t instance_divisor_count;
     size_t attribute_count;
 
-    struct VkAttachmentDescription attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
-    struct VkAttachmentReference attachment_references[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
-    struct VkPipelineColorBlendAttachmentState blend_attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    VkAttachmentDescription attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+    VkAttachmentReference attachment_references[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+    VkPipelineColorBlendAttachmentState blend_attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     size_t attachment_count, rt_idx;
     VkRenderPass render_pass;
 
     D3D12_INDEX_BUFFER_STRIP_CUT_VALUE index_buffer_strip_cut_value;
-    struct VkPipelineRasterizationStateCreateInfo rs_desc;
-    struct VkPipelineMultisampleStateCreateInfo ms_desc;
-    struct VkPipelineDepthStencilStateCreateInfo ds_desc;
+    VkPipelineRasterizationStateCreateInfo rs_desc;
+    VkPipelineMultisampleStateCreateInfo ms_desc;
+    VkPipelineDepthStencilStateCreateInfo ds_desc;
+
+    VkPipelineRasterizationStateStreamCreateInfoEXT rs_stream_desc;
 
     const struct d3d12_root_signature *root_signature;
 
@@ -961,7 +965,7 @@ static inline unsigned int d3d12_resource_desc_get_sub_resource_count(const D3D1
     return d3d12_resource_desc_get_layer_count(desc) * desc->MipLevels;
 }
 
-enum VkCompareOp vk_compare_op_from_d3d12(D3D12_COMPARISON_FUNC op) DECLSPEC_HIDDEN;
+VkCompareOp vk_compare_op_from_d3d12(D3D12_COMPARISON_FUNC op) DECLSPEC_HIDDEN;
 VkSampleCountFlagBits vk_samples_from_dxgi_sample_desc(const DXGI_SAMPLE_DESC *desc) DECLSPEC_HIDDEN;
 
 bool is_valid_feature_level(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;
