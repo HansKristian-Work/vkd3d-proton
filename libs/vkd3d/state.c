@@ -2165,6 +2165,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         }
     }
 
+    graphics->xfb_enabled = false;
     if (so_desc->NumEntries)
     {
         if (!vk_info->EXT_transform_feedback)
@@ -2173,6 +2174,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             FIXME("Transform feedback is not supported by Vulkan implementation.\n");
             goto fail;
         }
+
+        graphics->xfb_enabled = true;
 
         xfb_info.type = VKD3D_SHADER_STRUCTURE_TYPE_TRANSFORM_FEEDBACK_INFO;
         xfb_info.next = NULL;

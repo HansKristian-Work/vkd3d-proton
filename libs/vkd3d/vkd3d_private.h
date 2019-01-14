@@ -620,6 +620,8 @@ struct d3d12_graphics_pipeline_state
     const struct d3d12_root_signature *root_signature;
 
     struct list compiled_pipelines;
+
+    bool xfb_enabled;
 };
 
 struct d3d12_compute_pipeline_state
@@ -787,6 +789,8 @@ struct d3d12_command_list
     unsigned int fb_width;
     unsigned int fb_height;
     unsigned int fb_layer_count;
+
+    bool xfb_enabled;
 
     VkFramebuffer current_framebuffer;
     VkPipeline current_pipeline;

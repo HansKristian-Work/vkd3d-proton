@@ -1304,6 +1304,13 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
+    if (list->xfb_enabled)
+    {
+        VK_CALL(vkCmdEndTransformFeedbackEXT(list->vk_command_buffer, 0, ARRAY_SIZE(list->so_counter_buffers),
+                list->so_counter_buffers, list->so_counter_buffer_offsets));
+        list->xfb_enabled = false;
+    }
+
     if (list->current_render_pass)
         VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
 
@@ -1745,6 +1752,8 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->fb_width = 0;
     list->fb_height = 0;
     list->fb_layer_count = 0;
+
+    list->xfb_enabled = false;
 
     list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;
@@ -2252,6 +2261,7 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
 static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct d3d12_graphics_pipeline_state *graphics;
     struct VkRenderPassBeginInfo begin_desc;
     VkRenderPass vk_render_pass;
 
@@ -2286,6 +2296,15 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer, &begin_desc, VK_SUBPASS_CONTENTS_INLINE));
 
     list->current_render_pass = vk_render_pass;
+
+    graphics = &list->state->u.graphics;
+    if (graphics->xfb_enabled)
+    {
+        VK_CALL(vkCmdBeginTransformFeedbackEXT(list->vk_command_buffer, 0, ARRAY_SIZE(list->so_counter_buffers),
+                list->so_counter_buffers, list->so_counter_buffer_offsets));
+
+        list->xfb_enabled = true;
+    }
 
     return true;
 }
