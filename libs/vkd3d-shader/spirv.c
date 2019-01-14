@@ -1899,22 +1899,7 @@ struct vkd3d_dxbc_compiler
     const struct vkd3d_shader_scan_info *scan_info;
 };
 
-static void vkd3d_dxbc_compiler_emit_shader_signature_outputs(struct vkd3d_dxbc_compiler *compiler);
-
-static void vkd3d_dxbc_compiler_emit_execution_mode(struct vkd3d_dxbc_compiler *compiler,
-        SpvExecutionMode mode, const uint32_t *literals, unsigned int literal_count)
-{
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-
-    vkd3d_spirv_build_op_execution_mode(&builder->execution_mode_stream,
-            builder->main_function_id, mode, literals, literal_count);
-}
-
-static void vkd3d_dxbc_compiler_emit_execution_mode1(struct vkd3d_dxbc_compiler *compiler,
-        SpvExecutionMode mode, const uint32_t literal)
-{
-    vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, &literal, 1);
-}
+static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler);
 
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
         const struct vkd3d_shader_desc *shader_desc, uint32_t compiler_options,
@@ -1942,31 +1927,6 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
 
     rb_init(&compiler->symbol_table, vkd3d_symbol_compare);
 
-    switch (shader_version->type)
-    {
-        case VKD3D_SHADER_TYPE_VERTEX:
-            vkd3d_spirv_set_execution_model(&compiler->spirv_builder, SpvExecutionModelVertex);
-            break;
-        case VKD3D_SHADER_TYPE_HULL:
-            vkd3d_spirv_set_execution_model(&compiler->spirv_builder, SpvExecutionModelTessellationControl);
-            break;
-        case VKD3D_SHADER_TYPE_DOMAIN:
-            vkd3d_spirv_set_execution_model(&compiler->spirv_builder, SpvExecutionModelTessellationEvaluation);
-            break;
-        case VKD3D_SHADER_TYPE_GEOMETRY:
-            vkd3d_spirv_set_execution_model(&compiler->spirv_builder, SpvExecutionModelGeometry);
-            break;
-        case VKD3D_SHADER_TYPE_PIXEL:
-            vkd3d_spirv_set_execution_model(&compiler->spirv_builder, SpvExecutionModelFragment);
-            vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeOriginUpperLeft, NULL, 0);
-            break;
-        case VKD3D_SHADER_TYPE_COMPUTE:
-            vkd3d_spirv_set_execution_model(&compiler->spirv_builder, SpvExecutionModelGLCompute);
-            break;
-        default:
-            ERR("Invalid shader type %#x.\n", shader_version->type);
-    }
-
     compiler->shader_type = shader_version->type;
 
     compiler->input_signature = &shader_desc->input_signature;
@@ -1991,7 +1951,7 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
 
     compiler->scan_info = scan_info;
 
-    vkd3d_dxbc_compiler_emit_shader_signature_outputs(compiler);
+    vkd3d_dxbc_compiler_emit_initial_declarations(compiler);
 
     return compiler;
 }
@@ -2733,6 +2693,21 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *co
     }
 
     return val_id;
+}
+
+static void vkd3d_dxbc_compiler_emit_execution_mode(struct vkd3d_dxbc_compiler *compiler,
+        SpvExecutionMode mode, const uint32_t *literals, unsigned int literal_count)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    vkd3d_spirv_build_op_execution_mode(&builder->execution_mode_stream,
+            builder->main_function_id, mode, literals, literal_count);
+}
+
+static void vkd3d_dxbc_compiler_emit_execution_mode1(struct vkd3d_dxbc_compiler *compiler,
+        SpvExecutionMode mode, const uint32_t literal)
+{
+    vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, &literal, 1);
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_abs(struct vkd3d_dxbc_compiler *compiler,
@@ -3604,6 +3579,38 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         if (!compiler->epilogue_function_id)
             compiler->epilogue_function_id = vkd3d_spirv_alloc_id(builder);
     }
+}
+
+static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    switch (compiler->shader_type)
+    {
+        case VKD3D_SHADER_TYPE_VERTEX:
+            vkd3d_spirv_set_execution_model(builder, SpvExecutionModelVertex);
+            break;
+        case VKD3D_SHADER_TYPE_HULL:
+            vkd3d_spirv_set_execution_model(builder, SpvExecutionModelTessellationControl);
+            break;
+        case VKD3D_SHADER_TYPE_DOMAIN:
+            vkd3d_spirv_set_execution_model(builder, SpvExecutionModelTessellationEvaluation);
+            break;
+        case VKD3D_SHADER_TYPE_GEOMETRY:
+            vkd3d_spirv_set_execution_model(builder, SpvExecutionModelGeometry);
+            break;
+        case VKD3D_SHADER_TYPE_PIXEL:
+            vkd3d_spirv_set_execution_model(builder, SpvExecutionModelFragment);
+            vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeOriginUpperLeft, NULL, 0);
+            break;
+        case VKD3D_SHADER_TYPE_COMPUTE:
+            vkd3d_spirv_set_execution_model(builder, SpvExecutionModelGLCompute);
+            break;
+        default:
+            ERR("Invalid shader type %#x.\n", compiler->shader_type);
+    }
+
+    vkd3d_dxbc_compiler_emit_shader_signature_outputs(compiler);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_global_flags(struct vkd3d_dxbc_compiler *compiler,
