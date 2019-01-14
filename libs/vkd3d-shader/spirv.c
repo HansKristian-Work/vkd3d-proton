@@ -108,6 +108,27 @@ static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv, enum vkd
 
 #endif  /* HAVE_SPIRV_TOOLS */
 
+struct vkd3d_struct
+{
+    enum vkd3d_shader_structure_type type;
+    const void *next;
+};
+
+#define vkd3d_find_struct(c, t) vkd3d_find_struct_(c, VKD3D_SHADER_STRUCTURE_TYPE_##t)
+static const void *vkd3d_find_struct_(const struct vkd3d_struct *chain,
+        enum vkd3d_shader_structure_type type)
+{
+    while (chain)
+    {
+        if (chain->type == type)
+            return chain;
+
+        chain = chain->next;
+    }
+
+    return NULL;
+}
+
 #define VKD3D_SPIRV_VERSION 0x00010000
 #define VKD3D_SPIRV_GENERATOR_ID 18
 #define VKD3D_SPIRV_GENERATOR_VERSION 1
@@ -1884,6 +1905,7 @@ struct vkd3d_dxbc_compiler
     bool after_declarations_section;
     const struct vkd3d_shader_signature *input_signature;
     const struct vkd3d_shader_signature *output_signature;
+    const struct vkd3d_shader_transform_feedback_info *xfb_info;
     struct vkd3d_shader_output_info
     {
         uint32_t id;
@@ -1934,6 +1956,8 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
 
     if (shader_interface)
     {
+        compiler->xfb_info = vkd3d_find_struct(shader_interface->next, TRANSFORM_FEEDBACK_INFO);
+
         compiler->shader_interface = *shader_interface;
         if (shader_interface->push_constant_buffer_count)
         {
@@ -3178,6 +3202,64 @@ static unsigned int vkd3d_count_signature_elements_for_reg(
     return count;
 }
 
+static void vkd3d_dxbc_compiler_decorate_xfb_output(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t id, unsigned int component_count, const struct vkd3d_shader_signature_element *signature_element)
+{
+    const struct vkd3d_shader_transform_feedback_info *xfb_info = compiler->xfb_info;
+    const struct vkd3d_shader_transform_feedback_element *xfb_element;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    unsigned int offset, stride, i;
+
+    if (!xfb_info)
+        return;
+
+    offset = 0;
+    xfb_element = NULL;
+    for (i = 0; i < xfb_info->element_count; ++i)
+    {
+        const struct vkd3d_shader_transform_feedback_element *e = &xfb_info->elements[i];
+
+        if (e->stream_index == signature_element->stream_index
+                && !strcasecmp(e->semantic_name, signature_element->semantic_name)
+                && e->semantic_index == signature_element->semantic_index)
+        {
+            xfb_element = e;
+            break;
+        }
+
+        offset += 4 * e->component_count;
+    }
+
+    if (!xfb_element)
+        return;
+
+    if (xfb_element->component_index || xfb_element->component_count > component_count)
+    {
+        FIXME("Unhandled component range %u, %u.\n", xfb_element->component_index, xfb_element->component_count);
+        return;
+    }
+
+    if (xfb_element->output_slot < xfb_info->buffer_stride_count)
+    {
+        stride = xfb_info->buffer_strides[xfb_element->output_slot];
+    }
+    else
+    {
+        stride = 0;
+        for (i = 0; i < xfb_info->element_count; ++i)
+        {
+            const struct vkd3d_shader_transform_feedback_element *e = &xfb_info->elements[i];
+
+            if (e->stream_index == xfb_element->stream_index && e->output_slot == xfb_element->output_slot)
+                stride += 4 * e->component_count;
+        }
+    }
+
+    vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationXfbBuffer, xfb_element->output_slot);
+    vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationXfbStride, stride);
+    vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationOffset, offset);
+}
+
 static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval)
 {
@@ -3541,6 +3623,8 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
             if (component_idx)
                 vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationComponent, component_idx);
         }
+
+        vkd3d_dxbc_compiler_decorate_xfb_output(compiler, id, output_component_count, signature_element);
     }
 
     compiler->output_info[signature_idx].id = id;
@@ -3583,6 +3667,7 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
 
 static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler)
 {
+    const struct vkd3d_shader_transform_feedback_info *xfb_info = compiler->xfb_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
 
     switch (compiler->shader_type)
@@ -3608,6 +3693,12 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
             break;
         default:
             ERR("Invalid shader type %#x.\n", compiler->shader_type);
+    }
+
+    if (xfb_info && xfb_info->element_count)
+    {
+        vkd3d_spirv_enable_capability(builder, SpvCapabilityTransformFeedback);
+        vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeXfb, NULL, 0);
     }
 
     vkd3d_dxbc_compiler_emit_shader_signature_outputs(compiler);

@@ -20,6 +20,7 @@
 #define __VKD3D_SHADER_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <vkd3d_types.h>
 
 #ifdef __cplusplus
@@ -31,6 +32,7 @@ enum vkd3d_shader_structure_type
     VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE,
     VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS,
     VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO,
+    VKD3D_SHADER_STRUCTURE_TYPE_TRANSFORM_FEEDBACK_INFO,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_STRUCTURE_TYPE),
 };
@@ -149,6 +151,28 @@ struct vkd3d_shader_interface
 
     const struct vkd3d_shader_uav_counter_binding *uav_counters;
     unsigned int uav_counter_count;
+};
+
+struct vkd3d_shader_transform_feedback_element
+{
+    unsigned int stream_index;
+    const char *semantic_name;
+    unsigned int semantic_index;
+    uint8_t component_index;
+    uint8_t component_count;
+    uint8_t output_slot;
+};
+
+/* Extends vkd3d_shader_interface. */
+struct vkd3d_shader_transform_feedback_info
+{
+    enum vkd3d_shader_structure_type type;
+    const void *next;
+
+    const struct vkd3d_shader_transform_feedback_element *elements;
+    unsigned int element_count;
+    const unsigned int *buffer_strides;
+    unsigned int buffer_stride_count;
 };
 
 enum vkd3d_shader_target
