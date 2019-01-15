@@ -4988,6 +4988,7 @@ static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_comp
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
+    enum vkd3d_component_type component_type;
     unsigned int i, j, k, src_count;
     DWORD write_mask;
     SpvOp op;
@@ -4995,7 +4996,8 @@ static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_comp
     src_count = instruction->src_count;
     assert(2 <= src_count && src_count <= ARRAY_SIZE(src_ids));
 
-    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    component_type = vkd3d_component_type_from_data_type(dst->reg.data_type);
+    type_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
     mask_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0x1f);
 
     switch (instruction->handler_idx)
@@ -5014,20 +5016,22 @@ static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_comp
             continue;
 
         for (j = 0; j < src_count; ++j)
-            src_ids[src_count - j - 1] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[j], write_mask);
+        {
+            src_ids[src_count - j - 1] = vkd3d_dxbc_compiler_emit_load_src_with_type(compiler,
+                    &src[j], write_mask, component_type);
+        }
 
+        /* In SPIR-V, the last two operands are Offset and Count. */
         for (j = src_count - 2; j < src_count; ++j)
         {
-            uint32_t int_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_INT, 1);
-            src_ids[j] = vkd3d_spirv_build_op_and(builder, int_type_id, src_ids[j], mask_id);
+            src_ids[j] = vkd3d_spirv_build_op_and(builder, type_id, src_ids[j], mask_id);
         }
 
         constituents[k++] = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
                 op, type_id, src_ids, src_count);
     }
 
-    vkd3d_dxbc_compiler_emit_store_dst_components(compiler,
-            dst, vkd3d_component_type_from_data_type(dst->reg.data_type), constituents);
+    vkd3d_dxbc_compiler_emit_store_dst_components(compiler, dst, component_type, constituents);
 }
 
 static void vkd3d_dxbc_compiler_emit_f16tof32(struct vkd3d_dxbc_compiler *compiler,
