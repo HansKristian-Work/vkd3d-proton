@@ -3003,31 +3003,40 @@ static uint32_t vkd3d_dxbc_compiler_emit_bool_to_int(struct vkd3d_dxbc_compiler 
 typedef uint32_t (*vkd3d_spirv_builtin_fixup_pfn)(struct vkd3d_dxbc_compiler *compiler,
         uint32_t val_id);
 
+static uint32_t vkd3d_dxbc_compiler_emit_draw_parameter_fixup(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t index_id, SpvBuiltIn base)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t base_var_id, base_id, type_id;
+
+    vkd3d_spirv_enable_capability(builder, SpvCapabilityDrawParameters);
+
+    base_var_id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
+            SpvStorageClassInput, VKD3D_TYPE_INT, 1);
+    vkd3d_spirv_add_iface_variable(builder, base_var_id);
+    vkd3d_dxbc_compiler_decorate_builtin(compiler, base_var_id, base);
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_INT, 1);
+    base_id = vkd3d_spirv_build_op_load(builder,
+            type_id, base_var_id, SpvMemoryAccessMaskNone);
+
+    return vkd3d_spirv_build_op_isub(builder, type_id, index_id, base_id);
+}
+
+/* Substitute "VertexIndex - BaseVertex" for SV_VertexID. */
+static uint32_t sv_vertex_id_fixup(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t vertex_index_id)
+{
+    return vkd3d_dxbc_compiler_emit_draw_parameter_fixup(compiler,
+            vertex_index_id, SpvBuiltInBaseVertex);
+}
+
 /* Substitute "InstanceIndex - BaseInstance" for SV_InstanceID. */
 static uint32_t sv_instance_id_fixup(struct vkd3d_dxbc_compiler *compiler,
         uint32_t instance_index_id)
 {
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    uint32_t base_instance_var_id, base_instance_id, type_id;
-
-    vkd3d_spirv_enable_capability(builder, SpvCapabilityDrawParameters);
-
-    /* The Vulkan spec states:
-     *
-     *   "The variable decorated with BaseInstance must be declared as a scalar
-     *   32-bit integer.
-     */
-    base_instance_var_id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
-            SpvStorageClassInput, VKD3D_TYPE_INT, 1);
-    vkd3d_spirv_add_iface_variable(builder, base_instance_var_id);
-    vkd3d_dxbc_compiler_decorate_builtin(compiler, base_instance_var_id, SpvBuiltInBaseInstance);
-
-    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_INT, 1);
-    base_instance_id = vkd3d_spirv_build_op_load(builder,
-            type_id, base_instance_var_id, SpvMemoryAccessMaskNone);
-
-    return vkd3d_spirv_build_op_isub(builder,
-            type_id, instance_index_id, base_instance_id);
+    return vkd3d_dxbc_compiler_emit_draw_parameter_fixup(compiler,
+            instance_index_id, SpvBuiltInBaseInstance);
 }
 
 static uint32_t sv_front_face_fixup(struct vkd3d_dxbc_compiler *compiler,
@@ -3061,7 +3070,7 @@ vkd3d_system_value_builtins[] =
     {VKD3D_SIV_INSTANCE_ID, {VKD3D_TYPE_INT,   1, SpvBuiltInInstanceId}, VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5},
 
     {VKD3D_SIV_POSITION,    {VKD3D_TYPE_FLOAT, 4, SpvBuiltInPosition}},
-    {VKD3D_SIV_VERTEX_ID,   {VKD3D_TYPE_INT,   1, SpvBuiltInVertexIndex}},
+    {VKD3D_SIV_VERTEX_ID,   {VKD3D_TYPE_INT,   1, SpvBuiltInVertexIndex, sv_vertex_id_fixup}},
     {VKD3D_SIV_INSTANCE_ID, {VKD3D_TYPE_INT,   1, SpvBuiltInInstanceIndex, sv_instance_id_fixup}},
 
     {VKD3D_SIV_RENDER_TARGET_ARRAY_INDEX, {VKD3D_TYPE_INT, 1, SpvBuiltInLayer}},
