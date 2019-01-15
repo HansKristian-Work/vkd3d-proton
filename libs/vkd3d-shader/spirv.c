@@ -2799,6 +2799,15 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_src(struct vkd3d_dxbc_compiler *co
     return vkd3d_dxbc_compiler_emit_src_modifier(compiler, &src->reg, write_mask, src->modifiers, val_id);
 }
 
+static uint32_t vkd3d_dxbc_compiler_emit_load_src_with_type(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_src_param *src, DWORD write_mask, enum vkd3d_component_type component_type)
+{
+    struct vkd3d_shader_src_param src_param = *src;
+
+    src_param.reg.data_type = vkd3d_data_type_from_component_type(component_type);
+    return vkd3d_dxbc_compiler_emit_load_src(compiler, &src_param, write_mask);
+}
+
 static void vkd3d_dxbc_compiler_emit_store_scalar(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, DWORD write_mask,
         const struct vkd3d_shader_register_info *reg_info, uint32_t val_id)
@@ -6244,7 +6253,6 @@ static void vkd3d_dxbc_compiler_emit_store_uav_typed(struct vkd3d_dxbc_compiler 
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    struct vkd3d_shader_src_param texel_param = src[1];
     uint32_t coordinate_id, texel_id;
     struct vkd3d_shader_image image;
     DWORD coordinate_mask;
@@ -6254,9 +6262,7 @@ static void vkd3d_dxbc_compiler_emit_store_uav_typed(struct vkd3d_dxbc_compiler 
     vkd3d_dxbc_compiler_prepare_image(compiler, &image, &dst->reg, NULL, VKD3D_IMAGE_FLAG_NONE);
     coordinate_mask = (1u << image.resource_type_info->coordinate_component_count) - 1;
     coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], coordinate_mask);
-    /* XXX: Fix the data type. */
-    texel_param.reg.data_type = vkd3d_data_type_from_component_type(image.sampled_type);
-    texel_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &texel_param, dst->write_mask);
+    texel_id = vkd3d_dxbc_compiler_emit_load_src_with_type(compiler, &src[1], dst->write_mask, image.sampled_type);
 
     vkd3d_spirv_build_op_image_write(builder, image.image_id, coordinate_id, texel_id,
             SpvImageOperandsMaskNone, NULL, 0);
@@ -6365,6 +6371,7 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
     const struct vkd3d_shader_dst_param *resource;
     uint32_t coordinate_id, sample_id, pointer_id;
     struct vkd3d_shader_register_info reg_info;
+    enum vkd3d_component_type component_type;
     struct vkd3d_shader_image image;
     unsigned int structure_stride;
     DWORD coordinate_mask;
@@ -6417,12 +6424,14 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
 
     if (resource->reg.type == VKD3DSPR_GROUPSHAREDMEM)
     {
+        component_type = VKD3D_TYPE_UINT;
         ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, reg_info.storage_class, type_id);
         pointer_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
                 reg_info.id, &coordinate_id, 1);
     }
     else
     {
+        component_type = image.sampled_type;
         type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, 1);
         ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassImage, type_id);
         sample_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
@@ -6430,7 +6439,7 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
                 ptr_type_id, image.id, coordinate_id, sample_id);
     }
 
-    val_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], VKD3DSP_WRITEMASK_0);
+    val_id = vkd3d_dxbc_compiler_emit_load_src_with_type(compiler, &src[1], VKD3DSP_WRITEMASK_0, component_type);
 
     operands[i++] = pointer_id;
     operands[i++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, scope);
@@ -6438,7 +6447,7 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
     if (instruction->src_count >= 3)
     {
         operands[i++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvMemorySemanticsMaskNone);
-        operands[i++] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[2], VKD3DSP_WRITEMASK_0);
+        operands[i++] = vkd3d_dxbc_compiler_emit_load_src_with_type(compiler, &src[2], VKD3DSP_WRITEMASK_0, component_type);
     }
     operands[i++] = val_id;
     result_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
