@@ -763,6 +763,42 @@ static ID3D12PipelineState *create_compute_pipeline_state_(unsigned int line, ID
     return pipeline_state;
 }
 
+#define create_command_signature(a, b) create_command_signature_(__LINE__, a, b)
+static ID3D12CommandSignature *create_command_signature_(unsigned int line,
+        ID3D12Device *device, D3D12_INDIRECT_ARGUMENT_TYPE argument_type)
+{
+    D3D12_COMMAND_SIGNATURE_DESC signature_desc;
+    D3D12_INDIRECT_ARGUMENT_DESC argument_desc;
+    ID3D12CommandSignature *command_signature;
+    HRESULT hr;
+
+    argument_desc.Type = argument_type;
+
+    switch (argument_type)
+    {
+        case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
+            signature_desc.ByteStride = sizeof(D3D12_DRAW_ARGUMENTS);
+            break;
+        case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
+            signature_desc.ByteStride = sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+            break;
+        case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
+            signature_desc.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS);
+            break;
+        default:
+            return NULL;
+    }
+
+    signature_desc.NumArgumentDescs = 1;
+    signature_desc.pArgumentDescs = &argument_desc;
+    signature_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateCommandSignature(device, &signature_desc,
+            NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
+    ok_(line)(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+
+    return command_signature;
+}
+
 #define init_compute_test_context(context) init_compute_test_context_(__LINE__, context)
 static bool init_compute_test_context_(unsigned int line, struct test_context *context)
 {
@@ -2559,9 +2595,7 @@ static void test_create_fence(void)
 
 static void test_private_data(void)
 {
-    D3D12_COMMAND_SIGNATURE_DESC command_signature_desc;
     D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc;
-    D3D12_INDIRECT_ARGUMENT_DESC argument_desc;
     D3D12_QUERY_HEAP_DESC query_heap_desc;
     D3D12_COMMAND_QUEUE_DESC queue_desc;
     ID3D12RootSignature *root_signature;
@@ -2638,14 +2672,7 @@ static void test_private_data(void)
         else if (IsEqualGUID(tests[i], &IID_ID3D12CommandSignature))
         {
             vkd3d_test_set_context("command signature");
-            argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
-            command_signature_desc.ByteStride = sizeof(D3D12_DRAW_ARGUMENTS);
-            command_signature_desc.NumArgumentDescs = 1;
-            command_signature_desc.pArgumentDescs = &argument_desc;
-            command_signature_desc.NodeMask = 0;
-            hr = ID3D12Device_CreateCommandSignature(device, &command_signature_desc,
-                    NULL, &IID_ID3D12CommandSignature, (void **)&unknown);
-            ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+            unknown = (IUnknown *)create_command_signature(device, D3D12_INDIRECT_ARGUMENT_TYPE_DRAW);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12DescriptorHeap))
         {
@@ -18602,8 +18629,6 @@ static void test_resolve_query_data_in_reordered_command_list(void)
 static void test_execute_indirect(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
-    D3D12_COMMAND_SIGNATURE_DESC signature_desc;
-    D3D12_INDIRECT_ARGUMENT_DESC argument_desc;
     ID3D12CommandSignature *command_signature;
     ID3D12GraphicsCommandList *command_list;
     ID3D12Resource *argument_buffer, *uav;
@@ -18742,15 +18767,7 @@ static void test_execute_indirect(void)
 
     argument_buffer = create_upload_buffer(context.device, sizeof(argument_data), &argument_data);
 
-    argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
-
-    signature_desc.ByteStride = sizeof(D3D12_DRAW_ARGUMENTS);
-    signature_desc.NumArgumentDescs = 1;
-    signature_desc.pArgumentDescs = &argument_desc;
-    signature_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateCommandSignature(context.device, &signature_desc,
-            NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+    command_signature = create_command_signature(context.device, D3D12_INDIRECT_ARGUMENT_TYPE_DRAW);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -18769,11 +18786,7 @@ static void test_execute_indirect(void)
     reset_command_list(command_list, context.allocator);
 
     ID3D12CommandSignature_Release(command_signature);
-    argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
-    signature_desc.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS);
-    hr = ID3D12Device_CreateCommandSignature(context.device, &signature_desc,
-            NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+    command_signature = create_command_signature(context.device, D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH);
 
     uav = create_default_buffer(context.device, 2 * 3 * 4 * sizeof(UINT),
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -18814,11 +18827,7 @@ static void test_execute_indirect(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     ID3D12CommandSignature_Release(command_signature);
-    argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
-    signature_desc.ByteStride = sizeof(*argument_data.indexed_draws);
-    hr = ID3D12Device_CreateCommandSignature(context.device, &signature_desc,
-            NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+    command_signature = create_command_signature(context.device, D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED);
 
     ID3D12PipelineState_Release(context.pipeline_state);
     input_layout.pInputElementDescs = layout_desc;
@@ -18874,8 +18883,6 @@ static void test_execute_indirect(void)
 static void test_dispatch_zero_thread_groups(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
-    D3D12_COMMAND_SIGNATURE_DESC signature_desc;
-    D3D12_INDIRECT_ARGUMENT_DESC argument_desc;
     ID3D12CommandSignature *command_signature;
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[2];
@@ -18926,15 +18933,7 @@ static void test_dispatch_zero_thread_groups(void)
 
     argument_buffer = create_upload_buffer(context.device, sizeof(argument_data), &argument_data);
 
-    argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
-
-    signature_desc.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS);
-    signature_desc.NumArgumentDescs = 1;
-    signature_desc.pArgumentDescs = &argument_desc;
-    signature_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateCommandSignature(context.device, &signature_desc,
-            NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(SUCCEEDED(hr), "Failed to create command signature, hr %#x.\n", hr);
+    command_signature = create_command_signature(context.device, D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH);
 
     uav = create_default_buffer(context.device, 2 * 256, /* minTexelBufferOffsetAlignment */
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -19000,9 +18999,7 @@ static void test_dispatch_zero_thread_groups(void)
 
 static void test_instance_id(void)
 {
-    D3D12_COMMAND_SIGNATURE_DESC signature_desc;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
-    D3D12_INDIRECT_ARGUMENT_DESC argument_desc;
     ID3D12CommandSignature *command_signature;
     ID3D12GraphicsCommandList *command_list;
     D3D12_INPUT_LAYOUT_DESC input_layout;
@@ -19220,14 +19217,7 @@ static void test_instance_id(void)
     vbv[2].StrideInBytes = sizeof(*stream2);
     vbv[2].SizeInBytes = sizeof(stream2);
 
-    argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
-    signature_desc.ByteStride = sizeof(D3D12_DRAW_ARGUMENTS);
-    signature_desc.NumArgumentDescs = 1;
-    signature_desc.pArgumentDescs = &argument_desc;
-    signature_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateCommandSignature(context.device, &signature_desc,
-            NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+    command_signature = create_command_signature(context.device, D3D12_INDIRECT_ARGUMENT_TYPE_DRAW);
 
     argument_buffer = create_upload_buffer(context.device, sizeof(argument_data), &argument_data);
 
@@ -19345,12 +19335,34 @@ static void test_vertex_id(void)
         5,
         6,
         7,
+
+        0xa,
+        0xb,
+        0xc,
+        0xd,
+
+        0xe,
+        0xf,
     };
     static const unsigned int indices[] =
     {
         6, 7, 8,
 
         0, 1, 2,
+
+        0, 1, 2, 3,
+
+        8, 9,
+    };
+    static const D3D12_DRAW_ARGUMENTS argument_data[] =
+    {
+        {4, 1, 12, 1},
+        {2, 3, 16, 0},
+    };
+    static const D3D12_DRAW_INDEXED_ARGUMENTS indexed_argument_data[] =
+    {
+        {4, 1,  6, 12, 1},
+        {2, 3, 10,  8, 0},
     };
     struct uvec4 expected_values[] =
     {
@@ -19375,12 +19387,39 @@ static void test_vertex_id(void)
         {5, 0, 0},
         {6, 0, 1},
         {7, 0, 2},
+
+        {0xa, 0, 0},
+        {0xb, 0, 1},
+        {0xc, 0, 2},
+        {0xd, 0, 3},
+
+        {0xe, 0, 0},
+        {0xf, 0, 1},
+        {0xe, 1, 0},
+        {0xf, 1, 1},
+        {0xe, 2, 0},
+        {0xf, 2, 1},
+
+        {0xa, 0, 0},
+        {0xb, 0, 1},
+        {0xc, 0, 2},
+        {0xd, 0, 3},
+
+        {0xe, 0, 8},
+        {0xf, 0, 9},
+        {0xe, 1, 8},
+        {0xf, 1, 9},
+        {0xe, 2, 8},
+        {0xf, 2, 9},
     };
 
     BOOL found_values[ARRAY_SIZE(expected_values)] = {0};
     BOOL used_values[ARRAY_SIZE(expected_values)] = {0};
+    ID3D12Resource *args_buffer, *indexed_args_buffer;
+    ID3D12CommandSignature *indexed_command_signature;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12Resource *counter_buffer, *so_buffer;
+    ID3D12CommandSignature *command_signature;
     ID3D12GraphicsCommandList *command_list;
     D3D12_INPUT_LAYOUT_DESC input_layout;
     D3D12_STREAM_OUTPUT_BUFFER_VIEW sobv;
@@ -19438,6 +19477,12 @@ static void test_vertex_id(void)
     ibv.SizeInBytes = sizeof(indices);
     ibv.Format = DXGI_FORMAT_R32_UINT;
 
+    args_buffer = create_upload_buffer(device, sizeof(argument_data), &argument_data);
+    indexed_args_buffer = create_upload_buffer(device, sizeof(indexed_argument_data), &indexed_argument_data);
+
+    command_signature = create_command_signature(device, D3D12_INDIRECT_ARGUMENT_TYPE_DRAW);
+    indexed_command_signature = create_command_signature(device, D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED);
+
     count = 0;
     upload_buffer = create_upload_buffer(device, sizeof(count), &count);
 
@@ -19470,6 +19515,16 @@ static void test_vertex_id(void)
 
     ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, 3, 2, 0, 0, 0);
     ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, 3, 1, 3, 9, 7);
+
+    ID3D12GraphicsCommandList_ExecuteIndirect(command_list,
+            command_signature, 1, args_buffer, 0, NULL, 0);
+    ID3D12GraphicsCommandList_ExecuteIndirect(command_list,
+            command_signature, 1, args_buffer, sizeof(*argument_data), NULL, 0);
+
+    ID3D12GraphicsCommandList_ExecuteIndirect(command_list,
+            indexed_command_signature, 1, indexed_args_buffer, 0, NULL, 0);
+    ID3D12GraphicsCommandList_ExecuteIndirect(command_list,
+            indexed_command_signature, 1, indexed_args_buffer, sizeof(*indexed_argument_data), NULL, 0);
 
     transition_resource_state(command_list, counter_buffer,
             D3D12_RESOURCE_STATE_STREAM_OUT, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -19512,8 +19567,12 @@ static void test_vertex_id(void)
                 expected_values[i].x, expected_values[i].y, expected_values[i].z, expected_values[i].w);
     }
 
+    ID3D12CommandSignature_Release(command_signature);
+    ID3D12CommandSignature_Release(indexed_command_signature);
+    ID3D12Resource_Release(args_buffer);
     ID3D12Resource_Release(counter_buffer);
     ID3D12Resource_Release(ib);
+    ID3D12Resource_Release(indexed_args_buffer);
     ID3D12Resource_Release(so_buffer);
     ID3D12Resource_Release(upload_buffer);
     ID3D12Resource_Release(vb);
