@@ -5014,8 +5014,7 @@ static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_comp
             continue;
 
         for (j = 0; j < src_count; ++j)
-            src_ids[src_count - j - 1] = vkd3d_dxbc_compiler_emit_load_reg(compiler,
-                    &src[j].reg, src[j].swizzle, write_mask);
+            src_ids[src_count - j - 1] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[j], write_mask);
 
         for (j = src_count - 2; j < src_count; ++j)
         {
