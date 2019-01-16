@@ -1898,7 +1898,7 @@ struct vkd3d_dxbc_compiler
     struct vkd3d_control_flow_info *control_flow_info;
     size_t control_flow_info_size;
 
-    struct vkd3d_shader_interface shader_interface;
+    struct vkd3d_shader_interface_info shader_interface;
     struct vkd3d_push_constant_buffer_binding *push_constants;
     const struct vkd3d_shader_compile_arguments *compile_args;
 
@@ -1925,7 +1925,7 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
 
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
         const struct vkd3d_shader_desc *shader_desc, uint32_t compiler_options,
-        const struct vkd3d_shader_interface *shader_interface,
+        const struct vkd3d_shader_interface_info *shader_interface,
         const struct vkd3d_shader_compile_arguments *compile_args,
         const struct vkd3d_shader_scan_info *scan_info)
 {
@@ -2039,7 +2039,7 @@ static struct vkd3d_push_constant_buffer_binding *vkd3d_dxbc_compiler_find_push_
 static bool vkd3d_dxbc_compiler_have_combined_sampler(const struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *resource, const struct vkd3d_shader_register *sampler)
 {
-    const struct vkd3d_shader_interface *shader_interface = &compiler->shader_interface;
+    const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
     const struct vkd3d_shader_combined_resource_sampler *combined_sampler;
     unsigned int i;
 
@@ -2065,7 +2065,7 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
         struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg,
         enum vkd3d_shader_resource_type resource_type, bool is_uav_counter)
 {
-    const struct vkd3d_shader_interface *shader_interface = &compiler->shader_interface;
+    const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
     enum vkd3d_shader_descriptor_type descriptor_type;
     enum vkd3d_shader_binding_flag resource_type_flag;
     struct vkd3d_shader_descriptor_binding binding;
@@ -3993,7 +3993,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
 
 static uint32_t vkd3d_dxbc_compiler_get_dummy_sampler_id(struct vkd3d_dxbc_compiler *compiler)
 {
-    const struct vkd3d_shader_interface *shader_interface = &compiler->shader_interface;
+    const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
     const SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t type_id, ptr_type_id, var_id;
@@ -4079,7 +4079,7 @@ static void vkd3d_dxbc_compiler_emit_combined_sampler_declarations(struct vkd3d_
         enum vkd3d_component_type sampled_type, unsigned int structure_stride, bool raw,
         const struct vkd3d_spirv_resource_type *resource_type_info)
 {
-    const struct vkd3d_shader_interface *shader_interface = &compiler->shader_interface;
+    const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
     const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
     const SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -5662,7 +5662,7 @@ static const struct vkd3d_symbol *vkd3d_dxbc_compiler_find_resource(struct vkd3d
 static const struct vkd3d_symbol *vkd3d_dxbc_compiler_find_combined_sampler(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *resource_reg, const struct vkd3d_shader_register *sampler_reg)
 {
-    const struct vkd3d_shader_interface *shader_interface = &compiler->shader_interface;
+    const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
     unsigned int resource_index, sampler_index;
     struct vkd3d_symbol key;
     struct rb_entry *entry;

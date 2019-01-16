@@ -29,7 +29,7 @@ extern "C" {
 
 enum vkd3d_shader_structure_type
 {
-    VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE,
+    VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS,
     VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_TRANSFORM_FEEDBACK_INFO,
@@ -129,7 +129,7 @@ struct vkd3d_shader_push_constant_buffer
     unsigned int size;   /* in bytes */
 };
 
-struct vkd3d_shader_interface
+struct vkd3d_shader_interface_info
 {
     enum vkd3d_shader_structure_type type;
     const void *next;
@@ -163,7 +163,7 @@ struct vkd3d_shader_transform_feedback_element
     uint8_t output_slot;
 };
 
-/* Extends vkd3d_shader_interface. */
+/* Extends vkd3d_shader_interface_info. */
 struct vkd3d_shader_transform_feedback_info
 {
     enum vkd3d_shader_structure_type type;
@@ -197,7 +197,7 @@ struct vkd3d_shader_compile_arguments
 
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv, unsigned int compiler_options,
-        const struct vkd3d_shader_interface *shader_interface,
+        const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compile_args);
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
 

@@ -1310,7 +1310,7 @@ static void dump_shader_stage(VkShaderStageFlagBits stage, const void *data, siz
 
 static HRESULT create_shader_stage(struct d3d12_device *device,
         struct VkPipelineShaderStageCreateInfo *stage_desc, enum VkShaderStageFlagBits stage,
-        const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface *shader_interface,
+        const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface_info *shader_interface,
         const struct vkd3d_shader_compile_arguments *compile_args)
 {
     struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
@@ -1435,8 +1435,8 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
         struct d3d12_device *device, const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
-    struct vkd3d_shader_interface shader_interface;
     VkComputePipelineCreateInfo pipeline_info;
     struct vkd3d_shader_scan_info shader_info;
     struct vkd3d_shader_code dxbc;
@@ -1475,7 +1475,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
         return hr;
     }
 
-    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE;
+    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
     shader_interface.next = NULL;
     shader_interface.bindings = root_signature->descriptor_mapping;
     shader_interface.binding_count = root_signature->descriptor_count;
@@ -1949,8 +1949,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
     struct vkd3d_shader_compile_arguments ps_compile_args;
     struct vkd3d_shader_transform_feedback_info xfb_info;
+    struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
-    struct vkd3d_shader_interface shader_interface;
     struct vkd3d_shader_signature input_signature;
     struct VkSubpassDescription sub_pass_desc;
     struct VkRenderPassCreateInfo pass_desc;
@@ -2202,7 +2202,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             xfb_stage = VK_SHADER_STAGE_VERTEX_BIT;
     }
 
-    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE;
+    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
     shader_interface.next = NULL;
     shader_interface.bindings = root_signature->descriptor_mapping;
     shader_interface.binding_count = root_signature->descriptor_count;
