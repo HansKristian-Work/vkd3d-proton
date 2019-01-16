@@ -568,6 +568,8 @@ struct d3d12_root_signature
     unsigned int parameter_count;
     uint32_t main_set;
 
+    D3D12_ROOT_SIGNATURE_FLAGS flags;
+
     unsigned int descriptor_count;
     struct vkd3d_shader_resource_binding *descriptor_mapping;
     struct vkd3d_shader_descriptor_binding dummy_sampler;

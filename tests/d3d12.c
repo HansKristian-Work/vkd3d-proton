@@ -2425,6 +2425,12 @@ static void test_create_graphics_pipeline_state(void)
     unsigned int i;
     HRESULT hr;
 
+    static const D3D12_SO_DECLARATION_ENTRY so_declaration[] =
+    {
+        {0, "SV_Position", 0, 0, 4, 0},
+    };
+    static const unsigned int strides[] = {16};
+
     if (!(device = create_device()))
     {
         skip("Failed to create device.\n");
@@ -2533,6 +2539,16 @@ static void test_create_graphics_pipeline_state(void)
     /* Inactive render targets formats must be set to DXGI_FORMAT_UNKNOWN. */
     init_pipeline_state_desc(&pso_desc, root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, NULL, NULL, NULL);
     pso_desc.RTVFormats[1] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    /* Stream output without D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT. */
+    init_pipeline_state_desc(&pso_desc, root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, NULL, NULL, NULL);
+    pso_desc.StreamOutput.NumEntries = ARRAY_SIZE(so_declaration);
+    pso_desc.StreamOutput.pSODeclaration = so_declaration;
+    pso_desc.StreamOutput.pBufferStrides = strides;
+    pso_desc.StreamOutput.NumStrides = ARRAY_SIZE(strides);
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);

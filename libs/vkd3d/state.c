@@ -899,11 +899,12 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     root_signature->vk_push_set_layout = VK_NULL_HANDLE;
     root_signature->vk_set_layout = VK_NULL_HANDLE;
     root_signature->parameters = NULL;
+    root_signature->flags = desc->Flags;
     root_signature->descriptor_mapping = NULL;
     root_signature->static_sampler_count = 0;
     root_signature->static_samplers = NULL;
 
-    if (desc->Flags)
+    if (desc->Flags & ~D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT)
         FIXME("Ignoring root signature flags %#x.\n", desc->Flags);
 
     if (FAILED(hr = d3d12_root_signature_info_from_desc(&info, desc)))
@@ -2168,10 +2169,17 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->xfb_enabled = false;
     if (so_desc->NumEntries)
     {
+        if (!(root_signature->flags & D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT))
+        {
+            WARN("Stream output is used without D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT.\n");
+            hr = E_INVALIDARG;
+            goto fail;
+        }
+
         if (!vk_info->EXT_transform_feedback)
         {
-            hr = E_NOTIMPL;
             FIXME("Transform feedback is not supported by Vulkan implementation.\n");
+            hr = E_NOTIMPL;
             goto fail;
         }
 
