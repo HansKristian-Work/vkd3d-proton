@@ -2367,9 +2367,6 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         return;
     }
 
-    if (base_offset)
-        FIXME("Ignoring base offset %#"PRIx64".\n", base_offset);
-
     offset = 0;
     total = 0;
     for (i = 0; i < sub_resource_count; ++i)
@@ -2385,7 +2382,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
 
         if (layouts)
         {
-            layouts[i].Offset = offset;
+            layouts[i].Offset = base_offset + offset;
             layouts[i].Footprint.Format = desc->Format;
             layouts[i].Footprint.Width = width;
             layouts[i].Footprint.Height = height;
