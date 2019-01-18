@@ -2074,11 +2074,10 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
         ID3D12Device *iface, D3D12_RESOURCE_ALLOCATION_INFO *info, UINT visible_mask,
         UINT count, const D3D12_RESOURCE_DESC *resource_descs)
 {
-    UINT64 default_alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     const struct vkd3d_format *format;
     const D3D12_RESOURCE_DESC *desc;
-    bool valid = true;
+    UINT64 estimated_size;
 
     TRACE("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p.\n",
             iface, info, visible_mask, count, resource_descs);
@@ -2099,7 +2098,7 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
     if (FAILED(d3d12_resource_validate_desc(desc)))
     {
         WARN("Invalid resource desc.\n");
-        valid = false;
+        goto invalid;
     }
 
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
@@ -2109,56 +2108,55 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
     }
     else
     {
-        /* FIXME: Should we support D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT for small MSSA resources? */
-        if (desc->SampleDesc.Count != 1)
-            default_alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
-
-        if (valid && FAILED(vkd3d_get_image_allocation_info(device, desc, info)))
+        if (FAILED(vkd3d_get_image_allocation_info(device, desc, info)))
         {
             WARN("Failed to get allocation info for texture.\n");
-            valid = false;
+            goto invalid;
         }
 
-        if (valid && info->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+        if (info->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
         {
-            if ((format = vkd3d_format_from_d3d12_resource_desc(desc, 0)))
+            if (!(format = vkd3d_format_from_d3d12_resource_desc(desc, 0)))
             {
-                if (desc->Width * desc->Height * desc->DepthOrArraySize * format->byte_count
-                        >  D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
-                {
-                    info->Alignment = max(info->Alignment, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
-                }
-                else
-                {
-                    info->Alignment = max(info->Alignment, D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT);
-                }
+                WARN("Invalid format %#x.\n", desc->Format);
+                goto invalid;
+            }
+
+            estimated_size = desc->Width * desc->Height * desc->DepthOrArraySize * format->byte_count;
+            if (estimated_size > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+            {
+                info->Alignment = max(info->Alignment, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
             }
             else
             {
-                WARN("Invalid format %#x.\n", desc->Format);
-                valid = false;
+                info->Alignment = max(info->Alignment, D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT);
             }
         }
     }
 
-    if (valid && desc->Alignment % info->Alignment)
+    if (desc->Alignment % info->Alignment)
     {
         WARN("Invalid resource alignment %#"PRIx64" (required %#"PRIx64").\n",
                 desc->Alignment, info->Alignment);
-        valid = false;
+        goto invalid;
     }
 
-    if (valid)
-    {
-        info->SizeInBytes = align(info->SizeInBytes, info->Alignment);
-    }
-    else
-    {
-        info->SizeInBytes = ~(UINT64)0;
-        info->Alignment = default_alignment;
-    }
+    info->SizeInBytes = align(info->SizeInBytes, info->Alignment);
 
     TRACE("Size %#"PRIx64", alignment %#"PRIx64".\n", info->SizeInBytes, info->Alignment);
+
+    return info;
+
+invalid:
+    info->SizeInBytes = ~(UINT64)0;
+
+    /* FIXME: Should we support D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT for small MSSA resources? */
+    if (desc->SampleDesc.Count != 1)
+        info->Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
+    else
+        info->Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+    TRACE("Alignment %#"PRIx64".\n", info->Alignment);
 
     return info;
 }
