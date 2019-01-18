@@ -22025,6 +22025,7 @@ static void test_resource_allocation_info(void)
     ID3D12Device *device;
     unsigned int i, j;
     ULONG refcount;
+    UINT64 size;
 
     static const unsigned int alignments[] =
     {
@@ -22045,6 +22046,22 @@ static void test_resource_allocation_info(void)
         D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT + 1,
         D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT,
         D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT + 1,
+    };
+    static const struct
+    {
+        unsigned int width;
+        unsigned int height;
+        unsigned int array_size;
+        DXGI_FORMAT format;
+    }
+    texture_tests[] =
+    {
+        { 4,  4, 1, DXGI_FORMAT_R8_UINT},
+        { 8,  8, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
+        {16, 16, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
+        {16, 16, 6, DXGI_FORMAT_R8G8B8A8_UNORM},
+
+        {1024, 1024, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
     };
 
     if (!(device = create_device()))
@@ -22083,6 +22100,50 @@ static void test_resource_allocation_info(void)
                 ok(info.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
                         "Got unexpected alignment %"PRIu64".\n", info.Alignment);
             }
+        }
+    }
+
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.MipLevels = 1;
+    desc.SampleDesc.Count = 1;
+    desc.SampleDesc.Quality = 0;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Flags = 0;
+
+    for (i = 0; i < ARRAY_SIZE(texture_tests); ++i)
+    {
+        desc.Width = texture_tests[i].width;
+        desc.Height = texture_tests[i].height;
+        desc.DepthOrArraySize = texture_tests[i].array_size;
+        desc.Format = texture_tests[i].format;
+
+        desc.Alignment = 0;
+        info = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &desc);
+        ok(info.Alignment >= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+                "Got unexpected alignment %"PRIu64".\n", info.Alignment);
+        check_alignment(info.SizeInBytes, info.Alignment);
+
+        desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        info = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &desc);
+        ok(info.Alignment >= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+                "Got unexpected alignment %"PRIu64".\n", info.Alignment);
+        check_alignment(info.SizeInBytes, info.Alignment);
+
+        desc.Alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
+        info = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &desc);
+        ok(info.Alignment >= D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT,
+                "Got unexpected alignment %"PRIu64".\n", info.Alignment);
+        size = desc.Width * desc.Height * desc.DepthOrArraySize * format_size(desc.Format);
+        if (size <= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+        {
+            check_alignment(info.SizeInBytes, info.Alignment);
+        }
+        else
+        {
+            ok(info.SizeInBytes == ~(UINT64)0,
+                    "Got unexpected size %"PRIu64".\n", info.SizeInBytes);
+            ok(info.Alignment >= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+                    "Got unexpected alignment %"PRIu64".\n", info.Alignment);
         }
     }
 
