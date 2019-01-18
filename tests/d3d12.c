@@ -14619,10 +14619,10 @@ static void test_null_descriptors(void)
     destroy_test_context(&context);
 }
 
-#define check_copyable_footprints(a, b, c, d, e, f, g) \
-        check_copyable_footprints_(__LINE__, a, b, c, d, e, f, g)
+#define check_copyable_footprints(a, b, c, d, e, f, g, h) \
+        check_copyable_footprints_(__LINE__, a, b, c, d, e, f, g, h)
 static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_DESC *desc,
-        unsigned int sub_resource_idx, unsigned int sub_resource_count,
+        unsigned int sub_resource_idx, unsigned int sub_resource_count, UINT64 base_offset,
         const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts, const UINT *row_counts,
         const UINT64 *row_sizes, UINT64 *total_size)
 {
@@ -14647,7 +14647,8 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
             const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *l = &layouts[i];
             const D3D12_SUBRESOURCE_FOOTPRINT *f = &l->Footprint;
 
-            ok_(line)(l->Offset == offset, "Got offset %"PRIu64", expected %"PRIu64".\n", l->Offset, offset);
+            ok_(line)(l->Offset == base_offset + offset,
+                    "Got offset %"PRIu64", expected %"PRIu64".\n", l->Offset, base_offset + offset);
             ok_(line)(f->Format == desc->Format, "Got format %#x, expected %#x.\n", f->Format, desc->Format);
             ok_(line)(f->Width == width, "Got width %u, expected %u.\n", f->Width, width);
             ok_(line)(f->Height == height, "Got height %u, expected %u.\n", f->Height, height);
@@ -14678,7 +14679,7 @@ static void test_get_copyable_footprints(void)
     D3D12_RESOURCE_DESC resource_desc;
     UINT64 row_sizes[10], total_size;
     unsigned int sub_resource_count;
-    unsigned int i, j, k;
+    unsigned int i, j, k, l;
     ID3D12Device *device;
     UINT row_counts[10];
     ULONG refcount;
@@ -14732,6 +14733,10 @@ static void test_get_copyable_footprints(void)
         {DXGI_FORMAT_BC6H_SF16, true},
         {DXGI_FORMAT_BC7_UNORM, true},
     };
+    static const UINT64 base_offsets[] =
+    {
+        0, 1, 2, 30, 255, 512, 513, 600, 4096, 4194304, ~(UINT64)0,
+    };
     static const struct
     {
         D3D12_RESOURCE_DESC resource_desc;
@@ -14780,7 +14785,6 @@ static void test_get_copyable_footprints(void)
         return;
     }
 
-    /* TODO: test base offset */
     for (i = 0; i < ARRAY_SIZE(resources); ++i)
     {
         const bool is_buffer = resources[i].dimension == D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -14814,49 +14818,59 @@ static void test_get_copyable_footprints(void)
                 sub_resource_count *= resource_desc.DepthOrArraySize;
             assert(sub_resource_count <= ARRAY_SIZE(layouts));
 
-            memset(layouts, 0, sizeof(layouts));
-            memset(row_counts, 0, sizeof(row_counts));
-            memset(row_sizes, 0, sizeof(row_sizes));
-            total_size = 0;
-            ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, 0,
-                    layouts, row_counts, row_sizes, &total_size);
-            check_copyable_footprints(&resource_desc, 0, sub_resource_count,
-                    layouts, row_counts, row_sizes, &total_size);
-
-            memset(layouts, 0, sizeof(layouts));
-            ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, 0,
-                    layouts, NULL, NULL, NULL);
-            check_copyable_footprints(&resource_desc, 0, sub_resource_count,
-                    layouts, NULL, NULL, NULL);
-            memset(row_counts, 0, sizeof(row_counts));
-            ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, 0,
-                    NULL, row_counts, NULL, NULL);
-            check_copyable_footprints(&resource_desc, 0, sub_resource_count,
-                    NULL, row_counts, NULL, NULL);
-            memset(row_sizes, 0, sizeof(row_sizes));
-            ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, 0,
-                    NULL, NULL, row_sizes, NULL);
-            check_copyable_footprints(&resource_desc, 0, sub_resource_count,
-                    NULL, NULL, row_sizes, NULL);
-            total_size = 0;
-            ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, 0,
-                    NULL, NULL, NULL, &total_size);
-            check_copyable_footprints(&resource_desc, 0, sub_resource_count,
-                    NULL, NULL, NULL, &total_size);
-
-            for (k = 0; k < sub_resource_count; ++k)
+            for (k = 0; k < ARRAY_SIZE(base_offsets); ++k)
             {
+                vkd3d_test_set_context("resource %u, format %#x, offset %#"PRIx64,
+                        i, resource_desc.Format, base_offsets[k]);
+
                 memset(layouts, 0, sizeof(layouts));
                 memset(row_counts, 0, sizeof(row_counts));
                 memset(row_sizes, 0, sizeof(row_sizes));
                 total_size = 0;
-                ID3D12Device_GetCopyableFootprints(device, &resource_desc, k, 1, 0,
+                ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, base_offsets[k],
                         layouts, row_counts, row_sizes, &total_size);
-                check_copyable_footprints(&resource_desc, k, 1,
+                check_copyable_footprints(&resource_desc, 0, sub_resource_count, base_offsets[k],
                         layouts, row_counts, row_sizes, &total_size);
+
+                memset(layouts, 0, sizeof(layouts));
+                ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, base_offsets[k],
+                        layouts, NULL, NULL, NULL);
+                check_copyable_footprints(&resource_desc, 0, sub_resource_count, base_offsets[k],
+                        layouts, NULL, NULL, NULL);
+                memset(row_counts, 0, sizeof(row_counts));
+                ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, base_offsets[k],
+                        NULL, row_counts, NULL, NULL);
+                check_copyable_footprints(&resource_desc, 0, sub_resource_count, base_offsets[k],
+                        NULL, row_counts, NULL, NULL);
+                memset(row_sizes, 0, sizeof(row_sizes));
+                ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, base_offsets[k],
+                        NULL, NULL, row_sizes, NULL);
+                check_copyable_footprints(&resource_desc, 0, sub_resource_count, base_offsets[k],
+                        NULL, NULL, row_sizes, NULL);
+                total_size = 0;
+                ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count, base_offsets[k],
+                        NULL, NULL, NULL, &total_size);
+                check_copyable_footprints(&resource_desc, 0, sub_resource_count, base_offsets[k],
+                        NULL, NULL, NULL, &total_size);
+
+                for (l = 0; l < sub_resource_count; ++l)
+                {
+                    vkd3d_test_set_context("resource %u, format %#x, offset %#"PRIx64", sub-resource %u",
+                            i, resource_desc.Format, base_offsets[k], l);
+
+                    memset(layouts, 0, sizeof(layouts));
+                    memset(row_counts, 0, sizeof(row_counts));
+                    memset(row_sizes, 0, sizeof(row_sizes));
+                    total_size = 0;
+                    ID3D12Device_GetCopyableFootprints(device, &resource_desc, l, 1, base_offsets[k],
+                            layouts, row_counts, row_sizes, &total_size);
+                    check_copyable_footprints(&resource_desc, l, 1, base_offsets[k],
+                            layouts, row_counts, row_sizes, &total_size);
+                }
             }
         }
     }
+    vkd3d_test_set_context(NULL);
 
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     resource_desc.Alignment = 0;
@@ -14874,7 +14888,7 @@ static void test_get_copyable_footprints(void)
     total_size = 0;
     ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, 1, 0,
             layouts, row_counts, row_sizes, &total_size);
-    check_copyable_footprints(&resource_desc, 0, 1,
+    check_copyable_footprints(&resource_desc, 0, 1, 0,
             layouts, row_counts, row_sizes, &total_size);
 
     for (i = 0; i < ARRAY_SIZE(invalid_descs); ++i)
