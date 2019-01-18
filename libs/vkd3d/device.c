@@ -2076,6 +2076,7 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
 {
     UINT64 default_alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    const struct vkd3d_format *format;
     const D3D12_RESOURCE_DESC *desc;
     bool valid = true;
 
@@ -2118,7 +2119,26 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
             valid = false;
         }
 
-        info->Alignment = max(info->Alignment, D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT);
+        if (valid && info->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+        {
+            if ((format = vkd3d_format_from_d3d12_resource_desc(desc, 0)))
+            {
+                if (desc->Width * desc->Height * desc->DepthOrArraySize * format->byte_count
+                        >  D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+                {
+                    info->Alignment = max(info->Alignment, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
+                }
+                else
+                {
+                    info->Alignment = max(info->Alignment, D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT);
+                }
+            }
+            else
+            {
+                WARN("Invalid format %#x.\n", desc->Format);
+                valid = false;
+            }
+        }
     }
 
     if (valid && desc->Alignment % info->Alignment)
