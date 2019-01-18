@@ -1085,6 +1085,8 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc)
             return E_INVALIDARG;
     }
 
+    /* FIXME: Validate alignment for textures. */
+
     return S_OK;
 }
 

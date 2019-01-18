@@ -2077,6 +2077,7 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     const struct vkd3d_format *format;
     const D3D12_RESOURCE_DESC *desc;
+    UINT64 requested_alignment;
     UINT64 estimated_size;
 
     TRACE("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p.\n",
@@ -2101,6 +2102,9 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
         goto invalid;
     }
 
+    requested_alignment = desc->Alignment
+            ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
         info->SizeInBytes = desc->Width;
@@ -2114,6 +2118,8 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
             goto invalid;
         }
 
+        info->Alignment = max(info->Alignment, requested_alignment);
+
         if (info->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
         {
             if (!(format = vkd3d_format_from_d3d12_resource_desc(desc, 0)))
@@ -2124,13 +2130,7 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
 
             estimated_size = desc->Width * desc->Height * desc->DepthOrArraySize * format->byte_count;
             if (estimated_size > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
-            {
                 info->Alignment = max(info->Alignment, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
-            }
-            else
-            {
-                info->Alignment = max(info->Alignment, D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT);
-            }
         }
     }
 
