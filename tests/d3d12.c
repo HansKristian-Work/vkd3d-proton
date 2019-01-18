@@ -4219,6 +4219,42 @@ static void test_clear_unordered_access_view(void)
 #undef BUFFER_SIZE
 }
 
+static void test_set_render_targets(void)
+{
+    ID3D12DescriptorHeap *dsv_heap, *rtv_heap;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv, rtv;
+    struct test_context context;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    if (!init_test_context(&context, NULL))
+        return;
+    device = context.device;
+    command_list = context.list;
+
+    rtv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 4);
+    dsv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 4);
+
+    dsv = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv_heap);
+    rtv = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, TRUE, &dsv);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, &rtv, TRUE, &dsv);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, &rtv, FALSE, &dsv);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, TRUE, &dsv);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &dsv);
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
+
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    ID3D12DescriptorHeap_Release(dsv_heap);
+    destroy_test_context(&context);
+}
+
 static void test_draw_instanced(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -22893,6 +22929,7 @@ START_TEST(d3d12)
     run_test(test_clear_depth_stencil_view);
     run_test(test_clear_render_target_view);
     run_test(test_clear_unordered_access_view);
+    run_test(test_set_render_targets);
     run_test(test_draw_instanced);
     run_test(test_draw_indexed_instanced);
     run_test(test_draw_no_descriptor_bindings);

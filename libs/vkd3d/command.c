@@ -3749,7 +3749,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
             rtv_desc = d3d12_rtv_desc_from_cpu_handle(render_target_descriptors[i]);
         }
 
-        if (!rtv_desc)
+        if (!rtv_desc || !rtv_desc->resource)
         {
             WARN("RTV descriptor %u is not initialized.\n", i);
             list->views[i + 1] = VK_NULL_HANDLE;
@@ -3773,7 +3773,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
 
     if (depth_stencil_descriptor)
     {
-        if ((dsv_desc = d3d12_dsv_desc_from_cpu_handle(*depth_stencil_descriptor)))
+        if ((dsv_desc = d3d12_dsv_desc_from_cpu_handle(*depth_stencil_descriptor))
+                && dsv_desc->resource)
         {
             d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
 
