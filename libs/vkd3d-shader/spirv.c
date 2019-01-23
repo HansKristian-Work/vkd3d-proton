@@ -3567,6 +3567,40 @@ static void vkd3d_dxbc_compiler_emit_shader_signature_outputs(struct vkd3d_dxbc_
     }
 }
 
+static void vkd3d_dxbc_compiler_emit_output_register(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_dst_param *dst)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_register *reg = &dst->reg;
+    const struct vkd3d_spirv_builtin *builtin;
+    struct vkd3d_symbol reg_symbol;
+    uint32_t output_id;
+
+    assert(!reg->idx[0].rel_addr);
+    assert(!reg->idx[1].rel_addr);
+    assert(reg->idx[1].offset == ~0u);
+
+    if (!(builtin = get_spirv_builtin_for_register(reg->type)))
+    {
+        FIXME("Unhandled register %#x.\n", reg->type);
+        return;
+    }
+
+    output_id = vkd3d_dxbc_compiler_emit_variable(compiler,
+            &builder->global_stream, SpvStorageClassOutput,
+            builtin->component_type, builtin->component_count);
+    vkd3d_spirv_add_iface_variable(builder, output_id);
+    vkd3d_dxbc_compiler_decorate_builtin(compiler, output_id, builtin->spirv_builtin);
+
+    vkd3d_symbol_make_register(&reg_symbol, reg);
+    reg_symbol.id = output_id;
+    reg_symbol.info.reg.storage_class = SpvStorageClassOutput;
+    reg_symbol.info.reg.component_type = builtin->component_type;
+    reg_symbol.info.reg.write_mask = vkd3d_write_mask_from_component_count(builtin->component_count);
+    vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
+    vkd3d_dxbc_compiler_emit_register_debug_name(builder, output_id, reg);
+}
+
 static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval)
 {
@@ -4386,7 +4420,12 @@ static void vkd3d_dxbc_compiler_emit_dcl_input_sysval(struct vkd3d_dxbc_compiler
 static void vkd3d_dxbc_compiler_emit_dcl_output(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    vkd3d_dxbc_compiler_emit_output(compiler, &instruction->declaration.dst, VKD3D_SIV_NONE);
+    const struct vkd3d_shader_dst_param *dst = &instruction->declaration.dst;
+
+    if (vkd3d_shader_register_is_output(&dst->reg))
+        vkd3d_dxbc_compiler_emit_output(compiler, dst, VKD3D_SIV_NONE);
+    else
+        vkd3d_dxbc_compiler_emit_output_register(compiler, dst);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_output_siv(struct vkd3d_dxbc_compiler *compiler,
