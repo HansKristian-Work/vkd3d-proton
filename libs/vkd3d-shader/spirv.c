@@ -2302,6 +2302,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_IDXTEMP:
             snprintf(buffer, buffer_size, "x%u", idx);
             break;
+        case VKD3DSPR_SAMPLEMASK:
+            snprintf(buffer, buffer_size, "oMask");
+            break;
         default:
             FIXME("Unhandled register %#x.\n", reg->type);
             snprintf(buffer, buffer_size, "unrecognized_%#x", reg->type);
@@ -2469,6 +2472,10 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
     else if (reg->type == VKD3DSPR_IDXTEMP)
     {
         indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[1]);
+    }
+    else if (reg->type == VKD3DSPR_SAMPLEMASK)
+    {
+        indexes[index_count++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, register_info->member_idx);
     }
     else
     {
@@ -3109,6 +3116,8 @@ vkd3d_register_builtins[] =
 
     {VKD3DSPR_TESSCOORD,        {VKD3D_TYPE_FLOAT, 3, SpvBuiltInTessCoord}},
 
+    {VKD3DSPR_SAMPLEMASK,       {VKD3D_TYPE_UINT, 1, SpvBuiltInSampleMask, NULL, true}},
+
     {VKD3DSPR_DEPTHOUT,         {VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth}},
     {VKD3DSPR_DEPTHOUTGE,       {VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth}},
     {VKD3DSPR_DEPTHOUTLE,       {VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth}},
@@ -3574,6 +3583,7 @@ static void vkd3d_dxbc_compiler_emit_output_register(struct vkd3d_dxbc_compiler 
     const struct vkd3d_shader_register *reg = &dst->reg;
     const struct vkd3d_spirv_builtin *builtin;
     struct vkd3d_symbol reg_symbol;
+    unsigned int array_size;
     uint32_t output_id;
 
     assert(!reg->idx[0].rel_addr);
@@ -3586,15 +3596,17 @@ static void vkd3d_dxbc_compiler_emit_output_register(struct vkd3d_dxbc_compiler 
         return;
     }
 
-    output_id = vkd3d_dxbc_compiler_emit_variable(compiler,
+    array_size = builtin->is_spirv_array ? 1 : 0;
+    output_id = vkd3d_dxbc_compiler_emit_array_variable(compiler,
             &builder->global_stream, SpvStorageClassOutput,
-            builtin->component_type, builtin->component_count);
+            builtin->component_type, builtin->component_count, array_size);
     vkd3d_spirv_add_iface_variable(builder, output_id);
     vkd3d_dxbc_compiler_decorate_builtin(compiler, output_id, builtin->spirv_builtin);
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
     reg_symbol.id = output_id;
     reg_symbol.info.reg.storage_class = SpvStorageClassOutput;
+    reg_symbol.info.reg.member_idx = 0;
     reg_symbol.info.reg.component_type = builtin->component_type;
     reg_symbol.info.reg.write_mask = vkd3d_write_mask_from_component_count(builtin->component_count);
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
