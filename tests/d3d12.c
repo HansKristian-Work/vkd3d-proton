@@ -12218,6 +12218,376 @@ static void test_multisample_array_texture(void)
     destroy_test_context(&context);
 }
 
+static void test_resinfo(void)
+{
+    D3D12_SHADER_RESOURCE_VIEW_DESC *current_srv_desc, srv_desc;
+    const D3D12_SHADER_BYTECODE *current_ps;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *texture;
+    struct uvec4 constant;
+    ID3D12Device *device;
+    unsigned int i, type;
+    HRESULT hr;
+
+    static const DWORD ps_2d_code[] =
+    {
+#if 0
+        Texture2D t;
+
+        uint type;
+        uint level;
+
+        float4 main() : SV_TARGET
+        {
+            if (!type)
+            {
+                float width, height, miplevels;
+                t.GetDimensions(level, width, height, miplevels);
+                return float4(width, height, miplevels, 0);
+            }
+            else
+            {
+                uint width, height, miplevels;
+                t.GetDimensions(level, width, height, miplevels);
+                return float4(width, height, miplevels, 0);
+            }
+        }
+#endif
+        0x43425844, 0x9c2db58d, 0x7218d757, 0x23255414, 0xaa86938e, 0x00000001, 0x00000168, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x52444853, 0x000000f0, 0x00000040, 0x0000003c,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04001858, 0x00107000, 0x00000000, 0x00005555,
+        0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0400001f, 0x0020800a, 0x00000000,
+        0x00000000, 0x0800003d, 0x001000f2, 0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x00107e46,
+        0x00000000, 0x05000036, 0x00102072, 0x00000000, 0x00100346, 0x00000000, 0x05000036, 0x00102082,
+        0x00000000, 0x00004001, 0x00000000, 0x0100003e, 0x01000012, 0x0800103d, 0x001000f2, 0x00000000,
+        0x0020801a, 0x00000000, 0x00000000, 0x00107e46, 0x00000000, 0x05000056, 0x00102072, 0x00000000,
+        0x00100346, 0x00000000, 0x05000036, 0x00102082, 0x00000000, 0x00004001, 0x00000000, 0x0100003e,
+        0x01000015, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_2d = {ps_2d_code, sizeof(ps_2d_code)};
+    static const DWORD ps_2d_array_code[] =
+    {
+#if 0
+        Texture2DArray t;
+
+        uint type;
+        uint level;
+
+        float4 main() : SV_TARGET
+        {
+            if (!type)
+            {
+                float width, height, elements, miplevels;
+                t.GetDimensions(level, width, height, elements, miplevels);
+                return float4(width, height, elements, miplevels);
+            }
+            else
+            {
+                uint width, height, elements, miplevels;
+                t.GetDimensions(level, width, height, elements, miplevels);
+                return float4(width, height, elements, miplevels);
+            }
+        }
+#endif
+        0x43425844, 0x92cd8789, 0x38e359ac, 0xd65ab502, 0xa018a5ae, 0x00000001, 0x0000012c, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x52444853, 0x000000b4, 0x00000040, 0x0000002d,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04004058, 0x00107000, 0x00000000, 0x00005555,
+        0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0400001f, 0x0020800a, 0x00000000,
+        0x00000000, 0x0800003d, 0x001020f2, 0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x00107e46,
+        0x00000000, 0x0100003e, 0x01000012, 0x0800103d, 0x001000f2, 0x00000000, 0x0020801a, 0x00000000,
+        0x00000000, 0x00107e46, 0x00000000, 0x05000056, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000,
+        0x0100003e, 0x01000015, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_2d_array = {ps_2d_array_code, sizeof(ps_2d_array_code)};
+    static const DWORD ps_3d_code[] =
+    {
+#if 0
+        Texture3D t;
+
+        uint type;
+        uint level;
+
+        float4 main() : SV_TARGET
+        {
+            if (!type)
+            {
+                float width, height, depth, miplevels;
+                t.GetDimensions(level, width, height, depth, miplevels);
+                return float4(width, height, depth, miplevels);
+            }
+            else
+            {
+                uint width, height, depth, miplevels;
+                t.GetDimensions(level, width, height, depth, miplevels);
+                return float4(width, height, depth, miplevels);
+            }
+        }
+#endif
+        0x43425844, 0xac1f73b9, 0x2bce1322, 0x82c599e6, 0xbff0d681, 0x00000001, 0x0000012c, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x52444853, 0x000000b4, 0x00000040, 0x0000002d,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04002858, 0x00107000, 0x00000000, 0x00005555,
+        0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0400001f, 0x0020800a, 0x00000000,
+        0x00000000, 0x0800003d, 0x001020f2, 0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x00107e46,
+        0x00000000, 0x0100003e, 0x01000012, 0x0800103d, 0x001000f2, 0x00000000, 0x0020801a, 0x00000000,
+        0x00000000, 0x00107e46, 0x00000000, 0x05000056, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000,
+        0x0100003e, 0x01000015, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_3d = {ps_3d_code, sizeof(ps_3d_code)};
+    static const DWORD ps_cube_code[] =
+    {
+#if 0
+        TextureCube t;
+
+        uint type;
+        uint level;
+
+        float4 main() : SV_TARGET
+        {
+            if (!type)
+            {
+                float width, height, miplevels;
+                t.GetDimensions(level, width, height, miplevels);
+                return float4(width, height, miplevels, 0);
+            }
+            else
+            {
+                uint width, height, miplevels;
+                t.GetDimensions(level, width, height, miplevels);
+                return float4(width, height, miplevels, 0);
+            }
+        }
+#endif
+        0x43425844, 0x795eb161, 0xb8291400, 0xcc531086, 0x2a8143ce, 0x00000001, 0x00000168, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x52444853, 0x000000f0, 0x00000040, 0x0000003c,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04003058, 0x00107000, 0x00000000, 0x00005555,
+        0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0400001f, 0x0020800a, 0x00000000,
+        0x00000000, 0x0800003d, 0x001000f2, 0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x00107e46,
+        0x00000000, 0x05000036, 0x00102072, 0x00000000, 0x00100346, 0x00000000, 0x05000036, 0x00102082,
+        0x00000000, 0x00004001, 0x00000000, 0x0100003e, 0x01000012, 0x0800103d, 0x001000f2, 0x00000000,
+        0x0020801a, 0x00000000, 0x00000000, 0x00107e46, 0x00000000, 0x05000056, 0x00102072, 0x00000000,
+        0x00100346, 0x00000000, 0x05000036, 0x00102082, 0x00000000, 0x00004001, 0x00000000, 0x0100003e,
+        0x01000015, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_cube = {ps_cube_code, sizeof(ps_cube_code)};
+    static const DWORD ps_cube_array_code[] =
+    {
+#if 0
+        TextureCubeArray t;
+
+        uint type;
+        uint level;
+
+        float4 main() : SV_TARGET
+        {
+            if (!type)
+            {
+                float width, height, elements, miplevels;
+                t.GetDimensions(level, width, height, elements, miplevels);
+                return float4(width, height, miplevels, 0);
+            }
+            else
+            {
+                uint width, height, elements, miplevels;
+                t.GetDimensions(level, width, height, elements, miplevels);
+                return float4(width, height, miplevels, 0);
+            }
+        }
+#endif
+        0x43425844, 0x894d136f, 0xa1f5c746, 0xd771ac09, 0x6914e044, 0x00000001, 0x0000016c, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x52444853, 0x000000f4, 0x00000041, 0x0000003d,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04005058, 0x00107000, 0x00000000,
+        0x00005555, 0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0400001f, 0x0020800a,
+        0x00000000, 0x00000000, 0x0800003d, 0x00100072, 0x00000000, 0x0020801a, 0x00000000, 0x00000000,
+        0x00107b46, 0x00000000, 0x05000036, 0x00102072, 0x00000000, 0x00100246, 0x00000000, 0x05000036,
+        0x00102082, 0x00000000, 0x00004001, 0x00000000, 0x0100003e, 0x01000012, 0x0800103d, 0x00100072,
+        0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x00107b46, 0x00000000, 0x05000056, 0x00102072,
+        0x00000000, 0x00100246, 0x00000000, 0x05000036, 0x00102082, 0x00000000, 0x00004001, 0x00000000,
+        0x0100003e, 0x01000015, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_cube_array = {ps_cube_array_code, sizeof(ps_cube_array_code)};
+    static const struct ps_test
+    {
+        const D3D12_SHADER_BYTECODE *ps;
+        struct
+        {
+            unsigned int width;
+            unsigned int height;
+            unsigned int depth;
+            unsigned int miplevel_count;
+            unsigned int array_size;
+            unsigned int cube_count;
+        } texture_desc;
+        unsigned int miplevel;
+        struct vec4 expected_result;
+    }
+    ps_tests[] =
+    {
+        {&ps_2d, {64, 64, 1, 1, 1, 0}, 0, {64.0f, 64.0f, 1.0f, 0.0f}},
+        {&ps_2d, {32, 16, 1, 3, 1, 0}, 0, {32.0f, 16.0f, 3.0f, 0.0f}},
+        {&ps_2d, {32, 16, 1, 3, 1, 0}, 1, {16.0f,  8.0f, 3.0f, 0.0f}},
+        {&ps_2d, {32, 16, 1, 3, 1, 0}, 2, { 8.0f,  4.0f, 3.0f, 0.0f}},
+
+        {&ps_2d_array, {64, 64, 1, 1, 6, 0}, 0, {64.0f, 64.0f, 6.0f, 1.0f}},
+        {&ps_2d_array, {32, 16, 1, 3, 9, 0}, 0, {32.0f, 16.0f, 9.0f, 3.0f}},
+        {&ps_2d_array, {32, 16, 1, 3, 7, 0}, 1, {16.0f,  8.0f, 7.0f, 3.0f}},
+        {&ps_2d_array, {32, 16, 1, 3, 3, 0}, 2, { 8.0f,  4.0f, 3.0f, 3.0f}},
+
+        {&ps_3d, {64, 64, 2, 1, 1, 0}, 0, {64.0f, 64.0f, 2.0f, 1.0f}},
+        {&ps_3d, {64, 64, 2, 2, 1, 0}, 1, {32.0f, 32.0f, 1.0f, 2.0f}},
+        {&ps_3d, {64, 64, 4, 1, 1, 0}, 0, {64.0f, 64.0f, 4.0f, 1.0f}},
+        {&ps_3d, {64, 64, 4, 2, 1, 0}, 1, {32.0f, 32.0f, 2.0f, 2.0f}},
+        {&ps_3d, { 8,  8, 8, 1, 1, 0}, 0, { 8.0f,  8.0f, 8.0f, 1.0f}},
+        {&ps_3d, { 8,  8, 8, 4, 1, 0}, 0, { 8.0f,  8.0f, 8.0f, 4.0f}},
+        {&ps_3d, { 8,  8, 8, 4, 1, 0}, 1, { 4.0f,  4.0f, 4.0f, 4.0f}},
+        {&ps_3d, { 8,  8, 8, 4, 1, 0}, 2, { 2.0f,  2.0f, 2.0f, 4.0f}},
+        {&ps_3d, { 8,  8, 8, 4, 1, 0}, 3, { 1.0f,  1.0f, 1.0f, 4.0f}},
+
+        {&ps_cube, { 4,  4, 1, 1, 6, 1}, 0, { 4.0f,  4.0f, 1.0f, 0.0f}},
+        {&ps_cube, {32, 32, 1, 1, 6, 1}, 0, {32.0f, 32.0f, 1.0f, 0.0f}},
+        {&ps_cube, {32, 32, 1, 3, 6, 1}, 0, {32.0f, 32.0f, 3.0f, 0.0f}},
+        {&ps_cube, {32, 32, 1, 3, 6, 1}, 1, {16.0f, 16.0f, 3.0f, 0.0f}},
+        {&ps_cube, {32, 32, 1, 3, 6, 1}, 2, { 8.0f,  8.0f, 3.0f, 0.0f}},
+
+        {&ps_cube_array, { 4,  4, 1, 1, 12, 2}, 0, { 4.0f,  4.0f, 1.0f, 0.0f}},
+        {&ps_cube_array, {32, 32, 1, 1, 12, 2}, 0, {32.0f, 32.0f, 1.0f, 0.0f}},
+        {&ps_cube_array, {32, 32, 1, 3, 12, 2}, 0, {32.0f, 32.0f, 3.0f, 0.0f}},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = desc.rt_height = 64;
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_texture_root_signature(context.device,
+            D3D12_SHADER_VISIBILITY_PIXEL, 4, 0);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 6);
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+
+    current_ps = NULL;
+    for (i = 0; i < ARRAY_SIZE(ps_tests); ++i)
+    {
+        const struct ps_test *test = &ps_tests[i];
+
+        vkd3d_test_set_context("test %u", i);
+
+        if (current_ps != test->ps)
+        {
+            if (context.pipeline_state)
+                ID3D12PipelineState_Release(context.pipeline_state);
+
+            current_ps = test->ps;
+
+            context.pipeline_state = create_pipeline_state(context.device,
+                    context.root_signature, context.render_target_desc.Format, NULL, current_ps, NULL);
+        }
+
+        memset(&heap_properties, 0, sizeof(heap_properties));
+        heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+        resource_desc.Dimension = test->texture_desc.depth != 1
+                ? D3D12_RESOURCE_DIMENSION_TEXTURE3D : D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        resource_desc.Alignment = 0;
+        resource_desc.Width = test->texture_desc.width;
+        resource_desc.Height = test->texture_desc.height;
+        resource_desc.DepthOrArraySize = test->texture_desc.depth != 1
+                ? test->texture_desc.depth : test->texture_desc.array_size;
+        resource_desc.MipLevels = test->texture_desc.miplevel_count;
+        resource_desc.Format = DXGI_FORMAT_R8_UNORM;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.SampleDesc.Quality = 0;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        resource_desc.Flags = 0;
+        hr = ID3D12Device_CreateCommittedResource(device,
+                &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, NULL,
+                &IID_ID3D12Resource, (void **)&texture);
+        ok(hr == S_OK, "Test %u: Failed to create texture, hr %#x.\n", i, hr);
+
+        current_srv_desc = NULL;
+        if (test->texture_desc.cube_count)
+        {
+            current_srv_desc = &srv_desc;
+            srv_desc.Format = resource_desc.Format;
+            srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            if (test->texture_desc.cube_count > 1)
+            {
+                srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBEARRAY;
+                srv_desc.TextureCubeArray.MostDetailedMip = 0;
+                srv_desc.TextureCubeArray.MipLevels = resource_desc.MipLevels;
+                srv_desc.TextureCubeArray.First2DArrayFace = 0;
+                srv_desc.TextureCubeArray.NumCubes = test->texture_desc.cube_count;
+                srv_desc.TextureCubeArray.ResourceMinLODClamp = 0.0f;
+            }
+            else
+            {
+                srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+                srv_desc.TextureCube.MostDetailedMip = 0;
+                srv_desc.TextureCube.MipLevels = resource_desc.MipLevels;
+                srv_desc.TextureCube.ResourceMinLODClamp = 0.0f;
+            }
+        }
+        ID3D12Device_CreateShaderResourceView(context.device, texture, current_srv_desc, cpu_handle);
+
+        for (type = 0; type < 2; ++type)
+        {
+            vkd3d_test_set_context("test %u, type %u", i, type);
+
+            memset(&constant, 0, sizeof(constant));
+            constant.x = type;
+            constant.y = test->miplevel;
+
+            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+            ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+            ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+            ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+            ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+            ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+            ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0,
+                    get_gpu_descriptor_handle(&context, heap, 0));
+            ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 4, &constant.x, 0);
+            ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+            transition_resource_state(command_list, context.render_target,
+                    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+            check_sub_resource_vec4(context.render_target, 0, queue, command_list, &test->expected_result, 0);
+
+            reset_command_list(command_list, context.allocator);
+            transition_resource_state(command_list, context.render_target,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        }
+
+        ID3D12Resource_Release(texture);
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
 static void test_descriptor_tables(void)
 {
     ID3D12DescriptorHeap *heap, *sampler_heap, *heaps[2];
@@ -23039,6 +23409,7 @@ START_TEST(d3d12)
     run_test(test_gather_c);
     run_test(test_cube_maps);
     run_test(test_multisample_array_texture);
+    run_test(test_resinfo);
     run_test(test_descriptor_tables);
     run_test(test_descriptor_tables_overlapping_bindings);
     run_test(test_update_root_descriptors);
