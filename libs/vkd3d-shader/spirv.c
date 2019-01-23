@@ -1672,7 +1672,7 @@ vkd3d_spirv_resource_type_table[] =
             SpvCapabilitySampled1D, SpvCapabilityImage1D},
     {VKD3D_SHADER_RESOURCE_TEXTURE_2DARRAY,   SpvDim2D,     1, 0, 3, 2},
     {VKD3D_SHADER_RESOURCE_TEXTURE_2DMSARRAY, SpvDim2D,     1, 1, 3, 2},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY, SpvDimCube,   1, 0, 3, 0,
+    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY, SpvDimCube,   1, 0, 4, 0,
             SpvCapabilitySampledCubeArray, SpvCapabilityImageCubeArray},
 };
 
@@ -6516,6 +6516,8 @@ static void vkd3d_dxbc_compiler_emit_resinfo(struct vkd3d_dxbc_compiler *compile
 
     vkd3d_dxbc_compiler_prepare_image(compiler, &image, &src[1].reg, NULL, VKD3D_IMAGE_FLAG_NONE);
     size_component_count = image.resource_type_info->coordinate_component_count;
+    if (image.resource_type_info->dim == SpvDimCube)
+        --size_component_count;
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, size_component_count);
 
     supports_mipmaps = src[1].reg.type != VKD3DSPR_UAV && !image.resource_type_info->ms;
