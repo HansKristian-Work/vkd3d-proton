@@ -1566,6 +1566,7 @@ static bool shader_sm4_is_scalar_register(const struct vkd3d_shader_register *re
 {
     switch (reg->type)
     {
+        case VKD3DSPR_COVERAGE:
         case VKD3DSPR_DEPTHOUT:
         case VKD3DSPR_DEPTHOUTGE:
         case VKD3DSPR_DEPTHOUTLE:
