@@ -2429,9 +2429,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     rs_stream_desc_from_d3d12(&graphics->rs_stream_desc, &graphics->rs_desc, so_desc, vk_info);
 
-    if (desc->SampleMask != ~0u)
-        FIXME("Ignoring sample mask %#x.\n", desc->SampleMask);
-
     graphics->ms_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     graphics->ms_desc.pNext = NULL;
     graphics->ms_desc.flags = 0;
@@ -2439,6 +2436,13 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->ms_desc.sampleShadingEnable = VK_FALSE;
     graphics->ms_desc.minSampleShading = 0.0f;
     graphics->ms_desc.pSampleMask = NULL;
+    if (desc->SampleMask != ~0u)
+    {
+        assert(DIV_ROUND_UP(sample_count, 32) < ARRAY_SIZE(graphics->sample_mask));
+        graphics->sample_mask[0] = desc->SampleMask;
+        graphics->sample_mask[1] = 0xffffffffu;
+        graphics->ms_desc.pSampleMask = graphics->sample_mask;
+    }
     graphics->ms_desc.alphaToCoverageEnable = desc->BlendState.AlphaToCoverageEnable;
     graphics->ms_desc.alphaToOneEnable = VK_FALSE;
 

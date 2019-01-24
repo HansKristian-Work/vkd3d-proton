@@ -617,6 +617,7 @@ struct d3d12_graphics_pipeline_state
     VkPipelineMultisampleStateCreateInfo ms_desc;
     VkPipelineDepthStencilStateCreateInfo ds_desc;
 
+    VkSampleMask sample_mask[2];
     VkPipelineRasterizationStateStreamCreateInfoEXT rs_stream_desc;
 
     const struct d3d12_root_signature *root_signature;
