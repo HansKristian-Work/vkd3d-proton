@@ -6765,7 +6765,8 @@ static void vkd3d_dxbc_compiler_emit_main_prolog(struct vkd3d_dxbc_compiler *com
 
 static bool is_dcl_instruction(enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx)
 {
-    return VKD3DSIH_DCL <= handler_idx && handler_idx <= VKD3DSIH_DCL_VERTICES_OUT;
+    return (VKD3DSIH_DCL <= handler_idx && handler_idx <= VKD3DSIH_DCL_VERTICES_OUT)
+            || handler_idx == VKD3DSIH_HS_DECLS;
 }
 
 int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
