@@ -841,9 +841,9 @@ struct depth_stencil_resource
     D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle;
 };
 
-#define init_depth_stencil(a, b, c, d, e, f, g, h) init_depth_stencil_(__LINE__, a, b, c, d, e, f, g, h)
+#define init_depth_stencil(a, b, c, d, e, f, g, h, i) init_depth_stencil_(__LINE__, a, b, c, d, e, f, g, h, i)
 static void init_depth_stencil_(unsigned int line, struct depth_stencil_resource *ds,
-        ID3D12Device *device, unsigned int width, unsigned int height, unsigned int array_size,
+        ID3D12Device *device, unsigned int width, unsigned int height, unsigned int array_size, unsigned int level_count,
         DXGI_FORMAT format, DXGI_FORMAT view_format, const D3D12_CLEAR_VALUE *clear_value)
 {
     D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc, *view_desc;
@@ -862,7 +862,7 @@ static void init_depth_stencil_(unsigned int line, struct depth_stencil_resource
     resource_desc.Width = width;
     resource_desc.Height = height;
     resource_desc.DepthOrArraySize = array_size;
-    resource_desc.MipLevels = 1;
+    resource_desc.MipLevels = level_count;
     resource_desc.Format = format;
     resource_desc.SampleDesc.Count = 1;
     resource_desc.SampleDesc.Quality = 0;
@@ -3830,7 +3830,7 @@ static void test_clear_depth_stencil_view(void)
     clear_value.Format = DXGI_FORMAT_D32_FLOAT;
     clear_value.DepthStencil.Depth = 0.5f;
     clear_value.DepthStencil.Stencil = 0x3;
-    init_depth_stencil(&ds, device, 32, 32, 1, DXGI_FORMAT_D32_FLOAT, 0, &clear_value);
+    init_depth_stencil(&ds, device, 32, 32, 1, 1, DXGI_FORMAT_D32_FLOAT, 0, &clear_value);
 
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
             D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.75f, 0x7, 0, NULL);
@@ -3840,7 +3840,7 @@ static void test_clear_depth_stencil_view(void)
 
     destroy_depth_stencil(&ds);
     reset_command_list(command_list, context.allocator);
-    init_depth_stencil(&ds, device, 32, 32, 6, DXGI_FORMAT_D32_FLOAT, 0, &clear_value);
+    init_depth_stencil(&ds, device, 32, 32, 6, 1, DXGI_FORMAT_D32_FLOAT, 0, &clear_value);
 
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
             D3D12_CLEAR_FLAG_DEPTH, expected_values[0], 0, 0, NULL);
@@ -5210,7 +5210,7 @@ static void test_draw_depth_no_ps(void)
     vbv.StrideInBytes = sizeof(*quad);
     vbv.SizeInBytes = sizeof(quad);
 
-    init_depth_stencil(&ds, context.device, 640, 480, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
+    init_depth_stencil(&ds, context.device, 640, 480, 1, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
     set_viewport(&context.viewport, 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f);
     set_rect(&context.scissor_rect, 0, 0, 640, 480);
 
@@ -5306,7 +5306,7 @@ static void test_draw_depth_only(void)
     command_list = context.list;
     queue = context.queue;
 
-    init_depth_stencil(&ds, context.device, 640, 480, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
+    init_depth_stencil(&ds, context.device, 640, 480, 1, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
     set_viewport(&context.viewport, 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f);
     set_rect(&context.scissor_rect, 0, 0, 640, 480);
 
@@ -11685,6 +11685,304 @@ static void test_gather_c(void)
     destroy_test_context(&context);
 }
 
+static void test_sample_c_lz(void)
+{
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    struct depth_stencil_resource ds;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    struct vec4 ps_constant;
+    ID3D12Device *device;
+    unsigned int i;
+    RECT rect;
+
+    static const D3D12_STATIC_SAMPLER_DESC sampler_desc =
+    {
+        .Filter = D3D12_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR,
+        .AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+        .AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+        .AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+        .ComparisonFunc = D3D12_COMPARISON_FUNC_GREATER,
+        .MaxAnisotropy = 0,
+        .BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE,
+        .MaxLOD = 10.0f,
+    };
+    static const float clear_color[] = {0.5f, 0.5f, 0.5f, 0.5f};
+    static const DWORD ps_array_code[] =
+    {
+#if 0
+        Texture2DArray t;
+        SamplerComparisonState s;
+
+        float ref;
+        float layer;
+
+        float4 main(float4 position : SV_Position) : SV_Target
+        {
+            return t.SampleCmpLevelZero(s, float3(position.x / 640.0f, position.y / 480.0f, layer), ref);
+        }
+#endif
+        0x43425844, 0xfe28b3c3, 0xdd7ef404, 0x8d5874a1, 0x984ff182, 0x00000001, 0x00000180, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x7469736f, 0x006e6f69,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x000000e4, 0x00000041,
+        0x00000039, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300085a, 0x00106000,
+        0x00000000, 0x04004058, 0x00107000, 0x00000000, 0x00005555, 0x04002064, 0x00101032, 0x00000000,
+        0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0a000038, 0x00100032,
+        0x00000000, 0x00101046, 0x00000000, 0x00004002, 0x3acccccd, 0x3b088889, 0x00000000, 0x00000000,
+        0x06000036, 0x00100042, 0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x0c000047, 0x00100012,
+        0x00000000, 0x00100246, 0x00000000, 0x00107006, 0x00000000, 0x00106000, 0x00000000, 0x0020800a,
+        0x00000000, 0x00000000, 0x05000036, 0x001020f2, 0x00000000, 0x00100006, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_array = {ps_array_code, sizeof(ps_array_code)};
+    static const DWORD ps_cube_code[] =
+    {
+#if 0
+        TextureCube t;
+        SamplerComparisonState s;
+
+        float ref;
+        float face;
+
+        float4 main(float4 position : SV_Position) : SV_Target
+        {
+            float2 p;
+            p.x = position.x / 640.0f;
+            p.y = position.y / 480.0f;
+
+            float3 coord;
+            switch ((uint)face)
+            {
+                case 0:
+                    coord = float3(1.0f, p.x, p.y);
+                    break;
+                case 1:
+                    coord = float3(-1.0f, p.x, p.y);
+                    break;
+                case 2:
+                    coord = float3(p.x, 1.0f, p.y);
+                    break;
+                case 3:
+                    coord = float3(p.x, -1.0f, p.y);
+                    break;
+                case 4:
+                    coord = float3(p.x, p.y, 1.0f);
+                    break;
+                case 5:
+                default:
+                    coord = float3(p.x, p.y, -1.0f);
+                    break;
+            }
+
+            return t.SampleCmpLevelZero(s, coord, ref);
+        }
+#endif
+        0x43425844, 0xde5655e5, 0x1b116fa1, 0xfce9e757, 0x41c28aac, 0x00000001, 0x00000328, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x7469736f, 0x006e6f69,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x0000028c, 0x00000041,
+        0x000000a3, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300085a, 0x00106000,
+        0x00000000, 0x04003058, 0x00107000, 0x00000000, 0x00005555, 0x04002064, 0x00101032, 0x00000000,
+        0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0600001c, 0x00100012,
+        0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x0300004c, 0x0010000a, 0x00000000, 0x03000006,
+        0x00004001, 0x00000000, 0x05000036, 0x00100012, 0x00000000, 0x00004001, 0x3f800000, 0x0a000038,
+        0x00100062, 0x00000000, 0x00101106, 0x00000000, 0x00004002, 0x00000000, 0x3acccccd, 0x3b088889,
+        0x00000000, 0x01000002, 0x03000006, 0x00004001, 0x00000001, 0x05000036, 0x00100012, 0x00000000,
+        0x00004001, 0xbf800000, 0x0a000038, 0x00100062, 0x00000000, 0x00101106, 0x00000000, 0x00004002,
+        0x00000000, 0x3acccccd, 0x3b088889, 0x00000000, 0x01000002, 0x03000006, 0x00004001, 0x00000002,
+        0x0a000038, 0x00100052, 0x00000000, 0x00101106, 0x00000000, 0x00004002, 0x3acccccd, 0x00000000,
+        0x3b088889, 0x00000000, 0x05000036, 0x00100022, 0x00000000, 0x00004001, 0x3f800000, 0x01000002,
+        0x03000006, 0x00004001, 0x00000003, 0x0a000038, 0x00100052, 0x00000000, 0x00101106, 0x00000000,
+        0x00004002, 0x3acccccd, 0x00000000, 0x3b088889, 0x00000000, 0x05000036, 0x00100022, 0x00000000,
+        0x00004001, 0xbf800000, 0x01000002, 0x03000006, 0x00004001, 0x00000004, 0x0a000038, 0x00100032,
+        0x00000000, 0x00101046, 0x00000000, 0x00004002, 0x3acccccd, 0x3b088889, 0x00000000, 0x00000000,
+        0x05000036, 0x00100042, 0x00000000, 0x00004001, 0x3f800000, 0x01000002, 0x0100000a, 0x0a000038,
+        0x00100032, 0x00000000, 0x00101046, 0x00000000, 0x00004002, 0x3acccccd, 0x3b088889, 0x00000000,
+        0x00000000, 0x05000036, 0x00100042, 0x00000000, 0x00004001, 0xbf800000, 0x01000002, 0x01000017,
+        0x0c000047, 0x00100012, 0x00000000, 0x00100246, 0x00000000, 0x00107006, 0x00000000, 0x00106000,
+        0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x05000036, 0x001020f2, 0x00000000, 0x00100006,
+        0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_cube = {ps_cube_code, sizeof(ps_cube_code)};
+    static const float depth_values[] = {1.0f, 0.0f, 0.5f, 0.6f, 0.4f, 0.1f};
+    static const struct
+    {
+        unsigned int layer;
+        float d_ref;
+        float expected;
+    }
+    tests[] =
+    {
+        {0, 0.5f, 0.0f},
+        {1, 0.5f, 1.0f},
+        {2, 0.5f, 0.0f},
+        {3, 0.5f, 0.0f},
+        {4, 0.5f, 1.0f},
+        {5, 0.5f, 1.0f},
+
+        {0, 0.0f, 0.0f},
+        {1, 0.0f, 0.0f},
+        {2, 0.0f, 0.0f},
+        {3, 0.0f, 0.0f},
+        {4, 0.0f, 0.0f},
+        {5, 0.0f, 0.0f},
+
+        {0, 1.0f, 0.0f},
+        {1, 1.0f, 1.0f},
+        {2, 1.0f, 1.0f},
+        {3, 1.0f, 1.0f},
+        {4, 1.0f, 1.0f},
+        {5, 1.0f, 1.0f},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = 640;
+    desc.rt_height = 480;
+    desc.rt_format = DXGI_FORMAT_R32_FLOAT;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_texture_root_signature_(__LINE__, device,
+            D3D12_SHADER_VISIBILITY_PIXEL, 4, 0, &sampler_desc);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 6);
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+
+    /* 2D array texture */
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, context.render_target_desc.Format, NULL, &ps_array, NULL);
+
+    init_depth_stencil(&ds, device, 32, 32, ARRAY_SIZE(depth_values), 2,
+            DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, NULL);
+
+    for (i = 0; i < ARRAY_SIZE(depth_values); ++i)
+    {
+        memset(&dsv_desc, 0, sizeof(dsv_desc));
+        dsv_desc.Format = DXGI_FORMAT_D32_FLOAT;
+        dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
+        dsv_desc.Texture2DArray.FirstArraySlice = i;
+        dsv_desc.Texture2DArray.ArraySize = 1;
+        ID3D12Device_CreateDepthStencilView(device, ds.texture, &dsv_desc, ds.dsv_handle);
+        ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+                D3D12_CLEAR_FLAG_DEPTH, depth_values[i], 0, 0, NULL);
+
+        dsv_desc.Texture2DArray.MipSlice = 1;
+        ID3D12Device_CreateDepthStencilView(device, ds.texture, &dsv_desc, ds.dsv_handle);
+        ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+                D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
+    }
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    srv_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+    srv_desc.Texture2DArray.MostDetailedMip = 0;
+    srv_desc.Texture2DArray.MipLevels = 2;
+    srv_desc.Texture2DArray.FirstArraySlice = 0;
+    srv_desc.Texture2DArray.ArraySize = ARRAY_SIZE(depth_values);
+    ID3D12Device_CreateShaderResourceView(context.device, ds.texture, &srv_desc, cpu_handle);
+
+    transition_resource_state(command_list, ds.texture,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+    memset(&ps_constant, 0, sizeof(ps_constant));
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        vkd3d_test_set_context("test %u", i);
+
+        ps_constant.x = tests[i].d_ref;
+        ps_constant.y = tests[i].layer;
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, clear_color, 0, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+        ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0,
+                    get_gpu_descriptor_handle(&context, heap, 0));
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 4, &ps_constant.x, 0);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        check_sub_resource_float(context.render_target, 0, queue, command_list, tests[i].expected, 2);
+
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12PipelineState_Release(context.pipeline_state);
+
+    /* cube texture */
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, context.render_target_desc.Format, NULL, &ps_cube, NULL);
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    srv_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+    srv_desc.TextureCube.MostDetailedMip = 0;
+    srv_desc.TextureCube.MipLevels = 2;
+    ID3D12Device_CreateShaderResourceView(context.device, ds.texture, &srv_desc, cpu_handle);
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        vkd3d_test_set_context("test %u", i);
+
+        ps_constant.x = tests[i].d_ref;
+        ps_constant.y = tests[i].layer;
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, clear_color, 0, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+        ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0,
+                    get_gpu_descriptor_handle(&context, heap, 0));
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 4, &ps_constant.x, 0);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+        /* Avoid testing values affected by seamless cube map filtering. */
+        set_rect(&rect, 100, 100, 540, 380);
+        check_readback_data_float(&rb, &rect, tests[i].expected, 2);
+        release_resource_readback(&rb);
+
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+    vkd3d_test_set_context(NULL);
+
+    destroy_depth_stencil(&ds);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
 static void test_cube_maps(void)
 {
     unsigned int i, j, sub_resource_idx, sub_resource_count;
@@ -14205,7 +14503,7 @@ static void test_copy_descriptors(void)
     transition_resource_state(command_list, t[5],
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-    init_depth_stencil(&ds, device, 32, 32, 1, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, NULL);
+    init_depth_stencil(&ds, device, 32, 32, 1, 1, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, NULL);
     t[6] = ds.texture;
     ID3D12Resource_AddRef(t[6]);
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
@@ -15574,7 +15872,7 @@ static void test_depth_stencil_sampling(void)
         reset_command_list(command_list, context.allocator);
 
         init_depth_stencil(&ds, device, context.render_target_desc.Width,
-                context.render_target_desc.Height, 1, tests[i].typeless_format,
+                context.render_target_desc.Height, 1, 1, tests[i].typeless_format,
                 tests[i].dsv_format, NULL);
         texture = ds.texture;
         dsv_handle = ds.dsv_handle;
@@ -15795,7 +16093,7 @@ static void test_depth_load(void)
     heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
 
     init_depth_stencil(&ds, device, context.render_target_desc.Width,
-            context.render_target_desc.Height, 1, DXGI_FORMAT_R32_TYPELESS,
+            context.render_target_desc.Height, 1, 1, DXGI_FORMAT_R32_TYPELESS,
             DXGI_FORMAT_D32_FLOAT, NULL);
     memset(&srv_desc, 0, sizeof(srv_desc));
     srv_desc.Format = DXGI_FORMAT_R32_FLOAT;
@@ -15930,7 +16228,7 @@ static void test_depth_read_only_view(void)
     clear_value.DepthStencil.Depth = 0.5f;
     clear_value.DepthStencil.Stencil = 0;
     init_depth_stencil(&ds, device, context.render_target_desc.Width,
-            context.render_target_desc.Height, 1, DXGI_FORMAT_R32_TYPELESS,
+            context.render_target_desc.Height, 1, 1, DXGI_FORMAT_R32_TYPELESS,
             DXGI_FORMAT_D32_FLOAT, &clear_value);
     memset(&dsv_desc, 0, sizeof(dsv_desc));
     dsv_desc.Format = DXGI_FORMAT_D32_FLOAT;
@@ -18780,7 +19078,7 @@ static void test_query_occlusion(void)
     command_list = context.list;
     queue = context.queue;
 
-    init_depth_stencil(&ds, context.device, 640, 480, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
+    init_depth_stencil(&ds, context.device, 640, 480, 1, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
     set_viewport(&context.viewport, 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f);
     set_rect(&context.scissor_rect, 0, 0, 640, 480);
 
@@ -20151,7 +20449,7 @@ static void test_copy_texture_region(void)
     for (i = 0; i < ARRAY_SIZE(depth_values); ++i)
     {
         init_depth_stencil(&ds, device, context.render_target_desc.Width,
-                context.render_target_desc.Height, 1, DXGI_FORMAT_D32_FLOAT,
+                context.render_target_desc.Height, 1, 1, DXGI_FORMAT_D32_FLOAT,
                 DXGI_FORMAT_D32_FLOAT, NULL);
         ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
                 D3D12_CLEAR_FLAG_DEPTH, depth_values[i], 0, 0, NULL);
@@ -23650,6 +23948,7 @@ START_TEST(d3d12)
     run_test(test_texture_ld);
     run_test(test_gather);
     run_test(test_gather_c);
+    run_test(test_sample_c_lz);
     run_test(test_cube_maps);
     run_test(test_multisample_array_texture);
     run_test(test_resinfo);
