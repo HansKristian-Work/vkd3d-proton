@@ -2977,10 +2977,6 @@ static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *com
 
     switch (builtin)
     {
-        case SpvBuiltInPosition:
-            if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL)
-                builtin = SpvBuiltInFragCoord;
-            break;
         case SpvBuiltInFragDepth:
             vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeDepthReplacing, NULL, 0);
             break;
@@ -3110,6 +3106,10 @@ vkd3d_system_value_builtins[] =
     {VKD3D_SIV_CLIP_DISTANCE, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInClipDistance, NULL, true}},
     {VKD3D_SIV_CULL_DISTANCE, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInCullDistance, NULL, true}},
 };
+static const struct vkd3d_spirv_builtin vkd3d_pixel_shader_position_builtin =
+{
+    VKD3D_TYPE_FLOAT, 4, SpvBuiltInFragCoord,
+};
 static const struct
 {
     enum vkd3d_shader_register_type reg_type;
@@ -3159,6 +3159,10 @@ static const struct vkd3d_spirv_builtin *get_spirv_builtin_for_sysval(
 
     if (!sysval)
         return NULL;
+
+    /* In pixel shaders, SV_Position is mapped to SpvBuiltInFragCoord. */
+    if (sysval == VKD3D_SIV_POSITION && compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL)
+        return &vkd3d_pixel_shader_position_builtin;
 
     target = vkd3d_dxbc_compiler_get_target(compiler);
     for (i = 0; i < ARRAY_SIZE(vkd3d_system_value_builtins); ++i)
