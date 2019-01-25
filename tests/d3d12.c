@@ -962,6 +962,7 @@ static void test_node_count(void)
 
 static void test_check_feature_support(void)
 {
+    D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT gpu_virtual_address;
     D3D12_FEATURE_DATA_FEATURE_LEVELS feature_levels;
     D3D_FEATURE_LEVEL max_supported_feature_level;
     D3D12_FEATURE_DATA_ARCHITECTURE architecture;
@@ -1038,7 +1039,7 @@ static void test_check_feature_support(void)
     feature_levels.MaxSupportedFeatureLevel = 0;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels));
-    ok(SUCCEEDED(hr), "Failed to check feature support, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
     trace("Max supported feature level %#x.\n", feature_levels.MaxSupportedFeatureLevel);
     max_supported_feature_level = feature_levels.MaxSupportedFeatureLevel;
 
@@ -1047,7 +1048,7 @@ static void test_check_feature_support(void)
     feature_levels.MaxSupportedFeatureLevel = 0;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels));
-    ok(SUCCEEDED(hr), "Failed to check feature support, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
     ok(feature_levels.MaxSupportedFeatureLevel == max_supported_feature_level,
             "Got unexpected feature level %#x, expected %#x.\n",
             feature_levels.MaxSupportedFeatureLevel, max_supported_feature_level);
@@ -1065,7 +1066,7 @@ static void test_check_feature_support(void)
     feature_levels.MaxSupportedFeatureLevel = 0;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels));
-    ok(SUCCEEDED(hr), "Failed to check feature support, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
     ok(feature_levels.MaxSupportedFeatureLevel == D3D_FEATURE_LEVEL_9_3,
             "Got unexpected max feature level %#x.\n", feature_levels.MaxSupportedFeatureLevel);
 
@@ -1074,9 +1075,19 @@ static void test_check_feature_support(void)
     feature_levels.MaxSupportedFeatureLevel = 0;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels));
-    ok(SUCCEEDED(hr), "Failed to check feature support, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
     ok(feature_levels.MaxSupportedFeatureLevel == 0x3000,
             "Got unexpected max feature level %#x.\n", feature_levels.MaxSupportedFeatureLevel);
+
+    /* GPU virtual address */
+    memset(&gpu_virtual_address, 0, sizeof(gpu_virtual_address));
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT,
+            &gpu_virtual_address, sizeof(gpu_virtual_address));
+    ok(hr == S_OK, "Failed to check GPU virtual address support, hr %#x.\n", hr);
+    trace("GPU virtual address bits per resource: %u.\n",
+            gpu_virtual_address.MaxGPUVirtualAddressBitsPerResource);
+    trace("GPU virtual address bits per process: %u.\n",
+            gpu_virtual_address.MaxGPUVirtualAddressBitsPerProcess);
 
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);

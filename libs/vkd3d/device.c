@@ -1840,6 +1840,22 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             return S_OK;
         }
 
+        case D3D12_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT:
+        {
+            D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            FIXME("Returning 40 GPU virtual address bits.\n");
+            data->MaxGPUVirtualAddressBitsPerResource = 40;
+            data->MaxGPUVirtualAddressBitsPerProcess = 40;
+            return S_OK;
+        }
+
         case D3D12_FEATURE_SHADER_MODEL:
         {
             D3D12_FEATURE_DATA_SHADER_MODEL *data = feature_data;
