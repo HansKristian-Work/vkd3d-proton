@@ -1718,6 +1718,7 @@ struct vkd3d_symbol_register_data
     enum vkd3d_component_type component_type;
     unsigned int write_mask;
     unsigned int structure_stride;
+    bool is_aggregate; /* An aggregate, i.e. a structure or an array. */
 };
 
 struct vkd3d_symbol_resource_data
@@ -2414,6 +2415,7 @@ struct vkd3d_shader_register_info
     unsigned int write_mask;
     uint32_t member_idx;
     unsigned int structure_stride;
+    bool is_aggregate;
 };
 
 static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compiler *compiler,
@@ -2432,6 +2434,8 @@ static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compil
         register_info->component_type = VKD3D_TYPE_FLOAT;
         register_info->write_mask = VKD3DSP_WRITEMASK_ALL;
         register_info->member_idx = 0;
+        register_info->structure_stride = 0;
+        register_info->is_aggregate = false;
         return true;
     }
 
@@ -2450,6 +2454,7 @@ static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compil
     register_info->write_mask = symbol->info.reg.write_mask;
     register_info->structure_stride = symbol->info.reg.structure_stride;
     register_info->member_idx = symbol->info.reg.member_idx;
+    register_info->is_aggregate = symbol->info.reg.is_aggregate;
 
     return true;
 }
@@ -2476,8 +2481,11 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
     {
         indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[1]);
     }
-    else if (reg->type == VKD3DSPR_COVERAGE || reg->type == VKD3DSPR_SAMPLEMASK)
+    else if (register_info->is_aggregate)
     {
+        if (reg->idx[0].rel_addr || reg->idx[1].rel_addr)
+            FIXME("Relative addressing not implemented.\n");
+
         indexes[index_count++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, register_info->member_idx);
     }
     else
@@ -3390,6 +3398,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         reg_symbol.info.reg.component_type = use_private_var ? VKD3D_TYPE_FLOAT : component_type;
         reg_symbol.info.reg.write_mask = use_private_var
                 ? vkd3d_write_mask_from_component_count(component_count) : signature_element->mask & 0xff;
+        reg_symbol.info.reg.is_aggregate = false;
         vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 
         vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
@@ -3467,6 +3476,7 @@ static void vkd3d_dxbc_compiler_emit_input_register(struct vkd3d_dxbc_compiler *
     reg_symbol.info.reg.member_idx = 0;
     reg_symbol.info.reg.component_type = builtin->component_type;
     reg_symbol.info.reg.write_mask = vkd3d_write_mask_from_component_count(builtin->component_count);
+    reg_symbol.info.reg.is_aggregate = builtin->is_spirv_array;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, input_id, reg);
 }
@@ -3616,6 +3626,7 @@ static void vkd3d_dxbc_compiler_emit_output_register(struct vkd3d_dxbc_compiler 
     reg_symbol.info.reg.member_idx = 0;
     reg_symbol.info.reg.component_type = builtin->component_type;
     reg_symbol.info.reg.write_mask = vkd3d_write_mask_from_component_count(builtin->component_count);
+    reg_symbol.info.reg.is_aggregate = builtin->is_spirv_array;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, output_id, reg);
 }
@@ -3722,6 +3733,7 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         reg_symbol.info.reg.storage_class = storage_class;
         reg_symbol.info.reg.component_type = use_private_variable ? VKD3D_TYPE_FLOAT : component_type;
         reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_ALL;
+        reg_symbol.info.reg.is_aggregate = false;
         vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 
         vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
@@ -3848,6 +3860,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_indexable_temp(struct vkd3d_dxbc_compil
     reg_symbol.info.reg.storage_class = SpvStorageClassFunction;
     reg_symbol.info.reg.component_type = VKD3D_TYPE_FLOAT;
     reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_ALL;
+    reg_symbol.info.reg.is_aggregate = false;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
@@ -3916,6 +3929,7 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
         reg_symbol.info.reg.member_idx = j;
         reg_symbol.info.reg.component_type = VKD3D_TYPE_FLOAT;
         reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_ALL;
+        reg_symbol.info.reg.is_aggregate = false;
         vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 
         ++j;
@@ -3978,6 +3992,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
     reg_symbol.info.reg.member_idx = 0;
     reg_symbol.info.reg.component_type = VKD3D_TYPE_FLOAT;
     reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_ALL;
+    reg_symbol.info.reg.is_aggregate = false;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
@@ -4013,6 +4028,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_immediate_constant_buffer(struct vkd3d_
     reg_symbol.info.reg.storage_class = SpvStorageClassPrivate;
     reg_symbol.info.reg.component_type = VKD3D_TYPE_FLOAT;
     reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_ALL;
+    reg_symbol.info.reg.is_aggregate = false;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
@@ -4041,6 +4057,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
     vkd3d_symbol_make_register(&reg_symbol, reg);
     reg_symbol.id = var_id;
     reg_symbol.info.reg.storage_class = storage_class;
+    reg_symbol.info.reg.is_aggregate = false;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
@@ -4350,6 +4367,7 @@ static void vkd3d_dxbc_compiler_emit_workgroup_memory(struct vkd3d_dxbc_compiler
     reg_symbol.info.reg.component_type = VKD3D_TYPE_UINT;
     reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_0;
     reg_symbol.info.reg.structure_stride = structure_stride;
+    reg_symbol.info.reg.is_aggregate = false;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
