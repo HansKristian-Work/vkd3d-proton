@@ -623,11 +623,19 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
 {
     static const D3D12_HEAP_PROPERTIES heap_properties = {D3D12_HEAP_TYPE_DEFAULT};
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    D3D12_RESOURCE_DESC validated_desc;
     VkMemoryRequirements requirements;
     VkImage vk_image;
     HRESULT hr;
 
     assert(desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER);
+
+    if (!desc->MipLevels)
+    {
+        validated_desc = *desc;
+        validated_desc.MipLevels = max_miplevel_count(desc);
+        desc = &validated_desc;
+    }
 
     /* XXX: We have to create an image to get its memory requirements. */
     if (SUCCEEDED(hr = vkd3d_create_image(device, &heap_properties, 0, desc, &vk_image)))
