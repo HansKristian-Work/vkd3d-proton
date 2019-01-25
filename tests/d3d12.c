@@ -1151,6 +1151,126 @@ static void test_format_support(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_multisample_quality_levels(void)
+{
+    static const unsigned int sample_counts[] = {1, 2, 4, 8, 16, 32};
+    D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS format_support;
+    ID3D12Device *device;
+    DXGI_FORMAT format;
+    unsigned int i, j;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    memset(&format_support, 0, sizeof(format_support));
+    format_support.NumQualityLevels = 0xdeadbeef;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+            &format_support, sizeof(format_support));
+    ok(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+    ok(!format_support.Flags, "Got unexpected flags %#x.\n", format_support.Flags);
+    ok(!format_support.NumQualityLevels, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
+
+    format_support.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    format_support.NumQualityLevels = 0xdeadbeef;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+            &format_support, sizeof(format_support));
+    ok(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+    ok(!format_support.Flags, "Got unexpected flags %#x.\n", format_support.Flags);
+    ok(!format_support.NumQualityLevels, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
+
+    /* 1 sample */
+    for (format = DXGI_FORMAT_UNKNOWN; format <= DXGI_FORMAT_B4G4R4A4_UNORM; ++format)
+    {
+        if (format == DXGI_FORMAT_R1_UNORM)
+            continue;
+
+        vkd3d_test_set_context("format %#x", format);
+
+        memset(&format_support, 0, sizeof(format_support));
+        format_support.Format = format;
+        format_support.SampleCount = 1;
+        format_support.NumQualityLevels = 0xdeadbeef;
+        hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+                &format_support, sizeof(format_support));
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(format_support.NumQualityLevels == 1, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
+    }
+    vkd3d_test_set_context(NULL);
+
+    /* DXGI_FORMAT_UNKNOWN */
+    for (i = 1; i < ARRAY_SIZE(sample_counts); ++i)
+    {
+        vkd3d_test_set_context("samples %#x", sample_counts[i]);
+
+        memset(&format_support, 0, sizeof(format_support));
+        format_support.SampleCount = sample_counts[i];
+        format_support.NumQualityLevels = 0xdeadbeef;
+        hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+                &format_support, sizeof(format_support));
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(!format_support.Flags, "Got unexpected flags %#x.\n", format_support.Flags);
+        ok(!format_support.NumQualityLevels, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
+
+        format_support.Flags = D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_TILED_RESOURCE;
+        format_support.NumQualityLevels = 0xdeadbeef;
+        hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+                &format_support, sizeof(format_support));
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(format_support.Flags == D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_TILED_RESOURCE,
+                "Got unexpected flags %#x.\n", format_support.Flags);
+        ok(!format_support.NumQualityLevels, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
+    }
+    vkd3d_test_set_context(NULL);
+
+    /* invalid sample counts */
+    for (i = 1; i <= 32; ++i)
+    {
+        BOOL valid_sample_count = FALSE;
+        for (j = 0; j < ARRAY_SIZE(sample_counts); ++j)
+        {
+            if (sample_counts[j] == i)
+            {
+                valid_sample_count = TRUE;
+                break;
+            }
+        }
+        if (valid_sample_count)
+            continue;
+
+        vkd3d_test_set_context("samples %#x", i);
+
+        memset(&format_support, 0, sizeof(format_support));
+        format_support.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        format_support.SampleCount = i;
+        format_support.NumQualityLevels = 0xdeadbeef;
+        hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+                &format_support, sizeof(format_support));
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(!format_support.Flags, "Got unexpected flags %#x.\n", format_support.Flags);
+        ok(!format_support.NumQualityLevels, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
+    }
+    vkd3d_test_set_context(NULL);
+
+    /* DXGI_FORMAT_R8G8B8A8_UNORM */
+    memset(&format_support, 0, sizeof(format_support));
+    format_support.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    format_support.SampleCount = 4;
+    format_support.NumQualityLevels = 0xdeadbeef;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+            &format_support, sizeof(format_support));
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(!format_support.Flags, "Got unexpected flags %#x.\n", format_support.Flags);
+    ok(format_support.NumQualityLevels >= 1, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 static void test_create_command_allocator(void)
 {
     ID3D12CommandAllocator *command_allocator;
@@ -23902,6 +24022,7 @@ START_TEST(d3d12)
     run_test(test_node_count);
     run_test(test_check_feature_support);
     run_test(test_format_support);
+    run_test(test_multisample_quality_levels);
     run_test(test_create_command_allocator);
     run_test(test_create_command_list);
     run_test(test_create_command_queue);
