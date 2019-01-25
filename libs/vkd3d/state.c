@@ -2438,7 +2438,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->ms_desc.pSampleMask = NULL;
     if (desc->SampleMask != ~0u)
     {
-        assert(DIV_ROUND_UP(sample_count, 32) < ARRAY_SIZE(graphics->sample_mask));
+        assert(DIV_ROUND_UP(sample_count, 32) <= ARRAY_SIZE(graphics->sample_mask));
         graphics->sample_mask[0] = desc->SampleMask;
         graphics->sample_mask[1] = 0xffffffffu;
         graphics->ms_desc.pSampleMask = graphics->sample_mask;
