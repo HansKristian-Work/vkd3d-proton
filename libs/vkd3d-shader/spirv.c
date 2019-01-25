@@ -4558,6 +4558,33 @@ static void vkd3d_dxbc_compiler_emit_dcl_tessellator_domain(struct vkd3d_dxbc_co
     vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, NULL, 0);
 }
 
+static void vkd3d_dxbc_compiler_emit_dcl_tessellator_output_primitive(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    enum vkd3d_tessellator_output_primitive primitive = instruction->declaration.tessellator_output_primitive;
+    SpvExecutionMode mode;
+
+    switch (primitive)
+    {
+        case VKD3D_TESSELLATOR_OUTPUT_POINT:
+            mode = SpvExecutionModePointMode;
+            break;
+        case VKD3D_TESSELLATOR_OUTPUT_LINE:
+            return;
+        case VKD3D_TESSELLATOR_OUTPUT_TRIANGLE_CW:
+            mode = SpvExecutionModeVertexOrderCw;
+            break;
+        case VKD3D_TESSELLATOR_OUTPUT_TRIANGLE_CCW:
+            mode = SpvExecutionModeVertexOrderCcw;
+            break;
+        default:
+            FIXME("Invalid tessellator output primitive %#x.\n", primitive);
+            return;
+    }
+
+    vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, NULL, 0);
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_tessellator_partitioning(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -6869,6 +6896,9 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             break;
         case VKD3DSIH_DCL_TESSELLATOR_DOMAIN:
             vkd3d_dxbc_compiler_emit_dcl_tessellator_domain(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_TESSELLATOR_OUTPUT_PRIMITIVE:
+            vkd3d_dxbc_compiler_emit_dcl_tessellator_output_primitive(compiler, instruction);
             break;
         case VKD3DSIH_DCL_TESSELLATOR_PARTITIONING:
             vkd3d_dxbc_compiler_emit_dcl_tessellator_partitioning(compiler, instruction);
