@@ -437,9 +437,9 @@ static VkImageType vk_image_type_from_d3d12_resource_dimension(D3D12_RESOURCE_DI
     }
 }
 
-VkSampleCountFlagBits vk_samples_from_dxgi_sample_desc(const DXGI_SAMPLE_DESC *desc)
+VkSampleCountFlagBits vk_samples_from_sample_count(unsigned int sample_count)
 {
-    switch (desc->Count)
+    switch (sample_count)
     {
         case 1:
             return VK_SAMPLE_COUNT_1_BIT;
@@ -456,9 +456,19 @@ VkSampleCountFlagBits vk_samples_from_dxgi_sample_desc(const DXGI_SAMPLE_DESC *d
         case 64:
             return VK_SAMPLE_COUNT_64_BIT;
         default:
-            FIXME("Unhandled sample count %u.\n", desc->Count);
-            return VK_SAMPLE_COUNT_1_BIT;
+            return 0;
     }
+}
+
+VkSampleCountFlagBits vk_samples_from_dxgi_sample_desc(const DXGI_SAMPLE_DESC *desc)
+{
+    VkSampleCountFlagBits vk_samples;
+
+    if ((vk_samples = vk_samples_from_sample_count(desc->Count)))
+        return vk_samples;
+
+    FIXME("Unhandled sample count %u.\n", desc->Count);
+    return VK_SAMPLE_COUNT_1_BIT;
 }
 
 HRESULT vkd3d_create_buffer(struct d3d12_device *device,

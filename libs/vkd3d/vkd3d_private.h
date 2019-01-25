@@ -974,6 +974,7 @@ static inline unsigned int d3d12_resource_desc_get_sub_resource_count(const D3D1
 
 VkCompareOp vk_compare_op_from_d3d12(D3D12_COMPARISON_FUNC op) DECLSPEC_HIDDEN;
 VkSampleCountFlagBits vk_samples_from_dxgi_sample_desc(const DXGI_SAMPLE_DESC *desc) DECLSPEC_HIDDEN;
+VkSampleCountFlagBits vk_samples_from_sample_count(unsigned int sample_count) DECLSPEC_HIDDEN;
 
 bool is_valid_feature_level(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;
 bool check_feature_level_support(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;

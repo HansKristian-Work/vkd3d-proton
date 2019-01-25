@@ -1687,6 +1687,68 @@ static void vkd3d_restrict_format_support_for_feature_level(D3D12_FEATURE_DATA_F
     }
 }
 
+static HRESULT d3d12_device_check_multisample_quality_levels(struct d3d12_device *device,
+        D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS *data)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkImageFormatProperties vk_properties;
+    const struct vkd3d_format *format;
+    VkSampleCountFlagBits vk_samples;
+    VkImageUsageFlags vk_usage = 0;
+    VkResult vr;
+
+    TRACE("Format %#x, sample count %u, flags %#x.\n", data->Format, data->SampleCount, data->Flags);
+
+    data->NumQualityLevels = 0;
+
+    if (!(vk_samples = vk_samples_from_sample_count(data->SampleCount)))
+        WARN("Invalid sample count %u.\n", data->SampleCount);
+    if (!data->SampleCount)
+        return E_FAIL;
+
+    if (data->SampleCount == 1)
+    {
+        data->NumQualityLevels = 1;
+        goto done;
+    }
+
+    if (data->Format == DXGI_FORMAT_UNKNOWN)
+        goto done;
+
+    if (!(format = vkd3d_get_format(data->Format, false)))
+    {
+        FIXME("Unhandled format %#x.\n", data->Format);
+        return E_INVALIDARG;
+    }
+    if (data->Flags)
+        FIXME("Ignoring flags %#x.\n", data->Flags);
+
+    if (format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
+        vk_usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    else
+        vk_usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+
+    vr = VK_CALL(vkGetPhysicalDeviceImageFormatProperties(device->vk_physical_device,
+            format->vk_format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, vk_usage, 0, &vk_properties));
+    if (vr == VK_ERROR_FORMAT_NOT_SUPPORTED)
+    {
+        WARN("Format %#x is not supported.\n", format->dxgi_format);
+        goto done;
+    }
+    if (vr < 0)
+    {
+        ERR("Failed to get image format properties, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    if (vk_properties.sampleCounts & vk_samples)
+        data->NumQualityLevels = 1;
+
+done:
+    TRACE("Returning %u quality levels.\n", data->NumQualityLevels);
+    return S_OK;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *iface,
         D3D12_FEATURE feature, void *feature_data, UINT feature_data_size)
 {
@@ -1838,6 +1900,19 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             vkd3d_restrict_format_support_for_feature_level(data);
 
             return S_OK;
+        }
+
+        case D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS:
+        {
+            D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            return d3d12_device_check_multisample_quality_levels(device, data);
         }
 
         case D3D12_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT:
