@@ -4,3 +4,27 @@ The vkd3d 3D Graphics Library
 
 Vkd3d is a 3D graphics library built on top of Vulkan. It has an API very
 similar, but not identical, to Direct3D 12.
+
+==============
+Building vkd3d
+==============
+
+Vkd3d depends on SPIRV-Headers and Vulkan-Headers (>= 1.1.88).
+
+Vkd3d generates some of its headers from IDL files. If you are using the
+release tarballs, then these headers are pre-generated and are included. If
+you are building from git, then they will be generated at build-time using
+widl. By default, vkd3d will use the widl found in `PATH'. If widl is not
+available or is not recent (>= 3.0 or so), then you can build Wine with
+`make tools/widl' to avoid building all of Wine. You can then point vkd3d's
+configure at that widl binary with `WIDL="/path/to/widl"'.
+
+===========
+Using vkd3d
+===========
+
+Vkd3d can be used by projects that target Direct3D 12 as a drop-in replacement
+at build-time with some modest source modifications.
+
+If vkd3d is available when building Wine, then Wine will use it to support
+Direct3D 12 applications.
