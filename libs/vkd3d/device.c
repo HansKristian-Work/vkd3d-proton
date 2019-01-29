@@ -84,6 +84,7 @@ static const char * const required_device_extensions[] =
 static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 {
     {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_push_descriptor)},
+    {VK_EXT_DEBUG_MARKER_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_debug_marker)},
     {VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME,
             offsetof(struct vkd3d_vulkan_info, EXT_transform_feedback)},
     {VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME,

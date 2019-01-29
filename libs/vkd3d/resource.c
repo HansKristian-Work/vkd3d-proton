@@ -2730,9 +2730,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetName(ID3D12QueryHeap *iface
 {
     struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(iface);
 
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, heap->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, heap->device->wchar_size));
 
-    return E_NOTIMPL;
+    return vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->vk_query_pool,
+            VK_DEBUG_REPORT_OBJECT_TYPE_QUERY_POOL_EXT, name);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_query_heap_GetDevice(ID3D12QueryHeap *iface,

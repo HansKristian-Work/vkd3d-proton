@@ -25,6 +25,7 @@
 
 #include "vkd3d_common.h"
 #include "vkd3d_memory.h"
+#include "vkd3d_utf8.h"
 #include "list.h"
 #include "rbtree.h"
 
@@ -87,6 +88,7 @@ struct vkd3d_vulkan_info
     bool EXT_debug_report;
     /* device extensions */
     bool KHR_push_descriptor;
+    bool EXT_debug_marker;
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
 
@@ -1025,5 +1027,8 @@ static inline void vkd3d_set_thread_name(const char *name)
     pthread_setname_np(name);
 #endif
 }
+
+HRESULT vkd3d_set_vk_object_name(struct d3d12_device *device, uint64_t vk_object,
+        VkDebugReportObjectTypeEXT vk_object_type, const WCHAR *name) DECLSPEC_HIDDEN;
 
 #endif  /* __VKD3D_PRIVATE_H */

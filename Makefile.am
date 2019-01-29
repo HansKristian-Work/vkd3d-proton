@@ -59,7 +59,8 @@ noinst_LTLIBRARIES = libvkd3d-common.la
 libvkd3d_common_la_SOURCES = \
 	include/private/vkd3d_debug.h \
 	libs/vkd3d-common/debug.c \
-	libs/vkd3d-common/memory.c
+	libs/vkd3d-common/memory.c \
+	libs/vkd3d-common/utf8.c
 
 lib_LTLIBRARIES = libvkd3d-shader.la libvkd3d.la libvkd3d-utils.la
 
@@ -88,6 +89,7 @@ libvkd3d_la_SOURCES = \
 	include/private/vkd3d_common.h \
 	include/private/vkd3d_debug.h \
 	include/private/vkd3d_memory.h \
+	include/private/vkd3d_utf8.h \
 	include/private/vkd3d_test.h \
 	include/vkd3d_d3d12.idl \
 	include/vkd3d_d3dcommon.idl \

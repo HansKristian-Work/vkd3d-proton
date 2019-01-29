@@ -174,6 +174,8 @@ VK_DEVICE_PFN(vkSetEvent)
 VK_DEVICE_PFN(vkUnmapMemory)
 VK_DEVICE_PFN(vkUpdateDescriptorSets)
 VK_DEVICE_PFN(vkWaitForFences)
+/* VK_EXT_debug_marker */
+VK_DEVICE_EXT_PFN(vkDebugMarkerSetObjectNameEXT)
 /* VK_KHR_push_descriptor */
 VK_DEVICE_EXT_PFN(vkCmdPushDescriptorSetKHR)
 /* VK_EXT_transform_feedback */

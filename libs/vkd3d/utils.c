@@ -642,3 +642,32 @@ HRESULT vkd3d_set_private_data_interface(struct vkd3d_private_store *store,
     pthread_mutex_unlock(&store->mutex);
     return hr;
 }
+
+HRESULT vkd3d_set_vk_object_name(struct d3d12_device *device, uint64_t vk_object,
+        VkDebugReportObjectTypeEXT vk_object_type, const WCHAR *name)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkDebugMarkerObjectNameInfoEXT info;
+    char *name_utf8;
+    VkResult vr;
+
+    if (!name)
+        return E_INVALIDARG;
+
+    if (!device->vk_info.EXT_debug_marker)
+        return S_OK;
+
+    if (!(name_utf8 = vkd3d_strdup_w_utf8(name, device->wchar_size)))
+        return E_OUTOFMEMORY;
+
+    info.sType = VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_NAME_INFO_EXT;
+    info.pNext = NULL;
+    info.objectType = vk_object_type;
+    info.object = vk_object;
+    info.pObjectName = name_utf8;
+    vr = VK_CALL(vkDebugMarkerSetObjectNameEXT(device->vk_device, &info));
+
+    vkd3d_free(name_utf8);
+
+    return hresult_from_vk_result(vr);
+}
