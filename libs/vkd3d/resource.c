@@ -842,10 +842,23 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateDataInterface(ID3D12Re
 static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(ID3D12Resource *iface, const WCHAR *name)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
+    HRESULT hr;
 
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, resource->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, resource->device->wchar_size));
 
-    return E_NOTIMPL;
+    if (resource->vk_memory)
+    {
+        if (FAILED(hr = vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->vk_memory,
+                VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, name)))
+            return hr;
+    }
+
+    if (d3d12_resource_is_buffer(resource))
+        return vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->u.vk_buffer,
+                VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, name);
+    else
+        return vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->u.vk_image,
+                VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, name);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_GetDevice(ID3D12Resource *iface,
