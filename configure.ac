@@ -29,7 +29,7 @@ AM_MAINTAINER_MODE([enable])
 AM_SILENT_RULES([yes])
 
 LT_PREREQ([2.4.2])
-LT_INIT
+LT_INIT([win32-dll])
 
 gl_LD_VERSION_SCRIPT
 
