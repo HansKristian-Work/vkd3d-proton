@@ -22,7 +22,9 @@
 #include "config.h"
 #include "vkd3d_windows.h"
 
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
+#ifndef ARRAY_SIZE
+# define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
+#endif
 
 #define DIV_ROUND_UP(a, b) ((a) % (b) == 0 ? (a) / (b) : (a) / (b) + 1)
 
