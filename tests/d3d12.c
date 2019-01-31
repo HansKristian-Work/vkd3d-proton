@@ -22850,16 +22850,20 @@ static void test_resource_allocation_info(void)
         unsigned int width;
         unsigned int height;
         unsigned int array_size;
+        unsigned int miplevels;
         DXGI_FORMAT format;
     }
     texture_tests[] =
     {
-        { 4,  4, 1, DXGI_FORMAT_R8_UINT},
-        { 8,  8, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
-        {16, 16, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
-        {16, 16, 6, DXGI_FORMAT_R8G8B8A8_UNORM},
+        { 4,  4, 1, 1, DXGI_FORMAT_R8_UINT},
+        { 8,  8, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
+        {16, 16, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
+        {16, 16, 6, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
 
-        {1024, 1024, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
+        {1024, 1024, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
+        {1024, 1024, 1, 2, DXGI_FORMAT_R8G8B8A8_UNORM},
+        {1024, 1024, 1, 3, DXGI_FORMAT_R8G8B8A8_UNORM},
+        {1024, 1024, 1, 0, DXGI_FORMAT_R8G8B8A8_UNORM},
     };
 
     if (!(device = create_device()))
@@ -22902,7 +22906,6 @@ static void test_resource_allocation_info(void)
     }
 
     desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    desc.MipLevels = 1;
     desc.SampleDesc.Count = 1;
     desc.SampleDesc.Quality = 0;
     desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -22913,6 +22916,7 @@ static void test_resource_allocation_info(void)
         desc.Width = texture_tests[i].width;
         desc.Height = texture_tests[i].height;
         desc.DepthOrArraySize = texture_tests[i].array_size;
+        desc.MipLevels = texture_tests[i].miplevels;
         desc.Format = texture_tests[i].format;
 
         desc.Alignment = 0;
