@@ -150,9 +150,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_root_signature_SetName(ID3D12RootSignatur
 {
     struct d3d12_root_signature *root_signature = impl_from_ID3D12RootSignature(iface);
 
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, root_signature->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, root_signature->device->wchar_size));
 
-    return E_NOTIMPL;
+    return name ? S_OK : E_INVALIDARG;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_root_signature_GetDevice(ID3D12RootSignature *iface,
