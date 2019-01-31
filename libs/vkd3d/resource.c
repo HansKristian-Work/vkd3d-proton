@@ -2514,9 +2514,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetName(ID3D12DescriptorH
 {
     struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
 
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, heap->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, heap->device->wchar_size));
 
-    return E_NOTIMPL;
+    return name ? S_OK : E_INVALIDARG;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_GetDevice(ID3D12DescriptorHeap *iface,
