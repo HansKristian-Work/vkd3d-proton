@@ -18,6 +18,8 @@
 
 #include "vkd3d_utils_private.h"
 
+VKD3D_DEBUG_ENV_NAME("VKD3D_DEBUG");
+
 HRESULT WINAPI D3D12GetDebugInterface(REFIID iid, void **debug)
 {
     FIXME("iid %s, debug %p stub!\n", debugstr_guid(iid), debug);

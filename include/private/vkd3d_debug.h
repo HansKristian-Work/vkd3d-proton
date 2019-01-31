@@ -57,6 +57,8 @@ const char *debugstr_w(const WCHAR *wstr, size_t wchar_size) DECLSPEC_HIDDEN;
 
 #define TRACE_ON() (vkd3d_dbg_get_level() == VKD3D_DBG_LEVEL_TRACE)
 
+#define VKD3D_DEBUG_ENV_NAME(name) const char *vkd3d_dbg_env_name = name
+
 static inline const char *debugstr_guid(const GUID *guid)
 {
     if (!guid)

@@ -20,6 +20,8 @@
 
 #include <stdio.h>
 
+VKD3D_DEBUG_ENV_NAME("VKD3D_DEBUG");
+
 STATIC_ASSERT(MEMBER_SIZE(struct vkd3d_shader_scan_info, uav_counter_mask) * CHAR_BIT >= VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
 STATIC_ASSERT(MEMBER_SIZE(struct vkd3d_shader_scan_info, uav_read_mask) * CHAR_BIT >= VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
 
