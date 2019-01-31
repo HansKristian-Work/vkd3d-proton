@@ -1238,44 +1238,32 @@ static void shader_dump_interpolation_mode(struct vkd3d_string_buffer *buffer,
     }
 }
 
-static void shader_dump_version(struct vkd3d_string_buffer *buffer,
-        const struct vkd3d_shader_version *shader_version)
+const char *shader_get_type_prefix(enum vkd3d_shader_type type)
 {
-    const char *prefix;
-
-    switch (shader_version->type)
+    switch (type)
     {
         case VKD3D_SHADER_TYPE_VERTEX:
-            prefix = "vs";
-            break;
+            return "vs";
 
         case VKD3D_SHADER_TYPE_HULL:
-            prefix = "hs";
-            break;
+            return "hs";
 
         case VKD3D_SHADER_TYPE_DOMAIN:
-            prefix = "ds";
-            break;
+            return "ds";
 
         case VKD3D_SHADER_TYPE_GEOMETRY:
-            prefix = "gs";
-            break;
+            return "gs";
 
         case VKD3D_SHADER_TYPE_PIXEL:
-            prefix = "ps";
-            break;
+            return "ps";
 
         case VKD3D_SHADER_TYPE_COMPUTE:
-            prefix = "cs";
-            break;
+            return "cs";
 
         default:
-            FIXME("Unhandled shader type %#x.\n", shader_version->type);
-            prefix = "unknown";
-            break;
+            FIXME("Unhandled shader type %#x.\n", type);
+            return "unknown";
     }
-
-    shader_addline(buffer, "%s_%u_%u\n", prefix, shader_version->major, shader_version->minor);
 }
 
 static void shader_dump_instruction_flags(struct vkd3d_string_buffer *buffer,
@@ -1606,7 +1594,8 @@ void vkd3d_shader_trace(void *data)
     }
 
     shader_sm4_read_header(data, &ptr, &shader_version);
-    shader_dump_version(&buffer, &shader_version);
+    shader_addline(&buffer, "%s_%u_%u\n",
+            shader_get_type_prefix(shader_version.type), shader_version.major, shader_version.minor);
 
     while (!shader_sm4_is_end(data, &ptr))
     {

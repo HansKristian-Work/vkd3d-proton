@@ -19,8 +19,6 @@
 
 #include "vkd3d_private.h"
 
-#include <stdio.h>
-
 /* ID3D12RootSignature */
 static inline struct d3d12_root_signature *impl_from_ID3D12RootSignature(ID3D12RootSignature *iface)
 {
@@ -1243,71 +1241,6 @@ struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12Pipeline
     return impl_from_ID3D12PipelineState(iface);
 }
 
-static void dump_shader(const char *path, const char *prefix, const void *data, size_t size)
-{
-    static int shader_id = 0;
-    char filename[1024];
-    unsigned int id;
-    FILE *f;
-
-    id = InterlockedIncrement(&shader_id) - 1;
-
-    snprintf(filename, ARRAY_SIZE(filename), "%s/vkd3d-shader-%s-%u.dxbc", path, prefix, id);
-    if (!(f = fopen(filename, "wb")))
-    {
-        ERR("Failed to open %s for dumping shader.\n", filename);
-        return;
-    }
-
-    if (fwrite(data, 1, size, f) != size)
-        ERR("Failed to write shader to %s.\n", filename);
-    if (fclose(f))
-        ERR("Failed to close stream %s.\n", filename);
-}
-
-static void dump_shader_stage(VkShaderStageFlagBits stage, const void *data, size_t size)
-{
-    static bool enabled = true;
-    const char *prefix;
-    const char *path;
-
-    if (!enabled)
-        return;
-
-    if (!(path = getenv("VKD3D_SHADER_DUMP_PATH")))
-    {
-        enabled = false;
-        return;
-    }
-
-    switch (stage)
-    {
-        case VK_SHADER_STAGE_VERTEX_BIT:
-            prefix = "vs";
-            break;
-        case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
-            prefix = "hs";
-            break;
-        case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
-            prefix = "ds";
-            break;
-        case VK_SHADER_STAGE_GEOMETRY_BIT:
-            prefix = "gs";
-            break;
-        case VK_SHADER_STAGE_FRAGMENT_BIT:
-            prefix = "ps";
-            break;
-        case VK_SHADER_STAGE_COMPUTE_BIT:
-            prefix = "cs";
-            break;
-        default:
-            prefix = "unk";
-            break;
-    }
-
-    dump_shader(path, prefix, data, size);
-}
-
 static HRESULT create_shader_stage(struct d3d12_device *device,
         struct VkPipelineShaderStageCreateInfo *stage_desc, enum VkShaderStageFlagBits stage,
         const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface_info *shader_interface,
@@ -1331,7 +1264,6 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     shader_desc.pNext = NULL;
     shader_desc.flags = 0;
 
-    dump_shader_stage(stage, code->pShaderBytecode, code->BytecodeLength);
     if ((ret = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, shader_interface, compile_args)) < 0)
     {
         WARN("Failed to compile shader, vkd3d result %d.\n", ret);

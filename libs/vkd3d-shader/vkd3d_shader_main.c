@@ -18,8 +18,50 @@
 
 #include "vkd3d_shader_private.h"
 
+#include <stdio.h>
+
 STATIC_ASSERT(MEMBER_SIZE(struct vkd3d_shader_scan_info, uav_counter_mask) * CHAR_BIT >= VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
 STATIC_ASSERT(MEMBER_SIZE(struct vkd3d_shader_scan_info, uav_read_mask) * CHAR_BIT >= VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
+
+static void vkd3d_shader_dump_blob(const char *path, const char *prefix, const void *data, size_t size)
+{
+    static int shader_id = 0;
+    char filename[1024];
+    unsigned int id;
+    FILE *f;
+
+    id = InterlockedIncrement(&shader_id) - 1;
+
+    snprintf(filename, ARRAY_SIZE(filename), "%s/vkd3d-shader-%s-%u.dxbc", path, prefix, id);
+    if ((f = fopen(filename, "wb")))
+    {
+        if (fwrite(data, 1, size, f) != size)
+            ERR("Failed to write shader to %s.\n", filename);
+        if (fclose(f))
+            ERR("Failed to close stream %s.\n", filename);
+    }
+    else
+    {
+        ERR("Failed to open %s for dumping shader.\n", filename);
+    }
+}
+
+static void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader)
+{
+    static bool enabled = true;
+    const char *path;
+
+    if (!enabled)
+        return;
+
+    if (!(path = getenv("VKD3D_SHADER_DUMP_PATH")))
+    {
+        enabled = false;
+        return;
+    }
+
+    vkd3d_shader_dump_blob(path, shader_get_type_prefix(type), shader->code, shader->size);
+}
 
 struct vkd3d_shader_parser
 {
@@ -113,6 +155,8 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
 
     if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
         return ret;
+
+    vkd3d_shader_dump_shader(parser.shader_version.type, dxbc);
 
     if (TRACE_ON())
         vkd3d_shader_trace(parser.data);
