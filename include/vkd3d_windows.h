@@ -20,6 +20,17 @@
 #define __VKD3D_WINDOWS_H
 #ifndef _INC_WINDOWS
 
+/* Nameless unions */
+#ifndef __C89_NAMELESS
+# ifdef NONAMELESSUNION
+#  define __C89_NAMELESS
+#  define __C89_NAMELESSUNIONNAME u
+# else
+#  define __C89_NAMELESS
+#  define __C89_NAMELESSUNIONNAME
+# endif /* NONAMELESSUNION */
+#endif  /* __C89_NAMELESS */
+
 #if !defined(_WIN32) || defined(__WIDL__)
 
 # if !defined(__WIDL__) && !defined(VKD3D_WIN32_WCHAR)
@@ -222,17 +233,6 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 
 #endif  /* _WIN32 */
 
-
-/* Nameless unions */
-#ifndef __C89_NAMELESS
-# ifdef NONAMELESSUNION
-#  define __C89_NAMELESS
-#  define __C89_NAMELESSUNIONNAME u
-# else
-#  define __C89_NAMELESS
-#  define __C89_NAMELESSUNIONNAME
-# endif /* NONAMELESSUNION */
-#endif  /* __C89_NAMELESS */
 
 /* Define DECLSPEC_HIDDEN */
 #ifndef DECLSPEC_HIDDEN
