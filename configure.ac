@@ -11,7 +11,12 @@ AC_ARG_VAR([CROSSCC64], [64-bit Windows cross compiler])
 AC_ARG_WITH([xcb], AS_HELP_STRING([--with-xcb], [Build with XCB library (default: test)]))
 AC_ARG_WITH([spirv-tools], AS_HELP_STRING([--with-spirv-tools],
                                           [Build with SPIRV-Tools library (default: disabled)]))
-AC_ARG_ENABLE([demos], AS_HELP_STRING([--enable-demos], [Build demo programs (default: disabled)]))
+AC_ARG_ENABLE([demos],
+              AS_HELP_STRING([--enable-demos], [Build demo programs (default: disabled)]),,
+              [enable_demos=no])
+AC_ARG_ENABLE([tests],
+              AS_HELP_STRING([--enable-tests], [Build tests (default: enabled)]),,
+              [enable_tests=yes])
 
 AC_USE_SYSTEM_EXTENSIONS
 
@@ -107,10 +112,10 @@ VKD3D_CHECK_FUNC([HAVE_SYNC_SUB_AND_FETCH], [__sync_sub_and_fetch], [__sync_sub_
 VKD3D_CHECK_PTHREAD_SETNAME_NP
 
 dnl Makefiles
-AS_IF([test "x$enable_demos" != "xyes"], [enable_demos=no])
 AS_IF([test "x$enable_demos" = "xyes" -a "x$HAVE_XCB" != "xyes"],
       [AC_MSG_ERROR([libxcb is required for demos.])])
 AM_CONDITIONAL([BUILD_DEMOS], [test "x$enable_demos" = "xyes"])
+AM_CONDITIONAL([BUILD_TESTS], [test "x$enable_tests" != "xno"])
 AM_CONDITIONAL([HAVE_WIDL], [test "x$WIDL" != "xno"])
 AM_CONDITIONAL([HAVE_CROSSTARGET32], [test "x$CROSSTARGET32" != "xno"])
 AM_CONDITIONAL([HAVE_CROSSTARGET64], [test "x$CROSSTARGET64" != "xno"])
@@ -129,6 +134,7 @@ AS_ECHO(["
   Have SPIRV-Tools: ${with_spirv_tools}
 
   Building demos: ${enable_demos}
+  Building tests: ${enable_tests}
 
   Building crosstests: ${HAVE_CROSSTEST}"])
 AS_IF([test "x$CROSSTARGET32" != "xno"], [AS_ECHO(["    Using 32-bit cross compiler: $CROSSCC32"])])

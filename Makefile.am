@@ -137,12 +137,14 @@ vkd3d_compiler_SOURCES = programs/vkd3d-compiler/main.c
 vkd3d_compiler_LDADD = libvkd3d-shader.la
 
 LDADD = libvkd3d.la libvkd3d-utils.la
-check_PROGRAMS = $(vkd3d_tests) $(vkd3d_cross_tests)
 AM_DEFAULT_SOURCE_EXT = .c
+if BUILD_TESTS
+check_PROGRAMS = $(vkd3d_tests) $(vkd3d_cross_tests)
 TESTS = $(vkd3d_tests) $(vkd3d_cross_tests)
 tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@
 tests_vkd3d_api_LDADD = libvkd3d.la @VULKAN_LIBS@
 tests_vkd3d_shader_api_LDADD = libvkd3d-shader.la
+endif
 
 if BUILD_DEMOS
 DEMOS_LDADD = $(LDADD) libvkd3d-shader.la @XCB_LIBS@ @VULKAN_LIBS@
