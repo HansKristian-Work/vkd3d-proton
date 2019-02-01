@@ -1195,6 +1195,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetName(ID3D12PipelineStat
 
     TRACE("iface %p, name %s.\n", iface, debugstr_w(name, state->device->wchar_size));
 
+    if (d3d12_pipeline_state_is_compute(state))
+    {
+        return vkd3d_set_vk_object_name(state->device, (uint64_t)state->u.compute.vk_pipeline,
+                VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT, name);
+    }
+
     return name ? S_OK : E_INVALIDARG;
 }
 
