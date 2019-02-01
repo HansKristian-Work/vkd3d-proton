@@ -1055,7 +1055,7 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
 
 struct vkd3d_pipeline_key
 {
-    VkPrimitiveTopology topology;
+    D3D12_PRIMITIVE_TOPOLOGY topology;
     uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
 };
 
@@ -2428,6 +2428,59 @@ HRESULT d3d12_pipeline_state_create_graphics(struct d3d12_device *device,
     return S_OK;
 }
 
+static enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_TOPOLOGY topology)
+{
+    switch (topology)
+    {
+        case D3D_PRIMITIVE_TOPOLOGY_POINTLIST:
+            return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+        case D3D_PRIMITIVE_TOPOLOGY_LINELIST:
+            return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+        case D3D_PRIMITIVE_TOPOLOGY_LINESTRIP:
+            return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+        case D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST:
+            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        case D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP:
+            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+        case D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_2_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_5_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_6_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_7_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_8_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_9_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_10_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_11_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_12_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_13_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_14_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_15_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_16_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_17_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_18_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_19_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_20_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_21_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_22_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_23_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_24_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_25_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_26_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_27_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_28_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_29_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_30_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_31_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_32_CONTROL_POINT_PATCHLIST:
+            return VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
+        default:
+            FIXME("Unhandled primitive topology %#x.\n", topology);
+            return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+    }
+}
+
 static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(const struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key)
 {
@@ -2496,17 +2549,18 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
 }
 
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
-        VkPrimitiveTopology topology, const uint32_t *strides)
+        D3D12_PRIMITIVE_TOPOLOGY topology, const uint32_t *strides)
 {
-    struct VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
     struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
     VkPipelineVertexInputDivisorStateCreateInfoEXT input_divisor_info;
-    struct VkPipelineVertexInputStateCreateInfo input_desc;
-    struct VkPipelineInputAssemblyStateCreateInfo ia_desc;
-    struct VkPipelineColorBlendStateCreateInfo blend_desc;
-    struct VkGraphicsPipelineCreateInfo pipeline_desc;
+    VkPipelineTessellationStateCreateInfo tessellation_info;
+    VkPipelineVertexInputStateCreateInfo input_desc;
+    VkPipelineInputAssemblyStateCreateInfo ia_desc;
+    VkPipelineColorBlendStateCreateInfo blend_desc;
     struct d3d12_device *device = state->device;
+    VkGraphicsPipelineCreateInfo pipeline_desc;
     struct vkd3d_pipeline_key pipeline_key;
     size_t binding_count = 0;
     VkPipeline vk_pipeline;
@@ -2514,7 +2568,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     uint32_t mask;
     VkResult vr;
 
-    static const struct VkPipelineViewportStateCreateInfo vp_desc =
+    static const VkPipelineViewportStateCreateInfo vp_desc =
     {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
         .pNext = NULL,
@@ -2524,14 +2578,14 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         .scissorCount = 1,
         .pScissors = NULL,
     };
-    static const enum VkDynamicState dynamic_states[] =
+    static const VkDynamicState dynamic_states[] =
     {
         VK_DYNAMIC_STATE_VIEWPORT,
         VK_DYNAMIC_STATE_SCISSOR,
         VK_DYNAMIC_STATE_BLEND_CONSTANTS,
         VK_DYNAMIC_STATE_STENCIL_REFERENCE,
     };
-    static const struct VkPipelineDynamicStateCreateInfo dynamic_desc =
+    static const VkPipelineDynamicStateCreateInfo dynamic_desc =
     {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
         .pNext = NULL,
@@ -2597,8 +2651,14 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     ia_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     ia_desc.pNext = NULL;
     ia_desc.flags = 0;
-    ia_desc.topology = topology;
+    ia_desc.topology = vk_topology_from_d3d12_topology(topology);
     ia_desc.primitiveRestartEnable = !!graphics->index_buffer_strip_cut_value;
+
+    tessellation_info.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
+    tessellation_info.pNext = NULL;
+    tessellation_info.flags = 0;
+    tessellation_info.patchControlPoints
+            = max(topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1, 1);
 
     blend_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     blend_desc.pNext = NULL;
@@ -2619,7 +2679,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     pipeline_desc.pStages = graphics->stages;
     pipeline_desc.pVertexInputState = &input_desc;
     pipeline_desc.pInputAssemblyState = &ia_desc;
-    pipeline_desc.pTessellationState = NULL;
+    pipeline_desc.pTessellationState = &tessellation_info;
     pipeline_desc.pViewportState = &vp_desc;
     pipeline_desc.pRasterizationState = &graphics->rs_desc;
     pipeline_desc.pMultisampleState = &graphics->ms_desc;
