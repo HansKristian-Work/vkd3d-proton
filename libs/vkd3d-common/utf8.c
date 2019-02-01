@@ -107,8 +107,8 @@ static char *vkd3d_strdup_w16_utf8(const uint16_t *wstr)
 {
     const uint16_t *src = wstr;
     size_t dst_size = 0;
+    char *dst, *utf8;
     uint32_t c;
-    char *dst;
 
     while (*src)
     {
@@ -121,14 +121,15 @@ static char *vkd3d_strdup_w16_utf8(const uint16_t *wstr)
     if (!(dst = vkd3d_malloc(dst_size)))
         return NULL;
 
+    utf8 = dst;
     src = wstr;
     while (*src)
     {
         if (!(c = vkd3d_utf16_read(&src)))
             continue;
-        vkd3d_utf8_append(&dst, c);
+        vkd3d_utf8_append(&utf8, c);
     }
-    *dst = 0;
+    *utf8 = 0;
 
     return dst;
 }
@@ -137,7 +138,7 @@ static char *vkd3d_strdup_w32_utf8(const uint32_t *wstr)
 {
     const uint32_t *src = wstr;
     size_t dst_size = 0;
-    char *dst;
+    char *dst, *utf8;
 
     while (*src)
         dst_size += vkd3d_utf8_len(*src++);
@@ -146,10 +147,11 @@ static char *vkd3d_strdup_w32_utf8(const uint32_t *wstr)
     if (!(dst = vkd3d_malloc(dst_size)))
         return NULL;
 
+    utf8 = dst;
     src = wstr;
     while (*src)
-        vkd3d_utf8_append(&dst, *src++);
-    *dst = 0;
+        vkd3d_utf8_append(&utf8, *src++);
+    *utf8 = 0;
 
     return dst;
 }
