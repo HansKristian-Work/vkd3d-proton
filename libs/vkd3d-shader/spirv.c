@@ -1082,6 +1082,12 @@ static uint32_t vkd3d_spirv_build_op_access_chain(struct vkd3d_spirv_builder *bu
             SpvOpAccessChain, result_type, base_id, indexes, index_count);
 }
 
+static uint32_t vkd3d_spirv_build_op_access_chain1(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t base_id, uint32_t index)
+{
+    return vkd3d_spirv_build_op_access_chain(builder, result_type, base_id, &index, 1);
+}
+
 static uint32_t vkd3d_spirv_build_op_in_bounds_access_chain(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t base_id, uint32_t *indexes, uint32_t index_count)
 {
@@ -6211,8 +6217,7 @@ static void vkd3d_dxbc_compiler_emit_ld_tgsm(struct vkd3d_dxbc_compiler *compile
             coordinate_id = vkd3d_spirv_build_op_iadd(builder, type_id,
                     coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
 
-        ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
-                reg_info.id, &coordinate_id, 1);
+        ptr_id = vkd3d_spirv_build_op_access_chain1(builder, ptr_type_id, reg_info.id, coordinate_id);
         constituents[j++] = vkd3d_spirv_build_op_load(builder, type_id, ptr_id, SpvMemoryAccessMaskNone);
     }
     assert(dst->reg.data_type == VKD3D_DATA_UINT);
@@ -6312,8 +6317,7 @@ static void vkd3d_dxbc_compiler_emit_store_tgsm(struct vkd3d_dxbc_compiler *comp
             coordinate_id = vkd3d_spirv_build_op_iadd(builder, type_id,
                     coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
 
-        ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
-                reg_info.id, &coordinate_id, 1);
+        ptr_id = vkd3d_spirv_build_op_access_chain1(builder, ptr_type_id, reg_info.id, coordinate_id);
         vkd3d_spirv_build_op_store(builder, ptr_id, data_id, SpvMemoryAccessMaskNone);
     }
 }
@@ -6536,8 +6540,7 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
     {
         component_type = VKD3D_TYPE_UINT;
         ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, reg_info.storage_class, type_id);
-        pointer_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
-                reg_info.id, &coordinate_id, 1);
+        pointer_id = vkd3d_spirv_build_op_access_chain1(builder, ptr_type_id, reg_info.id, coordinate_id);
     }
     else
     {
