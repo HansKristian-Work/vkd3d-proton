@@ -1564,9 +1564,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_SetName(ID3D12Device *iface, const
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
 
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, device->wchar_size));
 
-    return E_NOTIMPL;
+    return vkd3d_set_vk_object_name(device, (uint64_t)(uintptr_t)device->vk_device,
+            VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT, name);
 }
 
 static UINT STDMETHODCALLTYPE d3d12_device_GetNodeCount(ID3D12Device *iface)
