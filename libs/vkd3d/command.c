@@ -4549,10 +4549,21 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetPrivateDataInterface(ID3
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetName(ID3D12CommandQueue *iface, const WCHAR *name)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
+    VkQueue vk_queue;
+    HRESULT hr;
 
-    FIXME("iface %p, name %s stub!\n", iface, debugstr_w(name, command_queue->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, command_queue->device->wchar_size));
 
-    return E_NOTIMPL;
+    if (!(vk_queue = vkd3d_queue_acquire(command_queue->vkd3d_queue)))
+    {
+        ERR("Failed to acquire queue %p.\n", command_queue->vkd3d_queue);
+        return E_FAIL;
+    }
+
+    hr = vkd3d_set_vk_object_name(command_queue->device, (uint64_t)(uintptr_t)vk_queue,
+            VK_DEBUG_REPORT_OBJECT_TYPE_QUEUE_EXT, name);
+    vkd3d_queue_release(command_queue->vkd3d_queue);
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetDevice(ID3D12CommandQueue *iface,
