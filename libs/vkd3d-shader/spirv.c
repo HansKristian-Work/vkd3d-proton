@@ -1560,8 +1560,6 @@ static uint32_t vkd3d_spirv_get_type_id(struct vkd3d_spirv_builder *builder,
 
 static void vkd3d_spirv_builder_init(struct vkd3d_spirv_builder *builder)
 {
-    uint32_t void_id, function_type_id;
-
     vkd3d_spirv_stream_init(&builder->debug_stream);
     vkd3d_spirv_stream_init(&builder->annotation_stream);
     vkd3d_spirv_stream_init(&builder->global_stream);
@@ -1575,12 +1573,19 @@ static void vkd3d_spirv_builder_init(struct vkd3d_spirv_builder *builder)
 
     rb_init(&builder->declarations, vkd3d_spirv_declaration_compare);
 
+    builder->main_function_id = vkd3d_spirv_alloc_id(builder);
+    vkd3d_spirv_build_op_name(builder, builder->main_function_id, "main");
+}
+
+static void vkd3d_spirv_builder_begin_main_function(struct vkd3d_spirv_builder *builder)
+{
+    uint32_t void_id, function_type_id;
+
     void_id = vkd3d_spirv_get_op_type_void(builder);
     function_type_id = vkd3d_spirv_get_op_type_function(builder, void_id, NULL, 0);
 
-    builder->main_function_id = vkd3d_spirv_build_op_function(builder, void_id,
-            vkd3d_spirv_alloc_id(builder), SpvFunctionControlMaskNone, function_type_id);
-    vkd3d_spirv_build_op_name(builder, builder->main_function_id, "main");
+    vkd3d_spirv_build_op_function(builder, void_id,
+            builder->main_function_id, SpvFunctionControlMaskNone, function_type_id);
     vkd3d_spirv_build_op_label(builder, vkd3d_spirv_alloc_id(builder));
     builder->main_function_location = vkd3d_spirv_stream_current_location(&builder->function_stream);
 }
@@ -1899,6 +1904,12 @@ struct vkd3d_push_constant_buffer_binding
     struct vkd3d_shader_push_constant_buffer pc;
 };
 
+struct vkd3d_shader_phase
+{
+    enum VKD3D_SHADER_INSTRUCTION_HANDLER type;
+    uint32_t function_id;
+};
+
 struct vkd3d_dxbc_compiler
 {
     struct vkd3d_spirv_builder spirv_builder;
@@ -1939,6 +1950,10 @@ struct vkd3d_dxbc_compiler
     uint32_t binding_idx;
 
     const struct vkd3d_shader_scan_info *scan_info;
+
+    unsigned int shader_phase_count;
+    struct vkd3d_shader_phase *shader_phases;
+    size_t shader_phases_size;
 };
 
 static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler);
@@ -3807,6 +3822,9 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
         vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeXfb, NULL, 0);
     }
 
+    if (compiler->shader_type != VKD3D_SHADER_TYPE_HULL)
+        vkd3d_spirv_builder_begin_main_function(builder);
+
     vkd3d_dxbc_compiler_emit_shader_signature_outputs(compiler);
 }
 
@@ -4660,6 +4678,72 @@ static void vkd3d_dxbc_compiler_emit_dcl_thread_group(struct vkd3d_dxbc_compiler
 
     vkd3d_dxbc_compiler_emit_execution_mode(compiler,
             SpvExecutionModeLocalSize, local_size, ARRAY_SIZE(local_size));
+}
+
+static void vkd3d_dxbc_compiler_enter_shader_phase(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t void_id, function_type_id;
+    struct vkd3d_shader_phase *phase;
+    const char *name;
+    unsigned int id;
+
+    id = compiler->shader_phase_count;
+
+    if (id)
+        vkd3d_spirv_build_op_function_end(builder);
+
+    if (!vkd3d_array_reserve((void **)&compiler->shader_phases, &compiler->shader_phases_size,
+            compiler->shader_phase_count + 1, sizeof(*compiler->shader_phases)))
+        return;
+    phase = &compiler->shader_phases[compiler->shader_phase_count++];
+
+    phase->type = instruction->handler_idx;
+    phase->function_id = vkd3d_spirv_alloc_id(builder);
+
+    void_id = vkd3d_spirv_get_op_type_void(builder);
+    function_type_id = vkd3d_spirv_get_op_type_function(builder, void_id, NULL, 0);
+    vkd3d_spirv_build_op_function(builder, void_id, phase->function_id,
+            SpvFunctionControlMaskNone, function_type_id);
+    vkd3d_spirv_build_op_label(builder, vkd3d_spirv_alloc_id(builder));
+
+    switch (instruction->handler_idx)
+    {
+        case VKD3DSIH_HS_CONTROL_POINT_PHASE:
+            name = "control";
+            break;
+        case VKD3DSIH_HS_FORK_PHASE:
+            name = "fork";
+            break;
+        case VKD3DSIH_HS_JOIN_PHASE:
+            name = "join";
+            break;
+        default:
+            ERR("Invalid shader phase %#x.\n", instruction->handler_idx);
+            return;
+    }
+    vkd3d_spirv_build_op_name(builder, phase->function_id, "%s%u", name, id);
+}
+
+static void vkd3d_dxbc_compiler_emit_hull_shader_main(struct vkd3d_dxbc_compiler *compiler)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_phase *phase;
+    uint32_t void_id;
+    unsigned int i;
+
+    vkd3d_spirv_builder_begin_main_function(builder);
+
+    void_id = vkd3d_spirv_get_op_type_void(builder);
+    for (i = 0; i < compiler->shader_phase_count; ++i)
+    {
+        phase = &compiler->shader_phases[i];
+        vkd3d_spirv_build_op_function_call(builder, void_id, phase->function_id, NULL, 0);
+    }
+
+    vkd3d_spirv_build_op_return(builder);
+    vkd3d_spirv_build_op_function_end(builder);
 }
 
 static SpvOp vkd3d_dxbc_compiler_map_alu_instruction(const struct vkd3d_shader_instruction *instruction)
@@ -6944,6 +7028,11 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_DCL_THREAD_GROUP:
             vkd3d_dxbc_compiler_emit_dcl_thread_group(compiler, instruction);
             break;
+        case VKD3DSIH_HS_CONTROL_POINT_PHASE:
+        case VKD3DSIH_HS_FORK_PHASE:
+        case VKD3DSIH_HS_JOIN_PHASE:
+            vkd3d_dxbc_compiler_enter_shader_phase(compiler, instruction);
+            break;
         case VKD3DSIH_MOV:
             vkd3d_dxbc_compiler_emit_mov(compiler, instruction);
             break;
@@ -7142,6 +7231,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_CUT_STREAM:
             vkd3d_dxbc_compiler_emit_cut_stream(compiler, instruction);
             break;
+        case VKD3DSIH_HS_DECLS:
         case VKD3DSIH_DCL_INPUT_CONTROL_POINT_COUNT:
         case VKD3DSIH_NOP:
             /* nothing to do */
@@ -7279,6 +7369,9 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
 
     vkd3d_spirv_build_op_function_end(builder);
 
+    if (compiler->shader_type == VKD3D_SHADER_TYPE_HULL)
+        vkd3d_dxbc_compiler_emit_hull_shader_main(compiler);
+
     if (compiler->epilogue_function_id)
         vkd3d_dxbc_compiler_emit_shader_epilogue_function(compiler);
 
@@ -7309,6 +7402,8 @@ void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler)
     vkd3d_spirv_builder_free(&compiler->spirv_builder);
 
     rb_destroy(&compiler->symbol_table, vkd3d_symbol_free, NULL);
+
+    vkd3d_free(compiler->shader_phases);
 
     vkd3d_free(compiler);
 }
