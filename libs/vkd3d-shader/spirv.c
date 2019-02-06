@@ -1908,6 +1908,7 @@ struct vkd3d_shader_phase
 {
     enum VKD3D_SHADER_INSTRUCTION_HANDLER type;
     uint32_t function_id;
+    size_t function_location;
 };
 
 struct vkd3d_dxbc_compiler
@@ -3828,6 +3829,26 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
     vkd3d_dxbc_compiler_emit_shader_signature_outputs(compiler);
 }
 
+static const struct vkd3d_shader_phase *vkd3d_dxbc_compiler_get_current_shader_phase(
+        const struct vkd3d_dxbc_compiler *compiler)
+{
+    if (!compiler->shader_phase_count)
+        return NULL;
+
+    return &compiler->shader_phases[compiler->shader_phase_count - 1];
+}
+
+static size_t vkd3d_dxbc_compiler_get_current_function_location(const struct vkd3d_dxbc_compiler *compiler)
+{
+    const struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_phase *phase;
+
+    if ((phase = vkd3d_dxbc_compiler_get_current_shader_phase(compiler)))
+        return phase->function_location;
+
+    return builder->main_function_location;
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_global_flags(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -3849,12 +3870,13 @@ static void vkd3d_dxbc_compiler_emit_dcl_temps(struct vkd3d_dxbc_compiler *compi
         const struct vkd3d_shader_instruction *instruction)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    size_t function_location;
     unsigned int i;
     uint32_t id;
 
-    vkd3d_spirv_begin_function_stream_insertion(builder, builder->main_function_location);
+    function_location = vkd3d_dxbc_compiler_get_current_function_location(compiler);
+    vkd3d_spirv_begin_function_stream_insertion(builder, function_location);
 
-    assert(!compiler->temp_count);
     compiler->temp_count = instruction->declaration.count;
     for (i = 0; i < compiler->temp_count; ++i)
     {
@@ -3877,6 +3899,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_indexable_temp(struct vkd3d_dxbc_compil
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     struct vkd3d_shader_register reg;
     struct vkd3d_symbol reg_symbol;
+    size_t function_location;
     uint32_t id;
 
     if (temp->component_count != 4)
@@ -3887,7 +3910,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_indexable_temp(struct vkd3d_dxbc_compil
     reg.idx[0].offset = temp->register_idx;
     reg.idx[1].offset = ~0u;
 
-    vkd3d_spirv_begin_function_stream_insertion(builder, builder->main_function_location);
+    function_location = vkd3d_dxbc_compiler_get_current_function_location(compiler);
+    vkd3d_spirv_begin_function_stream_insertion(builder, function_location);
 
     id = vkd3d_dxbc_compiler_emit_array_variable(compiler, &builder->function_stream,
             SpvStorageClassFunction, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE, temp->register_size);
@@ -4708,6 +4732,8 @@ static void vkd3d_dxbc_compiler_enter_shader_phase(struct vkd3d_dxbc_compiler *c
             SpvFunctionControlMaskNone, function_type_id);
     vkd3d_spirv_build_op_label(builder, vkd3d_spirv_alloc_id(builder));
 
+    phase->function_location = vkd3d_spirv_stream_current_location(&builder->function_stream);
+
     switch (instruction->handler_idx)
     {
         case VKD3DSIH_HS_CONTROL_POINT_PHASE:
@@ -4724,15 +4750,6 @@ static void vkd3d_dxbc_compiler_enter_shader_phase(struct vkd3d_dxbc_compiler *c
             return;
     }
     vkd3d_spirv_build_op_name(builder, phase->function_id, "%s%u", name, id);
-}
-
-static const struct vkd3d_shader_phase *vkd3d_dxbc_compiler_get_current_shader_phase(
-        const struct vkd3d_dxbc_compiler *compiler)
-{
-    if (!compiler->shader_phase_count)
-        return NULL;
-
-    return &compiler->shader_phases[compiler->shader_phase_count - 1];
 }
 
 static void vkd3d_dxbc_compiler_emit_hull_shader_main(struct vkd3d_dxbc_compiler *compiler)
