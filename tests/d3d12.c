@@ -2740,7 +2740,7 @@ static void test_create_fence(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_private_data(void)
+static void test_object_interface(void)
 {
     D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc;
     D3D12_QUERY_HEAP_DESC query_heap_desc;
@@ -2763,6 +2763,8 @@ static void test_private_data(void)
     static const GUID test_guid2
             = {0x2e5afac2, 0x87b5, 0x4c10, {0x9b, 0x4b, 0x89, 0xd7, 0xd1, 0x12, 0xe7, 0x2b}};
     static const DWORD data[] = {1, 2, 3, 4};
+    static const WCHAR deadbeefW[] = {'d', 'e', 'a', 'd', 'b', 'e', 'e', 'f', 0};
+    static const WCHAR emptyW[] = {0};
     static const GUID *tests[] =
     {
         &IID_ID3D12CommandAllocator,
@@ -2993,6 +2995,15 @@ static void test_private_data(void)
             hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, NULL);
             ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
         }
+
+        hr = ID3D12Object_SetName(object, NULL);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+        hr = ID3D12Object_SetName(object, emptyW);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        hr = ID3D12Object_SetName(object, deadbeefW);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
         ID3D12Object_Release(object);
 
@@ -24044,7 +24055,7 @@ START_TEST(d3d12)
     run_test(test_create_compute_pipeline_state);
     run_test(test_create_graphics_pipeline_state);
     run_test(test_create_fence);
-    run_test(test_private_data);
+    run_test(test_object_interface);
     run_test(test_multithread_private_data);
     run_test(test_reset_command_allocator);
     run_test(test_cpu_signal_fence);
