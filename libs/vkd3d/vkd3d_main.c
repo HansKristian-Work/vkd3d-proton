@@ -343,16 +343,15 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_sig
     }
 
     if (error_blob)
-    {
-        FIXME("Ignoring error blob %p.\n", error_blob);
         *error_blob = NULL;
-    }
 
     if ((ret = vkd3d_shader_serialize_root_signature(
             (const struct vkd3d_root_signature_desc *)root_signature_desc,
             (enum vkd3d_root_signature_version)version, &dxbc)) < 0)
     {
         WARN("Failed to serialize root signature, vkd3d result %d.\n", ret);
+        if (error_blob)
+            FIXME("Ignoring error blob %p.\n", error_blob);
         return hresult_from_vkd3d_result(ret);
     }
 

@@ -9728,14 +9728,16 @@ static void test_root_signature_deserialization_(unsigned int line, const DWORD 
 static void test_root_signature_serialization_(unsigned int line, const DWORD *code, size_t code_size,
         const D3D12_ROOT_SIGNATURE_DESC *desc)
 {
+    ID3DBlob *blob, *error_blob;
     DWORD *blob_buffer;
     size_t blob_size;
-    ID3DBlob *blob;
     unsigned int i;
     HRESULT hr;
 
-    hr = D3D12SerializeRootSignature(desc, D3D_ROOT_SIGNATURE_VERSION_1_0, &blob, NULL);
+    error_blob = (ID3DBlob *)0xdeadbeef;
+    hr = D3D12SerializeRootSignature(desc, D3D_ROOT_SIGNATURE_VERSION_1_0, &blob, &error_blob);
     ok_(line)(hr == S_OK, "Failed to serialize root signature, hr %#x.\n", hr);
+    ok_(line)(!error_blob, "Got unexpected error blob %p.\n", error_blob);
 
     blob_buffer = ID3D10Blob_GetBufferPointer(blob);
     blob_size = ID3D10Blob_GetBufferSize(blob);
