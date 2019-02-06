@@ -474,6 +474,12 @@ static uint32_t vkd3d_spirv_build_once1v(struct vkd3d_spirv_builder *builder,
     unsigned int i, param_idx = 0;
     struct rb_entry *entry;
 
+    if (operand_count >= ARRAY_SIZE(declaration.parameters))
+    {
+        WARN("Unsupported parameter count %u (opcode %#x).\n", operand_count + 1, op);
+        return build_pfn(builder, operand0, operands, operand_count);
+    }
+
     declaration.op = op;
     declaration.parameters[param_idx++] = operand0;
     for (i = 0; i < operand_count; ++i)
@@ -986,10 +992,17 @@ static uint32_t vkd3d_spirv_get_op_type_sampled_image(struct vkd3d_spirv_builder
 }
 
 static uint32_t vkd3d_spirv_build_op_type_function(struct vkd3d_spirv_builder *builder,
-        uint32_t return_type, uint32_t *param_types, unsigned int param_count)
+        uint32_t return_type, const uint32_t *param_types, unsigned int param_count)
 {
     return vkd3d_spirv_build_op_r1v(builder, &builder->global_stream,
             SpvOpTypeFunction, return_type, param_types, param_count);
+}
+
+static uint32_t vkd3d_spirv_get_op_type_function(struct vkd3d_spirv_builder *builder,
+        uint32_t return_type, const uint32_t *param_types, unsigned int param_count)
+{
+    return vkd3d_spirv_build_once1v(builder, SpvOpTypeFunction, return_type,
+            param_types, param_count, vkd3d_spirv_build_op_type_function);
 }
 
 static uint32_t vkd3d_spirv_build_op_type_pointer(struct vkd3d_spirv_builder *builder,
@@ -1563,7 +1576,7 @@ static void vkd3d_spirv_builder_init(struct vkd3d_spirv_builder *builder)
     rb_init(&builder->declarations, vkd3d_spirv_declaration_compare);
 
     void_id = vkd3d_spirv_get_op_type_void(builder);
-    function_type_id = vkd3d_spirv_build_op_type_function(builder, void_id, NULL, 0);
+    function_type_id = vkd3d_spirv_get_op_type_function(builder, void_id, NULL, 0);
 
     builder->main_function_id = vkd3d_spirv_build_op_function(builder, void_id,
             vkd3d_spirv_alloc_id(builder), SpvFunctionControlMaskNone, function_type_id);
@@ -7223,7 +7236,7 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_
         if (compiler->private_output_variable[i])
             param_type_id[count++] = ptr_type_id;
     }
-    function_type_id = vkd3d_spirv_build_op_type_function(builder, void_id, param_type_id, count);
+    function_type_id = vkd3d_spirv_get_op_type_function(builder, void_id, param_type_id, count);
 
     vkd3d_spirv_build_op_function(builder, void_id, function_id,
             SpvFunctionControlMaskNone, function_type_id);
