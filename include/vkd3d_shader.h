@@ -389,6 +389,7 @@ enum vkd3d_root_signature_version
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_ROOT_SIGNATURE_VERSION),
 };
 
+/* FIXME: Add support for returning error messages (ID3DBlob). */
 int vkd3d_shader_serialize_root_signature(const struct vkd3d_root_signature_desc *root_signature,
         enum vkd3d_root_signature_version version, struct vkd3d_shader_code *dxbc);
 
