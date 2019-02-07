@@ -2320,6 +2320,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_DEPTHOUTLE:
             snprintf(buffer, buffer_size, "oDepth");
             break;
+        case VKD3DSPR_FORKINSTID:
+            snprintf(buffer, buffer_size, "vForkInstanceId");
+            break;
         case VKD3DSPR_TESSCOORD:
             snprintf(buffer, buffer_size, "vDomainLocation");
             break;
@@ -2756,12 +2759,21 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *co
     }
     vkd3d_dxbc_compiler_emit_dereference_register(compiler, reg, &reg_info);
 
-    if (component_count == 1)
+    /* Intermediate value (no storage class). */
+    if (reg_info.storage_class == SpvStorageClassMax)
+    {
+        val_id = reg_info.id;
+    }
+    else if (component_count == 1)
+    {
         return vkd3d_dxbc_compiler_emit_load_scalar(compiler, reg, swizzle, write_mask, &reg_info);
-
-    type_id = vkd3d_spirv_get_type_id(builder,
-            reg_info.component_type, vkd3d_write_mask_component_count(reg_info.write_mask));
-    val_id = vkd3d_spirv_build_op_load(builder, type_id, reg_info.id, SpvMemoryAccessMaskNone);
+    }
+    else
+    {
+        type_id = vkd3d_spirv_get_type_id(builder,
+                reg_info.component_type, vkd3d_write_mask_component_count(reg_info.write_mask));
+        val_id = vkd3d_spirv_build_op_load(builder, type_id, reg_info.id, SpvMemoryAccessMaskNone);
+    }
 
     val_id = vkd3d_dxbc_compiler_emit_swizzle_ext(compiler,
             val_id, reg_info.write_mask, reg_info.component_type, swizzle, write_mask);
@@ -3521,6 +3533,35 @@ static void vkd3d_dxbc_compiler_emit_input_register(struct vkd3d_dxbc_compiler *
     reg_symbol.info.reg.is_aggregate = builtin->is_spirv_array;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, input_id, reg);
+}
+
+static void vkd3d_dxbc_compiler_emit_shader_phase_input(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_phase *phase, const struct vkd3d_shader_dst_param *dst)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_register *reg = &dst->reg;
+    struct vkd3d_symbol reg_symbol;
+    uint32_t val_id;
+
+    switch (reg->type)
+    {
+        case VKD3DSPR_FORKINSTID:
+            val_id = phase->instance_id;
+            break;
+        default:
+            FIXME("Unhandled shader phase input register %#x.\n", reg->type);
+            return;
+    }
+
+    vkd3d_symbol_make_register(&reg_symbol, reg);
+    reg_symbol.id = val_id;
+    reg_symbol.info.reg.storage_class = SpvStorageClassMax; /* Intermediate value */
+    reg_symbol.info.reg.member_idx = 0;
+    reg_symbol.info.reg.component_type = VKD3D_TYPE_UINT;
+    reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_0;
+    reg_symbol.info.reg.is_aggregate = false;
+    vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
+    vkd3d_dxbc_compiler_emit_register_debug_name(builder, val_id, reg);
 }
 
 static unsigned int vkd3d_dxbc_compiler_get_output_variable_index(
@@ -4515,8 +4556,11 @@ static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compi
         const struct vkd3d_shader_instruction *instruction)
 {
     const struct vkd3d_shader_dst_param *dst = &instruction->declaration.dst;
+    const struct vkd3d_shader_phase *phase;
 
-    if (vkd3d_shader_register_is_input(&dst->reg))
+    if ((phase = vkd3d_dxbc_compiler_get_current_shader_phase(compiler)))
+        vkd3d_dxbc_compiler_emit_shader_phase_input(compiler, phase, dst);
+    else if (vkd3d_shader_register_is_input(&dst->reg))
         vkd3d_dxbc_compiler_emit_input(compiler, dst, VKD3D_SIV_NONE);
     else
         vkd3d_dxbc_compiler_emit_input_register(compiler, dst);
