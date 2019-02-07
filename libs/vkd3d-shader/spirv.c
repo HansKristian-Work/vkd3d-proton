@@ -4853,10 +4853,52 @@ static int vkd3d_dxbc_compiler_emit_shader_phase_instance_count(struct vkd3d_dxb
     return VKD3D_OK;
 }
 
-static void vkd3d_dxbc_compiler_emit_hull_shader_main(struct vkd3d_dxbc_compiler *compiler)
+static const struct vkd3d_shader_phase *vkd3d_dxbc_compiler_get_control_point_phase(
+        struct vkd3d_dxbc_compiler *compiler)
+{
+    const struct vkd3d_shader_phase *phase;
+
+    if (compiler->shader_phase_count < 1)
+        return NULL;
+
+    phase = &compiler->shader_phases[0];
+    if (phase->type == VKD3DSIH_HS_CONTROL_POINT_PHASE)
+        return phase;
+
+    return NULL;
+}
+
+static void vkd3d_dxbc_compiler_emit_barrier(struct vkd3d_dxbc_compiler *compiler,
+        SpvScope execution_scope, SpvScope memory_scope, SpvMemorySemanticsMask semantics)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    const struct vkd3d_shader_phase *phase;
+    uint32_t execution_id, memory_id, semantics_id;
+
+    memory_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, memory_scope);
+    semantics_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, semantics);
+
+    if (execution_scope != SpvScopeMax)
+    {
+        execution_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, execution_scope);
+        vkd3d_spirv_build_op_control_barrier(builder, execution_id, memory_id, semantics_id);
+    }
+    else
+    {
+        vkd3d_spirv_build_op_memory_barrier(builder, memory_id, semantics_id);
+    }
+}
+
+static void vkd3d_dxbc_compiler_emit_hull_shader_barrier(struct vkd3d_dxbc_compiler *compiler)
+{
+    vkd3d_dxbc_compiler_emit_barrier(compiler,
+            SpvScopeWorkgroup, SpvScopeInvocation, SpvMemorySemanticsMaskNone);
+}
+
+static void vkd3d_dxbc_compiler_emit_hull_shader_main(struct vkd3d_dxbc_compiler *compiler)
+{
+    const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_phase *control_point_phase, *phase;
     uint32_t phase_instance_id;
     unsigned int i, j;
     uint32_t void_id;
@@ -4864,9 +4906,18 @@ static void vkd3d_dxbc_compiler_emit_hull_shader_main(struct vkd3d_dxbc_compiler
     vkd3d_spirv_builder_begin_main_function(builder);
 
     void_id = vkd3d_spirv_get_op_type_void(builder);
+
+    if ((control_point_phase = vkd3d_dxbc_compiler_get_control_point_phase(compiler)))
+        vkd3d_spirv_build_op_function_call(builder, void_id, control_point_phase->function_id, NULL, 0);
+
+    if (scan_info->use_vocp)
+        vkd3d_dxbc_compiler_emit_hull_shader_barrier(compiler);
+
     for (i = 0; i < compiler->shader_phase_count; ++i)
     {
         phase = &compiler->shader_phases[i];
+        if (phase->type == VKD3DSIH_HS_CONTROL_POINT_PHASE)
+            continue;
 
         if (phase->instance_count)
         {
@@ -6968,14 +7019,10 @@ static void vkd3d_dxbc_compiler_emit_sample_info(struct vkd3d_dxbc_compiler *com
 static void vkd3d_dxbc_compiler_emit_sync(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    uint32_t execution_id, memory_id, semantics_id;
+    unsigned int memory_semantics = SpvMemorySemanticsAcquireReleaseMask;
     unsigned int flags = instruction->flags;
     SpvScope execution_scope = SpvScopeMax;
     SpvScope memory_scope = SpvScopeDevice;
-    unsigned int memory_semantics;
-
-    memory_semantics = SpvMemorySemanticsAcquireReleaseMask;
 
     if (flags & VKD3DSSF_GROUP_SHARED_MEMORY)
     {
@@ -7003,18 +7050,7 @@ static void vkd3d_dxbc_compiler_emit_sync(struct vkd3d_dxbc_compiler *compiler,
                 | SpvMemorySemanticsImageMemoryMask;
     }
 
-    memory_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, memory_scope);
-    semantics_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, memory_semantics);
-    if (execution_scope != SpvScopeMax)
-    {
-        execution_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, execution_scope);
-        vkd3d_spirv_build_op_control_barrier(builder,
-                execution_id, memory_id, semantics_id);
-    }
-    else
-    {
-        vkd3d_spirv_build_op_memory_barrier(builder, memory_id, semantics_id);
-    }
+    vkd3d_dxbc_compiler_emit_barrier(compiler, execution_scope, memory_scope, memory_semantics);
 }
 
 static void vkd3d_dxbc_compiler_emit_emit_stream(struct vkd3d_dxbc_compiler *compiler,

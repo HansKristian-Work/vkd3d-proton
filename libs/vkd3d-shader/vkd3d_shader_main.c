@@ -226,6 +226,15 @@ static void vkd3d_shader_scan_record_uav_counter(struct vkd3d_shader_scan_info *
     scan_info->uav_counter_mask |= 1u << reg->idx[0].offset;
 }
 
+static void vkd3d_shader_scan_input_declaration(struct vkd3d_shader_scan_info *scan_info,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    const struct vkd3d_shader_dst_param *dst = &instruction->declaration.dst;
+
+    if (dst->reg.type == VKD3DSPR_OUTCONTROLPOINT)
+        scan_info->use_vocp = true;
+}
+
 static void vkd3d_shader_scan_sampler_declaration(struct vkd3d_shader_scan_info *scan_info,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -242,8 +251,17 @@ static void vkd3d_shader_scan_handle_instruction(struct vkd3d_shader_scan_info *
 {
     unsigned int i;
 
-    if (instruction->handler_idx == VKD3DSIH_DCL_SAMPLER)
-        vkd3d_shader_scan_sampler_declaration(scan_info, instruction);
+    switch (instruction->handler_idx)
+    {
+        case VKD3DSIH_DCL_INPUT:
+            vkd3d_shader_scan_input_declaration(scan_info, instruction);
+            break;
+        case VKD3DSIH_DCL_SAMPLER:
+            vkd3d_shader_scan_sampler_declaration(scan_info, instruction);
+            break;
+        default:
+            break;
+    }
 
     if (vkd3d_shader_instruction_is_uav_read(instruction))
     {
