@@ -1910,6 +1910,7 @@ struct vkd3d_shader_phase
     unsigned int idx;
     unsigned int instance_count;
     uint32_t function_id;
+    uint32_t instance_id;
     size_t function_location;
 };
 
@@ -3836,16 +3837,31 @@ static void vkd3d_dxbc_compiler_begin_shader_phase(struct vkd3d_dxbc_compiler *c
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t void_id, function_type_id;
+    unsigned int param_count;
+    uint32_t param_type_id;
     const char *name;
+
+    if (phase->instance_count)
+    {
+        param_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+        param_count = 1;
+    }
+    else
+    {
+        param_count = 0;
+    }
 
     phase->function_id = vkd3d_spirv_alloc_id(builder);
 
     void_id = vkd3d_spirv_get_op_type_void(builder);
-    function_type_id = vkd3d_spirv_get_op_type_function(builder, void_id, NULL, 0);
+    function_type_id = vkd3d_spirv_get_op_type_function(builder, void_id, &param_type_id, param_count);
     vkd3d_spirv_build_op_function(builder, void_id, phase->function_id,
             SpvFunctionControlMaskNone, function_type_id);
-    vkd3d_spirv_build_op_label(builder, vkd3d_spirv_alloc_id(builder));
 
+    if (phase->instance_count)
+        phase->instance_id = vkd3d_spirv_build_op_function_parameter(builder, param_type_id);
+
+    vkd3d_spirv_build_op_label(builder, vkd3d_spirv_alloc_id(builder));
     phase->function_location = vkd3d_spirv_stream_current_location(&builder->function_stream);
 
     switch (phase->type)
@@ -4765,15 +4781,37 @@ static void vkd3d_dxbc_compiler_enter_shader_phase(struct vkd3d_dxbc_compiler *c
     phase->idx = idx;
     phase->instance_count = 0;
     phase->function_id = 0;
+    phase->instance_id = 0;
     phase->function_location = 0;
+}
+
+static int vkd3d_dxbc_compiler_emit_hs_fork_phase_instance_count(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_shader_phase *phase = &compiler->shader_phases[compiler->shader_phase_count - 1];
+
+    if (!compiler->shader_phase_count
+            || phase->type != VKD3DSIH_HS_FORK_PHASE
+            || phase->function_id)
+    {
+        WARN("Unexpected dcl_hs_fork_phase_instance_count instruction.\n");
+        return VKD3D_ERROR_INVALID_SHADER;
+    }
+
+    phase->instance_count = instruction->declaration.count;
+
+    vkd3d_dxbc_compiler_begin_shader_phase(compiler, phase);
+
+    return VKD3D_OK;
 }
 
 static void vkd3d_dxbc_compiler_emit_hull_shader_main(struct vkd3d_dxbc_compiler *compiler)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_phase *phase;
+    uint32_t phase_instance_id;
+    unsigned int i, j;
     uint32_t void_id;
-    unsigned int i;
 
     vkd3d_spirv_builder_begin_main_function(builder);
 
@@ -4781,7 +4819,20 @@ static void vkd3d_dxbc_compiler_emit_hull_shader_main(struct vkd3d_dxbc_compiler
     for (i = 0; i < compiler->shader_phase_count; ++i)
     {
         phase = &compiler->shader_phases[i];
-        vkd3d_spirv_build_op_function_call(builder, void_id, phase->function_id, NULL, 0);
+
+        if (phase->instance_count)
+        {
+            for (j = 0; j < phase->instance_count; ++j)
+            {
+                phase_instance_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, j);
+                vkd3d_spirv_build_op_function_call(builder,
+                        void_id, phase->function_id, &phase_instance_id, 1);
+            }
+        }
+        else
+        {
+            vkd3d_spirv_build_op_function_call(builder, void_id, phase->function_id, NULL, 0);
+        }
     }
 
     vkd3d_spirv_build_op_return(builder);
@@ -7073,6 +7124,9 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             break;
         case VKD3DSIH_DCL_THREAD_GROUP:
             vkd3d_dxbc_compiler_emit_dcl_thread_group(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_HS_FORK_PHASE_INSTANCE_COUNT:
+            ret = vkd3d_dxbc_compiler_emit_hs_fork_phase_instance_count(compiler, instruction);
             break;
         case VKD3DSIH_HS_CONTROL_POINT_PHASE:
         case VKD3DSIH_HS_FORK_PHASE:
