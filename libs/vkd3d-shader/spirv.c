@@ -3980,6 +3980,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_temps(struct vkd3d_dxbc_compiler *compi
     function_location = vkd3d_dxbc_compiler_get_current_function_location(compiler);
     vkd3d_spirv_begin_function_stream_insertion(builder, function_location);
 
+    assert(!compiler->temp_count);
     compiler->temp_count = instruction->declaration.count;
     for (i = 0; i < compiler->temp_count; ++i)
     {
@@ -4810,15 +4811,24 @@ static void vkd3d_dxbc_compiler_emit_dcl_thread_group(struct vkd3d_dxbc_compiler
             SpvExecutionModeLocalSize, local_size, ARRAY_SIZE(local_size));
 }
 
+static void vkd3d_dxbc_compiler_leave_shader_phase(struct vkd3d_dxbc_compiler *compiler)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    vkd3d_spirv_build_op_function_end(builder);
+
+    compiler->temp_id = 0;
+    compiler->temp_count = 0;
+}
+
 static void vkd3d_dxbc_compiler_enter_shader_phase(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     struct vkd3d_shader_phase *phase;
     unsigned int idx;
 
     if ((idx = compiler->shader_phase_count))
-        vkd3d_spirv_build_op_function_end(builder);
+        vkd3d_dxbc_compiler_leave_shader_phase(compiler);
 
     if (!vkd3d_array_reserve((void **)&compiler->shader_phases, &compiler->shader_phases_size,
             compiler->shader_phase_count + 1, sizeof(*compiler->shader_phases)))
