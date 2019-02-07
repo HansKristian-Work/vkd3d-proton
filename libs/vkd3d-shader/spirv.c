@@ -2323,6 +2323,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_FORKINSTID:
             snprintf(buffer, buffer_size, "vForkInstanceId");
             break;
+        case VKD3DSPR_JOININSTID:
+            snprintf(buffer, buffer_size, "vJoinInstanceId");
+            break;
         case VKD3DSPR_TESSCOORD:
             snprintf(buffer, buffer_size, "vDomainLocation");
             break;
@@ -3546,6 +3549,7 @@ static void vkd3d_dxbc_compiler_emit_shader_phase_input(struct vkd3d_dxbc_compil
     switch (reg->type)
     {
         case VKD3DSPR_FORKINSTID:
+        case VKD3DSPR_JOININSTID:
             val_id = phase->instance_id;
             break;
         default:
@@ -4829,16 +4833,16 @@ static void vkd3d_dxbc_compiler_enter_shader_phase(struct vkd3d_dxbc_compiler *c
     phase->function_location = 0;
 }
 
-static int vkd3d_dxbc_compiler_emit_hs_fork_phase_instance_count(struct vkd3d_dxbc_compiler *compiler,
+static int vkd3d_dxbc_compiler_emit_shader_phase_instance_count(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     struct vkd3d_shader_phase *phase = &compiler->shader_phases[compiler->shader_phase_count - 1];
 
     if (!compiler->shader_phase_count
-            || phase->type != VKD3DSIH_HS_FORK_PHASE
+            || (phase->type != VKD3DSIH_HS_FORK_PHASE && phase->type != VKD3DSIH_HS_JOIN_PHASE)
             || phase->function_id)
     {
-        WARN("Unexpected dcl_hs_fork_phase_instance_count instruction.\n");
+        WARN("Unexpected dcl_hs_{fork,join}_phase_instance_count instruction.\n");
         return VKD3D_ERROR_INVALID_SHADER;
     }
 
@@ -7170,7 +7174,8 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             vkd3d_dxbc_compiler_emit_dcl_thread_group(compiler, instruction);
             break;
         case VKD3DSIH_DCL_HS_FORK_PHASE_INSTANCE_COUNT:
-            ret = vkd3d_dxbc_compiler_emit_hs_fork_phase_instance_count(compiler, instruction);
+        case VKD3DSIH_DCL_HS_JOIN_PHASE_INSTANCE_COUNT:
+            ret = vkd3d_dxbc_compiler_emit_shader_phase_instance_count(compiler, instruction);
             break;
         case VKD3DSIH_HS_CONTROL_POINT_PHASE:
         case VKD3DSIH_HS_FORK_PHASE:
