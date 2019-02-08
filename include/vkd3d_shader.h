@@ -424,6 +424,7 @@ enum vkd3d_component_type
 
 enum vkd3d_sysval_semantic
 {
+    VKD3D_SV_NONE                      = 0,
     VKD3D_SV_POSITION                  = 1,
     VKD3D_SV_CLIP_DISTANCE             = 2,
     VKD3D_SV_CULL_DISTANCE             = 3,

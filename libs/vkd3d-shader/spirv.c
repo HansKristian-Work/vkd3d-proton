@@ -129,6 +129,20 @@ static const void *vkd3d_find_struct_(const struct vkd3d_struct *chain,
     return NULL;
 }
 
+static enum vkd3d_shader_input_sysval_semantic vkd3d_siv_from_sysval(enum vkd3d_sysval_semantic sysval)
+{
+    switch (sysval)
+    {
+        case VKD3D_SV_NONE:
+            return VKD3D_SIV_NONE;
+        case VKD3D_SV_POSITION:
+            return VKD3D_SIV_POSITION;
+        default:
+            FIXME("Unhandled sysval %#x.\n", sysval);
+            return VKD3D_SIV_NONE;
+    }
+}
+
 #define VKD3D_SPIRV_VERSION 0x00010000
 #define VKD3D_SPIRV_GENERATOR_ID 18
 #define VKD3D_SPIRV_GENERATOR_VERSION 1
@@ -3395,6 +3409,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         FIXME("No signature element for shader input, ignoring shader input.\n");
         return 0;
     }
+
+    if (!sysval && signature_element->sysval_semantic)
+        sysval = vkd3d_siv_from_sysval(signature_element->sysval_semantic);
 
     builtin = get_spirv_builtin_for_sysval(compiler, sysval);
 
