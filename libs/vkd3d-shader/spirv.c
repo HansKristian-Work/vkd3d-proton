@@ -1941,6 +1941,12 @@ struct vkd3d_shader_phase
     size_t function_location;
 };
 
+struct vkd3d_hull_shader_variables
+{
+    uint32_t tess_level_outer_id;
+    uint32_t tess_level_inner_id;
+};
+
 struct vkd3d_dxbc_compiler
 {
     struct vkd3d_spirv_builder spirv_builder;
@@ -1950,6 +1956,7 @@ struct vkd3d_dxbc_compiler
     struct rb_tree symbol_table;
     uint32_t temp_id;
     unsigned int temp_count;
+    struct vkd3d_hull_shader_variables hs;
 
     enum vkd3d_shader_type shader_type;
 
@@ -3154,7 +3161,8 @@ struct vkd3d_spirv_builtin
     unsigned int component_count;
     SpvBuiltIn spirv_builtin;
     vkd3d_spirv_builtin_fixup_pfn fixup_pfn;
-    bool is_spirv_array;
+    unsigned int spirv_array_size;
+    unsigned int member_idx;
 };
 
 /*
@@ -3183,8 +3191,23 @@ vkd3d_system_value_builtins[] =
 
     {VKD3D_SIV_SAMPLE_INDEX, {VKD3D_TYPE_UINT, 1, SpvBuiltInSampleId}},
 
-    {VKD3D_SIV_CLIP_DISTANCE, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInClipDistance, NULL, true}},
-    {VKD3D_SIV_CULL_DISTANCE, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInCullDistance, NULL, true}},
+    {VKD3D_SIV_CLIP_DISTANCE, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInClipDistance, NULL, 1}},
+    {VKD3D_SIV_CULL_DISTANCE, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInCullDistance, NULL, 1}},
+
+    {VKD3D_SIV_QUAD_U0_TESS_FACTOR,      {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelOuter, NULL, 4, 0}},
+    {VKD3D_SIV_QUAD_V0_TESS_FACTOR,      {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelOuter, NULL, 4, 1}},
+    {VKD3D_SIV_QUAD_U1_TESS_FACTOR,      {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelOuter, NULL, 4, 2}},
+    {VKD3D_SIV_QUAD_V1_TESS_FACTOR,      {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelOuter, NULL, 4, 3}},
+    {VKD3D_SIV_QUAD_U_INNER_TESS_FACTOR, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelInner, NULL, 2, 0}},
+    {VKD3D_SIV_QUAD_V_INNER_TESS_FACTOR, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelInner, NULL, 2, 1}},
+
+    {VKD3D_SIV_TRIANGLE_U_TESS_FACTOR,     {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelOuter, NULL, 4, 0}},
+    {VKD3D_SIV_TRIANGLE_V_TESS_FACTOR,     {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelOuter, NULL, 4, 1}},
+    {VKD3D_SIV_TRIANGLE_W_TESS_FACTOR,     {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelOuter, NULL, 4, 2}},
+    {VKD3D_SIV_TRIANGLE_INNER_TESS_FACTOR, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelInner, NULL, 2, 0}},
+
+    {VKD3D_SIV_LINE_DETAIL_TESS_FACTOR,  {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelOuter, NULL, 4, 0}},
+    {VKD3D_SIV_LINE_DENSITY_TESS_FACTOR, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelOuter, NULL, 4, 1}},
 };
 static const struct vkd3d_spirv_builtin vkd3d_pixel_shader_position_builtin =
 {
@@ -3207,8 +3230,8 @@ vkd3d_register_builtins[] =
 
     {VKD3DSPR_TESSCOORD,        {VKD3D_TYPE_FLOAT, 3, SpvBuiltInTessCoord}},
 
-    {VKD3DSPR_COVERAGE,         {VKD3D_TYPE_UINT, 1, SpvBuiltInSampleMask, NULL, true}},
-    {VKD3DSPR_SAMPLEMASK,       {VKD3D_TYPE_UINT, 1, SpvBuiltInSampleMask, NULL, true}},
+    {VKD3DSPR_COVERAGE,         {VKD3D_TYPE_UINT, 1, SpvBuiltInSampleMask, NULL, 1}},
+    {VKD3DSPR_SAMPLEMASK,       {VKD3D_TYPE_UINT, 1, SpvBuiltInSampleMask, NULL, 1}},
 
     {VKD3DSPR_DEPTHOUT,         {VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth}},
     {VKD3DSPR_DEPTHOUTGE,       {VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth}},
@@ -3389,8 +3412,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_builtin_variable(struct vkd3d_dxbc_comp
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t id;
 
-    if (!array_size && builtin->is_spirv_array)
-        array_size = 1;
+    array_size = max(array_size, builtin->spirv_array_size);
 
     id = vkd3d_dxbc_compiler_emit_array_variable(compiler,
             &builder->global_stream, storage_class,
@@ -3570,7 +3592,7 @@ static void vkd3d_dxbc_compiler_emit_input_register(struct vkd3d_dxbc_compiler *
     vkd3d_symbol_make_register(&reg_symbol, reg);
     vkd3d_symbol_set_register_info(&reg_symbol, input_id, SpvStorageClassInput,
             builtin->component_type, vkd3d_write_mask_from_component_count(builtin->component_count));
-    reg_symbol.info.reg.is_aggregate = builtin->is_spirv_array;
+    reg_symbol.info.reg.is_aggregate = builtin->spirv_array_size;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, input_id, reg);
 }
@@ -3733,7 +3755,7 @@ static void vkd3d_dxbc_compiler_emit_output_register(struct vkd3d_dxbc_compiler 
     vkd3d_symbol_make_register(&reg_symbol, reg);
     vkd3d_symbol_set_register_info(&reg_symbol, output_id, SpvStorageClassOutput,
             builtin->component_type, vkd3d_write_mask_from_component_count(builtin->component_count));
-    reg_symbol.info.reg.is_aggregate = builtin->is_spirv_array;
+    reg_symbol.info.reg.is_aggregate = builtin->spirv_array_size;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, output_id, reg);
 }
@@ -3769,7 +3791,7 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
     if (builtin)
     {
         component_type = builtin->component_type;
-        if (!builtin->is_spirv_array)
+        if (!builtin->spirv_array_size)
             output_component_count = builtin->component_count;
     }
     else
@@ -3821,7 +3843,7 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
 
     use_private_variable = component_count != VKD3D_VEC4_SIZE
             || get_shader_output_swizzle(compiler, signature_element->register_index) != VKD3D_NO_SWIZZLE
-            || (builtin && builtin->is_spirv_array);
+            || (builtin && builtin->spirv_array_size);
     if (use_private_variable)
         storage_class = SpvStorageClassPrivate;
 
@@ -3850,6 +3872,46 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         if (!compiler->epilogue_function_id)
             compiler->epilogue_function_id = vkd3d_spirv_alloc_id(builder);
     }
+}
+
+static void vkd3d_dxbc_compiler_emit_shader_phase_output(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_phase *phase, const struct vkd3d_shader_dst_param *dst,
+        enum vkd3d_shader_input_sysval_semantic sysval)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_register *reg = &dst->reg;
+    const struct vkd3d_spirv_builtin *builtin;
+    struct vkd3d_symbol reg_symbol;
+    uint32_t *variable_id;
+
+    variable_id = NULL;
+    if ((builtin = get_spirv_builtin_for_sysval(compiler, sysval)))
+    {
+        if (builtin->spirv_builtin == SpvBuiltInTessLevelOuter)
+            variable_id = &compiler->hs.tess_level_outer_id;
+        else if (builtin->spirv_builtin == SpvBuiltInTessLevelInner)
+            variable_id = &compiler->hs.tess_level_inner_id;
+    }
+
+    if (!variable_id)
+    {
+        FIXME("Unhandled shader phase output register %#x, sysval %#x.\n", reg->type, sysval);
+        return;
+    }
+
+    if (!*variable_id)
+    {
+        *variable_id = vkd3d_dxbc_compiler_emit_builtin_variable(compiler, builtin, SpvStorageClassOutput, 0);
+        if (phase->type == VKD3DSIH_HS_FORK_PHASE || phase->type == VKD3DSIH_HS_JOIN_PHASE)
+            vkd3d_spirv_build_op_decorate(builder, *variable_id, SpvDecorationPatch, NULL, 0);
+    }
+
+    vkd3d_symbol_make_register(&reg_symbol, reg);
+    vkd3d_symbol_set_register_info(&reg_symbol, *variable_id, SpvStorageClassOutput,
+            builtin->component_type, vkd3d_write_mask_from_component_count(builtin->component_count));
+    reg_symbol.info.reg.member_idx = builtin->member_idx;
+    reg_symbol.info.reg.is_aggregate = builtin->spirv_array_size;
+    vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
 static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler)
@@ -4639,8 +4701,17 @@ static void vkd3d_dxbc_compiler_emit_dcl_output(struct vkd3d_dxbc_compiler *comp
 static void vkd3d_dxbc_compiler_emit_dcl_output_siv(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    vkd3d_dxbc_compiler_emit_output(compiler, &instruction->declaration.register_semantic.reg,
-            instruction->declaration.register_semantic.sysval_semantic);
+    enum vkd3d_shader_input_sysval_semantic sysval;
+    const struct vkd3d_shader_dst_param *dst;
+    const struct vkd3d_shader_phase *phase;
+
+    dst = &instruction->declaration.register_semantic.reg;
+    sysval = instruction->declaration.register_semantic.sysval_semantic;
+
+    if ((phase = vkd3d_dxbc_compiler_get_current_shader_phase(compiler)))
+        vkd3d_dxbc_compiler_emit_shader_phase_output(compiler, phase, dst, sysval);
+    else
+        vkd3d_dxbc_compiler_emit_output(compiler, dst, sysval);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_stream(struct vkd3d_dxbc_compiler *compiler,
