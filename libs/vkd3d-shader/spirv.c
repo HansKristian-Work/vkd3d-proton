@@ -1824,6 +1824,19 @@ static void vkd3d_symbol_make_register(struct vkd3d_symbol *symbol,
         symbol->key.reg.idx = reg->idx[0].offset;
 }
 
+static void vkd3d_symbol_set_register_info(struct vkd3d_symbol *symbol,
+        uint32_t val_id, SpvStorageClass storage_class,
+        enum vkd3d_component_type component_type, DWORD write_mask)
+{
+    symbol->id = val_id;
+    symbol->info.reg.storage_class = storage_class;
+    symbol->info.reg.member_idx = 0;
+    symbol->info.reg.component_type = component_type;
+    symbol->info.reg.write_mask = write_mask;
+    symbol->info.reg.structure_stride = 0;
+    symbol->info.reg.is_aggregate = false;
+}
+
 static void vkd3d_symbol_make_resource(struct vkd3d_symbol *symbol,
         const struct vkd3d_shader_register *reg)
 {
@@ -2489,9 +2502,9 @@ static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compil
         assert(reg->idx[0].offset < compiler->temp_count);
         register_info->id = compiler->temp_id + reg->idx[0].offset;
         register_info->storage_class = SpvStorageClassFunction;
+        register_info->member_idx = 0;
         register_info->component_type = VKD3D_TYPE_FLOAT;
         register_info->write_mask = VKD3DSP_WRITEMASK_ALL;
-        register_info->member_idx = 0;
         register_info->structure_stride = 0;
         register_info->is_aggregate = false;
         return true;
@@ -2508,10 +2521,10 @@ static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compil
     symbol = RB_ENTRY_VALUE(entry, struct vkd3d_symbol, entry);
     register_info->id = symbol->id;
     register_info->storage_class = symbol->info.reg.storage_class;
+    register_info->member_idx = symbol->info.reg.member_idx;
     register_info->component_type = symbol->info.reg.component_type;
     register_info->write_mask = symbol->info.reg.write_mask;
     register_info->structure_stride = symbol->info.reg.structure_stride;
-    register_info->member_idx = symbol->info.reg.member_idx;
     register_info->is_aggregate = symbol->info.reg.is_aggregate;
 
     return true;
@@ -3486,12 +3499,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     }
     if (!entry)
     {
-        reg_symbol.id = var_id;
-        reg_symbol.info.reg.storage_class = storage_class;
-        reg_symbol.info.reg.component_type = use_private_var ? VKD3D_TYPE_FLOAT : component_type;
-        reg_symbol.info.reg.write_mask = use_private_var
-                ? vkd3d_write_mask_from_component_count(component_count) : signature_element->mask & 0xff;
-        reg_symbol.info.reg.is_aggregate = false;
+        vkd3d_symbol_set_register_info(&reg_symbol, var_id, storage_class,
+                use_private_var ? VKD3D_TYPE_FLOAT : component_type,
+                use_private_var ? vkd3d_write_mask_from_component_count(component_count) : signature_element->mask & 0xff);
         vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 
         vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
@@ -3558,11 +3568,8 @@ static void vkd3d_dxbc_compiler_emit_input_register(struct vkd3d_dxbc_compiler *
     input_id = vkd3d_dxbc_compiler_emit_builtin_variable(compiler, builtin, SpvStorageClassInput, 0);
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
-    reg_symbol.id = input_id;
-    reg_symbol.info.reg.storage_class = SpvStorageClassInput;
-    reg_symbol.info.reg.member_idx = 0;
-    reg_symbol.info.reg.component_type = builtin->component_type;
-    reg_symbol.info.reg.write_mask = vkd3d_write_mask_from_component_count(builtin->component_count);
+    vkd3d_symbol_set_register_info(&reg_symbol, input_id, SpvStorageClassInput,
+            builtin->component_type, vkd3d_write_mask_from_component_count(builtin->component_count));
     reg_symbol.info.reg.is_aggregate = builtin->is_spirv_array;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, input_id, reg);
@@ -3588,12 +3595,9 @@ static void vkd3d_dxbc_compiler_emit_shader_phase_input(struct vkd3d_dxbc_compil
     }
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
-    reg_symbol.id = val_id;
-    reg_symbol.info.reg.storage_class = SpvStorageClassMax; /* Intermediate value */
-    reg_symbol.info.reg.member_idx = 0;
-    reg_symbol.info.reg.component_type = VKD3D_TYPE_UINT;
-    reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_0;
-    reg_symbol.info.reg.is_aggregate = false;
+    vkd3d_symbol_set_register_info(&reg_symbol, val_id,
+            SpvStorageClassMax /* Intermediate value */,
+            VKD3D_TYPE_UINT, VKD3DSP_WRITEMASK_0);
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, val_id, reg);
 }
@@ -3727,11 +3731,8 @@ static void vkd3d_dxbc_compiler_emit_output_register(struct vkd3d_dxbc_compiler 
     output_id = vkd3d_dxbc_compiler_emit_builtin_variable(compiler, builtin, SpvStorageClassOutput, 0);
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
-    reg_symbol.id = output_id;
-    reg_symbol.info.reg.storage_class = SpvStorageClassOutput;
-    reg_symbol.info.reg.member_idx = 0;
-    reg_symbol.info.reg.component_type = builtin->component_type;
-    reg_symbol.info.reg.write_mask = vkd3d_write_mask_from_component_count(builtin->component_count);
+    vkd3d_symbol_set_register_info(&reg_symbol, output_id, SpvStorageClassOutput,
+            builtin->component_type, vkd3d_write_mask_from_component_count(builtin->component_count));
     reg_symbol.info.reg.is_aggregate = builtin->is_spirv_array;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, output_id, reg);
@@ -3835,11 +3836,8 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
                 storage_class, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
     if (!entry)
     {
-        reg_symbol.id = var_id;
-        reg_symbol.info.reg.storage_class = storage_class;
-        reg_symbol.info.reg.component_type = use_private_variable ? VKD3D_TYPE_FLOAT : component_type;
-        reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_ALL;
-        reg_symbol.info.reg.is_aggregate = false;
+        vkd3d_symbol_set_register_info(&reg_symbol, var_id, storage_class,
+                use_private_variable ? VKD3D_TYPE_FLOAT : component_type, VKD3DSP_WRITEMASK_ALL);
         vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 
         vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
@@ -4044,11 +4042,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_indexable_temp(struct vkd3d_dxbc_compil
     vkd3d_spirv_end_function_stream_insertion(builder);
 
     vkd3d_symbol_make_register(&reg_symbol, &reg);
-    reg_symbol.id = id;
-    reg_symbol.info.reg.storage_class = SpvStorageClassFunction;
-    reg_symbol.info.reg.component_type = VKD3D_TYPE_FLOAT;
-    reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_ALL;
-    reg_symbol.info.reg.is_aggregate = false;
+    vkd3d_symbol_set_register_info(&reg_symbol, id,
+            SpvStorageClassFunction, VKD3D_TYPE_FLOAT, VKD3DSP_WRITEMASK_ALL);
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
@@ -4112,12 +4107,9 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
         vkd3d_spirv_build_op_member_name(builder, struct_id, j, "cb%u", reg_idx);
 
         vkd3d_symbol_make_register(&reg_symbol, &cb->reg);
-        reg_symbol.id = var_id;
-        reg_symbol.info.reg.storage_class = storage_class;
+        vkd3d_symbol_set_register_info(&reg_symbol, var_id,
+                storage_class, VKD3D_TYPE_FLOAT, VKD3DSP_WRITEMASK_ALL);
         reg_symbol.info.reg.member_idx = j;
-        reg_symbol.info.reg.component_type = VKD3D_TYPE_FLOAT;
-        reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_ALL;
-        reg_symbol.info.reg.is_aggregate = false;
         vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 
         ++j;
@@ -4175,12 +4167,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
-    reg_symbol.id = var_id;
-    reg_symbol.info.reg.storage_class = storage_class;
-    reg_symbol.info.reg.member_idx = 0;
-    reg_symbol.info.reg.component_type = VKD3D_TYPE_FLOAT;
-    reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_ALL;
-    reg_symbol.info.reg.is_aggregate = false;
+    vkd3d_symbol_set_register_info(&reg_symbol, var_id,
+            storage_class, VKD3D_TYPE_FLOAT, VKD3DSP_WRITEMASK_ALL);
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
@@ -4212,11 +4200,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_immediate_constant_buffer(struct vkd3d_
     memset(&reg, 0, sizeof(reg));
     reg.type = VKD3DSPR_IMMCONSTBUFFER;
     vkd3d_symbol_make_register(&reg_symbol, &reg);
-    reg_symbol.id = icb_id;
-    reg_symbol.info.reg.storage_class = SpvStorageClassPrivate;
-    reg_symbol.info.reg.component_type = VKD3D_TYPE_FLOAT;
-    reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_ALL;
-    reg_symbol.info.reg.is_aggregate = false;
+    vkd3d_symbol_set_register_info(&reg_symbol, icb_id,
+            SpvStorageClassPrivate, VKD3D_TYPE_FLOAT, VKD3DSP_WRITEMASK_ALL);
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
@@ -4243,9 +4228,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
-    reg_symbol.id = var_id;
-    reg_symbol.info.reg.storage_class = storage_class;
-    reg_symbol.info.reg.is_aggregate = false;
+    vkd3d_symbol_set_register_info(&reg_symbol, var_id,
+            storage_class, VKD3D_TYPE_FLOAT, VKD3DSP_WRITEMASK_ALL);
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
@@ -4549,13 +4533,9 @@ static void vkd3d_dxbc_compiler_emit_workgroup_memory(struct vkd3d_dxbc_compiler
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
-    reg_symbol.id = var_id;
-    reg_symbol.info.reg.storage_class = storage_class;
-    reg_symbol.info.reg.member_idx = 0;
-    reg_symbol.info.reg.component_type = VKD3D_TYPE_UINT;
-    reg_symbol.info.reg.write_mask = VKD3DSP_WRITEMASK_0;
+    vkd3d_symbol_set_register_info(&reg_symbol, var_id,
+            storage_class, VKD3D_TYPE_UINT, VKD3DSP_WRITEMASK_0);
     reg_symbol.info.reg.structure_stride = structure_stride;
-    reg_symbol.info.reg.is_aggregate = false;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
