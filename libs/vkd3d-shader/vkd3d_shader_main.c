@@ -246,7 +246,7 @@ static void vkd3d_shader_scan_sampler_declaration(struct vkd3d_shader_scan_info 
     }
 }
 
-static void vkd3d_shader_scan_handle_instruction(struct vkd3d_shader_scan_info *scan_info,
+static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_info *scan_info,
         const struct vkd3d_shader_instruction *instruction)
 {
     unsigned int i;
@@ -312,7 +312,7 @@ int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
             return VKD3D_ERROR_INVALID_ARGUMENT;
         }
 
-        vkd3d_shader_scan_handle_instruction(scan_info, &instruction);
+        vkd3d_shader_scan_instruction(scan_info, &instruction);
     }
 
     vkd3d_shader_parser_destroy(&parser);
