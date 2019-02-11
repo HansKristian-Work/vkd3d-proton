@@ -1782,10 +1782,10 @@ static bool is_dual_source_blending_blend(D3D12_BLEND b)
 static bool is_dual_source_blending(const D3D12_RENDER_TARGET_BLEND_DESC *desc)
 {
     return desc->BlendEnable
-        && (is_dual_source_blending_blend(desc->SrcBlend)
-        || is_dual_source_blending_blend(desc->DestBlend)
-        || is_dual_source_blending_blend(desc->SrcBlendAlpha)
-        || is_dual_source_blending_blend(desc->DestBlendAlpha));
+            && (is_dual_source_blending_blend(desc->SrcBlend)
+            || is_dual_source_blending_blend(desc->DestBlend)
+            || is_dual_source_blending_blend(desc->SrcBlendAlpha)
+            || is_dual_source_blending_blend(desc->DestBlendAlpha));
 }
 
 static HRESULT compute_input_layout_offsets(const D3D12_INPUT_LAYOUT_DESC *input_layout_desc,
