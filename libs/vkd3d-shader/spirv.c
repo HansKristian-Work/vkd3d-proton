@@ -1999,6 +1999,8 @@ struct vkd3d_dxbc_compiler
     uint32_t binding_idx;
 
     const struct vkd3d_shader_scan_info *scan_info;
+    unsigned int input_control_point_count;
+    unsigned int output_control_point_count;
 
     unsigned int shader_phase_count;
     struct vkd3d_shader_phase *shader_phases;
@@ -4740,7 +4742,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_stream(struct vkd3d_dxbc_compiler *comp
         FIXME("Multiple streams are not supported yet.\n");
 }
 
-static void vkd3d_dxbc_compiler_emit_dcl_vertices_out(struct vkd3d_dxbc_compiler *compiler,
+static void vkd3d_dxbc_compiler_emit_output_vertex_count(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     vkd3d_dxbc_compiler_emit_execution_mode1(compiler,
@@ -4965,6 +4967,77 @@ static const struct vkd3d_shader_phase *vkd3d_dxbc_compiler_get_control_point_ph
     return NULL;
 }
 
+static void vkd3d_dxbc_compiler_emit_default_control_point_phase(struct vkd3d_dxbc_compiler *compiler)
+{
+    const struct vkd3d_shader_signature *signature = compiler->input_signature;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t type_id, input_ptr_type_id, output_ptr_type_id;
+    uint32_t input_id, output_id, dst_id, src_id;
+    const struct vkd3d_spirv_builtin *builtin;
+    enum vkd3d_component_type component_type;
+    unsigned int component_count;
+    uint32_t invocation_id;
+    unsigned int i;
+
+    builtin = get_spirv_builtin_for_register(VKD3DSPR_OUTPOINTID);
+    invocation_id = vkd3d_dxbc_compiler_emit_builtin_variable(compiler, builtin, SpvStorageClassInput, 0);
+
+    type_id = vkd3d_spirv_get_type_id(builder, builtin->component_type, builtin->component_count);
+    invocation_id = vkd3d_spirv_build_op_load(builder, type_id, invocation_id, SpvMemoryAccessMaskNone);
+
+    for (i = 0; i < signature->element_count; ++i)
+    {
+        const struct vkd3d_shader_signature_element *e = &signature->elements[i];
+
+        if ((builtin = get_spirv_builtin_for_sysval(compiler, e->sysval_semantic)))
+        {
+            component_type = builtin->component_type;
+            component_count = builtin->component_count;
+        }
+        else
+        {
+            component_type = e->component_type;
+            component_count = vkd3d_write_mask_component_count(e->mask & 0xff);
+        }
+
+        if (builtin)
+        {
+            input_id = vkd3d_dxbc_compiler_emit_builtin_variable(compiler,
+                    builtin, SpvStorageClassInput, compiler->input_control_point_count);
+        }
+        else
+        {
+            input_id = vkd3d_dxbc_compiler_emit_array_variable(compiler, &builder->global_stream,
+                    SpvStorageClassInput, component_type, component_count, compiler->input_control_point_count);
+            vkd3d_spirv_add_iface_variable(builder, input_id);
+            vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationLocation, e->register_index);
+        }
+        vkd3d_spirv_build_op_name(builder, input_id, "vicp%u", e->register_index);
+
+        if (builtin)
+        {
+            output_id = vkd3d_dxbc_compiler_emit_builtin_variable(compiler,
+                    builtin, SpvStorageClassOutput, compiler->output_control_point_count);
+        }
+        else
+        {
+            output_id = vkd3d_dxbc_compiler_emit_array_variable(compiler, &builder->global_stream,
+                    SpvStorageClassOutput, component_type, component_count, compiler->output_control_point_count);
+            vkd3d_spirv_add_iface_variable(builder, output_id);
+            vkd3d_spirv_build_op_decorate1(builder, output_id, SpvDecorationLocation, e->register_index);
+        }
+        vkd3d_spirv_build_op_name(builder, output_id, "vocp%u", e->register_index);
+
+        type_id = vkd3d_spirv_get_type_id(builder, component_type, component_count);
+        output_ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassOutput, type_id);
+        input_ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassInput, type_id);
+
+        dst_id = vkd3d_spirv_build_op_access_chain1(builder, output_ptr_type_id, output_id, invocation_id);
+        src_id = vkd3d_spirv_build_op_access_chain1(builder, input_ptr_type_id, input_id, invocation_id);
+        vkd3d_spirv_build_op_copy_memory(builder, dst_id, src_id, SpvMemoryAccessMaskNone);
+    }
+}
+
 static void vkd3d_dxbc_compiler_emit_barrier(struct vkd3d_dxbc_compiler *compiler,
         SpvScope execution_scope, SpvScope memory_scope, SpvMemorySemanticsMask semantics)
 {
@@ -5006,6 +5079,8 @@ static void vkd3d_dxbc_compiler_emit_hull_shader_main(struct vkd3d_dxbc_compiler
 
     if ((control_point_phase = vkd3d_dxbc_compiler_get_control_point_phase(compiler)))
         vkd3d_spirv_build_op_function_call(builder, void_id, control_point_phase->function_id, NULL, 0);
+    else
+        vkd3d_dxbc_compiler_emit_default_control_point_phase(compiler);
 
     if (scan_info->use_vocp)
         vkd3d_dxbc_compiler_emit_hull_shader_barrier(compiler);
@@ -7291,8 +7366,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             vkd3d_dxbc_compiler_emit_dcl_stream(compiler, instruction);
             break;
         case VKD3DSIH_DCL_VERTICES_OUT:
-        case VKD3DSIH_DCL_OUTPUT_CONTROL_POINT_COUNT:
-            vkd3d_dxbc_compiler_emit_dcl_vertices_out(compiler, instruction);
+            vkd3d_dxbc_compiler_emit_output_vertex_count(compiler, instruction);
             break;
         case VKD3DSIH_DCL_INPUT_PRIMITIVE:
             vkd3d_dxbc_compiler_emit_dcl_input_primitive(compiler, instruction);
@@ -7302,6 +7376,13 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             break;
         case VKD3DSIH_DCL_GS_INSTANCES:
             vkd3d_dxbc_compiler_emit_dcl_gs_instances(compiler, instruction);
+            break;
+        case VKD3DSIH_DCL_INPUT_CONTROL_POINT_COUNT:
+            compiler->input_control_point_count = instruction->declaration.count;
+            break;
+        case VKD3DSIH_DCL_OUTPUT_CONTROL_POINT_COUNT:
+            compiler->output_control_point_count = instruction->declaration.count;
+            vkd3d_dxbc_compiler_emit_output_vertex_count(compiler, instruction);
             break;
         case VKD3DSIH_DCL_TESSELLATOR_DOMAIN:
             vkd3d_dxbc_compiler_emit_dcl_tessellator_domain(compiler, instruction);
@@ -7524,7 +7605,6 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             break;
         case VKD3DSIH_DCL_HS_MAX_TESSFACTOR:
         case VKD3DSIH_HS_DECLS:
-        case VKD3DSIH_DCL_INPUT_CONTROL_POINT_COUNT:
         case VKD3DSIH_NOP:
             /* nothing to do */
             break;
