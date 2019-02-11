@@ -5200,38 +5200,33 @@ static void vkd3d_dxbc_compiler_emit_mov(struct vkd3d_dxbc_compiler *compiler,
     uint32_t components[VKD3D_VEC4_SIZE];
     unsigned int i, component_count;
 
-    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    if (src->reg.type == VKD3DSPR_IMMCONST || dst->modifiers || src->modifiers)
+        goto general_implementation;
 
     vkd3d_dxbc_compiler_get_register_info(compiler, &dst->reg, &dst_reg_info);
-    memset(&src_reg_info, 0, sizeof(src_reg_info));
-    if (src->reg.type != VKD3DSPR_IMMCONST)
-        vkd3d_dxbc_compiler_get_register_info(compiler, &src->reg, &src_reg_info);
+    vkd3d_dxbc_compiler_get_register_info(compiler, &src->reg, &src_reg_info);
 
-    if (!dst->modifiers && !src->modifiers && src->reg.type != VKD3DSPR_IMMCONST
-            && dst_reg_info.component_type == src_reg_info.component_type
-            && dst_reg_info.write_mask == src_reg_info.write_mask
-            && vkd3d_swizzle_is_equal(dst_reg_info.write_mask, src->swizzle, src_reg_info.write_mask))
+    if (dst_reg_info.component_type != src_reg_info.component_type
+            || dst_reg_info.write_mask != src_reg_info.write_mask)
+        goto general_implementation;
+
+    if (vkd3d_swizzle_is_equal(dst_reg_info.write_mask, src->swizzle, src_reg_info.write_mask))
     {
         dst_id = vkd3d_dxbc_compiler_get_register_id(compiler, &dst->reg);
         src_id = vkd3d_dxbc_compiler_get_register_id(compiler, &src->reg);
 
         vkd3d_spirv_build_op_copy_memory(builder, dst_id, src_id, SpvMemoryAccessMaskNone);
+        return;
     }
-    else if (component_count == 1 || component_count == VKD3D_VEC4_SIZE
-            || dst->modifiers || src->modifiers || src->reg.type == VKD3DSPR_IMMCONST
-            || dst_reg_info.component_type != src_reg_info.component_type
-            || dst_reg_info.write_mask != VKD3DSP_WRITEMASK_ALL
-            || src_reg_info.write_mask != VKD3DSP_WRITEMASK_ALL)
+
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    if (component_count != 1 && component_count != VKD3D_VEC4_SIZE
+            && dst_reg_info.write_mask == VKD3DSP_WRITEMASK_ALL)
     {
-        val_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst->write_mask);
-        vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
-    }
-    else
-    {
-        type_id = vkd3d_spirv_get_type_id(builder, dst_reg_info.component_type, VKD3D_VEC4_SIZE);
         dst_id = vkd3d_dxbc_compiler_get_register_id(compiler, &dst->reg);
         src_id = vkd3d_dxbc_compiler_get_register_id(compiler, &src->reg);
 
+        type_id = vkd3d_spirv_get_type_id(builder, dst_reg_info.component_type, VKD3D_VEC4_SIZE);
         val_id = vkd3d_spirv_build_op_load(builder, type_id, src_id, SpvMemoryAccessMaskNone);
         dst_val_id = vkd3d_spirv_build_op_load(builder, type_id, dst_id, SpvMemoryAccessMaskNone);
 
@@ -5247,7 +5242,12 @@ static void vkd3d_dxbc_compiler_emit_mov(struct vkd3d_dxbc_compiler *compiler,
                 type_id, dst_val_id, val_id, components, VKD3D_VEC4_SIZE);
 
         vkd3d_spirv_build_op_store(builder, dst_id, val_id, SpvMemoryAccessMaskNone);
+        return;
     }
+
+general_implementation:
+    val_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst->write_mask);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
 static void vkd3d_dxbc_compiler_emit_movc(struct vkd3d_dxbc_compiler *compiler,
