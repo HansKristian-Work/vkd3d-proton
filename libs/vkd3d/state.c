@@ -1538,7 +1538,7 @@ static void rs_desc_from_d3d12(struct VkPipelineRasterizationStateCreateInfo *vk
     vk_desc->polygonMode = vk_polygon_mode_from_d3d12(d3d12_desc->FillMode);
     vk_desc->cullMode = vk_cull_mode_from_d3d12(d3d12_desc->CullMode);
     vk_desc->frontFace = d3d12_desc->FrontCounterClockwise ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
-    vk_desc->depthBiasEnable = VK_TRUE;
+    vk_desc->depthBiasEnable = d3d12_desc->DepthBias || d3d12_desc->SlopeScaledDepthBias;
     vk_desc->depthBiasConstantFactor = d3d12_desc->DepthBias;
     vk_desc->depthBiasClamp = d3d12_desc->DepthBiasClamp;
     vk_desc->depthBiasSlopeFactor = d3d12_desc->SlopeScaledDepthBias;
