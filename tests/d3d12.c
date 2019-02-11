@@ -21798,6 +21798,162 @@ static void test_layered_rendering(void)
     destroy_test_context(&context);
 }
 
+static void test_nop_tessellation_shaders(void)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    struct vec4 tess_factors;
+    HRESULT hr;
+
+    static const DWORD hs_cb_code[] =
+    {
+#if 0
+        float4 tess_factor;
+
+        struct data
+        {
+            float4 position : SV_Position;
+        };
+
+        struct patch_constant_data
+        {
+            float edges[3] : SV_TessFactor;
+            float inside : SV_InsideTessFactor;
+        };
+
+        void patch_constant(InputPatch<data, 3> input, out patch_constant_data output)
+        {
+            output.edges[0] = tess_factor.x;
+            output.edges[1] = tess_factor.y;
+            output.edges[2] = tess_factor.z;
+            output.inside = tess_factor.w;
+        }
+
+        [domain("tri")]
+        [outputcontrolpoints(3)]
+        [partitioning("integer")]
+        [outputtopology("triangle_cw")]
+        [patchconstantfunc("patch_constant")]
+        data hs_main(InputPatch<data, 3> input, uint i : SV_OutputControlPointID)
+        {
+            return input[i];
+        }
+#endif
+        0x43425844, 0x7e698b53, 0x830de202, 0x4287601f, 0x4315faa4, 0x00000001, 0x00000228, 0x00000004,
+        0x00000030, 0x00000064, 0x00000098, 0x0000012c, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008,
+        0x00000020, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x00000f0f, 0x505f5653, 0x7469736f,
+        0x006e6f69, 0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001,
+        0x00000003, 0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69, 0x47534350, 0x0000008c,
+        0x00000004, 0x00000008, 0x00000068, 0x00000000, 0x0000000d, 0x00000003, 0x00000000, 0x00000e01,
+        0x00000068, 0x00000001, 0x0000000d, 0x00000003, 0x00000001, 0x00000e01, 0x00000068, 0x00000002,
+        0x0000000d, 0x00000003, 0x00000002, 0x00000e01, 0x00000076, 0x00000000, 0x0000000e, 0x00000003,
+        0x00000003, 0x00000e01, 0x545f5653, 0x46737365, 0x6f746361, 0x56530072, 0x736e495f, 0x54656469,
+        0x46737365, 0x6f746361, 0xabab0072, 0x58454853, 0x000000f4, 0x00030050, 0x0000003d, 0x01000071,
+        0x01001893, 0x01001894, 0x01001095, 0x01000896, 0x01001897, 0x0100086a, 0x04000059, 0x00208e46,
+        0x00000000, 0x00000001, 0x01000073, 0x04000067, 0x00102012, 0x00000000, 0x00000011, 0x06000036,
+        0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0100003e, 0x01000073, 0x04000067,
+        0x00102012, 0x00000001, 0x00000012, 0x06000036, 0x00102012, 0x00000001, 0x0020801a, 0x00000000,
+        0x00000000, 0x0100003e, 0x01000073, 0x04000067, 0x00102012, 0x00000002, 0x00000013, 0x06000036,
+        0x00102012, 0x00000002, 0x0020802a, 0x00000000, 0x00000000, 0x0100003e, 0x01000073, 0x04000067,
+        0x00102012, 0x00000003, 0x00000014, 0x06000036, 0x00102012, 0x00000003, 0x0020803a, 0x00000000,
+        0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE hs_cb = {hs_cb_code, sizeof(hs_cb_code)};
+#if 0
+    struct data
+    {
+        float4 position : SV_Position;
+    };
+
+    struct patch_constant_data
+    {
+        float edges[3] : SV_TessFactor;
+        float inside : SV_InsideTessFactor;
+    };
+
+    void patch_constant(InputPatch<data, 3> input, out patch_constant_data output)
+    {
+        output.edges[0] = output.edges[1] = output.edges[2] = 1.0f;
+        output.inside = 1.0f;
+    }
+
+    [domain("tri")]
+    void ds_main(patch_constant_data input,
+            float3 tess_coord : SV_DomainLocation,
+            const OutputPatch<data, 3> patch,
+            out data output)
+    {
+        output.position = tess_coord.x * patch[0].position
+                + tess_coord.y * patch[1].position
+                + tess_coord.z * patch[2].position;
+    }
+#endif
+    static const DWORD ds_code[] =
+    {
+        0x43425844, 0x8ed11021, 0x414dff74, 0x426849eb, 0x312f4860, 0x00000001, 0x000001e0, 0x00000004,
+        0x00000030, 0x00000064, 0x000000f8, 0x0000012c, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008,
+        0x00000020, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x00000f0f, 0x505f5653, 0x7469736f,
+        0x006e6f69, 0x47534350, 0x0000008c, 0x00000004, 0x00000008, 0x00000068, 0x00000000, 0x0000000d,
+        0x00000003, 0x00000000, 0x00000001, 0x00000068, 0x00000001, 0x0000000d, 0x00000003, 0x00000001,
+        0x00000001, 0x00000068, 0x00000002, 0x0000000d, 0x00000003, 0x00000002, 0x00000001, 0x00000076,
+        0x00000000, 0x0000000e, 0x00000003, 0x00000003, 0x00000001, 0x545f5653, 0x46737365, 0x6f746361,
+        0x56530072, 0x736e495f, 0x54656469, 0x46737365, 0x6f746361, 0xabab0072, 0x4e47534f, 0x0000002c,
+        0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f,
+        0x505f5653, 0x7469736f, 0x006e6f69, 0x58454853, 0x000000ac, 0x00040050, 0x0000002b, 0x01001893,
+        0x01001095, 0x0100086a, 0x0200005f, 0x0001c072, 0x0400005f, 0x002190f2, 0x00000003, 0x00000000,
+        0x04000067, 0x001020f2, 0x00000000, 0x00000001, 0x02000068, 0x00000001, 0x07000038, 0x001000f2,
+        0x00000000, 0x0001c556, 0x00219e46, 0x00000001, 0x00000000, 0x09000032, 0x001000f2, 0x00000000,
+        0x0001c006, 0x00219e46, 0x00000000, 0x00000000, 0x00100e46, 0x00000000, 0x09000032, 0x001020f2,
+        0x00000000, 0x0001caa6, 0x00219e46, 0x00000002, 0x00000000, 0x00100e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ds = {ds_code, sizeof(ds_code)};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_32bit_constants_root_signature(context.device,
+            0, 4, D3D12_SHADER_VISIBILITY_HULL);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, NULL, NULL, NULL);
+    pso_desc.HS = hs_cb;
+    pso_desc.DS = ds;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    tess_factors.x = tess_factors.y = tess_factors.z = tess_factors.w = 1.0f;
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, &tess_factors.x, 0);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+
+    destroy_test_context(&context);
+}
+
 static void test_render_a8(void)
 {
     static const float black[] = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -24142,6 +24298,7 @@ START_TEST(d3d12)
     run_test(test_multithread_command_queue_exec);
     run_test(test_geometry_shader);
     run_test(test_layered_rendering);
+    run_test(test_nop_tessellation_shaders);
     run_test(test_render_a8);
     run_test(test_cpu_descriptors_lifetime);
     run_test(test_clip_distance);
