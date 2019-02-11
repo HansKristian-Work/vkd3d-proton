@@ -1180,6 +1180,17 @@ static void vkd3d_spirv_build_op_store(struct vkd3d_spirv_builder *builder,
                 pointer_id, object_id, memory_access);
 }
 
+static void vkd3d_spirv_build_op_copy_memory(struct vkd3d_spirv_builder *builder,
+        uint32_t target_id, uint32_t source_id, uint32_t memory_access)
+{
+    if (!memory_access)
+        return vkd3d_spirv_build_op2(&builder->function_stream, SpvOpCopyMemory,
+                target_id, source_id);
+    else
+        return vkd3d_spirv_build_op3(&builder->function_stream, SpvOpCopyMemory,
+                target_id, source_id, memory_access);
+}
+
 static uint32_t vkd3d_spirv_build_op_select(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t condition_id, uint32_t object0_id, uint32_t object1_id)
 {
@@ -2627,6 +2638,12 @@ static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *
     }
 }
 
+static bool vkd3d_swizzle_is_equal(unsigned int dst_write_mask,
+        unsigned int swizzle, unsigned int write_mask)
+{
+    return vkd3d_compact_swizzle(VKD3D_NO_SWIZZLE, dst_write_mask) == vkd3d_compact_swizzle(swizzle, write_mask);
+}
+
 static uint32_t vkd3d_dxbc_compiler_emit_swizzle_ext(struct vkd3d_dxbc_compiler *compiler,
         uint32_t val_id, unsigned int val_write_mask, enum vkd3d_component_type component_type,
         unsigned int swizzle, unsigned int write_mask)
@@ -2639,7 +2656,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_swizzle_ext(struct vkd3d_dxbc_compiler 
     val_component_count = vkd3d_write_mask_component_count(val_write_mask);
 
     if (component_count == val_component_count
-            && vkd3d_compact_swizzle(swizzle, write_mask) == vkd3d_compact_swizzle(VKD3D_NO_SWIZZLE, val_write_mask))
+            && vkd3d_swizzle_is_equal(val_write_mask, swizzle, write_mask))
         return val_id;
 
     type_id = vkd3d_spirv_get_type_id(builder, component_type, component_count);
@@ -5175,6 +5192,7 @@ static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_comp
 static void vkd3d_dxbc_compiler_emit_mov(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     struct vkd3d_shader_register_info dst_reg_info, src_reg_info;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
@@ -5189,7 +5207,17 @@ static void vkd3d_dxbc_compiler_emit_mov(struct vkd3d_dxbc_compiler *compiler,
     if (src->reg.type != VKD3DSPR_IMMCONST)
         vkd3d_dxbc_compiler_get_register_info(compiler, &src->reg, &src_reg_info);
 
-    if (component_count == 1 || component_count == VKD3D_VEC4_SIZE
+    if (!dst->modifiers && !src->modifiers && src->reg.type != VKD3DSPR_IMMCONST
+            && dst_reg_info.component_type == src_reg_info.component_type
+            && dst_reg_info.write_mask == src_reg_info.write_mask
+            && vkd3d_swizzle_is_equal(dst_reg_info.write_mask, src->swizzle, src_reg_info.write_mask))
+    {
+        dst_id = vkd3d_dxbc_compiler_get_register_id(compiler, &dst->reg);
+        src_id = vkd3d_dxbc_compiler_get_register_id(compiler, &src->reg);
+
+        vkd3d_spirv_build_op_copy_memory(builder, dst_id, src_id, SpvMemoryAccessMaskNone);
+    }
+    else if (component_count == 1 || component_count == VKD3D_VEC4_SIZE
             || dst->modifiers || src->modifiers || src->reg.type == VKD3DSPR_IMMCONST
             || dst_reg_info.component_type != src_reg_info.component_type
             || dst_reg_info.write_mask != VKD3DSP_WRITEMASK_ALL
@@ -5200,8 +5228,6 @@ static void vkd3d_dxbc_compiler_emit_mov(struct vkd3d_dxbc_compiler *compiler,
     }
     else
     {
-        struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-
         type_id = vkd3d_spirv_get_type_id(builder, dst_reg_info.component_type, VKD3D_VEC4_SIZE);
         dst_id = vkd3d_dxbc_compiler_get_register_id(compiler, &dst->reg);
         src_id = vkd3d_dxbc_compiler_get_register_id(compiler, &src->reg);
