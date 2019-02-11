@@ -7522,6 +7522,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_CUT_STREAM:
             vkd3d_dxbc_compiler_emit_cut_stream(compiler, instruction);
             break;
+        case VKD3DSIH_DCL_HS_MAX_TESSFACTOR:
         case VKD3DSIH_HS_DECLS:
         case VKD3DSIH_DCL_INPUT_CONTROL_POINT_COUNT:
         case VKD3DSIH_NOP:
