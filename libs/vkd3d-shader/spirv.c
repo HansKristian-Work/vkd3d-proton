@@ -2362,6 +2362,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_COLOROUT:
             snprintf(buffer, buffer_size, "o%u", idx);
             break;
+        case VKD3DSPR_OUTPOINTID:
+            snprintf(buffer, buffer_size, "vOutputControlPointID");
+            break;
         case VKD3DSPR_DEPTHOUT:
         case VKD3DSPR_DEPTHOUTGE:
         case VKD3DSPR_DEPTHOUTLE:
@@ -3626,6 +3629,9 @@ static void vkd3d_dxbc_compiler_emit_shader_phase_input(struct vkd3d_dxbc_compil
 
     switch (reg->type)
     {
+        case VKD3DSPR_OUTPOINTID:
+            vkd3d_dxbc_compiler_emit_input_register(compiler, dst);
+            return;
         case VKD3DSPR_FORKINSTID:
         case VKD3DSPR_JOININSTID:
             val_id = phase->instance_id;
