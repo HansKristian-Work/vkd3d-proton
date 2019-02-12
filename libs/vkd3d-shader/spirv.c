@@ -1985,6 +1985,7 @@ struct vkd3d_dxbc_compiler
     bool after_declarations_section;
     const struct vkd3d_shader_signature *input_signature;
     const struct vkd3d_shader_signature *output_signature;
+    const struct vkd3d_shader_signature *patch_constant_signature;
     const struct vkd3d_shader_transform_feedback_info *xfb_info;
     struct vkd3d_shader_output_info
     {
@@ -2039,6 +2040,7 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
 
     compiler->input_signature = &shader_desc->input_signature;
     compiler->output_signature = &shader_desc->output_signature;
+    compiler->patch_constant_signature = &shader_desc->patch_constant_signature;
 
     if (shader_interface)
     {
@@ -2375,6 +2377,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
             break;
         case VKD3DSPR_JOININSTID:
             snprintf(buffer, buffer_size, "vJoinInstanceId");
+            break;
+        case VKD3DSPR_PATCHCONST:
+            snprintf(buffer, buffer_size, "vpc%u", idx);
             break;
         case VKD3DSPR_TESSCOORD:
             snprintf(buffer, buffer_size, "vDomainLocation");
@@ -3451,6 +3456,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     unsigned int component_idx, component_count, input_component_count;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_signature_element *signature_element;
+    const struct vkd3d_shader_signature *shader_signature;
     const struct vkd3d_shader_register *reg = &dst->reg;
     uint32_t type_id, ptr_type_id, float_type_id;
     const struct vkd3d_spirv_builtin *builtin;
@@ -3478,7 +3484,10 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         reg_idx = reg->idx[0].offset;
     }
 
-    if (!(signature_element = vkd3d_find_signature_element_for_reg(compiler->input_signature,
+    shader_signature = reg->type == VKD3DSPR_PATCHCONST
+            ? compiler->patch_constant_signature : compiler->input_signature;
+
+    if (!(signature_element = vkd3d_find_signature_element_for_reg(shader_signature,
             NULL, reg_idx, dst->write_mask)))
     {
         FIXME("No signature element for shader input, ignoring shader input.\n");
@@ -3507,7 +3516,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
 
     use_private_var = builtin && builtin->fixup_pfn;
     if (input_component_count != VKD3D_VEC4_SIZE
-            && vkd3d_count_signature_elements_for_reg(compiler->input_signature, reg_idx) > 1)
+            && vkd3d_count_signature_elements_for_reg(shader_signature, reg_idx) > 1)
     {
         use_private_var = true;
         component_count = VKD3D_VEC4_SIZE;
@@ -3528,6 +3537,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         if (component_idx)
             vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationComponent, component_idx);
     }
+
+    if (reg->type == VKD3DSPR_PATCHCONST)
+        vkd3d_spirv_build_op_decorate(builder, input_id, SpvDecorationPatch, NULL, 0);
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
 
@@ -4651,7 +4663,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compi
 
     if ((phase = vkd3d_dxbc_compiler_get_current_shader_phase(compiler)))
         vkd3d_dxbc_compiler_emit_shader_phase_input(compiler, phase, dst);
-    else if (vkd3d_shader_register_is_input(&dst->reg))
+    else if (vkd3d_shader_register_is_input(&dst->reg) || dst->reg.type == VKD3DSPR_PATCHCONST)
         vkd3d_dxbc_compiler_emit_input(compiler, dst, VKD3D_SIV_NONE);
     else
         vkd3d_dxbc_compiler_emit_input_register(compiler, dst);
