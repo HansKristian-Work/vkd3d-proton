@@ -2589,12 +2589,12 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
     }
     else
     {
-        if (reg->idx[0].rel_addr || reg->idx[1].rel_addr)
+        if (reg->idx[1].rel_addr)
             FIXME("Relative addressing not implemented.\n");
 
         /* Handle arrayed registers, e.g. v[3][0]. */
         if (reg->idx[1].offset != ~0u)
-            indexes[index_count++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, reg->idx[0].offset);
+            indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[0]);
     }
 
     if (index_count)
