@@ -2996,9 +2996,6 @@ static void test_object_interface(void)
             ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
         }
 
-        hr = ID3D12Object_SetName(object, NULL);
-        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
-
         hr = ID3D12Object_SetName(object, emptyW);
         ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
