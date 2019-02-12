@@ -573,20 +573,19 @@ VkInstance vkd3d_instance_get_vk_instance(struct vkd3d_instance *instance)
 }
 
 static void vkd3d_trace_physical_device(VkPhysicalDevice device,
+        const VkPhysicalDeviceProperties *vk_device_properties,
         const struct vkd3d_vk_instance_procs *vk_procs)
 {
     VkPhysicalDeviceMemoryProperties memory_properties;
-    VkPhysicalDeviceProperties device_properties;
     VkQueueFamilyProperties *queue_properties;
     unsigned int i, j;
     uint32_t count;
 
-    VK_CALL(vkGetPhysicalDeviceProperties(device, &device_properties));
-    TRACE("Device name: %s.\n", device_properties.deviceName);
-    TRACE("Vendor ID: %#x, Device ID: %#x.\n", device_properties.vendorID, device_properties.deviceID);
-    TRACE("Driver version: %#x.\n", device_properties.driverVersion);
-    TRACE("API version: %u.%u.%u.\n", VK_VERSION_MAJOR(device_properties.apiVersion),
-            VK_VERSION_MINOR(device_properties.apiVersion), VK_VERSION_PATCH(device_properties.apiVersion));
+    TRACE("Device name: %s.\n", vk_device_properties->deviceName);
+    TRACE("Vendor ID: %#x, Device ID: %#x.\n", vk_device_properties->vendorID, vk_device_properties->deviceID);
+    TRACE("Driver version: %#x.\n", vk_device_properties->driverVersion);
+    TRACE("API version: %u.%u.%u.\n", VK_VERSION_MAJOR(vk_device_properties->apiVersion),
+            VK_VERSION_MINOR(vk_device_properties->apiVersion), VK_VERSION_PATCH(vk_device_properties->apiVersion));
 
     VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(device, &count, NULL));
     TRACE("Queue families [%u]:\n", count);
@@ -1031,8 +1030,10 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
         VkPhysicalDevice *selected_device)
 {
+    VkPhysicalDevice dgpu_device = VK_NULL_HANDLE, igpu_device = VK_NULL_HANDLE;
     const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
     VkInstance vk_instance = instance->vk_instance;
+    VkPhysicalDeviceProperties device_properties;
     VkPhysicalDevice *physical_devices;
     uint32_t count;
     unsigned int i;
@@ -1061,14 +1062,25 @@ static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
     }
 
     for (i = 0; i < count; ++i)
-        vkd3d_trace_physical_device(physical_devices[i], vk_procs);
+    {
+        VK_CALL(vkGetPhysicalDeviceProperties(physical_devices[i], &device_properties));
+        vkd3d_trace_physical_device(physical_devices[i], &device_properties, vk_procs);
 
-    if (count > 1)
-        FIXME("Multiple physical devices available, selecting the first one.\n");
+        if (device_properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && !dgpu_device)
+            dgpu_device = physical_devices[i];
+        else if (device_properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU && !igpu_device)
+            igpu_device = physical_devices[i];
+    }
 
-    *selected_device = physical_devices[0];
+    *selected_device = dgpu_device ? dgpu_device : igpu_device;
+    if (!*selected_device)
+        *selected_device = physical_devices[0];
 
     vkd3d_free(physical_devices);
+
+    VK_CALL(vkGetPhysicalDeviceProperties(*selected_device, &device_properties));
+    TRACE("Using device: %s, %#x:%#x.\n", device_properties.deviceName,
+            device_properties.vendorID, device_properties.deviceID);
 
     return S_OK;
 }
