@@ -3375,6 +3375,70 @@ static unsigned int vkd3d_count_signature_elements_for_reg(
     return count;
 }
 
+static void vkd3d_dxbc_compiler_begin_shader_phase(struct vkd3d_dxbc_compiler *compiler,
+        struct vkd3d_shader_phase *phase)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t void_id, function_type_id;
+    unsigned int param_count;
+    uint32_t param_type_id;
+    const char *name;
+
+    if (phase->instance_count)
+    {
+        param_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+        param_count = 1;
+    }
+    else
+    {
+        param_count = 0;
+    }
+
+    phase->function_id = vkd3d_spirv_alloc_id(builder);
+
+    void_id = vkd3d_spirv_get_op_type_void(builder);
+    function_type_id = vkd3d_spirv_get_op_type_function(builder, void_id, &param_type_id, param_count);
+    vkd3d_spirv_build_op_function(builder, void_id, phase->function_id,
+            SpvFunctionControlMaskNone, function_type_id);
+
+    if (phase->instance_count)
+        phase->instance_id = vkd3d_spirv_build_op_function_parameter(builder, param_type_id);
+
+    vkd3d_spirv_build_op_label(builder, vkd3d_spirv_alloc_id(builder));
+    phase->function_location = vkd3d_spirv_stream_current_location(&builder->function_stream);
+
+    switch (phase->type)
+    {
+        case VKD3DSIH_HS_CONTROL_POINT_PHASE:
+            name = "control";
+            break;
+        case VKD3DSIH_HS_FORK_PHASE:
+            name = "fork";
+            break;
+        case VKD3DSIH_HS_JOIN_PHASE:
+            name = "join";
+            break;
+        default:
+            ERR("Invalid phase type %#x.\n", phase->type);
+            return;
+    }
+    vkd3d_spirv_build_op_name(builder, phase->function_id, "%s%u", name, phase->idx);
+}
+
+static const struct vkd3d_shader_phase *vkd3d_dxbc_compiler_get_current_shader_phase(
+        struct vkd3d_dxbc_compiler *compiler)
+{
+    struct vkd3d_shader_phase *phase;
+
+    if (!compiler->shader_phase_count)
+        return NULL;
+
+    phase = &compiler->shader_phases[compiler->shader_phase_count - 1];
+    if (!phase->function_id)
+        vkd3d_dxbc_compiler_begin_shader_phase(compiler, phase);
+    return phase;
+}
+
 static void vkd3d_dxbc_compiler_decorate_xfb_output(struct vkd3d_dxbc_compiler *compiler,
         uint32_t id, unsigned int component_count, const struct vkd3d_shader_signature_element *signature_element)
 {
@@ -3806,17 +3870,25 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
     unsigned int component_idx, component_count, output_component_count;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_signature_element *signature_element;
+    const struct vkd3d_shader_signature *shader_signature;
     const struct vkd3d_shader_register *reg = &dst->reg;
     const struct vkd3d_spirv_builtin *builtin;
     enum vkd3d_component_type component_type;
+    const struct vkd3d_shader_phase *phase;
     struct vkd3d_symbol reg_symbol;
     SpvStorageClass storage_class;
     struct rb_entry *entry = NULL;
     unsigned int signature_idx;
     bool use_private_variable;
+    bool is_patch_constant;
     uint32_t id, var_id;
 
-    if (!(signature_element = vkd3d_find_signature_element_for_reg(compiler->output_signature,
+    phase = vkd3d_dxbc_compiler_get_current_shader_phase(compiler);
+    is_patch_constant = phase && (phase->type == VKD3DSIH_HS_FORK_PHASE || phase->type == VKD3DSIH_HS_JOIN_PHASE);
+
+    shader_signature = is_patch_constant ? compiler->patch_constant_signature : compiler->output_signature;
+
+    if (!(signature_element = vkd3d_find_signature_element_for_reg(shader_signature,
             &signature_idx, reg->idx[0].offset, dst->write_mask)))
     {
         FIXME("No signature element for shader output, ignoring shader output.\n");
@@ -3875,11 +3947,17 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
                 vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationComponent, component_idx);
         }
 
+        if (is_patch_constant)
+            vkd3d_spirv_build_op_decorate(builder, id, SpvDecorationPatch, NULL, 0);
+
         vkd3d_dxbc_compiler_decorate_xfb_output(compiler, id, output_component_count, signature_element);
     }
 
-    compiler->output_info[signature_idx].id = id;
-    compiler->output_info[signature_idx].component_type = component_type;
+    if (!is_patch_constant)
+    {
+        compiler->output_info[signature_idx].id = id;
+        compiler->output_info[signature_idx].component_type = component_type;
+    }
 
     use_private_variable = component_count != VKD3D_VEC4_SIZE
             || get_shader_output_swizzle(compiler, signature_element->register_index) != VKD3D_NO_SWIZZLE
@@ -3905,7 +3983,10 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
     }
 
-    if (use_private_variable)
+    if (use_private_variable && is_patch_constant)
+        FIXME("Private variables not supported for patch constants.\n");
+
+    if (use_private_variable && !is_patch_constant)
     {
         unsigned int idx = vkd3d_dxbc_compiler_get_output_variable_index(compiler, reg->idx[0].offset);
         compiler->private_output_variable[idx] = var_id;
@@ -3994,70 +4075,6 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
         vkd3d_spirv_builder_begin_main_function(builder);
 
     vkd3d_dxbc_compiler_emit_shader_signature_outputs(compiler);
-}
-
-static void vkd3d_dxbc_compiler_begin_shader_phase(struct vkd3d_dxbc_compiler *compiler,
-        struct vkd3d_shader_phase *phase)
-{
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    uint32_t void_id, function_type_id;
-    unsigned int param_count;
-    uint32_t param_type_id;
-    const char *name;
-
-    if (phase->instance_count)
-    {
-        param_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-        param_count = 1;
-    }
-    else
-    {
-        param_count = 0;
-    }
-
-    phase->function_id = vkd3d_spirv_alloc_id(builder);
-
-    void_id = vkd3d_spirv_get_op_type_void(builder);
-    function_type_id = vkd3d_spirv_get_op_type_function(builder, void_id, &param_type_id, param_count);
-    vkd3d_spirv_build_op_function(builder, void_id, phase->function_id,
-            SpvFunctionControlMaskNone, function_type_id);
-
-    if (phase->instance_count)
-        phase->instance_id = vkd3d_spirv_build_op_function_parameter(builder, param_type_id);
-
-    vkd3d_spirv_build_op_label(builder, vkd3d_spirv_alloc_id(builder));
-    phase->function_location = vkd3d_spirv_stream_current_location(&builder->function_stream);
-
-    switch (phase->type)
-    {
-        case VKD3DSIH_HS_CONTROL_POINT_PHASE:
-            name = "control";
-            break;
-        case VKD3DSIH_HS_FORK_PHASE:
-            name = "fork";
-            break;
-        case VKD3DSIH_HS_JOIN_PHASE:
-            name = "join";
-            break;
-        default:
-            ERR("Invalid phase type %#x.\n", phase->type);
-            return;
-    }
-    vkd3d_spirv_build_op_name(builder, phase->function_id, "%s%u", name, phase->idx);
-}
-
-static const struct vkd3d_shader_phase *vkd3d_dxbc_compiler_get_current_shader_phase(
-        struct vkd3d_dxbc_compiler *compiler)
-{
-    struct vkd3d_shader_phase *phase;
-
-    if (!compiler->shader_phase_count)
-        return NULL;
-
-    phase = &compiler->shader_phases[compiler->shader_phase_count - 1];
-    if (!phase->function_id)
-        vkd3d_dxbc_compiler_begin_shader_phase(compiler, phase);
-    return phase;
 }
 
 static size_t vkd3d_dxbc_compiler_get_current_function_location(struct vkd3d_dxbc_compiler *compiler)
