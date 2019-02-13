@@ -1624,12 +1624,12 @@ static void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
 
     refcount = get_refcount(device);
     ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
     hr = ID3D12Resource_GetDevice(resource, &IID_ID3D12Device, (void **)&tmp_device);
-    ok(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
     refcount = get_refcount(device);
     ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
     refcount = ID3D12Device_Release(tmp_device);
@@ -1650,7 +1650,7 @@ static void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
     resource_desc = ID3D12Resource_GetDesc(resource);
     ok(resource_desc.MipLevels == 6, "Got unexpected miplevels %u.\n", resource_desc.MipLevels);
     ID3D12Resource_Release(resource);
@@ -1658,7 +1658,7 @@ static void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
     resource_desc = ID3D12Resource_GetDesc(resource);
     ok(resource_desc.MipLevels == 10, "Got unexpected miplevels %u.\n", resource_desc.MipLevels);
     ID3D12Resource_Release(resource);
@@ -1738,7 +1738,7 @@ static void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
 
     check_interface(resource, &IID_ID3D12Object, TRUE);
     check_interface(resource, &IID_ID3D12DeviceChild, TRUE);
@@ -1779,7 +1779,11 @@ static void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+
+    gpu_address = ID3D12Resource_GetGPUVirtualAddress(resource);
+    ok(gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
+
     refcount = ID3D12Resource_Release(resource);
     ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
 
