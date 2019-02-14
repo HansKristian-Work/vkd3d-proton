@@ -576,6 +576,8 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
         const VkPhysicalDeviceProperties *vk_device_properties,
         const struct vkd3d_vk_instance_procs *vk_procs)
 {
+    const uint32_t driver_version = vk_device_properties->driverVersion;
+    const uint32_t api_version = vk_device_properties->apiVersion;
     VkPhysicalDeviceMemoryProperties memory_properties;
     VkQueueFamilyProperties *queue_properties;
     unsigned int i, j;
@@ -583,9 +585,11 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
 
     TRACE("Device name: %s.\n", vk_device_properties->deviceName);
     TRACE("Vendor ID: %#x, Device ID: %#x.\n", vk_device_properties->vendorID, vk_device_properties->deviceID);
-    TRACE("Driver version: %#x.\n", vk_device_properties->driverVersion);
-    TRACE("API version: %u.%u.%u.\n", VK_VERSION_MAJOR(vk_device_properties->apiVersion),
-            VK_VERSION_MINOR(vk_device_properties->apiVersion), VK_VERSION_PATCH(vk_device_properties->apiVersion));
+    TRACE("Driver version: %#x (%u.%u.%u, %u.%u.%u.%u).\n", driver_version,
+            VK_VERSION_MAJOR(driver_version), VK_VERSION_MINOR(driver_version), VK_VERSION_PATCH(driver_version),
+            driver_version >> 22, (driver_version >> 14) & 0xff, (driver_version >> 6) & 0xff, driver_version & 0x3f);
+    TRACE("API version: %u.%u.%u.\n",
+            VK_VERSION_MAJOR(api_version), VK_VERSION_MINOR(api_version), VK_VERSION_PATCH(api_version));
 
     VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(device, &count, NULL));
     TRACE("Queue families [%u]:\n", count);
