@@ -961,6 +961,13 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     else
         device->feature_options.TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_3;
 
+    /* FIXME: Implement tiled resources. */
+    if (device->feature_options.TiledResourcesTier)
+    {
+        WARN("Tiled resources are not implemented yet.\n");
+        device->feature_options.TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
+    }
+
     if (device->vk_info.device_limits.maxPerStageDescriptorSamplers <= 16)
         device->feature_options.ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_1;
     else if (device->vk_info.device_limits.maxPerStageDescriptorUniformBuffers <= 14)
