@@ -3404,7 +3404,8 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
     resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, gpu_address);
     buffer_info.buffer = resource->u.vk_buffer;
     buffer_info.offset = gpu_address - resource->gpu_address;
-    buffer_info.range = VK_WHOLE_SIZE;
+    buffer_info.range = resource->desc.Width - buffer_info.offset;
+    buffer_info.range = min(buffer_info.range, vk_info->device_limits.maxUniformBufferRange);
 
     if (vk_info->KHR_push_descriptor)
     {
