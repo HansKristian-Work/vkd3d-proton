@@ -3207,6 +3207,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
             }
             else
             {
+                /* FIXME: Some formats in D3D12 are planar. Each plane is a separate sub-resource. */
+                if (sub_resource_idx >= d3d12_resource_desc_get_sub_resource_count(&resource->desc))
+                {
+                    FIXME("Unhandled sub-resource idx %u.\n", sub_resource_idx);
+                    continue;
+                }
+
                 vk_barrier.subresourceRange.baseMipLevel = sub_resource_idx % resource->desc.MipLevels;
                 vk_barrier.subresourceRange.levelCount = 1;
                 vk_barrier.subresourceRange.baseArrayLayer = sub_resource_idx / resource->desc.MipLevels;
