@@ -981,7 +981,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     device->feature_options.ROVsSupported = FALSE;
     /* GL_INTEL_conservative_rasterization, no Vulkan equivalent. */
     device->feature_options.ConservativeRasterizationTier = D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED;
-    device->feature_options.MaxGPUVirtualAddressBitsPerResource = sizeof(D3D12_GPU_VIRTUAL_ADDRESS) * 8;
+    device->feature_options.MaxGPUVirtualAddressBitsPerResource = 40; /* FIXME */
     device->feature_options.StandardSwizzle64KBSupported = FALSE;
     device->feature_options.CrossNodeSharingTier = D3D12_CROSS_NODE_SHARING_TIER_NOT_SUPPORTED;
     device->feature_options.CrossAdapterRowMajorTextureSupported = FALSE;
@@ -1942,6 +1942,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
 
         case D3D12_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT:
         {
+            const D3D12_FEATURE_DATA_D3D12_OPTIONS *options = &device->feature_options;
             D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT *data = feature_data;
 
             if (feature_data_size != sizeof(*data))
@@ -1950,9 +1951,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
                 return E_INVALIDARG;
             }
 
-            FIXME("Returning 40 GPU virtual address bits.\n");
-            data->MaxGPUVirtualAddressBitsPerResource = 40;
-            data->MaxGPUVirtualAddressBitsPerProcess = 40;
+            data->MaxGPUVirtualAddressBitsPerResource = options->MaxGPUVirtualAddressBitsPerResource;
+            data->MaxGPUVirtualAddressBitsPerProcess = options->MaxGPUVirtualAddressBitsPerResource;
             return S_OK;
         }
 
