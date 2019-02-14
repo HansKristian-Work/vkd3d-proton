@@ -2953,6 +2953,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(ID3D12GraphicsCo
         vk_viewports[i].height = -viewports[i].Height;
         vk_viewports[i].minDepth = viewports[i].MinDepth;
         vk_viewports[i].maxDepth = viewports[i].MaxDepth;
+
+        if (!vk_viewports[i].width || !vk_viewports[i].height)
+        {
+            FIXME("Invalid viewport %u, ignoring RSSetViewports().\n", i);
+            return;
+        }
     }
 
     vk_procs = &list->device->vk_procs;
