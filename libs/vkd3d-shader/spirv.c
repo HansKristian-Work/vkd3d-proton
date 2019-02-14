@@ -4856,6 +4856,9 @@ static void vkd3d_dxbc_compiler_emit_dcl_tessellator_domain(struct vkd3d_dxbc_co
     enum vkd3d_tessellator_domain domain = instruction->declaration.tessellator_domain;
     SpvExecutionMode mode;
 
+    if (compiler->shader_type == VKD3D_SHADER_TYPE_HULL && vkd3d_dxbc_compiler_is_opengl_target(compiler))
+        return;
+
     switch (domain)
     {
         case VKD3D_TESSELLATOR_DOMAIN_LINE:
@@ -4875,11 +4878,13 @@ static void vkd3d_dxbc_compiler_emit_dcl_tessellator_domain(struct vkd3d_dxbc_co
     vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, NULL, 0);
 }
 
-static void vkd3d_dxbc_compiler_emit_dcl_tessellator_output_primitive(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_instruction *instruction)
+static void vkd3d_dxbc_compiler_emit_tessellator_output_primitive(struct vkd3d_dxbc_compiler *compiler,
+        enum vkd3d_tessellator_output_primitive primitive)
 {
-    enum vkd3d_tessellator_output_primitive primitive = instruction->declaration.tessellator_output_primitive;
     SpvExecutionMode mode;
+
+    if (compiler->shader_type == VKD3D_SHADER_TYPE_HULL && vkd3d_dxbc_compiler_is_opengl_target(compiler))
+        return;
 
     switch (primitive)
     {
@@ -4902,11 +4907,13 @@ static void vkd3d_dxbc_compiler_emit_dcl_tessellator_output_primitive(struct vkd
     vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, NULL, 0);
 }
 
-static void vkd3d_dxbc_compiler_emit_dcl_tessellator_partitioning(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_instruction *instruction)
+static void vkd3d_dxbc_compiler_emit_tessellator_partitioning(struct vkd3d_dxbc_compiler *compiler,
+        enum vkd3d_tessellator_partitioning partitioning)
 {
-    enum vkd3d_tessellator_partitioning partitioning = instruction->declaration.tessellator_partitioning;
     SpvExecutionMode mode;
+
+    if (compiler->shader_type == VKD3D_SHADER_TYPE_HULL && vkd3d_dxbc_compiler_is_opengl_target(compiler))
+        return;
 
     switch (partitioning)
     {
@@ -7426,10 +7433,12 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             vkd3d_dxbc_compiler_emit_dcl_tessellator_domain(compiler, instruction);
             break;
         case VKD3DSIH_DCL_TESSELLATOR_OUTPUT_PRIMITIVE:
-            vkd3d_dxbc_compiler_emit_dcl_tessellator_output_primitive(compiler, instruction);
+            vkd3d_dxbc_compiler_emit_tessellator_output_primitive(compiler,
+                    instruction->declaration.tessellator_output_primitive);
             break;
         case VKD3DSIH_DCL_TESSELLATOR_PARTITIONING:
-            vkd3d_dxbc_compiler_emit_dcl_tessellator_partitioning(compiler, instruction);
+            vkd3d_dxbc_compiler_emit_tessellator_partitioning(compiler,
+                    instruction->declaration.tessellator_partitioning);
             break;
         case VKD3DSIH_DCL_THREAD_GROUP:
             vkd3d_dxbc_compiler_emit_dcl_thread_group(compiler, instruction);
@@ -7775,12 +7784,28 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_
 int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_code *spirv)
 {
+    const struct vkd3d_shader_compile_arguments *compile_args = compiler->compile_args;
+    const struct vkd3d_shader_domain_shader_compile_arguments *ds_args;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
 
     vkd3d_spirv_build_op_function_end(builder);
 
     if (compiler->shader_type == VKD3D_SHADER_TYPE_HULL)
         vkd3d_dxbc_compiler_emit_hull_shader_main(compiler);
+
+    if (compiler->shader_type == VKD3D_SHADER_TYPE_DOMAIN)
+    {
+        if (compile_args && (ds_args = vkd3d_find_struct(compile_args->next, DOMAIN_SHADER_COMPILE_ARGUMENTS)))
+        {
+            vkd3d_dxbc_compiler_emit_tessellator_output_primitive(compiler, ds_args->output_primitive);
+            vkd3d_dxbc_compiler_emit_tessellator_partitioning(compiler, ds_args->partitioning);
+        }
+        else if (vkd3d_dxbc_compiler_is_opengl_target(compiler))
+        {
+            ERR("vkd3d_shader_domain_shader_compile_arguments are required for "
+                    "OpenGL tessellation evaluation shader.\n");
+        }
+    }
 
     if (compiler->epilogue_function_id)
         vkd3d_dxbc_compiler_emit_shader_epilogue_function(compiler);

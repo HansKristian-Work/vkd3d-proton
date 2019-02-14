@@ -33,6 +33,7 @@ enum vkd3d_shader_structure_type
     VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS,
     VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_TRANSFORM_FEEDBACK_INFO,
+    VKD3D_SHADER_STRUCTURE_TYPE_DOMAIN_SHADER_COMPILE_ARGUMENTS,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_STRUCTURE_TYPE),
 };
@@ -193,6 +194,32 @@ struct vkd3d_shader_compile_arguments
     bool dual_source_blending;
     const unsigned int *output_swizzles;
     unsigned int output_swizzle_count;
+};
+
+enum vkd3d_tessellator_output_primitive
+{
+    VKD3D_TESSELLATOR_OUTPUT_POINT        = 1,
+    VKD3D_TESSELLATOR_OUTPUT_LINE         = 2,
+    VKD3D_TESSELLATOR_OUTPUT_TRIANGLE_CW  = 3,
+    VKD3D_TESSELLATOR_OUTPUT_TRIANGLE_CCW = 4,
+};
+
+enum vkd3d_tessellator_partitioning
+{
+    VKD3D_TESSELLATOR_PARTITIONING_INTEGER         = 1,
+    VKD3D_TESSELLATOR_PARTITIONING_POW2            = 2,
+    VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_ODD  = 3,
+    VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_EVEN = 4,
+};
+
+/* Extends vkd3d_shader_compile_arguments. */
+struct vkd3d_shader_domain_shader_compile_arguments
+{
+    enum vkd3d_shader_structure_type type;
+    const void *next;
+
+    enum vkd3d_tessellator_output_primitive output_primitive;
+    enum vkd3d_tessellator_output_primitive partitioning;
 };
 
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,

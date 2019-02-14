@@ -464,23 +464,6 @@ enum vkd3d_tessellator_domain
     VKD3D_TESSELLATOR_DOMAIN_QUAD      = 3,
 };
 
-enum vkd3d_tessellator_output_primitive
-{
-    VKD3D_TESSELLATOR_OUTPUT_POINT        = 1,
-    VKD3D_TESSELLATOR_OUTPUT_LINE         = 2,
-    VKD3D_TESSELLATOR_OUTPUT_TRIANGLE_CW  = 3,
-    VKD3D_TESSELLATOR_OUTPUT_TRIANGLE_CCW = 4,
-};
-
-enum vkd3d_tessellator_partitioning
-{
-    VKD3D_TESSELLATOR_PARTITIONING_INTEGER         = 1,
-    VKD3D_TESSELLATOR_PARTITIONING_POW2            = 2,
-    VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_ODD  = 3,
-    VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_EVEN = 4,
-};
-
-
 #define VKD3DSI_NONE                    0x0
 #define VKD3DSI_TEXLD_PROJECT           0x1
 #define VKD3DSI_INDEXED_DYNAMIC         0x4
