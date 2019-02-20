@@ -19007,10 +19007,15 @@ static void test_create_query_heap(void)
     heap_desc.NodeMask = 0;
 
     hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
-    todo ok(hr == S_OK, "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, hr);
-
-    if (hr == S_OK)
+    if (hr != E_NOTIMPL)
+    {
+        ok(hr == S_OK, "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, hr);
         ID3D12QueryHeap_Release(query_heap);
+    }
+    else
+    {
+        skip("Stream output is not supported.\n");
+    }
 
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);

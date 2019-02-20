@@ -2835,9 +2835,16 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
             break;
 
         case D3D12_QUERY_HEAP_TYPE_SO_STATISTICS:
-            FIXME("Unsupported query heap type SO_STATISTICS.\n");
-            vkd3d_free(object);
-            return E_NOTIMPL;
+            if (!device->vk_info.transform_feedback_queries)
+            {
+                FIXME("Transform feedback queries are not supported by Vulkan implementation.\n");
+                vkd3d_free(object);
+                return E_NOTIMPL;
+            }
+
+            pool_info.queryType = VK_QUERY_TYPE_TRANSFORM_FEEDBACK_STREAM_EXT;
+            pool_info.pipelineStatistics = 0;
+            break;
 
         default:
             WARN("Invalid query heap type %u.\n", desc->Type);
