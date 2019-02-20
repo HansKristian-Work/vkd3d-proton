@@ -1511,6 +1511,25 @@ static bool shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
     return true;
 }
 
+static bool shader_sm4_is_scalar_register(const struct vkd3d_shader_register *reg)
+{
+    switch (reg->type)
+    {
+        case VKD3DSPR_COVERAGE:
+        case VKD3DSPR_DEPTHOUT:
+        case VKD3DSPR_DEPTHOUTGE:
+        case VKD3DSPR_DEPTHOUTLE:
+        case VKD3DSPR_GSINSTID:
+        case VKD3DSPR_LOCALTHREADINDEX:
+        case VKD3DSPR_OUTPOINTID:
+        case VKD3DSPR_PRIMID:
+        case VKD3DSPR_SAMPLEMASK:
+            return true;
+        default:
+            return false;
+    }
+}
+
 static bool shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
         enum vkd3d_data_type data_type, struct vkd3d_shader_src_param *src_param)
 {
@@ -1541,7 +1560,10 @@ static bool shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD *
         switch (swizzle_type)
         {
             case VKD3D_SM4_SWIZZLE_NONE:
-                src_param->swizzle = VKD3D_NO_SWIZZLE;
+                if (shader_sm4_is_scalar_register(&src_param->reg))
+                    src_param->swizzle = VKD3D_SWIZZLE(VKD3D_SWIZZLE_X, VKD3D_SWIZZLE_X, VKD3D_SWIZZLE_X, VKD3D_SWIZZLE_X);
+                else
+                    src_param->swizzle = VKD3D_NO_SWIZZLE;
                 break;
 
             case VKD3D_SM4_SWIZZLE_SCALAR:
@@ -1560,25 +1582,6 @@ static bool shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD *
     }
 
     return true;
-}
-
-static bool shader_sm4_is_scalar_register(const struct vkd3d_shader_register *reg)
-{
-    switch (reg->type)
-    {
-        case VKD3DSPR_COVERAGE:
-        case VKD3DSPR_DEPTHOUT:
-        case VKD3DSPR_DEPTHOUTGE:
-        case VKD3DSPR_DEPTHOUTLE:
-        case VKD3DSPR_GSINSTID:
-        case VKD3DSPR_LOCALTHREADINDEX:
-        case VKD3DSPR_OUTPOINTID:
-        case VKD3DSPR_PRIMID:
-        case VKD3DSPR_SAMPLEMASK:
-            return true;
-        default:
-            return false;
-    }
 }
 
 static bool shader_sm4_read_dst_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
