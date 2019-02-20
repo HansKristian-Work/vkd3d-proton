@@ -584,8 +584,8 @@ struct vkd3d_shader_src_param
 
 struct vkd3d_shader_index_range
 {
-    struct vkd3d_shader_dst_param first_register;
-    unsigned int last_register;
+    struct vkd3d_shader_dst_param dst;
+    unsigned int register_count;
 };
 
 enum vkd3d_decl_usage

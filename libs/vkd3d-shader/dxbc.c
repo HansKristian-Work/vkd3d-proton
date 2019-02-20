@@ -619,8 +619,8 @@ static void shader_sm4_read_dcl_index_range(struct vkd3d_shader_instruction *ins
         struct vkd3d_sm4_data *priv)
 {
     shader_sm4_read_dst_param(priv, &tokens, &tokens[token_count], VKD3D_DATA_OPAQUE,
-            &ins->declaration.index_range.first_register);
-    ins->declaration.index_range.last_register = *tokens;
+            &ins->declaration.index_range.dst);
+    ins->declaration.index_range.register_count = *tokens;
 }
 
 static void shader_sm4_read_dcl_output_topology(struct vkd3d_shader_instruction *ins,

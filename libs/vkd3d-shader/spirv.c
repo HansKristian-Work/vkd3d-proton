@@ -2568,14 +2568,17 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
     }
     else if (register_info->is_aggregate)
     {
-        if (reg->idx[0].rel_addr || reg->idx[1].rel_addr)
+        if (reg->idx[1].rel_addr)
             FIXME("Relative addressing not implemented.\n");
 
-        indexes[index_count++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, register_info->member_idx);
+        if (reg->idx[0].rel_addr)
+            indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[0]);
+        else
+            indexes[index_count++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, register_info->member_idx);
     }
     else
     {
-        if (reg->idx[1].rel_addr)
+        if (reg->idx[1].rel_addr || (reg->idx[1].offset == ~0u && reg->idx[0].rel_addr))
             FIXME("Relative addressing not implemented.\n");
 
         /* Handle arrayed registers, e.g. v[3][0]. */
@@ -4752,6 +4755,64 @@ static void vkd3d_dxbc_compiler_emit_dcl_output_siv(struct vkd3d_dxbc_compiler *
         vkd3d_dxbc_compiler_emit_shader_phase_output(compiler, phase, dst, sysval);
     else
         vkd3d_dxbc_compiler_emit_output(compiler, dst, sysval);
+}
+
+static bool vkd3d_dxbc_compiler_check_index_range(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_index_range *range)
+{
+    const struct vkd3d_shader_register *reg = &range->dst.reg;
+    struct vkd3d_shader_register_info reg_info;
+    struct vkd3d_shader_register current_reg;
+    struct vkd3d_symbol reg_symbol;
+    unsigned int i;
+    uint32_t id;
+
+    current_reg = *reg;
+    vkd3d_symbol_make_register(&reg_symbol, &current_reg);
+    if (!vkd3d_dxbc_compiler_get_register_info(compiler, &current_reg, &reg_info))
+    {
+        ERR("Failed to get register info.\n");
+        return false;
+    }
+
+    /* FIXME: We should check if it's an array. */
+    if (!reg_info.is_aggregate)
+    {
+        FIXME("Unhandled register %#x.\n", reg->type);
+        return false;
+    }
+    id = reg_info.id;
+
+    for (i = reg->idx[0].offset; i < reg->idx[0].offset + range->register_count; ++i)
+    {
+        current_reg.idx[0].offset = i;
+        vkd3d_symbol_make_register(&reg_symbol, &current_reg);
+
+        if (range->dst.write_mask != reg_info.write_mask
+                || vkd3d_write_mask_component_count(reg_info.write_mask) != 1)
+        {
+            FIXME("Unhandled index range write mask %#x (%#x).\n",
+                    range->dst.write_mask, reg_info.write_mask);
+            return false;
+        }
+
+        if (reg_info.id != id)
+        {
+            FIXME("Unhandled index range %#x, %u.\n", reg->type, i);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static void vkd3d_dxbc_compiler_emit_dcl_index_range(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    const struct vkd3d_shader_index_range *range = &instruction->declaration.index_range;
+
+    if (!vkd3d_dxbc_compiler_check_index_range(compiler, range))
+        FIXME("Ignoring dcl_index_range %#x %u.\n", range->dst.reg.type, range->register_count);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_stream(struct vkd3d_dxbc_compiler *compiler,
@@ -7388,6 +7449,9 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_DCL_OUTPUT_SIV:
             vkd3d_dxbc_compiler_emit_dcl_output_siv(compiler, instruction);
             break;
+        case VKD3DSIH_DCL_INDEX_RANGE:
+            vkd3d_dxbc_compiler_emit_dcl_index_range(compiler, instruction);
+            break;
         case VKD3DSIH_DCL_STREAM:
             vkd3d_dxbc_compiler_emit_dcl_stream(compiler, instruction);
             break;
@@ -7730,7 +7794,6 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_
 
     vkd3d_spirv_build_op_function(builder, void_id, function_id,
             SpvFunctionControlMaskNone, function_type_id);
-    vkd3d_spirv_build_op_name(builder, function_id, "epilogue");
 
     for (i = 0; i < ARRAY_SIZE(compiler->private_output_variable); ++i)
     {
@@ -7789,7 +7852,10 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
     }
 
     if (compiler->epilogue_function_id)
+    {
+        vkd3d_spirv_build_op_name(builder, compiler->epilogue_function_id, "epilogue");
         vkd3d_dxbc_compiler_emit_shader_epilogue_function(compiler);
+    }
 
     if (compiler->options & VKD3D_SHADER_STRIP_DEBUG)
         vkd3d_spirv_stream_clear(&builder->debug_stream);

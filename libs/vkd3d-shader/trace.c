@@ -1389,8 +1389,8 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
 
         case VKD3DSIH_DCL_INDEX_RANGE:
             shader_addline(buffer, "%s ", shader_opcode_names[ins->handler_idx]);
-            shader_dump_dst_param(buffer, &ins->declaration.index_range.first_register, shader_version);
-            shader_addline(buffer, " %u", ins->declaration.index_range.last_register);
+            shader_dump_dst_param(buffer, &ins->declaration.index_range.dst, shader_version);
+            shader_addline(buffer, " %u", ins->declaration.index_range.register_count);
             break;
 
         case VKD3DSIH_DCL_INDEXABLE_TEMP:
