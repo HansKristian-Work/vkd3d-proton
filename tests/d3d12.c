@@ -21838,6 +21838,7 @@ static void test_nop_tessellation_shaders(void)
     struct test_context context;
     ID3D12CommandQueue *queue;
     struct vec4 tess_factors;
+    unsigned int i;
     HRESULT hr;
 
     static const DWORD hs_cb_code[] =
@@ -21913,6 +21914,16 @@ static void test_nop_tessellation_shaders(void)
     }
 
     [domain("tri")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("triangle_cw")]
+    [patchconstantfunc("patch_constant")]
+    data hs_main(InputPatch<data, 3> input, uint i : SV_OutputControlPointID)
+    {
+        return input[i];
+    }
+
+    [domain("tri")]
     void ds_main(patch_constant_data input,
             float3 tess_coord : SV_DomainLocation,
             const OutputPatch<data, 3> patch,
@@ -21923,6 +21934,27 @@ static void test_nop_tessellation_shaders(void)
                 + tess_coord.z * patch[2].position;
     }
 #endif
+    static const DWORD hs_code[] =
+    {
+        0x43425844, 0x0e9a8861, 0x39351e76, 0x0e10883f, 0x6054b5a1, 0x00000001, 0x0000020c, 0x00000004,
+        0x00000030, 0x00000064, 0x00000098, 0x0000012c, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008,
+        0x00000020, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x00000f0f, 0x505f5653, 0x7469736f,
+        0x006e6f69, 0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001,
+        0x00000003, 0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69, 0x47534350, 0x0000008c,
+        0x00000004, 0x00000008, 0x00000068, 0x00000000, 0x0000000d, 0x00000003, 0x00000000, 0x00000e01,
+        0x00000068, 0x00000001, 0x0000000d, 0x00000003, 0x00000001, 0x00000e01, 0x00000068, 0x00000002,
+        0x0000000d, 0x00000003, 0x00000002, 0x00000e01, 0x00000076, 0x00000000, 0x0000000e, 0x00000003,
+        0x00000003, 0x00000e01, 0x545f5653, 0x46737365, 0x6f746361, 0x56530072, 0x736e495f, 0x54656469,
+        0x46737365, 0x6f746361, 0xabab0072, 0x58454853, 0x000000d8, 0x00030050, 0x00000036, 0x01000071,
+        0x01001893, 0x01001894, 0x01001095, 0x01000896, 0x01001897, 0x0100086a, 0x01000073, 0x02000099,
+        0x00000003, 0x0200005f, 0x00017000, 0x04000067, 0x00102012, 0x00000000, 0x00000011, 0x04000067,
+        0x00102012, 0x00000001, 0x00000012, 0x04000067, 0x00102012, 0x00000002, 0x00000013, 0x02000068,
+        0x00000001, 0x0400005b, 0x00102012, 0x00000000, 0x00000003, 0x04000036, 0x00100012, 0x00000000,
+        0x0001700a, 0x06000036, 0x00902012, 0x0010000a, 0x00000000, 0x00004001, 0x3f800000, 0x0100003e,
+        0x01000073, 0x04000067, 0x00102012, 0x00000003, 0x00000014, 0x05000036, 0x00102012, 0x00000003,
+        0x00004001, 0x3f800000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE hs = {hs_code, sizeof(hs_code)};
     static const DWORD ds_code[] =
     {
         0x43425844, 0x8ed11021, 0x414dff74, 0x426849eb, 0x312f4860, 0x00000001, 0x000001e0, 0x00000004,
@@ -21942,6 +21974,7 @@ static void test_nop_tessellation_shaders(void)
         0x00000000, 0x0001caa6, 0x00219e46, 0x00000002, 0x00000000, 0x00100e46, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ds = {ds_code, sizeof(ds_code)};
+    static const D3D12_SHADER_BYTECODE *hull_shaders[] = {&hs_cb, &hs};
 
     memset(&desc, 0, sizeof(desc));
     desc.no_root_signature = true;
@@ -21964,23 +21997,42 @@ static void test_nop_tessellation_shaders(void)
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ID3D12PipelineState_Release(context.pipeline_state);
 
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    for (i = 0; i < ARRAY_SIZE(hull_shaders); ++i)
+    {
+        vkd3d_test_set_context("Test %u", i);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
-    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
-    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
-    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
-    tess_factors.x = tess_factors.y = tess_factors.z = tess_factors.w = 1.0f;
-    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, &tess_factors.x, 0);
-    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+        pso_desc.HS = *hull_shaders[i];
+        hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+                &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+        ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
 
-    transition_resource_state(command_list, context.render_target,
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        tess_factors.x = tess_factors.y = tess_factors.z = tess_factors.w = 1.0f;
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, &tess_factors.x, 0);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ID3D12PipelineState_Release(context.pipeline_state);
+        context.pipeline_state = NULL;
+    }
+    vkd3d_test_set_context(NULL);
 
     destroy_test_context(&context);
 }
