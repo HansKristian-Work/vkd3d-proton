@@ -2604,21 +2604,22 @@ static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *
 
     switch (reg->type)
     {
-        case VKD3DSPR_TEMP:
-        case VKD3DSPR_IDXTEMP:
-        case VKD3DSPR_INPUT:
-        case VKD3DSPR_OUTPUT:
         case VKD3DSPR_COLOROUT:
+        case VKD3DSPR_CONSTBUFFER:
         case VKD3DSPR_DEPTHOUT:
         case VKD3DSPR_DEPTHOUTGE:
         case VKD3DSPR_DEPTHOUTLE:
-        case VKD3DSPR_CONSTBUFFER:
+        case VKD3DSPR_IDXTEMP:
         case VKD3DSPR_IMMCONSTBUFFER:
-        case VKD3DSPR_SAMPLER:
-        case VKD3DSPR_THREADID:
+        case VKD3DSPR_INCONTROLPOINT:
+        case VKD3DSPR_INPUT:
         case VKD3DSPR_LOCALTHREADID:
         case VKD3DSPR_LOCALTHREADINDEX:
+        case VKD3DSPR_OUTPUT:
+        case VKD3DSPR_SAMPLER:
+        case VKD3DSPR_TEMP:
         case VKD3DSPR_THREADGROUPID:
+        case VKD3DSPR_THREADID:
             if (vkd3d_dxbc_compiler_get_register_info(compiler, reg, &register_info))
             {
                 vkd3d_dxbc_compiler_emit_dereference_register(compiler, reg, &register_info);
