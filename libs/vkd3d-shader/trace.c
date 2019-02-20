@@ -1602,7 +1602,7 @@ void vkd3d_shader_trace(void *data)
         struct vkd3d_shader_instruction ins;
 
         shader_sm4_read_instruction(data, &ptr, &ins);
-        if (ins.handler_idx == VKD3DSIH_TABLE_SIZE)
+        if (ins.handler_idx == VKD3DSIH_INVALID)
         {
             WARN("Skipping unrecognized instruction.\n");
             shader_addline(&buffer, "<unrecognized instruction>\n");

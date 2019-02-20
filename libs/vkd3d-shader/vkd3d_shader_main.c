@@ -175,7 +175,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     {
         shader_sm4_read_instruction(parser.data, &parser.ptr, &instruction);
 
-        if (instruction.handler_idx == VKD3DSIH_TABLE_SIZE)
+        if (instruction.handler_idx == VKD3DSIH_INVALID)
         {
             WARN("Encountered unrecognized or invalid instruction.\n");
             vkd3d_dxbc_compiler_destroy(spirv_compiler);
@@ -305,7 +305,7 @@ int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
     {
         shader_sm4_read_instruction(parser.data, &parser.ptr, &instruction);
 
-        if (instruction.handler_idx == VKD3DSIH_TABLE_SIZE)
+        if (instruction.handler_idx == VKD3DSIH_INVALID)
         {
             WARN("Encountered unrecognized or invalid instruction.\n");
             vkd3d_shader_parser_destroy(&parser);

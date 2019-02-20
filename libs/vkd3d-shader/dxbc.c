@@ -545,7 +545,7 @@ static void shader_sm4_read_shader_data(struct vkd3d_shader_instruction *ins,
     if (icb_size % 4 || icb_size > MAX_IMMEDIATE_CONSTANT_BUFFER_SIZE)
     {
         FIXME("Unexpected immediate constant buffer size %u.\n", icb_size);
-        ins->handler_idx = VKD3DSIH_TABLE_SIZE;
+        ins->handler_idx = VKD3DSIH_INVALID;
         return;
     }
 
@@ -1689,7 +1689,7 @@ void shader_sm4_read_instruction(void *data, const DWORD **ptr, struct vkd3d_sha
     if (!(opcode_info = get_opcode_info(opcode)))
     {
         FIXME("Unrecognized opcode %#x, opcode_token 0x%08x.\n", opcode, opcode_token);
-        ins->handler_idx = VKD3DSIH_TABLE_SIZE;
+        ins->handler_idx = VKD3DSIH_INVALID;
         *ptr += len;
         return;
     }
@@ -1733,7 +1733,7 @@ void shader_sm4_read_instruction(void *data, const DWORD **ptr, struct vkd3d_sha
             if (!(shader_sm4_read_dst_param(priv, &p, *ptr, map_data_type(opcode_info->dst_info[i]),
                     &priv->dst_param[i])))
             {
-                ins->handler_idx = VKD3DSIH_TABLE_SIZE;
+                ins->handler_idx = VKD3DSIH_INVALID;
                 return;
             }
             priv->dst_param[i].modifiers |= instruction_dst_modifier;
@@ -1744,7 +1744,7 @@ void shader_sm4_read_instruction(void *data, const DWORD **ptr, struct vkd3d_sha
             if (!(shader_sm4_read_src_param(priv, &p, *ptr, map_data_type(opcode_info->src_info[i]),
                     &priv->src_param[i])))
             {
-                ins->handler_idx = VKD3DSIH_TABLE_SIZE;
+                ins->handler_idx = VKD3DSIH_INVALID;
                 return;
             }
         }
@@ -1754,7 +1754,7 @@ void shader_sm4_read_instruction(void *data, const DWORD **ptr, struct vkd3d_sha
 
 fail:
     *ptr = priv->end;
-    ins->handler_idx = VKD3DSIH_TABLE_SIZE;
+    ins->handler_idx = VKD3DSIH_INVALID;
     return;
 }
 
