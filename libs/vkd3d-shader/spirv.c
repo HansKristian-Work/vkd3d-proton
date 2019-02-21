@@ -2661,6 +2661,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_swizzle_ext(struct vkd3d_dxbc_compiler 
 
     type_id = vkd3d_spirv_get_type_id(builder, component_type, component_count);
 
+    if (component_count == 1 && val_component_count == 1)
+        return val_id;
+
     if (component_count == 1)
     {
         component_idx = vkd3d_write_mask_get_component_idx(write_mask);
