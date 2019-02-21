@@ -2358,6 +2358,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_DEPTHOUTLE:
             snprintf(buffer, buffer_size, "oDepth");
             break;
+        case VKD3DSPR_PRIMID:
+            snprintf(buffer, buffer_size, "vPrim");
+            break;
         case VKD3DSPR_FORKINSTID:
             snprintf(buffer, buffer_size, "vForkInstanceId");
             break;
@@ -3084,6 +3087,10 @@ static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *com
 
     switch (builtin)
     {
+        case SpvBuiltInPrimitiveId:
+            if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL)
+                vkd3d_spirv_enable_capability(builder, SpvCapabilityGeometry);
+            break;
         case SpvBuiltInFragDepth:
             vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeDepthReplacing, NULL, 0);
             break;
@@ -3204,6 +3211,8 @@ vkd3d_system_value_builtins[] =
     {VKD3D_SIV_VERTEX_ID,   {VKD3D_TYPE_INT,   1, SpvBuiltInVertexIndex, sv_vertex_id_fixup}},
     {VKD3D_SIV_INSTANCE_ID, {VKD3D_TYPE_INT,   1, SpvBuiltInInstanceIndex, sv_instance_id_fixup}},
 
+    {VKD3D_SIV_PRIMITIVE_ID, {VKD3D_TYPE_INT, 1, SpvBuiltInPrimitiveId}},
+
     {VKD3D_SIV_RENDER_TARGET_ARRAY_INDEX, {VKD3D_TYPE_INT, 1, SpvBuiltInLayer}},
     {VKD3D_SIV_VIEWPORT_ARRAY_INDEX,      {VKD3D_TYPE_INT, 1, SpvBuiltInViewportIndex}},
 
@@ -3247,6 +3256,8 @@ vkd3d_register_builtins[] =
 
     {VKD3DSPR_GSINSTID,         {VKD3D_TYPE_INT, 1, SpvBuiltInInvocationId}},
     {VKD3DSPR_OUTPOINTID,       {VKD3D_TYPE_INT, 1, SpvBuiltInInvocationId}},
+
+    {VKD3DSPR_PRIMID,           {VKD3D_TYPE_INT, 1, SpvBuiltInPrimitiveId}},
 
     {VKD3DSPR_TESSCOORD,        {VKD3D_TYPE_FLOAT, 3, SpvBuiltInTessCoord}},
 
