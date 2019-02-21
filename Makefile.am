@@ -43,7 +43,8 @@ vkd3d_cross_tests = \
 	tests/d3d12_invalid_usage
 
 vkd3d_test_headers = \
-	tests/vkd3d_d3d12_test.h
+	tests/d3d12_crosstest.h \
+	tests/d3d12_test_utils.h
 
 vkd3d_demos = \
 	demos/gears \
@@ -71,7 +72,7 @@ libvkd3d_shader_la_SOURCES = \
 	include/private/vkd3d_common.h \
 	include/private/vkd3d_debug.h \
 	include/private/vkd3d_memory.h \
-	include/private/vkd3d_shader.h \
+	include/vkd3d_shader.h \
 	libs/vkd3d-shader/checksum.c \
 	libs/vkd3d-shader/dxbc.c \
 	libs/vkd3d-shader/spirv.c \
