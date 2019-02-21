@@ -2571,13 +2571,13 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
     }
     else if (register_info->is_aggregate)
     {
+        struct vkd3d_shader_register_index reg_idx = reg->idx[0];
+
         if (reg->idx[1].rel_addr)
             FIXME("Relative addressing not implemented.\n");
 
-        if (reg->idx[0].rel_addr)
-            indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[0]);
-        else
-            indexes[index_count++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, register_info->member_idx);
+        reg_idx.offset = register_info->member_idx;
+        indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg_idx);
     }
     else
     {
