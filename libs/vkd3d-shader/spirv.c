@@ -2605,40 +2605,14 @@ static uint32_t vkd3d_dxbc_compiler_get_register_id(struct vkd3d_dxbc_compiler *
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     struct vkd3d_shader_register_info register_info;
 
-    switch (reg->type)
+    if (vkd3d_dxbc_compiler_get_register_info(compiler, reg, &register_info))
     {
-        case VKD3DSPR_COLOROUT:
-        case VKD3DSPR_CONSTBUFFER:
-        case VKD3DSPR_DEPTHOUT:
-        case VKD3DSPR_DEPTHOUTGE:
-        case VKD3DSPR_DEPTHOUTLE:
-        case VKD3DSPR_IDXTEMP:
-        case VKD3DSPR_IMMCONSTBUFFER:
-        case VKD3DSPR_INCONTROLPOINT:
-        case VKD3DSPR_INPUT:
-        case VKD3DSPR_LOCALTHREADID:
-        case VKD3DSPR_LOCALTHREADINDEX:
-        case VKD3DSPR_OUTPUT:
-        case VKD3DSPR_SAMPLER:
-        case VKD3DSPR_TEMP:
-        case VKD3DSPR_THREADGROUPID:
-        case VKD3DSPR_THREADID:
-            if (vkd3d_dxbc_compiler_get_register_info(compiler, reg, &register_info))
-            {
-                vkd3d_dxbc_compiler_emit_dereference_register(compiler, reg, &register_info);
-                return register_info.id;
-            }
-            return vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
-                    SpvStorageClassPrivate, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
-        case VKD3DSPR_IMMCONST:
-            ERR("Unexpected register type %#x.\n", reg->type);
-            return vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
-                    SpvStorageClassPrivate, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
-        default:
-            FIXME("Unhandled register type %#x.\n", reg->type);
-            return vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
-                    SpvStorageClassPrivate, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
+        vkd3d_dxbc_compiler_emit_dereference_register(compiler, reg, &register_info);
+        return register_info.id;
     }
+
+    return vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
+            SpvStorageClassPrivate, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
 }
 
 static bool vkd3d_swizzle_is_equal(unsigned int dst_write_mask,
