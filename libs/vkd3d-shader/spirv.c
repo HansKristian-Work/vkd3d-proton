@@ -4978,36 +4978,49 @@ static void vkd3d_dxbc_compiler_emit_dcl_thread_group(struct vkd3d_dxbc_compiler
             SpvExecutionModeLocalSize, local_size, ARRAY_SIZE(local_size));
 }
 
-static void vkd3d_dxbc_compiler_leave_shader_phase(struct vkd3d_dxbc_compiler *compiler)
+static void vkd3d_dxbc_compiler_leave_shader_phase(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_phase *phase)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    struct vkd3d_shader_register reg;
+    struct vkd3d_symbol reg_symbol;
 
     vkd3d_spirv_build_op_function_end(builder);
 
     compiler->temp_id = 0;
     compiler->temp_count = 0;
+
+    if (phase->instance_count)
+    {
+        reg.type = phase->type == VKD3DSIH_HS_FORK_PHASE ? VKD3DSPR_FORKINSTID : VKD3DSPR_JOININSTID;
+        reg.idx[0].offset = ~0u;
+        vkd3d_symbol_make_register(&reg_symbol, &reg);
+        rb_remove_key(&compiler->symbol_table, &reg_symbol);
+    }
 }
 
 static void vkd3d_dxbc_compiler_enter_shader_phase(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
+    const struct vkd3d_shader_phase *previous_phase;
     struct vkd3d_shader_phase *phase;
-    unsigned int idx;
 
-    if ((idx = compiler->shader_phase_count))
-        vkd3d_dxbc_compiler_leave_shader_phase(compiler);
+    if ((previous_phase = vkd3d_dxbc_compiler_get_current_shader_phase(compiler)))
+        vkd3d_dxbc_compiler_leave_shader_phase(compiler, previous_phase);
 
     if (!vkd3d_array_reserve((void **)&compiler->shader_phases, &compiler->shader_phases_size,
             compiler->shader_phase_count + 1, sizeof(*compiler->shader_phases)))
         return;
-    phase = &compiler->shader_phases[compiler->shader_phase_count++];
+    phase = &compiler->shader_phases[compiler->shader_phase_count];
 
     phase->type = instruction->handler_idx;
-    phase->idx = idx;
+    phase->idx = compiler->shader_phase_count;
     phase->instance_count = 0;
     phase->function_id = 0;
     phase->instance_id = 0;
     phase->function_location = 0;
+
+    ++compiler->shader_phase_count;
 }
 
 static int vkd3d_dxbc_compiler_emit_shader_phase_instance_count(struct vkd3d_dxbc_compiler *compiler,
