@@ -4283,7 +4283,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_immediate_constant_buffer(struct vkd3d_
                 VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE, &icb->data[4 * i]);
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
     length_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, icb->vec4_count);
-    type_id = vkd3d_spirv_build_op_type_array(builder, type_id, length_id);
+    type_id = vkd3d_spirv_get_op_type_array(builder, type_id, length_id);
     const_id = vkd3d_spirv_build_op_constant_composite(builder, type_id, elements, icb->vec4_count);
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassPrivate, type_id);
     icb_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
