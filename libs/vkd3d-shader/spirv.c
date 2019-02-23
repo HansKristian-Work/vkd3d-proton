@@ -3489,6 +3489,10 @@ static uint32_t vkd3d_dxbc_compiler_emit_builtin_variable(struct vkd3d_dxbc_comp
     vkd3d_spirv_add_iface_variable(builder, id);
     vkd3d_dxbc_compiler_decorate_builtin(compiler, id, builtin->spirv_builtin);
 
+    if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL && storage_class == SpvStorageClassInput
+            && builtin->component_type != VKD3D_TYPE_FLOAT && builtin->component_type != VKD3D_TYPE_BOOL)
+        vkd3d_spirv_build_op_decorate(builder, id, SpvDecorationFlat, NULL, 0);
+
     return id;
 }
 
