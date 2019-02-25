@@ -2633,13 +2633,10 @@ static uint32_t vkd3d_dxbc_compiler_emit_swizzle_ext(struct vkd3d_dxbc_compiler 
     val_component_count = vkd3d_write_mask_component_count(val_write_mask);
 
     if (component_count == val_component_count
-            && vkd3d_swizzle_is_equal(val_write_mask, swizzle, write_mask))
+            && (component_count == 1 || vkd3d_swizzle_is_equal(val_write_mask, swizzle, write_mask)))
         return val_id;
 
     type_id = vkd3d_spirv_get_type_id(builder, component_type, component_count);
-
-    if (component_count == 1 && val_component_count == 1)
-        return val_id;
 
     if (component_count == 1)
     {
