@@ -52,7 +52,79 @@ static void test_invalid_shaders(void)
     ok(rc == VKD3D_ERROR_INVALID_SHADER, "Got unexpected error code %d.\n", rc);
 }
 
+static void test_vkd3d_shader_pfns(void)
+{
+    PFN_vkd3d_shader_serialize_root_signature pfn_vkd3d_shader_serialize_root_signature;
+    PFN_vkd3d_shader_find_signature_element pfn_vkd3d_shader_find_signature_element;
+    PFN_vkd3d_shader_free_shader_signature pfn_vkd3d_shader_free_shader_signature;
+    PFN_vkd3d_shader_parse_input_signature pfn_vkd3d_shader_parse_input_signature;
+    PFN_vkd3d_shader_parse_root_signature pfn_vkd3d_shader_parse_root_signature;
+    PFN_vkd3d_shader_free_root_signature pfn_vkd3d_shader_free_root_signature;
+    PFN_vkd3d_shader_free_shader_code pfn_vkd3d_shader_free_shader_code;
+    PFN_vkd3d_shader_compile_dxbc pfn_vkd3d_shader_compile_dxbc;
+    PFN_vkd3d_shader_scan_dxbc pfn_vkd3d_shader_scan_dxbc;
+
+    struct vkd3d_root_signature_desc root_signature_desc;
+    struct vkd3d_shader_signature_element *element;
+    struct vkd3d_shader_scan_info scan_info;
+    struct vkd3d_shader_signature signature;
+    struct vkd3d_shader_code dxbc, spirv;
+    int rc;
+
+    static const struct vkd3d_root_signature_desc empty_rs_desc;
+    static const DWORD vs_code[] =
+    {
+#if 0
+        float4 main(int4 p : POSITION) : SV_Position
+        {
+            return p;
+        }
+#endif
+        0x43425844, 0x3fd50ab1, 0x580a1d14, 0x28f5f602, 0xd1083e3a, 0x00000001, 0x000000d8, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000000, 0x00000002, 0x00000000, 0x00000f0f, 0x49534f50, 0x4e4f4954, 0xababab00,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69, 0x52444853, 0x0000003c, 0x00010040,
+        0x0000000f, 0x0300005f, 0x001010f2, 0x00000000, 0x04000067, 0x001020f2, 0x00000000, 0x00000001,
+        0x0500002b, 0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x0100003e,
+    };
+    static const struct vkd3d_shader_code vs = {vs_code, sizeof(vs_code)};
+
+    pfn_vkd3d_shader_serialize_root_signature = vkd3d_shader_serialize_root_signature;
+    pfn_vkd3d_shader_find_signature_element = vkd3d_shader_find_signature_element;
+    pfn_vkd3d_shader_free_shader_signature = vkd3d_shader_free_shader_signature;
+    pfn_vkd3d_shader_parse_input_signature = vkd3d_shader_parse_input_signature;
+    pfn_vkd3d_shader_parse_root_signature = vkd3d_shader_parse_root_signature;
+    pfn_vkd3d_shader_free_root_signature = vkd3d_shader_free_root_signature;
+    pfn_vkd3d_shader_free_shader_code = vkd3d_shader_free_shader_code;
+    pfn_vkd3d_shader_compile_dxbc = vkd3d_shader_compile_dxbc;
+    pfn_vkd3d_shader_scan_dxbc = vkd3d_shader_scan_dxbc;
+
+    rc = pfn_vkd3d_shader_serialize_root_signature(&empty_rs_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_0, &dxbc);
+    ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
+    rc = pfn_vkd3d_shader_parse_root_signature(&dxbc, &root_signature_desc);
+    ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
+    pfn_vkd3d_shader_free_root_signature(&root_signature_desc);
+    pfn_vkd3d_shader_free_shader_code(&dxbc);
+
+    rc = pfn_vkd3d_shader_parse_input_signature(&vs, &signature);
+    ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
+    element = pfn_vkd3d_shader_find_signature_element(&signature, "POSITION", 0, 0);
+    ok(element, "Could not find shader signature element.\n");
+    pfn_vkd3d_shader_free_shader_signature(&signature);
+
+    rc = pfn_vkd3d_shader_compile_dxbc(&vs, &spirv, 0, NULL, NULL);
+    ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
+    pfn_vkd3d_shader_free_shader_code(&spirv);
+
+    memset(&scan_info, 0, sizeof(scan_info));
+    scan_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
+    rc = pfn_vkd3d_shader_scan_dxbc(&vs, &scan_info);
+    ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
+}
+
 START_TEST(vkd3d_shader_api)
 {
     run_test(test_invalid_shaders);
+    run_test(test_vkd3d_shader_pfns);
 }
