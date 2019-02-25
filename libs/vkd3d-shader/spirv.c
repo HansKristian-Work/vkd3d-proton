@@ -2621,7 +2621,7 @@ static bool vkd3d_swizzle_is_equal(unsigned int dst_write_mask,
     return vkd3d_compact_swizzle(VKD3D_NO_SWIZZLE, dst_write_mask) == vkd3d_compact_swizzle(swizzle, write_mask);
 }
 
-static uint32_t vkd3d_dxbc_compiler_emit_swizzle_ext(struct vkd3d_dxbc_compiler *compiler,
+static uint32_t vkd3d_dxbc_compiler_emit_swizzle(struct vkd3d_dxbc_compiler *compiler,
         uint32_t val_id, unsigned int val_write_mask, enum vkd3d_component_type component_type,
         unsigned int swizzle, unsigned int write_mask)
 {
@@ -2666,13 +2666,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_swizzle_ext(struct vkd3d_dxbc_compiler 
     }
     return vkd3d_spirv_build_op_vector_shuffle(builder,
             type_id, val_id, val_id, components, component_count);
-}
-
-static uint32_t vkd3d_dxbc_compiler_emit_swizzle(struct vkd3d_dxbc_compiler *compiler,
-        uint32_t val_id, enum vkd3d_component_type component_type, DWORD swizzle, DWORD write_mask)
-{
-    return vkd3d_dxbc_compiler_emit_swizzle_ext(compiler,
-            val_id, VKD3DSP_WRITEMASK_ALL, component_type, swizzle, write_mask);
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_vector_shuffle(struct vkd3d_dxbc_compiler *compiler,
@@ -2806,7 +2799,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *co
         val_id = vkd3d_spirv_build_op_load(builder, type_id, reg_info.id, SpvMemoryAccessMaskNone);
     }
 
-    val_id = vkd3d_dxbc_compiler_emit_swizzle_ext(compiler,
+    val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
             val_id, reg_info.write_mask, reg_info.component_type, swizzle, write_mask);
 
     if (component_type != reg_info.component_type)
@@ -3019,7 +3012,7 @@ static void vkd3d_dxbc_compiler_emit_store_dst_swizzled(struct vkd3d_dxbc_compil
 {
     struct vkd3d_shader_dst_param typed_dst = *dst;
     val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-            val_id, component_type, swizzle, dst->write_mask);
+            val_id, VKD3DSP_WRITEMASK_ALL, component_type, swizzle, dst->write_mask);
     /* XXX: The register data type could be fixed by the shader parser. For SM5
      * shaders the data types are stored in instructions modifiers.
      */
@@ -3658,7 +3651,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
                 val_id = vkd3d_spirv_build_op_bitcast(builder, float_type_id, val_id);
             }
 
-            val_id = vkd3d_dxbc_compiler_emit_swizzle_ext(compiler, val_id,
+            val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler, val_id,
                     vkd3d_write_mask_from_component_count(input_component_count) << component_idx,
                     VKD3D_TYPE_FLOAT, VKD3D_NO_SWIZZLE, dst->write_mask);
 
@@ -4053,7 +4046,7 @@ static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compi
     use_mask = (output->mask >> 8) & 0xff;
     swizzle = get_shader_output_swizzle(compiler, output->register_index);
     val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-            val_id, VKD3D_TYPE_FLOAT, swizzle, write_mask);
+            val_id, VKD3DSP_WRITEMASK_ALL, VKD3D_TYPE_FLOAT, swizzle, write_mask);
 
     component_count = vkd3d_write_mask_component_count(write_mask);
 
@@ -4093,7 +4086,7 @@ static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compi
         indexes[0] = vkd3d_dxbc_compiler_get_constant_uint(compiler, index++);
         chain_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
                 output_id, indexes, ARRAY_SIZE(indexes));
-        object_id = vkd3d_dxbc_compiler_emit_swizzle_ext(compiler, val_id,
+        object_id = vkd3d_dxbc_compiler_emit_swizzle(compiler, val_id,
                 write_mask, output_info->component_type, VKD3D_NO_SWIZZLE, VKD3DSP_WRITEMASK_0 << i);
         vkd3d_spirv_build_op_store(builder, chain_id, object_id, SpvMemoryAccessMaskNone);
     }
@@ -7324,7 +7317,7 @@ static void vkd3d_dxbc_compiler_emit_bufinfo(struct vkd3d_dxbc_compiler *compile
                 val_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, 2));
     }
 
-    val_id = vkd3d_dxbc_compiler_emit_swizzle_ext(compiler,
+    val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
             val_id, write_mask, VKD3D_TYPE_UINT, src->swizzle, dst->write_mask);
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
@@ -7384,7 +7377,7 @@ static void vkd3d_dxbc_compiler_emit_resinfo(struct vkd3d_dxbc_compiler *compile
         val_id = vkd3d_spirv_build_op_convert_utof(builder, type_id, val_id);
     }
     val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-            val_id, VKD3D_TYPE_FLOAT, src[1].swizzle, dst->write_mask);
+            val_id, VKD3DSP_WRITEMASK_ALL, VKD3D_TYPE_FLOAT, src[1].swizzle, dst->write_mask);
 
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
@@ -7431,7 +7424,7 @@ static void vkd3d_dxbc_compiler_emit_sample_info(struct vkd3d_dxbc_compiler *com
     }
 
     val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-            val_id, VKD3D_TYPE_FLOAT, src->swizzle, dst->write_mask);
+            val_id, VKD3DSP_WRITEMASK_ALL, VKD3D_TYPE_FLOAT, src->swizzle, dst->write_mask);
 
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
