@@ -7870,8 +7870,12 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
     const struct vkd3d_shader_compile_arguments *compile_args = compiler->compile_args;
     const struct vkd3d_shader_domain_shader_compile_arguments *ds_args;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_phase *phase;
 
-    vkd3d_spirv_build_op_function_end(builder);
+    if ((phase = vkd3d_dxbc_compiler_get_current_shader_phase(compiler)))
+        vkd3d_dxbc_compiler_leave_shader_phase(compiler, phase);
+    else
+        vkd3d_spirv_build_op_function_end(builder);
 
     if (compiler->shader_type == VKD3D_SHADER_TYPE_HULL)
         vkd3d_dxbc_compiler_emit_hull_shader_main(compiler);
