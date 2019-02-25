@@ -2932,8 +2932,8 @@ static void vkd3d_dxbc_compiler_emit_store(struct vkd3d_dxbc_compiler *compiler,
         SpvStorageClass storage_class, unsigned int write_mask, uint32_t val_id)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    unsigned int component_count, dst_component_count;
     uint32_t type_id, dst_val_id;
-    unsigned int component_count;
 
     assert(write_mask);
 
@@ -2945,13 +2945,14 @@ static void vkd3d_dxbc_compiler_emit_store(struct vkd3d_dxbc_compiler *compiler,
                 dst_id, dst_write_mask, component_type, storage_class, write_mask, val_id);
     }
 
-    if (component_count != VKD3D_VEC4_SIZE)
+    dst_component_count = vkd3d_write_mask_component_count(dst_write_mask);
+    if (dst_component_count != component_count)
     {
-        type_id = vkd3d_spirv_get_type_id(builder, component_type, VKD3D_VEC4_SIZE);
+        type_id = vkd3d_spirv_get_type_id(builder, component_type, dst_component_count);
         dst_val_id = vkd3d_spirv_build_op_load(builder, type_id, dst_id, SpvMemoryAccessMaskNone);
 
         val_id = vkd3d_dxbc_compiler_emit_vector_shuffle(compiler,
-                dst_val_id, val_id, write_mask, component_type, VKD3D_VEC4_SIZE);
+                dst_val_id, val_id, write_mask, component_type, dst_component_count);
     }
 
     vkd3d_spirv_build_op_store(builder, dst_id, val_id, SpvMemoryAccessMaskNone);
