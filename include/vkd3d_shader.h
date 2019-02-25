@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Józef Kucia for CodeWeavers
+ * Copyright 2017-2019 Józef Kucia for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -222,12 +222,6 @@ struct vkd3d_shader_domain_shader_compile_arguments
     enum vkd3d_tessellator_output_primitive partitioning;
 };
 
-int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_code *spirv, unsigned int compiler_options,
-        const struct vkd3d_shader_interface_info *shader_interface_info,
-        const struct vkd3d_shader_compile_arguments *compile_args);
-void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
-
 enum vkd3d_filter
 {
     VKD3D_FILTER_MIN_MAG_MIP_POINT = 0x0,
@@ -405,20 +399,12 @@ struct vkd3d_root_signature_desc
     enum vkd3d_root_signature_flags flags;
 };
 
-int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_root_signature_desc *root_signature);
-void vkd3d_shader_free_root_signature(struct vkd3d_root_signature_desc *root_signature);
-
 enum vkd3d_root_signature_version
 {
     VKD3D_ROOT_SIGNATURE_VERSION_1_0 = 0x1,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_ROOT_SIGNATURE_VERSION),
 };
-
-/* FIXME: Add support for returning error messages (ID3DBlob). */
-int vkd3d_shader_serialize_root_signature(const struct vkd3d_root_signature_desc *root_signature,
-        enum vkd3d_root_signature_version version, struct vkd3d_shader_code *dxbc);
 
 /* FIXME: Add support for 64 UAV bind slots. */
 #define VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS 8
@@ -433,9 +419,6 @@ struct vkd3d_shader_scan_info
     unsigned int sampler_comparison_mode_mask; /* 16 */
     bool use_vocp;
 };
-
-int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_scan_info *scan_info);
 
 enum vkd3d_component_type
 {
@@ -489,6 +472,43 @@ struct vkd3d_shader_signature
     unsigned int element_count;
 };
 
+/* swizzle bits fields: wwzzyyxx */
+#define VKD3D_SWIZZLE_X (0u)
+#define VKD3D_SWIZZLE_Y (1u)
+#define VKD3D_SWIZZLE_Z (2u)
+#define VKD3D_SWIZZLE_W (3u)
+
+#define VKD3D_SWIZZLE_MASK (0x3u)
+#define VKD3D_SWIZZLE_SHIFT(idx) (2u * (idx))
+
+#define VKD3D_SWIZZLE(x, y, z, w) \
+        (((x & VKD3D_SWIZZLE_MASK) << VKD3D_SWIZZLE_SHIFT(0)) \
+        | ((y & VKD3D_SWIZZLE_MASK) << VKD3D_SWIZZLE_SHIFT(1)) \
+        | ((z & VKD3D_SWIZZLE_MASK) << VKD3D_SWIZZLE_SHIFT(2)) \
+        | ((w & VKD3D_SWIZZLE_MASK) << VKD3D_SWIZZLE_SHIFT(3)))
+
+#define VKD3D_NO_SWIZZLE \
+        VKD3D_SWIZZLE(VKD3D_SWIZZLE_X, VKD3D_SWIZZLE_Y, VKD3D_SWIZZLE_Z, VKD3D_SWIZZLE_W)
+
+#ifndef VKD3D_SHADER_NO_PROTOTYPES
+
+int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_shader_code *spirv, unsigned int compiler_options,
+        const struct vkd3d_shader_interface_info *shader_interface_info,
+        const struct vkd3d_shader_compile_arguments *compile_args);
+void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
+
+int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_root_signature_desc *root_signature);
+void vkd3d_shader_free_root_signature(struct vkd3d_root_signature_desc *root_signature);
+
+/* FIXME: Add support for returning error messages (ID3DBlob). */
+int vkd3d_shader_serialize_root_signature(const struct vkd3d_root_signature_desc *root_signature,
+        enum vkd3d_root_signature_version version, struct vkd3d_shader_code *dxbc);
+
+int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_shader_scan_info *scan_info);
+
 int vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_signature *signature);
 struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
@@ -496,19 +516,33 @@ struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
         unsigned int semantic_index, unsigned int stream_index);
 void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature);
 
-/* swizzle bits fields: wwzzyyxx */
-#define VKD3D_SWIZZLE_X (0u)
-#define VKD3D_SWIZZLE_Y (1u)
-#define VKD3D_SWIZZLE_Z (2u)
-#define VKD3D_SWIZZLE_W (3u)
-#define VKD3D_SWIZZLE_MASK (0x3u)
-#define VKD3D_SWIZZLE_SHIFT(idx) (2u * (idx))
-#define VKD3D_SWIZZLE(x, y, z, w) (((x & VKD3D_SWIZZLE_MASK) << VKD3D_SWIZZLE_SHIFT(0)) \
-        | ((y & VKD3D_SWIZZLE_MASK) << VKD3D_SWIZZLE_SHIFT(1)) \
-        | ((z & VKD3D_SWIZZLE_MASK) << VKD3D_SWIZZLE_SHIFT(2)) \
-        | ((w & VKD3D_SWIZZLE_MASK) << VKD3D_SWIZZLE_SHIFT(3)))
-#define VKD3D_NO_SWIZZLE \
-        VKD3D_SWIZZLE(VKD3D_SWIZZLE_X, VKD3D_SWIZZLE_Y, VKD3D_SWIZZLE_Z, VKD3D_SWIZZLE_W)
+#endif  /* VKD3D_SHADER_NO_PROTOTYPES */
+
+/*
+ * Function pointer typedefs for vkd3d-shader functions.
+ */
+typedef int (*PFN_vkd3d_shader_compile_dxbc)(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_shader_code *spirv, unsigned int compiler_options,
+        const struct vkd3d_shader_interface_info *shader_interface_info,
+        const struct vkd3d_shader_compile_arguments *compile_args);
+typedef void (*PFN_vkd3d_shader_free_shader_code)(struct vkd3d_shader_code *code);
+
+typedef int (*PFN_vkd3d_shader_parse_root_signature)(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_root_signature_desc *root_signature);
+typedef void (*PFN_vkd3d_shader_free_root_signature)(struct vkd3d_root_signature_desc *root_signature);
+
+typedef int (*PFN_vkd3d_shader_serialize_root_signature)(const struct vkd3d_root_signature_desc *root_signature,
+        enum vkd3d_root_signature_version version, struct vkd3d_shader_code *dxbc);
+
+typedef int (*PFN_vkd3d_shader_scan_dxbc)(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_shader_scan_info *scan_info);
+
+typedef int (*PFN_vkd3d_shader_parse_input_signature)(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_shader_signature *signature);
+typedef struct vkd3d_shader_signature_element * (*PFN_vkd3d_shader_find_signature_element)(
+        const struct vkd3d_shader_signature *signature, const char *semantic_name,
+        unsigned int semantic_index, unsigned int stream_index);
+typedef void (*PFN_vkd3d_shader_free_shader_signature)(struct vkd3d_shader_signature *signature);
 
 #ifdef __cplusplus
 }
