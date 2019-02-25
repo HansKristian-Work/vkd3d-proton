@@ -4081,7 +4081,7 @@ static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compi
         return;
     }
 
-    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 1);
+    type_id = vkd3d_spirv_get_type_id(builder, output_info->component_type, 1);
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassOutput, type_id);
     mask = output_info->array_element_mask;
     mask &= (1u << (output->semantic_index * VKD3D_VEC4_SIZE)) - 1;
