@@ -22909,6 +22909,156 @@ static void test_tessellation_dcl_index_range(void)
     destroy_test_context(&context);
 }
 
+static void test_hull_shader_control_point_phase(void)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    HRESULT hr;
+
+    static const DWORD vs_code[] =
+    {
+#if 0
+        void main()
+        {
+        }
+#endif
+        0x43425844, 0x590b08ae, 0x11d28adb, 0x825a5628, 0x34c0c208, 0x00000001, 0x00000064, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000010, 0x00010050, 0x00000004, 0x0100086a,
+        0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs = {vs_code, sizeof(vs_code)};
+#if 0
+    struct data
+    {
+        float4 position : SV_Position;
+    };
+
+    struct patch_constant_data
+    {
+        float edges[3] : SV_TessFactor;
+        float inside : SV_InsideTessFactor;
+    };
+
+    void patch_constant(out patch_constant_data output)
+    {
+        output.edges[0] = output.edges[1] = output.edges[2] = 1.0f;
+        output.inside = 1.0f;
+    }
+
+    [domain("tri")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("triangle_cw")]
+    [patchconstantfunc("patch_constant")]
+    data hs_main(uint i : SV_OutputControlPointID)
+    {
+        data output;
+
+        if (i == 0)
+            output.position = float4(-1, 1, 0, 1);
+        else if (i == 1)
+            output.position = float4(3, 1, 0, 1);
+        else
+            output.position = float4(-1, -3, 0, 1);
+
+        return output;
+    }
+
+    [domain("tri")]
+    void ds_main(patch_constant_data input,
+            float3 tess_coord : SV_DomainLocation,
+            const OutputPatch<data, 3> patch,
+            out data output)
+    {
+        uint index = uint(tess_coord.y + 2 * tess_coord.z);
+        output.position = patch[index].position;
+    }
+#endif
+    static const DWORD hs_code[] =
+    {
+        0x43425844, 0x4204890e, 0x43f4f8e0, 0xbff7edfd, 0x0a48b715, 0x00000001, 0x0000028c, 0x00000004,
+        0x00000030, 0x00000040, 0x00000074, 0x00000108, 0x4e475349, 0x00000008, 0x00000000, 0x00000008,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69, 0x47534350, 0x0000008c, 0x00000004,
+        0x00000008, 0x00000068, 0x00000000, 0x0000000d, 0x00000003, 0x00000000, 0x00000e01, 0x00000068,
+        0x00000001, 0x0000000d, 0x00000003, 0x00000001, 0x00000e01, 0x00000068, 0x00000002, 0x0000000d,
+        0x00000003, 0x00000002, 0x00000e01, 0x00000076, 0x00000000, 0x0000000e, 0x00000003, 0x00000003,
+        0x00000e01, 0x545f5653, 0x46737365, 0x6f746361, 0x56530072, 0x736e495f, 0x54656469, 0x46737365,
+        0x6f746361, 0xabab0072, 0x58454853, 0x0000017c, 0x00030050, 0x0000005f, 0x01000071, 0x01000893,
+        0x01001894, 0x01001095, 0x01000896, 0x01001897, 0x0100086a, 0x01000072, 0x0200005f, 0x00016000,
+        0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x06000020, 0x00100012, 0x00000000,
+        0x00016001, 0x00004001, 0x00000001, 0x0f000037, 0x001000f2, 0x00000000, 0x00100006, 0x00000000,
+        0x00004002, 0x40400000, 0x3f800000, 0x00000000, 0x3f800000, 0x00004002, 0xbf800000, 0xc0400000,
+        0x00000000, 0x3f800000, 0x0b000037, 0x001020f2, 0x00000000, 0x00016001, 0x00100e46, 0x00000000,
+        0x00004002, 0xbf800000, 0x3f800000, 0x00000000, 0x3f800000, 0x0100003e, 0x01000073, 0x02000099,
+        0x00000003, 0x0200005f, 0x00017000, 0x04000067, 0x00102012, 0x00000000, 0x00000011, 0x04000067,
+        0x00102012, 0x00000001, 0x00000012, 0x04000067, 0x00102012, 0x00000002, 0x00000013, 0x02000068,
+        0x00000001, 0x0400005b, 0x00102012, 0x00000000, 0x00000003, 0x04000036, 0x00100012, 0x00000000,
+        0x0001700a, 0x06000036, 0x00902012, 0x0010000a, 0x00000000, 0x00004001, 0x3f800000, 0x0100003e,
+        0x01000073, 0x04000067, 0x00102012, 0x00000003, 0x00000014, 0x05000036, 0x00102012, 0x00000003,
+        0x00004001, 0x3f800000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE hs = {hs_code, sizeof(hs_code)};
+    static const DWORD ds_code[] =
+    {
+        0x43425844, 0x33c6120a, 0x2d46da82, 0x2c17dddf, 0x252ae7e0, 0x00000001, 0x000001c8, 0x00000004,
+        0x00000030, 0x00000064, 0x000000f8, 0x0000012c, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008,
+        0x00000020, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x00000f0f, 0x505f5653, 0x7469736f,
+        0x006e6f69, 0x47534350, 0x0000008c, 0x00000004, 0x00000008, 0x00000068, 0x00000000, 0x0000000d,
+        0x00000003, 0x00000000, 0x00000001, 0x00000068, 0x00000001, 0x0000000d, 0x00000003, 0x00000001,
+        0x00000001, 0x00000068, 0x00000002, 0x0000000d, 0x00000003, 0x00000002, 0x00000001, 0x00000076,
+        0x00000000, 0x0000000e, 0x00000003, 0x00000003, 0x00000001, 0x545f5653, 0x46737365, 0x6f746361,
+        0x56530072, 0x736e495f, 0x54656469, 0x46737365, 0x6f746361, 0xabab0072, 0x4e47534f, 0x0000002c,
+        0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f,
+        0x505f5653, 0x7469736f, 0x006e6f69, 0x58454853, 0x00000094, 0x00040050, 0x00000025, 0x01001893,
+        0x01001095, 0x0100086a, 0x0200005f, 0x0001c062, 0x0400005f, 0x002190f2, 0x00000003, 0x00000000,
+        0x04000067, 0x001020f2, 0x00000000, 0x00000001, 0x02000068, 0x00000001, 0x07000032, 0x00100012,
+        0x00000000, 0x0001c02a, 0x00004001, 0x40000000, 0x0001c01a, 0x0500001c, 0x00100012, 0x00000000,
+        0x0010000a, 0x00000000, 0x07000036, 0x001020f2, 0x00000000, 0x00a19e46, 0x0010000a, 0x00000000,
+        0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ds = {ds_code, sizeof(ds_code)};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, NULL, NULL, NULL);
+    pso_desc.VS = vs;
+    pso_desc.HS = hs;
+    pso_desc.DS = ds;
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+
+    destroy_test_context(&context);
+}
+
 static void test_render_a8(void)
 {
     static const float black[] = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -25257,6 +25407,7 @@ START_TEST(d3d12)
     run_test(test_nop_tessellation_shaders);
     run_test(test_quad_tessellation);
     run_test(test_tessellation_dcl_index_range);
+    run_test(test_hull_shader_control_point_phase);
     run_test(test_render_a8);
     run_test(test_cpu_descriptors_lifetime);
     run_test(test_clip_distance);
