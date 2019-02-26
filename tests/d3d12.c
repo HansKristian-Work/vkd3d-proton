@@ -21633,7 +21633,6 @@ static void test_layered_rendering(void)
     D3D12_VERTEX_BUFFER_VIEW vbv;
     struct test_context context;
     ID3D12CommandQueue *queue;
-    ID3D12PipelineState *pso;
     ID3D12Device *device;
     ID3D12Resource *vb;
     HRESULT hr;
@@ -21794,7 +21793,7 @@ static void test_layered_rendering(void)
             context.render_target_desc.Format, &vs, &ps, &input_layout);
     pso_desc.GS = gs;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
-            &IID_ID3D12PipelineState, (void **)&pso);
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
 
     vb = create_upload_buffer(context.device, sizeof(vertices), vertices);
@@ -21808,7 +21807,7 @@ static void test_layered_rendering(void)
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
-    ID3D12GraphicsCommandList_SetPipelineState(command_list, pso);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 12, 1, 0, 0);
@@ -21825,7 +21824,153 @@ static void test_layered_rendering(void)
     check_sub_resource_uint(context.render_target, 3, queue, command_list, 0xffffff00, 0);
 
     ID3D12Resource_Release(vb);
-    ID3D12PipelineState_Release(pso);
+    destroy_test_context(&context);
+}
+
+static void test_ps_layer(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    unsigned int i;
+    HRESULT hr;
+
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const DWORD vs_code[] =
+    {
+#if 0
+        void main(in uint vertex_id : SV_VertexID, out uint layer : LAYER)
+        {
+            layer = vertex_id;
+        }
+#endif
+        0x43425844, 0xd2b4abd8, 0xf9adf7df, 0xed1b4eb0, 0x4bf54391, 0x00000001, 0x000000d8, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000090, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x65747265, 0x00444978,
+        0x4e47534f, 0x00000028, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001,
+        0x00000000, 0x00000e01, 0x4559414c, 0xabab0052, 0x58454853, 0x00000040, 0x00010050, 0x00000010,
+        0x0100086a, 0x04000060, 0x00101012, 0x00000000, 0x00000006, 0x03000065, 0x00102012, 0x00000000,
+        0x05000036, 0x00102012, 0x00000000, 0x0010100a, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs = {vs_code, sizeof(vs_code)};
+    static const DWORD gs_code[] =
+    {
+#if 0
+        struct gs_in
+        {
+            uint layer : LAYER;
+        };
+
+        struct gs_out
+        {
+            float4 position : SV_Position;
+            uint layer : SV_RenderTargetArrayIndex;
+        };
+
+        [maxvertexcount(3)]
+        void main(point gs_in vin[1], inout TriangleStream<gs_out> vout)
+        {
+            gs_out o;
+
+            o.layer = vin[0].layer;
+
+            o.position = float4(-1, 1, 0, 1);
+            vout.Append(o);
+
+            o.position = float4(3, 1, 0, 1);
+            vout.Append(o);
+
+            o.position = float4(-1, -3, 0, 1);
+            vout.Append(o);
+        }
+#endif
+        0x43425844, 0x2589d822, 0x7557587c, 0x7d7e9cc0, 0x6bad86aa, 0x00000001, 0x000001fc, 0x00000003,
+        0x0000002c, 0x0000005c, 0x000000cc, 0x4e475349, 0x00000028, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000000, 0x00000001, 0x00000000, 0x00000101, 0x4559414c, 0xabab0052, 0x3547534f,
+        0x00000068, 0x00000002, 0x00000008, 0x00000000, 0x00000040, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x00000000, 0x0000004c, 0x00000000, 0x00000004, 0x00000001, 0x00000001,
+        0x00000e01, 0x505f5653, 0x7469736f, 0x006e6f69, 0x525f5653, 0x65646e65, 0x72615472, 0x41746567,
+        0x79617272, 0x65646e49, 0xabab0078, 0x58454853, 0x00000128, 0x00020050, 0x0000004a, 0x0100086a,
+        0x0400005f, 0x00201012, 0x00000001, 0x00000000, 0x0100085d, 0x0300008f, 0x00110000, 0x00000000,
+        0x0100285c, 0x04000067, 0x001020f2, 0x00000000, 0x00000001, 0x04000067, 0x00102012, 0x00000001,
+        0x00000004, 0x0200005e, 0x00000003, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0xbf800000,
+        0x3f800000, 0x00000000, 0x3f800000, 0x06000036, 0x00102012, 0x00000001, 0x0020100a, 0x00000000,
+        0x00000000, 0x03000075, 0x00110000, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002,
+        0x40400000, 0x3f800000, 0x00000000, 0x3f800000, 0x06000036, 0x00102012, 0x00000001, 0x0020100a,
+        0x00000000, 0x00000000, 0x03000075, 0x00110000, 0x00000000, 0x08000036, 0x001020f2, 0x00000000,
+        0x00004002, 0xbf800000, 0xc0400000, 0x00000000, 0x3f800000, 0x06000036, 0x00102012, 0x00000001,
+        0x0020100a, 0x00000000, 0x00000000, 0x03000075, 0x00110000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE gs = {gs_code, sizeof(gs_code)};
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float4 main(float4 p : SV_Position, uint layer : SV_RenderTargetArrayIndex) : SV_Target0
+        {
+            return layer / 255.0;
+        }
+#endif
+        0x43425844, 0x53474926, 0xbd247b84, 0x389660f4, 0x331cf598, 0x00000001, 0x00000140, 0x00000003,
+        0x0000002c, 0x00000094, 0x000000c8, 0x4e475349, 0x00000060, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x00000044, 0x00000000, 0x00000004,
+        0x00000001, 0x00000001, 0x00000101, 0x505f5653, 0x7469736f, 0x006e6f69, 0x525f5653, 0x65646e65,
+        0x72615472, 0x41746567, 0x79617272, 0x65646e49, 0xabab0078, 0x4e47534f, 0x0000002c, 0x00000001,
+        0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x0000000f, 0x545f5653,
+        0x65677261, 0xabab0074, 0x58454853, 0x00000070, 0x00000050, 0x0000001c, 0x0100086a, 0x04000864,
+        0x00101012, 0x00000001, 0x00000004, 0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001,
+        0x05000056, 0x00100012, 0x00000000, 0x0010100a, 0x00000001, 0x0a000038, 0x001020f2, 0x00000000,
+        0x00100006, 0x00000000, 0x00004002, 0x3b808081, 0x3b808081, 0x3b808081, 0x3b808081, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const unsigned int expected_results[] =
+    {
+        0x00000000,
+        0x01010101,
+        0x02020202,
+        0x03030303,
+        0x04040404,
+        0x05050505,
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_array_size = 6;
+    desc.no_pipeline = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, &vs, &ps, NULL);
+    pso_desc.GS = gs;
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 6, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < ARRAY_SIZE(expected_results); ++i)
+    {
+        check_sub_resource_uint(context.render_target, i, queue, command_list, expected_results[i], 0);
+        reset_command_list(command_list, context.allocator);
+    }
+
     destroy_test_context(&context);
 }
 
@@ -25108,6 +25253,7 @@ START_TEST(d3d12)
     run_test(test_multithread_command_queue_exec);
     run_test(test_geometry_shader);
     run_test(test_layered_rendering);
+    run_test(test_ps_layer);
     run_test(test_nop_tessellation_shaders);
     run_test(test_quad_tessellation);
     run_test(test_tessellation_dcl_index_range);
