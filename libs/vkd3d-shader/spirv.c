@@ -1980,6 +1980,7 @@ struct vkd3d_dxbc_compiler
         uint32_t array_element_mask;
     } *output_info;
     uint32_t private_output_variable[MAX_REG_OUTPUT + 1]; /* 1 entry for oDepth */
+    uint32_t private_output_variable_write_mask[MAX_REG_OUTPUT + 1]; /* 1 entry for oDepth */
     uint32_t epilogue_function_id;
     uint32_t dummy_sampler_id;
 
@@ -3998,6 +3999,7 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
     {
         unsigned int idx = vkd3d_dxbc_compiler_get_output_variable_index(compiler, reg->idx[0].offset);
         compiler->private_output_variable[idx] = var_id;
+        compiler->private_output_variable_write_mask[idx] |= dst->write_mask;
         if (!compiler->epilogue_function_id)
             compiler->epilogue_function_id = vkd3d_spirv_alloc_id(builder);
     }
@@ -4045,15 +4047,16 @@ static void vkd3d_dxbc_compiler_emit_shader_phase_output(struct vkd3d_dxbc_compi
 
 static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_signature_element *output,
-        const struct vkd3d_shader_output_info *output_info, uint32_t val_id)
+        const struct vkd3d_shader_output_info *output_info, uint32_t val_id, unsigned int write_mask)
 {
+    unsigned int dst_write_mask, use_mask, uninit_mask, swizzle, mask;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t type_id, zero_id, ptr_type_id, chain_id, object_id;
-    uint32_t write_mask, use_mask, uninit_mask, swizzle, mask;
-    uint32_t output_id, indexes[1];
     unsigned int i, index;
+    uint32_t output_id;
 
-    write_mask = output->mask & 0xff;
+    dst_write_mask = output->mask & 0xff;
+    write_mask &= dst_write_mask;
     use_mask = (output->mask >> 8) & 0xff;
 
     if (output_info->component_type != VKD3D_TYPE_FLOAT)
@@ -4063,10 +4066,11 @@ static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compi
     }
 
     swizzle = get_shader_output_swizzle(compiler, output->register_index);
-    uninit_mask = write_mask & use_mask;
+    uninit_mask = dst_write_mask & use_mask;
     if (uninit_mask)
     {
         /* Set values to 0 for not initialized shader output components. */
+        write_mask |= uninit_mask;
         zero_id = vkd3d_dxbc_compiler_get_constant_vector(compiler,
                 output_info->component_type, VKD3D_VEC4_SIZE, 0);
         val_id = vkd3d_dxbc_compiler_emit_vector_shuffle(compiler,
@@ -4083,7 +4087,8 @@ static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compi
 
     if (!output_info->array_element_mask)
     {
-        vkd3d_spirv_build_op_store(builder, output_id, val_id, SpvMemoryAccessMaskNone);
+        vkd3d_dxbc_compiler_emit_store(compiler,
+                output_id, dst_write_mask, output_info->component_type, SpvStorageClassOutput, write_mask, val_id);
         return;
     }
 
@@ -4096,12 +4101,13 @@ static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compi
         if (!(write_mask & (VKD3DSP_WRITEMASK_0 << i)))
             continue;
 
-        indexes[0] = vkd3d_dxbc_compiler_get_constant_uint(compiler, index++);
-        chain_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
-                output_id, indexes, ARRAY_SIZE(indexes));
+        chain_id = vkd3d_spirv_build_op_access_chain1(builder,
+                ptr_type_id, output_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, index));
         object_id = vkd3d_dxbc_compiler_emit_swizzle(compiler, val_id,
                 write_mask, output_info->component_type, VKD3D_NO_SWIZZLE, VKD3DSP_WRITEMASK_0 << i);
-        vkd3d_spirv_build_op_store(builder, chain_id, object_id, SpvMemoryAccessMaskNone);
+        vkd3d_dxbc_compiler_emit_store(compiler, chain_id, VKD3DSP_WRITEMASK_0 << index,
+                output_info->component_type, SpvStorageClassOutput, VKD3DSP_WRITEMASK_0 << i, object_id);
+        ++index;
     }
 }
 
@@ -4116,6 +4122,7 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_
 
     STATIC_ASSERT(ARRAY_SIZE(compiler->private_output_variable) == ARRAY_SIZE(param_id));
     STATIC_ASSERT(ARRAY_SIZE(compiler->private_output_variable) == ARRAY_SIZE(param_type_id));
+    STATIC_ASSERT(ARRAY_SIZE(compiler->private_output_variable) == ARRAY_SIZE(compiler->private_output_variable_write_mask));
 
     function_id = compiler->epilogue_function_id;
 
@@ -4155,7 +4162,8 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_
             continue;
 
         vkd3d_dxbc_compiler_emit_store_shader_output(compiler,
-                &signature->elements[i], &compiler->output_info[i], param_id[variable_idx]);
+                &signature->elements[i], &compiler->output_info[i],
+                param_id[variable_idx], compiler->private_output_variable_write_mask[variable_idx]);
     }
 
     vkd3d_spirv_build_op_return(&compiler->spirv_builder);
@@ -4163,6 +4171,7 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_
 
     memset(compiler->output_info, 0, signature->element_count * sizeof(*compiler->output_info));
     memset(compiler->private_output_variable, 0, sizeof(compiler->private_output_variable));
+    memset(compiler->private_output_variable_write_mask, 0, sizeof(compiler->private_output_variable_write_mask));
     compiler->epilogue_function_id = 0;
 }
 
