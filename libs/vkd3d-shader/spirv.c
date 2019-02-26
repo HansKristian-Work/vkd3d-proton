@@ -5124,9 +5124,12 @@ static void vkd3d_dxbc_compiler_emit_dcl_thread_group(struct vkd3d_dxbc_compiler
 static void vkd3d_dxbc_compiler_leave_shader_phase(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_phase *phase)
 {
+    const struct vkd3d_shader_signature *signature = compiler->output_signature;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     struct vkd3d_shader_register reg;
     struct vkd3d_symbol reg_symbol;
+    struct rb_entry *entry;
+    unsigned int i;
 
     vkd3d_spirv_build_op_function_end(builder);
 
@@ -5139,12 +5142,41 @@ static void vkd3d_dxbc_compiler_leave_shader_phase(struct vkd3d_dxbc_compiler *c
     compiler->temp_id = 0;
     compiler->temp_count = 0;
 
+    /*
+     * Output regsiters have a different purpose in the control point phase and
+     * in fork/join phases. We have to remove all output registers' symbols
+     * when leaving the control point phase.
+     */
+    if (phase->type == VKD3DSIH_HS_CONTROL_POINT_PHASE)
+    {
+        memset(&reg, 0, sizeof(reg));
+        reg.type = VKD3DSPR_OUTPUT;
+        reg.idx[1].offset = ~0u;
+
+        for (i = 0; i < signature->element_count; ++i)
+        {
+            const struct vkd3d_shader_signature_element *e = &signature->elements[i];
+
+            reg.idx[0].offset = e->register_index;
+            vkd3d_symbol_make_register(&reg_symbol, &reg);
+            if ((entry = rb_get(&compiler->symbol_table, &reg_symbol)))
+            {
+                rb_remove(&compiler->symbol_table, entry);
+                vkd3d_symbol_free(entry, NULL);
+            }
+        }
+    }
+
     if (phase->instance_count)
     {
         reg.type = phase->type == VKD3DSIH_HS_FORK_PHASE ? VKD3DSPR_FORKINSTID : VKD3DSPR_JOININSTID;
         reg.idx[0].offset = ~0u;
         vkd3d_symbol_make_register(&reg_symbol, &reg);
-        rb_remove_key(&compiler->symbol_table, &reg_symbol);
+        if ((entry = rb_get(&compiler->symbol_table, &reg_symbol)))
+        {
+            rb_remove(&compiler->symbol_table, entry);
+            vkd3d_symbol_free(entry, NULL);
+        }
     }
 }
 
