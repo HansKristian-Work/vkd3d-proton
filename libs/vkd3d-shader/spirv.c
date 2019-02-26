@@ -1997,6 +1997,11 @@ struct vkd3d_dxbc_compiler
     size_t shader_phases_size;
 };
 
+static bool is_control_point_phase(const struct vkd3d_shader_phase *phase)
+{
+    return phase && phase->type == VKD3DSIH_HS_CONTROL_POINT_PHASE;
+}
+
 static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler);
 
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
@@ -3912,8 +3917,7 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
 
     shader_signature = is_patch_constant ? compiler->patch_constant_signature : compiler->output_signature;
 
-    array_size = phase && phase->type == VKD3DSIH_HS_CONTROL_POINT_PHASE
-            ? compiler->output_control_point_count : 0;
+    array_size = is_control_point_phase(phase) ? compiler->output_control_point_count : 0;
 
     if (!(signature_element = vkd3d_find_signature_element_for_reg(shader_signature,
             &signature_idx, reg->idx[0].offset, dst->write_mask)))
@@ -3993,7 +3997,6 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         storage_class = SpvStorageClassPrivate;
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
-
     if (!use_private_variable)
         var_id = id;
     else if ((entry = rb_get(&compiler->symbol_table, &reg_symbol)))
@@ -4006,7 +4009,7 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         vkd3d_symbol_set_register_info(&reg_symbol, var_id, storage_class,
                 use_private_variable ? VKD3D_TYPE_FLOAT : component_type, VKD3DSP_WRITEMASK_ALL);
         reg_symbol.info.reg.is_aggregate = use_private_variable ? false : array_size;
-        if (!use_private_variable && phase && phase->type == VKD3DSIH_HS_CONTROL_POINT_PHASE)
+        if (!use_private_variable && is_control_point_phase(phase))
         {
             struct vkd3d_shader_register r;
 
@@ -4196,7 +4199,7 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_
             param_id[i] = vkd3d_spirv_build_op_load(builder, type_id, param_id[i], SpvMemoryAccessMaskNone);
     }
 
-    if (phase && phase->type == VKD3DSIH_HS_CONTROL_POINT_PHASE)
+    if (is_control_point_phase(phase))
     {
         struct vkd3d_shader_register r;
         uint32_t invocation_id;
@@ -5227,7 +5230,7 @@ static void vkd3d_dxbc_compiler_leave_shader_phase(struct vkd3d_dxbc_compiler *c
      * in fork/join phases. We have to remove all output registers' symbols
      * when leaving the control point phase.
      */
-    if (phase->type == VKD3DSIH_HS_CONTROL_POINT_PHASE)
+    if (is_control_point_phase(phase))
     {
         memset(&reg, 0, sizeof(reg));
         reg.type = VKD3DSPR_OUTPUT;
@@ -5313,7 +5316,7 @@ static const struct vkd3d_shader_phase *vkd3d_dxbc_compiler_get_control_point_ph
         return NULL;
 
     phase = &compiler->shader_phases[0];
-    if (phase->type == VKD3DSIH_HS_CONTROL_POINT_PHASE)
+    if (is_control_point_phase(phase))
         return phase;
 
     return NULL;
@@ -5438,7 +5441,7 @@ static void vkd3d_dxbc_compiler_emit_hull_shader_main(struct vkd3d_dxbc_compiler
     for (i = 0; i < compiler->shader_phase_count; ++i)
     {
         phase = &compiler->shader_phases[i];
-        if (phase->type == VKD3DSIH_HS_CONTROL_POINT_PHASE)
+        if (is_control_point_phase(phase))
             continue;
 
         if (phase->instance_count)
