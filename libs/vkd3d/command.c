@@ -2855,8 +2855,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(ID3D12Graphi
         ID3D12Resource *src, UINT src_sub_resource_idx, DXGI_FORMAT format)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_format *src_format, *dst_format, *vk_format;
     struct d3d12_resource *dst_resource, *src_resource;
-    const struct vkd3d_format *src_format, *dst_format;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkImageResolve vk_image_resolve;
 
@@ -2876,13 +2876,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(ID3D12Graphi
 
     d3d12_command_list_end_current_render_pass(list);
 
-    if (dxgi_format_is_typeless(dst_resource->desc.Format)
-            || dxgi_format_is_typeless(src_resource->desc.Format))
-    {
-        FIXME("Not implemented for typeless resources.\n");
-        return;
-    }
-
     if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(&dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
     {
         WARN("Invalid format %#x.\n", dst_resource->desc.Format);
@@ -2892,6 +2885,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(ID3D12Graphi
     {
         WARN("Invalid format %#x.\n", src_resource->desc.Format);
         return;
+    }
+
+    if (dxgi_format_is_typeless(dst_resource->desc.Format) || dxgi_format_is_typeless(src_resource->desc.Format))
+    {
+        if (!(vk_format = vkd3d_format_from_d3d12_resource_desc(&dst_resource->desc, format)))
+        {
+            WARN("Invalid format %#x.\n", format);
+            return;
+        }
+        if (dst_format->vk_format != src_format->vk_format || dst_format->vk_format != vk_format->vk_format)
+        {
+            FIXME("Not implemented for typeless resources.\n");
+            return;
+        }
     }
 
     /* Resolve of depth/stencil images is not supported in Vulkan. */
