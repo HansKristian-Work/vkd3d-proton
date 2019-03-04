@@ -16162,6 +16162,13 @@ static void test_depth_stencil_sampling(void)
     {
         vkd3d_test_set_context("Test %u", i);
 
+        /* FIXME: Implement format substitution. */
+        if (tests[i].typeless_format == DXGI_FORMAT_R24G8_TYPELESS && is_radv_device(device))
+        {
+            skip("radv doesn't support VK_FORMAT_D24_UNORM_S8_UINT.\n");
+            continue;
+        }
+
         reset_command_list(command_list, context.allocator);
 
         init_depth_stencil(&ds, device, context.render_target_desc.Width,
