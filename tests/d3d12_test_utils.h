@@ -315,14 +315,14 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
         resource_desc.SampleDesc.Count = 1;
         resource_desc.SampleDesc.Quality = 0;
         hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
-                &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+                &resource_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL,
                 &IID_ID3D12Resource, (void **)&src_resource);
         ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
 
         ID3D12GraphicsCommandList_ResolveSubresource(command_list,
                 src_resource, 0, texture, sub_resource, resource_desc.Format);
         transition_resource_state(command_list, src_resource,
-                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
         sub_resource = 0;
     }
@@ -637,7 +637,7 @@ static void create_render_target_(unsigned int line, struct test_context *contex
     resource_desc.MipLevels = 1;
     resource_desc.Format = desc && desc->rt_format ? desc->rt_format : DXGI_FORMAT_R8G8B8A8_UNORM;
     resource_desc.SampleDesc.Count = desc && desc->sample_desc.Count ? desc->sample_desc.Count : 1;
-    resource_desc.SampleDesc.Quality = desc ? desc->sample_desc.Quality : 0;
+    resource_desc.SampleDesc.Quality = desc && desc->sample_desc.Count ? desc->sample_desc.Quality : 0;
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     clear_value.Format = resource_desc.Format;
@@ -649,7 +649,7 @@ static void create_render_target_(unsigned int line, struct test_context *contex
             &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
             D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
             &IID_ID3D12Resource, (void **)render_target);
-    ok_(line)(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
 
     context->render_target_desc = resource_desc;
 
