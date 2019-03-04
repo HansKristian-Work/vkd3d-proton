@@ -1536,6 +1536,7 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
 
         vkd3d_private_store_destroy(&device->private_store);
 
+        vkd3d_destroy_null_resources(&device->null_resources, device);
         vkd3d_gpu_va_allocator_cleanup(&device->gpu_va_allocator);
         vkd3d_fence_worker_stop(&device->fence_worker, device);
         VK_CALL(vkDestroySampler(device->vk_device, device->vk_dummy_sampler, NULL));
@@ -2704,6 +2705,9 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_fence_worker_start(&device->fence_worker, device)))
         goto out_free_private_store;
 
+    if (FAILED(hr = vkd3d_init_null_resources(&device->null_resources, device)))
+        goto out_stop_fence_worker;
+
     vkd3d_gpu_va_allocator_init(&device->gpu_va_allocator);
 
     if ((device->parent = create_info->parent))
@@ -2711,6 +2715,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     return S_OK;
 
+out_stop_fence_worker:
+    vkd3d_fence_worker_stop(&device->fence_worker, device);
 out_free_private_store:
     vkd3d_private_store_destroy(&device->private_store);
 out_free_pipeline_cache:

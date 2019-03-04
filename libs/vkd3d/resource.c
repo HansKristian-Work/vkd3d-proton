@@ -18,10 +18,12 @@
 
 #include "vkd3d_private.h"
 
+#define VKD3D_NULL_CBV_BUFFER_SIZE 4
+
 static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32_t memory_type_mask,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
 {
-    VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
+    const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
     VkMemoryPropertyFlags required_flags;
     unsigned int i;
 
@@ -517,10 +519,10 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
     if ((vr = VK_CALL(vkCreateBuffer(device->vk_device, &buffer_info, NULL, vk_buffer))) < 0)
     {
         WARN("Failed to create Vulkan buffer, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
+        *vk_buffer = VK_NULL_HANDLE;
     }
 
-    return S_OK;
+    return hresult_from_vk_result(vr);
 }
 
 static unsigned int max_miplevel_count(const D3D12_RESOURCE_DESC *desc)
@@ -670,10 +672,9 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
         WARN("Failed to bind memory, vr %d.\n", vr);
         VK_CALL(vkFreeMemory(device->vk_device, *vk_memory, NULL));
         *vk_memory = VK_NULL_HANDLE;
-        return hresult_from_vk_result(vr);
     }
 
-    return S_OK;
+    return hresult_from_vk_result(vr);
 }
 
 static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_image,
@@ -1753,17 +1754,21 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
         return;
     }
 
-    if (!desc->BufferLocation)
-    {
-        FIXME("NULL CBV not implemented.\n");
-        return;
-    }
-
-    resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, desc->BufferLocation);
     buffer_info = &descriptor->u.vk_cbv_info;
-    buffer_info->buffer = resource->u.vk_buffer;
-    buffer_info->offset = desc->BufferLocation - resource->gpu_address;
-    buffer_info->range = min(desc->SizeInBytes, resource->desc.Width - buffer_info->offset);
+    if (desc->BufferLocation)
+    {
+        resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, desc->BufferLocation);
+        buffer_info->buffer = resource->u.vk_buffer;
+        buffer_info->offset = desc->BufferLocation - resource->gpu_address;
+        buffer_info->range = min(desc->SizeInBytes, resource->desc.Width - buffer_info->offset);
+    }
+    else
+    {
+        /* NULL descriptor */
+        buffer_info->buffer = device->null_resources.vk_uniform_buffer;
+        buffer_info->offset = 0;
+        buffer_info->range = VKD3D_NULL_CBV_BUFFER_SIZE;
+    }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_CBV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -2873,4 +2878,54 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
     *heap = object;
 
     return S_OK;
+}
+
+HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
+        struct d3d12_device *device)
+{
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC buffer_desc;
+    HRESULT hr;
+
+    memset(null_resources, 0, sizeof(*null_resources));
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    buffer_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer_desc.Alignment = 0;
+    buffer_desc.Width = VKD3D_NULL_CBV_BUFFER_SIZE;
+    buffer_desc.Height = 1;
+    buffer_desc.DepthOrArraySize = 1;
+    buffer_desc.MipLevels = 1;
+    buffer_desc.Format = DXGI_FORMAT_UNKNOWN;
+    buffer_desc.SampleDesc.Count = 1;
+    buffer_desc.SampleDesc.Quality = 0;
+    buffer_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    buffer_desc.Flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+
+    if (FAILED(hr = vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &buffer_desc, &null_resources->vk_uniform_buffer)))
+        goto fail;
+
+    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_uniform_buffer,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_uniform_buffer_memory)))
+        goto fail;
+
+    return S_OK;
+
+fail:
+    ERR("Failed to initialize NULL resources, hr %#x.\n", hr);
+    vkd3d_destroy_null_resources(null_resources, device);
+    return hr;
+}
+
+void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    VK_CALL(vkDestroyBuffer(device->vk_device, null_resources->vk_uniform_buffer, NULL));
+    VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_uniform_buffer_memory, NULL));
+    memset(null_resources, 0, sizeof(*null_resources));
 }

@@ -868,6 +868,18 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_
         struct d3d12_command_signature **signature) DECLSPEC_HIDDEN;
 struct d3d12_command_signature *unsafe_impl_from_ID3D12CommandSignature(ID3D12CommandSignature *iface) DECLSPEC_HIDDEN;
 
+/* NULL resources */
+struct vkd3d_null_resources
+{
+    VkBuffer vk_uniform_buffer;
+    VkDeviceMemory vk_uniform_buffer_memory;
+};
+
+HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
+void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
+
 /* ID3D12Device */
 struct d3d12_device
 {
@@ -910,6 +922,8 @@ struct d3d12_device
     struct vkd3d_private_store private_store;
 
     HRESULT removed_reason;
+
+    struct vkd3d_null_resources null_resources;
 };
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
