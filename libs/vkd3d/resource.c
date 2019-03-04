@@ -2895,6 +2895,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
 {
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC buffer_desc;
+    VkResult vr;
     HRESULT hr;
 
     memset(null_resources, 0, sizeof(*null_resources));
@@ -2918,9 +2919,17 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             &buffer_desc, &null_resources->vk_uniform_buffer)))
         goto fail;
 
+    if ((vr = vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_uniform_buffer,
+            VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, "NULL CBV buffer")) < 0)
+        WARN("Failed to set object name, vr %d.\n", vr);
+
     if (FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_uniform_buffer,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_uniform_buffer_memory)))
         goto fail;
+
+    if ((vr = vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_uniform_buffer_memory,
+            VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, "NULL CBV memory")) < 0)
+        WARN("Failed to set object name, vr %d.\n", vr);
 
     return S_OK;
 

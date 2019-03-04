@@ -1043,6 +1043,8 @@ static inline void vkd3d_set_thread_name(const char *name)
 #endif
 }
 
+VkResult vkd3d_set_vk_object_name_utf8(struct d3d12_device *device, uint64_t vk_object,
+        VkDebugReportObjectTypeEXT vk_object_type, const char *name) DECLSPEC_HIDDEN;
 HRESULT vkd3d_set_vk_object_name(struct d3d12_device *device, uint64_t vk_object,
         VkDebugReportObjectTypeEXT vk_object_type, const WCHAR *name) DECLSPEC_HIDDEN;
 
