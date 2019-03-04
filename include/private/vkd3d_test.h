@@ -57,7 +57,7 @@ static void vkd3d_test_end_todo(void);
         unsigned int vkd3d_line = line; \
         VKD3D_TEST_TODO
 
-# define VKD3D_TEST_TODO(args...) \
+#define VKD3D_TEST_TODO(args...) \
         vkd3d_test_todo(vkd3d_line, args); } while (0)
 
 #define skip_(line) \
@@ -79,6 +79,9 @@ static void vkd3d_test_end_todo(void);
 #define todo_if(is_todo) \
     for (vkd3d_test_start_todo(is_todo); vkd3d_test_loop_todo(); vkd3d_test_end_todo())
 
+#define bug_if(is_bug) \
+    for (vkd3d_test_start_bug(is_bug); vkd3d_test_loop_bug(); vkd3d_test_end_bug())
+
 #define todo todo_if(true)
 
 static struct
@@ -88,11 +91,15 @@ static struct
     LONG skip_count;
     LONG todo_count;
     LONG todo_success_count;
+    LONG bug_count;
 
     unsigned int debug_level;
 
     unsigned int todo_level;
     bool todo_do_loop;
+
+    unsigned int bug_level;
+    bool bug_do_loop;
 
     char context[1024];
 } vkd3d_test_state;
@@ -113,33 +120,44 @@ static void
 vkd3d_test_check_ok(unsigned int line, bool result, const char *fmt, va_list args)
 {
     bool is_todo = vkd3d_test_state.todo_level && !vkd3d_test_platform_is_windows();
+    bool is_bug = vkd3d_test_state.bug_level && !vkd3d_test_platform_is_windows();
 
-    if (is_todo)
+    if (is_bug)
+    {
+        InterlockedIncrement(&vkd3d_test_state.bug_count);
+        if (is_todo)
+            result = !result;
+        if (result)
+            printf("%s:%d%s: Fixed bug: ", vkd3d_test_name, line, vkd3d_test_state.context);
+        else
+            printf("%s:%d%s: Bug: ", vkd3d_test_name, line, vkd3d_test_state.context);
+        vprintf(fmt, args);
+    }
+    else if (is_todo)
     {
         if (result)
         {
-            printf("%s:%d%s: Todo succeeded: ", vkd3d_test_name, line, vkd3d_test_state.context);
-            vprintf(fmt, args);
             InterlockedIncrement(&vkd3d_test_state.todo_success_count);
+            printf("%s:%d%s: Todo succeeded: ", vkd3d_test_name, line, vkd3d_test_state.context);
         }
         else
         {
-            printf("%s:%d%s: Todo: ", vkd3d_test_name, line, vkd3d_test_state.context);
-            vprintf(fmt, args);
             InterlockedIncrement(&vkd3d_test_state.todo_count);
+            printf("%s:%d%s: Todo: ", vkd3d_test_name, line, vkd3d_test_state.context);
         }
+        vprintf(fmt, args);
     }
     else if (result)
     {
+        InterlockedIncrement(&vkd3d_test_state.success_count);
         if (vkd3d_test_state.debug_level > 1)
             printf("%s:%d%s: Test succeeded.\n", vkd3d_test_name, line, vkd3d_test_state.context);
-        InterlockedIncrement(&vkd3d_test_state.success_count);
     }
     else
     {
+        InterlockedIncrement(&vkd3d_test_state.failure_count);
         printf("%s:%d%s: Test failed: ", vkd3d_test_name, line, vkd3d_test_state.context);
         vprintf(fmt, args);
-        InterlockedIncrement(&vkd3d_test_state.failure_count);
     }
 }
 
@@ -217,7 +235,7 @@ int main(int argc, char **argv)
 
     vkd3d_test_main(argc, argv);
 
-    printf("%s: %lu tests executed (%lu failures, %lu skipped, %lu todo).\n",
+    printf("%s: %lu tests executed (%lu failures, %lu skipped, %lu todo, %lu bugs).\n",
             vkd3d_test_name,
             (unsigned long)(vkd3d_test_state.success_count
             + vkd3d_test_state.failure_count + vkd3d_test_state.todo_count
@@ -225,7 +243,8 @@ int main(int argc, char **argv)
             (unsigned long)(vkd3d_test_state.failure_count
             + vkd3d_test_state.todo_success_count),
             (unsigned long)vkd3d_test_state.skip_count,
-            (unsigned long)vkd3d_test_state.todo_count);
+            (unsigned long)vkd3d_test_state.todo_count,
+            (unsigned long)vkd3d_test_state.bug_count);
 
     if (test_platform)
         free(test_platform);
@@ -304,6 +323,24 @@ static inline int vkd3d_test_loop_todo(void)
 static inline void vkd3d_test_end_todo(void)
 {
     vkd3d_test_state.todo_level >>= 1;
+}
+
+static inline void vkd3d_test_start_bug(bool is_bug)
+{
+    vkd3d_test_state.bug_level = (vkd3d_test_state.bug_level << 1) | is_bug;
+    vkd3d_test_state.bug_do_loop = true;
+}
+
+static inline int vkd3d_test_loop_bug(void)
+{
+    bool do_loop = vkd3d_test_state.bug_do_loop;
+    vkd3d_test_state.bug_do_loop = false;
+    return do_loop;
+}
+
+static inline void vkd3d_test_end_bug(void)
+{
+    vkd3d_test_state.bug_level >>= 1;
 }
 
 static inline void vkd3d_test_set_context(const char *fmt, ...)

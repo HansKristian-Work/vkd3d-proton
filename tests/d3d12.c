@@ -5569,6 +5569,7 @@ static void test_draw_uav_only(void)
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
     D3D12_ROOT_PARAMETER root_parameter;
     struct test_context_desc desc;
+    struct resource_readback rb;
     struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Resource *resource;
@@ -5650,7 +5651,10 @@ static void test_draw_uav_only(void)
 
     transition_resource_state(command_list, resource,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    check_sub_resource_uint(resource, 0, queue, command_list, 500, 0);
+    get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
+    bug_if(is_radv_device(context.device))
+    check_readback_data_uint(&rb, NULL, 500, 0);
+    release_resource_readback(&rb);
 
     ID3D12DescriptorHeap_Release(cpu_descriptor_heap);
     ID3D12DescriptorHeap_Release(descriptor_heap);
@@ -7865,6 +7869,7 @@ static void test_shader_instructions(void)
             struct ivec4 i;
         } output;
         bool skip_on_warp;
+        bool skip_on_mesa;
     }
     tests[] =
     {
@@ -7904,25 +7909,26 @@ static void test_shader_instructions(void)
         {&ps_if, {{0.0f}}, {{1.0f, 0.0f, 0.0f, 1.0f}}},
         {&ps_if, {{1.0f}}, {{0.0f, 1.0f, 0.0f, 1.0f}}},
 
+        /* FIXME: Ordered/unordered comparisons are broken on Mesa. */
         {&ps_if_return, {{0.0f, 0.0f, 0.0f, 0.0f}}, {{0.0f, 0.0f, 0.0f, 0.0f}}},
-        {&ps_if_return, {{ NAN, 0.0f, 0.0f, 0.0f}}, {{1.0f, 0.0f, 0.0f, 0.0f}}},
+        {&ps_if_return, {{ NAN, 0.0f, 0.0f, 0.0f}}, {{1.0f, 0.0f, 0.0f, 0.0f}}, false, true},
         {&ps_if_return, {{3.0f, 0.0f, 0.0f, 0.0f}}, {{0.0f, 0.0f, 0.0f, 0.0f}}},
         {&ps_if_return, {{4.0f, 0.0f, 0.0f, 0.0f}}, {{1.0f, 0.0f, 0.0f, 0.0f}}},
-        {&ps_if_return, {{4.0f,  NAN, 0.0f, 0.0f}}, {{1.0f, 1.0f, 1.0f, 0.0f}}},
+        {&ps_if_return, {{4.0f,  NAN, 0.0f, 0.0f}}, {{1.0f, 1.0f, 1.0f, 0.0f}}, false, true},
         {&ps_if_return, {{4.0f, 3.0f, 0.0f, 0.0f}}, {{1.0f, 0.0f, 0.0f, 0.0f}}},
         {&ps_if_return, {{4.0f, 4.0f, 0.0f, 0.0f}}, {{1.0f, 1.0f, 1.0f, 0.0f}}},
-        {&ps_if_return, {{4.0f, 4.0f,  NAN, 0.0f}}, {{1.0f, 1.0f, 1.0f, 0.0f}}},
+        {&ps_if_return, {{4.0f, 4.0f,  NAN, 0.0f}}, {{1.0f, 1.0f, 1.0f, 0.0f}}, false, true},
         {&ps_if_return, {{4.0f, 4.0f, 3.0f, 0.0f}}, {{1.0f, 1.0f, 1.0f, 0.0f}}},
         {&ps_if_return, {{4.0f, 4.0f, 4.0f, 0.0f}}, {{1.0f, 1.0f, 0.0f, 0.0f}}},
         {&ps_if_return, {{4.0f, 4.0f, 5.0f, 0.0f}}, {{1.0f, 1.0f, 0.0f, 0.0f}}},
-        {&ps_if_return, {{4.0f, 4.0f, 0.0f,  NAN}}, {{1.0f, 1.0f, 1.0f, 1.0f}}},
+        {&ps_if_return, {{4.0f, 4.0f, 0.0f,  NAN}}, {{1.0f, 1.0f, 1.0f, 1.0f}}, false, true},
         {&ps_if_return, {{4.0f, 4.0f, 0.0f, 1.0f}}, {{1.0f, 1.0f, 1.0f, 0.0f}}},
         {&ps_if_return, {{4.0f, 4.0f, 0.0f, 2.0f}}, {{1.0f, 1.0f, 1.0f, 0.0f}}},
         {&ps_if_return, {{4.0f, 4.0f, 0.0f, 3.0f}}, {{1.0f, 1.0f, 1.0f, 0.0f}}},
         {&ps_if_return, {{4.0f, 4.0f, 0.0f, 4.0f}}, {{1.0f, 1.0f, 1.0f, 0.0f}}},
         {&ps_if_return, {{4.0f, 4.0f, 0.0f, 5.0f}}, {{1.0f, 1.0f, 1.0f, 1.0f}}},
         {&ps_if_return, {{5.0f, 4.0f, 0.0f, 5.0f}}, {{1.0f, 1.0f, 1.0f, 0.0f}}},
-        {&ps_if_return, {{ NAN,  NAN,  NAN,  NAN}}, {{1.0f, 1.0f, 1.0f, 1.0f}}},
+        {&ps_if_return, {{ NAN,  NAN,  NAN,  NAN}}, {{1.0f, 1.0f, 1.0f, 1.0f}}, false, true},
 
         {&ps_nested_if, {{0.0f, 0.0f, 0.0f}}, {{0.0f, 0.0f, 0.0f, 1.0f}}},
         {&ps_nested_if, {{0.0f, 0.0f, 1.0f}}, {{1.0f, 0.0f, 0.0f, 1.0f}}},
@@ -8625,6 +8631,12 @@ static void test_shader_instructions(void)
         if (tests[i].skip_on_warp && use_warp_device)
         {
             skip("Skipping shader '%s' test on WARP.\n", tests[i].ps->name);
+            continue;
+        }
+
+        if (tests[i].skip_on_mesa && is_mesa_device(context.device))
+        {
+            skip("Skipping shader '%s' test on Mesa.\n", tests[i].ps->name);
             continue;
         }
 
@@ -16214,7 +16226,7 @@ static void test_depth_stencil_sampling(void)
             destroy_depth_stencil(&ds);
             continue;
         }
-        if (is_amd_device(device))
+        if (is_amd_windows_device(device))
         {
             skip("Reads from depth/stencil shader resource views return stale values on some AMD drivers.\n");
             destroy_depth_stencil(&ds);
@@ -18511,6 +18523,7 @@ static void test_atomic_instructions(void)
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
     unsigned int i, j;
+    bool is_todo;
     HRESULT hr;
 
     static const DWORD ps_atomics_code[] =
@@ -18721,8 +18734,11 @@ static void test_atomic_instructions(void)
             unsigned int value = get_readback_uint(&rb, j, 0, 0);
             unsigned int expected = test->expected_result[j];
 
-            todo_if(test->i.x < 0
-                    && (!strcmp(instructions[j], "atomic_imax") || !strcmp(instructions[j], "atomic_imin")))
+            is_todo = test->i.x < 0
+                    && (!strcmp(instructions[j], "atomic_imax") || !strcmp(instructions[j], "atomic_imin"));
+
+            bug_if(is_todo && is_nvidia_device(device))
+            todo_if(is_todo)
             ok(value == expected, "Test %u: Got %#x (%d), expected %#x (%d) for '%s' "
                     "with inputs (%u, %u), (%d), %#x (%d).\n",
                     i, value, value, expected, expected, instructions[j],
@@ -18741,6 +18757,7 @@ static void test_atomic_instructions(void)
             unsigned int value = get_readback_uint(&rb, j, 0, 0);
             unsigned int expected = test->expected_result[j];
 
+            bug_if(test->i.x < 0 && todo_instruction && is_nvidia_device(device))
             todo_if(test->i.x < 0 && todo_instruction)
             ok(value == expected, "Test %u: Got %#x (%d), expected %#x (%d) for '%s' "
                     "with inputs (%u, %u), (%d), %#x (%d).\n",

@@ -296,7 +296,7 @@ static void init_adapter_info(void)
     IDXGIAdapter_Release(dxgi_adapter);
 }
 
-static inline bool is_amd_device(ID3D12Device *device)
+static inline bool is_amd_windows_device(ID3D12Device *device)
 {
     DXGI_ADAPTER_DESC desc = {0};
     IDXGIFactory4 *factory;
@@ -324,8 +324,24 @@ static inline bool is_amd_device(ID3D12Device *device)
 
     return desc.VendorId == 0x1002;
 }
+
+static inline bool is_mesa_device(ID3D12Device *device)
+{
+    return false;
+}
+
+static inline bool is_nvidia_device(ID3D12Device *device)
+{
+    return false;
+}
+
+static inline bool is_radv_device(ID3D12Device *device)
+{
+    return false;
+}
 #else
 static bool have_VK_KHR_driver_properties;
+static VkDriverIdKHR vk_driver_id;
 
 static HRESULT create_vkd3d_instance(struct vkd3d_instance **instance)
 {
@@ -484,15 +500,33 @@ static void init_adapter_info(void)
 
     trace("Driver name: %s, driver info: %s.\n", driver_properties.driverName, driver_properties.driverInfo);
 
+    vk_driver_id = driver_properties.driverID;
+
     ID3D12Device_Release(device);
 
 done:
     vkd3d_instance_decref(instance);
 }
 
-static inline bool is_amd_device(ID3D12Device *device)
+static inline bool is_amd_windows_device(ID3D12Device *device)
 {
     return false;
+}
+
+static inline bool is_mesa_device(ID3D12Device *device)
+{
+    return vk_driver_id == VK_DRIVER_ID_MESA_RADV_KHR
+            || vk_driver_id == VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA_KHR;
+}
+
+static inline bool is_nvidia_device(ID3D12Device *device)
+{
+    return vk_driver_id == VK_DRIVER_ID_NVIDIA_PROPRIETARY_KHR;
+}
+
+static inline bool is_radv_device(ID3D12Device *device)
+{
+    return vk_driver_id == VK_DRIVER_ID_MESA_RADV_KHR;
 }
 #endif
 
