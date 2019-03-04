@@ -55,6 +55,7 @@ typedef int HRESULT;
 # include "vkd3d_dxgi1_4.h"
 #else
 # include <pthread.h>
+# include "vkd3d.h"
 # include "vkd3d_utils.h"
 #endif
 
@@ -324,12 +325,170 @@ static inline bool is_amd_device(ID3D12Device *device)
     return desc.VendorId == 0x1002;
 }
 #else
+static bool have_VK_KHR_driver_properties;
+
+static HRESULT create_vkd3d_instance(struct vkd3d_instance **instance)
+{
+    struct vkd3d_optional_instance_extensions_info optional_extensions_info;
+    struct vkd3d_instance_create_info instance_create_info;
+
+    static const char * const optional_instance_extensions[] =
+    {
+        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+    };
+
+    memset(&optional_extensions_info, 0, sizeof(optional_extensions_info));
+    optional_extensions_info.type = VKD3D_STRUCTURE_TYPE_OPTIONAL_INSTANCE_EXTENSIONS_INFO;
+    optional_extensions_info.extensions = optional_instance_extensions;
+    optional_extensions_info.extension_count = ARRAY_SIZE(optional_instance_extensions);
+
+    memset(&instance_create_info, 0, sizeof(instance_create_info));
+    instance_create_info.type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    instance_create_info.next = &optional_extensions_info;
+    instance_create_info.pfn_signal_event = vkd3d_signal_event;
+    instance_create_info.wchar_size = sizeof(WCHAR);
+
+    return vkd3d_create_instance(&instance_create_info, instance);
+}
+
+static HRESULT create_vkd3d_device(struct vkd3d_instance *instance,
+        D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
+{
+    struct vkd3d_device_create_info device_create_info;
+
+    static const char * const device_extensions[] =
+    {
+        VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME,
+    };
+
+    memset(&device_create_info, 0, sizeof(device_create_info));
+    device_create_info.type = VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    device_create_info.minimum_feature_level = minimum_feature_level;
+    device_create_info.instance = instance;
+    if (have_VK_KHR_driver_properties)
+    {
+        device_create_info.device_extensions = device_extensions;
+        device_create_info.device_extension_count = ARRAY_SIZE(device_extensions);
+    }
+
+    return vkd3d_create_device(&device_create_info, iid, device);
+}
+
+static bool check_device_extension(VkPhysicalDevice vk_physical_device, const char *name)
+{
+    VkExtensionProperties *properties;
+    bool ret = false;
+    unsigned int i;
+    uint32_t count;
+    VkResult vr;
+
+    vr = vkEnumerateDeviceExtensionProperties(vk_physical_device, NULL, &count, NULL);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+    if (!count)
+        return false;
+
+    properties = calloc(count, sizeof(*properties));
+    ok(properties, "Failed to allocate memory.\n");
+
+    vr = vkEnumerateDeviceExtensionProperties(vk_physical_device, NULL, &count, properties);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+    for (i = 0; i < count; ++i)
+    {
+        if (!strcmp(properties[i].extensionName, name))
+        {
+            ret = true;
+            break;
+        }
+    }
+
+    free(properties);
+    return ret;
+}
+
+HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
+        D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
+{
+    struct vkd3d_instance *instance;
+    HRESULT hr;
+
+    if (SUCCEEDED(hr = create_vkd3d_instance(&instance)))
+    {
+        hr = create_vkd3d_device(instance, minimum_feature_level,  iid, device);
+        vkd3d_instance_decref(instance);
+    }
+
+    return hr;
+}
+
 static IUnknown *create_adapter(void)
 {
     return NULL;
 }
 
-static void init_adapter_info(void) {}
+static void init_adapter_info(void)
+{
+    PFN_vkGetPhysicalDeviceProperties2KHR pfn_vkGetPhysicalDeviceProperties2KHR;
+    VkPhysicalDeviceDriverPropertiesKHR driver_properties;
+    VkPhysicalDeviceProperties2 device_properties2;
+    VkPhysicalDevice *vk_physical_devices;
+    VkPhysicalDevice vk_physical_device;
+    struct vkd3d_instance *instance;
+    VkInstance vk_instance;
+    ID3D12Device *device;
+    uint32_t count, i;
+    VkResult vr;
+    HRESULT hr;
+
+    if (FAILED(hr = create_vkd3d_instance(&instance)))
+        return;
+
+    vk_instance = vkd3d_instance_get_vk_instance(instance);
+
+    vr = vkEnumeratePhysicalDevices(vk_instance, &count, NULL);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+    vk_physical_devices = calloc(count, sizeof(*vk_physical_devices));
+    ok(vk_physical_devices, "Failed to allocate memory.\n");
+    vr = vkEnumeratePhysicalDevices(vk_instance, &count, vk_physical_devices);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+
+    have_VK_KHR_driver_properties = true;
+    for (i = 0; i < count; ++i)
+    {
+        if (!check_device_extension(vk_physical_devices[i],VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME))
+        {
+            have_VK_KHR_driver_properties = false;
+            break;
+        }
+    }
+
+    free(vk_physical_devices);
+
+    if (!have_VK_KHR_driver_properties)
+        goto done;
+
+    if (FAILED(hr = create_vkd3d_device(instance, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device)))
+        goto done;
+
+    vk_physical_device = vkd3d_get_vk_physical_device(device);
+
+    pfn_vkGetPhysicalDeviceProperties2KHR
+            = (void *)vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceProperties2KHR");
+    ok(pfn_vkGetPhysicalDeviceProperties2KHR, "vkGetPhysicalDeviceProperties2KHR is NULL.\n");
+
+    memset(&device_properties2, 0, sizeof(device_properties2));
+    device_properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    device_properties2.pNext = &driver_properties;
+    memset(&driver_properties, 0, sizeof(driver_properties));
+    driver_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR;
+    pfn_vkGetPhysicalDeviceProperties2KHR(vk_physical_device, &device_properties2);
+
+    trace("Driver name: %s, driver info: %s.\n", driver_properties.driverName, driver_properties.driverInfo);
+
+    ID3D12Device_Release(device);
+
+done:
+    vkd3d_instance_decref(instance);
+}
 
 static inline bool is_amd_device(ID3D12Device *device)
 {
