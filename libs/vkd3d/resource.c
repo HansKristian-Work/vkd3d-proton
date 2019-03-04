@@ -24,21 +24,26 @@ static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
 {
     const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
-    VkMemoryPropertyFlags required_flags;
-    unsigned int i;
+    VkMemoryPropertyFlags flags[2];
+    unsigned int i, j, count = 0;
 
     switch (heap_properties->Type)
     {
         case D3D12_HEAP_TYPE_DEFAULT:
-            required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+            flags[count++] = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+            break;
+
+        case D3D12_HEAP_TYPE_UPLOAD:
+            flags[count++] = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
             break;
 
         case D3D12_HEAP_TYPE_CUSTOM:
             FIXME("Custom heaps not supported yet.\n");
             /* fall-through */
-        case D3D12_HEAP_TYPE_UPLOAD:
         case D3D12_HEAP_TYPE_READBACK:
-            required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            flags[count++] = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                    | VK_MEMORY_PROPERTY_HOST_CACHED_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            flags[count++] = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
             break;
 
         default:
@@ -46,12 +51,17 @@ static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32
             return ~0u;
     }
 
-    for (i = 0; i < memory_info->memoryTypeCount; ++i)
+    for (j = 0; j < count; ++j)
     {
-        if (!(memory_type_mask & (1u << i)))
-            continue;
-        if ((memory_info->memoryTypes[i].propertyFlags & required_flags) == required_flags)
-            return i;
+        VkMemoryPropertyFlags preferred_flags = flags[j];
+
+        for (i = 0; i < memory_info->memoryTypeCount; ++i)
+        {
+            if (!(memory_type_mask & (1u << i)))
+                continue;
+            if ((memory_info->memoryTypes[i].propertyFlags & preferred_flags) == preferred_flags)
+                return i;
+        }
     }
 
     return ~0u;
