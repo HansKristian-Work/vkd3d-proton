@@ -1097,6 +1097,25 @@ static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
     return S_OK;
 }
 
+/* Vulkan queues */
+enum vkd3d_queue_family
+{
+    VKD3D_QUEUE_FAMILY_DIRECT,
+    VKD3D_QUEUE_FAMILY_COMPUTE,
+    VKD3D_QUEUE_FAMILY_TRANSFER,
+
+    VKD3D_QUEUE_FAMILY_COUNT,
+};
+
+struct vkd3d_device_queue_info
+{
+    unsigned int family_index[VKD3D_QUEUE_FAMILY_COUNT];
+    VkQueueFamilyProperties vk_properties[VKD3D_QUEUE_FAMILY_COUNT];
+
+    unsigned int vk_family_count;
+    VkDeviceQueueCreateInfo vk_queue_create_info[VKD3D_QUEUE_FAMILY_COUNT];
+};
+
 static void d3d12_device_destroy_vkd3d_queues(struct d3d12_device *device)
 {
     if (device->direct_queue)
@@ -1113,31 +1132,33 @@ static void d3d12_device_destroy_vkd3d_queues(struct d3d12_device *device)
 }
 
 static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
-        const VkQueueFamilyProperties *queue_properties, uint32_t direct_queue_family_index,
-        uint32_t compute_queue_family_index, uint32_t copy_queue_family_index)
+        const struct vkd3d_device_queue_info *queue_info)
 {
+    uint32_t transfer_family_index = queue_info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER];
+    uint32_t compute_family_index = queue_info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
+    uint32_t direct_family_index = queue_info->family_index[VKD3D_QUEUE_FAMILY_DIRECT];
     HRESULT hr;
 
     device->direct_queue = NULL;
     device->compute_queue = NULL;
     device->copy_queue = NULL;
 
-    if (FAILED((hr = vkd3d_queue_create(device, direct_queue_family_index,
-            &queue_properties[direct_queue_family_index], &device->direct_queue))))
+    if (FAILED((hr = vkd3d_queue_create(device, direct_family_index,
+            &queue_info->vk_properties[VKD3D_QUEUE_FAMILY_DIRECT], &device->direct_queue))))
         goto out_destroy_queues;
 
-    if (compute_queue_family_index == direct_queue_family_index)
+    if (compute_family_index == direct_family_index)
         device->compute_queue = device->direct_queue;
-    else if (FAILED(hr = vkd3d_queue_create(device, compute_queue_family_index,
-            &queue_properties[compute_queue_family_index], &device->compute_queue)))
+    else if (FAILED(hr = vkd3d_queue_create(device, compute_family_index,
+            &queue_info->vk_properties[VKD3D_QUEUE_FAMILY_COMPUTE], &device->compute_queue)))
         goto out_destroy_queues;
 
-    if (copy_queue_family_index == direct_queue_family_index)
+    if (transfer_family_index == direct_family_index)
         device->copy_queue = device->direct_queue;
-    else if (copy_queue_family_index == compute_queue_family_index)
+    else if (transfer_family_index == compute_family_index)
         device->copy_queue = device->compute_queue;
-    else if (FAILED(hr = vkd3d_queue_create(device, copy_queue_family_index,
-            &queue_properties[copy_queue_family_index], &device->copy_queue)))
+    else if (FAILED(hr = vkd3d_queue_create(device, transfer_family_index,
+            &queue_info->vk_properties[VKD3D_QUEUE_FAMILY_TRANSFER], &device->copy_queue)))
         goto out_destroy_queues;
 
     return S_OK;
@@ -1147,24 +1168,105 @@ out_destroy_queues:
     return hr;
 }
 
+static float queue_priorities[] = {1.0f};
+
+static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
+        VkPhysicalDevice physical_device, struct vkd3d_device_queue_info *info)
+{
+    const struct vkd3d_vk_instance_procs *vk_procs = &vkd3d_instance->vk_procs;
+    VkQueueFamilyProperties *queue_properties = NULL;
+    VkDeviceQueueCreateInfo *queue_info = NULL;
+    unsigned int i;
+    uint32_t count;
+
+    memset(info, 0, sizeof(*info));
+    for (i = 0; i < ARRAY_SIZE(info->family_index); ++i)
+        info->family_index[i] = ~0u;
+
+    VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &count, NULL));
+    if (!(queue_properties = vkd3d_calloc(count, sizeof(*queue_properties))))
+        return E_OUTOFMEMORY;
+    VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &count, queue_properties));
+
+    for (i = 0; i < count; ++i)
+    {
+        enum vkd3d_queue_family vkd3d_family = VKD3D_QUEUE_FAMILY_COUNT;
+
+        if ((queue_properties[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
+                == (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
+        {
+            vkd3d_family = VKD3D_QUEUE_FAMILY_DIRECT;
+        }
+        if ((queue_properties[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
+                == VK_QUEUE_COMPUTE_BIT)
+        {
+            vkd3d_family = VKD3D_QUEUE_FAMILY_COMPUTE;
+        }
+        if ((queue_properties[i].queueFlags & ~VK_QUEUE_SPARSE_BINDING_BIT) == VK_QUEUE_TRANSFER_BIT)
+        {
+            vkd3d_family = VKD3D_QUEUE_FAMILY_TRANSFER;
+        }
+
+        if (vkd3d_family == VKD3D_QUEUE_FAMILY_COUNT)
+            continue;
+
+        info->family_index[vkd3d_family] = i;
+        info->vk_properties[vkd3d_family] = queue_properties[i];
+        queue_info = &info->vk_queue_create_info[vkd3d_family];
+
+        queue_info->sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queue_info->pNext = NULL;
+        queue_info->flags = 0;
+        queue_info->queueFamilyIndex = i;
+        queue_info->queueCount = 1; /* FIXME: Use multiple queues. */
+        queue_info->pQueuePriorities = queue_priorities;
+    }
+
+    vkd3d_free(queue_properties);
+
+    if (info->family_index[VKD3D_QUEUE_FAMILY_DIRECT] == ~0u)
+    {
+        FIXME("Could not find a suitable queue family for a direct command queue.\n");
+        return E_FAIL;
+    }
+
+    /* No compute-only queue family, reuse the direct queue family with graphics and compute. */
+    if (info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] == ~0u)
+    {
+        info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_DIRECT];
+        info->vk_properties[VKD3D_QUEUE_FAMILY_COMPUTE] = info->vk_properties[VKD3D_QUEUE_FAMILY_DIRECT];
+    }
+    if (info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] == ~0u)
+    {
+        info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_DIRECT];
+        info->vk_properties[VKD3D_QUEUE_FAMILY_TRANSFER] = info->vk_properties[VKD3D_QUEUE_FAMILY_DIRECT];
+    }
+
+    /* Compact the array. */
+    info->vk_family_count = 1;
+    for (i = info->vk_family_count; i < ARRAY_SIZE(info->vk_queue_create_info); ++i)
+    {
+        if (info->vk_queue_create_info[i].queueCount)
+            info->vk_queue_create_info[info->vk_family_count++] = info->vk_queue_create_info[i];
+    }
+
+    return S_OK;
+}
+
 static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         const struct vkd3d_device_create_info *create_info)
 {
-    unsigned int direct_queue_family_index, copy_queue_family_index, compute_queue_family_index;
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
-    VkQueueFamilyProperties *queue_properties = NULL;
-    VkDeviceQueueCreateInfo *queue_info = NULL;
+    struct vkd3d_device_queue_info device_queue_info;
     VkPhysicalDeviceFeatures2 features2;
     VkPhysicalDevice physical_device;
     VkDeviceCreateInfo device_info;
-    uint32_t queue_family_count;
     uint32_t extension_count;
     const char **extensions;
     VkDevice vk_device;
-    unsigned int i;
     VkResult vr;
     HRESULT hr;
 
@@ -1177,70 +1279,15 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     device->vk_physical_device = physical_device;
 
-    /* Create command queues */
-    VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, NULL));
-    if (!(queue_properties = vkd3d_calloc(queue_family_count, sizeof(*queue_properties))))
-        return E_OUTOFMEMORY;
-    VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(physical_device,
-            &queue_family_count, queue_properties));
+    if (FAILED(hr = vkd3d_select_queues(device->vkd3d_instance, physical_device, &device_queue_info)))
+        return hr;
 
-    if (!(queue_info = vkd3d_calloc(queue_family_count, sizeof(*queue_info))))
-    {
-        hr = E_OUTOFMEMORY;
-        goto done;
-    }
-
-    direct_queue_family_index = ~0u;
-    copy_queue_family_index = ~0u;
-    compute_queue_family_index = ~0u;
-    for (i = 0; i < queue_family_count; ++i)
-    {
-        static float priorities[] = {1.0f};
-
-        queue_info[i].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queue_info[i].pNext = NULL;
-        queue_info[i].flags = 0;
-        queue_info[i].queueFamilyIndex = i;
-        queue_info[i].queueCount = 1;
-        queue_info[i].pQueuePriorities = priorities;
-
-        if ((queue_properties[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
-                == (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
-        {
-            direct_queue_family_index = i;
-        }
-        if (queue_properties[i].queueFlags & VK_QUEUE_TRANSFER_BIT)
-        {
-            copy_queue_family_index = i;
-        }
-        if ((queue_properties[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
-                == VK_QUEUE_COMPUTE_BIT)
-        {
-            compute_queue_family_index = i;
-        }
-    }
-
-    if (direct_queue_family_index == ~0u)
-    {
-        FIXME("Could not find a suitable queue family for a direct command queue.\n");
-        hr = E_FAIL;
-        goto done;
-    }
-    if (copy_queue_family_index == ~0u)
-    {
-        FIXME("Could not find a suitable queue family for a copy command queue.\n");
-        hr = E_FAIL;
-        goto done;
-    }
-    if (compute_queue_family_index == ~0u)
-    {
-        /* No compute-only queue family, reuse the direct queue family with graphics and compute. */
-        compute_queue_family_index = direct_queue_family_index;
-    }
-
-    TRACE("Using queue family %u for direct command queues.\n", direct_queue_family_index);
-    TRACE("Using queue family %u for copy command queues.\n", copy_queue_family_index);
-    TRACE("Using queue family %u for compute command queues.\n", compute_queue_family_index);
+    TRACE("Using queue family %u for direct command queues.\n",
+            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_DIRECT]);
+    TRACE("Using queue family %u for compute command queues.\n",
+            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_COMPUTE]);
+    TRACE("Using queue family %u for copy command queues.\n",
+            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_TRANSFER]);
 
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 
@@ -1257,20 +1304,17 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &features2.features));
 
     if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &features2, &extension_count)))
-        goto done;
+        return hr;
 
     if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
-    {
-        hr = E_OUTOFMEMORY;
-        goto done;
-    }
+        return E_OUTOFMEMORY;
 
     /* Create device */
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     device_info.pNext = &vertex_divisor_features;
     device_info.flags = 0;
-    device_info.queueCreateInfoCount = queue_family_count;
-    device_info.pQueueCreateInfos = queue_info;
+    device_info.queueCreateInfoCount = device_queue_info.vk_family_count;
+    device_info.pQueueCreateInfos = device_queue_info.vk_queue_create_info;
     device_info.enabledLayerCount = 0;
     device_info.ppEnabledLayerNames = NULL;
     device_info.enabledExtensionCount = vkd3d_enable_extensions(extensions,
@@ -1286,8 +1330,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     if (vr < 0)
     {
         ERR("Failed to create Vulkan device, vr %d.\n", vr);
-        hr = hresult_from_vk_result(vr);
-        goto done;
+        return hresult_from_vk_result(vr);
     }
 
     if (FAILED(hr = vkd3d_load_vk_device_procs(&device->vk_procs, vk_procs, vk_device)))
@@ -1295,26 +1338,20 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         ERR("Failed to load device procs, hr %#x.\n", hr);
         if (device->vk_procs.vkDestroyDevice)
             device->vk_procs.vkDestroyDevice(vk_device, NULL);
-        goto done;
+        return hr;
     }
 
     device->vk_device = vk_device;
 
-    if (FAILED(hr = d3d12_device_create_vkd3d_queues(device, queue_properties,
-            direct_queue_family_index, compute_queue_family_index, copy_queue_family_index)))
+    if (FAILED(hr = d3d12_device_create_vkd3d_queues(device, &device_queue_info)))
     {
         ERR("Failed to create queues, hr %#x.\n", hr);
         device->vk_procs.vkDestroyDevice(vk_device, NULL);
-        goto done;
+        return hr;
     }
 
     TRACE("Created Vulkan device %p.\n", vk_device);
 
-done:
-    if (queue_properties)
-        vkd3d_free(queue_properties);
-    if (queue_info)
-        vkd3d_free(queue_info);
     return hr;
 }
 
