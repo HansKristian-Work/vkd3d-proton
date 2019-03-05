@@ -2933,6 +2933,7 @@ static void vkd3d_dxbc_compiler_emit_store_scalar(struct vkd3d_dxbc_compiler *co
         type_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
         ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id);
         component_idx = vkd3d_write_mask_get_component_idx(write_mask);
+        component_idx -= vkd3d_write_mask_get_component_idx(dst_write_mask);
         index[0] = vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx);
         dst_id = vkd3d_spirv_build_op_in_bounds_access_chain(builder, ptr_type_id, dst_id, index, ARRAY_SIZE(index));
     }
