@@ -15552,6 +15552,8 @@ static void test_null_cbv(void)
 
     for (index = 0; index < 1200; index += 100)
     {
+        vkd3d_test_set_context("index %u", index);
+
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
         ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
@@ -15568,12 +15570,13 @@ static void test_null_cbv(void)
 
         transition_sub_resource_state(command_list, context.render_target, 0,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        check_sub_resource_float(context.render_target, 0, queue, command_list, 0x00000000, 0);
+        check_sub_resource_uint(context.render_target, 0, queue, command_list, 0x00000000, 0);
 
         reset_command_list(command_list, context.allocator);
         transition_sub_resource_state(command_list, context.render_target, 0,
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
+    vkd3d_test_set_context(NULL);
 
     ID3D12DescriptorHeap_Release(heap);
     destroy_test_context(&context);
