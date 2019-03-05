@@ -358,8 +358,8 @@ static inline bool is_radv_device(ID3D12Device *device)
 {
     return false;
 }
+
 #else
-static VkDriverIdKHR vk_driver_id;
 
 static bool check_device_extension(VkPhysicalDevice vk_physical_device, const char *name)
 {
@@ -491,26 +491,20 @@ static ID3D12Device *create_device(void)
     return SUCCEEDED(hr) ? device : NULL;
 }
 
-static void init_adapter_info(void)
+static bool get_driver_properties(ID3D12Device *device, VkPhysicalDeviceDriverPropertiesKHR *driver_properties)
 {
     PFN_vkGetPhysicalDeviceProperties2KHR pfn_vkGetPhysicalDeviceProperties2KHR;
-    VkPhysicalDeviceDriverPropertiesKHR driver_properties;
     VkPhysicalDeviceProperties2 device_properties2;
     VkPhysicalDevice vk_physical_device;
-    struct vkd3d_instance *instance;
-    ID3D12Device *device;
-    HRESULT hr;
 
-    if (FAILED(hr = create_vkd3d_instance(&instance)))
-        return;
-
-    if (FAILED(hr = create_vkd3d_device(instance, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device)))
-        goto done;
+    memset(driver_properties, 0, sizeof(*driver_properties));
+    driver_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR;
 
     vk_physical_device = vkd3d_get_vk_physical_device(device);
 
     if (check_device_extension(vk_physical_device, VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME))
     {
+        struct vkd3d_instance *instance = vkd3d_instance_from_device(device);
         VkInstance vk_instance = vkd3d_instance_get_vk_instance(instance);
 
         pfn_vkGetPhysicalDeviceProperties2KHR
@@ -519,19 +513,32 @@ static void init_adapter_info(void)
 
         memset(&device_properties2, 0, sizeof(device_properties2));
         device_properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-        device_properties2.pNext = &driver_properties;
-        memset(&driver_properties, 0, sizeof(driver_properties));
-        driver_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR;
+        device_properties2.pNext = driver_properties;
         pfn_vkGetPhysicalDeviceProperties2KHR(vk_physical_device, &device_properties2);
-
-        trace("Driver name: %s, driver info: %s.\n", driver_properties.driverName, driver_properties.driverInfo);
-
-        vk_driver_id = driver_properties.driverID;
+        return true;
     }
 
-    ID3D12Device_Release(device);
+    return false;
+}
 
-done:
+static void init_adapter_info(void)
+{
+    VkPhysicalDeviceDriverPropertiesKHR driver_properties;
+    struct vkd3d_instance *instance;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    if (FAILED(hr = create_vkd3d_instance(&instance)))
+        return;
+
+    if (SUCCEEDED(hr = create_vkd3d_device(instance, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device)))
+    {
+        if (get_driver_properties(device, &driver_properties))
+            trace("Driver name: %s, driver info: %s.\n", driver_properties.driverName, driver_properties.driverInfo);
+
+        ID3D12Device_Release(device);
+    }
+
     vkd3d_instance_decref(instance);
 }
 
@@ -542,18 +549,27 @@ static inline bool is_amd_windows_device(ID3D12Device *device)
 
 static inline bool is_mesa_device(ID3D12Device *device)
 {
-    return vk_driver_id == VK_DRIVER_ID_MESA_RADV_KHR
-            || vk_driver_id == VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA_KHR;
+    VkPhysicalDeviceDriverPropertiesKHR properties;
+
+    get_driver_properties(device, &properties);
+    return properties.driverID == VK_DRIVER_ID_MESA_RADV_KHR
+            || properties.driverID == VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA_KHR;
 }
 
 static inline bool is_nvidia_device(ID3D12Device *device)
 {
-    return vk_driver_id == VK_DRIVER_ID_NVIDIA_PROPRIETARY_KHR;
+    VkPhysicalDeviceDriverPropertiesKHR properties;
+
+    get_driver_properties(device, &properties);
+    return properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY_KHR;
 }
 
 static inline bool is_radv_device(ID3D12Device *device)
 {
-    return vk_driver_id == VK_DRIVER_ID_MESA_RADV_KHR;
+    VkPhysicalDeviceDriverPropertiesKHR properties;
+
+    get_driver_properties(device, &properties);
+    return properties.driverID == VK_DRIVER_ID_MESA_RADV_KHR;
 }
 #endif
 
