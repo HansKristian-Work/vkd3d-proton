@@ -853,9 +853,11 @@ static void vkd3d_trace_physical_device_features(const VkPhysicalDeviceFeatures2
     }
 }
 
-static void vkd3d_check_feature_level_11_requirements(const struct vkd3d_vulkan_info *vk_info,
+static void vkd3d_init_feature_level(struct vkd3d_vulkan_info *vk_info,
         const VkPhysicalDeviceFeatures *features)
 {
+    bool have_11_0 = true;
+
 #define CHECK_MIN_REQUIREMENT(name, value) \
     if (vk_info->device_limits.name < value) \
         WARN(#name " does not meet feature level 11_0 requirements.\n");
@@ -864,7 +866,10 @@ static void vkd3d_check_feature_level_11_requirements(const struct vkd3d_vulkan_
         WARN(#name " does not meet feature level 11_0 requirements.\n");
 #define CHECK_FEATURE(name) \
     if (!features->name) \
-        WARN(#name " is not supported.\n");
+    { \
+        WARN(#name " is not supported.\n"); \
+        have_11_0 = false; \
+    }
 
     CHECK_MIN_REQUIREMENT(maxPushConstantsSize, D3D12_MAX_ROOT_COST * sizeof(uint32_t));
     CHECK_MIN_REQUIREMENT(maxComputeSharedMemorySize, D3D12_CS_TGSM_REGISTER_COUNT * sizeof(uint32_t));
@@ -906,6 +911,17 @@ static void vkd3d_check_feature_level_11_requirements(const struct vkd3d_vulkan_
 #undef CHECK_MIN_REQUIREMENT
 #undef CHECK_MAX_REQUIREMENT
 #undef CHECK_FEATURE
+
+    vk_info->max_feature_level = D3D_FEATURE_LEVEL_11_0;
+
+    if (have_11_0
+            && features->logicOp
+            && features->vertexPipelineStoresAndAtomics
+            && vk_info->device_limits.maxPerStageDescriptorStorageBuffers >= D3D12_UAV_SLOT_COUNT
+            && vk_info->device_limits.maxPerStageDescriptorStorageImages >= D3D12_UAV_SLOT_COUNT)
+        vk_info->max_feature_level = D3D_FEATURE_LEVEL_11_1;
+
+    TRACE("Max feature level: %#x.\n", vk_info->max_feature_level);
 }
 
 static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
@@ -1030,11 +1046,16 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         vulkan_info->vertex_attrib_zero_divisor = false;
     }
 
-    vkd3d_check_feature_level_11_requirements(vulkan_info, features);
+    vkd3d_free(vk_extensions);
+
+    vkd3d_init_feature_level(vulkan_info, features);
+    if (vulkan_info->max_feature_level < create_info->minimum_feature_level)
+    {
+        WARN("Feature level %#x is not supported.\n", create_info->minimum_feature_level);
+        return E_INVALIDARG;
+    }
 
     features->shaderTessellationAndGeometryPointSize = VK_FALSE;
-
-    vkd3d_free(vk_extensions);
 
     return S_OK;
 }
@@ -1874,6 +1895,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
 
         case D3D12_FEATURE_FEATURE_LEVELS:
         {
+            struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
             D3D12_FEATURE_DATA_FEATURE_LEVELS *data = feature_data;
             unsigned int i;
 
@@ -1889,7 +1911,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             for (i = 0; i < data->NumFeatureLevels; ++i)
             {
                 D3D_FEATURE_LEVEL fl = data->pFeatureLevelsRequested[i];
-                if (data->MaxSupportedFeatureLevel < fl && check_feature_level_support(fl))
+                if (data->MaxSupportedFeatureLevel < fl && fl <= vulkan_info->max_feature_level)
                     data->MaxSupportedFeatureLevel = fl;
             }
             return S_OK;

@@ -245,11 +245,6 @@ bool is_valid_feature_level(D3D_FEATURE_LEVEL feature_level)
     return false;
 }
 
-bool check_feature_level_support(D3D_FEATURE_LEVEL feature_level)
-{
-    return feature_level <= D3D_FEATURE_LEVEL_11_0;
-}
-
 bool is_write_resource_state(D3D12_RESOURCE_STATES state)
 {
     return state & (D3D12_RESOURCE_STATE_RENDER_TARGET

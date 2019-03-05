@@ -55,12 +55,6 @@ HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         return E_INVALIDARG;
     }
 
-    if (!check_feature_level_support(create_info->minimum_feature_level))
-    {
-        FIXME("Unsupported feature level %#x.\n", create_info->minimum_feature_level);
-        return E_INVALIDARG;
-    }
-
     if ((instance = create_info->instance))
     {
         vkd3d_instance_incref(instance);
