@@ -268,6 +268,25 @@ static IUnknown *create_adapter(void)
     return adapter;
 }
 
+static ID3D12Device *create_device(void)
+{
+    IUnknown *adapter = NULL;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    if ((use_warp_device || use_adapter_idx) && !(adapter = create_adapter()))
+    {
+        trace("Failed to create adapter.\n");
+        return NULL;
+    }
+
+    hr = D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device);
+    if (adapter)
+        IUnknown_Release(adapter);
+
+    return SUCCEEDED(hr) ? device : NULL;
+}
+
 static void init_adapter_info(void)
 {
     IDXGIAdapter *dxgi_adapter;
@@ -340,55 +359,7 @@ static inline bool is_radv_device(ID3D12Device *device)
     return false;
 }
 #else
-static bool have_VK_KHR_driver_properties;
 static VkDriverIdKHR vk_driver_id;
-
-static HRESULT create_vkd3d_instance(struct vkd3d_instance **instance)
-{
-    struct vkd3d_optional_instance_extensions_info optional_extensions_info;
-    struct vkd3d_instance_create_info instance_create_info;
-
-    static const char * const optional_instance_extensions[] =
-    {
-        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-    };
-
-    memset(&optional_extensions_info, 0, sizeof(optional_extensions_info));
-    optional_extensions_info.type = VKD3D_STRUCTURE_TYPE_OPTIONAL_INSTANCE_EXTENSIONS_INFO;
-    optional_extensions_info.extensions = optional_instance_extensions;
-    optional_extensions_info.extension_count = ARRAY_SIZE(optional_instance_extensions);
-
-    memset(&instance_create_info, 0, sizeof(instance_create_info));
-    instance_create_info.type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    instance_create_info.next = &optional_extensions_info;
-    instance_create_info.pfn_signal_event = vkd3d_signal_event;
-    instance_create_info.wchar_size = sizeof(WCHAR);
-
-    return vkd3d_create_instance(&instance_create_info, instance);
-}
-
-static HRESULT create_vkd3d_device(struct vkd3d_instance *instance,
-        D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
-{
-    struct vkd3d_device_create_info device_create_info;
-
-    static const char * const device_extensions[] =
-    {
-        VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME,
-    };
-
-    memset(&device_create_info, 0, sizeof(device_create_info));
-    device_create_info.type = VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_create_info.minimum_feature_level = minimum_feature_level;
-    device_create_info.instance = instance;
-    if (have_VK_KHR_driver_properties)
-    {
-        device_create_info.device_extensions = device_extensions;
-        device_create_info.device_extension_count = ARRAY_SIZE(device_extensions);
-    }
-
-    return vkd3d_create_device(&device_create_info, iid, device);
-}
 
 static bool check_device_extension(VkPhysicalDevice vk_physical_device, const char *name)
 {
@@ -421,24 +392,103 @@ static bool check_device_extension(VkPhysicalDevice vk_physical_device, const ch
     return ret;
 }
 
-HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
+static HRESULT create_vkd3d_instance(struct vkd3d_instance **instance)
+{
+    struct vkd3d_optional_instance_extensions_info optional_extensions_info;
+    struct vkd3d_instance_create_info instance_create_info;
+
+    static const char * const optional_instance_extensions[] =
+    {
+        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+    };
+
+    memset(&optional_extensions_info, 0, sizeof(optional_extensions_info));
+    optional_extensions_info.type = VKD3D_STRUCTURE_TYPE_OPTIONAL_INSTANCE_EXTENSIONS_INFO;
+    optional_extensions_info.extensions = optional_instance_extensions;
+    optional_extensions_info.extension_count = ARRAY_SIZE(optional_instance_extensions);
+
+    memset(&instance_create_info, 0, sizeof(instance_create_info));
+    instance_create_info.type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    instance_create_info.next = &optional_extensions_info;
+    instance_create_info.pfn_signal_event = vkd3d_signal_event;
+    instance_create_info.wchar_size = sizeof(WCHAR);
+
+    return vkd3d_create_instance(&instance_create_info, instance);
+}
+
+static VkPhysicalDevice select_physical_device(struct vkd3d_instance *instance)
+{
+    VkPhysicalDevice *vk_physical_devices;
+    VkPhysicalDevice vk_physical_device;
+    VkInstance vk_instance;
+    uint32_t count;
+    VkResult vr;
+
+    vk_instance = vkd3d_instance_get_vk_instance(instance);
+
+    vr = vkEnumeratePhysicalDevices(vk_instance, &count, NULL);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+
+    if (use_adapter_idx >= count)
+    {
+        trace("Invalid physical device index %u.\n", use_adapter_idx);
+        return VK_NULL_HANDLE;
+    }
+
+    vk_physical_devices = calloc(count, sizeof(*vk_physical_devices));
+    ok(vk_physical_devices, "Failed to allocate memory.\n");
+    vr = vkEnumeratePhysicalDevices(vk_instance, &count, vk_physical_devices);
+    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
+
+    vk_physical_device = vk_physical_devices[use_adapter_idx];
+
+    free(vk_physical_devices);
+
+    return vk_physical_device;
+}
+
+static HRESULT create_vkd3d_device(struct vkd3d_instance *instance,
         D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
 {
+    struct vkd3d_device_create_info device_create_info;
+    VkPhysicalDevice vk_physical_device;
+
+    static const char * const device_extensions[] =
+    {
+        VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME,
+    };
+
+    if (!(vk_physical_device = select_physical_device(instance)))
+        return E_INVALIDARG;
+
+    memset(&device_create_info, 0, sizeof(device_create_info));
+    device_create_info.type = VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    device_create_info.minimum_feature_level = minimum_feature_level;
+    device_create_info.instance = instance;
+    device_create_info.vk_physical_device = vk_physical_device;
+
+    if (check_device_extension(vk_physical_device, VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME))
+    {
+        device_create_info.device_extensions = device_extensions;
+        device_create_info.device_extension_count = ARRAY_SIZE(device_extensions);
+    }
+
+    return vkd3d_create_device(&device_create_info, iid, device);
+}
+
+static ID3D12Device *create_device(void)
+{
     struct vkd3d_instance *instance;
+    ID3D12Device *device;
     HRESULT hr;
 
     if (SUCCEEDED(hr = create_vkd3d_instance(&instance)))
     {
-        hr = create_vkd3d_device(instance, minimum_feature_level,  iid, device);
+        hr = create_vkd3d_device(instance, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device);
         vkd3d_instance_decref(instance);
     }
 
-    return hr;
-}
-
-static IUnknown *create_adapter(void)
-{
-    return NULL;
+    return SUCCEEDED(hr) ? device : NULL;
 }
 
 static void init_adapter_info(void)
@@ -446,61 +496,38 @@ static void init_adapter_info(void)
     PFN_vkGetPhysicalDeviceProperties2KHR pfn_vkGetPhysicalDeviceProperties2KHR;
     VkPhysicalDeviceDriverPropertiesKHR driver_properties;
     VkPhysicalDeviceProperties2 device_properties2;
-    VkPhysicalDevice *vk_physical_devices;
     VkPhysicalDevice vk_physical_device;
     struct vkd3d_instance *instance;
-    VkInstance vk_instance;
     ID3D12Device *device;
-    uint32_t count, i;
-    VkResult vr;
     HRESULT hr;
 
     if (FAILED(hr = create_vkd3d_instance(&instance)))
         return;
-
-    vk_instance = vkd3d_instance_get_vk_instance(instance);
-
-    vr = vkEnumeratePhysicalDevices(vk_instance, &count, NULL);
-    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
-    vk_physical_devices = calloc(count, sizeof(*vk_physical_devices));
-    ok(vk_physical_devices, "Failed to allocate memory.\n");
-    vr = vkEnumeratePhysicalDevices(vk_instance, &count, vk_physical_devices);
-    ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
-
-    have_VK_KHR_driver_properties = true;
-    for (i = 0; i < count; ++i)
-    {
-        if (!check_device_extension(vk_physical_devices[i],VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME))
-        {
-            have_VK_KHR_driver_properties = false;
-            break;
-        }
-    }
-
-    free(vk_physical_devices);
-
-    if (!have_VK_KHR_driver_properties)
-        goto done;
 
     if (FAILED(hr = create_vkd3d_device(instance, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device)))
         goto done;
 
     vk_physical_device = vkd3d_get_vk_physical_device(device);
 
-    pfn_vkGetPhysicalDeviceProperties2KHR
-            = (void *)vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceProperties2KHR");
-    ok(pfn_vkGetPhysicalDeviceProperties2KHR, "vkGetPhysicalDeviceProperties2KHR is NULL.\n");
+    if (check_device_extension(vk_physical_device, VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME))
+    {
+        VkInstance vk_instance = vkd3d_instance_get_vk_instance(instance);
 
-    memset(&device_properties2, 0, sizeof(device_properties2));
-    device_properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-    device_properties2.pNext = &driver_properties;
-    memset(&driver_properties, 0, sizeof(driver_properties));
-    driver_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR;
-    pfn_vkGetPhysicalDeviceProperties2KHR(vk_physical_device, &device_properties2);
+        pfn_vkGetPhysicalDeviceProperties2KHR
+                = (void *)vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceProperties2KHR");
+        ok(pfn_vkGetPhysicalDeviceProperties2KHR, "vkGetPhysicalDeviceProperties2KHR is NULL.\n");
 
-    trace("Driver name: %s, driver info: %s.\n", driver_properties.driverName, driver_properties.driverInfo);
+        memset(&device_properties2, 0, sizeof(device_properties2));
+        device_properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        device_properties2.pNext = &driver_properties;
+        memset(&driver_properties, 0, sizeof(driver_properties));
+        driver_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR;
+        pfn_vkGetPhysicalDeviceProperties2KHR(vk_physical_device, &device_properties2);
 
-    vk_driver_id = driver_properties.driverID;
+        trace("Driver name: %s, driver info: %s.\n", driver_properties.driverName, driver_properties.driverInfo);
+
+        vk_driver_id = driver_properties.driverID;
+    }
 
     ID3D12Device_Release(device);
 
@@ -529,25 +556,6 @@ static inline bool is_radv_device(ID3D12Device *device)
     return vk_driver_id == VK_DRIVER_ID_MESA_RADV_KHR;
 }
 #endif
-
-static ID3D12Device *create_device(void)
-{
-    IUnknown *adapter = NULL;
-    ID3D12Device *device;
-    HRESULT hr;
-
-    if ((use_warp_device || use_adapter_idx) && !(adapter = create_adapter()))
-    {
-        trace("Failed to create adapter.\n");
-        return NULL;
-    }
-
-    hr = D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device);
-    if (adapter)
-        IUnknown_Release(adapter);
-
-    return SUCCEEDED(hr) ? device : NULL;
-}
 
 static void parse_args(int argc, char **argv)
 {
