@@ -3761,6 +3761,9 @@ static void vkd3d_dxbc_compiler_emit_shader_phase_input(struct vkd3d_dxbc_compil
         case VKD3DSPR_JOININSTID:
             val_id = phase->instance_id;
             break;
+        case VKD3DSPR_OUTCONTROLPOINT:
+            /* See vkd3d_dxbc_compiler_leave_shader_phase(). */
+            return;
         default:
             FIXME("Unhandled shader phase input register %#x.\n", reg->type);
             return;
@@ -5227,8 +5230,8 @@ static void vkd3d_dxbc_compiler_leave_shader_phase(struct vkd3d_dxbc_compiler *c
 {
     const struct vkd3d_shader_signature *signature = compiler->output_signature;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    struct vkd3d_symbol reg_symbol, *symbol;
     struct vkd3d_shader_register reg;
-    struct vkd3d_symbol reg_symbol;
     struct rb_entry *entry;
     unsigned int i;
 
@@ -5244,26 +5247,39 @@ static void vkd3d_dxbc_compiler_leave_shader_phase(struct vkd3d_dxbc_compiler *c
     compiler->temp_count = 0;
 
     /*
-     * Output regsiters have a different purpose in the control point phase and
-     * in fork/join phases. We have to remove all output registers' symbols
-     * when leaving the control point phase.
+     * vocp inputs in fork and join shader phases are outputs of the control
+     * point phase. Reinsert symbols for vocp registers while leaving the
+     * control point phase.
      */
     if (is_control_point_phase(phase))
     {
         memset(&reg, 0, sizeof(reg));
-        reg.type = VKD3DSPR_OUTPUT;
         reg.idx[1].offset = ~0u;
 
         for (i = 0; i < signature->element_count; ++i)
         {
             const struct vkd3d_shader_signature_element *e = &signature->elements[i];
 
+            reg.type = VKD3DSPR_OUTPUT;
             reg.idx[0].offset = e->register_index;
             vkd3d_symbol_make_register(&reg_symbol, &reg);
             if ((entry = rb_get(&compiler->symbol_table, &reg_symbol)))
             {
                 rb_remove(&compiler->symbol_table, entry);
-                vkd3d_symbol_free(entry, NULL);
+
+                symbol = RB_ENTRY_VALUE(entry, struct vkd3d_symbol, entry);
+
+                reg.type = VKD3DSPR_OUTCONTROLPOINT;
+                reg.idx[1].offset = reg.idx[0].offset;
+                reg.idx[0].offset = compiler->output_control_point_count;
+                vkd3d_symbol_make_register(symbol, &reg);
+                symbol->info.reg.is_aggregate = false;
+
+                if (rb_put(&compiler->symbol_table, symbol, entry) == -1)
+                {
+                    ERR("Failed to insert vocp symbol entry (%s).\n", debug_vkd3d_symbol(symbol));
+                    vkd3d_symbol_free(entry, NULL);
+                }
             }
         }
     }

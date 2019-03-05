@@ -765,7 +765,7 @@ static inline bool vkd3d_shader_instruction_has_texel_offset(const struct vkd3d_
 
 static inline bool vkd3d_shader_register_is_input(const struct vkd3d_shader_register *reg)
 {
-    return reg->type == VKD3DSPR_INPUT || reg->type == VKD3DSPR_INCONTROLPOINT;
+    return reg->type == VKD3DSPR_INPUT || reg->type == VKD3DSPR_INCONTROLPOINT || reg->type == VKD3DSPR_OUTCONTROLPOINT;
 }
 
 static inline bool vkd3d_shader_register_is_output(const struct vkd3d_shader_register *reg)
