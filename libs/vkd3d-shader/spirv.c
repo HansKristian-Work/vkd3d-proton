@@ -2024,8 +2024,10 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
         const struct vkd3d_shader_compile_arguments *compile_args,
         const struct vkd3d_shader_scan_info *scan_info)
 {
+    const struct vkd3d_shader_signature *patch_constant_signature = &shader_desc->patch_constant_signature;
     const struct vkd3d_shader_signature *output_signature = &shader_desc->output_signature;
     struct vkd3d_dxbc_compiler *compiler;
+    unsigned int max_element_count;
     unsigned int i;
 
     if (!(compiler = vkd3d_malloc(sizeof(*compiler))))
@@ -2033,7 +2035,8 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
 
     memset(compiler, 0, sizeof(*compiler));
 
-    if (!(compiler->output_info = vkd3d_calloc(output_signature->element_count, sizeof(*compiler->output_info))))
+    max_element_count = max(output_signature->element_count, patch_constant_signature->element_count);
+    if (!(compiler->output_info = vkd3d_calloc(max_element_count, sizeof(*compiler->output_info))))
     {
         vkd3d_free(compiler);
         return NULL;
@@ -4005,11 +4008,8 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         vkd3d_dxbc_compiler_decorate_xfb_output(compiler, id, output_component_count, signature_element);
     }
 
-    if (!is_patch_constant)
-    {
-        compiler->output_info[signature_idx].id = id;
-        compiler->output_info[signature_idx].component_type = component_type;
-    }
+    compiler->output_info[signature_idx].id = id;
+    compiler->output_info[signature_idx].component_type = component_type;
 
     use_private_variable = component_count != VKD3D_VEC4_SIZE
             || get_shader_output_swizzle(compiler, signature_element->register_index) != VKD3D_NO_SWIZZLE
@@ -4047,10 +4047,7 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
     }
 
-    if (use_private_variable && is_patch_constant)
-        FIXME("Private variables not supported for patch constants.\n");
-
-    if (use_private_variable && !is_patch_constant)
+    if (use_private_variable)
     {
         unsigned int idx = vkd3d_dxbc_compiler_get_output_variable_index(compiler, reg->idx[0].offset);
         compiler->private_output_variable[idx] = var_id;
@@ -4115,6 +4112,9 @@ static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compi
     write_mask &= dst_write_mask;
     use_mask = (output->mask >> 8) & 0xff;
 
+    if (!write_mask)
+        return;
+
     if (output_info->component_type != VKD3D_TYPE_FLOAT)
     {
         type_id = vkd3d_spirv_get_type_id(builder, output_info->component_type, VKD3D_VEC4_SIZE);
@@ -4177,11 +4177,12 @@ static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compi
 static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_compiler *compiler)
 {
     uint32_t param_type_id[MAX_REG_OUTPUT + 1], param_id[MAX_REG_OUTPUT + 1] = {};
-    const struct vkd3d_shader_signature *signature = compiler->output_signature;
     uint32_t void_id, type_id, ptr_type_id, function_type_id, function_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_signature *signature;
     const struct vkd3d_shader_phase *phase;
     uint32_t output_index_id = 0;
+    bool is_patch_constant;
     unsigned int i, count;
     DWORD variable_idx;
 
@@ -4190,6 +4191,9 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_
     STATIC_ASSERT(ARRAY_SIZE(compiler->private_output_variable) == ARRAY_SIZE(compiler->private_output_variable_write_mask));
 
     phase = vkd3d_dxbc_compiler_get_current_shader_phase(compiler);
+    is_patch_constant = phase && (phase->type == VKD3DSIH_HS_FORK_PHASE || phase->type == VKD3DSIH_HS_JOIN_PHASE);
+
+    signature = is_patch_constant ? compiler->patch_constant_signature : compiler->output_signature;
 
     function_id = compiler->epilogue_function_id;
 
@@ -4251,7 +4255,10 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_
     vkd3d_spirv_build_op_return(&compiler->spirv_builder);
     vkd3d_spirv_build_op_function_end(builder);
 
-    memset(compiler->output_info, 0, signature->element_count * sizeof(*compiler->output_info));
+    /* Fork and join phases share output registers (patch constants). */
+    if (!phase || is_control_point_phase(phase))
+        memset(compiler->output_info, 0, signature->element_count * sizeof(*compiler->output_info));
+
     memset(compiler->private_output_variable, 0, sizeof(compiler->private_output_variable));
     memset(compiler->private_output_variable_write_mask, 0, sizeof(compiler->private_output_variable_write_mask));
     compiler->epilogue_function_id = 0;
@@ -5284,6 +5291,29 @@ static void vkd3d_dxbc_compiler_leave_shader_phase(struct vkd3d_dxbc_compiler *c
         }
     }
 
+    if (phase->type == VKD3DSIH_HS_FORK_PHASE || phase->type == VKD3DSIH_HS_JOIN_PHASE)
+    {
+        signature = compiler->patch_constant_signature;
+
+        memset(&reg, 0, sizeof(reg));
+        reg.idx[1].offset = ~0u;
+
+        for (i = 0; i < signature->element_count; ++i)
+        {
+            const struct vkd3d_shader_signature_element *e = &signature->elements[i];
+
+            reg.type = VKD3DSPR_OUTPUT;
+            reg.idx[0].offset = e->register_index;
+            vkd3d_symbol_make_register(&reg_symbol, &reg);
+
+            if ((entry = rb_get(&compiler->symbol_table, &reg_symbol)))
+            {
+                rb_remove(&compiler->symbol_table, entry);
+                vkd3d_symbol_free(entry, NULL);
+            }
+        }
+    }
+
     if (phase->instance_count)
     {
         reg.type = phase->type == VKD3DSIH_HS_FORK_PHASE ? VKD3DSPR_FORKINSTID : VKD3DSPR_JOININSTID;
@@ -6152,11 +6182,8 @@ static void vkd3d_dxbc_compiler_emit_return(struct vkd3d_dxbc_compiler *compiler
         const struct vkd3d_shader_instruction *instruction)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    const struct vkd3d_shader_phase *phase;
 
-    if (compiler->shader_type != VKD3D_SHADER_TYPE_GEOMETRY
-            && (!(phase = vkd3d_dxbc_compiler_get_current_shader_phase(compiler))
-            || phase->type == VKD3DSIH_HS_CONTROL_POINT_PHASE))
+    if (compiler->shader_type != VKD3D_SHADER_TYPE_GEOMETRY)
         vkd3d_dxbc_compiler_emit_shader_epilogue_invocation(compiler);
 
     vkd3d_spirv_build_op_return(builder);
