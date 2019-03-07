@@ -1858,6 +1858,7 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
     struct VkFramebufferCreateInfo fb_desc;
     VkFramebuffer vk_framebuffer;
     size_t start_idx = 0;
+    unsigned int i;
     VkResult vr;
 
     if (list->current_framebuffer != VK_NULL_HANDLE)
@@ -1865,6 +1866,15 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
 
     if (!list->state->u.graphics.rt_idx)
         ++start_idx;
+
+    for (i = 0; i < list->state->u.graphics.attachment_count; ++i)
+    {
+        if (!list->views[start_idx + i])
+        {
+            FIXME("Invalid attachment %u.\n", i);
+            return false;
+        }
+    }
 
     fb_desc.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     fb_desc.pNext = NULL;
