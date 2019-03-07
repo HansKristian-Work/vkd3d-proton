@@ -3583,6 +3583,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(ID3D12Graphics
 
     TRACE("iface %p, view %p.\n", iface, view);
 
+    if (!view)
+    {
+        WARN("Ignoring NULL index buffer view.\n");
+        return;
+    }
+
     vk_procs = &list->device->vk_procs;
 
     switch (view->Format)
