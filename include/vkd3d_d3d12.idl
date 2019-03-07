@@ -216,6 +216,18 @@ typedef struct D3D12_RANGE
     SIZE_T End;
 } D3D12_RANGE;
 
+typedef struct D3D12_RANGE_UINT64
+{
+    UINT64 Begin;
+    UINT64 End;
+} D3D12_RANGE_UINT64;
+
+typedef struct D3D12_SUBRESOURCE_RANGE_UINT64
+{
+    UINT Subresource;
+    D3D12_RANGE_UINT64 Range;
+} D3D12_SUBRESOURCE_RANGE_UINT64;
+
 typedef struct D3D12_RESOURCE_ALLOCATION_INFO
 {
     UINT64 SizeInBytes;
@@ -512,6 +524,20 @@ typedef struct D3D12_RESOURCE_DESC
     D3D12_TEXTURE_LAYOUT Layout;
     D3D12_RESOURCE_FLAGS Flags;
 } D3D12_RESOURCE_DESC;
+
+typedef enum D3D12_RESOLVE_MODE
+{
+    D3D12_RESOLVE_MODE_DECOMPRESS = 0,
+    D3D12_RESOLVE_MODE_MIN = 1,
+    D3D12_RESOLVE_MODE_MAX = 2,
+    D3D12_RESOLVE_MODE_AVERAGE = 3,
+} D3D12_RESOLVE_MODE;
+
+typedef struct D3D12_SAMPLE_POSITION
+{
+    INT8 X;
+    INT8 Y;
+} D3D12_SAMPLE_POSITION;
 
 typedef enum D3D12_TEXTURE_COPY_TYPE
 {
@@ -1915,6 +1941,35 @@ interface ID3D12GraphicsCommandList : ID3D12CommandList
     void ExecuteIndirect(ID3D12CommandSignature *command_signature,
             UINT max_command_count, ID3D12Resource *arg_buffer, UINT64 arg_buffer_offset,
             ID3D12Resource *count_buffer, UINT64 count_buffer_offset);
+}
+
+[
+    uuid(553103fb-1fe7-4557-bb38-946d7d0e7ca7),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12GraphicsCommandList1 : ID3D12GraphicsCommandList
+{
+    void AtomicCopyBufferUINT(ID3D12Resource *dst_buffer, UINT64 dst_offset,
+            ID3D12Resource *src_buffer, UINT64 src_offset,
+            UINT dependent_resource_count, ID3D12Resource * const *dependent_resources,
+            const D3D12_SUBRESOURCE_RANGE_UINT64 *dependent_sub_resource_ranges);
+
+    void AtomicCopyBufferUINT64(ID3D12Resource *dst_buffer, UINT64 dst_offset,
+            ID3D12Resource *src_buffer, UINT64 src_offset,
+            UINT dependent_resource_count, ID3D12Resource * const *dependent_resources,
+            const D3D12_SUBRESOURCE_RANGE_UINT64 *dependent_sub_resource_ranges);
+
+    void OMSetDepthBounds(FLOAT min, FLOAT max);
+
+    void SetSamplePositions(UINT sample_count, UINT pixel_count,
+            D3D12_SAMPLE_POSITION *sample_positions);
+
+    void ResolveSubresourceRegion(ID3D12Resource *dst_resource,
+            UINT dst_sub_resource_idx, UINT dst_x, UINT dst_y,
+            ID3D12Resource *src_resource, UINT src_sub_resource_idx,
+            D3D12_RECT *src_rect, DXGI_FORMAT format, D3D12_RESOLVE_MODE mode);
 }
 
 typedef enum D3D12_TILE_RANGE_FLAGS

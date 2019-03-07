@@ -778,7 +778,7 @@ struct vkd3d_pipeline_bindings
 /* ID3D12CommandList */
 struct d3d12_command_list
 {
-    ID3D12GraphicsCommandList ID3D12GraphicsCommandList_iface;
+    ID3D12GraphicsCommandList1 ID3D12GraphicsCommandList1_iface;
     LONG refcount;
 
     D3D12_COMMAND_LIST_TYPE type;
