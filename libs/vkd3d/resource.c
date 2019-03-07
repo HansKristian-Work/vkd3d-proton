@@ -24,7 +24,7 @@ static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
 {
     const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
-    VkMemoryPropertyFlags flags[2];
+    VkMemoryPropertyFlags flags[3];
     unsigned int i, j, count = 0;
 
     switch (heap_properties->Type)
@@ -37,13 +37,18 @@ static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32
             flags[count++] = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
             break;
 
-        case D3D12_HEAP_TYPE_CUSTOM:
-            FIXME("Custom heaps not supported yet.\n");
-            /* fall-through */
         case D3D12_HEAP_TYPE_READBACK:
             flags[count++] = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
                     | VK_MEMORY_PROPERTY_HOST_CACHED_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
             flags[count++] = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            break;
+
+        case D3D12_HEAP_TYPE_CUSTOM:
+            FIXME("Custom heaps not supported yet.\n");
+            flags[count++] = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                    | VK_MEMORY_PROPERTY_HOST_CACHED_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            flags[count++] = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            flags[count++] = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
             break;
 
         default:
