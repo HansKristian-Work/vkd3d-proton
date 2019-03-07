@@ -1648,6 +1648,22 @@ static void vkd3d_set_view_swizzle_for_format(VkComponentMapping *components,
             FIXME("Alpha swizzle is not supported.\n");
         }
     }
+
+    if (format->dxgi_format == DXGI_FORMAT_B8G8R8X8_UNORM
+            || format->dxgi_format == DXGI_FORMAT_B8G8R8X8_UNORM_SRGB)
+    {
+        if (allowed_swizzle)
+        {
+            components->r = VK_COMPONENT_SWIZZLE_R;
+            components->g = VK_COMPONENT_SWIZZLE_G;
+            components->b = VK_COMPONENT_SWIZZLE_B;
+            components->a = VK_COMPONENT_SWIZZLE_ONE;
+        }
+        else
+        {
+            FIXME("B8G8R8X8 swizzle is not supported.\n");
+        }
+    }
 }
 
 struct vkd3d_texture_view_desc
