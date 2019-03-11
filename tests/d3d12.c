@@ -343,6 +343,22 @@ static unsigned int format_block_height(DXGI_FORMAT format)
     }
 }
 
+static const DXGI_FORMAT depth_stencil_formats[] =
+{
+    DXGI_FORMAT_R32G8X24_TYPELESS,
+    DXGI_FORMAT_D32_FLOAT_S8X24_UINT,
+    DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS,
+    DXGI_FORMAT_X32_TYPELESS_G8X24_UINT,
+    DXGI_FORMAT_R32_TYPELESS,
+    DXGI_FORMAT_D32_FLOAT,
+    DXGI_FORMAT_R24G8_TYPELESS,
+    DXGI_FORMAT_D24_UNORM_S8_UINT,
+    DXGI_FORMAT_R24_UNORM_X8_TYPELESS,
+    DXGI_FORMAT_X24_TYPELESS_G8_UINT,
+    DXGI_FORMAT_R16_TYPELESS,
+    DXGI_FORMAT_D16_UNORM,
+};
+
 static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_FORMAT format,
         struct resource_readback *rb, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
 {
@@ -1172,6 +1188,15 @@ static void test_format_support(void)
                 format_support.Support2 & unsupported_format_features[i].f.Support2);
     }
 
+    for (i = 0; i < ARRAY_SIZE(depth_stencil_formats); ++i)
+    {
+        memset(&format_support, 0, sizeof(format_support));
+        format_support.Format = depth_stencil_formats[i];
+        hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT,
+                &format_support, sizeof(format_support));
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    }
+
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
@@ -1291,6 +1316,17 @@ static void test_multisample_quality_levels(void)
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
     ok(!format_support.Flags, "Got unexpected flags %#x.\n", format_support.Flags);
     ok(format_support.NumQualityLevels >= 1, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
+
+    for (i = 0; i < ARRAY_SIZE(depth_stencil_formats); ++i)
+    {
+        memset(&format_support, 0, sizeof(format_support));
+        format_support.Format = depth_stencil_formats[i];
+        format_support.SampleCount = 4;
+        format_support.NumQualityLevels = 0xdeadbeef;
+        hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+                &format_support, sizeof(format_support));
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    }
 
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
