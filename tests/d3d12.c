@@ -5606,7 +5606,6 @@ static void test_draw_uav_only(void)
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
     D3D12_ROOT_PARAMETER root_parameter;
     struct test_context_desc desc;
-    struct resource_readback rb;
     struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Resource *resource;
@@ -5688,10 +5687,8 @@ static void test_draw_uav_only(void)
 
     transition_resource_state(command_list, resource,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    get_texture_readback_with_command_list(resource, 0, &rb, queue, command_list);
     bug_if(is_radv_device(context.device))
-    check_readback_data_uint(&rb, NULL, 500, 0);
-    release_resource_readback(&rb);
+    check_sub_resource_uint(resource, 0, queue, command_list, 500, 0);
 
     ID3D12DescriptorHeap_Release(cpu_descriptor_heap);
     ID3D12DescriptorHeap_Release(descriptor_heap);
@@ -7906,7 +7903,7 @@ static void test_shader_instructions(void)
             struct ivec4 i;
         } output;
         bool skip_on_warp;
-        bool skip_on_mesa;
+        bool is_mesa_bug;
     }
     tests[] =
     {
@@ -8671,12 +8668,6 @@ static void test_shader_instructions(void)
             continue;
         }
 
-        if (tests[i].skip_on_mesa && is_mesa_device(context.device))
-        {
-            skip("Skipping shader '%s' test on Mesa.\n", tests[i].ps->name);
-            continue;
-        }
-
         if (current_ps != tests[i].ps)
         {
             if (context.pipeline_state)
@@ -8704,6 +8695,7 @@ static void test_shader_instructions(void)
 
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        bug_if(tests[i].is_mesa_bug && is_mesa_device(context.device))
         check_sub_resource_vec4(context.render_target, 0, queue, command_list, &tests[i].output.f, 2);
 
         reset_command_list(command_list, context.allocator);

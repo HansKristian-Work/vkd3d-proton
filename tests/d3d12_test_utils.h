@@ -121,7 +121,7 @@ static ID3D12Resource *create_buffer_(unsigned int line, ID3D12Device *device,
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, initial_resource_state,
             NULL, &IID_ID3D12Resource, (void **)&buffer);
-    ok_(line)(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    assert_that_(line)(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
     return buffer;
 }
 
@@ -291,10 +291,10 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
     HRESULT hr;
 
     hr = ID3D12Resource_GetDevice(texture, &IID_ID3D12Device, (void **)&device);
-    ok(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
+    assert_that(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
 
     resource_desc = ID3D12Resource_GetDesc(texture);
-    ok(resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER,
+    assert_that(resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER,
             "Resource %p is not texture.\n", texture);
 
     miplevel = sub_resource % resource_desc.MipLevels;
@@ -317,7 +317,7 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
         hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                 &resource_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL,
                 &IID_ID3D12Resource, (void **)&src_resource);
-        ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+        assert_that(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
 
         ID3D12GraphicsCommandList_ResolveSubresource(command_list,
                 src_resource, 0, texture, sub_resource, resource_desc.Format);
@@ -348,7 +348,7 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
 
     ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst_location, 0, 0, 0, &src_location, NULL);
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
+    assert_that(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
 
     exec_command_list(queue, command_list);
     wait_queue_idle(device, queue);
@@ -360,7 +360,7 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
     read_range.Begin = 0;
     read_range.End = resource_desc.Width;
     hr = ID3D12Resource_Map(rb->resource, 0, &read_range, &rb->data);
-    ok(hr == S_OK, "Failed to map readback buffer, hr %#x.\n", hr);
+    assert_that(hr == S_OK, "Failed to map readback buffer, hr %#x.\n", hr);
 }
 
 static void *get_readback_data(struct resource_readback *rb,

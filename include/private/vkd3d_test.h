@@ -40,9 +40,25 @@ static void vkd3d_test_end_todo(void);
         static const char *vkd3d_test_name = #name; \
         static void vkd3d_test_main(int argc, char **argv)
 
+/*
+ * Use assert_that() for conditions that should always be true.
+ * todo_if() and bug_if() do not influence assert_that().
+ */
+#define assert_that assert_that_(__LINE__)
+
 #define ok ok_(__LINE__)
+
 #define skip skip_(__LINE__)
+
 #define trace trace_(__LINE__)
+
+#define assert_that_(line) \
+        do { \
+        unsigned int vkd3d_line = line; \
+        VKD3D_TEST_ASSERT_THAT
+
+#define VKD3D_TEST_ASSERT_THAT(args...) \
+        vkd3d_test_assert_that(vkd3d_line, args); } while (0)
 
 #define ok_(line) \
         do { \
@@ -117,6 +133,33 @@ broken(bool condition)
 }
 
 static void
+vkd3d_test_check_assert_that(unsigned int line, bool result, const char *fmt, va_list args)
+{
+    if (result)
+    {
+        InterlockedIncrement(&vkd3d_test_state.success_count);
+        if (vkd3d_test_state.debug_level > 1)
+            printf("%s:%d%s: Test succeeded.\n", vkd3d_test_name, line, vkd3d_test_state.context);
+    }
+    else
+    {
+        InterlockedIncrement(&vkd3d_test_state.failure_count);
+        printf("%s:%d%s: Test failed: ", vkd3d_test_name, line, vkd3d_test_state.context);
+        vprintf(fmt, args);
+    }
+}
+
+static void VKD3D_PRINTF_FUNC(3, 4) VKD3D_UNUSED
+vkd3d_test_assert_that(unsigned int line, bool result, const char *fmt, ...)
+{
+    va_list args;
+
+    va_start(args, fmt);
+    vkd3d_test_check_assert_that(line, result, fmt, args);
+    va_end(args);
+}
+
+static void
 vkd3d_test_check_ok(unsigned int line, bool result, const char *fmt, va_list args)
 {
     bool is_todo = vkd3d_test_state.todo_level && !vkd3d_test_platform_is_windows();
@@ -147,17 +190,9 @@ vkd3d_test_check_ok(unsigned int line, bool result, const char *fmt, va_list arg
         }
         vprintf(fmt, args);
     }
-    else if (result)
-    {
-        InterlockedIncrement(&vkd3d_test_state.success_count);
-        if (vkd3d_test_state.debug_level > 1)
-            printf("%s:%d%s: Test succeeded.\n", vkd3d_test_name, line, vkd3d_test_state.context);
-    }
     else
     {
-        InterlockedIncrement(&vkd3d_test_state.failure_count);
-        printf("%s:%d%s: Test failed: ", vkd3d_test_name, line, vkd3d_test_state.context);
-        vprintf(fmt, args);
+        vkd3d_test_check_assert_that(line, result, fmt, args);
     }
 }
 
