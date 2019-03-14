@@ -296,6 +296,7 @@ enum vkd3d_sm4_opcode
     VKD3D_SM5_OP_IMM_ATOMIC_UMIN                  = 0xbd,
     VKD3D_SM5_OP_SYNC                             = 0xbe,
     VKD3D_SM5_OP_EVAL_SAMPLE_INDEX                = 0xcc,
+    VKD3D_SM5_OP_EVAL_CENTROID                    = 0xcd,
     VKD3D_SM5_OP_DCL_GS_INSTANCES                 = 0xce,
 };
 
@@ -1108,6 +1109,7 @@ static const struct vkd3d_sm4_opcode_info opcode_table[] =
     {VKD3D_SM5_OP_SYNC,                             VKD3DSIH_SYNC,                             "",     "",
             shader_sm5_read_sync},
     {VKD3D_SM5_OP_EVAL_SAMPLE_INDEX,                VKD3DSIH_EVAL_SAMPLE_INDEX,                "f",    "fi"},
+    {VKD3D_SM5_OP_EVAL_CENTROID,                    VKD3DSIH_EVAL_CENTROID,                    "f",    "f"},
     {VKD3D_SM5_OP_DCL_GS_INSTANCES,                 VKD3DSIH_DCL_GS_INSTANCES,                 "",     "",
             shader_sm4_read_declaration_count},
 };

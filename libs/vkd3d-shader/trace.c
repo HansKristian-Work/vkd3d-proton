@@ -130,6 +130,7 @@ static const char * const shader_opcode_names[] =
     /* VKD3DSIH_ENDREP                           */ "endrep",
     /* VKD3DSIH_ENDSWITCH                        */ "endswitch",
     /* VKD3DSIH_EQ                               */ "eq",
+    /* VKD3DSIH_EVAL_CENTROID                    */ "eval_centroid",
     /* VKD3DSIH_EVAL_SAMPLE_INDEX                */ "eval_sample_index",
     /* VKD3DSIH_EXP                              */ "exp",
     /* VKD3DSIH_EXPP                             */ "expp",

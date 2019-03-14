@@ -7605,7 +7605,7 @@ static void vkd3d_dxbc_compiler_emit_sample_info(struct vkd3d_dxbc_compiler *com
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
-static void vkd3d_dxbc_compiler_emit_interpolate(struct vkd3d_dxbc_compiler *compiler,
+static void vkd3d_dxbc_compiler_emit_eval_attrib(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -7614,6 +7614,8 @@ static void vkd3d_dxbc_compiler_emit_interpolate(struct vkd3d_dxbc_compiler *com
     const struct vkd3d_shader_register *input = &src[0].reg;
     uint32_t instr_set_id, type_id, val_id, src_ids[2];
     struct vkd3d_shader_register_info register_info;
+    unsigned int src_count = 0;
+    enum GLSLstd450 op;
 
     if (!vkd3d_dxbc_compiler_get_register_info(compiler, input, &register_info))
         return;
@@ -7626,15 +7628,24 @@ static void vkd3d_dxbc_compiler_emit_interpolate(struct vkd3d_dxbc_compiler *com
 
     vkd3d_spirv_enable_capability(builder, SpvCapabilityInterpolationFunction);
 
-    src_ids[0] = register_info.id;
-    src_ids[1] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], VKD3DSP_WRITEMASK_0);
+    src_ids[src_count++] = register_info.id;
+
+    if (instruction->handler_idx == VKD3DSIH_EVAL_CENTROID)
+    {
+        op = GLSLstd450InterpolateAtCentroid;
+    }
+    else
+    {
+        assert(instruction->handler_idx == VKD3DSIH_EVAL_SAMPLE_INDEX);
+        op = GLSLstd450InterpolateAtSample;
+        src_ids[src_count++] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], VKD3DSP_WRITEMASK_0);
+    }
 
     type_id = vkd3d_spirv_get_type_id(builder,
             VKD3D_TYPE_FLOAT, vkd3d_write_mask_component_count(register_info.write_mask));
 
     instr_set_id = vkd3d_spirv_get_glsl_std450_instr_set(builder);
-    val_id = vkd3d_spirv_build_op_ext_inst(builder, type_id,
-            instr_set_id, GLSLstd450InterpolateAtSample, src_ids, 2);
+    val_id = vkd3d_spirv_build_op_ext_inst(builder, type_id, instr_set_id, op, src_ids, src_count);
 
     val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
             val_id, register_info.write_mask, VKD3D_TYPE_FLOAT, src[0].swizzle, dst->write_mask);
@@ -8048,8 +8059,9 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_SAMPLE_INFO:
             vkd3d_dxbc_compiler_emit_sample_info(compiler, instruction);
             break;
+        case VKD3DSIH_EVAL_CENTROID:
         case VKD3DSIH_EVAL_SAMPLE_INDEX:
-            vkd3d_dxbc_compiler_emit_interpolate(compiler, instruction);
+            vkd3d_dxbc_compiler_emit_eval_attrib(compiler, instruction);
             break;
         case VKD3DSIH_SYNC:
             vkd3d_dxbc_compiler_emit_sync(compiler, instruction);
