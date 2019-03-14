@@ -163,7 +163,6 @@ const struct vkd3d_format *vkd3d_get_format(DXGI_FORMAT dxgi_format, bool depth_
             return &vkd3d_formats[i];
     }
 
-    FIXME("Unhandled DXGI format %#x.\n", dxgi_format);
     return NULL;
 }
 
