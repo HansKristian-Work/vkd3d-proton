@@ -14684,7 +14684,7 @@ static void test_copy_descriptors(void)
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
     t[2] = create_default_texture(context.device,
-            1, 1, DXGI_FORMAT_R32_UINT, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+            1, 1, DXGI_FORMAT_R32_SINT, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     data.pData = &t2_data;
     data.RowPitch = sizeof(t2_data);
     data.SlicePitch = data.RowPitch;
