@@ -70,4 +70,6 @@ static inline const char *debugstr_guid(const GUID *guid)
             guid->Data4[5], guid->Data4[6], guid->Data4[7]);
 }
 
+unsigned int vkd3d_env_var_as_uint(const char *name, unsigned int default_value) DECLSPEC_HIDDEN;
+
 #endif  /* __VKD3D_DEBUG_H */

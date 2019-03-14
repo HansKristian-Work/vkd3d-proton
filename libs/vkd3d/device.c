@@ -1061,12 +1061,13 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 }
 
 static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
-        VkPhysicalDevice *selected_device)
+        unsigned int device_index, VkPhysicalDevice *selected_device)
 {
     VkPhysicalDevice dgpu_device = VK_NULL_HANDLE, igpu_device = VK_NULL_HANDLE;
     const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
     VkInstance vk_instance = instance->vk_instance;
     VkPhysicalDeviceProperties device_properties;
+    VkPhysicalDevice device = VK_NULL_HANDLE;
     VkPhysicalDevice *physical_devices;
     uint32_t count;
     unsigned int i;
@@ -1094,10 +1095,16 @@ static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
         return hresult_from_vk_result(vr);
     }
 
+    if (device_index != ~0u && device_index >= count)
+        WARN("Device index %u is out of range.\n", device_index);
+
     for (i = 0; i < count; ++i)
     {
         VK_CALL(vkGetPhysicalDeviceProperties(physical_devices[i], &device_properties));
         vkd3d_trace_physical_device(physical_devices[i], &device_properties, vk_procs);
+
+        if (i == device_index)
+            device = physical_devices[i];
 
         if (device_properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && !dgpu_device)
             dgpu_device = physical_devices[i];
@@ -1105,15 +1112,18 @@ static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
             igpu_device = physical_devices[i];
     }
 
-    *selected_device = dgpu_device ? dgpu_device : igpu_device;
-    if (!*selected_device)
-        *selected_device = physical_devices[0];
+    if (!device)
+        device = dgpu_device ? dgpu_device : igpu_device;
+    if (!device)
+        device = physical_devices[0];
 
     vkd3d_free(physical_devices);
 
-    VK_CALL(vkGetPhysicalDeviceProperties(*selected_device, &device_properties));
+    VK_CALL(vkGetPhysicalDeviceProperties(device, &device_properties));
     TRACE("Using device: %s, %#x:%#x.\n", device_properties.deviceName,
             device_properties.vendorID, device_properties.deviceID);
+
+    *selected_device = device;
 
     return S_OK;
 }
@@ -1285,6 +1295,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     VkPhysicalDeviceFeatures2 features2;
     VkPhysicalDevice physical_device;
     VkDeviceCreateInfo device_info;
+    unsigned int device_index;
     uint32_t extension_count;
     const char **extensions;
     VkDevice vk_device;
@@ -1294,8 +1305,9 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     TRACE("device %p, create_info %p.\n", device, create_info);
 
     physical_device = create_info->vk_physical_device;
-    if (!physical_device
-            && FAILED(hr = vkd3d_select_physical_device(device->vkd3d_instance, &physical_device)))
+    device_index = vkd3d_env_var_as_uint("VKD3D_VULKAN_DEVICE", ~0u);
+    if ((!physical_device || device_index != ~0u)
+            && FAILED(hr = vkd3d_select_physical_device(device->vkd3d_instance, device_index, &physical_device)))
         return hr;
 
     device->vk_physical_device = physical_device;

@@ -20,10 +20,11 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <errno.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <inttypes.h>
 
 #define VKD3D_DEBUG_BUFFER_COUNT 64
 #define VKD3D_DEBUG_BUFFER_SIZE 512
@@ -296,4 +297,21 @@ const char *debugstr_w(const WCHAR *wstr, size_t wchar_size)
     if (wchar_size == 2)
         return debugstr_w16((const uint16_t *)wstr);
     return debugstr_w32((const uint32_t *)wstr);
+}
+
+unsigned int vkd3d_env_var_as_uint(const char *name, unsigned int default_value)
+{
+    const char *value = getenv(name);
+    unsigned long r;
+    char *end_ptr;
+
+    if (value)
+    {
+        errno = 0;
+        r = strtoul(value, &end_ptr, 0);
+        if (!errno && end_ptr != value)
+            return r;
+    }
+
+    return default_value;
 }
