@@ -41,15 +41,15 @@ static void test_invalid_texture_resource_barriers(void)
     command_queue_desc.NodeMask = 0;
     hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
             &IID_ID3D12CommandQueue, (void **)&queue);
-    ok(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
 
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
-    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
 
     texture = create_default_texture(device, 32, 32, DXGI_FORMAT_R8G8B8A8_UNORM,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -60,7 +60,7 @@ static void test_invalid_texture_resource_barriers(void)
     transition_resource_state(command_list, texture,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
 
     reset_command_list(command_list, command_allocator);
 
@@ -80,10 +80,10 @@ static void test_invalid_texture_resource_barriers(void)
 
     ID3D12GraphicsCommandList_Release(command_list);
     hr = ID3D12CommandAllocator_Reset(command_allocator);
-    ok(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to reset command allocator, hr %#x.\n", hr);
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
-    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
 
     /* The before state does not match with the previous state. */
     transition_resource_state(command_list, texture,
@@ -101,11 +101,11 @@ static void test_invalid_texture_resource_barriers(void)
     }
 
     hr = ID3D12CommandAllocator_Reset(command_allocator);
-    ok(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to reset command allocator, hr %#x.\n", hr);
     ID3D12GraphicsCommandList_Release(command_list);
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
-    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
 
     /* Exactly one write state or a combination of read-only states are allowed. */
     transition_resource_state(command_list, texture,
@@ -115,11 +115,11 @@ static void test_invalid_texture_resource_barriers(void)
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12CommandAllocator_Reset(command_allocator);
-    ok(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to reset command allocator, hr %#x.\n", hr);
     ID3D12GraphicsCommandList_Release(command_list);
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
-    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
 
     /* Readback resources cannot transition from D3D12_RESOURCE_STATE_COPY_DEST. */
     transition_resource_state(command_list, readback_buffer,
@@ -128,11 +128,11 @@ static void test_invalid_texture_resource_barriers(void)
     todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12CommandAllocator_Reset(command_allocator);
-    ok(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to reset command allocator, hr %#x.\n", hr);
     ID3D12GraphicsCommandList_Release(command_list);
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
-    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
 
     /* Upload resources cannot transition from D3D12_RESOURCE_STATE_GENERIC_READ. */
     transition_resource_state(command_list, upload_buffer,
@@ -150,6 +150,132 @@ static void test_invalid_texture_resource_barriers(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_invalid_copy_texture_region(void)
+{
+    ID3D12Resource *dst_texture, *src_texture, *dst_buffer, *src_buffer;
+    D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
+    ID3D12CommandAllocator *command_allocator;
+    ID3D12GraphicsCommandList *command_list;
+    ID3D12Device *device;
+    ULONG refcount;
+    D3D12_BOX box;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            &IID_ID3D12CommandAllocator, (void **)&command_allocator);
+    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+
+    src_buffer = create_upload_buffer(device, 0x40000, NULL);
+    dst_buffer = create_default_buffer(device, 0x40000, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    src_texture = create_default_texture(device, 64, 64,
+            DXGI_FORMAT_BC3_UNORM, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    dst_texture = create_default_texture(device, 64, 64,
+            DXGI_FORMAT_BC3_UNORM, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    dst_location.pResource = dst_texture;
+    dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dst_location.SubresourceIndex = 0;
+
+    src_location.pResource = src_buffer;
+    src_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    src_location.PlacedFootprint.Offset = D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT;
+    src_location.PlacedFootprint.Footprint.Format = DXGI_FORMAT_BC3_UNORM;
+    src_location.PlacedFootprint.Footprint.Width = 64;
+    src_location.PlacedFootprint.Footprint.Height = 63; /* height must be multiple of block size */
+    src_location.PlacedFootprint.Footprint.Depth = 1;
+    src_location.PlacedFootprint.Footprint.RowPitch
+            = 64 / format_block_width(DXGI_FORMAT_BC3_UNORM) * format_size(DXGI_FORMAT_BC3_UNORM);
+
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 0, 0, 0, &src_location, NULL);
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    ok(hr == S_OK, "Failed to reset command allocator, hr %#x.\n", hr);
+    ID3D12GraphicsCommandList_Release(command_list);
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+
+    src_location.PlacedFootprint.Footprint.Width = 4;
+    src_location.PlacedFootprint.Footprint.Height = 4;
+
+    /* dst y must be multiple of block size */
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 0, 3, 0, &src_location, NULL);
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    ok(hr == S_OK, "Failed to reset command allocator, hr %#x.\n", hr);
+    ID3D12GraphicsCommandList_Release(command_list);
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+
+    /* row pitch must be multiple of D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT */
+    src_location.PlacedFootprint.Footprint.RowPitch
+            = 64 / format_block_width(DXGI_FORMAT_BC3_UNORM) * format_size(DXGI_FORMAT_BC3_UNORM) + 1;
+
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 0, 0, 0, &src_location, NULL);
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12CommandAllocator_Reset(command_allocator);
+    ok(hr == S_OK, "Failed to reset command allocator, hr %#x.\n", hr);
+    ID3D12GraphicsCommandList_Release(command_list);
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+
+    dst_location.pResource = dst_buffer;
+    dst_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    dst_location.PlacedFootprint.Offset = D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT;
+    dst_location.PlacedFootprint.Footprint.Format = DXGI_FORMAT_BC3_UNORM;
+    dst_location.PlacedFootprint.Footprint.Width = 64;
+    dst_location.PlacedFootprint.Footprint.Height = 64;
+    dst_location.PlacedFootprint.Footprint.Depth = 1;
+    dst_location.PlacedFootprint.Footprint.RowPitch
+            = 64 / format_block_width(DXGI_FORMAT_BC3_UNORM) * format_size(DXGI_FORMAT_BC3_UNORM);
+
+    src_location.pResource = src_texture;
+    src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    src_location.SubresourceIndex = 0;
+
+    /* coordinates must be multiple of block size */
+    set_box(&box, 0, 0, 0, 31, 31, 1);
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 0, 0, 0, &src_location, &box);
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    ID3D12CommandAllocator_Release(command_allocator);
+    ID3D12GraphicsCommandList_Release(command_list);
+    ID3D12Resource_Release(dst_buffer);
+    ID3D12Resource_Release(src_buffer);
+    ID3D12Resource_Release(dst_texture);
+    ID3D12Resource_Release(src_texture);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12_invalid_usage)
 {
     parse_args(argc, argv);
@@ -157,4 +283,5 @@ START_TEST(d3d12_invalid_usage)
     init_adapter_info();
 
     run_test(test_invalid_texture_resource_barriers);
+    run_test(test_invalid_copy_texture_region);
 }

@@ -173,14 +173,6 @@ static void uav_barrier(ID3D12GraphicsCommandList *list, ID3D12Resource *resourc
     ID3D12GraphicsCommandList_ResourceBarrier(list, 1, &barrier);
 }
 
-#define create_default_buffer(a, b, c, d) create_default_buffer_(__LINE__, a, b, c, d)
-static ID3D12Resource *create_default_buffer_(unsigned int line, ID3D12Device *device,
-        size_t size, D3D12_RESOURCE_FLAGS resource_flags, D3D12_RESOURCE_STATES initial_resource_state)
-{
-    return create_buffer_(line, device, D3D12_HEAP_TYPE_DEFAULT, size,
-            resource_flags, initial_resource_state);
-}
-
 static void copy_sub_resource_data(const D3D12_MEMCPY_DEST *dst, const D3D12_SUBRESOURCE_DATA *src,
         unsigned int row_count, unsigned int slice_count, size_t row_size)
 {
@@ -293,54 +285,6 @@ static void upload_texture_data_(unsigned int line, ID3D12Resource *texture,
     free(layouts);
     free(row_counts);
     free(row_sizes);
-}
-
-static unsigned int format_block_width(DXGI_FORMAT format)
-{
-    switch (format)
-    {
-        case DXGI_FORMAT_BC1_UNORM:
-        case DXGI_FORMAT_BC1_UNORM_SRGB:
-        case DXGI_FORMAT_BC4_UNORM:
-        case DXGI_FORMAT_BC4_SNORM:
-        case DXGI_FORMAT_BC2_UNORM:
-        case DXGI_FORMAT_BC2_UNORM_SRGB:
-        case DXGI_FORMAT_BC3_UNORM:
-        case DXGI_FORMAT_BC3_UNORM_SRGB:
-        case DXGI_FORMAT_BC5_UNORM:
-        case DXGI_FORMAT_BC5_SNORM:
-        case DXGI_FORMAT_BC6H_UF16:
-        case DXGI_FORMAT_BC6H_SF16:
-        case DXGI_FORMAT_BC7_UNORM:
-        case DXGI_FORMAT_BC7_UNORM_SRGB:
-            return 4;
-        default:
-            return 1;
-    }
-}
-
-static unsigned int format_block_height(DXGI_FORMAT format)
-{
-    switch (format)
-    {
-        case DXGI_FORMAT_BC1_UNORM:
-        case DXGI_FORMAT_BC1_UNORM_SRGB:
-        case DXGI_FORMAT_BC4_UNORM:
-        case DXGI_FORMAT_BC4_SNORM:
-        case DXGI_FORMAT_BC2_UNORM:
-        case DXGI_FORMAT_BC2_UNORM_SRGB:
-        case DXGI_FORMAT_BC3_UNORM:
-        case DXGI_FORMAT_BC3_UNORM_SRGB:
-        case DXGI_FORMAT_BC5_UNORM:
-        case DXGI_FORMAT_BC5_SNORM:
-        case DXGI_FORMAT_BC6H_UF16:
-        case DXGI_FORMAT_BC6H_SF16:
-        case DXGI_FORMAT_BC7_UNORM:
-        case DXGI_FORMAT_BC7_UNORM_SRGB:
-            return 4;
-        default:
-            return 1;
-    }
 }
 
 static const DXGI_FORMAT depth_stencil_formats[] =

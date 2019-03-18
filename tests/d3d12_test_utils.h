@@ -268,6 +268,54 @@ static unsigned int format_size(DXGI_FORMAT format)
     }
 }
 
+static inline unsigned int format_block_width(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_BC1_UNORM:
+        case DXGI_FORMAT_BC1_UNORM_SRGB:
+        case DXGI_FORMAT_BC4_UNORM:
+        case DXGI_FORMAT_BC4_SNORM:
+        case DXGI_FORMAT_BC2_UNORM:
+        case DXGI_FORMAT_BC2_UNORM_SRGB:
+        case DXGI_FORMAT_BC3_UNORM:
+        case DXGI_FORMAT_BC3_UNORM_SRGB:
+        case DXGI_FORMAT_BC5_UNORM:
+        case DXGI_FORMAT_BC5_SNORM:
+        case DXGI_FORMAT_BC6H_UF16:
+        case DXGI_FORMAT_BC6H_SF16:
+        case DXGI_FORMAT_BC7_UNORM:
+        case DXGI_FORMAT_BC7_UNORM_SRGB:
+            return 4;
+        default:
+            return 1;
+    }
+}
+
+static inline unsigned int format_block_height(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_BC1_UNORM:
+        case DXGI_FORMAT_BC1_UNORM_SRGB:
+        case DXGI_FORMAT_BC4_UNORM:
+        case DXGI_FORMAT_BC4_SNORM:
+        case DXGI_FORMAT_BC2_UNORM:
+        case DXGI_FORMAT_BC2_UNORM_SRGB:
+        case DXGI_FORMAT_BC3_UNORM:
+        case DXGI_FORMAT_BC3_UNORM_SRGB:
+        case DXGI_FORMAT_BC5_UNORM:
+        case DXGI_FORMAT_BC5_SNORM:
+        case DXGI_FORMAT_BC6H_UF16:
+        case DXGI_FORMAT_BC6H_SF16:
+        case DXGI_FORMAT_BC7_UNORM:
+        case DXGI_FORMAT_BC7_UNORM_SRGB:
+            return 4;
+        default:
+            return 1;
+    }
+}
+
 struct resource_readback
 {
     unsigned int width;
@@ -429,6 +477,14 @@ static inline void check_sub_resource_uint_(unsigned int line, ID3D12Resource *t
     get_texture_readback_with_command_list(texture, sub_resource_idx, &rb, queue, command_list);
     check_readback_data_uint_(line, &rb, NULL, expected, max_diff);
     release_resource_readback(&rb);
+}
+
+#define create_default_buffer(a, b, c, d) create_default_buffer_(__LINE__, a, b, c, d)
+static inline ID3D12Resource *create_default_buffer_(unsigned int line, ID3D12Device *device,
+        size_t size, D3D12_RESOURCE_FLAGS resource_flags, D3D12_RESOURCE_STATES initial_resource_state)
+{
+    return create_buffer_(line, device, D3D12_HEAP_TYPE_DEFAULT, size,
+            resource_flags, initial_resource_state);
 }
 
 static ID3D12Resource *create_default_texture_(unsigned int line, ID3D12Device *device,
