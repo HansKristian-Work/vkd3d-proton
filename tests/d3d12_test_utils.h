@@ -288,6 +288,7 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
     D3D12_RANGE read_range;
     unsigned int miplevel;
     ID3D12Device *device;
+    uint64_t buffer_size;
     HRESULT hr;
 
     hr = ID3D12Resource_GetDevice(texture, &IID_ID3D12Device, (void **)&device);
@@ -331,7 +332,8 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
         src_resource = texture;
     }
 
-    rb->resource = create_readback_buffer(device, rb->row_pitch * rb->height * rb->depth);
+    buffer_size = rb->row_pitch * rb->height * rb->depth;
+    rb->resource = create_readback_buffer(device, buffer_size);
 
     dst_location.pResource = rb->resource;
     dst_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
@@ -358,7 +360,7 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
         ID3D12Resource_Release(src_resource);
 
     read_range.Begin = 0;
-    read_range.End = resource_desc.Width;
+    read_range.End = buffer_size;
     hr = ID3D12Resource_Map(rb->resource, 0, &read_range, &rb->data);
     assert_that(hr == S_OK, "Failed to map readback buffer, hr %#x.\n", hr);
 }
