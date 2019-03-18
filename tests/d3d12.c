@@ -20933,6 +20933,11 @@ static void test_copy_texture_buffer(void)
     ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
             &dst_location, 32, 0, 0, &src_location, &box);
 
+    /* empty box */
+    set_box(&box, 128, 0, 0, 32, 32, 1);
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 0, 0, 0, &src_location, &box);
+
     for (i = 0; i < ARRAY_SIZE(dst_buffers); ++i)
     {
         transition_resource_state(command_list, dst_buffers[i],

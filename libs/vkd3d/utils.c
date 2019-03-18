@@ -321,6 +321,16 @@ HRESULT return_interface(void *iface, REFIID iface_iid,
     return hr;
 }
 
+const char *debug_d3d12_box(const D3D12_BOX *box)
+{
+    if (!box)
+        return "(null)";
+
+    return vkd3d_dbg_sprintf("(%u, %u, %u)-(%u, %u, %u)",
+            box->left, box->top, box->front,
+            box->right, box->bottom, box->back);
+}
+
 const char *debug_vk_extent_3d(VkExtent3D extent)
 {
     return vkd3d_dbg_sprintf("(%u, %u, %u)",

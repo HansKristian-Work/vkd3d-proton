@@ -2715,6 +2715,13 @@ static void d3d12_command_list_copy_incompatible_texture_region(struct d3d12_com
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &buffer_image_copy));
 }
 
+static bool validate_d3d12_box(const D3D12_BOX *box)
+{
+    return box->right > box->left
+            && box->bottom > box->top
+            && box->back > box->front;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12GraphicsCommandList1 *iface,
         const D3D12_TEXTURE_COPY_LOCATION *dst, UINT dst_x, UINT dst_y, UINT dst_z,
         const D3D12_TEXTURE_COPY_LOCATION *src, const D3D12_BOX *src_box)
@@ -2728,6 +2735,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
 
     TRACE("iface %p, dst %p, dst_x %u, dst_y %u, dst_z %u, src %p, src_box %p.\n",
             iface, dst, dst_x, dst_y, dst_z, src, src_box);
+
+    if (src_box && !validate_d3d12_box(src_box))
+    {
+        WARN("Empty box %s.\n", debug_d3d12_box(src_box));
+        return;
+    }
 
     vk_procs = &list->device->vk_procs;
 
