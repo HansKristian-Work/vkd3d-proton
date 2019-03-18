@@ -20844,6 +20844,177 @@ static void test_copy_texture(void)
     destroy_test_context(&context);
 }
 
+static void test_copy_texture_buffer(void)
+{
+    D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_SUBRESOURCE_DATA texture_data;
+    ID3D12Resource *dst_buffers[4];
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *src_texture;
+    unsigned int got, expected;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    unsigned int x, y;
+    unsigned int *ptr;
+    unsigned int i;
+    D3D12_BOX box;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    ptr = calloc(64 * 32, sizeof(*ptr));
+    ok(ptr, "Failed to allocate memory.\n");
+
+    for (i = 0; i < 64 * 32; ++i)
+        ptr[i] = i;
+
+    src_texture = create_default_texture(device,
+            64, 32, DXGI_FORMAT_R32_UINT, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    texture_data.pData = ptr;
+    texture_data.RowPitch = 64 * sizeof(*ptr);
+    texture_data.SlicePitch = texture_data.RowPitch * 32;
+    upload_texture_data(src_texture, &texture_data, 1, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, src_texture,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    free(ptr);
+
+    for (i = 0; i < ARRAY_SIZE(dst_buffers); ++i)
+    {
+        dst_buffers[i] = create_default_buffer(device,
+                64 * 32 * sizeof(*ptr), 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    }
+
+    dst_location.pResource = dst_buffers[0];
+    dst_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    dst_location.PlacedFootprint.Offset = 0;
+    dst_location.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_UINT;
+    dst_location.PlacedFootprint.Footprint.Width = 64;
+    dst_location.PlacedFootprint.Footprint.Height = 32;
+    dst_location.PlacedFootprint.Footprint.Depth = 1;
+    dst_location.PlacedFootprint.Footprint.RowPitch = 64 * sizeof(*ptr);
+
+    src_location.pResource = src_texture;
+    src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    src_location.SubresourceIndex = 0;
+
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 0, 0, 0, &src_location, NULL);
+
+    dst_location.pResource = dst_buffers[1];
+    for (y = 0; y < 32; ++y)
+    {
+        set_box(&box, 0, y, 0, 64, y + 1, 1);
+        ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+                &dst_location, 0, 31 - y, 0, &src_location, &box);
+    }
+
+    dst_location.pResource = dst_buffers[2];
+    for (x = 0; x < 64; ++x)
+    {
+        set_box(&box, x, 0, 0, x + 1, 32, 1);
+        ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+                &dst_location, 63 - x, 0, 0, &src_location, &box);
+    }
+
+    dst_location.pResource = dst_buffers[3];
+    set_box(&box, 0, 0, 0, 32, 32, 1);
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 0, 0, 0, &src_location, &box);
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 32, 0, 0, &src_location, &box);
+
+    for (i = 0; i < ARRAY_SIZE(dst_buffers); ++i)
+    {
+        transition_resource_state(command_list, dst_buffers[i],
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    }
+
+    got = expected = 0;
+    get_buffer_readback_with_command_list(dst_buffers[0], DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (i = 0; i < 64 * 32; ++i)
+    {
+        got = get_readback_uint(&rb, i, 0, 0);
+        expected = i;
+
+        if (got != expected)
+            break;
+    }
+    release_resource_readback(&rb);
+    ok(got == expected, "Got unexpected value 0x%08x at %u, expected 0x%08x.\n", got, i, expected);
+
+    reset_command_list(command_list, context.allocator);
+    got = expected = 0;
+    get_buffer_readback_with_command_list(dst_buffers[1], DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (y = 0; y < 32; ++y)
+    {
+        for (x = 0; x < 64; ++x)
+        {
+            got = get_readback_uint(&rb, 64 * y + x, 0, 0);
+            expected = 64 * (31 - y) + x;
+
+            if (got != expected)
+                break;
+        }
+        if (got != expected)
+            break;
+    }
+    release_resource_readback(&rb);
+    ok(got == expected, "Got unexpected value 0x%08x at (%u, %u), expected 0x%08x.\n", got, x, y, expected);
+
+    reset_command_list(command_list, context.allocator);
+    got = expected = 0;
+    get_buffer_readback_with_command_list(dst_buffers[2], DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (y = 0; y < 32; ++y)
+    {
+        for (x = 0; x < 64; ++x)
+        {
+            got = get_readback_uint(&rb, 64 * y + x, 0, 0);
+            expected = 64 * y + 63 - x;
+
+            if (got != expected)
+                break;
+        }
+        if (got != expected)
+            break;
+    }
+    release_resource_readback(&rb);
+    ok(got == expected, "Got unexpected value 0x%08x at (%u, %u), expected 0x%08x.\n", got, x, y, expected);
+
+    reset_command_list(command_list, context.allocator);
+    got = expected = 0;
+    get_buffer_readback_with_command_list(dst_buffers[3], DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (y = 0; y < 32; ++y)
+    {
+        for (x = 0; x < 64; ++x)
+        {
+            got = get_readback_uint(&rb, 64 * y + x, 0, 0);
+            expected = 64 * y + x % 32;
+
+            if (got != expected)
+                break;
+        }
+        if (got != expected)
+            break;
+    }
+    release_resource_readback(&rb);
+    ok(got == expected, "Got unexpected value 0x%08x at (%u, %u), expected 0x%08x.\n", got, x, y, expected);
+
+    ID3D12Resource_Release(src_texture);
+    for (i = 0; i < ARRAY_SIZE(dst_buffers); ++i)
+        ID3D12Resource_Release(dst_buffers[i]);
+    destroy_test_context(&context);
+}
+
 static void test_copy_buffer_texture(void)
 {
     D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
@@ -26123,6 +26294,7 @@ START_TEST(d3d12)
     run_test(test_instance_id);
     run_test(test_vertex_id);
     run_test(test_copy_texture);
+    run_test(test_copy_texture_buffer);
     run_test(test_copy_buffer_texture);
     run_test(test_separate_bindings);
     run_test(test_face_culling);
