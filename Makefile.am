@@ -179,7 +179,7 @@ endif
 
 EXTRA_DIST += $(vkd3d_demos_shaders)
 
-libvkd3d-utils.pc: $(srcdir)/libs/vkd3d-utils/libvkd3d-utils.pc.in
+libvkd3d-utils.pc: $(srcdir)/libs/vkd3d-utils/libvkd3d-utils.pc.in Makefile
 	$(AM_V_GEN)$(SED) -e 's![@]prefix[@]!$(prefix)!g' \
 		-e 's![@]exec_prefix[@]!$(exec_prefix)!g' \
 		-e 's![@]includedir[@]!$(includedir)!g' \
@@ -187,7 +187,7 @@ libvkd3d-utils.pc: $(srcdir)/libs/vkd3d-utils/libvkd3d-utils.pc.in
 		-e 's![@]PACKAGE_VERSION[@]!$(PACKAGE_VERSION)!g' \
 		$< > $@
 
-libvkd3d-shader.pc: $(srcdir)/libs/vkd3d-shader/libvkd3d-shader.pc.in
+libvkd3d-shader.pc: $(srcdir)/libs/vkd3d-shader/libvkd3d-shader.pc.in Makefile
 	$(AM_V_GEN)$(SED) -e 's![@]prefix[@]!$(prefix)!g' \
 		-e 's![@]exec_prefix[@]!$(exec_prefix)!g' \
 		-e 's![@]includedir[@]!$(includedir)!g' \
@@ -195,7 +195,7 @@ libvkd3d-shader.pc: $(srcdir)/libs/vkd3d-shader/libvkd3d-shader.pc.in
 		-e 's![@]PACKAGE_VERSION[@]!$(PACKAGE_VERSION)!g' \
 		$< > $@
 
-libvkd3d.pc: $(srcdir)/libs/vkd3d/libvkd3d.pc.in
+libvkd3d.pc: $(srcdir)/libs/vkd3d/libvkd3d.pc.in Makefile
 	$(AM_V_GEN)$(SED) -e 's![@]prefix[@]!$(prefix)!g' \
 		-e 's![@]exec_prefix[@]!$(exec_prefix)!g' \
 		-e 's![@]includedir[@]!$(includedir)!g' \
