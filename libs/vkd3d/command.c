@@ -2492,23 +2492,39 @@ static void vk_extent_3d_from_d3d12_miplevel(VkExtent3D *extent,
     extent->depth = d3d12_resource_desc_get_depth(resource_desc, miplevel_idx);
 }
 
-static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy *buffer_image_copy,
+static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy *copy,
         const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *footprint, unsigned int sub_resource_idx,
         const D3D12_RESOURCE_DESC *image_desc, const struct vkd3d_format *format,
-        unsigned int dst_x, unsigned int dst_y, unsigned int dst_z)
+        const D3D12_BOX *src_box, unsigned int dst_x, unsigned int dst_y, unsigned int dst_z)
 {
-    buffer_image_copy->bufferOffset = footprint->Offset;
-    buffer_image_copy->bufferRowLength = footprint->Footprint.RowPitch /
+    copy->bufferOffset = footprint->Offset;
+    if (src_box)
+    {
+        VkDeviceSize row_count = footprint->Footprint.Height / format->block_height;
+        copy->bufferOffset += src_box->left / format->block_width * format->byte_count * format->block_byte_count;
+        copy->bufferOffset += src_box->top / format->block_height * footprint->Footprint.RowPitch;
+        copy->bufferOffset += src_box->front * footprint->Footprint.RowPitch * row_count;
+    }
+    copy->bufferRowLength = footprint->Footprint.RowPitch /
             (format->byte_count * format->block_byte_count) * format->block_width;
-    buffer_image_copy->bufferImageHeight = 0;
-    vk_image_subresource_layers_from_d3d12(&buffer_image_copy->imageSubresource,
+    copy->bufferImageHeight = footprint->Footprint.Height;
+    vk_image_subresource_layers_from_d3d12(&copy->imageSubresource,
             format, sub_resource_idx, image_desc->MipLevels);
-    buffer_image_copy->imageOffset.x = dst_x;
-    buffer_image_copy->imageOffset.y = dst_y;
-    buffer_image_copy->imageOffset.z = dst_z;
-    buffer_image_copy->imageExtent.width = footprint->Footprint.Width;
-    buffer_image_copy->imageExtent.height = footprint->Footprint.Height;
-    buffer_image_copy->imageExtent.depth = footprint->Footprint.Depth;
+    copy->imageOffset.x = dst_x;
+    copy->imageOffset.y = dst_y;
+    copy->imageOffset.z = dst_z;
+    if (src_box)
+    {
+        copy->imageExtent.width = src_box->right - src_box->left;
+        copy->imageExtent.height = src_box->bottom - src_box->top;
+        copy->imageExtent.depth = src_box->back - src_box->front;
+    }
+    else
+    {
+        copy->imageExtent.width = footprint->Footprint.Width;
+        copy->imageExtent.height = footprint->Footprint.Height;
+        copy->imageExtent.depth = footprint->Footprint.Depth;
+    }
 }
 
 static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
@@ -2709,7 +2725,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
             FIXME("Depth-stencil format %#x not fully supported yet.\n", dst_format->dxgi_format);
 
         vk_buffer_image_copy_from_d3d12(&buffer_image_copy, &dst->u.PlacedFootprint,
-                src->u.SubresourceIndex, &src_resource->desc, dst_format, dst_x, dst_y, dst_z);
+                src->u.SubresourceIndex, &src_resource->desc, dst_format, src_box, dst_x, dst_y, dst_z);
         VK_CALL(vkCmdCopyImageToBuffer(list->vk_command_buffer,
                 src_resource->u.vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 dst_resource->u.vk_buffer, 1, &buffer_image_copy));
@@ -2732,7 +2748,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
             FIXME("Depth-stencil format %#x not fully supported yet.\n", src_format->dxgi_format);
 
         vk_buffer_image_copy_from_d3d12(&buffer_image_copy, &src->u.PlacedFootprint,
-                dst->u.SubresourceIndex, &dst_resource->desc, src_format, dst_x, dst_y, dst_z);
+                dst->u.SubresourceIndex, &dst_resource->desc, src_format, src_box, dst_x, dst_y, dst_z);
         VK_CALL(vkCmdCopyBufferToImage(list->vk_command_buffer,
                 src_resource->u.vk_buffer, dst_resource->u.vk_image,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &buffer_image_copy));
