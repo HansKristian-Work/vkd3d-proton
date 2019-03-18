@@ -21194,6 +21194,180 @@ static void test_copy_buffer_texture(void)
     destroy_test_context(&context);
 }
 
+static void test_copy_block_compressed_texture(void)
+{
+    D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
+    ID3D12Resource *dst_buffer, *src_buffer;
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    unsigned int x, y, block_id;
+    struct test_context context;
+    struct resource_readback rb;
+    struct uvec4 got, expected;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *texture;
+    ID3D12Device *device;
+    unsigned int *ptr;
+    D3D12_BOX box;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    dst_buffer = create_default_buffer(device, 4096, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    src_buffer = create_upload_buffer(device, 4096, NULL);
+    hr = ID3D12Resource_Map(src_buffer, 0, NULL, (void **)&ptr);
+    ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", hr);
+    for (x = 0; x < 4096 / format_size(DXGI_FORMAT_BC2_UNORM); ++x)
+    {
+        block_id = x << 8;
+        *ptr++ = block_id | 0;
+        *ptr++ = block_id | 1;
+        *ptr++ = block_id | 2;
+        *ptr++ = block_id | 3;
+    }
+    ID3D12Resource_Unmap(src_buffer, 0, NULL);
+
+    texture = create_default_texture(device,
+            8, 8, DXGI_FORMAT_BC2_UNORM, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    /* copy from buffer to texture */
+    dst_location.pResource = texture;
+    dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dst_location.SubresourceIndex = 0;
+
+    src_location.pResource = src_buffer;
+    src_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    src_location.PlacedFootprint.Offset = 0;
+    src_location.PlacedFootprint.Footprint.Format = DXGI_FORMAT_BC2_UNORM;
+    src_location.PlacedFootprint.Footprint.Width = 32;
+    src_location.PlacedFootprint.Footprint.Height = 32;
+    src_location.PlacedFootprint.Footprint.Depth = 1;
+    src_location.PlacedFootprint.Footprint.RowPitch
+            = 32 / format_block_width(DXGI_FORMAT_BC2_UNORM) * format_size(DXGI_FORMAT_BC2_UNORM);
+    src_location.PlacedFootprint.Footprint.RowPitch
+            = align(src_location.PlacedFootprint.Footprint.RowPitch, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+
+    set_box(&box, 4, 4, 0, 8, 8, 1);
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 0, 0, 0, &src_location, &box);
+    set_box(&box, 28, 0, 0, 32, 4, 1);
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 4, 0, 0, &src_location, &box);
+    set_box(&box, 0, 24, 0, 4, 28, 1);
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 0, 4, 0, &src_location, &box);
+    set_box(&box, 16, 16, 0, 20, 20, 1);
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 4, 4, 0, &src_location, &box);
+
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    /* copy from texture to buffer */
+    dst_location.pResource = dst_buffer;
+    dst_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    dst_location.PlacedFootprint.Offset = 0;
+    dst_location.PlacedFootprint.Footprint.Format = DXGI_FORMAT_BC2_UNORM;
+    dst_location.PlacedFootprint.Footprint.Width = 8;
+    dst_location.PlacedFootprint.Footprint.Height = 24;
+    dst_location.PlacedFootprint.Footprint.Depth = 1;
+    dst_location.PlacedFootprint.Footprint.RowPitch
+            = 8 / format_block_width(DXGI_FORMAT_BC2_UNORM) * format_size(DXGI_FORMAT_BC2_UNORM);
+    dst_location.PlacedFootprint.Footprint.RowPitch
+            = align(dst_location.PlacedFootprint.Footprint.RowPitch, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+
+    src_location.pResource = texture;
+    src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    src_location.SubresourceIndex = 0;
+
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 0, 0, 0, &src_location, NULL);
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 0, 8, 0, &src_location, NULL);
+    set_box(&box, 0, 0, 0, 8, 8, 1);
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 0, 16, 0, &src_location, &box);
+
+    transition_resource_state(command_list, dst_buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(texture, 0, &rb, queue, command_list);
+    for (y = 0; y < 8 / format_block_height(DXGI_FORMAT_BC2_UNORM); ++y)
+    {
+        for (x = 0; x < 8 / format_block_width(DXGI_FORMAT_BC2_UNORM); ++x)
+        {
+            if (x == 0 && y == 0)
+                block_id = 33;
+            else if (x == 1 && y == 0)
+                block_id = 7;
+            else if (x == 0 && y == 1)
+                block_id = 192;
+            else
+                block_id = 132;
+
+            expected.x = block_id << 8 | 0;
+            expected.y = block_id << 8 | 1;
+            expected.z = block_id << 8 | 2;
+            expected.w = block_id << 8 | 3;
+            got = *get_readback_uvec4(&rb, x, y);
+
+            if (!compare_uvec4(&got, &expected))
+                break;
+        }
+        if (!compare_uvec4(&got, &expected))
+            break;
+    }
+    release_resource_readback(&rb);
+    ok(compare_uvec4(&got, &expected),
+            "Got {0x%08x, 0x%08x, 0x%08x, 0x%08x} at (%u, %u), expected {0x%08x, 0x%08x, 0x%08x, 0x%08x}.\n",
+            got.x, got.y, got.z, got.w, x, y, expected.x, expected.y, expected.z, expected.w);
+
+    reset_command_list(command_list, context.allocator);
+    get_buffer_readback_with_command_list(dst_buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    for (y = 0; y < 24 / format_block_height(DXGI_FORMAT_BC2_UNORM); ++y)
+    {
+        unsigned int row_offset = dst_location.PlacedFootprint.Footprint.RowPitch / sizeof(got) * y;
+
+        for (x = 0; x < 4 / format_block_width(DXGI_FORMAT_BC2_UNORM); ++x)
+        {
+            if (x == 0 && y % 2 == 0)
+                block_id = 33;
+            else if (x == 1 && y % 2 == 0)
+                block_id = 7;
+            else if (x == 0 && y % 2 == 1)
+                block_id = 192;
+            else
+                block_id = 132;
+
+            expected.x = block_id << 8 | 0;
+            expected.y = block_id << 8 | 1;
+            expected.z = block_id << 8 | 2;
+            expected.w = block_id << 8 | 3;
+            got = *get_readback_uvec4(&rb, x + row_offset, 0);
+
+            if (!compare_uvec4(&got, &expected))
+                break;
+        }
+        if (!compare_uvec4(&got, &expected))
+            break;
+    }
+    release_resource_readback(&rb);
+    ok(compare_uvec4(&got, &expected),
+            "Got {0x%08x, 0x%08x, 0x%08x, 0x%08x} at (%u, %u), expected {0x%08x, 0x%08x, 0x%08x, 0x%08x}.\n",
+            got.x, got.y, got.z, got.w, x, y, expected.x, expected.y, expected.z, expected.w);
+
+    ID3D12Resource_Release(texture);
+    ID3D12Resource_Release(src_buffer);
+    ID3D12Resource_Release(dst_buffer);
+    destroy_test_context(&context);
+}
+
 static void test_separate_bindings(void)
 {
     ID3D12Resource *cs_raw_buffer, *cs_raw_uav_buffer;
@@ -26301,6 +26475,7 @@ START_TEST(d3d12)
     run_test(test_copy_texture);
     run_test(test_copy_texture_buffer);
     run_test(test_copy_buffer_texture);
+    run_test(test_copy_block_compressed_texture);
     run_test(test_separate_bindings);
     run_test(test_face_culling);
     run_test(test_multithread_command_queue_exec);
