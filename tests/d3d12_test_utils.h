@@ -301,7 +301,7 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
     rb->width = max(1, resource_desc.Width >> miplevel);
     rb->height = max(1, resource_desc.Height >> miplevel);
     rb->depth = resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
-            ? resource_desc.DepthOrArraySize : 1;
+            ? max(1, resource_desc.DepthOrArraySize >> miplevel) : 1;
     rb->row_pitch = align(rb->width * format_size(resource_desc.Format), D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
     rb->data = NULL;
 
@@ -366,7 +366,7 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
 static void *get_readback_data(struct resource_readback *rb,
         unsigned int x, unsigned int y, unsigned int z, size_t element_size)
 {
-    unsigned int slice_pitch = rb->row_pitch * rb->depth;
+    unsigned int slice_pitch = rb->row_pitch * rb->height;
     return &((BYTE *)rb->data)[slice_pitch * z + rb->row_pitch * y + x * element_size];
 }
 
@@ -429,25 +429,26 @@ static inline void check_sub_resource_uint_(unsigned int line, ID3D12Resource *t
     release_resource_readback(&rb);
 }
 
-#define create_default_texture(a, b, c, d, e, f) create_default_texture2d_(__LINE__, a, b, c, 1, 1, d, e, f)
-#define create_default_texture2d(a, b, c, d, e, f, g, h) create_default_texture2d_(__LINE__, a, b, c, d, e, f, g, h)
-static ID3D12Resource *create_default_texture2d_(unsigned int line, ID3D12Device *device,
-        unsigned int width, unsigned int height, unsigned int array_size, unsigned int miplevel_count,
-        DXGI_FORMAT format, D3D12_RESOURCE_FLAGS flags, D3D12_RESOURCE_STATES initial_state)
+static ID3D12Resource *create_default_texture_(unsigned int line, ID3D12Device *device,
+        D3D12_RESOURCE_DIMENSION dimension, unsigned int width, unsigned int height,
+        unsigned int depth_or_array_size, unsigned int miplevel_count, DXGI_FORMAT format,
+        D3D12_RESOURCE_FLAGS flags, D3D12_RESOURCE_STATES initial_state)
 {
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *texture;
     HRESULT hr;
 
+    assert(dimension != D3D12_RESOURCE_DIMENSION_BUFFER);
+
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
     memset(&resource_desc, 0, sizeof(resource_desc));
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Dimension = dimension;
     resource_desc.Width = width;
     resource_desc.Height = height;
-    resource_desc.DepthOrArraySize = array_size;
+    resource_desc.DepthOrArraySize = depth_or_array_size;
     resource_desc.MipLevels = miplevel_count;
     resource_desc.Format = format;
     resource_desc.SampleDesc.Count = 1;
@@ -457,6 +458,25 @@ static ID3D12Resource *create_default_texture2d_(unsigned int line, ID3D12Device
     ok_(line)(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
 
     return texture;
+}
+
+#define create_default_texture(a, b, c, d, e, f) create_default_texture2d_(__LINE__, a, b, c, 1, 1, d, e, f)
+#define create_default_texture2d(a, b, c, d, e, f, g, h) create_default_texture2d_(__LINE__, a, b, c, d, e, f, g, h)
+static ID3D12Resource *create_default_texture2d_(unsigned int line, ID3D12Device *device,
+        unsigned int width, unsigned int height, unsigned int array_size, unsigned int miplevel_count,
+        DXGI_FORMAT format, D3D12_RESOURCE_FLAGS flags, D3D12_RESOURCE_STATES initial_state)
+{
+    return create_default_texture_(line, device, D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+            width, height, array_size, miplevel_count, format, flags, initial_state);
+}
+
+#define create_default_texture3d(a, b, c, d, e, f, g, h) create_default_texture3d_(__LINE__, a, b, c, d, e, f, g, h)
+static inline ID3D12Resource *create_default_texture3d_(unsigned int line, ID3D12Device *device,
+        unsigned int width, unsigned int height, unsigned int depth, unsigned int miplevel_count,
+        DXGI_FORMAT format, D3D12_RESOURCE_FLAGS flags, D3D12_RESOURCE_STATES initial_state)
+{
+    return create_default_texture_(line, device, D3D12_RESOURCE_DIMENSION_TEXTURE3D,
+            width, height, depth, miplevel_count, format, flags, initial_state);
 }
 
 static HRESULT create_root_signature(ID3D12Device *device, const D3D12_ROOT_SIGNATURE_DESC *desc,
