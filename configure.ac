@@ -80,9 +80,7 @@ AC_CHECK_LIB([dl], [dlopen],
              [AS_IF([test "$ac_cv_header_dlfnc_h" = "xyes"], [AC_MSG_ERROR([libdl not found.])])])
 
 AC_ARG_VAR([PTHREAD_LIBS], [linker flags for pthreads])
-AC_CHECK_LIB([pthread], [pthread_create],
-             [AC_SUBST([PTHREAD_LIBS], ["-lpthread"])],
-             [AC_MSG_ERROR([libpthread not found.])])
+VKD3D_CHECK_PTHREAD
 
 AC_SUBST([VULKAN_LIBS])
 VKD3D_CHECK_SONAME([vulkan], [vkGetInstanceProcAddr],
