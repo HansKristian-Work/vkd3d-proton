@@ -21177,8 +21177,8 @@ static void test_copy_block_compressed_texture(void)
     }
     ID3D12Resource_Unmap(src_buffer, 0, NULL);
 
-    texture = create_default_texture(device,
-            8, 8, DXGI_FORMAT_BC2_UNORM, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    texture = create_default_texture2d(device, 8, 8, 1, 4, DXGI_FORMAT_BC2_UNORM,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
 
     /* copy from buffer to texture */
     dst_location.pResource = texture;
@@ -21209,6 +21209,16 @@ static void test_copy_block_compressed_texture(void)
     set_box(&box, 16, 16, 0, 20, 20, 1);
     ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
             &dst_location, 4, 4, 0, &src_location, &box);
+
+    /* miplevels smaller than 4x4 */
+    dst_location.SubresourceIndex = 2;
+    set_box(&box, 4, 0, 0, 8, 4, 1);
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 0, 0, 0, &src_location, &box);
+    dst_location.SubresourceIndex = 3;
+    set_box(&box, 8, 0, 0, 12, 4, 1);
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+            &dst_location, 0, 0, 0, &src_location, &box);
 
     transition_resource_state(command_list, texture,
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -21271,6 +21281,32 @@ static void test_copy_block_compressed_texture(void)
     ok(compare_uvec4(&got, &expected),
             "Got {0x%08x, 0x%08x, 0x%08x, 0x%08x} at (%u, %u), expected {0x%08x, 0x%08x, 0x%08x, 0x%08x}.\n",
             got.x, got.y, got.z, got.w, x, y, expected.x, expected.y, expected.z, expected.w);
+
+    reset_command_list(command_list, context.allocator);
+    get_texture_readback_with_command_list(texture, 2, &rb, queue, command_list);
+    block_id = 1;
+    expected.x = block_id << 8 | 0;
+    expected.y = block_id << 8 | 1;
+    expected.z = block_id << 8 | 2;
+    expected.w = block_id << 8 | 3;
+    got = *get_readback_uvec4(&rb, 0, 0);
+    release_resource_readback(&rb);
+    ok(compare_uvec4(&got, &expected),
+            "Got {0x%08x, 0x%08x, 0x%08x, 0x%08x}, expected {0x%08x, 0x%08x, 0x%08x, 0x%08x}.\n",
+            got.x, got.y, got.z, got.w, expected.x, expected.y, expected.z, expected.w);
+
+    reset_command_list(command_list, context.allocator);
+    get_texture_readback_with_command_list(texture, 3, &rb, queue, command_list);
+    block_id = 2;
+    expected.x = block_id << 8 | 0;
+    expected.y = block_id << 8 | 1;
+    expected.z = block_id << 8 | 2;
+    expected.w = block_id << 8 | 3;
+    got = *get_readback_uvec4(&rb, 0, 0);
+    release_resource_readback(&rb);
+    ok(compare_uvec4(&got, &expected),
+            "Got {0x%08x, 0x%08x, 0x%08x, 0x%08x}, expected {0x%08x, 0x%08x, 0x%08x, 0x%08x}.\n",
+            got.x, got.y, got.z, got.w, expected.x, expected.y, expected.z, expected.w);
 
     reset_command_list(command_list, context.allocator);
     get_buffer_readback_with_command_list(dst_buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);

@@ -348,7 +348,9 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
 
     miplevel = sub_resource % resource_desc.MipLevels;
     rb->width = max(1, resource_desc.Width >> miplevel);
+    rb->width = align(rb->width, format_block_width(resource_desc.Format));
     rb->height = max(1, resource_desc.Height >> miplevel);
+    rb->height = align(rb->height, format_block_height(resource_desc.Format));
     rb->depth = resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
             ? max(1, resource_desc.DepthOrArraySize >> miplevel) : 1;
     rb->row_pitch = align(rb->width * format_size(resource_desc.Format), D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
