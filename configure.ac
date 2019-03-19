@@ -74,9 +74,9 @@ m4_ifdef([PKG_PROG_PKG_CONFIG], [PKG_PROG_PKG_CONFIG], [m4_fatal([pkg-config aut
 
 AC_CHECK_LIB([m], [ceilf])
 
-AC_ARG_VAR([DL_LIBS], [linker flags for dl])
+AC_SUBST([DL_LIBS])
 AC_CHECK_LIB([dl], [dlopen],
-             [AC_SUBST([DL_LIBS], ["-ldl"])],
+             [DL_LIBS="-ldl"],
              [AS_IF([test "$ac_cv_header_dlfnc_h" = "xyes"], [AC_MSG_ERROR([libdl not found.])])])
 
 AC_ARG_VAR([PTHREAD_LIBS], [linker flags for pthreads])
