@@ -2135,7 +2135,7 @@ static struct vkd3d_push_constant_buffer_binding *vkd3d_dxbc_compiler_find_push_
     return NULL;
 }
 
-static bool vkd3d_dxbc_compiler_have_combined_sampler(const struct vkd3d_dxbc_compiler *compiler,
+static bool vkd3d_dxbc_compiler_has_combined_sampler(const struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *resource, const struct vkd3d_shader_register *sampler)
 {
     const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
@@ -2151,6 +2151,9 @@ static bool vkd3d_dxbc_compiler_have_combined_sampler(const struct vkd3d_dxbc_co
     for (i = 0; i < shader_interface->combined_sampler_count; ++i)
     {
         combined_sampler = &shader_interface->combined_samplers[i];
+
+        if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, combined_sampler->shader_visibility))
+            continue;
 
         if ((!resource || combined_sampler->resource_index == resource->idx[0].offset)
                 && (!sampler || combined_sampler->sampler_index == sampler->idx[0].offset))
@@ -4562,7 +4565,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
     uint32_t type_id, ptr_type_id, var_id;
     struct vkd3d_symbol reg_symbol;
 
-    if (vkd3d_dxbc_compiler_have_combined_sampler(compiler, NULL, reg))
+    if (vkd3d_dxbc_compiler_has_combined_sampler(compiler, NULL, reg))
         return;
 
     type_id = vkd3d_spirv_get_op_type_sampler(builder);
@@ -4750,7 +4753,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
 
     sampled_type = vkd3d_component_type_from_data_type(resource_data_type);
 
-    if (vkd3d_dxbc_compiler_have_combined_sampler(compiler, reg, NULL))
+    if (vkd3d_dxbc_compiler_has_combined_sampler(compiler, reg, NULL))
     {
         vkd3d_dxbc_compiler_emit_combined_sampler_declarations(compiler,
                 reg, resource_type, sampled_type, structure_stride, raw, resource_type_info);
