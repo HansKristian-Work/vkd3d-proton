@@ -3110,6 +3110,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(ID3D12Graphics
 
     TRACE("iface %p, pipeline_state %p.\n", iface, pipeline_state);
 
+    if (list->state == state)
+        return;
+
     vk_procs = &list->device->vk_procs;
 
     d3d12_command_list_invalidate_bindings(list, state);
