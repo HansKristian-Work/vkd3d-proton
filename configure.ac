@@ -54,7 +54,8 @@ VKD3D_CHECK_MINGW32_PROG([CROSSCC32], [CROSSTARGET32], [no])
 VKD3D_CHECK_MINGW64_PROG([CROSSCC64], [CROSSTARGET64], [no])
 
 dnl Check for headers
-AC_CHECK_HEADERS([pthread.h vulkan/vulkan.h \
+AC_CHECK_HEADERS([dlfcn.h pthread.h \
+                  vulkan/vulkan.h \
                   vulkan/spirv.h vulkan/GLSL.std.450.h \
                   spirv/unified1/spirv.h spirv/unified1/GLSL.std.450.h])
 AS_IF([test "x$ac_cv_header_pthread_h" != "xyes"], [AC_MSG_ERROR([pthread.h not found.])])
@@ -76,7 +77,7 @@ AC_CHECK_LIB([m], [ceilf])
 AC_ARG_VAR([DL_LIBS], [linker flags for dl])
 AC_CHECK_LIB([dl], [dlopen],
              [AC_SUBST([DL_LIBS], ["-ldl"])],
-             [AC_MSG_ERROR([libdl not found.])])
+             [AS_IF([test "$ac_cv_header_dlfnc_h" = "xyes"], [AC_MSG_ERROR([libdl not found.])])])
 
 AC_ARG_VAR([PTHREAD_LIBS], [linker flags for pthreads])
 AC_CHECK_LIB([pthread], [pthread_create],
