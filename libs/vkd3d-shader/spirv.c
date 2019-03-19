@@ -4480,9 +4480,6 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
 
     assert(!(instruction->flags & ~VKD3DSI_INDEXED_DYNAMIC));
 
-    if (instruction->flags & VKD3DSI_INDEXED_DYNAMIC)
-        vkd3d_spirv_enable_capability(builder, SpvCapabilityUniformBufferArrayDynamicIndexing);
-
     cb_size = reg->idx[1].offset;
 
     if ((push_cb = vkd3d_dxbc_compiler_find_push_constant_buffer(compiler, reg)))
