@@ -3008,6 +3008,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(ID3D12Gr
         return;
     }
 
+    if (list->primitive_topology == topology)
+        return;
+
     list->primitive_topology = topology;
     d3d12_command_list_invalidate_current_pipeline(list);
 }
