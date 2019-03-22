@@ -331,6 +331,37 @@ const char *debug_d3d12_box(const D3D12_BOX *box)
             box->right, box->bottom, box->back);
 }
 
+static const char *debug_d3d12_shader_component(D3D12_SHADER_COMPONENT_MAPPING component)
+{
+    switch (component)
+    {
+        case D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_0:
+            return "r";
+        case D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_1:
+            return "g";
+        case D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_2:
+            return "b";
+        case D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_3:
+            return "a";
+        case D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_0:
+            return "0";
+        case D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_1:
+            return "1";
+    }
+
+    FIXME("Invalid component mapping %#x.\n", component);
+    return "invalid";
+}
+
+const char *debug_d3d12_shader_component_mapping(unsigned int mapping)
+{
+    return vkd3d_dbg_sprintf("{%s, %s, %s, %s}",
+            debug_d3d12_shader_component(D3D12_DECODE_SHADER_4_COMPONENT_MAPPING(mapping, 0)),
+            debug_d3d12_shader_component(D3D12_DECODE_SHADER_4_COMPONENT_MAPPING(mapping, 1)),
+            debug_d3d12_shader_component(D3D12_DECODE_SHADER_4_COMPONENT_MAPPING(mapping, 2)),
+            debug_d3d12_shader_component(D3D12_DECODE_SHADER_4_COMPONENT_MAPPING(mapping, 3)));
+}
+
 const char *debug_vk_extent_3d(VkExtent3D extent)
 {
     return vkd3d_dbg_sprintf("(%u, %u, %u)",

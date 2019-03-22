@@ -1618,10 +1618,10 @@ static bool vkd3d_create_buffer_view(struct d3d12_device *device,
 static void vkd3d_set_view_swizzle_for_format(VkComponentMapping *components,
         const struct vkd3d_format *format, bool allowed_swizzle)
 {
-    components->r = VK_COMPONENT_SWIZZLE_IDENTITY;
-    components->g = VK_COMPONENT_SWIZZLE_IDENTITY;
-    components->b = VK_COMPONENT_SWIZZLE_IDENTITY;
-    components->a = VK_COMPONENT_SWIZZLE_IDENTITY;
+    components->r = VK_COMPONENT_SWIZZLE_R;
+    components->g = VK_COMPONENT_SWIZZLE_G;
+    components->b = VK_COMPONENT_SWIZZLE_B;
+    components->a = VK_COMPONENT_SWIZZLE_A;
 
     if (format->vk_aspect_mask == VK_IMAGE_ASPECT_STENCIL_BIT)
     {
@@ -1671,6 +1671,89 @@ static void vkd3d_set_view_swizzle_for_format(VkComponentMapping *components,
     }
 }
 
+static VkComponentSwizzle vk_component_swizzle_from_d3d12(unsigned int component_mapping,
+        unsigned int component_index)
+{
+    D3D12_SHADER_COMPONENT_MAPPING mapping
+            = D3D12_DECODE_SHADER_4_COMPONENT_MAPPING(component_index, component_mapping);
+
+    switch (mapping)
+    {
+        case D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_0:
+            return VK_COMPONENT_SWIZZLE_R;
+        case D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_1:
+            return VK_COMPONENT_SWIZZLE_G;
+        case D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_2:
+            return VK_COMPONENT_SWIZZLE_B;
+        case D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_3:
+            return VK_COMPONENT_SWIZZLE_A;
+        case D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_0:
+            return VK_COMPONENT_SWIZZLE_ZERO;
+        case D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_1:
+            return VK_COMPONENT_SWIZZLE_ONE;
+    }
+
+    FIXME("Invalid component mapping %#x.\n", mapping);
+    return VK_COMPONENT_SWIZZLE_IDENTITY;
+}
+
+static void vk_component_mapping_from_d3d12(VkComponentMapping *components,
+        unsigned int component_mapping)
+{
+    components->r = vk_component_swizzle_from_d3d12(component_mapping, 0);
+    components->g = vk_component_swizzle_from_d3d12(component_mapping, 1);
+    components->b = vk_component_swizzle_from_d3d12(component_mapping, 2);
+    components->a = vk_component_swizzle_from_d3d12(component_mapping, 3);
+}
+
+static VkComponentSwizzle swizzle_vk_component(const VkComponentMapping *components,
+        VkComponentSwizzle component, VkComponentSwizzle swizzle)
+{
+    switch (swizzle)
+    {
+        case VK_COMPONENT_SWIZZLE_IDENTITY:
+            break;
+
+        case VK_COMPONENT_SWIZZLE_R:
+            component = components->r;
+            break;
+
+        case VK_COMPONENT_SWIZZLE_G:
+            component = components->g;
+            break;
+
+        case VK_COMPONENT_SWIZZLE_B:
+            component = components->b;
+            break;
+
+        case VK_COMPONENT_SWIZZLE_A:
+            component = components->a;
+            break;
+
+        case VK_COMPONENT_SWIZZLE_ONE:
+        case VK_COMPONENT_SWIZZLE_ZERO:
+            component = swizzle;
+            break;
+
+        default:
+            FIXME("Invalid component swizzle %#x.\n", swizzle);
+            break;
+    }
+
+    assert(component != VK_COMPONENT_SWIZZLE_IDENTITY);
+    return component;
+}
+
+static void vk_component_mapping_compose(VkComponentMapping *dst, const VkComponentMapping *b)
+{
+    const VkComponentMapping a = *dst;
+
+    dst->r = swizzle_vk_component(&a, a.r, b->r);
+    dst->g = swizzle_vk_component(&a, a.g, b->g);
+    dst->b = swizzle_vk_component(&a, a.b, b->b);
+    dst->a = swizzle_vk_component(&a, a.a, b->a);
+}
+
 struct vkd3d_texture_view_desc
 {
     VkImageViewType view_type;
@@ -1679,6 +1762,7 @@ struct vkd3d_texture_view_desc
     unsigned int miplevel_count;
     unsigned int layer_idx;
     unsigned int layer_count;
+    VkComponentMapping components;
     bool allowed_swizzle;
 };
 
@@ -1719,6 +1803,10 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
             return false;
     }
 
+    desc->components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    desc->components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+    desc->components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+    desc->components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
     desc->allowed_swizzle = false;
     return true;
 }
@@ -1743,6 +1831,8 @@ static bool vkd3d_create_texture_view(struct d3d12_device *device,
     view_desc.viewType = desc->view_type;
     view_desc.format = format->vk_format;
     vkd3d_set_view_swizzle_for_format(&view_desc.components, format, desc->allowed_swizzle);
+    if (desc->allowed_swizzle)
+        vk_component_mapping_compose(&view_desc.components, &desc->components);
     view_desc.subresourceRange.aspectMask = format->vk_aspect_mask;
     view_desc.subresourceRange.baseMipLevel = desc->miplevel_idx;
     view_desc.subresourceRange.levelCount = desc->miplevel_count;
@@ -1874,7 +1964,12 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
     if (desc)
     {
         if (desc->Shader4ComponentMapping != D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING)
-            FIXME("Ignoring component mapping %#x.\n", desc->Shader4ComponentMapping);
+        {
+            TRACE("Component mapping %s for format %#x.\n",
+                    debug_d3d12_shader_component_mapping(desc->Shader4ComponentMapping), desc->Format);
+
+            vk_component_mapping_from_d3d12(&vkd3d_desc.components, desc->Shader4ComponentMapping);
+        }
 
         switch (desc->ViewDimension)
         {
