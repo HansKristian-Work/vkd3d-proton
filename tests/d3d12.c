@@ -13040,6 +13040,252 @@ static void test_resinfo(void)
     destroy_test_context(&context);
 }
 
+static void test_srv_component_mapping(void)
+{
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_SUBRESOURCE_DATA subresource_data;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *texture;
+    uint32_t expected_color;
+    unsigned int i, j;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        Texture2D t;
+        SamplerState s;
+
+        float4 main(float4 position : SV_POSITION) : SV_Target
+        {
+            float2 p;
+        D3D12_SUBRESOURCE_DATA data;
+
+            p.x = position.x / 32.0f;
+            p.y = position.y / 32.0f;
+            return t.Sample(s, p);
+        }
+#endif
+        0x43425844, 0x7a0c3929, 0x75ff3ca4, 0xccb318b2, 0xe6965b4c, 0x00000001, 0x00000140, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000a4, 0x00000050,
+        0x00000029, 0x0100086a, 0x0300005a, 0x00106000, 0x00000000, 0x04001858, 0x00107000, 0x00000000,
+        0x00005555, 0x04002064, 0x00101032, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x0a000038, 0x00100032, 0x00000000, 0x00101046, 0x00000000, 0x00004002,
+        0x3d000000, 0x3d000000, 0x00000000, 0x00000000, 0x8b000045, 0x800000c2, 0x00155543, 0x001020f2,
+        0x00000000, 0x00100046, 0x00000000, 0x00107e46, 0x00000000, 0x00106000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const uint32_t r8g8b8a8_data = 0x39495969;
+    static const uint16_t r8g8_data = 0xaabb;
+    static const uint8_t a8_data = 0x11;
+    static const uint8_t r8_data = 0xfe;
+    static const struct
+    {
+        const char *name;
+        DXGI_FORMAT format;
+        const void *data;
+        uint32_t color;
+    }
+    tests[] =
+    {
+        {"R8G8B8A8", DXGI_FORMAT_R8G8B8A8_UNORM, &r8g8b8a8_data, 0x39495969},
+        {"R8G8",     DXGI_FORMAT_R8G8_UNORM,     &r8g8_data,     0xff00aabb},
+        {"R8",       DXGI_FORMAT_R8_UNORM,       &r8_data,       0xff0000fe},
+        {"A8",       DXGI_FORMAT_A8_UNORM,       &a8_data,       0x11000000},
+    };
+    static const struct
+    {
+        unsigned int mapping;
+        unsigned int r_shift;
+        unsigned int g_shift;
+        unsigned int b_shift;
+        unsigned int a_shift;
+        uint32_t forced_mask;
+        uint32_t forced_color;
+    }
+    component_mappings[] =
+    {
+        {
+            D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_0,
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_0,
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_0,
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_0),
+            0, 0, 0, 0, 0xffffffff, 0x00000000,
+        },
+        {
+            D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_1,
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_1,
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_1,
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_1),
+            0, 0, 0, 0, 0xffffffff, 0xffffffff,
+        },
+        {
+            D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_1,
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_0,
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_0,
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_1),
+            0, 0, 0, 0, 0xffffffff, 0xff0000ff,
+        },
+        {
+            D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_1,
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_0,
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_1,
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_0),
+            0, 0, 0, 0, 0xffffffff, 0x00ff00ff,
+        },
+
+        {
+            D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_0,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_1,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_2,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_3),
+            0, 8, 16, 24, 0x00000000, 0x00000000,
+        },
+        {
+            D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_3,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_2,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_1,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_0),
+            24, 16, 8, 0, 0x00000000, 0x00000000,
+        },
+
+        {
+            D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_0,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_1,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_2,
+                    D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_0),
+            0, 8, 16, 24, 0xff000000, 0x00000000,
+        },
+
+        {
+            D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_0,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_0,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_0,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_0),
+            0, 0, 0, 0, 0x00000000, 0x00000000,
+        },
+        {
+            D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_1,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_1,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_1,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_1),
+            8, 8, 8, 8, 0x00000000, 0x00000000,
+        },
+        {
+            D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_2,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_2,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_2,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_2),
+            16, 16, 16, 16, 0x00000000, 0x00000000,
+        },
+        {
+            D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_3,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_3,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_3,
+                    D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_3),
+            24, 24, 24, 24, 0x00000000, 0x00000000,
+        },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = desc.rt_height = 32;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_texture_root_signature(context.device,
+            D3D12_SHADER_VISIBILITY_PIXEL, 0, 0);
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        vkd3d_test_set_context("Test %s", tests[i].name);
+
+        texture = create_default_texture(context.device, 1, 1,
+                tests[i].format, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+        subresource_data.pData = tests[i].data;
+        subresource_data.RowPitch = format_size(tests[i].format);
+        subresource_data.SlicePitch = subresource_data.RowPitch;
+        upload_texture_data(texture, &subresource_data, 1, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+
+        transition_resource_state(command_list, texture,
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+        for (j = 0; j < ARRAY_SIZE(component_mappings); ++j)
+        {
+            vkd3d_test_set_context("Test %s, %u", tests[i].name, j);
+
+            memset(&srv_desc, 0, sizeof(srv_desc));
+            srv_desc.Format = tests[i].format;
+            srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            srv_desc.Shader4ComponentMapping = component_mappings[j].mapping;
+            srv_desc.Texture2D.MipLevels = 1;
+            ID3D12Device_CreateShaderResourceView(context.device, texture, &srv_desc, cpu_handle);
+
+            ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+            ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+            ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+            ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+            ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
+            ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+            ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+            ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+            transition_resource_state(command_list, context.render_target,
+                    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            expected_color = 0;
+            expected_color |= ((tests[i].color >> component_mappings[j].r_shift) & 0xff) << 0;
+            expected_color |= ((tests[i].color >> component_mappings[j].g_shift) & 0xff) << 8;
+            expected_color |= ((tests[i].color >> component_mappings[j].b_shift) & 0xff) << 16;
+            expected_color |= ((tests[i].color >> component_mappings[j].a_shift) & 0xff) << 24;
+            expected_color &= ~component_mappings[j].forced_mask;
+            expected_color |= component_mappings[j].forced_color & component_mappings[j].forced_mask;
+            check_sub_resource_uint(context.render_target, 0, queue, command_list, expected_color, 0);
+
+            reset_command_list(command_list, context.allocator);
+            transition_resource_state(command_list, context.render_target,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        }
+
+        ID3D12Resource_Release(texture);
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
 static void test_descriptor_tables(void)
 {
     ID3D12DescriptorHeap *heap, *sampler_heap, *heaps[2];
@@ -26416,6 +26662,7 @@ START_TEST(d3d12)
     run_test(test_cube_maps);
     run_test(test_multisample_array_texture);
     run_test(test_resinfo);
+    run_test(test_srv_component_mapping);
     run_test(test_descriptor_tables);
     run_test(test_descriptor_tables_overlapping_bindings);
     run_test(test_update_root_descriptors);

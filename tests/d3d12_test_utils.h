@@ -228,9 +228,11 @@ static unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_UNKNOWN:
         case DXGI_FORMAT_A8_UNORM:
         case DXGI_FORMAT_R8_UINT:
+        case DXGI_FORMAT_R8_UNORM:
             return 1;
         case DXGI_FORMAT_R32G32B32A32_FLOAT:
         case DXGI_FORMAT_R32G32B32A32_UINT:
+        case DXGI_FORMAT_R8G8_UNORM:
             return 16;
         case DXGI_FORMAT_R32_TYPELESS:
         case DXGI_FORMAT_D32_FLOAT:
