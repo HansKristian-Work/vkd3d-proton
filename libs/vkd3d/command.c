@@ -55,7 +55,7 @@ void vkd3d_queue_destroy(struct vkd3d_queue *queue)
     vkd3d_free(queue);
 }
 
-static VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue)
+VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue)
 {
     int rc;
 
@@ -71,7 +71,7 @@ static VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue)
     return queue->vk_queue;
 }
 
-static void vkd3d_queue_release(struct vkd3d_queue *queue)
+void vkd3d_queue_release(struct vkd3d_queue *queue)
 {
     TRACE("queue %p.\n", queue);
 
@@ -1164,7 +1164,7 @@ static struct d3d12_command_allocator *unsafe_impl_from_ID3D12CommandAllocator(I
     return impl_from_ID3D12CommandAllocator(iface);
 }
 
-static struct vkd3d_queue *d3d12_device_get_vkd3d_queue(struct d3d12_device *device,
+struct vkd3d_queue *d3d12_device_get_vkd3d_queue(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type)
 {
     switch (type)

@@ -835,10 +835,12 @@ struct vkd3d_queue
     uint32_t timestamp_bits;
 };
 
+VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue) DECLSPEC_HIDDEN;
 HRESULT vkd3d_queue_create(struct d3d12_device *device,
         uint32_t family_index, const VkQueueFamilyProperties *properties,
         struct vkd3d_queue **queue) DECLSPEC_HIDDEN;
 void vkd3d_queue_destroy(struct vkd3d_queue *queue) DECLSPEC_HIDDEN;
+void vkd3d_queue_release(struct vkd3d_queue *queue) DECLSPEC_HIDDEN;
 
 /* ID3D12CommandQueue */
 struct d3d12_command_queue
@@ -935,6 +937,8 @@ struct d3d12_device
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         const struct vkd3d_device_create_info *create_info, struct d3d12_device **device) DECLSPEC_HIDDEN;
+struct vkd3d_queue *d3d12_device_get_vkd3d_queue(struct d3d12_device *device,
+        D3D12_COMMAND_LIST_TYPE type) DECLSPEC_HIDDEN;
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
         const char *message, ...) VKD3D_PRINTF_FUNC(3, 4) DECLSPEC_HIDDEN;
 struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface) DECLSPEC_HIDDEN;

@@ -3078,6 +3078,109 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
     return S_OK;
 }
 
+static HRESULT vkd3d_init_null_resources_data(struct vkd3d_null_resources *null_resource,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkCommandBufferAllocateInfo command_buffer_info;
+    VkCommandPool vk_command_pool = VK_NULL_HANDLE;
+    VkCommandPoolCreateInfo command_pool_info;
+    VkDevice vk_device = device->vk_device;
+    VkCommandBufferBeginInfo begin_info;
+    VkCommandBuffer vk_command_buffer;
+    VkFence vk_fence = VK_NULL_HANDLE;
+    VkFenceCreateInfo fence_info;
+    struct vkd3d_queue *queue;
+    VkSubmitInfo submit_info;
+    VkQueue vk_queue;
+    VkResult vr;
+
+    queue = d3d12_device_get_vkd3d_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT);
+
+    command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_info.pNext = NULL;
+    command_pool_info.flags = 0;
+    command_pool_info.queueFamilyIndex = queue->vk_family_index;
+
+    if ((vr = VK_CALL(vkCreateCommandPool(vk_device, &command_pool_info, NULL, &vk_command_pool))) < 0)
+    {
+        WARN("Failed to create Vulkan command pool, vr %d.\n", vr);
+        goto done;
+    }
+
+    command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    command_buffer_info.pNext = NULL;
+    command_buffer_info.commandPool = vk_command_pool;
+    command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    command_buffer_info.commandBufferCount = 1;
+
+    if ((vr = VK_CALL(vkAllocateCommandBuffers(vk_device, &command_buffer_info, &vk_command_buffer))) < 0)
+    {
+        WARN("Failed to allocate Vulkan command buffer, vr %d.\n", vr);
+        goto done;
+    }
+
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.pNext = NULL;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    begin_info.pInheritanceInfo = NULL;
+
+    if ((vr = VK_CALL(vkBeginCommandBuffer(vk_command_buffer, &begin_info))) < 0)
+    {
+        WARN("Failed to begin command buffer, vr %d.\n", vr);
+        goto done;
+    }
+
+    VK_CALL(vkCmdFillBuffer(vk_command_buffer, null_resource->vk_uniform_buffer, 0, VK_WHOLE_SIZE, 0x00000000));
+
+    if ((vr = VK_CALL(vkEndCommandBuffer(vk_command_buffer))) < 0)
+    {
+        WARN("Failed to end command buffer, vr %d.\n", vr);
+        goto done;
+    }
+
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_info.pNext = NULL;
+    fence_info.flags = 0;
+
+    if ((vr = VK_CALL(vkCreateFence(device->vk_device, &fence_info, NULL, &vk_fence))) < 0)
+    {
+        WARN("Failed to create Vulkan fence, vr %d.\n", vr);
+        goto done;
+    }
+
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.pNext = NULL;
+    submit_info.waitSemaphoreCount = 0;
+    submit_info.pWaitSemaphores = NULL;
+    submit_info.pWaitDstStageMask = NULL;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &vk_command_buffer;
+    submit_info.signalSemaphoreCount = 0;
+    submit_info.pSignalSemaphores = NULL;
+
+    if (!(vk_queue = vkd3d_queue_acquire(queue)))
+    {
+        WARN("Failed to acquire queue %p.\n", queue);
+        goto done;
+    }
+
+    if ((vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, vk_fence))) < 0)
+        ERR("Failed to submit, vr %d.\n", vr);
+
+    vkd3d_queue_release(queue);
+
+    vr = VK_CALL(vkWaitForFences(device->vk_device, 1, &vk_fence, VK_FALSE, ~(uint64_t)0));
+    if (vr != VK_SUCCESS)
+        WARN("Failed to wait fo fence, vr %d.\n", vr);
+
+done:
+    VK_CALL(vkDestroyCommandPool(vk_device, vk_command_pool, NULL));
+    VK_CALL(vkDestroyFence(vk_device, vk_fence, NULL));
+
+    return hresult_from_vk_result(vr);
+}
+
 HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
         struct d3d12_device *device)
 {
@@ -3085,6 +3188,8 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     D3D12_RESOURCE_DESC buffer_desc;
     VkResult vr;
     HRESULT hr;
+
+    TRACE("Creating resources for NULL views.\n");
 
     memset(null_resources, 0, sizeof(*null_resources));
 
@@ -3119,7 +3224,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, "NULL CBV memory")) < 0)
         WARN("Failed to set object name, vr %d.\n", vr);
 
-    return S_OK;
+    return vkd3d_init_null_resources_data(null_resources, device);
 
 fail:
     ERR("Failed to initialize NULL resources, hr %#x.\n", hr);
