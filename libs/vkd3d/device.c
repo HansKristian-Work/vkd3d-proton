@@ -920,6 +920,9 @@ static void vkd3d_init_feature_level(struct vkd3d_vulkan_info *vk_info,
         have_11_0 = false; \
     }
 
+    if (!vk_info->device_limits.timestampComputeAndGraphics)
+        WARN("Timestamps are not supported on all graphics and compute queues.\n");
+
     CHECK_MIN_REQUIREMENT(maxPushConstantsSize, D3D12_MAX_ROOT_COST * sizeof(uint32_t));
     CHECK_MIN_REQUIREMENT(maxComputeSharedMemorySize, D3D12_CS_TGSM_REGISTER_COUNT * sizeof(uint32_t));
 
@@ -930,24 +933,26 @@ static void vkd3d_init_feature_level(struct vkd3d_vulkan_info *vk_info,
     CHECK_MIN_REQUIREMENT(maxPerStageDescriptorUniformBuffers,
             D3D12_COMMONSHADER_CONSTANT_BUFFER_REGISTER_COUNT);
 
+    CHECK_FEATURE(depthBiasClamp);
+    CHECK_FEATURE(depthClamp);
+    CHECK_FEATURE(drawIndirectFirstInstance);
+    CHECK_FEATURE(dualSrcBlend);
+    CHECK_FEATURE(fragmentStoresAndAtomics);
+    CHECK_FEATURE(fullDrawIndexUint32);
+    CHECK_FEATURE(geometryShader);
     CHECK_FEATURE(imageCubeArray);
     CHECK_FEATURE(independentBlend);
-    CHECK_FEATURE(geometryShader);
-    CHECK_FEATURE(tessellationShader);
-    CHECK_FEATURE(sampleRateShading);
-    CHECK_FEATURE(dualSrcBlend);
     CHECK_FEATURE(multiDrawIndirect);
-    CHECK_FEATURE(drawIndirectFirstInstance);
-    CHECK_FEATURE(depthClamp);
-    CHECK_FEATURE(depthBiasClamp);
     CHECK_FEATURE(multiViewport);
     CHECK_FEATURE(occlusionQueryPrecise);
     CHECK_FEATURE(pipelineStatisticsQuery);
-    CHECK_FEATURE(fragmentStoresAndAtomics);
-    CHECK_FEATURE(shaderImageGatherExtended);
-    CHECK_FEATURE(shaderStorageImageWriteWithoutFormat);
+    CHECK_FEATURE(samplerAnisotropy);
+    CHECK_FEATURE(sampleRateShading);
     CHECK_FEATURE(shaderClipDistance);
     CHECK_FEATURE(shaderCullDistance);
+    CHECK_FEATURE(shaderImageGatherExtended);
+    CHECK_FEATURE(shaderStorageImageWriteWithoutFormat);
+    CHECK_FEATURE(tessellationShader);
 
     if (!vk_info->EXT_transform_feedback)
         WARN("Stream output is not supported.\n");
