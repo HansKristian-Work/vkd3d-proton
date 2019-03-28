@@ -478,6 +478,51 @@ static void test_additional_device_extensions(void)
     ok(!refcount, "Instance has %u references left.\n", refcount);
 }
 
+static void test_optional_device_extensions(void)
+{
+    static const char * const extensions[] =
+    {
+        "VK_VKD3D_invalid_extension",
+        VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
+    };
+
+    struct vkd3d_optional_device_extensions_info optional_extensions;
+    struct vkd3d_instance_create_info instance_create_info;
+    struct vkd3d_device_create_info device_create_info;
+    struct vkd3d_instance *instance;
+    ID3D12Device *device;
+    ULONG refcount;
+    HRESULT hr;
+
+    instance_create_info = instance_default_create_info;
+    hr = vkd3d_create_instance(&instance_create_info, &instance);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+
+    device_create_info = device_default_create_info;
+    device_create_info.instance = instance;
+    device_create_info.instance_create_info = NULL;
+    device_create_info.device_extensions = extensions;
+    device_create_info.device_extension_count = ARRAY_SIZE(extensions);
+    hr = vkd3d_create_device(&device_create_info, &IID_ID3D12Device, (void **)&device);
+    ok(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+
+    optional_extensions.type = VKD3D_STRUCTURE_TYPE_OPTIONAL_DEVICE_EXTENSIONS_INFO;
+    optional_extensions.next = NULL;
+    optional_extensions.extensions = extensions;
+    optional_extensions.extension_count = ARRAY_SIZE(extensions);
+
+    device_create_info.next = &optional_extensions;
+    device_create_info.device_extensions = NULL;
+    device_create_info.device_extension_count = 0;
+    hr = vkd3d_create_device(&device_create_info, &IID_ID3D12Device, (void **)&device);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+    refcount = vkd3d_instance_decref(instance);
+    ok(!refcount, "Instance has %u references left.\n", refcount);
+}
+
 static void test_physical_device(void)
 {
     struct vkd3d_device_create_info create_info;
@@ -1039,6 +1084,7 @@ START_TEST(vkd3d_api)
     run_test(test_create_device);
     run_test(test_required_device_extensions);
     run_test(test_additional_device_extensions);
+    run_test(test_optional_device_extensions);
     run_test(test_physical_device);
     run_test(test_adapter_luid);
     run_test(test_device_parent);

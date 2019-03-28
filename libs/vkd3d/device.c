@@ -974,12 +974,13 @@ static void vkd3d_init_feature_level(struct vkd3d_vulkan_info *vk_info,
 }
 
 static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
-        const struct vkd3d_device_create_info *create_info,
-        VkPhysicalDeviceFeatures2KHR *features2, uint32_t *device_extension_count)
+        const struct vkd3d_device_create_info *create_info, VkPhysicalDeviceFeatures2KHR *features2,
+        uint32_t *device_extension_count, bool **user_extension_supported)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
     const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
+    const struct vkd3d_optional_device_extensions_info *optional_extensions;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT xfb_properties;
     VkPhysicalDevice physical_device = device->vk_physical_device;
     VkPhysicalDeviceFeatures *features = &features2->features;
@@ -1076,11 +1077,27 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         return hresult_from_vk_result(vr);
     }
 
+    optional_extensions = vkd3d_find_struct(create_info->next, OPTIONAL_DEVICE_EXTENSIONS_INFO);
+    if (optional_extensions && optional_extensions->extension_count)
+    {
+        if (!(*user_extension_supported = vkd3d_calloc(optional_extensions->extension_count, sizeof(bool))))
+        {
+            vkd3d_free(vk_extensions);
+            return E_OUTOFMEMORY;
+        }
+    }
+    else
+    {
+        *user_extension_supported = NULL;
+    }
+
     *device_extension_count = vkd3d_check_extensions(vk_extensions, count,
             required_device_extensions, ARRAY_SIZE(required_device_extensions),
             optional_device_extensions, ARRAY_SIZE(optional_device_extensions),
             create_info->device_extensions, create_info->device_extension_count,
-            NULL, 0, NULL, vulkan_info, "device");
+            optional_extensions ? optional_extensions->extensions : NULL,
+            optional_extensions ? optional_extensions->extension_count : 0,
+            *user_extension_supported, vulkan_info, "device");
 
     divisor_features = vk_find_struct(features2->pNext, PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT);
     if (get_spec_version(vk_extensions, count, VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME) >= 3
@@ -1338,9 +1355,11 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
+    const struct vkd3d_optional_device_extensions_info *optional_extensions;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
     struct vkd3d_device_queue_info device_queue_info;
+    bool *user_extension_supported = NULL;
     VkPhysicalDeviceFeatures2 features2;
     VkPhysicalDevice physical_device;
     VkDeviceCreateInfo device_info;
@@ -1385,11 +1404,17 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     else
         VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &features2.features));
 
-    if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &features2, &extension_count)))
+    if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &features2,
+            &extension_count, &user_extension_supported)))
         return hr;
 
     if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
+    {
+        vkd3d_free(user_extension_supported);
         return E_OUTOFMEMORY;
+    }
+
+    optional_extensions = vkd3d_find_struct(create_info->next, OPTIONAL_DEVICE_EXTENSIONS_INFO);
 
     /* Create device */
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -1403,9 +1428,12 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
             required_device_extensions, ARRAY_SIZE(required_device_extensions),
             optional_device_extensions, ARRAY_SIZE(optional_device_extensions),
             create_info->device_extensions, create_info->device_extension_count,
-            NULL, 0, NULL, &device->vk_info);
+            optional_extensions ? optional_extensions->extensions : NULL,
+            optional_extensions ? optional_extensions->extension_count : 0,
+            user_extension_supported, &device->vk_info);
     device_info.ppEnabledExtensionNames = extensions;
     device_info.pEnabledFeatures = &features2.features;
+    vkd3d_free(user_extension_supported);
 
     vr = VK_CALL(vkCreateDevice(physical_device, &device_info, NULL, &vk_device));
     vkd3d_free(extensions);
