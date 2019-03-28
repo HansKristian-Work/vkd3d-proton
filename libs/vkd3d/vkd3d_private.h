@@ -882,6 +882,9 @@ struct vkd3d_null_resources
 {
     VkBuffer vk_uniform_buffer;
     VkDeviceMemory vk_uniform_buffer_memory;
+
+    VkImage vk_2d_image;
+    VkDeviceMemory vk_2d_image_memory;
 };
 
 HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
