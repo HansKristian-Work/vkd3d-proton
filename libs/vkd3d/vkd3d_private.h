@@ -83,11 +83,16 @@ HRESULT hresult_from_vkd3d_result(int vkd3d_result) DECLSPEC_HIDDEN;
 
 struct vkd3d_vulkan_info
 {
-    /* instance extensions */
+    /* KHR instance extensions */
     bool KHR_get_physical_device_properties2;
+    /* EXT instance extensions */
     bool EXT_debug_report;
-    /* device extensions */
+
+    /* KHR device extensions */
+    bool KHR_dedicated_allocation;
+    bool KHR_get_memory_requirements2;
     bool KHR_push_descriptor;
+    /* EXT device extensions */
     bool EXT_debug_marker;
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
