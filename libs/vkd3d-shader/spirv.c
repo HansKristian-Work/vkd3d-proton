@@ -1158,6 +1158,12 @@ static uint32_t vkd3d_spirv_build_op_composite_insert(struct vkd3d_spirv_builder
             result_type, object_id, composite_id, indexes, index_count);
 }
 
+static uint32_t vkd3d_spirv_build_op_composite_insert1(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t object_id, uint32_t composite_id, uint32_t index)
+{
+    return vkd3d_spirv_build_op_composite_insert(builder, result_type, object_id, composite_id, &index, 1);
+}
+
 static uint32_t vkd3d_spirv_build_op_load(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t pointer_id, uint32_t memory_access)
 {
@@ -3215,6 +3221,21 @@ static uint32_t sv_front_face_fixup(struct vkd3d_dxbc_compiler *compiler,
     return vkd3d_dxbc_compiler_emit_bool_to_int(compiler, 1, front_facing_id);
 }
 
+/* frag_coord.w = 1.0f / frag_coord.w */
+static uint32_t frag_coord_fixup(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t frag_coord_id)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t type_id, w_id;
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 1);
+    w_id = vkd3d_spirv_build_op_composite_extract1(builder, type_id, frag_coord_id, 3);
+    w_id = vkd3d_spirv_build_op_fdiv(builder, type_id,
+            vkd3d_dxbc_compiler_get_constant_float(compiler, 1.0f), w_id);
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
+    return vkd3d_spirv_build_op_composite_insert1(builder, type_id, w_id, frag_coord_id, 3);
+}
+
 struct vkd3d_spirv_builtin
 {
     enum vkd3d_component_type component_type;
@@ -3273,7 +3294,7 @@ vkd3d_system_value_builtins[] =
 };
 static const struct vkd3d_spirv_builtin vkd3d_pixel_shader_position_builtin =
 {
-    VKD3D_TYPE_FLOAT, 4, SpvBuiltInFragCoord,
+    VKD3D_TYPE_FLOAT, 4, SpvBuiltInFragCoord, frag_coord_fixup,
 };
 static const struct
 {
@@ -6906,8 +6927,8 @@ static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compil
     dref_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[3], VKD3DSP_WRITEMASK_0);
     /* XXX: Nvidia is broken and expects that the D_ref is packed together with coordinates. */
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
-    coordinate_id = vkd3d_spirv_build_op_composite_insert(builder,
-            type_id, dref_id, coordinate_id, &image.resource_type_info->coordinate_component_count, 1);
+    coordinate_id = vkd3d_spirv_build_op_composite_insert1(builder,
+            type_id, dref_id, coordinate_id, image.resource_type_info->coordinate_component_count);
     val_id = vkd3d_spirv_build_op_image_sample_dref(builder, op, sampled_type_id,
             image.sampled_image_id, coordinate_id, dref_id, operands_mask,
             image_operands, image_operand_count);
