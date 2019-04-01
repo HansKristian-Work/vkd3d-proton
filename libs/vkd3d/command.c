@@ -334,6 +334,39 @@ HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
     return S_OK;
 }
 
+static const struct d3d12_root_parameter *root_signature_get_parameter(
+        const struct d3d12_root_signature *root_signature, unsigned int index)
+{
+    assert(index < root_signature->parameter_count);
+    return &root_signature->parameters[index];
+}
+
+static const struct d3d12_root_descriptor_table *root_signature_get_descriptor_table(
+        const struct d3d12_root_signature *root_signature, unsigned int index)
+{
+    const struct d3d12_root_parameter *p = root_signature_get_parameter(root_signature, index);
+    assert(p->parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE);
+    return &p->u.descriptor_table;
+}
+
+static const struct d3d12_root_constant *root_signature_get_32bit_constants(
+        const struct d3d12_root_signature *root_signature, unsigned int index)
+{
+    const struct d3d12_root_parameter *p = root_signature_get_parameter(root_signature, index);
+    assert(p->parameter_type == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS);
+    return &p->u.constant;
+}
+
+static const struct d3d12_root_parameter *root_signature_get_root_descriptor(
+        const struct d3d12_root_signature *root_signature, unsigned int index)
+{
+    const struct d3d12_root_parameter *p = root_signature_get_parameter(root_signature, index);
+    assert(p->parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV
+        || p->parameter_type == D3D12_ROOT_PARAMETER_TYPE_SRV
+        || p->parameter_type == D3D12_ROOT_PARAMETER_TYPE_UAV);
+    return p;
+}
+
 /* ID3D12Fence */
 static struct d3d12_fence *impl_from_ID3D12Fence(ID3D12Fence *iface)
 {
@@ -2037,8 +2070,7 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
     unsigned int i, j, descriptor_count;
     struct d3d12_desc *descriptor;
 
-    assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE);
-    descriptor_table = &root_signature->parameters[index].u.descriptor_table;
+    descriptor_table = root_signature_get_descriptor_table(root_signature, index);
 
     descriptor_count = 0;
     for (i = 0; i < descriptor_table->range_count; ++i)
@@ -2120,7 +2152,7 @@ static bool vk_write_descriptor_set_from_root_descriptor(VkWriteDescriptorSet *v
             vk_descriptor_write->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
             break;
         default:
-            ERR("Invalid root descriptor.\n");
+            ERR("Invalid root descriptor %#x.\n", root_parameter->parameter_type);
             return false;
     }
 
@@ -2172,7 +2204,7 @@ static void d3d12_command_list_update_push_descriptors(struct d3d12_command_list
         if (!(bindings->push_descriptor_dirty_mask & (1u << i)))
             continue;
 
-        root_parameter = &root_signature->parameters[i];
+        root_parameter = root_signature_get_root_descriptor(root_signature, i);
         push_descriptor = &bindings->push_descriptors[i];
 
         if (root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV)
@@ -3385,7 +3417,7 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
 
-    assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE);
+    assert(root_signature_get_descriptor_table(root_signature, index));
 
     assert(index < ARRAY_SIZE(bindings->descriptor_tables));
     bindings->descriptor_tables[index] = base_descriptor;
@@ -3425,8 +3457,7 @@ static void d3d12_command_list_set_root_constants(struct d3d12_command_list *lis
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct d3d12_root_constant *c;
 
-    assert(root_signature->parameters[index].parameter_type == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS);
-    c = &root_signature->parameters[index].u.constant;
+    c = root_signature_get_32bit_constants(root_signature, index);
     VK_CALL(vkCmdPushConstants(list->vk_command_buffer, root_signature->vk_pipeline_layout,
             c->stage_flags, c->offset + offset * sizeof(uint32_t), count * sizeof(uint32_t), data));
 }
@@ -3491,7 +3522,7 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
     struct VkDescriptorBufferInfo buffer_info;
     struct d3d12_resource *resource;
 
-    root_parameter = &root_signature->parameters[index];
+    root_parameter = root_signature_get_root_descriptor(root_signature, index);
     assert(root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV);
 
     resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, gpu_address);
@@ -3556,9 +3587,8 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
     VkDevice vk_device = list->device->vk_device;
     VkBufferView vk_buffer_view;
 
-    root_parameter = &root_signature->parameters[index];
-    assert(root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_SRV
-        || root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_UAV);
+    root_parameter = root_signature_get_root_descriptor(root_signature, index);
+    assert(root_parameter->parameter_type != D3D12_ROOT_PARAMETER_TYPE_CBV);
 
     /* FIXME: Re-use buffer views. */
     if (!vkd3d_create_raw_buffer_view(list->device, gpu_address, &vk_buffer_view))
