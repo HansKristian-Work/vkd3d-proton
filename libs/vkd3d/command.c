@@ -3351,7 +3351,9 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
 
     bindings->root_signature = root_signature;
     bindings->descriptor_set = VK_NULL_HANDLE;
+    bindings->descriptor_table_dirty_mask = 0;
     bindings->descriptor_table_active_mask = 0;
+    bindings->push_descriptor_dirty_mask = 0;
     bindings->push_descriptor_active_mask = 0;
 }
 
