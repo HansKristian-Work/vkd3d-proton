@@ -5012,12 +5012,35 @@ static void test_fragment_coords(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
     struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
     struct test_context context;
     struct resource_readback rb;
+    const struct vec4 *v = NULL;
+    struct vec4 expected = {0};
     ID3D12CommandQueue *queue;
-    unsigned int x, y;
+    unsigned int i, x = 0, y;
+    ID3D12Resource *vb;
+    bool all_match;
 
+    static const DWORD vs_code[] =
+    {
+#if 0
+        void main(float4 in_position : POSITION, out float4 out_position : SV_POSITION)
+        {
+            out_position = in_position;
+        }
+#endif
+        0x43425844, 0xa7a2f22d, 0x83ff2560, 0xe61638bd, 0x87e3ce90, 0x00000001, 0x000000d8, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x49534f50, 0x4e4f4954, 0xababab00,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x52444853, 0x0000003c, 0x00010040,
+        0x0000000f, 0x0300005f, 0x001010f2, 0x00000000, 0x04000067, 0x001020f2, 0x00000000, 0x00000001,
+        0x05000036, 0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs = {vs_code, sizeof(vs_code)};
     static const DWORD ps_code[] =
     {
 #if 0
@@ -5035,46 +5058,121 @@ static void test_fragment_coords(void)
         0x05000036, 0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+    static const struct vec4 vertices[] =
+    {
+        {-1.0f, -1.0f, 0.00f, 1.00f},
+        {-1.0f,  1.0f, 0.00f, 1.00f},
+        { 1.0f, -1.0f, 0.00f, 1.00f},
+        { 1.0f,  1.0f, 0.00f, 1.00f},
+
+        {-1.0f, -1.0f, 0.25f, 1.00f},
+        {-1.0f,  1.0f, 0.25f, 1.00f},
+        { 1.0f, -1.0f, 0.25f, 1.00f},
+        { 1.0f,  1.0f, 0.25f, 1.00f},
+
+        {-1.0f, -1.0f, 0.50f, 1.00f},
+        {-1.0f,  1.0f, 0.50f, 1.00f},
+        { 1.0f, -1.0f, 0.50f, 1.00f},
+        { 1.0f,  1.0f, 0.50f, 1.00f},
+
+        {-1.0f, -1.0f, 0.75f, 1.00f},
+        {-1.0f,  1.0f, 0.75f, 1.00f},
+        { 1.0f, -1.0f, 0.75f, 1.00f},
+        { 1.0f,  1.0f, 0.75f, 1.00f},
+
+        {-1.0f, -1.0f, 1.00f, 1.00f},
+        {-1.0f,  1.0f, 1.00f, 1.00f},
+        { 1.0f, -1.0f, 1.00f, 1.00f},
+        { 1.0f,  1.0f, 1.00f, 1.00f},
+
+        {-1.0f, -1.0f, 1.00f, 0.50f},
+        {-1.0f,  1.0f, 1.00f, 0.50f},
+        { 1.0f, -1.0f, 1.00f, 0.50f},
+        { 1.0f,  1.0f, 1.00f, 0.50f},
+
+        {-1.0f, -1.0f, 1.00f, 0.25f},
+        {-1.0f,  1.0f, 1.00f, 0.25f},
+        { 1.0f, -1.0f, 1.00f, 0.25f},
+        { 1.0f,  1.0f, 1.00f, 0.25f},
+    };
 
     memset(&desc, 0, sizeof(desc));
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    desc.ps = &ps;
+    desc.root_signature_flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    desc.no_pipeline = true;
     if (!init_test_context(&context, &desc))
         return;
     command_list = context.list;
     queue = context.queue;
 
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    input_layout.pInputElementDescs = layout_desc;
+    input_layout.NumElements = ARRAY_SIZE(layout_desc);
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, context.render_target_desc.Format, &vs, &ps, &input_layout);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
-    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
-    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
-    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
-    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    vb = create_upload_buffer(context.device, sizeof(vertices), vertices);
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
+    vbv.StrideInBytes = sizeof(*vertices);
+    vbv.SizeInBytes = sizeof(vertices);
 
-    set_viewport(&context.viewport, 10.0f, 10.0f, 20.0f, 30.0f, 0.0f, 1.0f);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
-    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
-
-    transition_resource_state(command_list, context.render_target,
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-
-    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    for (y = 0; y < rb.height; ++y)
+    for (i = 0; i < ARRAY_SIZE(vertices) / 4; ++i)
     {
-        for (x = 0; x < rb.width; ++x)
-        {
-            const struct vec4 *v = get_readback_vec4(&rb, x, y);
-            struct vec4 expected = {x + 0.5f, y + 0.5f, 0.0f, 1.0f};
-            ok(compare_vec4(v, &expected, 0),
-                    "Got %.8e, %.8e, %.8e, %.8e expected %.8e, %.8e, %.8e, %.8e.\n",
-                    v->x, v->y, v->z, v->w, expected.x, expected.y, expected.z, expected.w);
-        }
-    }
-    release_resource_readback(&rb);
+        vkd3d_test_set_context("Test %u", i);
 
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        set_viewport(&context.viewport, 0.0f, 0.0f, 32.0f, 32.0f, 0.0f, 1.0f);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 4 * i, 0);
+
+        set_viewport(&context.viewport, 10.0f, 10.0f, 20.0f, 30.0f, 0.0f, 1.0f);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 4 * i, 0);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+        all_match = true;
+        for (y = 0; y < rb.height; ++y)
+        {
+            for (x = 0; x < rb.width; ++x)
+            {
+                v = get_readback_vec4(&rb, x, y);
+                expected.x = x + 0.5f;
+                expected.y = y + 0.5f;
+                expected.z = vertices[4 * i].z / vertices[4 * i].w;
+                expected.w = vertices[4 * i].w;
+                if (!compare_vec4(v, &expected, 2))
+                {
+                    all_match = false;
+                    break;
+                }
+            }
+            if (!all_match)
+                break;
+        }
+        ok(all_match, "Got {%.8e, %.8e, %.8e, %.8e} expected {%.8e, %.8e, %.8e, %.8e} at (%u, %u).\n",
+                v->x, v->y, v->z, v->w, expected.x, expected.y, expected.z, expected.w, x, y);
+        release_resource_readback(&rb);
+
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12Resource_Release(vb);
     destroy_test_context(&context);
 }
 
