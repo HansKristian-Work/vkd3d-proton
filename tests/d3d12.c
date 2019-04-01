@@ -16372,6 +16372,250 @@ static void test_get_copyable_footprints(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_depth_clip(void)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
+    struct depth_stencil_resource ds;
+    struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *vb;
+    unsigned int i;
+    float depth;
+    HRESULT hr;
+
+    static const DWORD vs_code[] =
+    {
+#if 0
+        float4 main(float4 p : POSITION) : SV_Position
+        {
+            return p;
+        }
+#endif
+        0x43425844, 0x92767590, 0x06a6dba7, 0x0ae078b2, 0x7b5eb8f6, 0x00000001, 0x000000d8, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x49534f50, 0x4e4f4954, 0xababab00,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69, 0x52444853, 0x0000003c, 0x00010040,
+        0x0000000f, 0x0300005f, 0x001010f2, 0x00000000, 0x04000067, 0x001020f2, 0x00000000, 0x00000001,
+        0x05000036, 0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs = {vs_code, sizeof(vs_code)};
+    static const DWORD ps_depth_code[] =
+    {
+#if 0
+        float depth;
+
+        float4 main(float4 p : SV_Position, out float out_depth : SV_Depth) : SV_Target
+        {
+            out_depth = depth;
+            return float4(0, 1, 0, 1);
+        }
+#endif
+        0x43425844, 0x6744db20, 0x3e266cd1, 0xc50630b3, 0xd7455b94, 0x00000001, 0x00000120, 0x00000003,
+        0x0000002c, 0x00000060, 0x000000b4, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69,
+        0x4e47534f, 0x0000004c, 0x00000002, 0x00000008, 0x00000038, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x00000042, 0x00000000, 0x00000000, 0x00000003, 0xffffffff, 0x00000e01,
+        0x545f5653, 0x65677261, 0x56530074, 0x7065445f, 0xab006874, 0x52444853, 0x00000064, 0x00000040,
+        0x00000019, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000065, 0x0000c001, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000, 0x3f800000,
+        0x00000000, 0x3f800000, 0x05000036, 0x0000c001, 0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_depth = {ps_depth_code, sizeof(ps_depth_code)};
+    static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
+    {
+        {"position", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+    static const struct vec4 vertices[] =
+    {
+        {-1.0f, -1.0f,  0.0f, 1.0f},
+        {-1.0f,  1.0f,  0.0f, 1.0f},
+        { 1.0f, -1.0f,  0.0f, 1.0f},
+        { 1.0f,  1.0f,  0.0f, 1.0f},
+
+        {-1.0f, -1.0f,  0.5f, 1.0f},
+        {-1.0f,  1.0f,  0.5f, 1.0f},
+        { 1.0f, -1.0f,  0.5f, 1.0f},
+        { 1.0f,  1.0f,  0.5f, 1.0f},
+
+        {-1.0f, -1.0f, -0.5f, 1.0f},
+        {-1.0f,  1.0f, -0.5f, 1.0f},
+        { 1.0f, -1.0f, -0.5f, 1.0f},
+        { 1.0f,  1.0f, -0.5f, 1.0f},
+
+        {-1.0f, -1.0f,  1.0f, 1.0f},
+        {-1.0f,  1.0f,  1.0f, 1.0f},
+        { 1.0f, -1.0f,  1.0f, 1.0f},
+        { 1.0f,  1.0f,  1.0f, 1.0f},
+
+        {-1.0f, -1.0f,  1.5f, 1.0f},
+        {-1.0f,  1.0f,  1.5f, 1.0f},
+        { 1.0f, -1.0f,  1.5f, 1.0f},
+        { 1.0f,  1.0f,  1.5f, 1.0f},
+    };
+    struct result
+    {
+        uint32_t expected_color;
+        float expected_depth;
+    };
+    static const struct
+    {
+        struct result depth_clip;
+        struct result no_depth_clip;
+    }
+    tests[] =
+    {
+        {{0xff00ff00, 0.0f  }, {0xff00ff00, 0.0f}},
+        {{0xff00ff00, 0.5f  }, {0xff00ff00, 0.5f}},
+        {{0xffffffff, 0.125f}, {0xff00ff00, 0.0f}},
+        {{0xff00ff00, 1.0f  }, {0xff00ff00, 1.0f}},
+        {{0xffffffff, 0.125f}, {0xff00ff00, 1.0f}},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_32bit_constants_root_signature_(__LINE__, context.device,
+            0, 4, D3D12_SHADER_VISIBILITY_PIXEL, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    init_depth_stencil(&ds, context.device, 32, 32, 1, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
+
+    vb = create_upload_buffer(context.device, sizeof(vertices), vertices);
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
+    vbv.StrideInBytes = sizeof(*vertices);
+    vbv.SizeInBytes = sizeof(vertices);
+
+    input_layout.pInputElementDescs = layout_desc;
+    input_layout.NumElements = ARRAY_SIZE(layout_desc);
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, &vs, NULL, &input_layout);
+    pso_desc.RasterizerState.DepthClipEnable = TRUE;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        const struct result *result = &tests[i].depth_clip;
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+        ID3D12GraphicsCommandList_ClearDepthStencilView(command_list,
+                ds.dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.125f, 0, 0, NULL);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, &ds.dsv_handle);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 4 * i, 0);
+
+        transition_resource_state(command_list, ds.texture,
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_float(ds.texture, 0, queue, command_list, result->expected_depth, 2);
+        reset_command_list(command_list, context.allocator);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(context.render_target, 0, queue, command_list, result->expected_color, 0);
+
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, ds.texture,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+
+    ID3D12PipelineState_Release(context.pipeline_state);
+    pso_desc.RasterizerState.DepthClipEnable = FALSE;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        const struct result *result = &tests[i].no_depth_clip;
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+        ID3D12GraphicsCommandList_ClearDepthStencilView(command_list,
+                ds.dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.125f, 0, 0, NULL);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, &ds.dsv_handle);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 4 * i, 0);
+
+        transition_resource_state(command_list, ds.texture,
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_float(ds.texture, 0, queue, command_list, result->expected_depth, 2);
+        reset_command_list(command_list, context.allocator);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(context.render_target, 0, queue, command_list, result->expected_color, 0);
+
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, ds.texture,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+
+    ID3D12PipelineState_Release(context.pipeline_state);
+    pso_desc.PS = ps_depth;
+    pso_desc.RasterizerState.DepthClipEnable = TRUE;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list,
+            ds.dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.125f, 0, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    depth = 2.0f;
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 1, &depth, 0);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 0, 0);
+
+    transition_resource_state(command_list, ds.texture,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    todo_if(!is_mesa_intel_device(context.device))
+    check_sub_resource_float(ds.texture, 0, queue, command_list, 1.0f, 2);
+    reset_command_list(command_list, context.allocator);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+
+    ID3D12Resource_Release(vb);
+    destroy_depth_stencil(&ds);
+    destroy_test_context(&context);
+}
+
 #define check_depth_stencil_sampling(a, b, c, d, e, f, g) \
         check_depth_stencil_sampling_(__LINE__, a, b, c, d, e, f, g)
 static void check_depth_stencil_sampling_(unsigned int line, struct test_context *context,
@@ -26941,6 +27185,7 @@ START_TEST(d3d12)
     run_test(test_null_cbv);
     run_test(test_null_srv);
     run_test(test_get_copyable_footprints);
+    run_test(test_depth_clip);
     run_test(test_depth_stencil_sampling);
     run_test(test_depth_load);
     run_test(test_depth_read_only_view);
