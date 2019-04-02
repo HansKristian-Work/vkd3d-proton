@@ -14727,6 +14727,194 @@ static void test_update_compute_descriptor_tables(void)
     destroy_test_context(&context);
 }
 
+static void test_update_descriptor_tables_after_root_signature_change(void)
+{
+    ID3D12RootSignature *root_signature, *root_signature2;
+    ID3D12PipelineState *pipeline_state, *pipeline_state2;
+    ID3D12DescriptorHeap *heap, *sampler_heap, *heaps[2];
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_DESCRIPTOR_RANGE descriptor_range[4];
+    D3D12_ROOT_PARAMETER root_parameters[3];
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    unsigned int i, descriptor_size;
+    D3D12_SAMPLER_DESC sampler_desc;
+    struct test_context_desc desc;
+    ID3D12Resource *textures[2];
+    D3D12_SUBRESOURCE_DATA data;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    HRESULT hr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        Texture2D t;
+        SamplerState s;
+
+        float4 main(float4 position : SV_POSITION) : SV_Target
+        {
+            float2 p;
+
+            p.x = position.x / 32.0f;
+            p.y = position.y / 32.0f;
+            return t.Sample(s, p);
+        }
+#endif
+        0x43425844, 0x7a0c3929, 0x75ff3ca4, 0xccb318b2, 0xe6965b4c, 0x00000001, 0x00000140, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000a4, 0x00000050,
+        0x00000029, 0x0100086a, 0x0300005a, 0x00106000, 0x00000000, 0x04001858, 0x00107000, 0x00000000,
+        0x00005555, 0x04002064, 0x00101032, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x0a000038, 0x00100032, 0x00000000, 0x00101046, 0x00000000, 0x00004002,
+        0x3d000000, 0x3d000000, 0x00000000, 0x00000000, 0x8b000045, 0x800000c2, 0x00155543, 0x001020f2,
+        0x00000000, 0x00100046, 0x00000000, 0x00107e46, 0x00000000, 0x00106000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const unsigned int texture_data[] = {0xff00ff00, 0xff0000ff};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    descriptor_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    descriptor_range[0].NumDescriptors = 2;
+    descriptor_range[0].BaseShaderRegister = 0;
+    descriptor_range[0].RegisterSpace = 0;
+    descriptor_range[0].OffsetInDescriptorsFromTableStart = 0;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = &descriptor_range[0];
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    descriptor_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+    descriptor_range[1].NumDescriptors = 1;
+    descriptor_range[1].BaseShaderRegister = 0;
+    descriptor_range[1].RegisterSpace = 0;
+    descriptor_range[1].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[1].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[1].DescriptorTable.pDescriptorRanges = &descriptor_range[1];
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    descriptor_range[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    descriptor_range[2].NumDescriptors = 2;
+    descriptor_range[2].BaseShaderRegister = 2;
+    descriptor_range[2].RegisterSpace = 0;
+    descriptor_range[2].OffsetInDescriptorsFromTableStart = 0;
+    descriptor_range[3].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    descriptor_range[3].NumDescriptors = 1;
+    descriptor_range[3].BaseShaderRegister = 0;
+    descriptor_range[3].RegisterSpace = 0;
+    descriptor_range[3].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    root_parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[2].DescriptorTable.NumDescriptorRanges = 2;
+    root_parameters[2].DescriptorTable.pDescriptorRanges = &descriptor_range[2];
+    root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    memset(&root_signature_desc, 0, sizeof(root_signature_desc));
+    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
+    root_signature_desc.pParameters = root_parameters;
+    hr = create_root_signature(context.device, &root_signature_desc, &root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters) - 1;
+    hr = create_root_signature(context.device, &root_signature_desc, &root_signature2);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    pipeline_state = create_pipeline_state(context.device,
+            root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
+    pipeline_state2 = create_pipeline_state(context.device,
+            root_signature2, context.render_target_desc.Format, NULL, &ps, NULL);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 6);
+    sampler_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 1);
+
+    memset(&sampler_desc, 0, sizeof(sampler_desc));
+    sampler_desc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    ID3D12Device_CreateSampler(context.device, &sampler_desc, get_cpu_descriptor_handle(&context, sampler_heap, 0));
+
+    descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(context.device,
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    for (i = 0; i < ARRAY_SIZE(textures); ++i)
+    {
+        textures[i] = create_default_texture(context.device,
+                1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+        data.pData = &texture_data[i];
+        data.RowPitch = sizeof(texture_data[i]);
+        data.SlicePitch = data.RowPitch;
+        upload_texture_data(textures[i], &data, 1, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+    }
+
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    for (i = 0; i < ARRAY_SIZE(textures); ++i)
+    {
+        transition_resource_state(command_list, textures[i],
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        ID3D12Device_CreateShaderResourceView(context.device, textures[i], NULL, cpu_handle);
+        cpu_handle.ptr += descriptor_size;
+    }
+    for (; i < 6; ++i)
+    {
+        ID3D12Device_CreateShaderResourceView(context.device, textures[1], NULL, cpu_handle);
+        cpu_handle.ptr += descriptor_size;
+    }
+
+    heaps[0] = heap; heaps[1] = sampler_heap;
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, ARRAY_SIZE(heaps), heaps);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
+
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0,
+            get_gpu_descriptor_handle(&context, heap, 0));
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 1,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(sampler_heap));
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 2,
+            get_gpu_descriptor_handle(&context, heap, 2));
+
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state2);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, root_signature2);
+
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0,
+            get_gpu_descriptor_handle(&context, heap, 0));
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 1,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(sampler_heap));
+
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+
+    ID3D12PipelineState_Release(pipeline_state);
+    ID3D12PipelineState_Release(pipeline_state2);
+    ID3D12RootSignature_Release(root_signature);
+    ID3D12RootSignature_Release(root_signature2);
+    for (i = 0; i < ARRAY_SIZE(textures); ++i)
+        ID3D12Resource_Release(textures[i]);
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12DescriptorHeap_Release(sampler_heap);
+    destroy_test_context(&context);
+}
+
 static void test_copy_descriptors(void)
 {
     struct data
@@ -27204,6 +27392,7 @@ START_TEST(d3d12)
     run_test(test_update_descriptor_tables);
     run_test(test_update_descriptor_heap_after_closing_command_list);
     run_test(test_update_compute_descriptor_tables);
+    run_test(test_update_descriptor_tables_after_root_signature_change);
     run_test(test_copy_descriptors);
     run_test(test_copy_descriptors_range_sizes);
     run_test(test_descriptors_visibility);
