@@ -455,28 +455,29 @@ static VkPhysicalDevice select_physical_device(struct vkd3d_instance *instance)
 static HRESULT create_vkd3d_device(struct vkd3d_instance *instance,
         D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
 {
-    struct vkd3d_device_create_info device_create_info;
-    VkPhysicalDevice vk_physical_device;
-
     static const char * const device_extensions[] =
     {
         VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME,
     };
+    static const struct vkd3d_optional_device_extensions_info optional_extensions =
+    {
+        .type = VKD3D_STRUCTURE_TYPE_OPTIONAL_DEVICE_EXTENSIONS_INFO,
+        .extensions = device_extensions,
+        .extension_count = ARRAY_SIZE(device_extensions),
+    };
+
+    struct vkd3d_device_create_info device_create_info;
+    VkPhysicalDevice vk_physical_device;
 
     if (!(vk_physical_device = select_physical_device(instance)))
         return E_INVALIDARG;
 
     memset(&device_create_info, 0, sizeof(device_create_info));
     device_create_info.type = VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    device_create_info.next = &optional_extensions;
     device_create_info.minimum_feature_level = minimum_feature_level;
     device_create_info.instance = instance;
     device_create_info.vk_physical_device = vk_physical_device;
-
-    if (check_device_extension(vk_physical_device, VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME))
-    {
-        device_create_info.device_extensions = device_extensions;
-        device_create_info.device_extension_count = ARRAY_SIZE(device_extensions);
-    }
 
     return vkd3d_create_device(&device_create_info, iid, device);
 }
