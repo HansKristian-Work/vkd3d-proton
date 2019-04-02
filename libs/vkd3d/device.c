@@ -91,7 +91,7 @@ struct vk_struct
 };
 
 #define vk_find_struct(c, t) vk_find_struct_(c, VK_STRUCTURE_TYPE_##t)
-static const void *vk_find_struct_(struct vk_struct *chain, VkStructureType sType)
+static void *vk_find_struct_(struct vk_struct *chain, VkStructureType sType)
 {
     while (chain)
     {
@@ -113,8 +113,10 @@ struct vkd3d_optional_extension_info
 
 static const struct vkd3d_optional_extension_info optional_instance_extensions[] =
 {
+    /* KHR extensions */
     {VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
             offsetof(struct vkd3d_vulkan_info, KHR_get_physical_device_properties2)},
+    /* EXT extensions */
     {VK_EXT_DEBUG_REPORT_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_debug_report), true},
 };
 
@@ -126,10 +128,14 @@ static const char * const required_device_extensions[] =
 
 static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 {
+    /* KHR extensions */
     {VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_dedicated_allocation)},
     {VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_get_memory_requirements2)},
+    {VK_KHR_MAINTENANCE3_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_maintenance3)},
     {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_push_descriptor)},
+    /* EXT extensions */
     {VK_EXT_DEBUG_MARKER_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_debug_marker)},
+    {VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_descriptor_indexing)},
     {VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME,
             offsetof(struct vkd3d_vulkan_info, EXT_transform_feedback)},
     {VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME,
@@ -677,7 +683,9 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
 static void vkd3d_trace_physical_device_limits(const VkPhysicalDeviceProperties2KHR *properties2)
 {
     const VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT *divisor_properties;
+    const VkPhysicalDeviceDescriptorIndexingPropertiesEXT *descriptor_indexing;
     const VkPhysicalDeviceLimits *limits = &properties2->properties.limits;
+    const VkPhysicalDeviceMaintenance3Properties *maintenance3;
     const VkPhysicalDeviceTransformFeedbackPropertiesEXT *xfb;
 
     TRACE("Device limits:\n");
@@ -797,6 +805,71 @@ static void vkd3d_trace_physical_device_limits(const VkPhysicalDeviceProperties2
     TRACE("  optimalBufferCopyRowPitchAlignment: %#"PRIx64".\n", limits->optimalBufferCopyRowPitchAlignment);
     TRACE("  nonCoherentAtomSize: %#"PRIx64".\n", limits->nonCoherentAtomSize);
 
+    descriptor_indexing = vk_find_struct(properties2->pNext, PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES_EXT);
+    if (descriptor_indexing)
+    {
+        TRACE("  VkPhysicalDeviceDescriptorIndexingPropertiesEXT:\n");
+
+        TRACE("    maxUpdateAfterBindDescriptorsInAllPools: %u.\n",
+                descriptor_indexing->maxUpdateAfterBindDescriptorsInAllPools);
+
+        TRACE("    shaderUniformBufferArrayNonUniformIndexingNative: %#x.\n",
+                descriptor_indexing->shaderUniformBufferArrayNonUniformIndexingNative);
+        TRACE("    shaderSampledImageArrayNonUniformIndexingNative: %#x.\n",
+                descriptor_indexing->shaderSampledImageArrayNonUniformIndexingNative);
+        TRACE("    shaderStorageBufferArrayNonUniformIndexingNative: %#x.\n",
+                descriptor_indexing->shaderStorageBufferArrayNonUniformIndexingNative);
+        TRACE("    shaderStorageImageArrayNonUniformIndexingNative: %#x.\n",
+                descriptor_indexing->shaderStorageImageArrayNonUniformIndexingNative);
+        TRACE("    shaderInputAttachmentArrayNonUniformIndexingNative: %#x.\n",
+                descriptor_indexing->shaderInputAttachmentArrayNonUniformIndexingNative);
+
+        TRACE("    robustBufferAccessUpdateAfterBind: %#x.\n",
+                descriptor_indexing->robustBufferAccessUpdateAfterBind);
+        TRACE("    quadDivergentImplicitLod: %#x.\n",
+                descriptor_indexing->quadDivergentImplicitLod);
+
+        TRACE("    maxPerStageDescriptorUpdateAfterBindSamplers: %u.\n",
+                descriptor_indexing->maxPerStageDescriptorUpdateAfterBindSamplers);
+        TRACE("    maxPerStageDescriptorUpdateAfterBindUniformBuffers: %u.\n",
+                descriptor_indexing->maxPerStageDescriptorUpdateAfterBindUniformBuffers);
+        TRACE("    maxPerStageDescriptorUpdateAfterBindStorageBuffers: %u.\n",
+                descriptor_indexing->maxPerStageDescriptorUpdateAfterBindStorageBuffers);
+        TRACE("    maxPerStageDescriptorUpdateAfterBindSampledImages: %u.\n",
+                descriptor_indexing->maxPerStageDescriptorUpdateAfterBindSampledImages);
+        TRACE("    maxPerStageDescriptorUpdateAfterBindStorageImages: %u.\n",
+                descriptor_indexing->maxPerStageDescriptorUpdateAfterBindStorageImages);
+        TRACE("    maxPerStageDescriptorUpdateAfterBindInputAttachments: %u.\n",
+                descriptor_indexing->maxPerStageDescriptorUpdateAfterBindInputAttachments);
+        TRACE("    maxPerStageUpdateAfterBindResources: %u.\n",
+                descriptor_indexing->maxPerStageUpdateAfterBindResources);
+
+        TRACE("    maxDescriptorSetUpdateAfterBindSamplers: %u.\n",
+                descriptor_indexing->maxDescriptorSetUpdateAfterBindSamplers);
+        TRACE("    maxDescriptorSetUpdateAfterBindUniformBuffers: %u.\n",
+                descriptor_indexing->maxDescriptorSetUpdateAfterBindUniformBuffers);
+        TRACE("    maxDescriptorSetUpdateAfterBindUniformBuffersDynamic: %u.\n",
+                descriptor_indexing->maxDescriptorSetUpdateAfterBindUniformBuffersDynamic);
+        TRACE("    maxDescriptorSetUpdateAfterBindStorageBuffers: %u.\n",
+                descriptor_indexing->maxDescriptorSetUpdateAfterBindStorageBuffers);
+        TRACE("    maxDescriptorSetUpdateAfterBindStorageBuffersDynamic: %u.\n",
+                descriptor_indexing->maxDescriptorSetUpdateAfterBindStorageBuffersDynamic);
+        TRACE("    maxDescriptorSetUpdateAfterBindSampledImages: %u.\n",
+                descriptor_indexing->maxDescriptorSetUpdateAfterBindSampledImages);
+        TRACE("    maxDescriptorSetUpdateAfterBindStorageImages: %u.\n",
+                descriptor_indexing->maxDescriptorSetUpdateAfterBindStorageImages);
+        TRACE("    maxDescriptorSetUpdateAfterBindInputAttachments: %u.\n",
+                descriptor_indexing->maxDescriptorSetUpdateAfterBindInputAttachments);
+    }
+
+    maintenance3 = vk_find_struct(properties2->pNext, PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES);
+    if (maintenance3)
+    {
+        TRACE("  VkPhysicalDeviceMaintenance3Properties:\n");
+        TRACE("    maxPerSetDescriptors: %u.\n", maintenance3->maxPerSetDescriptors);
+        TRACE("    maxMemoryAllocationSize: %#"PRIx64".\n", maintenance3->maxMemoryAllocationSize);
+    }
+
     xfb = vk_find_struct(properties2->pNext, PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT);
     if (xfb)
     {
@@ -825,6 +898,7 @@ static void vkd3d_trace_physical_device_limits(const VkPhysicalDeviceProperties2
 static void vkd3d_trace_physical_device_features(const VkPhysicalDeviceFeatures2KHR *features2)
 {
     const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
+    const VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
     const VkPhysicalDeviceFeatures *features = &features2->features;
     const VkPhysicalDeviceTransformFeedbackFeaturesEXT *xfb;
 
@@ -884,6 +958,56 @@ static void vkd3d_trace_physical_device_features(const VkPhysicalDeviceFeatures2
     TRACE("  sparseResidencyAliased: %#x.\n", features->sparseResidencyAliased);
     TRACE("  variableMultisampleRate: %#x.\n", features->variableMultisampleRate);
     TRACE("  inheritedQueries: %#x.\n", features->inheritedQueries);
+
+    descriptor_indexing = vk_find_struct(features2->pNext, PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT);
+    if (descriptor_indexing)
+    {
+        TRACE("  VkPhysicalDeviceDescriptorIndexingFeaturesEXT:\n");
+
+        TRACE("    shaderInputAttachmentArrayDynamicIndexing: %#x.\n",
+                descriptor_indexing->shaderInputAttachmentArrayDynamicIndexing);
+        TRACE("    shaderUniformTexelBufferArrayDynamicIndexing: %#x.\n",
+                descriptor_indexing->shaderUniformTexelBufferArrayDynamicIndexing);
+        TRACE("    shaderStorageTexelBufferArrayDynamicIndexing: %#x.\n",
+                descriptor_indexing->shaderStorageTexelBufferArrayDynamicIndexing);
+
+        TRACE("    shaderUniformBufferArrayNonUniformIndexing: %#x.\n",
+                descriptor_indexing->shaderUniformBufferArrayNonUniformIndexing);
+        TRACE("    shaderSampledImageArrayNonUniformIndexing: %#x.\n",
+                descriptor_indexing->shaderSampledImageArrayNonUniformIndexing);
+        TRACE("    shaderStorageBufferArrayNonUniformIndexing: %#x.\n",
+                descriptor_indexing->shaderStorageBufferArrayNonUniformIndexing);
+        TRACE("    shaderStorageImageArrayNonUniformIndexing: %#x.\n",
+                descriptor_indexing->shaderStorageImageArrayNonUniformIndexing);
+        TRACE("    shaderInputAttachmentArrayNonUniformIndexing: %#x.\n",
+                descriptor_indexing->shaderInputAttachmentArrayNonUniformIndexing);
+        TRACE("    shaderUniformTexelBufferArrayNonUniformIndexing: %#x.\n",
+                descriptor_indexing->shaderUniformTexelBufferArrayNonUniformIndexing);
+        TRACE("    shaderStorageTexelBufferArrayNonUniformIndexing: %#x.\n",
+                descriptor_indexing->shaderStorageTexelBufferArrayNonUniformIndexing);
+
+        TRACE("    descriptorBindingUniformBufferUpdateAfterBind: %#x.\n",
+                descriptor_indexing->descriptorBindingUniformBufferUpdateAfterBind);
+        TRACE("    descriptorBindingSampledImageUpdateAfterBind: %#x.\n",
+                descriptor_indexing->descriptorBindingSampledImageUpdateAfterBind);
+        TRACE("    descriptorBindingStorageImageUpdateAfterBind: %#x.\n",
+                descriptor_indexing->descriptorBindingStorageImageUpdateAfterBind);
+        TRACE("    descriptorBindingStorageBufferUpdateAfterBind: %#x.\n",
+                descriptor_indexing->descriptorBindingStorageBufferUpdateAfterBind);
+        TRACE("    descriptorBindingUniformTexelBufferUpdateAfterBind: %#x.\n",
+                descriptor_indexing->descriptorBindingUniformTexelBufferUpdateAfterBind);
+        TRACE("    descriptorBindingStorageTexelBufferUpdateAfterBind: %#x.\n",
+                descriptor_indexing->descriptorBindingStorageTexelBufferUpdateAfterBind);
+
+        TRACE("    descriptorBindingUpdateUnusedWhilePending: %#x.\n",
+                descriptor_indexing->descriptorBindingUpdateUnusedWhilePending);
+        TRACE("    descriptorBindingPartiallyBound: %#x.\n",
+                descriptor_indexing->descriptorBindingPartiallyBound);
+        TRACE("    descriptorBindingVariableDescriptorCount: %#x.\n",
+                descriptor_indexing->descriptorBindingVariableDescriptorCount);
+        TRACE("    runtimeDescriptorArray: %#x.\n",
+                descriptor_indexing->runtimeDescriptorArray);
+    }
 
     xfb = vk_find_struct(features2->pNext, PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT);
     if (xfb)
@@ -985,9 +1109,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         uint32_t *device_extension_count, bool **user_extension_supported)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkPhysicalDeviceDescriptorIndexingPropertiesEXT descriptor_indexing_properties;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
     const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
     const struct vkd3d_optional_device_extensions_info *optional_extensions;
+    VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
+    VkPhysicalDeviceMaintenance3Properties maintenance3_properties;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT xfb_properties;
     VkPhysicalDevice physical_device = device->vk_physical_device;
     VkPhysicalDeviceFeatures *features = &features2->features;
@@ -999,13 +1126,20 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 
     *device_extension_count = 0;
 
+    memset(&maintenance3_properties, 0, sizeof(maintenance3_properties));
+    maintenance3_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES;
+    memset(&descriptor_indexing_properties, 0, sizeof(descriptor_indexing_properties));
+    descriptor_indexing_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES_EXT;
+    descriptor_indexing_properties.pNext = &maintenance3_properties;
     memset(&xfb_properties, 0, sizeof(xfb_properties));
     xfb_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT;
+    xfb_properties.pNext = &descriptor_indexing_properties;
     memset(&vertex_divisor_properties, 0, sizeof(vertex_divisor_properties));
     vertex_divisor_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES_EXT;
     vertex_divisor_properties.pNext = &xfb_properties;
     device_properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     device_properties2.pNext = &vertex_divisor_properties;
+
     if (vulkan_info->KHR_get_physical_device_properties2)
         VK_CALL(vkGetPhysicalDeviceProperties2KHR(physical_device, &device_properties2));
     else
@@ -1128,7 +1262,31 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
+    /* Disable unused Vulkan features. */
     features->shaderTessellationAndGeometryPointSize = VK_FALSE;
+
+    descriptor_indexing = vk_find_struct(features2->pNext, PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT);
+    if (descriptor_indexing)
+    {
+        descriptor_indexing->shaderInputAttachmentArrayDynamicIndexing = VK_FALSE;
+        descriptor_indexing->shaderInputAttachmentArrayNonUniformIndexing = VK_FALSE;
+
+        /* We do not use storage buffers currently. */
+        features->shaderStorageBufferArrayDynamicIndexing = VK_FALSE;
+        descriptor_indexing->shaderStorageBufferArrayNonUniformIndexing = VK_FALSE;
+        descriptor_indexing->descriptorBindingStorageBufferUpdateAfterBind = VK_FALSE;
+    }
+
+    if (vulkan_info->EXT_descriptor_indexing && descriptor_indexing
+            && (descriptor_indexing->descriptorBindingUniformBufferUpdateAfterBind
+            || descriptor_indexing->descriptorBindingStorageBufferUpdateAfterBind
+            || descriptor_indexing->descriptorBindingUniformTexelBufferUpdateAfterBind
+            || descriptor_indexing->descriptorBindingStorageTexelBufferUpdateAfterBind)
+            && !descriptor_indexing_properties.robustBufferAccessUpdateAfterBind)
+    {
+        WARN("Disabling robust buffer access for the update after bind feature.\n");
+        features->robustBufferAccess = VK_FALSE;
+    }
 
     return S_OK;
 }
@@ -1361,6 +1519,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         const struct vkd3d_device_create_info *create_info)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
     const struct vkd3d_optional_device_extensions_info *optional_extensions;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
@@ -1399,8 +1558,11 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 
+    memset(&descriptor_indexing_features, 0, sizeof(descriptor_indexing_features));
+    descriptor_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
     memset(&xfb_features, 0, sizeof(xfb_features));
     xfb_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT;
+    xfb_features.pNext = &descriptor_indexing_features;
     memset(&vertex_divisor_features, 0, sizeof(vertex_divisor_features));
     vertex_divisor_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT;
     vertex_divisor_features.pNext = &xfb_features;

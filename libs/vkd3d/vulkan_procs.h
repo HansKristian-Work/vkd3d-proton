@@ -182,6 +182,9 @@ VK_DEVICE_EXT_PFN(vkGetBufferMemoryRequirements2KHR)
 VK_DEVICE_EXT_PFN(vkGetImageMemoryRequirements2KHR)
 VK_DEVICE_EXT_PFN(vkGetImageSparseMemoryRequirements2KHR)
 
+/* VK_KHR_maintenance3 */
+VK_DEVICE_EXT_PFN(vkGetDescriptorSetLayoutSupportKHR)
+
 /* VK_KHR_push_descriptor */
 VK_DEVICE_EXT_PFN(vkCmdPushDescriptorSetKHR)
 
