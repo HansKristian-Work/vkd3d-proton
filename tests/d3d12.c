@@ -15168,12 +15168,16 @@ static void test_copy_descriptors(void)
 
     dst_handles[0] = get_cpu_descriptor_handle(&context, heap, 9);
     dst_range_sizes[0] = 4;
-    dst_handles[1] = get_cpu_descriptor_handle(&context, heap, 13);
-    dst_range_sizes[1] = 3;
+    dst_handles[1] = get_cpu_descriptor_handle(&context, heap, 9);
+    dst_range_sizes[1] = 0;
+    dst_handles[2] = get_cpu_descriptor_handle(&context, heap, 13);
+    dst_range_sizes[2] = 3;
+    dst_handles[3] = get_cpu_descriptor_handle(&context, heap, 13);
+    dst_range_sizes[3] = 0;
     src_handles[0] = get_cpu_descriptor_handle(&context, cpu_heap, 10);
-    src_range_sizes[0] = 7;
+    src_range_sizes[0] = 8;
     /* t0-t6 */
-    ID3D12Device_CopyDescriptors(device, 2, dst_handles, dst_range_sizes,
+    ID3D12Device_CopyDescriptors(device, 4, dst_handles, dst_range_sizes,
             1, src_handles, src_range_sizes, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     /* copy 1 uninitialized descriptor (19) */
@@ -15194,6 +15198,28 @@ static void test_copy_descriptors(void)
             get_cpu_descriptor_handle(&context, heap, 22),
             get_cpu_descriptor_handle(&context, cpu_heap, 22),
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    /* range sizes equal to 0 */
+    dst_handles[0] = get_cpu_descriptor_handle(&context, heap, 19);
+    dst_range_sizes[0] = 0;
+    dst_handles[1] = get_cpu_descriptor_handle(&context, heap, 19);
+    dst_range_sizes[1] = 0;
+    src_handles[0] = get_cpu_descriptor_handle(&context, cpu_heap, 0);
+    src_range_sizes[0] = 1;
+    src_handles[1] = get_cpu_descriptor_handle(&context, cpu_heap, 0);
+    src_range_sizes[1] = 4;
+    ID3D12Device_CopyDescriptors(device, 2, dst_handles, dst_range_sizes,
+            2, src_handles, src_range_sizes, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    dst_handles[0] = get_cpu_descriptor_handle(&context, heap, 19);
+    dst_range_sizes[0] = 4;
+    dst_handles[1] = get_cpu_descriptor_handle(&context, heap, 19);
+    dst_range_sizes[1] = 4;
+    src_handles[0] = get_cpu_descriptor_handle(&context, cpu_heap, 0);
+    src_range_sizes[0] = 0;
+    src_handles[1] = get_cpu_descriptor_handle(&context, cpu_heap, 0);
+    src_range_sizes[1] = 0;
+    ID3D12Device_CopyDescriptors(device, 2, dst_handles, dst_range_sizes,
+            2, src_handles, src_range_sizes, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
     heaps[0] = sampler_heap; heaps[1] = heap;

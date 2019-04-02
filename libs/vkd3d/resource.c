@@ -1600,6 +1600,8 @@ static void d3d12_desc_destroy(struct d3d12_desc *descriptor,
 void d3d12_desc_copy(struct d3d12_desc *dst, const struct d3d12_desc *src,
         struct d3d12_device *device)
 {
+    assert(dst != src);
+
     d3d12_desc_destroy(dst, device);
 
     *dst = *src;

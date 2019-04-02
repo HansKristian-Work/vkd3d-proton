@@ -2306,29 +2306,27 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(ID3D12Device *iface,
     }
 
     dst_range_idx = dst_idx = 0;
-    dst = d3d12_desc_from_cpu_handle(dst_descriptor_range_offsets[0]);
-    dst_range_size = dst_descriptor_range_sizes ? dst_descriptor_range_sizes[0] : 1;
-    for (src_range_idx = 0; src_range_idx < src_descriptor_range_count; ++src_range_idx)
+    src_range_idx = src_idx = 0;
+    while (dst_range_idx < dst_descriptor_range_count && src_range_idx < src_descriptor_range_count)
     {
-        src = d3d12_desc_from_cpu_handle(src_descriptor_range_offsets[src_range_idx]);
+        dst_range_size = dst_descriptor_range_sizes ? dst_descriptor_range_sizes[dst_range_idx] : 1;
         src_range_size = src_descriptor_range_sizes ? src_descriptor_range_sizes[src_range_idx] : 1;
-        for (src_idx = 0; src_idx < src_range_size; ++src_idx)
+
+        dst = d3d12_desc_from_cpu_handle(dst_descriptor_range_offsets[dst_range_idx]);
+        src = d3d12_desc_from_cpu_handle(src_descriptor_range_offsets[src_range_idx]);
+
+        while (dst_idx < dst_range_size && src_idx < src_range_size)
+            d3d12_desc_copy(&dst[dst_idx++], &src[src_idx++], device);
+
+        if (dst_idx >= dst_range_size)
         {
-            if (dst_idx >= dst_range_size)
-            {
-                dst_idx = 0;
-                ++dst_range_idx;
-
-                if (dst_range_idx >= dst_descriptor_range_count)
-                    return;
-
-                dst = d3d12_desc_from_cpu_handle(dst_descriptor_range_offsets[dst_range_idx]);
-                dst_range_size = dst_descriptor_range_sizes ? dst_descriptor_range_sizes[dst_range_idx] : 1;
-            }
-
-            d3d12_desc_copy(dst++, src++, device);
-
-            ++dst_idx;
+            ++dst_range_idx;
+            dst_idx = 0;
+        }
+        if (src_idx >= src_range_size)
+        {
+            ++src_range_idx;
+            src_idx = 0;
         }
     }
 }
