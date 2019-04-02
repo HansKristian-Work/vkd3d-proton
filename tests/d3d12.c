@@ -10477,6 +10477,7 @@ static void test_immediate_constant_buffer(void)
         0x0010000a, 0x00000000, 0x06000036, 0x00102042, 0x00000000, 0x0090902a, 0x0010000a, 0x00000000,
         0x0100003e,
     };
+    static const unsigned int MAX_CB_SIZE = D3D12_REQ_IMMEDIATE_CONSTANT_BUFFER_ELEMENT_COUNT * sizeof(struct vec4);
     static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
     static struct vec4 expected_result[] =
     {
@@ -10501,7 +10502,7 @@ static void test_immediate_constant_buffer(void)
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, desc.rt_format, NULL, &ps, NULL);
 
-    cb = create_upload_buffer(context.device, sizeof(index), NULL);
+    cb = create_upload_buffer(context.device, 2 * MAX_CB_SIZE, NULL);
 
     for (i = 0; i < ARRAY_SIZE(expected_result); ++i)
     {
