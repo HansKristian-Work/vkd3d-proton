@@ -2098,6 +2098,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
         D3D12_FEATURE feature, void *feature_data, UINT feature_data_size)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    unsigned int i;
 
     TRACE("iface %p, feature %#x, feature_data %p, feature_data_size %u.\n",
             iface, feature, feature_data, feature_data_size);
@@ -2138,18 +2139,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             FIXME("Assuming device does not support tile based rendering.\n");
             data->TileBasedRenderer = FALSE;
 
-            if (device->memory_properties.memoryTypeCount == 1)
+            data->UMA = TRUE;
+            data->CacheCoherentUMA = TRUE;
+            for (i = 0; i < device->memory_properties.memoryTypeCount; ++i)
             {
-                TRACE("Assuming cache coherent UMA.\n");
-                data->UMA = TRUE;
-                data->CacheCoherentUMA = TRUE;
+                if (!(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+                    data->UMA = FALSE;
+                if (!(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+                    data->CacheCoherentUMA = FALSE;
             }
-            else
-            {
-                FIXME("Assuming NUMA.\n");
-                data->UMA = FALSE;
-                data->CacheCoherentUMA = FALSE;
-            }
+            TRACE("UMA: %#x CacheCoherentUMA: %#x.\n", data->UMA, data->CacheCoherentUMA);
             return S_OK;
         }
 
