@@ -6090,7 +6090,7 @@ static void test_map_placed_resources(void)
     root_parameters[1].Descriptor.ShaderRegister = 0;
     root_parameters[1].Descriptor.RegisterSpace = 0;
     root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);;
+    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
     root_signature_desc.pParameters = root_parameters;
     root_signature_desc.NumStaticSamplers = 0;
     root_signature_desc.pStaticSamplers = NULL;
@@ -27319,6 +27319,220 @@ static void test_vertex_shader_stream_output(void)
     destroy_test_context(&context);
 }
 
+static void test_read_write_subresource(void)
+{
+    D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_SUBRESOURCE_DATA texture_data;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *src_texture;
+    ID3D12Resource *dst_texture;
+    unsigned int got, expected;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *rb_buffer;
+    unsigned int *dst_buffer;
+    unsigned int buffer_size;
+    unsigned int slice_pitch;
+    unsigned int row_pitch;
+    unsigned int x, y, z;
+    ID3D12Device *device;
+    unsigned int *ptr;
+    D3D12_BOX box;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    row_pitch = 128 * sizeof(unsigned int);
+    slice_pitch = row_pitch * 100;
+    buffer_size = slice_pitch * 64;
+
+    /* Buffers are not supported */
+    rb_buffer = create_readback_buffer(device, buffer_size);
+    dst_buffer = malloc(buffer_size);
+    ok(dst_buffer, "Failed to allocate memory.\n");
+
+    set_box(&box, 0, 0, 0, 1, 1, 1);
+    hr = ID3D12Resource_WriteToSubresource(rb_buffer, 0, &box, dst_buffer, row_pitch, slice_pitch);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12Resource_ReadFromSubresource(rb_buffer, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    ID3D12Resource_Release(rb_buffer);
+
+    /* Only texture on custom heaps is legal for ReadFromSubresource/WriteToSubresource */
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 128;
+    resource_desc.Height = 100;
+    resource_desc.DepthOrArraySize = 64;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = 0;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_CUSTOM;
+    heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&src_texture);
+    if (FAILED(hr))
+    {
+        skip("Failed to create texture on custom heap.\n");
+        goto done;
+    }
+
+    /* NULL box */
+    hr = ID3D12Resource_WriteToSubresource(src_texture, 0, NULL, dst_buffer, row_pitch, slice_pitch);
+    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, NULL);
+    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    /* Empty box */
+    set_box(&box, 0, 0, 0, 0, 0, 0);
+    hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, dst_buffer, row_pitch, slice_pitch);
+    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    for (z = 0; z < 64; ++z)
+    {
+        for (y = 0; y < 100; ++y)
+        {
+            for (x = 0; x < 128; ++x)
+            {
+                ptr = &dst_buffer[z * 128 * 100 + y * 128 + x];
+                if (x < 2 && y< 2 && z < 2) /* Region 1 */
+                    *ptr = (z + 1) << 16 | (y + 1) << 8 | (x + 1);
+                else if (2 <= x && x < 11 && 2 <= y && y < 13 && 2 <= z && z < 17) /* Region 2 */
+                    *ptr = (z + 2) << 16 | (y + 2) << 8 | (x + 2);
+                else
+                    *ptr = 0xdeadbeef;
+            }
+        }
+    }
+
+    /* Write region 1 */
+    set_box(&box, 0, 0, 0, 2, 2, 2);
+    hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, dst_buffer, row_pitch, slice_pitch);
+    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    /* Write region 2 */
+    set_box(&box, 2, 2, 2, 11, 13, 17);
+    hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, &dst_buffer[2 * 128 * 100 + 2 * 128 + 2],
+            row_pitch, slice_pitch);
+    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    memset(dst_buffer, 0, buffer_size);
+
+    /* Read region 1 */
+    set_box(&box, 0, 0, 0, 2, 2, 2);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    /* Read region 2 */
+    set_box(&box, 2, 2, 2, 11, 13, 17);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, &dst_buffer[2 * 128 * 100 + 2 * 128 + 2], row_pitch,
+            slice_pitch, 0, &box);
+    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    for (z = 0; z < 64; ++z)
+    {
+        for (y = 0; y < 100; ++y)
+        {
+            for (x = 0; x < 128; ++x)
+            {
+                if (x < 2 && y < 2 && z < 2) /* Region 1 */
+                    expected = (z + 1) << 16 | (y + 1) << 8 | (x + 1);
+                else if (2 <= x && x < 11 && 2 <= y && y < 13 && 2 <= z && z < 17) /* Region 2 */
+                    expected = (z + 2) << 16 | (y + 2) << 8 | (x + 2);
+                else /* Untouched */
+                    expected = 0;
+
+                got = dst_buffer[z * 128 * 100 + y * 128 + x];
+                if (got != expected)
+                    break;
+            }
+            if (got != expected)
+                break;
+        }
+        if (got != expected)
+            break;
+    }
+    todo ok(got == expected, "Got unexpected value 0x%08x at (%u, %u, %u), expected 0x%08x.\n", got, x, y, z, expected);
+
+    /* Test layout is the same */
+    dst_texture = create_default_texture3d(device, 128, 100, 64, 1, DXGI_FORMAT_R8G8B8A8_UNORM, 0,
+            D3D12_RESOURCE_STATE_COPY_DEST);
+    memset(dst_buffer, 0, buffer_size);
+    texture_data.pData = dst_buffer;
+    texture_data.RowPitch = row_pitch;
+    texture_data.SlicePitch = slice_pitch;
+    upload_texture_data(dst_texture, &texture_data, 1, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+
+    src_location.pResource = src_texture;
+    src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    src_location.SubresourceIndex = 0;
+    dst_location.pResource = dst_texture;
+    dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dst_location.SubresourceIndex = 0;
+    set_box(&box, 0, 0, 0, 128, 100, 64);
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst_location, 0, 0, 0, &src_location, &box);
+
+    transition_resource_state(command_list, dst_texture,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(dst_texture, 0, &rb, queue, command_list);
+    for (z = 0; z < 64; ++z)
+    {
+        for (y = 0; y < 100; ++y)
+        {
+            for (x = 0; x < 128; ++x)
+            {
+                if (x < 2 && y < 2 && z < 2) /* Region 1 */
+                    expected = (z + 1) << 16 | (y + 1) << 8 | (x + 1);
+                else if (2 <= x && x < 11 && 2 <= y && y < 13 && 2 <= z && z < 17) /* Region 2 */
+                    expected = (z + 2) << 16 | (y + 2) << 8 | (x + 2);
+                else /* Untouched */
+                    expected = 0;
+
+                got = get_readback_uint(&rb, x, y, z);
+                if (got != expected)
+                    break;
+            }
+            if (got != expected)
+                break;
+        }
+        if (got != expected)
+            break;
+    }
+    todo ok(got == expected, "Got unexpected value 0x%08x at (%u, %u, %u), expected 0x%08x.\n", got, x, y, z, expected);
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(src_texture);
+    ID3D12Resource_Release(dst_texture);
+    reset_command_list(command_list, context.allocator);
+
+done:
+    free(dst_buffer);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     parse_args(argc, argv);
@@ -27461,4 +27675,5 @@ START_TEST(d3d12)
     run_test(test_shader_eval_attribute);
     run_test(test_primitive_restart);
     run_test(test_vertex_shader_stream_output);
+    run_test(test_read_write_subresource);
 }
