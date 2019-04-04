@@ -2057,7 +2057,7 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
 }
 
 static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list *list,
-        VkPipelineBindPoint bind_point, unsigned int index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
+        VkPipelineBindPoint bind_point, unsigned int index, struct d3d12_desc *base_descriptor)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     struct VkWriteDescriptorSet descriptor_writes[24], *current_descriptor_write;
@@ -2072,19 +2072,7 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
 
     descriptor_table = root_signature_get_descriptor_table(root_signature, index);
 
-    descriptor_count = 0;
-    for (i = 0; i < descriptor_table->range_count; ++i)
-        descriptor_count += descriptor_table->ranges[i].descriptor_count;
-
-    if (!descriptor_count)
-        return;
-
-    if (!(descriptor = d3d12_desc_from_gpu_handle(base_descriptor)))
-    {
-        WARN("Descriptor table %u is not set.\n", index);
-        return;
-    }
-
+    descriptor = base_descriptor;
     descriptor_count = 0;
     current_descriptor_write = descriptor_writes;
     current_image_info = image_infos;
@@ -2094,7 +2082,7 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
 
         if (range->offset != D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND)
         {
-            descriptor = d3d12_desc_from_gpu_handle(base_descriptor) + range->offset;
+            descriptor = base_descriptor + range->offset;
         }
 
         for (j = 0; j < range->descriptor_count; ++j, ++descriptor)
@@ -2296,6 +2284,7 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct d3d12_root_signature *rs = bindings->root_signature;
+    struct d3d12_desc *base_descriptor;
     unsigned int i;
 
     if (!rs || !rs->pool_size_count || !rs->vk_set_layout)
@@ -2307,7 +2296,12 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     for (i = 0; i < ARRAY_SIZE(bindings->descriptor_tables); ++i)
     {
         if (bindings->descriptor_table_dirty_mask & ((uint64_t)1 << i))
-            d3d12_command_list_update_descriptor_table(list, bind_point, i, bindings->descriptor_tables[i]);
+        {
+            if ((base_descriptor = d3d12_desc_from_gpu_handle(bindings->descriptor_tables[i])))
+                d3d12_command_list_update_descriptor_table(list, bind_point, i, base_descriptor);
+            else
+                WARN("Descriptor table %u is not set.\n", i);
+        }
     }
     bindings->descriptor_table_dirty_mask = 0;
 
