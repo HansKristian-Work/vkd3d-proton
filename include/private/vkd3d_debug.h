@@ -23,6 +23,15 @@
 
 #include <stdarg.h>
 
+#ifdef VKD3D_NO_TRACE_MESSAGES
+#define TRACE(args...)
+#endif
+
+#ifdef VKD3D_NO_DEBUG_MESSAGES
+#define WARN(args...)
+#define FIXME(args...)
+#endif
+
 enum vkd3d_dbg_level
 {
     VKD3D_DBG_LEVEL_NONE,
@@ -50,9 +59,18 @@ const char *debugstr_w(const WCHAR *wstr, size_t wchar_size) DECLSPEC_HIDDEN;
 #define VKD3D_DBG_PRINTF(args...) \
         vkd3d_dbg_printf(vkd3d_dbg_level, __FUNCTION__, args); } while (0)
 
+#ifndef TRACE
 #define TRACE VKD3D_DBG_LOG(TRACE)
+#endif
+
+#ifndef WARN
 #define WARN  VKD3D_DBG_LOG(WARN)
+#endif
+
+#ifndef FIXME
 #define FIXME VKD3D_DBG_LOG(FIXME)
+#endif
+
 #define ERR   VKD3D_DBG_LOG(ERR)
 
 #define TRACE_ON() (vkd3d_dbg_get_level() == VKD3D_DBG_LEVEL_TRACE)
