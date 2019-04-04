@@ -144,12 +144,6 @@ struct vkd3d_shader_interface_info
     const struct vkd3d_shader_combined_resource_sampler *combined_samplers;
     unsigned int combined_sampler_count;
 
-    /* A sampler used by OpImageFetches generated for SM4 ld instructions.
-     *
-     * In Vulkan OpImageFetch must be used with a sampled image.
-     */
-    struct vkd3d_shader_descriptor_binding dummy_sampler;
-
     const struct vkd3d_shader_uav_counter_binding *uav_counters;
     unsigned int uav_counter_count;
 };

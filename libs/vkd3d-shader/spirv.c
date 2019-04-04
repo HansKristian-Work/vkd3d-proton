@@ -2004,7 +2004,6 @@ struct vkd3d_dxbc_compiler
     uint32_t private_output_variable[MAX_REG_OUTPUT + 1]; /* 1 entry for oDepth */
     uint32_t private_output_variable_write_mask[MAX_REG_OUTPUT + 1]; /* 1 entry for oDepth */
     uint32_t epilogue_function_id;
-    uint32_t dummy_sampler_id;
 
     uint32_t binding_idx;
 

@@ -584,7 +584,6 @@ struct d3d12_root_signature
 
     unsigned int descriptor_count;
     struct vkd3d_shader_resource_binding *descriptor_mapping;
-    struct vkd3d_shader_descriptor_binding dummy_sampler;
 
     unsigned int root_constant_count;
     struct vkd3d_shader_push_constant_buffer *root_constants;
@@ -911,9 +910,6 @@ struct d3d12_device
 
     pthread_mutex_t pipeline_cache_mutex;
     VkPipelineCache vk_pipeline_cache;
-
-    /* A sampler used for SpvOpImageFetch. */
-    VkSampler vk_dummy_sampler;
 
     VkPhysicalDeviceMemoryProperties memory_properties;
 
