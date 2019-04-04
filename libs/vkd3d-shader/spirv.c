@@ -4602,32 +4602,6 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
-static uint32_t vkd3d_dxbc_compiler_get_dummy_sampler_id(struct vkd3d_dxbc_compiler *compiler)
-{
-    const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
-    const SpvStorageClass storage_class = SpvStorageClassUniformConstant;
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    uint32_t type_id, ptr_type_id, var_id;
-
-    if (compiler->dummy_sampler_id)
-        return compiler->dummy_sampler_id;
-
-    type_id = vkd3d_spirv_get_op_type_sampler(builder);
-    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id);
-    var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
-            ptr_type_id, storage_class, 0);
-
-    vkd3d_spirv_build_op_decorate1(builder, var_id,
-            SpvDecorationDescriptorSet, shader_interface->dummy_sampler.set);
-    vkd3d_spirv_build_op_decorate1(builder, var_id,
-            SpvDecorationBinding, shader_interface->dummy_sampler.binding);
-
-    vkd3d_spirv_build_op_name(builder, var_id, "dummy_sampler");
-
-    compiler->dummy_sampler_id = var_id;
-    return compiler->dummy_sampler_id;
-}
-
 static const struct vkd3d_spirv_resource_type *vkd3d_dxbc_compiler_enable_resource_type(
         struct vkd3d_dxbc_compiler *compiler, enum vkd3d_shader_resource_type resource_type, bool is_uav)
 {
@@ -6746,11 +6720,9 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
     if (sampled)
     {
         assert(image->image_id);
+        assert(sampler_reg);
 
-        if (sampler_reg)
-            sampler_var_id = vkd3d_dxbc_compiler_get_register_id(compiler, sampler_reg);
-        else
-            sampler_var_id = vkd3d_dxbc_compiler_get_dummy_sampler_id(compiler);
+        sampler_var_id = vkd3d_dxbc_compiler_get_register_id(compiler, sampler_reg);
 
         sampler_id = vkd3d_spirv_build_op_load(builder,
                 vkd3d_spirv_get_op_type_sampler(builder), sampler_var_id, SpvMemoryAccessMaskNone);
@@ -6781,7 +6753,7 @@ static void vkd3d_dxbc_compiler_emit_ld(struct vkd3d_dxbc_compiler *compiler,
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    uint32_t image_id, type_id, coordinate_id, val_id;
+    uint32_t type_id, coordinate_id, val_id;
     SpvImageOperandsMask operands_mask = 0;
     unsigned int image_operand_count = 0;
     struct vkd3d_shader_image image;
@@ -6791,9 +6763,7 @@ static void vkd3d_dxbc_compiler_emit_ld(struct vkd3d_dxbc_compiler *compiler,
 
     multisample = instruction->handler_idx == VKD3DSIH_LD2DMS;
 
-    /* OpImageFetch must be used with a sampled image. */
-    vkd3d_dxbc_compiler_prepare_image(compiler, &image, &src[1].reg, NULL, VKD3D_IMAGE_FLAG_SAMPLED);
-    image_id = vkd3d_spirv_build_op_image(builder, image.image_type_id, image.sampled_image_id);
+    vkd3d_dxbc_compiler_prepare_image(compiler, &image, &src[1].reg, NULL, VKD3D_IMAGE_FLAG_NONE);
 
     type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
     coordinate_mask = (1u << image.resource_type_info->coordinate_component_count) - 1;
@@ -6818,7 +6788,7 @@ static void vkd3d_dxbc_compiler_emit_ld(struct vkd3d_dxbc_compiler *compiler,
     }
     assert(image_operand_count <= ARRAY_SIZE(image_operands));
     val_id = vkd3d_spirv_build_op_image_fetch(builder, type_id,
-            image_id, coordinate_id, operands_mask, image_operands, image_operand_count);
+            image.image_id, coordinate_id, operands_mask, image_operands, image_operand_count);
 
     vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
             dst, val_id, image.sampled_type, src[1].swizzle);
@@ -7041,10 +7011,10 @@ static uint32_t vkd3d_dxbc_compiler_emit_raw_structured_addressing(
 static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    uint32_t coordinate_id, type_id, val_id, image_id, texel_type_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t coordinate_id, type_id, val_id, texel_type_id;
     const struct vkd3d_shader_src_param *resource;
     uint32_t base_coordinate_id, component_idx;
     uint32_t constituents[VKD3D_VEC4_SIZE];
@@ -7055,18 +7025,11 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
     resource = &src[instruction->src_count - 1];
 
     if (resource->reg.type == VKD3DSPR_RESOURCE)
-    {
-        /* OpImageFetch must be used with a sampled image. */
         op = SpvOpImageFetch;
-        vkd3d_dxbc_compiler_prepare_image(compiler, &image, &resource->reg, NULL, VKD3D_IMAGE_FLAG_SAMPLED);
-        image_id = vkd3d_spirv_build_op_image(builder, image.image_type_id, image.sampled_image_id);
-    }
     else
-    {
         op = SpvOpImageRead;
-        vkd3d_dxbc_compiler_prepare_image(compiler, &image, &resource->reg, NULL, VKD3D_IMAGE_FLAG_NONE);
-        image_id = image.image_id;
-    }
+
+    vkd3d_dxbc_compiler_prepare_image(compiler, &image, &resource->reg, NULL, VKD3D_IMAGE_FLAG_NONE);
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
     base_coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
@@ -7085,7 +7048,7 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
                     coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
 
         val_id = vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
-                op, texel_type_id, image_id, coordinate_id);
+                op, texel_type_id, image.image_id, coordinate_id);
         constituents[j++] = vkd3d_spirv_build_op_composite_extract1(builder,
                 type_id, val_id, 0);
     }
