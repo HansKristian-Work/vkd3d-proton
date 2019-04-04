@@ -16823,7 +16823,7 @@ static void test_depth_clip(void)
 
     transition_resource_state(command_list, ds.texture,
             D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    todo_if(!is_mesa_intel_device(context.device))
+    bug_if(!is_depth_clip_enable_supported(context.device))
     check_sub_resource_float(ds.texture, 0, queue, command_list, 1.0f, 2);
     reset_command_list(command_list, context.allocator);
 

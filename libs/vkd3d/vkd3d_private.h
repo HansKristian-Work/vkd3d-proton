@@ -95,6 +95,7 @@ struct vkd3d_vulkan_info
     bool KHR_push_descriptor;
     /* EXT device extensions */
     bool EXT_debug_marker;
+    bool EXT_depth_clip_enable;
     bool EXT_descriptor_indexing;
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
@@ -629,7 +630,8 @@ struct d3d12_graphics_pipeline_state
     VkPipelineDepthStencilStateCreateInfo ds_desc;
 
     VkSampleMask sample_mask[2];
-    VkPipelineRasterizationStateStreamCreateInfoEXT rs_stream_desc;
+    VkPipelineRasterizationDepthClipStateCreateInfoEXT rs_depth_clip_info;
+    VkPipelineRasterizationStateStreamCreateInfoEXT rs_stream_info;
 
     const struct d3d12_root_signature *root_signature;
 

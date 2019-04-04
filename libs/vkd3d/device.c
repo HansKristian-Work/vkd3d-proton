@@ -135,6 +135,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_push_descriptor)},
     /* EXT extensions */
     {VK_EXT_DEBUG_MARKER_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_debug_marker)},
+    {VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_depth_clip_enable)},
     {VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_descriptor_indexing)},
     {VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME,
             offsetof(struct vkd3d_vulkan_info, EXT_transform_feedback)},
@@ -899,6 +900,7 @@ static void vkd3d_trace_physical_device_features(const VkPhysicalDeviceFeatures2
 {
     const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
     const VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
+    const VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
     const VkPhysicalDeviceFeatures *features = &features2->features;
     const VkPhysicalDeviceTransformFeedbackFeaturesEXT *xfb;
 
@@ -1009,6 +1011,13 @@ static void vkd3d_trace_physical_device_features(const VkPhysicalDeviceFeatures2
                 descriptor_indexing->runtimeDescriptorArray);
     }
 
+    depth_clip_features = vk_find_struct(features2->pNext, PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT);
+    if (depth_clip_features)
+    {
+        TRACE("  VkPhysicalDeviceDepthClipEnableFeaturesEXT:\n");
+        TRACE("    depthClipEnable: %#x.\n", depth_clip_features->depthClipEnable);
+    }
+
     xfb = vk_find_struct(features2->pNext, PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT);
     if (xfb)
     {
@@ -1080,6 +1089,8 @@ static void vkd3d_init_feature_level(struct vkd3d_vulkan_info *vk_info,
     CHECK_FEATURE(shaderStorageImageWriteWithoutFormat);
     CHECK_FEATURE(tessellationShader);
 
+    if (!vk_info->EXT_depth_clip_enable)
+        WARN("Depth clip enable is not supported.\n");
     if (!vk_info->EXT_transform_feedback)
         WARN("Stream output is not supported.\n");
 
@@ -1113,6 +1124,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
     const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
     const struct vkd3d_optional_device_extensions_info *optional_extensions;
+    const VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
     VkPhysicalDeviceMaintenance3Properties maintenance3_properties;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT xfb_properties;
@@ -1239,6 +1251,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
             optional_extensions ? optional_extensions->extensions : NULL,
             optional_extensions ? optional_extensions->extension_count : 0,
             *user_extension_supported, vulkan_info, "device");
+
+    depth_clip_features = vk_find_struct(features2->pNext, PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT);
+    if (depth_clip_features)
+    {
+        vulkan_info->EXT_depth_clip_enable = depth_clip_features->depthClipEnable;
+    }
 
     divisor_features = vk_find_struct(features2->pNext, PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT);
     if (get_spec_version(vk_extensions, count, VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME) >= 3
@@ -1522,6 +1540,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
     const struct vkd3d_optional_device_extensions_info *optional_extensions;
+    VkPhysicalDeviceDepthClipEnableFeaturesEXT depth_clip_features;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
     struct vkd3d_device_queue_info device_queue_info;
@@ -1558,8 +1577,11 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 
+    memset(&depth_clip_features, 0, sizeof(depth_clip_features));
+    depth_clip_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT;
     memset(&descriptor_indexing_features, 0, sizeof(descriptor_indexing_features));
     descriptor_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
+    descriptor_indexing_features.pNext = &depth_clip_features.pNext;
     memset(&xfb_features, 0, sizeof(xfb_features));
     xfb_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT;
     xfb_features.pNext = &descriptor_indexing_features;

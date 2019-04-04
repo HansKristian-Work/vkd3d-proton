@@ -364,6 +364,11 @@ static inline bool is_radv_device(ID3D12Device *device)
     return false;
 }
 
+static inline bool is_depth_clip_enable_supported(ID3D12Device *device)
+{
+    return true;
+}
+
 #else
 
 static bool check_device_extension(VkPhysicalDevice vk_physical_device, const char *name)
@@ -584,6 +589,12 @@ static inline bool is_radv_device(ID3D12Device *device)
 
     get_driver_properties(device, &properties);
     return properties.driverID == VK_DRIVER_ID_MESA_RADV_KHR;
+}
+
+static inline bool is_depth_clip_enable_supported(ID3D12Device *device)
+{
+    VkPhysicalDevice vk_physical_device = vkd3d_get_vk_physical_device(device);
+    return check_device_extension(vk_physical_device, VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME);
 }
 #endif
 

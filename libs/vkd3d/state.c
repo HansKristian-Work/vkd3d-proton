@@ -19,6 +19,16 @@
 
 #include "vkd3d_private.h"
 
+static void vk_append_struct(void *h, void *structure)
+{
+    VkBaseOutStructure *header = h;
+
+    while (header->pNext)
+        header = header->pNext;
+
+    header->pNext = structure;
+}
+
 /* ID3D12RootSignature */
 static inline struct d3d12_root_signature *impl_from_ID3D12RootSignature(ID3D12RootSignature *iface)
 {
@@ -1496,7 +1506,7 @@ static enum VkCullModeFlagBits vk_cull_mode_from_d3d12(D3D12_CULL_MODE mode)
     }
 }
 
-static void rs_desc_from_d3d12(struct VkPipelineRasterizationStateCreateInfo *vk_desc,
+static void rs_desc_from_d3d12(VkPipelineRasterizationStateCreateInfo *vk_desc,
         const D3D12_RASTERIZER_DESC *d3d12_desc)
 {
     vk_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
@@ -1523,7 +1533,20 @@ static void rs_desc_from_d3d12(struct VkPipelineRasterizationStateCreateInfo *vk
         FIXME("Ignoring ConservativeRaster %#x.\n", d3d12_desc->ConservativeRaster);
 }
 
-static void rs_stream_desc_from_d3d12(VkPipelineRasterizationStateStreamCreateInfoEXT *vk_desc,
+static void rs_depth_clip_info_from_d3d12(VkPipelineRasterizationDepthClipStateCreateInfoEXT *depth_clip_info,
+        VkPipelineRasterizationStateCreateInfo *vk_rs_desc, const D3D12_RASTERIZER_DESC *d3d12_desc)
+{
+    vk_rs_desc->depthClampEnable = VK_TRUE;
+
+    depth_clip_info->sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_DEPTH_CLIP_STATE_CREATE_INFO_EXT;
+    depth_clip_info->pNext = NULL;
+    depth_clip_info->flags = 0;
+    depth_clip_info->depthClipEnable = d3d12_desc->DepthClipEnable;
+
+    vk_append_struct(vk_rs_desc, depth_clip_info);
+}
+
+static void rs_stream_info_from_d3d12(VkPipelineRasterizationStateStreamCreateInfoEXT *stream_info,
         VkPipelineRasterizationStateCreateInfo *vk_rs_desc, const D3D12_STREAM_OUTPUT_DESC *so_desc,
         const struct vkd3d_vulkan_info *vk_info)
 {
@@ -1536,12 +1559,12 @@ static void rs_stream_desc_from_d3d12(VkPipelineRasterizationStateStreamCreateIn
         return;
     }
 
-    vk_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_STREAM_CREATE_INFO_EXT;
-    vk_desc->pNext = NULL;
-    vk_desc->flags = 0;
-    vk_desc->rasterizationStream = so_desc->RasterizedStream;
+    stream_info->sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_STREAM_CREATE_INFO_EXT;
+    stream_info->pNext = NULL;
+    stream_info->flags = 0;
+    stream_info->rasterizationStream = so_desc->RasterizedStream;
 
-    vk_rs_desc->pNext = vk_desc;
+    vk_append_struct(vk_rs_desc, stream_info);
 }
 
 static enum VkStencilOp vk_stencil_op_from_d3d12(D3D12_STENCIL_OP op)
@@ -1859,13 +1882,13 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
     struct vkd3d_shader_signature input_signature;
-    struct VkSubpassDescription sub_pass_desc;
-    struct VkRenderPassCreateInfo pass_desc;
     VkShaderStageFlagBits xfb_stage = 0;
     VkSampleCountFlagBits sample_count;
+    VkSubpassDescription sub_pass_desc;
     const struct vkd3d_format *format;
-    enum VkVertexInputRate input_rate;
+    VkRenderPassCreateInfo pass_desc;
     unsigned int instance_divisor;
+    VkVertexInputRate input_rate;
     unsigned int i, j;
     size_t rt_count;
     uint32_t mask;
@@ -2333,7 +2356,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             || so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM)
         graphics->rs_desc.rasterizerDiscardEnable = VK_TRUE;
 
-    rs_stream_desc_from_d3d12(&graphics->rs_stream_desc, &graphics->rs_desc, so_desc, vk_info);
+    rs_stream_info_from_d3d12(&graphics->rs_stream_info, &graphics->rs_desc, so_desc, vk_info);
+    if (vk_info->EXT_depth_clip_enable)
+        rs_depth_clip_info_from_d3d12(&graphics->rs_depth_clip_info, &graphics->rs_desc, &desc->RasterizerState);
 
     graphics->ms_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     graphics->ms_desc.pNext = NULL;

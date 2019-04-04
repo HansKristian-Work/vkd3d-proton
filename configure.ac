@@ -67,7 +67,7 @@ AS_IF([test "x$ac_cv_header_spirv_unified1_GLSL_std_450_h" != "xyes" \
        -a "x$ac_cv_header_vulkan_GLSL_std_450_h" != "xyes"],
       [AC_MSG_ERROR([GLSL.std.450.h not found.])])
 
-VKD3D_CHECK_VULKAN_HEADER_VERSION([88], [AC_MSG_ERROR([Vulkan headers are too old, 1.1.88 is required.])])
+VKD3D_CHECK_VULKAN_HEADER_VERSION([101], [AC_MSG_ERROR([Vulkan headers are too old, 1.1.101 is required.])])
 
 dnl Check for libraries
 m4_ifdef([PKG_PROG_PKG_CONFIG], [PKG_PROG_PKG_CONFIG], [m4_fatal([pkg-config autoconf macros not found.])])
