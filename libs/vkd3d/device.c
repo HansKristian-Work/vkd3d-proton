@@ -1277,6 +1277,8 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     if (vulkan_info->max_feature_level < create_info->minimum_feature_level)
     {
         WARN("Feature level %#x is not supported.\n", create_info->minimum_feature_level);
+        vkd3d_free(*user_extension_supported);
+        *user_extension_supported = NULL;
         return E_INVALIDARG;
     }
 
