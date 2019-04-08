@@ -22,6 +22,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -310,7 +311,7 @@ unsigned int vkd3d_env_var_as_uint(const char *name, unsigned int default_value)
         errno = 0;
         r = strtoul(value, &end_ptr, 0);
         if (!errno && end_ptr != value)
-            return r;
+            return min(r, UINT_MAX);
     }
 
     return default_value;
