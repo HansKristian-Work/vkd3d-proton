@@ -6004,6 +6004,7 @@ static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_comp
             return;
     }
 
+    assert(dst->write_mask & VKD3DSP_WRITEMASK_ALL);
     for (i = 0, k = 0; i < VKD3D_VEC4_SIZE; ++i)
     {
         if (!(write_mask = dst->write_mask & (VKD3DSP_WRITEMASK_0 << i)))
@@ -6044,6 +6045,7 @@ static void vkd3d_dxbc_compiler_emit_f16tof32(struct vkd3d_dxbc_compiler *compil
     scalar_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 1);
 
     /* FIXME: Consider a single UnpackHalf2x16 intruction per 2 components. */
+    assert(dst->write_mask & VKD3DSP_WRITEMASK_ALL);
     for (i = 0, j = 0; i < VKD3D_VEC4_SIZE; ++i)
     {
         if (!(write_mask = dst->write_mask & (VKD3DSP_WRITEMASK_0 << i)))
@@ -6077,6 +6079,7 @@ static void vkd3d_dxbc_compiler_emit_f32tof16(struct vkd3d_dxbc_compiler *compil
     zero_id = vkd3d_dxbc_compiler_get_constant_float(compiler, 0.0f);
 
     /* FIXME: Consider a single PackHalf2x16 intruction per 2 components. */
+    assert(dst->write_mask & VKD3DSP_WRITEMASK_ALL);
     for (i = 0, j = 0; i < VKD3D_VEC4_SIZE; ++i)
     {
         if (!(write_mask = dst->write_mask & (VKD3DSP_WRITEMASK_0 << i)))
@@ -7035,6 +7038,7 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
             type_id, image.structure_stride, &src[0], VKD3DSP_WRITEMASK_0, &src[1], VKD3DSP_WRITEMASK_0);
 
     texel_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
+    assert(dst->write_mask & VKD3DSP_WRITEMASK_ALL);
     for (i = 0, j = 0; i < VKD3D_VEC4_SIZE; ++i)
     {
         if (!(dst->write_mask & (VKD3DSP_WRITEMASK_0 << i)))
@@ -7077,6 +7081,7 @@ static void vkd3d_dxbc_compiler_emit_ld_tgsm(struct vkd3d_dxbc_compiler *compile
     base_coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
             type_id, reg_info.structure_stride, &src[0], VKD3DSP_WRITEMASK_0, &src[1], VKD3DSP_WRITEMASK_0);
 
+    assert(dst->write_mask & VKD3DSP_WRITEMASK_ALL);
     for (i = 0, j = 0; i < VKD3D_VEC4_SIZE; ++i)
     {
         if (!(dst->write_mask & (VKD3DSP_WRITEMASK_0 << i)))
