@@ -5408,7 +5408,7 @@ static void vkd3d_dxbc_compiler_emit_default_control_point_phase(struct vkd3d_dx
         assert((input->mask & 0xff) == (output->mask & 0xff));
         assert(input->component_type == output->component_type);
 
-        if ((input_builtin = get_spirv_builtin_for_sysval(compiler, input->sysval_semantic)))
+        if ((input_builtin = get_spirv_builtin_for_sysval(compiler, vkd3d_siv_from_sysval(input->sysval_semantic))))
         {
             component_type = input_builtin->component_type;
             component_count = input_builtin->component_count;
