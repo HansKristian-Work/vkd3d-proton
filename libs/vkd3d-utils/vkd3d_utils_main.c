@@ -87,13 +87,29 @@ HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T dat
     return vkd3d_create_root_signature_deserializer(data, data_size, iid, deserializer);
 }
 
-HRESULT WINAPI D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc,
+HRESULT WINAPI D3D12CreateVersionedRootSignatureDeserializer(const void *data, SIZE_T data_size,
+        REFIID iid,void **deserializer)
+{
+    TRACE("data %p, data_size %lu, iid %s, deserializer %p.\n",
+            data, data_size, debugstr_guid(iid), deserializer);
+
+    return vkd3d_create_versioned_root_signature_deserializer(data, data_size, iid, deserializer);
+}
+
+HRESULT WINAPI D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob)
 {
-    TRACE("root_signature_desc %p, version %#x, blob %p, error_blob %p.\n",
-            root_signature_desc, version, blob, error_blob);
+    TRACE("desc %p, version %#x, blob %p, error_blob %p.\n", desc, version, blob, error_blob);
 
-    return vkd3d_serialize_root_signature(root_signature_desc, version, blob, error_blob);
+    return vkd3d_serialize_root_signature(desc, version, blob, error_blob);
+}
+
+HRESULT WINAPI D3D12SerializeVersionedRootSignature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
+        ID3DBlob **blob, ID3DBlob **error_blob)
+{
+    TRACE("desc %p, blob %p, error_blob %p.\n", desc, blob, error_blob);
+
+    return vkd3d_serialize_versioned_root_signature(desc, blob, error_blob);
 }
 
 /* Events */

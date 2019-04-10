@@ -154,7 +154,13 @@ ULONG vkd3d_resource_incref(ID3D12Resource *resource);
 HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob);
 
+HRESULT vkd3d_serialize_versioned_root_signature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
+        ID3DBlob **blob, ID3DBlob **error_blob);
+
 HRESULT vkd3d_create_root_signature_deserializer(const void *data, SIZE_T data_size,
+        REFIID iid, void **deserializer);
+
+HRESULT vkd3d_create_versioned_root_signature_deserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer);
 
 DXGI_FORMAT vkd3d_get_dxgi_format(VkFormat format);
@@ -190,9 +196,16 @@ typedef ULONG (*PFN_vkd3d_resource_incref)(ID3D12Resource *resource);
 typedef HRESULT (*PFN_vkd3d_serialize_root_signature)(const D3D12_ROOT_SIGNATURE_DESC *desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob);
 
+typedef HRESULT (*PFN_vkd3d_serialize_versioned_root_signature)(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
+        ID3DBlob **blob, ID3DBlob **error_blob);
+
 typedef HRESULT (*PFN_vkd3d_create_root_signature_deserializer)(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer);
 
+typedef HRESULT (*PFN_vkd3d_create_versioned_root_signature_deserializer)(const void *data, SIZE_T data_size,
+        REFIID iid, void **deserializer);
+
+typedef DXGI_FORMAT (*PFN_vkd3d_get_dxgi_format)(VkFormat format);
 typedef VkFormat (*PFN_vkd3d_get_vk_format)(DXGI_FORMAT format);
 
 #ifdef __cplusplus

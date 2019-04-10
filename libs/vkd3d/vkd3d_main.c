@@ -205,6 +205,15 @@ HRESULT vkd3d_create_root_signature_deserializer(const void *data, SIZE_T data_s
             &IID_ID3D12RootSignatureDeserializer, iid, deserializer);
 }
 
+HRESULT vkd3d_create_versioned_root_signature_deserializer(const void *data, SIZE_T data_size,
+        REFIID iid, void **deserializer)
+{
+    FIXME("data %p, data_size %lu, iid %s, deserializer %p stub!\n",
+            data, data_size, debugstr_guid(iid), deserializer);
+
+    return E_NOTIMPL;
+}
+
 /* ID3DBlob */
 struct d3d_blob
 {
@@ -319,7 +328,7 @@ static HRESULT d3d_blob_create(void *buffer, SIZE_T size, struct d3d_blob **blob
     return S_OK;
 }
 
-HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc,
+HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob)
 {
     struct vkd3d_shader_code dxbc;
@@ -327,8 +336,7 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_sig
     HRESULT hr;
     int ret;
 
-    TRACE("root_signature_desc %p, version %#x, blob %p, error_blob %p.\n",
-            root_signature_desc, version, blob, error_blob);
+    TRACE("desc %p, version %#x, blob %p, error_blob %p.\n", desc, version, blob, error_blob);
 
     if (!blob)
     {
@@ -340,7 +348,7 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_sig
         *error_blob = NULL;
 
     if ((ret = vkd3d_shader_serialize_root_signature(
-            (const struct vkd3d_root_signature_desc *)root_signature_desc,
+            (const struct vkd3d_root_signature_desc *)desc,
             (enum vkd3d_root_signature_version)version, &dxbc)) < 0)
     {
         WARN("Failed to serialize root signature, vkd3d result %d.\n", ret);
@@ -359,4 +367,12 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *root_sig
     *blob = &blob_object->ID3DBlob_iface;
 
     return S_OK;
+}
+
+HRESULT vkd3d_serialize_versioned_root_signature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
+        ID3DBlob **blob, ID3DBlob **error_blob)
+{
+    FIXME("desc %p, blob %p, error_blob %p stub!\n", desc, blob, error_blob);
+
+    return E_NOTIMPL;
 }
