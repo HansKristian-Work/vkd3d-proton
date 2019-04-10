@@ -170,9 +170,7 @@ vkd3d_v_widl_1 =
 EXTRA_DIST += $(widl_headers) $(widl_headers:.h=.idl)
 $(widl_headers): %.h: %.idl
 if HAVE_WIDL
-	$(VKD3D_V_WIDL)$(WIDL) -h -o $@.tmp $<
-	$(AM_V_at)$(SED) -e '/#include <rpc.h>/d' -e '/#include <rpcndr.h>/d' <$@.tmp >$@
-	$(AM_V_at)$(RM) $@.tmp
+	$(VKD3D_V_WIDL)$(WIDL) -h -o $@ $<
 else
 	@echo "widl is required to generate $@"
 endif
@@ -235,7 +233,7 @@ $(CROSS32_IMPLIBS): %.cross32.a: %.cross32.def
 	$(AM_V_GEN)$(CROSS32_DLLTOOL) -k -m i386 --as-flags=-32 -d $< -l $@
 
 $(CROSS32_EXEFILES): %.cross32.exe: %.c $(CROSS32_IMPLIBS) $(widl_headers)
-	$(AM_V_CCLD)depbase=`echo $@ | sed 's![^/]*$$!$(DEPDIR)/&!;s!\.exe$$!!'`; \
+	$(AM_V_CCLD)depbase=`echo $@ | $(SED) 's![^/]*$$!$(DEPDIR)/&!;s!\.exe$$!!'`; \
 	$(CROSS32_CC) $(CROSS_CFLAGS) -MT $@ -MD -MP -MF $$depbase.Tpo -o $@ $< $(CROSS32_IMPLIBS) -ldxgi -lgdi32 && \
 	$(am__mv) $$depbase.Tpo $$depbase.Po
 else
