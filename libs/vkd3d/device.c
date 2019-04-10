@@ -1583,7 +1583,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     depth_clip_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT;
     memset(&descriptor_indexing_features, 0, sizeof(descriptor_indexing_features));
     descriptor_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
-    descriptor_indexing_features.pNext = &depth_clip_features.pNext;
+    descriptor_indexing_features.pNext = &depth_clip_features;
     memset(&xfb_features, 0, sizeof(xfb_features));
     xfb_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT;
     xfb_features.pNext = &descriptor_indexing_features;
