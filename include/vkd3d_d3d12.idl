@@ -590,7 +590,11 @@ typedef struct D3D12_DESCRIPTOR_RANGE
 
 typedef enum D3D12_DESCRIPTOR_RANGE_FLAGS
 {
-    D3D12_DESCRIPTOR_RANGE_FLAG_NONE = 0,
+    D3D12_DESCRIPTOR_RANGE_FLAG_NONE = 0x0,
+    D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE = 0x1,
+    D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE = 0x2,
+    D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE = 0x4,
+    D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC = 0x8,
 } D3D12_DESCRIPTOR_RANGE_FLAGS;
 
 typedef struct D3D12_DESCRIPTOR_RANGE1
@@ -630,7 +634,10 @@ typedef struct D3D12_ROOT_DESCRIPTOR
 
 typedef enum D3D12_ROOT_DESCRIPTOR_FLAGS
 {
-    D3D12_ROOT_DESCRIPTOR_FLAG_NONE = 0,
+    D3D12_ROOT_DESCRIPTOR_FLAG_NONE = 0x0,
+    D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE = 0x2,
+    D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE = 0x4,
+    D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC = 0x8,
 } D3D12_ROOT_DESCRIPTOR_FLAGS;
 
 typedef struct D3D12_ROOT_DESCRIPTOR1
@@ -2298,12 +2305,35 @@ interface ID3D12RootSignatureDeserializer : IUnknown
     const D3D12_ROOT_SIGNATURE_DESC *GetRootSignatureDesc();
 }
 
+[
+    uuid(7f91ce67-090c-4bb7-b78e-ed8ff2e31da0),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12VersionedRootSignatureDeserializer : IUnknown
+{
+    HRESULT GetRootSignatureDescAtVersion(D3D_ROOT_SIGNATURE_VERSION version,
+            const D3D12_VERSIONED_ROOT_SIGNATURE_DESC **desc);
+
+    const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *GetUnconvertedRootSignatureDesc();
+};
+
 [local] HRESULT __stdcall D3D12CreateRootSignatureDeserializer(
+        const void *data, SIZE_T data_size, REFIID iid, void **deserializer);
+
+typedef HRESULT (__stdcall *PFN_D3D12_CREATE_VERSIONED_ROOT_SIGNATURE_DESERIALIZER)(
+        const void *data, SIZE_T data_size, REFIID iid, void **deserializer);
+
+[local] HRESULT __stdcall D3D12CreateVersionedRootSignatureDeserializer(
         const void *data, SIZE_T data_size, REFIID iid, void **deserializer);
 
 [local] HRESULT __stdcall D3D12SerializeRootSignature(
         const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob);
+
+typedef HRESULT (__stdcall *PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE)(
+        const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc, ID3DBlob **blob, ID3DBlob **error_blob);
 
 [local] HRESULT __stdcall D3D12SerializeVersionedRootSignature(
         const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *root_signature_desc,
