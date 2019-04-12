@@ -85,6 +85,7 @@ libvkd3d_shader_la_LDFLAGS = $(AM_LDFLAGS) -version-info 1:0:0
 libvkd3d_shader_la_LIBADD = libvkd3d-common.la @SPIRV_TOOLS_LIBS@
 if HAVE_LD_VERSION_SCRIPT
 libvkd3d_shader_la_LDFLAGS += -Wl,--version-script=$(srcdir)/libs/vkd3d-shader/vkd3d_shader.map
+EXTRA_libvkd3d_shader_la_DEPENDENCIES = $(srcdir)/libs/vkd3d-shader/vkd3d_shader.map
 endif
 
 libvkd3d_la_SOURCES = \
@@ -110,6 +111,7 @@ libvkd3d_la_LDFLAGS = $(AM_LDFLAGS) -version-info 2:0:1
 libvkd3d_la_LIBADD = libvkd3d-common.la libvkd3d-shader.la @DL_LIBS@ @PTHREAD_LIBS@
 if HAVE_LD_VERSION_SCRIPT
 libvkd3d_la_LDFLAGS += -Wl,--version-script=$(srcdir)/libs/vkd3d/vkd3d.map
+EXTRA_libvkd3d_la_DEPENDENCIES = $(srcdir)/libs/vkd3d/vkd3d.map
 endif
 
 libvkd3d_utils_la_SOURCES = \
@@ -120,6 +122,7 @@ libvkd3d_utils_la_LDFLAGS = $(AM_LDFLAGS) -version-info 1:1:0
 libvkd3d_utils_la_LIBADD = libvkd3d-common.la libvkd3d.la
 if HAVE_LD_VERSION_SCRIPT
 libvkd3d_utils_la_LDFLAGS += -Wl,--version-script=$(srcdir)/libs/vkd3d-utils/vkd3d_utils.map
+EXTRA_libvkd3d_utils_la_DEPENDENCIES = $(srcdir)/libs/vkd3d-utils/vkd3d_utils.map
 endif
 
 EXTRA_DIST = LICENSE
