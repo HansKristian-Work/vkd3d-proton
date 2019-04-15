@@ -129,6 +129,8 @@ AS_IF([test "x$CROSSTARGET32" != "xno" -o "x$CROSSTARGET64" != "xno"],
 AS_ECHO(["
   Configuration summary for $PACKAGE $VERSION
 
+  widl: ${WIDL}
+
   Have XCB: ${HAVE_XCB}
   Have SPIRV-Tools: ${with_spirv_tools}
 
