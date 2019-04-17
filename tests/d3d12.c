@@ -3922,6 +3922,87 @@ static void test_multithread_fence_wait(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_fence_values(void)
+{
+    ID3D12CommandQueue *queue;
+    UINT64 value, next_value;
+    ID3D12Device *device;
+    ID3D12Fence *fence;
+    ULONG refcount;
+    unsigned int i;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
+
+    next_value = (uint64_t)1 << 60;
+    hr = ID3D12Device_CreateFence(device, next_value, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+
+    value = ID3D12Fence_GetCompletedValue(fence);
+    ok(value == next_value, "Got value %#"PRIx64", expected %#"PRIx64".\n", value, next_value);
+
+    for (i = 0; i < 100; ++i)
+    {
+        ++next_value;
+        hr = ID3D12CommandQueue_Signal(queue, fence, next_value);
+        ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+        wait_queue_idle(device, queue);
+        value = ID3D12Fence_GetCompletedValue(fence);
+        ok(value == next_value, "Got value %#"PRIx64", expected %#"PRIx64".\n", value, next_value);
+    }
+
+    for (i = 0; i < 100; ++i)
+    {
+        next_value += 10000;
+        hr = ID3D12Fence_Signal(fence, next_value);
+        ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+        value = ID3D12Fence_GetCompletedValue(fence);
+        ok(value == next_value, "Got value %#"PRIx64", expected %#"PRIx64".\n", value, next_value);
+    }
+
+    ID3D12Fence_Release(fence);
+
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+    next_value = (uint64_t)1 << 60;
+    hr = ID3D12Fence_Signal(fence, next_value);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    value = ID3D12Fence_GetCompletedValue(fence);
+    ok(value == next_value, "Got value %#"PRIx64", expected %#"PRIx64".\n", value, next_value);
+    next_value = 0;
+    hr = ID3D12Fence_Signal(fence, next_value);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    value = ID3D12Fence_GetCompletedValue(fence);
+    ok(value == next_value, "Got value %#"PRIx64", expected %#"PRIx64".\n", value, next_value);
+    ID3D12Fence_Release(fence);
+
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+    next_value = (uint64_t)1 << 60;
+    hr = ID3D12CommandQueue_Signal(queue, fence, next_value);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    wait_queue_idle(device, queue);
+    value = ID3D12Fence_GetCompletedValue(fence);
+    ok(value == next_value, "Got value %#"PRIx64", expected %#"PRIx64".\n", value, next_value);
+    next_value = 0;
+    hr = ID3D12CommandQueue_Signal(queue, fence, next_value);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    wait_queue_idle(device, queue);
+    value = ID3D12Fence_GetCompletedValue(fence);
+    ok(value == next_value, "Got value %#"PRIx64", expected %#"PRIx64".\n", value, next_value);
+    ID3D12Fence_Release(fence);
+
+    ID3D12CommandQueue_Release(queue);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 static void test_clear_depth_stencil_view(void)
 {
     static const float expected_values[] = {0.5f, 0.1f, 0.1f, 0.6, 1.0f, 0.5f};
@@ -27532,6 +27613,7 @@ START_TEST(d3d12)
     run_test(test_cpu_signal_fence);
     run_test(test_gpu_signal_fence);
     run_test(test_multithread_fence_wait);
+    run_test(test_fence_values);
     run_test(test_clear_depth_stencil_view);
     run_test(test_clear_render_target_view);
     run_test(test_clear_unordered_access_view);
