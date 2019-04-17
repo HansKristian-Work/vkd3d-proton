@@ -400,7 +400,46 @@ static struct d3d12_fence *impl_from_ID3D12Fence(ID3D12Fence *iface)
     return CONTAINING_RECORD(iface, struct d3d12_fence, ID3D12Fence_iface);
 }
 
-#define VKD3D_MAX_VK_SEMAPHORE_COUNT_PER_D3D12_FENCE 4
+static VkResult d3d12_fence_create_vk_fence(struct d3d12_fence *fence, VkFence *vk_fence)
+{
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct d3d12_device *device = fence->device;
+    VkFenceCreateInfo fence_info;
+    unsigned int i;
+    VkResult vr;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&fence->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        goto create_fence;
+    }
+
+    for (i = 0; i < ARRAY_SIZE(fence->old_vk_fences); ++i)
+    {
+        if ((*vk_fence = fence->old_vk_fences[i]))
+        {
+            fence->old_vk_fences[i] = VK_NULL_HANDLE;
+            break;
+        }
+    }
+
+    pthread_mutex_unlock(&fence->mutex);
+
+    if (*vk_fence)
+        return VK_SUCCESS;
+
+create_fence:
+    vk_procs = &device->vk_procs;
+
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_info.pNext = NULL;
+    fence_info.flags = 0;
+    if ((vr = VK_CALL(vkCreateFence(device->vk_device, &fence_info, NULL, vk_fence))) < 0)
+        *vk_fence = VK_NULL_HANDLE;
+
+    return vr;
+}
 
 static void d3d12_fence_destroy_vk_semaphores_locked(struct d3d12_fence *fence, bool destroy_all)
 {
@@ -411,12 +450,12 @@ static void d3d12_fence_destroy_vk_semaphores_locked(struct d3d12_fence *fence, 
     unsigned int i, j;
 
     semaphore_count = fence->semaphore_count;
-    if (!destroy_all && fence->semaphore_count < VKD3D_MAX_VK_SEMAPHORE_COUNT_PER_D3D12_FENCE)
+    if (!destroy_all && fence->semaphore_count < VKD3D_MAX_VK_SYNC_OBJECTS_PER_D3D12_FENCE)
         return;
 
     for (i = 0, j = 0; i < fence->semaphore_count; ++i)
     {
-        if (!destroy_all && semaphore_count < VKD3D_MAX_VK_SEMAPHORE_COUNT_PER_D3D12_FENCE)
+        if (!destroy_all && semaphore_count < VKD3D_MAX_VK_SYNC_OBJECTS_PER_D3D12_FENCE)
             break;
 
         /* The semaphore doesn't have a pending signal operation if the fence
@@ -447,14 +486,27 @@ static void d3d12_fence_destroy_vk_semaphores_locked(struct d3d12_fence *fence, 
     fence->semaphore_count = j;
 }
 
-static void d3d12_fence_destroy_vk_semaphores(struct d3d12_fence *fence)
+static void d3d12_fence_destroy_vk_objects(struct d3d12_fence *fence)
 {
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct d3d12_device *device = fence->device;
+    unsigned int i;
+
     int rc;
 
     if ((rc = pthread_mutex_lock(&fence->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
         return;
+    }
+
+    vk_procs = &device->vk_procs;
+
+    for (i = 0; i < ARRAY_SIZE(fence->old_vk_fences); ++i)
+    {
+        if (fence->old_vk_fences[i])
+            VK_CALL(vkDestroyFence(device->vk_device, fence->old_vk_fences[i], NULL));
+        fence->old_vk_fences[i] = VK_NULL_HANDLE;
     }
 
     d3d12_fence_destroy_vk_semaphores_locked(fence, true);
@@ -504,12 +556,6 @@ static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t value, VkF
     unsigned int i, j;
     int rc;
 
-    if (vk_fence)
-    {
-        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-        VK_CALL(vkDestroyFence(device->vk_device, vk_fence, NULL));
-    }
-
     if ((rc = pthread_mutex_lock(&fence->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
@@ -537,6 +583,8 @@ static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t value, VkF
 
     if (vk_fence)
     {
+        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
         for (i = 0; i < fence->semaphore_count; ++i)
         {
             struct vkd3d_signaled_semaphore *current = &fence->semaphores[i];
@@ -544,6 +592,19 @@ static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t value, VkF
             if (current->vk_fence == vk_fence)
                 current->vk_fence = VK_NULL_HANDLE;
         }
+
+        for (i = 0; i < ARRAY_SIZE(fence->old_vk_fences); ++i)
+        {
+            if (fence->old_vk_fences[i] == VK_NULL_HANDLE)
+            {
+                fence->old_vk_fences[i] = vk_fence;
+                VK_CALL(vkResetFences(device->vk_device, 1, &vk_fence));
+                vk_fence = VK_NULL_HANDLE;
+                break;
+            }
+        }
+        if (vk_fence)
+            VK_CALL(vkDestroyFence(device->vk_device, vk_fence, NULL));
     }
 
     pthread_mutex_unlock(&fence->mutex);
@@ -599,10 +660,9 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_Release(ID3D12Fence *iface)
 
         vkd3d_fence_worker_remove_fence(&device->fence_worker, fence);
 
-        /* Destroy all Vulkan semaphores associated with this fence. */
-        d3d12_fence_destroy_vk_semaphores(fence);
-        vkd3d_free(fence->semaphores);
+        d3d12_fence_destroy_vk_objects(fence);
 
+        vkd3d_free(fence->semaphores);
         vkd3d_free(fence->events);
         if ((rc = pthread_mutex_destroy(&fence->mutex)))
             ERR("Failed to destroy mutex, error %d.\n", rc);
@@ -795,6 +855,8 @@ static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *
     fence->semaphores = NULL;
     fence->semaphores_size = 0;
     fence->semaphore_count = 0;
+
+    memset(fence->old_vk_fences, 0, sizeof(fence->old_vk_fences));
 
     if (FAILED(hr = vkd3d_private_store_init(&fence->private_store)))
     {
@@ -5057,7 +5119,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
     VkSemaphore vk_semaphore = VK_NULL_HANDLE;
     VkSemaphoreCreateInfo semaphore_info;
     VkFence vk_fence = VK_NULL_HANDLE;
-    VkFenceCreateInfo fence_info;
     struct d3d12_device *device;
     struct d3d12_fence *fence;
     VkSubmitInfo submit_info;
@@ -5070,20 +5131,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
     device = command_queue->device;
     vk_procs = &device->vk_procs;
 
-    /* XXX: It may be a good idea to re-use Vulkan fences/semaphores. */
-
     fence = unsafe_impl_from_ID3D12Fence(fence_iface);
 
-    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fence_info.pNext = NULL;
-    fence_info.flags = 0;
-    if ((vr = VK_CALL(vkCreateFence(device->vk_device, &fence_info, NULL, &vk_fence))) < 0)
+    if ((vr = d3d12_fence_create_vk_fence(fence, &vk_fence)) < 0)
     {
         WARN("Failed to create Vulkan fence, vr %d.\n", vr);
-        vk_fence = VK_NULL_HANDLE;
         goto fail_vkresult;
     }
 
+    /* XXX: It may be a good idea to re-use Vulkan semaphores. */
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     semaphore_info.pNext = NULL;
     semaphore_info.flags = 0;

@@ -49,6 +49,7 @@
 #define VKD3D_DESCRIPTOR_MAGIC_RTV     0x00565452u
 
 #define VKD3D_MAX_SHADER_STAGES     5u
+#define VKD3D_MAX_VK_SYNC_OBJECTS_PER_D3D12_FENCE 4
 
 struct d3d12_command_list;
 struct d3d12_device;
@@ -268,6 +269,8 @@ struct d3d12_fence
     } *semaphores;
     size_t semaphores_size;
     size_t semaphore_count;
+
+    VkFence old_vk_fences[VKD3D_MAX_VK_SYNC_OBJECTS_PER_D3D12_FENCE];
 
     struct d3d12_device *device;
 
