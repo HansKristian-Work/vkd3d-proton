@@ -5301,6 +5301,12 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     if (!(queue->vkd3d_queue = d3d12_device_get_vkd3d_queue(device, desc->Type)))
         return E_NOTIMPL;
 
+    if (desc->Priority == D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME)
+    {
+        FIXME("Global realtime priority is not implemented.\n");
+        return E_NOTIMPL;
+    }
+
     if (desc->Priority)
         FIXME("Ignoring priority %#x.\n", desc->Priority);
     if (desc->Flags)
