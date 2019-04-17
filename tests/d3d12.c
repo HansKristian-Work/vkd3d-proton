@@ -303,6 +303,27 @@ static const DXGI_FORMAT depth_stencil_formats[] =
     DXGI_FORMAT_D16_UNORM,
 };
 
+static void init_readback(struct resource_readback *rb, ID3D12Resource *buffer,
+        uint64_t buffer_size, uint64_t width, uint64_t height, unsigned int depth, uint64_t row_pitch)
+{
+    D3D12_RANGE read_range;
+    HRESULT hr;
+
+    rb->width = width;
+    rb->height = height;
+    rb->depth = depth;
+    rb->resource = buffer;
+    rb->row_pitch = row_pitch;
+    rb->data = NULL;
+
+    ID3D12Resource_AddRef(rb->resource);
+
+    read_range.Begin = 0;
+    read_range.End = buffer_size;
+    hr = ID3D12Resource_Map(rb->resource, 0, &read_range, &rb->data);
+    ok(hr == S_OK, "Failed to map readback buffer, hr %#x.\n", hr);
+}
+
 static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_FORMAT format,
         struct resource_readback *rb, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
 {
@@ -6275,7 +6296,7 @@ static void test_bundle_state_inheritance(void)
 
     if (!vkd3d_test_platform_is_windows())
     {
-        /* Avoid 2048 test todos. */
+        /* FIXME: Avoid 2048 test todos. */
         skip("Bundles are not implemented yet.\n");
         return;
     }
@@ -27581,6 +27602,234 @@ done:
     destroy_test_context(&context);
 }
 
+static void test_queue_wait(void)
+{
+    D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
+    ID3D12GraphicsCommandList *command_list;
+    ID3D12Resource *readback_buffer, *cb;
+    ID3D12CommandQueue *queue, *queue2;
+    D3D12_RESOURCE_DESC resource_desc;
+    uint64_t row_pitch, buffer_size;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    ID3D12Fence *fence, *fence2;
+    struct test_context context;
+    ID3D12Device *device;
+    unsigned int ret;
+    uint64_t value;
+    float color[4];
+    HANDLE event;
+    HRESULT hr;
+
+    static const float blue[] = {0.0f, 0.0f, 1.0f, 1.0f};
+    static const float green[] = {0.0f, 1.0f, 0.0f, 1.0f};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float4 color;
+
+        float4 main(float4 position : SV_POSITION) : SV_Target
+        {
+            return color;
+        }
+#endif
+        0x43425844, 0xd18ead43, 0x8b8264c1, 0x9c0a062d, 0xfc843226, 0x00000001, 0x000000e0, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000044, 0x00000050,
+        0x00000011, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2,
+        0x00000000, 0x06000036, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    queue2 = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
+
+    event = create_event();
+    ok(event, "Failed to create event.\n");
+
+    hr = ID3D12Device_CreateFence(device, 1, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence2);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+
+    context.root_signature = create_cb_root_signature(context.device,
+            0, D3D12_SHADER_VISIBILITY_PIXEL, D3D12_ROOT_SIGNATURE_FLAG_NONE);
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
+
+    cb = create_upload_buffer(device, sizeof(color), NULL);
+
+    resource_desc = ID3D12Resource_GetDesc(context.render_target);
+
+    row_pitch = align(resource_desc.Width * format_size(resource_desc.Format), D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+    buffer_size = row_pitch * resource_desc.Height;
+    readback_buffer = create_readback_buffer(device, buffer_size);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
+            ID3D12Resource_GetGPUVirtualAddress(cb));
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    dst_location.pResource = readback_buffer;
+    dst_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    dst_location.PlacedFootprint.Offset = 0;
+    dst_location.PlacedFootprint.Footprint.Format = resource_desc.Format;
+    dst_location.PlacedFootprint.Footprint.Width = resource_desc.Width;
+    dst_location.PlacedFootprint.Footprint.Height = resource_desc.Height;
+    dst_location.PlacedFootprint.Footprint.Depth = 1;
+    dst_location.PlacedFootprint.Footprint.RowPitch = row_pitch;
+    src_location.pResource = context.render_target;
+    src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    src_location.SubresourceIndex = 0;
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst_location, 0, 0, 0, &src_location, NULL);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
+
+    /* Wait() with signaled fence */
+    update_buffer_data(cb, 0, sizeof(green), &green);
+    hr = ID3D12CommandQueue_Wait(queue, fence, 1);
+    ok(hr == S_OK, "Failed to submit wait operation to queue, hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+    init_readback(&rb, readback_buffer, buffer_size, resource_desc.Width, resource_desc.Height, 1, row_pitch);
+    check_readback_data_uint(&rb, NULL, 0xff00ff00, 0);
+    release_resource_readback(&rb);
+
+    if (!vkd3d_test_platform_is_windows())
+    {
+        skip("Wait() is not implemented yet.\n"); /* FIXME */
+        goto skip_tests;
+    }
+
+    /* Wait() before CPU signal */
+    update_buffer_data(cb, 0, sizeof(blue), &blue);
+    hr = ID3D12CommandQueue_Wait(queue, fence, 2);
+    ok(hr == S_OK, "Failed to submit wait operation to queue, hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    hr = ID3D12CommandQueue_Signal(queue, fence2, 1);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    hr = ID3D12Fence_SetEventOnCompletion(fence2, 1, event);
+    ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
+    ret = wait_event(event, 0);
+    ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
+    init_readback(&rb, readback_buffer, buffer_size, resource_desc.Width, resource_desc.Height, 1, row_pitch);
+    check_readback_data_uint(&rb, NULL, 0xff00ff00, 0);
+    release_resource_readback(&rb);
+    value = ID3D12Fence_GetCompletedValue(fence2);
+    ok(value == 0, "Got unexpected value %"PRIu64".\n", value);
+
+    hr = ID3D12Fence_Signal(fence, 2);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    ret = wait_event(event, INFINITE);
+    ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
+    ret = wait_event(event, 0);
+    ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
+    init_readback(&rb, readback_buffer, buffer_size, resource_desc.Width, resource_desc.Height, 1, row_pitch);
+    check_readback_data_uint(&rb, NULL, 0xffff0000, 0);
+    release_resource_readback(&rb);
+    value = ID3D12Fence_GetCompletedValue(fence2);
+    ok(value == 1, "Got unexpected value %"PRIu64".\n", value);
+
+    /* Wait() before GPU signal */
+    update_buffer_data(cb, 0, sizeof(green), &green);
+    hr = ID3D12CommandQueue_Wait(queue, fence, 3);
+    ok(hr == S_OK, "Failed to submit wait operation to queue, hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    hr = ID3D12CommandQueue_Signal(queue, fence2, 2);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    hr = ID3D12Fence_SetEventOnCompletion(fence2, 2, event);
+    ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
+    ret = wait_event(event, 0);
+    ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
+    init_readback(&rb, readback_buffer, buffer_size, resource_desc.Width, resource_desc.Height, 1, row_pitch);
+    check_readback_data_uint(&rb, NULL, 0xffff0000, 0);
+    release_resource_readback(&rb);
+    value = ID3D12Fence_GetCompletedValue(fence2);
+    ok(value == 1, "Got unexpected value %"PRIu64".\n", value);
+
+    hr = ID3D12CommandQueue_Signal(queue2, fence, 3);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    ret = wait_event(event, INFINITE);
+    ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
+    ret = wait_event(event, 0);
+    ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
+    init_readback(&rb, readback_buffer, buffer_size, resource_desc.Width, resource_desc.Height, 1, row_pitch);
+    check_readback_data_uint(&rb, NULL, 0xff00ff00, 0);
+    release_resource_readback(&rb);
+    value = ID3D12Fence_GetCompletedValue(fence2);
+    ok(value == 2, "Got unexpected value %"PRIu64".\n", value);
+
+    /* update constant buffer after Wait() */
+    hr = ID3D12CommandQueue_Wait(queue, fence, 5);
+    ok(hr == S_OK, "Failed to submit wait operation to queue, hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    hr = ID3D12Fence_Signal(fence, 4);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    update_buffer_data(cb, 0, sizeof(blue), &blue);
+    hr = ID3D12Fence_Signal(fence, 5);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    wait_queue_idle(device, queue);
+    init_readback(&rb, readback_buffer, buffer_size, resource_desc.Width, resource_desc.Height, 1, row_pitch);
+    check_readback_data_uint(&rb, NULL, 0xffff0000, 0);
+    release_resource_readback(&rb);
+
+    hr = ID3D12Fence_Signal(fence, 6);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    update_buffer_data(cb, 0, sizeof(green), &green);
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+    init_readback(&rb, readback_buffer, buffer_size, resource_desc.Width, resource_desc.Height, 1, row_pitch);
+    check_readback_data_uint(&rb, NULL, 0xff00ff00, 0);
+    release_resource_readback(&rb);
+
+skip_tests:
+    /* Signal() and Wait() in the same command queue */
+    update_buffer_data(cb, 0, sizeof(blue), &blue);
+    hr = ID3D12CommandQueue_Signal(queue, fence, 7);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    hr = ID3D12CommandQueue_Wait(queue, fence, 7);
+    ok(hr == S_OK, "Failed to submit wait operation to queue, hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+    init_readback(&rb, readback_buffer, buffer_size, resource_desc.Width, resource_desc.Height, 1, row_pitch);
+    check_readback_data_uint(&rb, NULL, 0xffff0000, 0);
+    release_resource_readback(&rb);
+
+    value = ID3D12Fence_GetCompletedValue(fence);
+    ok(value == 7, "Got unexpected value %"PRIu64".\n", value);
+
+    destroy_event(event);
+    ID3D12Fence_Release(fence);
+    ID3D12Fence_Release(fence2);
+    ID3D12Resource_Release(cb);
+    ID3D12CommandQueue_Release(queue2);
+    ID3D12Resource_Release(readback_buffer);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     parse_args(argc, argv);
@@ -27725,4 +27974,5 @@ START_TEST(d3d12)
     run_test(test_primitive_restart);
     run_test(test_vertex_shader_stream_output);
     run_test(test_read_write_subresource);
+    run_test(test_queue_wait);
 }
