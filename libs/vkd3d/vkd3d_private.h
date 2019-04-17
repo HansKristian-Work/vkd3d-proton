@@ -147,7 +147,7 @@ struct vkd3d_fence_worker
     size_t vk_fences_size;
     struct vkd3d_waiting_fence
     {
-        ID3D12Fence *fence;
+        struct d3d12_fence *fence;
         UINT64 value;
     } *fences;
     size_t fences_size;
@@ -249,12 +249,12 @@ struct d3d12_fence
     ID3D12Fence ID3D12Fence_iface;
     LONG refcount;
 
-    UINT64 value;
+    uint64_t value;
     pthread_mutex_t mutex;
 
     struct vkd3d_waiting_event
     {
-        UINT64 value;
+        uint64_t value;
         HANDLE event;
     } *events;
     size_t events_size;

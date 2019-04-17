@@ -19,6 +19,8 @@
 
 #include "vkd3d_private.h"
 
+static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t value, VkFence vk_fence);
+
 HRESULT vkd3d_queue_create(struct d3d12_device *device,
         uint32_t family_index, const VkQueueFamilyProperties *properties, struct vkd3d_queue **queue)
 {
@@ -80,7 +82,7 @@ void vkd3d_queue_release(struct vkd3d_queue *queue)
 
 /* Fence worker thread */
 static HRESULT vkd3d_enqueue_gpu_fence(struct vkd3d_fence_worker *worker,
-        VkFence vk_fence, ID3D12Fence *fence, UINT64 value)
+        VkFence vk_fence, struct d3d12_fence *fence, uint64_t value)
 {
     int rc;
 
@@ -118,7 +120,7 @@ static HRESULT vkd3d_enqueue_gpu_fence(struct vkd3d_fence_worker *worker,
     return S_OK;
 }
 
-static void vkd3d_fence_worker_remove_fence(struct vkd3d_fence_worker *worker, ID3D12Fence *fence)
+static void vkd3d_fence_worker_remove_fence(struct vkd3d_fence_worker *worker, struct d3d12_fence *fence)
 {
     struct d3d12_device *device = worker->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -156,6 +158,7 @@ static void vkd3d_wait_for_gpu_fences(struct vkd3d_fence_worker *worker)
     struct d3d12_device *device = worker->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     unsigned int i, j;
+    VkFence vk_fence;
     HRESULT hr;
     int vr;
 
@@ -174,12 +177,13 @@ static void vkd3d_wait_for_gpu_fences(struct vkd3d_fence_worker *worker)
 
     for (i = 0, j = 0; i < worker->fence_count; ++i)
     {
-        if (!(vr = VK_CALL(vkGetFenceStatus(device->vk_device, worker->vk_fences[i]))))
+        vk_fence = worker->vk_fences[i];
+        if (!(vr = VK_CALL(vkGetFenceStatus(device->vk_device, vk_fence))))
         {
             struct vkd3d_waiting_fence *current = &worker->fences[i];
-            if (FAILED(hr = ID3D12Fence_Signal(current->fence, current->value)))
-                ERR("Failed to signal D3D12 fence, hr %d.\n", hr);
-            VK_CALL(vkDestroyFence(device->vk_device, worker->vk_fences[i], NULL));
+            TRACE("Signaling fence %p value %#"PRIx64".\n", current->fence, current->value);
+            if (FAILED(hr = d3d12_fence_signal(current->fence, current->value, vk_fence)))
+                ERR("Failed to signal D3D12 fence, hr %#x.\n", hr);
             continue;
         }
 
@@ -373,6 +377,48 @@ static struct d3d12_fence *impl_from_ID3D12Fence(ID3D12Fence *iface)
     return CONTAINING_RECORD(iface, struct d3d12_fence, ID3D12Fence_iface);
 }
 
+static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t value, VkFence vk_fence)
+{
+    struct d3d12_device *device = fence->device;
+    unsigned int i, j;
+    int rc;
+
+    if (vk_fence)
+    {
+        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+        VK_CALL(vkDestroyFence(device->vk_device, vk_fence, NULL));
+    }
+
+    if ((rc = pthread_mutex_lock(&fence->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    fence->value = value;
+
+    for (i = 0, j = 0; i < fence->event_count; ++i)
+    {
+        struct vkd3d_waiting_event *current = &fence->events[i];
+
+        if (current->value <= value)
+        {
+            fence->device->signal_event(current->event);
+        }
+        else
+        {
+            if (i != j)
+                fence->events[j] = *current;
+            ++j;
+        }
+    }
+    fence->event_count = j;
+
+    pthread_mutex_unlock(&fence->mutex);
+
+    return S_OK;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_fence_QueryInterface(ID3D12Fence *iface,
         REFIID riid, void **object)
 {
@@ -419,7 +465,7 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_Release(ID3D12Fence *iface)
 
         vkd3d_private_store_destroy(&fence->private_store);
 
-        vkd3d_fence_worker_remove_fence(&device->fence_worker, iface);
+        vkd3d_fence_worker_remove_fence(&device->fence_worker, fence);
 
         vkd3d_free(fence->events);
         if ((rc = pthread_mutex_destroy(&fence->mutex)))
@@ -554,39 +600,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(ID3D12Fence *i
 static HRESULT STDMETHODCALLTYPE d3d12_fence_Signal(ID3D12Fence *iface, UINT64 value)
 {
     struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
-    unsigned int i, j;
-    int rc;
 
     TRACE("iface %p, value %#"PRIx64".\n", iface, value);
 
-    if ((rc = pthread_mutex_lock(&fence->mutex)))
-    {
-        ERR("Failed to lock mutex, error %d.\n", rc);
-        return hresult_from_errno(rc);
-    }
-
-    fence->value = value;
-
-    for (i = 0, j = 0; i < fence->event_count; ++i)
-    {
-        struct vkd3d_waiting_event *current = &fence->events[i];
-
-        if (current->value <= value)
-        {
-            fence->device->signal_event(current->event);
-        }
-        else
-        {
-            if (i != j)
-                fence->events[j] = *current;
-            ++j;
-        }
-    }
-    fence->event_count = j;
-
-    pthread_mutex_unlock(&fence->mutex);
-
-    return S_OK;
+    return d3d12_fence_signal(fence, value, VK_NULL_HANDLE);
 }
 
 static const struct ID3D12FenceVtbl d3d12_fence_vtbl =
@@ -607,6 +624,14 @@ static const struct ID3D12FenceVtbl d3d12_fence_vtbl =
     d3d12_fence_SetEventOnCompletion,
     d3d12_fence_Signal,
 };
+
+static struct d3d12_fence *unsafe_impl_from_ID3D12Fence(ID3D12Fence *iface)
+{
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_fence_vtbl);
+    return impl_from_ID3D12Fence(iface);
+}
 
 static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *device,
         UINT64 initial_value, D3D12_FENCE_FLAGS flags)
@@ -4886,20 +4911,23 @@ static void STDMETHODCALLTYPE d3d12_command_queue_EndEvent(ID3D12CommandQueue *i
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *iface,
-        ID3D12Fence *fence, UINT64 value)
+        ID3D12Fence *fence_iface, UINT64 value)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     const struct vkd3d_vk_device_procs *vk_procs;
     VkFenceCreateInfo fence_info;
     struct d3d12_device *device;
+    struct d3d12_fence *fence;
     VkFence vk_fence;
     VkQueue vk_queue;
     VkResult vr;
 
-    TRACE("iface %p, fence %p, value %#"PRIx64".\n", iface, fence, value);
+    TRACE("iface %p, fence %p, value %#"PRIx64".\n", iface, fence_iface, value);
 
     device = command_queue->device;
     vk_procs = &device->vk_procs;
+
+    fence = unsafe_impl_from_ID3D12Fence(fence_iface);
 
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_info.pNext = NULL;
@@ -4929,8 +4957,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
     vr = VK_CALL(vkGetFenceStatus(device->vk_device, vk_fence));
     if (vr == VK_SUCCESS)
     {
-        VK_CALL(vkDestroyFence(device->vk_device, vk_fence, NULL));
-        return d3d12_fence_Signal(fence, value);
+        return d3d12_fence_signal(fence, value, vk_fence);
     }
     if (vr != VK_NOT_READY)
     {
