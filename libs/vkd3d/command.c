@@ -80,6 +80,29 @@ void vkd3d_queue_release(struct vkd3d_queue *queue)
     pthread_mutex_unlock(&queue->mutex);
 }
 
+static VkResult vkd3d_queue_wait_idle(struct vkd3d_queue *queue,
+        const struct vkd3d_vk_device_procs *vk_procs)
+{
+    VkQueue vk_queue;
+    VkResult vr;
+
+    if ((vk_queue = vkd3d_queue_acquire(queue)))
+    {
+        vr = VK_CALL(vkQueueWaitIdle(vk_queue));
+        vkd3d_queue_release(queue);
+
+        if (vr < 0)
+            WARN("Failed to wait for queue, vr %d.\n", vr);
+    }
+    else
+    {
+        ERR("Failed to acquire queue %p.\n", queue);
+        vr = VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+
+    return vr;
+}
+
 /* Fence worker thread */
 static HRESULT vkd3d_enqueue_gpu_fence(struct vkd3d_fence_worker *worker,
         VkFence vk_fence, struct d3d12_fence *fence, uint64_t value)
@@ -377,6 +400,104 @@ static struct d3d12_fence *impl_from_ID3D12Fence(ID3D12Fence *iface)
     return CONTAINING_RECORD(iface, struct d3d12_fence, ID3D12Fence_iface);
 }
 
+#define VKD3D_MAX_VK_SEMAPHORE_COUNT_PER_D3D12_FENCE 4
+
+static void d3d12_fence_destroy_vk_semaphores_locked(struct d3d12_fence *fence, bool destroy_all)
+{
+    struct d3d12_device *device = fence->device;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkSemaphore vk_semaphore;
+    size_t semaphore_count;
+    unsigned int i, j;
+
+    semaphore_count = fence->semaphore_count;
+    if (!destroy_all && fence->semaphore_count < VKD3D_MAX_VK_SEMAPHORE_COUNT_PER_D3D12_FENCE)
+        return;
+
+    for (i = 0, j = 0; i < fence->semaphore_count; ++i)
+    {
+        if (!destroy_all && semaphore_count < VKD3D_MAX_VK_SEMAPHORE_COUNT_PER_D3D12_FENCE)
+            break;
+
+        /* The semaphore doesn't have a pending signal operation if the fence
+         * was signaled. */
+        if (!fence->semaphores[i].vk_fence || destroy_all)
+        {
+            vk_semaphore = fence->semaphores[i].vk_semaphore;
+            if (fence->semaphores[i].vk_fence)
+                WARN("Destroying potentially pending semaphore.\n");
+            VK_CALL(vkDestroySemaphore(device->vk_device, vk_semaphore, NULL));
+            --semaphore_count;
+        }
+        else
+        {
+            if (i != j)
+                fence->semaphores[j] = fence->semaphores[i];
+            ++j;
+        }
+    }
+    for (; i < fence->semaphore_count; ++i)
+    {
+        fence->semaphores[j++] = fence->semaphores[i];
+    }
+
+    if (j != fence->semaphore_count)
+        TRACE("Destroyed %zu Vulkan semaphores.\n", fence->semaphore_count - j);
+
+    fence->semaphore_count = j;
+}
+
+static void d3d12_fence_destroy_vk_semaphores(struct d3d12_fence *fence)
+{
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&fence->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return;
+    }
+
+    d3d12_fence_destroy_vk_semaphores_locked(fence, true);
+
+    pthread_mutex_unlock(&fence->mutex);
+}
+
+static HRESULT d3d12_fence_add_vk_semaphore(struct d3d12_fence *fence,
+        VkSemaphore vk_semaphore, VkFence vk_fence, uint64_t value)
+{
+    HRESULT hr = S_OK;
+    int rc;
+
+    TRACE("fence %p, value %#"PRIx64".\n", fence, value);
+
+    if ((rc = pthread_mutex_lock(&fence->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return E_FAIL;
+    }
+
+    /* Destroy old Vulkan semaphores. */
+    d3d12_fence_destroy_vk_semaphores_locked(fence, false);
+
+    if (vkd3d_array_reserve((void **)&fence->semaphores, &fence->semaphores_size,
+            fence->semaphore_count + 1, sizeof(*fence->semaphores)))
+    {
+        fence->semaphores[fence->semaphore_count].value = value;
+        fence->semaphores[fence->semaphore_count].vk_semaphore = vk_semaphore;
+        fence->semaphores[fence->semaphore_count].vk_fence = vk_fence;
+        ++fence->semaphore_count;
+    }
+    else
+    {
+        ERR("Failed to add semaphore.\n");
+        hr = E_OUTOFMEMORY;
+    }
+
+    pthread_mutex_unlock(&fence->mutex);
+
+    return hr;
+}
+
 static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t value, VkFence vk_fence)
 {
     struct d3d12_device *device = fence->device;
@@ -413,6 +534,17 @@ static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t value, VkF
         }
     }
     fence->event_count = j;
+
+    if (vk_fence)
+    {
+        for (i = 0; i < fence->semaphore_count; ++i)
+        {
+            struct vkd3d_signaled_semaphore *current = &fence->semaphores[i];
+
+            if (current->vk_fence == vk_fence)
+                current->vk_fence = VK_NULL_HANDLE;
+        }
+    }
 
     pthread_mutex_unlock(&fence->mutex);
 
@@ -466,6 +598,10 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_Release(ID3D12Fence *iface)
         vkd3d_private_store_destroy(&fence->private_store);
 
         vkd3d_fence_worker_remove_fence(&device->fence_worker, fence);
+
+        /* Destroy all Vulkan semaphores associated with this fence. */
+        d3d12_fence_destroy_vk_semaphores(fence);
+        vkd3d_free(fence->semaphores);
 
         vkd3d_free(fence->events);
         if ((rc = pthread_mutex_destroy(&fence->mutex)))
@@ -656,6 +792,9 @@ static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *
     fence->events = NULL;
     fence->events_size = 0;
     fence->event_count = 0;
+    fence->semaphores = NULL;
+    fence->semaphores_size = 0;
+    fence->semaphore_count = 0;
 
     if (FAILED(hr = vkd3d_private_store_init(&fence->private_store)))
     {
@@ -4915,58 +5054,106 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     const struct vkd3d_vk_device_procs *vk_procs;
+    VkSemaphore vk_semaphore = VK_NULL_HANDLE;
+    VkSemaphoreCreateInfo semaphore_info;
+    VkFence vk_fence = VK_NULL_HANDLE;
     VkFenceCreateInfo fence_info;
     struct d3d12_device *device;
     struct d3d12_fence *fence;
-    VkFence vk_fence;
+    VkSubmitInfo submit_info;
     VkQueue vk_queue;
     VkResult vr;
+    HRESULT hr;
 
     TRACE("iface %p, fence %p, value %#"PRIx64".\n", iface, fence_iface, value);
 
     device = command_queue->device;
     vk_procs = &device->vk_procs;
 
+    /* XXX: It may be a good idea to re-use Vulkan fences/semaphores. */
+
     fence = unsafe_impl_from_ID3D12Fence(fence_iface);
 
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_info.pNext = NULL;
     fence_info.flags = 0;
-
-    /* XXX: It may be a good idea to re-use Vulkan fences. */
     if ((vr = VK_CALL(vkCreateFence(device->vk_device, &fence_info, NULL, &vk_fence))) < 0)
     {
         WARN("Failed to create Vulkan fence, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
+        vk_fence = VK_NULL_HANDLE;
+        goto fail_vkresult;
     }
+
+    semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    semaphore_info.pNext = NULL;
+    semaphore_info.flags = 0;
+    if ((vr = VK_CALL(vkCreateSemaphore(device->vk_device, &semaphore_info, NULL, &vk_semaphore))) < 0)
+    {
+        WARN("Failed to create Vulkan semaphore, vr %d.\n", vr);
+        vk_semaphore = VK_NULL_HANDLE;
+        goto fail_vkresult;
+    }
+
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.pNext = NULL;
+    submit_info.waitSemaphoreCount = 0;
+    submit_info.pWaitSemaphores = NULL;
+    submit_info.pWaitDstStageMask = NULL;
+    submit_info.commandBufferCount = 0;
+    submit_info.pCommandBuffers = NULL;
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &vk_semaphore;
 
     if (!(vk_queue = vkd3d_queue_acquire(command_queue->vkd3d_queue)))
     {
         ERR("Failed to acquire queue %p.\n", command_queue->vkd3d_queue);
-        return E_FAIL;
+        hr = E_FAIL;
+        goto fail;
     }
-    vr = VK_CALL(vkQueueSubmit(vk_queue, 0, NULL, vk_fence));
+    vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, vk_fence));
     vkd3d_queue_release(command_queue->vkd3d_queue);
     if (vr < 0)
     {
-        WARN("Failed to submit fence, vr %d.\n", vr);
-        VK_CALL(vkDestroyFence(device->vk_device, vk_fence, NULL));
-        return hresult_from_vk_result(vr);
+        WARN("Failed to submit, vr %d.\n", vr);
+        goto fail_vkresult;
     }
+
+    if (SUCCEEDED(hr = d3d12_fence_add_vk_semaphore(fence, vk_semaphore, vk_fence, value)))
+        vk_semaphore = VK_NULL_HANDLE;
 
     vr = VK_CALL(vkGetFenceStatus(device->vk_device, vk_fence));
-    if (vr == VK_SUCCESS)
+    if (vr == VK_NOT_READY)
     {
-        return d3d12_fence_signal(fence, value, vk_fence);
+        if (SUCCEEDED(hr = vkd3d_enqueue_gpu_fence(&device->fence_worker, vk_fence, fence, value)))
+            vk_fence = VK_NULL_HANDLE;
     }
-    if (vr != VK_NOT_READY)
+    else if (vr == VK_SUCCESS)
     {
-        WARN("Failed to get fence status, vr %d.\n", vr);
-        VK_CALL(vkDestroyFence(device->vk_device, vk_fence, NULL));
-        return hresult_from_vk_result(vr);
+        TRACE("Already signaled %p, value %#"PRIx64".\n", fence, value);
+        hr = d3d12_fence_signal(fence, value, vk_fence);
+        vk_fence = VK_NULL_HANDLE;
+    }
+    else
+    {
+        FIXME("Failed to get fence status, vr %d.\n", vr);
+        hr = hresult_from_vk_result(vr);
     }
 
-    return vkd3d_enqueue_gpu_fence(&device->fence_worker, vk_fence, fence, value);
+    if (vk_fence || vk_semaphore)
+    {
+        /* In case of an unexpected failure, try to safely destroy Vulkan objects. */
+        vkd3d_queue_wait_idle(command_queue->vkd3d_queue, vk_procs);
+        goto fail;
+    }
+
+    return hr;
+
+fail_vkresult:
+    hr = hresult_from_vk_result(vr);
+fail:
+    VK_CALL(vkDestroyFence(device->vk_device, vk_fence, NULL));
+    VK_CALL(vkDestroySemaphore(device->vk_device, vk_semaphore, NULL));
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Wait(ID3D12CommandQueue *iface,

@@ -260,6 +260,15 @@ struct d3d12_fence
     size_t events_size;
     size_t event_count;
 
+    struct vkd3d_signaled_semaphore
+    {
+        uint64_t value;
+        VkSemaphore vk_semaphore;
+        VkFence vk_fence;
+    } *semaphores;
+    size_t semaphores_size;
+    size_t semaphore_count;
+
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
