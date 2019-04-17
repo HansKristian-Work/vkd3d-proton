@@ -82,23 +82,6 @@ static ID3D12Device *create_device(void)
     return SUCCEEDED(hr) ? device : NULL;
 }
 
-static ID3D12CommandQueue *create_command_queue(ID3D12Device *device,
-        D3D12_COMMAND_LIST_TYPE type)
-{
-    D3D12_COMMAND_QUEUE_DESC desc;
-    ID3D12CommandQueue *queue;
-    HRESULT hr;
-
-    desc.Type = type;
-    desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-    desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    desc.NodeMask = 0;
-    hr = ID3D12Device_CreateCommandQueue(device, &desc,
-            &IID_ID3D12CommandQueue, (void **)&queue);
-    ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
-    return queue;
-}
-
 static void test_create_instance(void)
 {
     struct vkd3d_instance_create_info create_info;
@@ -699,11 +682,11 @@ static void test_vkd3d_queue(void)
     device = create_device();
     ok(device, "Failed to create device.\n");
 
-    direct_queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT);
+    direct_queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
     ok(direct_queue, "Failed to create direct command queue.\n");
-    compute_queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_COMPUTE);
+    compute_queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_COMPUTE, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
     ok(compute_queue, "Failed to create compute command queue.\n");
-    copy_queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_COPY);
+    copy_queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_COPY, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
     ok(copy_queue, "Failed to create copy command queue.\n");
 
     vk_queue_family = vkd3d_get_vk_queue_family_index(direct_queue);

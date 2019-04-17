@@ -35,7 +35,6 @@ static void recreate_command_list_(unsigned int line, ID3D12Device *device,
 static void test_invalid_texture_resource_barriers(void)
 {
     ID3D12Resource *texture, *readback_buffer, *upload_buffer;
-    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
     ID3D12CommandAllocator *command_allocator;
     ID3D12GraphicsCommandList *command_list;
     ID3D12CommandQueue *queue;
@@ -49,13 +48,7 @@ static void test_invalid_texture_resource_barriers(void)
         return;
     }
 
-    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    command_queue_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
-            &IID_ID3D12CommandQueue, (void **)&queue);
-    ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
+    queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);

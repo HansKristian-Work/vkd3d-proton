@@ -214,6 +214,24 @@ static void transition_sub_resource_state(ID3D12GraphicsCommandList *list, ID3D1
     ID3D12GraphicsCommandList_ResourceBarrier(list, 1, &barrier);
 }
 
+#define create_command_queue(a, b, c) create_command_queue_(__LINE__, a, b, c)
+static inline ID3D12CommandQueue *create_command_queue_(unsigned int line, ID3D12Device *device,
+        D3D12_COMMAND_LIST_TYPE type, int priority)
+{
+    D3D12_COMMAND_QUEUE_DESC queue_desc;
+    ID3D12CommandQueue *queue;
+    HRESULT hr;
+
+    queue_desc.Type = type;
+    queue_desc.Priority = priority;
+    queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    queue_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateCommandQueue(device, &queue_desc, &IID_ID3D12CommandQueue, (void **)&queue);
+    ok_(line)(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
+
+    return queue;
+}
+
 static void transition_resource_state(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
         D3D12_RESOURCE_STATES state_before, D3D12_RESOURCE_STATES state_after)
 {
@@ -743,7 +761,6 @@ static void create_render_target_(unsigned int line, struct test_context *contex
 static inline bool init_test_context_(unsigned int line, struct test_context *context,
         const struct test_context_desc *desc)
 {
-    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc;
     ID3D12Device *device;
     HRESULT hr;
@@ -757,13 +774,7 @@ static inline bool init_test_context_(unsigned int line, struct test_context *co
     }
     device = context->device;
 
-    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    command_queue_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
-            &IID_ID3D12CommandQueue, (void **)&context->queue);
-    ok_(line)(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", hr);
+    context->queue = create_command_queue_(line, device, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
             &IID_ID3D12CommandAllocator, (void **)&context->allocator);

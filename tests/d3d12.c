@@ -762,7 +762,6 @@ static ID3D12CommandSignature *create_command_signature_(unsigned int line,
 #define init_compute_test_context(context) init_compute_test_context_(__LINE__, context)
 static bool init_compute_test_context_(unsigned int line, struct test_context *context)
 {
-    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
     ID3D12Device *device;
     HRESULT hr;
 
@@ -775,21 +774,16 @@ static bool init_compute_test_context_(unsigned int line, struct test_context *c
     }
     device = context->device;
 
-    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
-    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    command_queue_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
-            &IID_ID3D12CommandQueue, (void **)&context->queue);
-    ok_(line)(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", hr);
+    context->queue = create_command_queue_(line, device,
+            D3D12_COMMAND_LIST_TYPE_COMPUTE, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_COMPUTE,
             &IID_ID3D12CommandAllocator, (void **)&context->allocator);
-    ok_(line)(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
 
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
             context->allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&context->list);
-    ok_(line)(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
 
     return true;
 }
@@ -2753,7 +2747,6 @@ static void test_object_interface(void)
 {
     D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc;
     D3D12_QUERY_HEAP_DESC query_heap_desc;
-    D3D12_COMMAND_QUEUE_DESC queue_desc;
     ID3D12RootSignature *root_signature;
     ULONG refcount, expected_refcount;
     ID3D12CommandAllocator *allocator;
@@ -2819,13 +2812,8 @@ static void test_object_interface(void)
         else if (IsEqualGUID(tests[i], &IID_ID3D12CommandQueue))
         {
             vkd3d_test_set_context("command queue");
-            queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-            queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-            queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-            queue_desc.NodeMask = 0;
-            hr = ID3D12Device_CreateCommandQueue(device, &queue_desc,
-                    &IID_IUnknown, (void **)&unknown);
-            ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
+            unknown = (IUnknown *)create_command_queue(device,
+                    D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12CommandSignature))
         {
@@ -3578,7 +3566,6 @@ static void test_cpu_signal_fence(void)
 
 static void test_gpu_signal_fence(void)
 {
-    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
     ID3D12CommandQueue *queue;
     HANDLE event1, event2;
     ID3D12Device *device;
@@ -3594,30 +3581,24 @@ static void test_gpu_signal_fence(void)
         return;
     }
 
-    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    command_queue_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
-            &IID_ID3D12CommandQueue, (void **)&queue);
-    ok(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", hr);
+    queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
 
     hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
             &IID_ID3D12Fence, (void **)&fence);
-    ok(SUCCEEDED(hr), "Failed to create fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
 
     /* XXX: It seems that when a queue is idle a fence is signalled immediately
      * in D3D12. Vulkan implementations don't signal a fence immediately so
      * libvkd3d doesn't as well. In order to make this test reliable
      * wait_queue_idle() is inserted after every ID3D12CommandQueue_Signal(). */
     hr = ID3D12CommandQueue_Signal(queue, fence, 10);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     value = ID3D12Fence_GetCompletedValue(fence);
     ok(value == 10, "Got unexpected value %"PRIu64".\n", value);
 
     hr = ID3D12CommandQueue_Signal(queue, fence, 0);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     value = ID3D12Fence_GetCompletedValue(fence);
     ok(value == 0, "Got unexpected value %"PRIu64".\n", value);
@@ -3629,11 +3610,11 @@ static void test_gpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     hr = ID3D12Fence_SetEventOnCompletion(fence, 5, event1);
-    ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     hr = ID3D12CommandQueue_Signal(queue, fence, 5);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
@@ -3641,11 +3622,11 @@ static void test_gpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     hr = ID3D12Fence_SetEventOnCompletion(fence, 6, event1);
-    ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     hr = ID3D12CommandQueue_Signal(queue, fence, 7);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
@@ -3653,34 +3634,34 @@ static void test_gpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     hr = ID3D12CommandQueue_Signal(queue, fence, 10);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     /* Attach one event to multiple values. */
     hr = ID3D12CommandQueue_Signal(queue, fence, 0);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     hr = ID3D12Fence_SetEventOnCompletion(fence, 3, event1);
-    ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
     hr = ID3D12Fence_SetEventOnCompletion(fence, 5, event1);
-    ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
     hr = ID3D12Fence_SetEventOnCompletion(fence, 9, event1);
-    ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
     hr = ID3D12Fence_SetEventOnCompletion(fence, 12, event1);
-    ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
     hr = ID3D12Fence_SetEventOnCompletion(fence, 12, event1);
-    ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     for (i = 1; i < 13; ++i)
     {
         hr = ID3D12CommandQueue_Signal(queue, fence, i);
-        ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
         wait_queue_idle(device, queue);
         if (i == 3 || i == 5 || i == 9 || i == 12)
         {
@@ -3693,7 +3674,7 @@ static void test_gpu_signal_fence(void)
 
     /* Tests with 2 events. */
     hr = ID3D12CommandQueue_Signal(queue, fence, 0);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     value = ID3D12Fence_GetCompletedValue(fence);
     ok(value == 0, "Got unexpected value %"PRIu64".\n", value);
@@ -3706,12 +3687,12 @@ static void test_gpu_signal_fence(void)
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     hr = ID3D12Fence_SetEventOnCompletion(fence, 100, event1);
-    ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
     hr = ID3D12Fence_SetEventOnCompletion(fence, ~(UINT64)0, event2);
-    ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
 
     hr = ID3D12CommandQueue_Signal(queue, fence, 50);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -3719,7 +3700,7 @@ static void test_gpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     hr = ID3D12CommandQueue_Signal(queue, fence, 99);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -3727,7 +3708,7 @@ static void test_gpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     hr = ID3D12CommandQueue_Signal(queue, fence, 100);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
@@ -3737,7 +3718,7 @@ static void test_gpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     hr = ID3D12CommandQueue_Signal(queue, fence, 101);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -3745,7 +3726,7 @@ static void test_gpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     hr = ID3D12CommandQueue_Signal(queue, fence, 0);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -3753,7 +3734,7 @@ static void test_gpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     hr = ID3D12CommandQueue_Signal(queue, fence, 100);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -3761,7 +3742,7 @@ static void test_gpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     hr = ID3D12CommandQueue_Signal(queue, fence, ~(UINT64)0);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -3771,14 +3752,14 @@ static void test_gpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     hr = ID3D12CommandQueue_Signal(queue, fence, ~(UINT64)0);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     hr = ID3D12CommandQueue_Signal(queue, fence, 0);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -3787,7 +3768,7 @@ static void test_gpu_signal_fence(void)
 
     /* Attach two events to the same value. */
     hr = ID3D12CommandQueue_Signal(queue, fence, 0);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -3795,15 +3776,15 @@ static void test_gpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     hr = ID3D12Fence_SetEventOnCompletion(fence, 1, event1);
-    ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
     hr = ID3D12Fence_SetEventOnCompletion(fence, 1, event2);
-    ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     hr = ID3D12CommandQueue_Signal(queue, fence, 3);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
@@ -3866,7 +3847,6 @@ static void fence_busy_wait_main(void *untyped_data)
 static void test_multithread_fence_wait(void)
 {
     struct multithread_fence_wait_data thread_data;
-    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
     unsigned int ret;
@@ -3880,20 +3860,14 @@ static void test_multithread_fence_wait(void)
         return;
     }
 
-    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    command_queue_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
-            &IID_ID3D12CommandQueue, (void **)&queue);
-    ok(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", hr);
+    queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
 
     thread_data.event = create_event();
     thread_data.value = 0;
     ok(thread_data.event, "Failed to create event.\n");
     hr = ID3D12Device_CreateFence(device, thread_data.value, D3D12_FENCE_FLAG_NONE,
             &IID_ID3D12Fence, (void **)&thread_data.fence);
-    ok(SUCCEEDED(hr), "Failed to create fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
 
     /* Signal fence on host. */
     ++thread_data.value;
@@ -3903,7 +3877,7 @@ static void test_multithread_fence_wait(void)
     ok(ret == WAIT_OBJECT_0, "Failed to wait for thread start, return value %#x.\n", ret);
 
     hr = ID3D12Fence_Signal(thread_data.fence, thread_data.value);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
 
     ok(join_thread(thread), "Failed to join thread.\n");
 
@@ -3914,7 +3888,7 @@ static void test_multithread_fence_wait(void)
     ok(ret == WAIT_OBJECT_0, "Failed to wait for thread start, return value %#x.\n", ret);
 
     hr = ID3D12Fence_Signal(thread_data.fence, thread_data.value);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
 
     ok(join_thread(thread), "Failed to join thread.\n");
 
@@ -3926,7 +3900,7 @@ static void test_multithread_fence_wait(void)
     ok(ret == WAIT_OBJECT_0, "Failed to wait for thread start, return value %#x.\n", ret);
 
     hr = ID3D12CommandQueue_Signal(queue, thread_data.fence, thread_data.value);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
 
     ok(join_thread(thread), "Failed to join thread.\n");
 
@@ -3937,7 +3911,7 @@ static void test_multithread_fence_wait(void)
     ok(ret == WAIT_OBJECT_0, "Failed to wait for thread start, return value %#x.\n", ret);
 
     hr = ID3D12CommandQueue_Signal(queue, thread_data.fence, thread_data.value);
-    ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
 
     ok(join_thread(thread), "Failed to join thread.\n");
 
@@ -5740,7 +5714,6 @@ static void test_draw_uav_only(void)
 
 static void test_texture_resource_barriers(void)
 {
-    D3D12_COMMAND_QUEUE_DESC command_queue_desc;
     ID3D12CommandAllocator *command_allocator;
     ID3D12GraphicsCommandList *command_list;
     D3D12_RESOURCE_BARRIER barriers[8];
@@ -5756,13 +5729,7 @@ static void test_texture_resource_barriers(void)
         return;
     }
 
-    command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-    command_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    command_queue_desc.NodeMask = 0;
-    hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
-            &IID_ID3D12CommandQueue, (void **)&queue);
-    ok(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", hr);
+    queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
