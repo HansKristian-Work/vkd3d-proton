@@ -92,6 +92,8 @@ struct d3d12_root_signature_deserializer
     } desc;
 };
 
+STATIC_ASSERT(sizeof(D3D12_ROOT_SIGNATURE_DESC) == sizeof(struct vkd3d_root_signature_desc));
+
 static struct d3d12_root_signature_deserializer *impl_from_ID3D12RootSignatureDeserializer(
         ID3D12RootSignatureDeserializer *iface)
 {
@@ -205,13 +207,144 @@ HRESULT vkd3d_create_root_signature_deserializer(const void *data, SIZE_T data_s
             &IID_ID3D12RootSignatureDeserializer, iid, deserializer);
 }
 
+/* ID3D12VersionedRootSignatureDeserializer */
+struct d3d12_versioned_root_signature_deserializer
+{
+    ID3D12VersionedRootSignatureDeserializer ID3D12VersionedRootSignatureDeserializer_iface;
+    LONG refcount;
+
+    union
+    {
+        D3D12_VERSIONED_ROOT_SIGNATURE_DESC d3d12;
+        struct vkd3d_versioned_root_signature_desc vkd3d;
+    } desc;
+};
+
+STATIC_ASSERT(sizeof(D3D12_VERSIONED_ROOT_SIGNATURE_DESC) == sizeof(struct vkd3d_versioned_root_signature_desc));
+
+static struct d3d12_versioned_root_signature_deserializer *impl_from_ID3D12VersionedRootSignatureDeserializer(
+        ID3D12VersionedRootSignatureDeserializer *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d12_versioned_root_signature_deserializer,
+            ID3D12VersionedRootSignatureDeserializer_iface);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_versioned_root_signature_deserializer_QueryInterface(
+        ID3D12VersionedRootSignatureDeserializer *iface, REFIID iid, void **object)
+{
+    TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
+
+    /* QueryInterface() implementation is broken, E_NOINTERFACE is returned for
+     * IUnknown.
+     */
+    if (IsEqualGUID(iid, &IID_ID3D12VersionedRootSignatureDeserializer))
+    {
+        ID3D12VersionedRootSignatureDeserializer_AddRef(iface);
+        *object = iface;
+        return S_OK;
+    }
+
+    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
+
+    *object = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_versioned_root_signature_deserializer_AddRef(ID3D12VersionedRootSignatureDeserializer *iface)
+{
+    struct d3d12_versioned_root_signature_deserializer *deserializer = impl_from_ID3D12VersionedRootSignatureDeserializer(iface);
+    ULONG refcount = InterlockedIncrement(&deserializer->refcount);
+
+    TRACE("%p increasing refcount to %u.\n", deserializer, refcount);
+
+    return refcount;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_versioned_root_signature_deserializer_Release(ID3D12VersionedRootSignatureDeserializer *iface)
+{
+    struct d3d12_versioned_root_signature_deserializer *deserializer = impl_from_ID3D12VersionedRootSignatureDeserializer(iface);
+    ULONG refcount = InterlockedDecrement(&deserializer->refcount);
+
+    TRACE("%p decreasing refcount to %u.\n", deserializer, refcount);
+
+    if (!refcount)
+    {
+        vkd3d_shader_free_versioned_root_signature(&deserializer->desc.vkd3d);
+        vkd3d_free(deserializer);
+    }
+
+    return refcount;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_versioned_root_signature_deserializer_GetRootSignatureDescAtVersion(
+        ID3D12VersionedRootSignatureDeserializer *iface, D3D_ROOT_SIGNATURE_VERSION version,
+        const D3D12_VERSIONED_ROOT_SIGNATURE_DESC **desc)
+{
+    FIXME("iface %p, version %#x, desc %p stub!\n", iface, version, desc);
+
+    *desc = NULL;
+    return E_NOTIMPL;
+}
+
+static const D3D12_VERSIONED_ROOT_SIGNATURE_DESC * STDMETHODCALLTYPE
+d3d12_versioned_root_signature_deserializer_GetUnconvertedRootSignatureDesc(ID3D12VersionedRootSignatureDeserializer *iface)
+{
+    struct d3d12_versioned_root_signature_deserializer *deserializer = impl_from_ID3D12VersionedRootSignatureDeserializer(iface);
+
+    TRACE("iface %p.\n", iface);
+
+    return &deserializer->desc.d3d12;
+}
+
+static const struct ID3D12VersionedRootSignatureDeserializerVtbl d3d12_versioned_root_signature_deserializer_vtbl =
+{
+    /* IUnknown methods */
+    d3d12_versioned_root_signature_deserializer_QueryInterface,
+    d3d12_versioned_root_signature_deserializer_AddRef,
+    d3d12_versioned_root_signature_deserializer_Release,
+    /* ID3D12VersionedRootSignatureDeserializer methods */
+    d3d12_versioned_root_signature_deserializer_GetRootSignatureDescAtVersion,
+    d3d12_versioned_root_signature_deserializer_GetUnconvertedRootSignatureDesc,
+};
+
+static HRESULT d3d12_versioned_root_signature_deserializer_init(struct d3d12_versioned_root_signature_deserializer *deserializer,
+        const struct vkd3d_shader_code *dxbc)
+{
+    int ret;
+
+    deserializer->ID3D12VersionedRootSignatureDeserializer_iface.lpVtbl = &d3d12_versioned_root_signature_deserializer_vtbl;
+    deserializer->refcount = 1;
+
+    if ((ret = vkd3d_shader_parse_versioned_root_signature(dxbc, &deserializer->desc.vkd3d)) < 0)
+    {
+        WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
+        return hresult_from_vkd3d_result(ret);
+    }
+
+    return S_OK;
+}
+
 HRESULT vkd3d_create_versioned_root_signature_deserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer)
 {
-    FIXME("data %p, data_size %lu, iid %s, deserializer %p stub!\n",
+    struct d3d12_versioned_root_signature_deserializer *object;
+    struct vkd3d_shader_code dxbc = {data, data_size};
+    HRESULT hr;
+
+    TRACE("data %p, data_size %lu, iid %s, deserializer %p.\n",
             data, data_size, debugstr_guid(iid), deserializer);
 
-    return E_NOTIMPL;
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    if (FAILED(hr = d3d12_versioned_root_signature_deserializer_init(object, &dxbc)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
+
+    return return_interface(&object->ID3D12VersionedRootSignatureDeserializer_iface,
+            &IID_ID3D12VersionedRootSignatureDeserializer, iid, deserializer);
 }
 
 /* ID3DBlob */
