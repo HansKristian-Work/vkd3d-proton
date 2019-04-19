@@ -2087,18 +2087,25 @@ int shader_extract_from_dxbc(const void *dxbc, size_t dxbc_length,
     return ret;
 }
 
-static int shader_parse_descriptor_ranges(const char *data, DWORD data_size,
-        DWORD offset, DWORD count, struct vkd3d_descriptor_range *ranges)
+/* root signatures */
+struct root_signature_parser_context
+{
+    const char *data;
+    unsigned int data_size;
+};
+
+static int shader_parse_descriptor_ranges(struct root_signature_parser_context *context,
+        unsigned int offset, unsigned int count, struct vkd3d_descriptor_range *ranges)
 {
     const char *ptr;
     unsigned int i;
 
-    if (!require_space(offset, 5 * count, sizeof(DWORD), data_size))
+    if (!require_space(offset, 5 * count, sizeof(DWORD), context->data_size))
     {
-        WARN("Invalid data size %#x (offset %u, count %u).\n", data_size, offset, count);
+        WARN("Invalid data size %#x (offset %u, count %u).\n", context->data_size, offset, count);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
-    ptr = &data[offset];
+    ptr = &context->data[offset];
 
     for (i = 0; i < count; ++i)
     {
@@ -2118,19 +2125,51 @@ static int shader_parse_descriptor_ranges(const char *data, DWORD data_size,
     return VKD3D_OK;
 }
 
-static int shader_parse_descriptor_table(const char *data, DWORD data_size,
-        DWORD offset, struct vkd3d_root_descriptor_table *table)
+static int shader_parse_descriptor_ranges1(struct root_signature_parser_context *context,
+        unsigned int offset, unsigned int count, struct vkd3d_descriptor_range1 *ranges)
 {
-    struct vkd3d_descriptor_range *ranges;
     const char *ptr;
-    DWORD count;
+    unsigned int i;
 
-    if (!require_space(offset, 2, sizeof(DWORD), data_size))
+    if (!require_space(offset, 6 * count, sizeof(uint32_t), context->data_size))
     {
-        WARN("Invalid data size %#x (offset %u).\n", data_size, offset);
+        WARN("Invalid data size %#x (offset %u, count %u).\n", context->data_size, offset, count);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
-    ptr = &data[offset];
+    ptr = &context->data[offset];
+
+    for (i = 0; i < count; ++i)
+    {
+        read_dword(&ptr, &ranges[i].range_type);
+        read_dword(&ptr, &ranges[i].descriptor_count);
+        read_dword(&ptr, &ranges[i].base_shader_register);
+        read_dword(&ptr, &ranges[i].register_space);
+        read_dword(&ptr, &ranges[i].flags);
+        read_dword(&ptr, &ranges[i].descriptor_table_offset);
+
+        TRACE("Type %#x, descriptor count %u, base shader register %u, "
+                "register space %u, flags %#x, offset %u.\n",
+                ranges[i].range_type, ranges[i].descriptor_count,
+                ranges[i].base_shader_register, ranges[i].register_space,
+                ranges[i].flags, ranges[i].descriptor_table_offset);
+    }
+
+    return VKD3D_OK;
+}
+
+static int shader_parse_descriptor_table(struct root_signature_parser_context *context,
+        unsigned int offset, struct vkd3d_root_descriptor_table *table)
+{
+    struct vkd3d_descriptor_range *ranges;
+    unsigned int count;
+    const char *ptr;
+
+    if (!require_space(offset, 2, sizeof(DWORD), context->data_size))
+    {
+        WARN("Invalid data size %#x (offset %u).\n", context->data_size, offset);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+    ptr = &context->data[offset];
 
     read_dword(&ptr, &count);
     read_dword(&ptr, &offset);
@@ -2142,20 +2181,47 @@ static int shader_parse_descriptor_table(const char *data, DWORD data_size,
     if (!(ranges = vkd3d_calloc(count, sizeof(*ranges))))
         return VKD3D_ERROR_OUT_OF_MEMORY;
     table->descriptor_ranges = ranges;
-    return shader_parse_descriptor_ranges(data, data_size, offset, count, ranges);
+    return shader_parse_descriptor_ranges(context, offset, count, ranges);
 }
 
-static int shader_parse_root_constants(const char *data, DWORD data_size,
-        DWORD offset, struct vkd3d_root_constants *constants)
+static int shader_parse_descriptor_table1(struct root_signature_parser_context *context,
+        unsigned int offset, struct vkd3d_root_descriptor_table1 *table)
+{
+    struct vkd3d_descriptor_range1 *ranges;
+    unsigned int count;
+    const char *ptr;
+
+    if (!require_space(offset, 2, sizeof(DWORD), context->data_size))
+    {
+        WARN("Invalid data size %#x (offset %u).\n", context->data_size, offset);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+    ptr = &context->data[offset];
+
+    read_dword(&ptr, &count);
+    read_dword(&ptr, &offset);
+
+    TRACE("Descriptor range count %u.\n", count);
+
+    table->descriptor_range_count = count;
+
+    if (!(ranges = vkd3d_calloc(count, sizeof(*ranges))))
+        return VKD3D_ERROR_OUT_OF_MEMORY;
+    table->descriptor_ranges = ranges;
+    return shader_parse_descriptor_ranges1(context, offset, count, ranges);
+}
+
+static int shader_parse_root_constants(struct root_signature_parser_context *context,
+        unsigned int offset, struct vkd3d_root_constants *constants)
 {
     const char *ptr;
 
-    if (!require_space(offset, 3, sizeof(DWORD), data_size))
+    if (!require_space(offset, 3, sizeof(DWORD), context->data_size))
     {
-        WARN("Invalid data size %#x (offset %u).\n", data_size, offset);
+        WARN("Invalid data size %#x (offset %u).\n", context->data_size, offset);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
-    ptr = &data[offset];
+    ptr = &context->data[offset];
 
     read_dword(&ptr, &constants->shader_register);
     read_dword(&ptr, &constants->register_space);
@@ -2167,17 +2233,17 @@ static int shader_parse_root_constants(const char *data, DWORD data_size,
     return VKD3D_OK;
 }
 
-static int shader_parse_root_descriptor(const char *data, DWORD data_size,
-        DWORD offset, struct vkd3d_root_descriptor *descriptor)
+static int shader_parse_root_descriptor(struct root_signature_parser_context *context,
+        unsigned int offset, struct vkd3d_root_descriptor *descriptor)
 {
     const char *ptr;
 
-    if (!require_space(offset, 2, sizeof(DWORD), data_size))
+    if (!require_space(offset, 2, sizeof(DWORD), context->data_size))
     {
-        WARN("Invalid data size %#x (offset %u).\n", data_size, offset);
+        WARN("Invalid data size %#x (offset %u).\n", context->data_size, offset);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
-    ptr = &data[offset];
+    ptr = &context->data[offset];
 
     read_dword(&ptr, &descriptor->shader_register);
     read_dword(&ptr, &descriptor->register_space);
@@ -2188,19 +2254,41 @@ static int shader_parse_root_descriptor(const char *data, DWORD data_size,
     return VKD3D_OK;
 }
 
-static int shader_parse_root_parameters(const char *data, DWORD data_size,
-        DWORD offset, DWORD count, struct vkd3d_root_parameter *parameters)
+static int shader_parse_root_descriptor1(struct root_signature_parser_context *context,
+        unsigned int offset, struct vkd3d_root_descriptor1 *descriptor)
+{
+    const char *ptr;
+
+    if (!require_space(offset, 3, sizeof(DWORD), context->data_size))
+    {
+        WARN("Invalid data size %#x (offset %u).\n", context->data_size, offset);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+    ptr = &context->data[offset];
+
+    read_dword(&ptr, &descriptor->shader_register);
+    read_dword(&ptr, &descriptor->register_space);
+    read_dword(&ptr, &descriptor->flags);
+
+    TRACE("Shader register %u, register space %u, flags %#x.\n",
+            descriptor->shader_register, descriptor->register_space, descriptor->flags);
+
+    return VKD3D_OK;
+}
+
+static int shader_parse_root_parameters(struct root_signature_parser_context *context,
+        unsigned int offset, unsigned int count, struct vkd3d_root_parameter *parameters)
 {
     const char *ptr;
     unsigned int i;
     int ret;
 
-    if (!require_space(offset, 3 * count, sizeof(DWORD), data_size))
+    if (!require_space(offset, 3 * count, sizeof(DWORD), context->data_size))
     {
-        WARN("Invalid data size %#x (offset %u, count %u).\n", data_size, offset, count);
+        WARN("Invalid data size %#x (offset %u, count %u).\n", context->data_size, offset, count);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
-    ptr = &data[offset];
+    ptr = &context->data[offset];
 
     for (i = 0; i < count; ++i)
     {
@@ -2214,15 +2302,15 @@ static int shader_parse_root_parameters(const char *data, DWORD data_size,
         switch (parameters[i].parameter_type)
         {
             case VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
-                ret = shader_parse_descriptor_table(data, data_size, offset, &parameters[i].u.descriptor_table);
+                ret = shader_parse_descriptor_table(context, offset, &parameters[i].u.descriptor_table);
                 break;
             case VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
-                ret = shader_parse_root_constants(data, data_size, offset, &parameters[i].u.constants);
+                ret = shader_parse_root_constants(context, offset, &parameters[i].u.constants);
                 break;
             case VKD3D_ROOT_PARAMETER_TYPE_CBV:
             case VKD3D_ROOT_PARAMETER_TYPE_SRV:
             case VKD3D_ROOT_PARAMETER_TYPE_UAV:
-                ret = shader_parse_root_descriptor(data, data_size, offset, &parameters[i].u.descriptor);
+                ret = shader_parse_root_descriptor(context, offset, &parameters[i].u.descriptor);
                 break;
             default:
                 FIXME("Unrecognized type %#x.\n", parameters[i].parameter_type);
@@ -2236,18 +2324,66 @@ static int shader_parse_root_parameters(const char *data, DWORD data_size,
     return VKD3D_OK;
 }
 
-static int shader_parse_static_samplers(const char *data, DWORD data_size,
-        DWORD offset, DWORD count, struct vkd3d_static_sampler_desc *sampler_descs)
+static int shader_parse_root_parameters1(struct root_signature_parser_context *context,
+        DWORD offset, DWORD count, struct vkd3d_root_parameter1 *parameters)
+{
+    const char *ptr;
+    unsigned int i;
+    int ret;
+
+    if (!require_space(offset, 3 * count, sizeof(DWORD), context->data_size))
+    {
+        WARN("Invalid data size %#x (offset %u, count %u).\n", context->data_size, offset, count);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+    ptr = &context->data[offset];
+
+    for (i = 0; i < count; ++i)
+    {
+        read_dword(&ptr, &parameters[i].parameter_type);
+        read_dword(&ptr, &parameters[i].shader_visibility);
+        read_dword(&ptr, &offset);
+
+        TRACE("Type %#x, shader visibility %#x.\n",
+                parameters[i].parameter_type, parameters[i].shader_visibility);
+
+        switch (parameters[i].parameter_type)
+        {
+            case VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+                ret = shader_parse_descriptor_table1(context, offset, &parameters[i].u.descriptor_table);
+                break;
+            case VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+                ret = shader_parse_root_constants(context, offset, &parameters[i].u.constants);
+                break;
+            case VKD3D_ROOT_PARAMETER_TYPE_CBV:
+            case VKD3D_ROOT_PARAMETER_TYPE_SRV:
+            case VKD3D_ROOT_PARAMETER_TYPE_UAV:
+                ret = shader_parse_root_descriptor1(context, offset, &parameters[i].u.descriptor);
+                break;
+            default:
+                FIXME("Unrecognized type %#x.\n", parameters[i].parameter_type);
+                return VKD3D_ERROR_INVALID_ARGUMENT;
+        }
+
+        if (ret < 0)
+            return ret;
+    }
+
+    return VKD3D_OK;
+}
+
+static int shader_parse_static_samplers(struct root_signature_parser_context *context,
+        unsigned int offset, unsigned int count, struct vkd3d_static_sampler_desc *sampler_descs)
 {
     const char *ptr;
     unsigned int i;
 
-    if (!require_space(offset, 13 * count, sizeof(DWORD), data_size))
+    if (!require_space(offset, 13 * count, sizeof(DWORD), context->data_size))
     {
-        WARN("Invalid data size %#x (offset %u, count %u).\n", data_size, offset, count);
+        WARN("Invalid data size %#x (offset %u, count %u).\n", context->data_size, offset, count);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
-    ptr = &data[offset];
+    ptr = &context->data[offset];
 
     for (i = 0; i < count; ++i)
     {
@@ -2269,12 +2405,17 @@ static int shader_parse_static_samplers(const char *data, DWORD data_size,
     return VKD3D_OK;
 }
 
-static int shader_parse_root_signature(const char *data, DWORD data_size,
-        struct vkd3d_root_signature_desc *desc)
+static int shader_parse_root_signature(const char *data, unsigned int data_size,
+        struct vkd3d_versioned_root_signature_desc *desc)
 {
+    struct vkd3d_root_signature_desc *v_1_0 = &desc->u.v_1_0;
+    struct root_signature_parser_context context;
+    unsigned int count, offset, version;
     const char *ptr = data;
-    DWORD count, offset;
     int ret;
+
+    context.data = data;
+    context.data_size = data_size;
 
     if (!require_space(0, 6, sizeof(DWORD), data_size))
     {
@@ -2282,47 +2423,74 @@ static int shader_parse_root_signature(const char *data, DWORD data_size,
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
-    skip_dword_unknown(&ptr, 1); /* It seems to always be 0x00000001. */
+    read_dword(&ptr, &version);
+    TRACE("Version %#x.\n", version);
+    if (version != VKD3D_ROOT_SIGNATURE_VERSION_1_0 && version != VKD3D_ROOT_SIGNATURE_VERSION_1_1)
+    {
+        FIXME("Unknown version %#x.\n", version);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+    desc->version = version;
 
     read_dword(&ptr, &count);
     read_dword(&ptr, &offset);
     TRACE("Parameter count %u, offset %u.\n", count, offset);
 
-    desc->parameter_count = count;
-    if (desc->parameter_count)
+    if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
     {
-        struct vkd3d_root_parameter *parameters;
-        if (!(parameters = vkd3d_calloc(desc->parameter_count, sizeof(*parameters))))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
-        desc->parameters = parameters;
-        if ((ret = shader_parse_root_parameters(data, data_size, offset, count, parameters)) < 0)
-            return ret;
+        v_1_0->parameter_count = count;
+        if (v_1_0->parameter_count)
+        {
+            struct vkd3d_root_parameter *parameters;
+            if (!(parameters = vkd3d_calloc(v_1_0->parameter_count, sizeof(*parameters))))
+                return VKD3D_ERROR_OUT_OF_MEMORY;
+            v_1_0->parameters = parameters;
+            if ((ret = shader_parse_root_parameters(&context, offset, count, parameters)) < 0)
+                return ret;
+        }
+    }
+    else
+    {
+        struct vkd3d_root_signature_desc1 *v_1_1 = &desc->u.v_1_1;
+
+        assert(version == VKD3D_ROOT_SIGNATURE_VERSION_1_1);
+
+        v_1_1->parameter_count = count;
+        if (v_1_1->parameter_count)
+        {
+            struct vkd3d_root_parameter1 *parameters;
+            if (!(parameters = vkd3d_calloc(v_1_1->parameter_count, sizeof(*parameters))))
+                return VKD3D_ERROR_OUT_OF_MEMORY;
+            v_1_1->parameters = parameters;
+            if ((ret = shader_parse_root_parameters1(&context, offset, count, parameters)) < 0)
+                return ret;
+        }
     }
 
     read_dword(&ptr, &count);
     read_dword(&ptr, &offset);
     TRACE("Static sampler count %u, offset %u.\n", count, offset);
 
-    desc->static_sampler_count = count;
-    if (desc->static_sampler_count)
+    v_1_0->static_sampler_count = count;
+    if (v_1_0->static_sampler_count)
     {
         struct vkd3d_static_sampler_desc *samplers;
-        if (!(samplers = vkd3d_calloc(desc->static_sampler_count, sizeof(*samplers))))
+        if (!(samplers = vkd3d_calloc(v_1_0->static_sampler_count, sizeof(*samplers))))
             return VKD3D_ERROR_OUT_OF_MEMORY;
-        desc->static_samplers = samplers;
-        if ((ret = shader_parse_static_samplers(data, data_size, offset, count, samplers)) < 0)
+        v_1_0->static_samplers = samplers;
+        if ((ret = shader_parse_static_samplers(&context, offset, count, samplers)) < 0)
             return ret;
     }
 
-    read_dword(&ptr, &desc->flags);
-    TRACE("Flags %#x.\n", desc->flags);
+    read_dword(&ptr, &v_1_0->flags);
+    TRACE("Flags %#x.\n", v_1_0->flags);
 
     return VKD3D_OK;
 }
 
 static int rts0_handler(const char *data, DWORD data_size, DWORD tag, void *context)
 {
-    struct vkd3d_root_signature_desc *desc = context;
+    struct vkd3d_versioned_root_signature_desc *desc = context;
 
     if (tag != TAG_RTS0)
         return VKD3D_OK;
@@ -2333,6 +2501,32 @@ static int rts0_handler(const char *data, DWORD data_size, DWORD tag, void *cont
 int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_root_signature_desc *root_signature)
 {
+    struct vkd3d_versioned_root_signature_desc desc = {0};
+    int ret;
+
+    TRACE("dxbc {%p, %zu}, root_signature %p.\n", dxbc->code, dxbc->size, root_signature);
+
+    memset(root_signature, 0, sizeof(*root_signature));
+    if ((ret = parse_dxbc(dxbc->code, dxbc->size, rts0_handler, &desc)) < 0)
+    {
+        vkd3d_shader_free_versioned_root_signature(&desc);
+        return ret;
+    }
+
+    if (desc.version != VKD3D_ROOT_SIGNATURE_VERSION_1_0)
+    {
+        vkd3d_shader_free_versioned_root_signature(&desc);
+        return VKD3D_ERROR_NOT_IMPLEMENTED;
+    }
+
+    *root_signature = desc.u.v_1_0;
+
+    return VKD3D_OK;
+}
+
+int vkd3d_shader_parse_versioned_root_signature(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *root_signature)
+{
     int ret;
 
     TRACE("dxbc {%p, %zu}, root_signature %p.\n", dxbc->code, dxbc->size, root_signature);
@@ -2340,7 +2534,7 @@ int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
     memset(root_signature, 0, sizeof(*root_signature));
     if ((ret = parse_dxbc(dxbc->code, dxbc->size, rts0_handler, root_signature)) < 0)
     {
-        vkd3d_shader_free_root_signature(root_signature);
+        vkd3d_shader_free_versioned_root_signature(root_signature);
         return ret;
     }
 

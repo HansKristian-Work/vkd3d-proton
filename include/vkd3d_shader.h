@@ -216,6 +216,7 @@ struct vkd3d_shader_domain_shader_compile_arguments
     enum vkd3d_tessellator_output_primitive partitioning;
 };
 
+/* root signature 1.0 */
 enum vkd3d_filter
 {
     VKD3D_FILTER_MIN_MAG_MIP_POINT = 0x0,
@@ -393,11 +394,84 @@ struct vkd3d_root_signature_desc
     enum vkd3d_root_signature_flags flags;
 };
 
+/* root signature 1.1 */
+enum vkd3d_root_descriptor_flags
+{
+    VKD3D_ROOT_DESCRIPTOR_FLAG_NONE = 0x0,
+    VKD3D_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE = 0x2,
+    VKD3D_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE = 0x4,
+    VKD3D_ROOT_DESCRIPTOR_FLAG_DATA_STATIC = 0x8,
+};
+
+enum vkd3d_descriptor_range_flags
+{
+    VKD3D_DESCRIPTOR_RANGE_FLAG_NONE = 0x0,
+    VKD3D_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE = 0x1,
+    VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE = 0x2,
+    VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE = 0x4,
+    VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_STATIC = 0x8,
+};
+
+struct vkd3d_descriptor_range1
+{
+    enum vkd3d_descriptor_range_type range_type;
+    unsigned int descriptor_count;
+    unsigned int base_shader_register;
+    unsigned int register_space;
+    enum vkd3d_descriptor_range_flags flags;
+    unsigned int descriptor_table_offset;
+};
+
+struct vkd3d_root_descriptor_table1
+{
+    unsigned int descriptor_range_count;
+    const struct vkd3d_descriptor_range1 *descriptor_ranges;
+};
+
+struct vkd3d_root_descriptor1
+{
+    unsigned int shader_register;
+    unsigned int register_space;
+    enum vkd3d_root_descriptor_flags flags;
+};
+
+struct vkd3d_root_parameter1
+{
+    enum vkd3d_root_parameter_type parameter_type;
+    union
+    {
+        struct vkd3d_root_descriptor_table1 descriptor_table;
+        struct vkd3d_root_constants constants;
+        struct vkd3d_root_descriptor1 descriptor;
+    } u;
+    enum vkd3d_shader_visibility shader_visibility;
+};
+
+struct vkd3d_root_signature_desc1
+{
+    unsigned int parameter_count;
+    const struct vkd3d_root_parameter1 *parameters;
+    unsigned int static_sampler_count;
+    const struct vkd3d_static_sampler_desc *static_samplers;
+    enum vkd3d_root_signature_flags flags;
+};
+
 enum vkd3d_root_signature_version
 {
     VKD3D_ROOT_SIGNATURE_VERSION_1_0 = 0x1,
+    VKD3D_ROOT_SIGNATURE_VERSION_1_1 = 0x2,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_ROOT_SIGNATURE_VERSION),
+};
+
+struct vkd3d_versioned_root_signature_desc
+{
+    enum vkd3d_root_signature_version version;
+    union
+    {
+        struct vkd3d_root_signature_desc v_1_0;
+        struct vkd3d_root_signature_desc1 v_1_1;
+    } u;
 };
 
 /* FIXME: Add support for 64 UAV bind slots. */
@@ -496,6 +570,10 @@ int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_root_signature_desc *root_signature);
 void vkd3d_shader_free_root_signature(struct vkd3d_root_signature_desc *root_signature);
 
+int vkd3d_shader_parse_versioned_root_signature(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *root_signature);
+void vkd3d_shader_free_versioned_root_signature(struct vkd3d_versioned_root_signature_desc *root_signature);
+
 /* FIXME: Add support for returning error messages (ID3DBlob). */
 int vkd3d_shader_serialize_root_signature(const struct vkd3d_root_signature_desc *root_signature,
         enum vkd3d_root_signature_version version, struct vkd3d_shader_code *dxbc);
@@ -524,6 +602,10 @@ typedef void (*PFN_vkd3d_shader_free_shader_code)(struct vkd3d_shader_code *code
 typedef int (*PFN_vkd3d_shader_parse_root_signature)(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_root_signature_desc *root_signature);
 typedef void (*PFN_vkd3d_shader_free_root_signature)(struct vkd3d_root_signature_desc *root_signature);
+
+typedef int (*PFN_vkd3d_shader_parse_versioned_root_signature)(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *root_signature);
+typedef void (*PFN_vkd3d_shader_free_versioned_root_signature)(struct vkd3d_versioned_root_signature_desc *root_signature);
 
 typedef int (*PFN_vkd3d_shader_serialize_root_signature)(const struct vkd3d_root_signature_desc *root_signature,
         enum vkd3d_root_signature_version version, struct vkd3d_shader_code *dxbc);
