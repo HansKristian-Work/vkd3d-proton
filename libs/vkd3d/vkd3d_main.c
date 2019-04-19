@@ -167,6 +167,40 @@ static const struct ID3D12RootSignatureDeserializerVtbl d3d12_root_signature_des
     d3d12_root_signature_deserializer_GetRootSignatureDesc,
 };
 
+static int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_root_signature_desc *out_desc)
+{
+    struct vkd3d_versioned_root_signature_desc desc, converted_desc;
+    int ret;
+
+    if ((ret = vkd3d_shader_parse_versioned_root_signature(dxbc, &desc)) < 0)
+    {
+        WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
+        return ret;
+    }
+
+    if (desc.version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
+    {
+        *out_desc = desc.u.v_1_0;
+    }
+    else
+    {
+        enum vkd3d_root_signature_version version = desc.version;
+
+        ret = vkd3d_shader_convert_root_signature(&converted_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_0, &desc);
+        vkd3d_shader_free_versioned_root_signature(&desc);
+        if (ret < 0)
+        {
+            WARN("Failed to convert from version %#x, vkd3d result %d.\n", version, ret);
+            return ret;
+        }
+
+        *out_desc = converted_desc.u.v_1_0;
+    }
+
+    return ret;
+}
+
 static HRESULT d3d12_root_signature_deserializer_init(struct d3d12_root_signature_deserializer *deserializer,
         const struct vkd3d_shader_code *dxbc)
 {
@@ -175,11 +209,8 @@ static HRESULT d3d12_root_signature_deserializer_init(struct d3d12_root_signatur
     deserializer->ID3D12RootSignatureDeserializer_iface.lpVtbl = &d3d12_root_signature_deserializer_vtbl;
     deserializer->refcount = 1;
 
-    if ((ret = vkd3d_shader_parse_root_signature(dxbc, &deserializer->desc.vkd3d)) < 0)
-    {
-        WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
+    if ((ret = vkd3d_parse_root_signature_v_1_0(dxbc, &deserializer->desc.vkd3d)) < 0)
         return hresult_from_vkd3d_result(ret);
-    }
 
     return S_OK;
 }
