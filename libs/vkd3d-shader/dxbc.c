@@ -2503,32 +2503,6 @@ static int rts0_handler(const char *data, DWORD data_size, DWORD tag, void *cont
     return shader_parse_root_signature(data, data_size, desc);
 }
 
-int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_root_signature_desc *root_signature)
-{
-    struct vkd3d_versioned_root_signature_desc desc = {0};
-    int ret;
-
-    TRACE("dxbc {%p, %zu}, root_signature %p.\n", dxbc->code, dxbc->size, root_signature);
-
-    memset(root_signature, 0, sizeof(*root_signature));
-    if ((ret = parse_dxbc(dxbc->code, dxbc->size, rts0_handler, &desc)) < 0)
-    {
-        vkd3d_shader_free_versioned_root_signature(&desc);
-        return ret;
-    }
-
-    if (desc.version != VKD3D_ROOT_SIGNATURE_VERSION_1_0)
-    {
-        vkd3d_shader_free_versioned_root_signature(&desc);
-        return VKD3D_ERROR_NOT_IMPLEMENTED;
-    }
-
-    *root_signature = desc.u.v_1_0;
-
-    return VKD3D_OK;
-}
-
 int vkd3d_shader_parse_versioned_root_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *root_signature)
 {
