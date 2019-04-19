@@ -1006,7 +1006,7 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
     HRESULT hr;
     int ret;
 
-    if ((ret = vkd3d_shader_parse_root_signature(&dxbc, &root_signature_desc.vkd3d)) < 0)
+    if ((ret = vkd3d_parse_root_signature_v_1_0(&dxbc, &root_signature_desc.vkd3d)) < 0)
     {
         WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
         return hresult_from_vkd3d_result(ret);

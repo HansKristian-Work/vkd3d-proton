@@ -167,7 +167,7 @@ static const struct ID3D12RootSignatureDeserializerVtbl d3d12_root_signature_des
     d3d12_root_signature_deserializer_GetRootSignatureDesc,
 };
 
-static int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
+int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_root_signature_desc *out_desc)
 {
     struct vkd3d_versioned_root_signature_desc desc, converted_desc;
