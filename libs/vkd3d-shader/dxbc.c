@@ -2088,6 +2088,11 @@ int shader_extract_from_dxbc(const void *dxbc, size_t dxbc_length,
 }
 
 /* root signatures */
+#define VKD3D_ROOT_SIGNATURE_1_0_ROOT_DESCRIPTOR_FLAGS VKD3D_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE
+
+#define VKD3D_ROOT_SIGNATURE_1_0_DESCRIPTOR_RANGE_FLAGS \
+        (VKD3D_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE | VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE)
+
 struct root_signature_parser_context
 {
     const char *data;
@@ -2834,4 +2839,285 @@ int vkd3d_shader_serialize_root_signature(const struct vkd3d_root_signature_desc
     memcpy((uint32_t *)dxbc->code + 1, checksum, sizeof(checksum));
 
     return VKD3D_OK;
+}
+
+static void free_descriptor_ranges(const struct vkd3d_root_parameter *parameters, unsigned int count)
+{
+    unsigned int i;
+
+    if (!parameters)
+        return;
+
+    for (i = 0; i < count; ++i)
+    {
+        const struct vkd3d_root_parameter *p = &parameters[i];
+
+        if (p->parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+            vkd3d_free((void *)p->u.descriptor_table.descriptor_ranges);
+    }
+}
+
+static int convert_root_parameters_to_v_1_0(struct vkd3d_root_parameter *dst,
+        const struct vkd3d_root_parameter1 *src, unsigned int count)
+{
+    const struct vkd3d_descriptor_range1 *ranges1;
+    struct vkd3d_descriptor_range *ranges;
+    unsigned int i, j;
+    int ret;
+
+    for (i = 0; i < count; ++i)
+    {
+        const struct vkd3d_root_parameter1 *p1 = &src[i];
+        struct vkd3d_root_parameter *p = &dst[i];
+
+        p->parameter_type = p1->parameter_type;
+        switch (p->parameter_type)
+        {
+            case VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+                ranges = NULL;
+                if ((p->u.descriptor_table.descriptor_range_count = p1->u.descriptor_table.descriptor_range_count))
+                {
+                    if (!(ranges = vkd3d_calloc(p->u.descriptor_table.descriptor_range_count, sizeof(*ranges))))
+                    {
+                        ret = VKD3D_ERROR_OUT_OF_MEMORY;
+                        goto fail;
+                    }
+                }
+                p->u.descriptor_table.descriptor_ranges = ranges;
+                ranges1 = p1->u.descriptor_table.descriptor_ranges;
+                for (j = 0; j < p1->u.descriptor_table.descriptor_range_count; ++j)
+                {
+                    ranges[j].range_type = ranges1[j].range_type;
+                    ranges[j].descriptor_count = ranges1[j].descriptor_count;
+                    ranges[j].base_shader_register = ranges1[j].base_shader_register;
+                    ranges[j].register_space = ranges1[j].register_space;
+                    ranges[j].descriptor_table_offset = ranges1[j].descriptor_table_offset;
+                }
+                break;
+            case VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+                p->u.constants = p1->u.constants;
+                break;
+            case VKD3D_ROOT_PARAMETER_TYPE_CBV:
+            case VKD3D_ROOT_PARAMETER_TYPE_SRV:
+            case VKD3D_ROOT_PARAMETER_TYPE_UAV:
+                p->u.descriptor.shader_register = p1->u.descriptor.shader_register;
+                p->u.descriptor.register_space = p1->u.descriptor.register_space;
+                break;
+            default:
+                WARN("Invalid root parameter type %#x.\n", p->parameter_type);
+                ret = VKD3D_ERROR_INVALID_ARGUMENT;
+                goto fail;
+
+        }
+        p->shader_visibility = p1->shader_visibility;
+    }
+
+    return VKD3D_OK;
+
+fail:
+    free_descriptor_ranges(dst, i);
+    return ret;
+}
+
+static int convert_root_signature_to_v1_0(struct vkd3d_versioned_root_signature_desc *dst,
+        const struct vkd3d_versioned_root_signature_desc *src)
+{
+    const struct vkd3d_root_signature_desc1 *src_desc = &src->u.v_1_1;
+    struct vkd3d_root_signature_desc *dst_desc = &dst->u.v_1_0;
+    struct vkd3d_static_sampler_desc *samplers = NULL;
+    struct vkd3d_root_parameter *parameters = NULL;
+    int ret;
+
+    if ((dst_desc->parameter_count = src_desc->parameter_count))
+    {
+        if (!(parameters = vkd3d_calloc(dst_desc->parameter_count, sizeof(*parameters))))
+        {
+            ret = VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
+        }
+        if ((ret = convert_root_parameters_to_v_1_0(parameters, src_desc->parameters, src_desc->parameter_count)) < 0)
+            goto fail;
+    }
+    dst_desc->parameters = parameters;
+    if ((dst_desc->static_sampler_count = src_desc->static_sampler_count))
+    {
+        if (!(samplers = vkd3d_calloc(dst_desc->static_sampler_count, sizeof(*samplers))))
+        {
+            ret = VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
+        }
+        memcpy(samplers, src_desc->static_samplers, src_desc->static_sampler_count * sizeof(*samplers));
+    }
+    dst_desc->static_samplers = samplers;
+    dst_desc->flags = src_desc->flags;
+
+    return VKD3D_OK;
+
+fail:
+    free_descriptor_ranges(parameters, dst_desc->parameter_count);
+    vkd3d_free(parameters);
+    vkd3d_free(samplers);
+    return ret;
+}
+
+static void free_descriptor_ranges1(const struct vkd3d_root_parameter1 *parameters, unsigned int count)
+{
+    unsigned int i;
+
+    if (!parameters)
+        return;
+
+    for (i = 0; i < count; ++i)
+    {
+        const struct vkd3d_root_parameter1 *p = &parameters[i];
+
+        if (p->parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+            vkd3d_free((void *)p->u.descriptor_table.descriptor_ranges);
+    }
+}
+
+static int convert_root_parameters_to_v_1_1(struct vkd3d_root_parameter1 *dst,
+        const struct vkd3d_root_parameter *src, unsigned int count)
+{
+    const struct vkd3d_descriptor_range *ranges;
+    struct vkd3d_descriptor_range1 *ranges1;
+    unsigned int i, j;
+    int ret;
+
+    for (i = 0; i < count; ++i)
+    {
+        const struct vkd3d_root_parameter *p = &src[i];
+        struct vkd3d_root_parameter1 *p1 = &dst[i];
+
+        p1->parameter_type = p->parameter_type;
+        switch (p1->parameter_type)
+        {
+            case VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+                ranges1 = NULL;
+                if ((p1->u.descriptor_table.descriptor_range_count = p->u.descriptor_table.descriptor_range_count))
+                {
+                    if (!(ranges1 = vkd3d_calloc(p1->u.descriptor_table.descriptor_range_count, sizeof(*ranges1))))
+                    {
+                        ret = VKD3D_ERROR_OUT_OF_MEMORY;
+                        goto fail;
+                    }
+                }
+                p1->u.descriptor_table.descriptor_ranges = ranges1;
+                ranges = p->u.descriptor_table.descriptor_ranges;
+                for (j = 0; j < p->u.descriptor_table.descriptor_range_count; ++j)
+                {
+                    ranges1[j].range_type = ranges[j].range_type;
+                    ranges1[j].descriptor_count = ranges[j].descriptor_count;
+                    ranges1[j].base_shader_register = ranges[j].base_shader_register;
+                    ranges1[j].register_space = ranges[j].register_space;
+                    ranges1[j].flags = VKD3D_ROOT_SIGNATURE_1_0_DESCRIPTOR_RANGE_FLAGS;
+                    ranges1[j].descriptor_table_offset = ranges[j].descriptor_table_offset;
+                }
+                break;
+            case VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+                p1->u.constants = p->u.constants;
+                break;
+            case VKD3D_ROOT_PARAMETER_TYPE_CBV:
+            case VKD3D_ROOT_PARAMETER_TYPE_SRV:
+            case VKD3D_ROOT_PARAMETER_TYPE_UAV:
+                p1->u.descriptor.shader_register = p->u.descriptor.shader_register;
+                p1->u.descriptor.register_space = p->u.descriptor.register_space;
+                p1->u.descriptor.flags = VKD3D_ROOT_SIGNATURE_1_0_ROOT_DESCRIPTOR_FLAGS;
+                break;
+            default:
+                WARN("Invalid root parameter type %#x.\n", p1->parameter_type);
+                ret = VKD3D_ERROR_INVALID_ARGUMENT;
+                goto fail;
+
+        }
+        p1->shader_visibility = p->shader_visibility;
+    }
+
+    return VKD3D_OK;
+
+fail:
+    free_descriptor_ranges1(dst, i);
+    return ret;
+}
+
+static int convert_root_signature_to_v1_1(struct vkd3d_versioned_root_signature_desc *dst,
+        const struct vkd3d_versioned_root_signature_desc *src)
+{
+    const struct vkd3d_root_signature_desc *src_desc = &src->u.v_1_0;
+    struct vkd3d_root_signature_desc1 *dst_desc = &dst->u.v_1_1;
+    struct vkd3d_static_sampler_desc *samplers = NULL;
+    struct vkd3d_root_parameter1 *parameters = NULL;
+    int ret;
+
+    if ((dst_desc->parameter_count = src_desc->parameter_count))
+    {
+        if (!(parameters = vkd3d_calloc(dst_desc->parameter_count, sizeof(*parameters))))
+        {
+            ret = VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
+        }
+        if ((ret = convert_root_parameters_to_v_1_1(parameters, src_desc->parameters, src_desc->parameter_count)) < 0)
+            goto fail;
+    }
+    dst_desc->parameters = parameters;
+    if ((dst_desc->static_sampler_count = src_desc->static_sampler_count))
+    {
+        if (!(samplers = vkd3d_calloc(dst_desc->static_sampler_count, sizeof(*samplers))))
+        {
+            ret = VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
+        }
+        memcpy(samplers, src_desc->static_samplers, src_desc->static_sampler_count * sizeof(*samplers));
+    }
+    dst_desc->static_samplers = samplers;
+    dst_desc->flags = src_desc->flags;
+
+    return VKD3D_OK;
+
+fail:
+    free_descriptor_ranges1(parameters, dst_desc->parameter_count);
+    vkd3d_free(parameters);
+    vkd3d_free(samplers);
+    return ret;
+}
+
+int vkd3d_shader_convert_root_signature(struct vkd3d_versioned_root_signature_desc *dst,
+        enum vkd3d_root_signature_version version, const struct vkd3d_versioned_root_signature_desc *src)
+{
+    int ret;
+
+    TRACE("dst %p, version %#x, src %p.\n", dst, version, src);
+
+    if (src->version == version)
+    {
+        WARN("Nothing to convert.\n");
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+
+    if (version != VKD3D_ROOT_SIGNATURE_VERSION_1_0 && version != VKD3D_ROOT_SIGNATURE_VERSION_1_1)
+    {
+        WARN("Root signature version %#x not supported.\n", version);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+
+    if (src->version != VKD3D_ROOT_SIGNATURE_VERSION_1_0 && src->version != VKD3D_ROOT_SIGNATURE_VERSION_1_1)
+    {
+        WARN("Root signature version %#x not supported.\n", src->version);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+
+    memset(dst, 0, sizeof(*dst));
+    dst->version = version;
+
+    if (version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
+    {
+        ret = convert_root_signature_to_v1_0(dst, src);
+    }
+    else
+    {
+        assert(version == VKD3D_ROOT_SIGNATURE_VERSION_1_1);
+        ret = convert_root_signature_to_v1_1(dst, src);
+    }
+
+    return ret;
 }
