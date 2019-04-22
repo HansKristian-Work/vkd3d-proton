@@ -441,7 +441,8 @@ create_fence:
     return vr;
 }
 
-static void d3d12_fence_destroy_vk_semaphores_locked(struct d3d12_fence *fence, bool destroy_all)
+static void d3d12_fence_garbage_collect_vk_semaphores_locked(struct d3d12_fence *fence,
+        bool destroy_all)
 {
     struct d3d12_device *device = fence->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -450,7 +451,7 @@ static void d3d12_fence_destroy_vk_semaphores_locked(struct d3d12_fence *fence, 
     unsigned int i, j;
 
     semaphore_count = fence->semaphore_count;
-    if (!destroy_all && fence->semaphore_count < VKD3D_MAX_VK_SYNC_OBJECTS_PER_D3D12_FENCE)
+    if (!destroy_all && semaphore_count < VKD3D_MAX_VK_SYNC_OBJECTS_PER_D3D12_FENCE)
         return;
 
     for (i = 0, j = 0; i < fence->semaphore_count; ++i)
@@ -491,7 +492,6 @@ static void d3d12_fence_destroy_vk_objects(struct d3d12_fence *fence)
     const struct vkd3d_vk_device_procs *vk_procs;
     struct d3d12_device *device = fence->device;
     unsigned int i;
-
     int rc;
 
     if ((rc = pthread_mutex_lock(&fence->mutex)))
@@ -509,7 +509,7 @@ static void d3d12_fence_destroy_vk_objects(struct d3d12_fence *fence)
         fence->old_vk_fences[i] = VK_NULL_HANDLE;
     }
 
-    d3d12_fence_destroy_vk_semaphores_locked(fence, true);
+    d3d12_fence_garbage_collect_vk_semaphores_locked(fence, true);
 
     pthread_mutex_unlock(&fence->mutex);
 }
@@ -528,8 +528,7 @@ static HRESULT d3d12_fence_add_vk_semaphore(struct d3d12_fence *fence,
         return E_FAIL;
     }
 
-    /* Destroy old Vulkan semaphores. */
-    d3d12_fence_destroy_vk_semaphores_locked(fence, false);
+    d3d12_fence_garbage_collect_vk_semaphores_locked(fence, false);
 
     if (vkd3d_array_reserve((void **)&fence->semaphores, &fence->semaphores_size,
             fence->semaphore_count + 1, sizeof(*fence->semaphores)))
