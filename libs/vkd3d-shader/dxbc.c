@@ -2886,13 +2886,15 @@ static int shader_write_root_signature(struct root_signature_writer_context *con
     return shader_write_static_samplers(context, desc);
 }
 
-static int shader_serialize_root_signature(const struct vkd3d_versioned_root_signature_desc *root_signature,
+int vkd3d_shader_serialize_versioned_root_signature(const struct vkd3d_versioned_root_signature_desc *root_signature,
         struct vkd3d_shader_code *dxbc)
 {
     struct root_signature_writer_context context;
     size_t total_size, chunk_size;
     uint32_t checksum[4];
     int ret;
+
+    TRACE("root_signature %p, dxbc %p.\n", root_signature, dxbc);
 
     if (root_signature->version != VKD3D_ROOT_SIGNATURE_VERSION_1_0
             && root_signature->version != VKD3D_ROOT_SIGNATURE_VERSION_1_1)
@@ -2927,33 +2929,6 @@ static int shader_serialize_root_signature(const struct vkd3d_versioned_root_sig
     memcpy((uint32_t *)dxbc->code + 1, checksum, sizeof(checksum));
 
     return VKD3D_OK;
-}
-
-int vkd3d_shader_serialize_root_signature(const struct vkd3d_root_signature_desc *root_signature,
-        enum vkd3d_root_signature_version version, struct vkd3d_shader_code *dxbc)
-{
-    struct vkd3d_versioned_root_signature_desc versioned_root_signature;
-
-    TRACE("root_signature %p, version %#x, dxbc %p.\n", root_signature, version, dxbc);
-
-    if (version != VKD3D_ROOT_SIGNATURE_VERSION_1_0)
-    {
-        WARN("Unexpected Root signature version %#x.\n", version);
-        return VKD3D_ERROR_INVALID_ARGUMENT;
-    }
-
-    versioned_root_signature.version = VKD3D_ROOT_SIGNATURE_VERSION_1_0;
-    versioned_root_signature.u.v_1_0 = *root_signature;
-
-    return shader_serialize_root_signature(&versioned_root_signature, dxbc);
-}
-
-int vkd3d_shader_serialize_versioned_root_signature(const struct vkd3d_versioned_root_signature_desc *root_signature,
-        struct vkd3d_shader_code *dxbc)
-{
-    TRACE("root_signature %p, dxbc %p.\n", root_signature, dxbc);
-
-    return shader_serialize_root_signature(root_signature, dxbc);
 }
 
 static void free_descriptor_ranges(const struct vkd3d_root_parameter *parameters, unsigned int count)

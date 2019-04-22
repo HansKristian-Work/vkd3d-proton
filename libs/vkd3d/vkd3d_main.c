@@ -538,14 +538,19 @@ static HRESULT d3d_blob_create(void *buffer, SIZE_T size, struct d3d_blob **blob
 HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob)
 {
-    const struct vkd3d_root_signature_desc *vkd3d_desc;
-    enum vkd3d_root_signature_version vkd3d_version;
+    struct vkd3d_versioned_root_signature_desc vkd3d_desc;
     struct vkd3d_shader_code dxbc;
     struct d3d_blob *blob_object;
     HRESULT hr;
     int ret;
 
     TRACE("desc %p, version %#x, blob %p, error_blob %p.\n", desc, version, blob, error_blob);
+
+    if (version != D3D_ROOT_SIGNATURE_VERSION_1_0)
+    {
+        WARN("Unexpected Root signature version %#x.\n", version);
+        return E_INVALIDARG;
+    }
 
     if (!blob)
     {
@@ -556,9 +561,9 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
     if (error_blob)
         *error_blob = NULL;
 
-    vkd3d_desc = (const struct vkd3d_root_signature_desc *)desc;
-    vkd3d_version = vkd3d_root_signature_version_from_d3d12(version);
-    if ((ret = vkd3d_shader_serialize_root_signature(vkd3d_desc, vkd3d_version, &dxbc)) < 0)
+    vkd3d_desc.version = VKD3D_ROOT_SIGNATURE_VERSION_1_0;
+    vkd3d_desc.u.v_1_0 = *(const struct vkd3d_root_signature_desc *)desc;
+    if ((ret = vkd3d_shader_serialize_versioned_root_signature(&vkd3d_desc, &dxbc)) < 0)
     {
         WARN("Failed to serialize root signature, vkd3d result %d.\n", ret);
         if (error_blob)
