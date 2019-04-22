@@ -575,6 +575,9 @@ void vkd3d_shader_free_root_signature(struct vkd3d_root_signature_desc *root_sig
 int vkd3d_shader_serialize_root_signature(const struct vkd3d_root_signature_desc *root_signature,
         enum vkd3d_root_signature_version version, struct vkd3d_shader_code *dxbc);
 
+int vkd3d_shader_serialize_versioned_root_signature(const struct vkd3d_versioned_root_signature_desc *root_signature,
+        struct vkd3d_shader_code *dxbc);
+
 int vkd3d_shader_convert_root_signature(struct vkd3d_versioned_root_signature_desc *dst,
         enum vkd3d_root_signature_version version, const struct vkd3d_versioned_root_signature_desc *src);
 
@@ -606,6 +609,9 @@ typedef void (*PFN_vkd3d_shader_free_root_signature)(struct vkd3d_root_signature
 
 typedef int (*PFN_vkd3d_shader_serialize_root_signature)(const struct vkd3d_root_signature_desc *root_signature,
         enum vkd3d_root_signature_version version, struct vkd3d_shader_code *dxbc);
+
+typedef int (*PFN_vkd3d_shader_serialize_versioned_root_signature)(
+        const struct vkd3d_versioned_root_signature_desc *root_signature, struct vkd3d_shader_code *dxbc);
 
 typedef int (*PFN_vkd3d_shader_convert_root_signature)(struct vkd3d_versioned_root_signature_desc *dst,
         enum vkd3d_root_signature_version version, const struct vkd3d_versioned_root_signature_desc *src);
