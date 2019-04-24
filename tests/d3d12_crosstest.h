@@ -81,6 +81,12 @@ static inline void destroy_event(HANDLE event)
 {
     CloseHandle(event);
 }
+
+#define get_d3d12_pfn(name) get_d3d12_pfn_(#name)
+static inline void *get_d3d12_pfn_(const char *name)
+{
+    return GetProcAddress(GetModuleHandleA("d3d12.dll"), name);
+}
 #else
 #define INFINITE VKD3D_INFINITE
 #define WAIT_OBJECT_0 VKD3D_WAIT_OBJECT_0
@@ -105,6 +111,8 @@ static inline void destroy_event(HANDLE event)
 {
     vkd3d_destroy_event(event);
 }
+
+#define get_d3d12_pfn(name) (name)
 #endif
 
 typedef void (*thread_main_pfn)(void *data);
