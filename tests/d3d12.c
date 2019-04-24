@@ -10035,6 +10035,9 @@ static void check_root_signature_deserialization_(unsigned int line, const D3D12
     ULONG refcount;
     HRESULT hr;
 
+    if (!code->BytecodeLength)
+        return;
+
     hr = D3D12CreateRootSignatureDeserializer(code->pShaderBytecode, code->BytecodeLength,
             &IID_ID3D12RootSignatureDeserializer, (void **)&deserializer);
     ok_(line)(hr == S_OK, "Failed to create deserializer, hr %#x.\n", hr);
@@ -10131,6 +10134,9 @@ static void check_root_signature_serialization_(unsigned int line, const D3D12_S
     size_t blob_size;
     unsigned int i;
     HRESULT hr;
+
+    if (!bytecode->BytecodeLength)
+        return;
 
     error_blob = (ID3DBlob *)0xdeadbeef;
     hr = D3D12SerializeRootSignature(desc, D3D_ROOT_SIGNATURE_VERSION_1_0, &blob, &error_blob);
@@ -10408,6 +10414,42 @@ static void test_root_signature_byte_code(void)
     };
 
 #if 0
+    #define RS "CBV(b4, space = 1, visibility = SHADER_VISIBILITY_VERTEX), " \
+            "SRV(t13, flags = DATA_STATIC), " \
+            "UAV(u6, flags = DATA_STATIC_WHILE_SET_AT_EXECUTE)"
+#endif
+    static const DWORD root_descriptors_rootsig1[] =
+    {
+        0x43425844, 0x8ddedbbe, 0xbcfea259, 0x6b35bfbb, 0x23e1de24, 0x00000001, 0x0000008c, 0x00000001,
+        0x00000024, 0x30535452, 0x00000060, 0x00000002, 0x00000003, 0x00000018, 0x00000000, 0x00000060,
+        0x00000000, 0x00000002, 0x00000001, 0x0000003c, 0x00000003, 0x00000000, 0x00000048, 0x00000004,
+        0x00000000, 0x00000054, 0x00000004, 0x00000001, 0x00000000, 0x0000000d, 0x00000000, 0x00000008,
+        0x00000006, 0x00000000, 0x00000004,
+    };
+    static const D3D12_ROOT_PARAMETER root_descriptors_parameters[] =
+    {
+        {D3D12_ROOT_PARAMETER_TYPE_CBV, .Descriptor = {4, 1}, D3D12_SHADER_VISIBILITY_VERTEX},
+        {D3D12_ROOT_PARAMETER_TYPE_SRV, .Descriptor = {13}},
+        {D3D12_ROOT_PARAMETER_TYPE_UAV, .Descriptor = {6}},
+    };
+    static const D3D12_ROOT_SIGNATURE_DESC root_descriptors_desc =
+    {
+        .NumParameters = ARRAY_SIZE(root_descriptors_parameters),
+        .pParameters = root_descriptors_parameters,
+    };
+    static const D3D12_ROOT_PARAMETER1 root_descriptors_parameters1[] =
+    {
+        {D3D12_ROOT_PARAMETER_TYPE_CBV, .Descriptor = {4, 1}, D3D12_SHADER_VISIBILITY_VERTEX},
+        {D3D12_ROOT_PARAMETER_TYPE_SRV, .Descriptor = {13, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC}},
+        {D3D12_ROOT_PARAMETER_TYPE_UAV, .Descriptor = {6, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE}},
+    };
+    static const D3D12_ROOT_SIGNATURE_DESC1 root_descriptors_desc1 =
+    {
+        .NumParameters = ARRAY_SIZE(root_descriptors_parameters1),
+        .pParameters = root_descriptors_parameters1,
+    };
+
+#if 0
     #define RS "RootConstants(num32BitConstants=3, b4), " \
             "RootConstants(num32BitConstants=4, b5, space = 3)"
 #endif
@@ -10498,6 +10540,40 @@ static void test_root_signature_byte_code(void)
     {
         .NumParameters = ARRAY_SIZE(descriptor_table_parameters1),
         .pParameters = descriptor_table_parameters1,
+    };
+
+#if 0
+    #define RS "DescriptorTable(CBV(b1, space = 7, flags = DESCRIPTORS_VOLATILE), " \
+            "SRV(t16, numDescriptors = 8, flags = DESCRIPTORS_VOLATILE | DATA_VOLATILE), " \
+            "UAV(u3, numDescriptors = unbounded, offset = 44, flags = DATA_STATIC))"
+#endif
+    static const DWORD descriptor_table_flags_rootsig1[] =
+    {
+        0x43425844, 0xe77ffa8f, 0xfab552d5, 0x586e15d4, 0x4c186c26, 0x00000001, 0x000000a0, 0x00000001,
+        0x00000024, 0x30535452, 0x00000074, 0x00000002, 0x00000001, 0x00000018, 0x00000000, 0x00000074,
+        0x00000000, 0x00000000, 0x00000000, 0x00000024, 0x00000003, 0x0000002c, 0x00000002, 0x00000001,
+        0x00000001, 0x00000007, 0x00000001, 0xffffffff, 0x00000000, 0x00000008, 0x00000010, 0x00000000,
+        0x00000003, 0xffffffff, 0x00000001, 0xffffffff, 0x00000003, 0x00000000, 0x00000008, 0x0000002c,
+    };
+    static const D3D12_DESCRIPTOR_RANGE1 descriptor_ranges1_flags[] =
+    {
+        {D3D12_DESCRIPTOR_RANGE_TYPE_CBV,        1,  1, 7,
+                D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_SRV,        8, 16, 0,
+                D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE | D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE,
+                D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, UINT_MAX,  3, 0,
+                D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC, 44},
+    };
+    static const D3D12_ROOT_PARAMETER1 descriptor_table_parameters1_flags[] =
+    {
+        {D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
+                .DescriptorTable = {ARRAY_SIZE(descriptor_ranges1_flags), descriptor_ranges1_flags}},
+    };
+    static const D3D12_ROOT_SIGNATURE_DESC1 descriptor_table_flags_rootsig_desc1 =
+    {
+        .NumParameters = ARRAY_SIZE(descriptor_table_parameters1_flags),
+        .pParameters = descriptor_table_parameters1_flags,
     };
 
 #if 0
@@ -10647,6 +10723,11 @@ static void test_root_signature_byte_code(void)
             &uav_rootsig_desc, &uav_rootsig_desc1,
         },
         {
+            {NULL},
+            {root_descriptors_rootsig1, sizeof(root_descriptors_rootsig1)},
+            &root_descriptors_desc, &root_descriptors_desc1,
+        },
+        {
             {constants_rootsig, sizeof(constants_rootsig)},
             {constants_rootsig1, sizeof(constants_rootsig1)},
             &constants_rootsig_desc, &constants_rootsig_desc1,
@@ -10655,6 +10736,11 @@ static void test_root_signature_byte_code(void)
             {descriptor_table_rootsig, sizeof(descriptor_table_rootsig)},
             {descriptor_table_rootsig1, sizeof(descriptor_table_rootsig1)},
             &descriptor_table_rootsig_desc, &descriptor_table_rootsig_desc1,
+        },
+        {
+            {NULL},
+            {descriptor_table_flags_rootsig1, sizeof(descriptor_table_flags_rootsig1)},
+            &descriptor_table_rootsig_desc, &descriptor_table_flags_rootsig_desc1,
         },
         {
             {default_static_sampler_rootsig, sizeof(default_static_sampler_rootsig)},
