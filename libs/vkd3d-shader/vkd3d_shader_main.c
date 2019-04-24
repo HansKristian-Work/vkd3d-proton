@@ -327,7 +327,7 @@ void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *shader_code)
     vkd3d_free((void *)shader_code->code);
 }
 
-void vkd3d_shader_free_root_signature_v_1_0(struct vkd3d_root_signature_desc *root_signature)
+static void vkd3d_shader_free_root_signature_v_1_0(struct vkd3d_root_signature_desc *root_signature)
 {
     unsigned int i;
 
@@ -344,27 +344,9 @@ void vkd3d_shader_free_root_signature_v_1_0(struct vkd3d_root_signature_desc *ro
     memset(root_signature, 0, sizeof(*root_signature));
 }
 
-void vkd3d_shader_free_root_signature(struct vkd3d_versioned_root_signature_desc *desc)
+static void vkd3d_shader_free_root_signature_v_1_1(struct vkd3d_root_signature_desc1 *root_signature)
 {
-    struct vkd3d_root_signature_desc1 *root_signature;
     unsigned int i;
-
-    if (!desc->version)
-        return;
-
-    if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
-    {
-        vkd3d_shader_free_root_signature_v_1_0(&desc->u.v_1_0);
-        return;
-    }
-
-    if (desc->version != VKD3D_ROOT_SIGNATURE_VERSION_1_1)
-    {
-        FIXME("Unknown version %#x.\n", desc->version);
-        return;
-    }
-
-    root_signature = &desc->u.v_1_1;
 
     for (i = 0; i < root_signature->parameter_count; ++i)
     {
@@ -377,6 +359,25 @@ void vkd3d_shader_free_root_signature(struct vkd3d_versioned_root_signature_desc
     vkd3d_free((void *)root_signature->static_samplers);
 
     memset(root_signature, 0, sizeof(*root_signature));
+}
+
+void vkd3d_shader_free_root_signature(struct vkd3d_versioned_root_signature_desc *desc)
+{
+    if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
+    {
+        vkd3d_shader_free_root_signature_v_1_0(&desc->u.v_1_0);
+    }
+    else if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_1)
+    {
+        vkd3d_shader_free_root_signature_v_1_1(&desc->u.v_1_1);
+    }
+    else if (desc->version)
+    {
+        FIXME("Unknown version %#x.\n", desc->version);
+        return;
+    }
+
+    desc->version = 0;
 }
 
 int vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
