@@ -999,8 +999,8 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
     const struct vkd3d_shader_code dxbc = {bytecode, bytecode_length};
     union
     {
-        D3D12_ROOT_SIGNATURE_DESC d3d12;
-        struct vkd3d_root_signature_desc vkd3d;
+        D3D12_VERSIONED_ROOT_SIGNATURE_DESC d3d12;
+        struct vkd3d_versioned_root_signature_desc vkd3d;
     } root_signature_desc;
     struct d3d12_root_signature *object;
     HRESULT hr;
@@ -1014,12 +1014,12 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
     {
-        vkd3d_shader_free_root_signature_v_1_0(&root_signature_desc.vkd3d);
+        vkd3d_shader_free_root_signature(&root_signature_desc.vkd3d);
         return E_OUTOFMEMORY;
     }
 
-    hr = d3d12_root_signature_init(object, device, &root_signature_desc.d3d12);
-    vkd3d_shader_free_root_signature_v_1_0(&root_signature_desc.vkd3d);
+    hr = d3d12_root_signature_init(object, device, &root_signature_desc.d3d12.u.Desc_1_0);
+    vkd3d_shader_free_root_signature(&root_signature_desc.vkd3d);
     if (FAILED(hr))
     {
         vkd3d_free(object);
