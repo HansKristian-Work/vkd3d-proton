@@ -2530,7 +2530,7 @@ static int rts0_handler(const char *data, DWORD data_size, DWORD tag, void *cont
     return shader_parse_root_signature(data, data_size, desc);
 }
 
-int vkd3d_shader_parse_versioned_root_signature(const struct vkd3d_shader_code *dxbc,
+int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *root_signature)
 {
     int ret;
@@ -2540,7 +2540,7 @@ int vkd3d_shader_parse_versioned_root_signature(const struct vkd3d_shader_code *
     memset(root_signature, 0, sizeof(*root_signature));
     if ((ret = parse_dxbc(dxbc->code, dxbc->size, rts0_handler, root_signature)) < 0)
     {
-        vkd3d_shader_free_versioned_root_signature(root_signature);
+        vkd3d_shader_free_root_signature(root_signature);
         return ret;
     }
 
@@ -2913,7 +2913,7 @@ static int shader_write_root_signature(struct root_signature_writer_context *con
     return shader_write_static_samplers(context, desc);
 }
 
-int vkd3d_shader_serialize_versioned_root_signature(const struct vkd3d_versioned_root_signature_desc *root_signature,
+int vkd3d_shader_serialize_root_signature(const struct vkd3d_versioned_root_signature_desc *root_signature,
         struct vkd3d_shader_code *dxbc)
 {
     struct root_signature_writer_context context;

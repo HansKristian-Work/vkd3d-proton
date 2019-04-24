@@ -566,13 +566,13 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         const struct vkd3d_shader_compile_arguments *compile_args);
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
 
-int vkd3d_shader_parse_versioned_root_signature(const struct vkd3d_shader_code *dxbc,
+int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *root_signature);
-void vkd3d_shader_free_versioned_root_signature(struct vkd3d_versioned_root_signature_desc *root_signature);
-void vkd3d_shader_free_root_signature(struct vkd3d_root_signature_desc *root_signature);
+void vkd3d_shader_free_root_signature(struct vkd3d_versioned_root_signature_desc *root_signature);
+void vkd3d_shader_free_root_signature_v_1_0(struct vkd3d_root_signature_desc *root_signature);
 
 /* FIXME: Add support for returning error messages (ID3DBlob). */
-int vkd3d_shader_serialize_versioned_root_signature(const struct vkd3d_versioned_root_signature_desc *root_signature,
+int vkd3d_shader_serialize_root_signature(const struct vkd3d_versioned_root_signature_desc *root_signature,
         struct vkd3d_shader_code *dxbc);
 
 int vkd3d_shader_convert_root_signature(struct vkd3d_versioned_root_signature_desc *dst,
@@ -599,12 +599,12 @@ typedef int (*PFN_vkd3d_shader_compile_dxbc)(const struct vkd3d_shader_code *dxb
         const struct vkd3d_shader_compile_arguments *compile_args);
 typedef void (*PFN_vkd3d_shader_free_shader_code)(struct vkd3d_shader_code *code);
 
-typedef int (*PFN_vkd3d_shader_parse_versioned_root_signature)(const struct vkd3d_shader_code *dxbc,
+typedef int (*PFN_vkd3d_shader_parse_root_signature)(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *root_signature);
-typedef void (*PFN_vkd3d_shader_free_versioned_root_signature)(struct vkd3d_versioned_root_signature_desc *root_signature);
-typedef void (*PFN_vkd3d_shader_free_root_signature)(struct vkd3d_root_signature_desc *root_signature);
+typedef void (*PFN_vkd3d_shader_free_root_signature)(struct vkd3d_versioned_root_signature_desc *root_signature);
+typedef void (*PFN_vkd3d_shader_free_root_signature_v_1_0)(struct vkd3d_root_signature_desc *root_signature);
 
-typedef int (*PFN_vkd3d_shader_serialize_versioned_root_signature)(
+typedef int (*PFN_vkd3d_shader_serialize_root_signature)(
         const struct vkd3d_versioned_root_signature_desc *root_signature, struct vkd3d_shader_code *dxbc);
 
 typedef int (*PFN_vkd3d_shader_convert_root_signature)(struct vkd3d_versioned_root_signature_desc *dst,

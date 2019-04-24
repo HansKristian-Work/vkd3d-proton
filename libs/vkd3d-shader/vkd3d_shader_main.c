@@ -327,7 +327,7 @@ void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *shader_code)
     vkd3d_free((void *)shader_code->code);
 }
 
-void vkd3d_shader_free_root_signature(struct vkd3d_root_signature_desc *root_signature)
+void vkd3d_shader_free_root_signature_v_1_0(struct vkd3d_root_signature_desc *root_signature)
 {
     unsigned int i;
 
@@ -344,7 +344,7 @@ void vkd3d_shader_free_root_signature(struct vkd3d_root_signature_desc *root_sig
     memset(root_signature, 0, sizeof(*root_signature));
 }
 
-void vkd3d_shader_free_versioned_root_signature(struct vkd3d_versioned_root_signature_desc *desc)
+void vkd3d_shader_free_root_signature(struct vkd3d_versioned_root_signature_desc *desc)
 {
     struct vkd3d_root_signature_desc1 *root_signature;
     unsigned int i;
@@ -354,7 +354,7 @@ void vkd3d_shader_free_versioned_root_signature(struct vkd3d_versioned_root_sign
 
     if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
     {
-        vkd3d_shader_free_root_signature(&desc->u.v_1_0);
+        vkd3d_shader_free_root_signature_v_1_0(&desc->u.v_1_0);
         return;
     }
 

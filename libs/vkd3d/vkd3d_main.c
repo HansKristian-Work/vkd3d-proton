@@ -140,7 +140,7 @@ static ULONG STDMETHODCALLTYPE d3d12_root_signature_deserializer_Release(ID3D12R
 
     if (!refcount)
     {
-        vkd3d_shader_free_root_signature(&deserializer->desc.vkd3d);
+        vkd3d_shader_free_root_signature_v_1_0(&deserializer->desc.vkd3d);
         vkd3d_free(deserializer);
     }
 
@@ -173,7 +173,7 @@ int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
     struct vkd3d_versioned_root_signature_desc desc, converted_desc;
     int ret;
 
-    if ((ret = vkd3d_shader_parse_versioned_root_signature(dxbc, &desc)) < 0)
+    if ((ret = vkd3d_shader_parse_root_signature(dxbc, &desc)) < 0)
     {
         WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
         return ret;
@@ -188,7 +188,7 @@ int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
         enum vkd3d_root_signature_version version = desc.version;
 
         ret = vkd3d_shader_convert_root_signature(&converted_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_0, &desc);
-        vkd3d_shader_free_versioned_root_signature(&desc);
+        vkd3d_shader_free_root_signature(&desc);
         if (ret < 0)
         {
             WARN("Failed to convert from version %#x, vkd3d result %d.\n", version, ret);
@@ -300,8 +300,8 @@ static ULONG STDMETHODCALLTYPE d3d12_versioned_root_signature_deserializer_Relea
 
     if (!refcount)
     {
-        vkd3d_shader_free_versioned_root_signature(&deserializer->desc.vkd3d);
-        vkd3d_shader_free_versioned_root_signature(&deserializer->other_desc.vkd3d);
+        vkd3d_shader_free_root_signature(&deserializer->desc.vkd3d);
+        vkd3d_shader_free_root_signature(&deserializer->other_desc.vkd3d);
         vkd3d_free(deserializer);
     }
 
@@ -387,7 +387,7 @@ static HRESULT d3d12_versioned_root_signature_deserializer_init(struct d3d12_ver
     deserializer->ID3D12VersionedRootSignatureDeserializer_iface.lpVtbl = &d3d12_versioned_root_signature_deserializer_vtbl;
     deserializer->refcount = 1;
 
-    if ((ret = vkd3d_shader_parse_versioned_root_signature(dxbc, &deserializer->desc.vkd3d)) < 0)
+    if ((ret = vkd3d_shader_parse_root_signature(dxbc, &deserializer->desc.vkd3d)) < 0)
     {
         WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
         return hresult_from_vkd3d_result(ret);
@@ -563,7 +563,7 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
 
     vkd3d_desc.version = VKD3D_ROOT_SIGNATURE_VERSION_1_0;
     vkd3d_desc.u.v_1_0 = *(const struct vkd3d_root_signature_desc *)desc;
-    if ((ret = vkd3d_shader_serialize_versioned_root_signature(&vkd3d_desc, &dxbc)) < 0)
+    if ((ret = vkd3d_shader_serialize_root_signature(&vkd3d_desc, &dxbc)) < 0)
     {
         WARN("Failed to serialize root signature, vkd3d result %d.\n", ret);
         if (error_blob)
@@ -604,7 +604,7 @@ HRESULT vkd3d_serialize_versioned_root_signature(const D3D12_VERSIONED_ROOT_SIGN
         *error_blob = NULL;
 
     vkd3d_desc = (const struct vkd3d_versioned_root_signature_desc *)desc;
-    if ((ret = vkd3d_shader_serialize_versioned_root_signature(vkd3d_desc, &dxbc)) < 0)
+    if ((ret = vkd3d_shader_serialize_root_signature(vkd3d_desc, &dxbc)) < 0)
     {
         WARN("Failed to serialize root signature, vkd3d result %d.\n", ret);
         if (error_blob)
