@@ -2130,6 +2130,18 @@ static int shader_parse_descriptor_ranges(struct root_signature_parser_context *
     return VKD3D_OK;
 }
 
+static void shader_validate_descriptor_range1(const struct vkd3d_descriptor_range1 *range)
+{
+    unsigned int unknown_flags = range->flags & ~(VKD3D_DESCRIPTOR_RANGE_FLAG_NONE
+            | VKD3D_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE
+            | VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE
+            | VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE
+            | VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+
+    if (unknown_flags)
+        FIXME("Unknown descriptor range flags %#x.\n", unknown_flags);
+}
+
 static int shader_parse_descriptor_ranges1(struct root_signature_parser_context *context,
         unsigned int offset, unsigned int count, struct vkd3d_descriptor_range1 *ranges)
 {
@@ -2157,6 +2169,8 @@ static int shader_parse_descriptor_ranges1(struct root_signature_parser_context 
                 ranges[i].range_type, ranges[i].descriptor_count,
                 ranges[i].base_shader_register, ranges[i].register_space,
                 ranges[i].flags, ranges[i].descriptor_table_offset);
+
+        shader_validate_descriptor_range1(&ranges[i]);
     }
 
     return VKD3D_OK;
@@ -2259,6 +2273,17 @@ static int shader_parse_root_descriptor(struct root_signature_parser_context *co
     return VKD3D_OK;
 }
 
+static void shader_validate_root_descriptor1(const struct vkd3d_root_descriptor1 *descriptor)
+{
+    unsigned int unknown_flags = descriptor->flags & ~(VKD3D_ROOT_DESCRIPTOR_FLAG_NONE
+            | VKD3D_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE
+            | VKD3D_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE
+            | VKD3D_ROOT_DESCRIPTOR_FLAG_DATA_STATIC);
+
+    if (unknown_flags)
+        FIXME("Unknown root descriptor flags %#x.\n", unknown_flags);
+}
+
 static int shader_parse_root_descriptor1(struct root_signature_parser_context *context,
         unsigned int offset, struct vkd3d_root_descriptor1 *descriptor)
 {
@@ -2277,6 +2302,8 @@ static int shader_parse_root_descriptor1(struct root_signature_parser_context *c
 
     TRACE("Shader register %u, register space %u, flags %#x.\n",
             descriptor->shader_register, descriptor->register_space, descriptor->flags);
+
+    shader_validate_root_descriptor1(descriptor);
 
     return VKD3D_OK;
 }
