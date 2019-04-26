@@ -1878,6 +1878,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     uint32_t instance_divisors[D3D12_VS_INPUT_REGISTER_COUNT];
     uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
     struct vkd3d_shader_compile_arguments ps_compile_args;
+    struct vkd3d_shader_parameter ps_shader_parameters[1];
     struct vkd3d_shader_transform_feedback_info xfb_info;
     struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
@@ -2071,11 +2072,16 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
     graphics->attachment_count = graphics->rt_idx + rt_count;
 
+    ps_shader_parameters[0].name = VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT;
+    ps_shader_parameters[0].type = VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT;
+    ps_shader_parameters[0].data_type = VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32;
+    ps_shader_parameters[0].u.immediate_constant.u.u32 = sample_count;
+
     ps_compile_args.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS;
     ps_compile_args.next = NULL;
     ps_compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
-    ps_compile_args.parameter_count = 0;
-    ps_compile_args.parameters = NULL;
+    ps_compile_args.parameter_count = ARRAY_SIZE(ps_shader_parameters);
+    ps_compile_args.parameters = ps_shader_parameters;
     ps_compile_args.dual_source_blending = is_dual_source_blending(&desc->BlendState.RenderTarget[0]);
     ps_compile_args.output_swizzles = ps_output_swizzle;
     ps_compile_args.output_swizzle_count = rt_count;
