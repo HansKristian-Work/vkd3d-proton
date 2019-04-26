@@ -1967,6 +1967,12 @@ struct vkd3d_shader_phase
     size_t function_location;
 };
 
+struct vkd3d_shader_spec_constant
+{
+    enum vkd3d_shader_parameter_name name;
+    uint32_t id;
+};
+
 struct vkd3d_hull_shader_variables
 {
     uint32_t tess_level_outer_id;
@@ -2012,8 +2018,6 @@ struct vkd3d_dxbc_compiler
     uint32_t private_output_variable_write_mask[MAX_REG_OUTPUT + 1]; /* 1 entry for oDepth */
     uint32_t epilogue_function_id;
 
-    uint32_t current_spec_constant_id;
-
     uint32_t binding_idx;
 
     const struct vkd3d_shader_scan_info *scan_info;
@@ -2023,6 +2027,11 @@ struct vkd3d_dxbc_compiler
     unsigned int shader_phase_count;
     struct vkd3d_shader_phase *shader_phases;
     size_t shader_phases_size;
+
+    uint32_t current_spec_constant_id;
+    unsigned int spec_constant_count;
+    struct vkd3d_shader_spec_constant *spec_constants;
+    size_t spec_constants_size;
 };
 
 static bool is_control_point_phase(const struct vkd3d_shader_phase *phase)
@@ -2564,13 +2573,39 @@ static uint32_t vkd3d_dxbc_compiler_emit_spec_constant(struct vkd3d_dxbc_compile
     if (info)
         vkd3d_spirv_build_op_name(builder, id, "%s", info->debug_name);
 
+    if (vkd3d_array_reserve((void **)&compiler->spec_constants, &compiler->spec_constants_size,
+            compiler->spec_constant_count + 1, sizeof(*compiler->spec_constants)))
+    {
+        struct vkd3d_shader_spec_constant *constant = &compiler->spec_constants[compiler->spec_constant_count++];
+        constant->name = name;
+        constant->id = id;
+    }
+
     return id;
+}
+
+static uint32_t vkd3d_dxbc_compiler_get_spec_constant(struct vkd3d_dxbc_compiler *compiler,
+        enum vkd3d_shader_parameter_name name, uint32_t spec_id)
+{
+    unsigned int i;
+
+    for (i = 0; i < compiler->spec_constant_count; ++i)
+    {
+        if (compiler->spec_constants[i].name == name)
+            return compiler->spec_constants[i].id;
+    }
+
+    if (!spec_id)
+        spec_id = vkd3d_dxbc_compiler_alloc_spec_constant_id(compiler);
+
+    return vkd3d_dxbc_compiler_emit_spec_constant(compiler, name, spec_id);
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_uint_shader_parameter(struct vkd3d_dxbc_compiler *compiler,
         enum vkd3d_shader_parameter_name name)
 {
     const struct vkd3d_shader_parameter *parameter;
+    uint32_t spec_constant_id = 0;
 
     if (!(parameter = vkd3d_dxbc_compiler_get_shader_parameter(compiler, name)))
     {
@@ -2580,14 +2615,14 @@ static uint32_t vkd3d_dxbc_compiler_emit_uint_shader_parameter(struct vkd3d_dxbc
 
     if (parameter->type == VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT)
         return vkd3d_dxbc_compiler_get_constant_uint(compiler, parameter->u.immediate_constant.u.u32);
-    if (parameter->type == VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT)
-        return vkd3d_dxbc_compiler_emit_spec_constant(compiler, name, parameter->u.specialization_constant.id);
 
-    FIXME("Unhandled parameter type %#x.\n", parameter->type);
+    if (parameter->type == VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT)
+        spec_constant_id = parameter->u.specialization_constant.id;
+    else
+        FIXME("Unhandled parameter type %#x.\n", parameter->type);
 
 default_parameter:
-    return vkd3d_dxbc_compiler_emit_spec_constant(compiler,
-            name, vkd3d_dxbc_compiler_alloc_spec_constant_id(compiler));
+    return vkd3d_dxbc_compiler_get_spec_constant(compiler, name, spec_constant_id);
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_construct_vector(struct vkd3d_dxbc_compiler *compiler,
@@ -8265,6 +8300,7 @@ void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler)
     rb_destroy(&compiler->symbol_table, vkd3d_symbol_free, NULL);
 
     vkd3d_free(compiler->shader_phases);
+    vkd3d_free(compiler->spec_constants);
 
     vkd3d_free(compiler);
 }
