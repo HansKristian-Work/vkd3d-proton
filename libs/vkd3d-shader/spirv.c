@@ -2772,19 +2772,25 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_scalar(struct vkd3d_dxbc_compiler 
     uint32_t type_id, ptr_type_id, indexes[1], reg_id, val_id;
     unsigned int component_idx, reg_component_count;
     enum vkd3d_component_type component_type;
+    unsigned int skipped_component_mask;
 
     assert(reg->type != VKD3DSPR_IMMCONST);
     assert(vkd3d_write_mask_component_count(write_mask) == 1);
 
     component_idx = vkd3d_write_mask_get_component_idx(write_mask);
     component_idx = vkd3d_swizzle_get_component(swizzle, component_idx);
+    skipped_component_mask = ~reg_info->write_mask & ((VKD3DSP_WRITEMASK_0 << component_idx) - 1);
+    if (skipped_component_mask)
+        component_idx -= vkd3d_write_mask_component_count(skipped_component_mask);
     component_type = vkd3d_component_type_from_data_type(reg->data_type);
 
     reg_component_count = vkd3d_write_mask_component_count(reg_info->write_mask);
 
-    if (!(reg_info->write_mask & (VKD3DSP_WRITEMASK_0 << component_idx)))
-        ERR("Invalid component_idx for register %#x, %u (write_mask %#x).\n",
-                reg->type, reg->idx[0].offset, reg_info->write_mask);
+    if (component_idx >= vkd3d_write_mask_component_count(reg_info->write_mask))
+    {
+        ERR("Invalid component_idx %u for register %#x, %u (write_mask %#x).\n",
+                component_idx, reg->type, reg->idx[0].offset, reg_info->write_mask);
+    }
 
     type_id = vkd3d_spirv_get_type_id(builder, reg_info->component_type, 1);
     reg_id = reg_info->id;
@@ -3602,6 +3608,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     SpvStorageClass storage_class;
     struct rb_entry *entry = NULL;
     bool use_private_var = false;
+    unsigned int write_mask;
     unsigned int array_size;
     unsigned int reg_idx;
     uint32_t i, index;
@@ -3635,6 +3642,8 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
 
     builtin = get_spirv_builtin_for_sysval(compiler, sysval);
 
+    write_mask = signature_element->mask & 0xff;
+
     component_idx = vkd3d_write_mask_get_component_idx(dst->write_mask);
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
     if (builtin)
@@ -3650,12 +3659,14 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         component_idx = vkd3d_write_mask_get_component_idx(signature_element->mask & 0xff);
     }
 
-    use_private_var = builtin && builtin->fixup_pfn;
+    if ((use_private_var = builtin && builtin->fixup_pfn))
+        write_mask = dst->write_mask;
     if (input_component_count != VKD3D_VEC4_SIZE
             && vkd3d_count_signature_elements_for_reg(shader_signature, reg_idx) > 1)
     {
         use_private_var = true;
         component_count = VKD3D_VEC4_SIZE;
+        write_mask = VKD3DSP_WRITEMASK_ALL;
     }
 
     storage_class = SpvStorageClassInput;
@@ -3692,8 +3703,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     if (!entry)
     {
         vkd3d_symbol_set_register_info(&reg_symbol, var_id, storage_class,
-                use_private_var ? VKD3D_TYPE_FLOAT : component_type,
-                use_private_var ? vkd3d_write_mask_from_component_count(component_count) : signature_element->mask & 0xff);
+                use_private_var ? VKD3D_TYPE_FLOAT : component_type, write_mask);
         vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 
         vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
