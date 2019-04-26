@@ -27546,6 +27546,67 @@ static void test_coverage(void)
     destroy_test_context(&context);
 }
 
+static void test_shader_get_render_target_sample_count(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    HRESULT hr;
+
+    static const float black[4];
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float4 main() : SV_Target
+        {
+            return GetRenderTargetSampleCount();
+        }
+
+#endif
+        0x43425844, 0x74404d37, 0xad6f88e4, 0xb006ea57, 0xf07d9e2a, 0x00000001, 0x000000a4, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x0000002c, 0x00000050, 0x0000000b,
+        0x0100086a, 0x03000065, 0x001020f2, 0x00000000, 0x0400006f, 0x001020f2, 0x00000000, 0x0000e00a,
+        0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const struct vec4 sample_count = {8.0f, 8.0f, 8.0f, 8.0f};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.sample_desc.Count = 8;
+    desc.no_pipeline = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, NULL, &ps, NULL);
+    pso_desc.SampleDesc.Count = desc.sample_desc.Count;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, black, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &sample_count, 0);
+
+    destroy_test_context(&context);
+}
+
 static void test_shader_eval_attribute(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -28561,6 +28622,7 @@ START_TEST(d3d12)
     run_test(test_multisample_rendering);
     run_test(test_sample_mask);
     run_test(test_coverage);
+    run_test(test_shader_get_render_target_sample_count);
     run_test(test_shader_eval_attribute);
     run_test(test_primitive_restart);
     run_test(test_vertex_shader_stream_output);
