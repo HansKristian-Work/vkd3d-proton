@@ -90,6 +90,50 @@ enum vkd3d_shader_binding_flag
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_BINDING_FLAG),
 };
 
+enum vkd3d_shader_parameter_type
+{
+    VKD3D_SHADER_PARAMETER_TYPE_UNKNOWN,
+    VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT,
+    VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT,
+};
+
+enum vkd3d_shader_parameter_data_type
+{
+    VKD3D_SHADER_PARAMETER_DATA_TYPE_UNKNOWN,
+    VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32,
+};
+
+enum vkd3d_shader_parameter_name
+{
+    VKD3D_SHADER_PARAMETER_NAME_UNKNOWN,
+    VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT,
+};
+
+struct vkd3d_shader_parameter_immediate_constant
+{
+    union
+    {
+        uint32_t u32;
+    } u;
+};
+
+struct vkd3d_shader_parameter_specialization_constant
+{
+    uint32_t id;
+};
+
+struct vkd3d_shader_parameter
+{
+    enum vkd3d_shader_parameter_name name;
+    enum vkd3d_shader_parameter_type type;
+    enum vkd3d_shader_parameter_data_type data_type;
+    union
+    {
+        struct vkd3d_shader_parameter_immediate_constant immediate_constant;
+        struct vkd3d_shader_parameter_specialization_constant specialization_constant;
+    } u;
+};
+
 struct vkd3d_shader_resource_binding
 {
     enum vkd3d_shader_descriptor_type type;
@@ -185,6 +229,10 @@ struct vkd3d_shader_compile_arguments
     const void *next;
 
     enum vkd3d_shader_target target;
+
+    unsigned int parameter_count;
+    struct vkd3d_shader_parameter *parameters;
+
     bool dual_source_blending;
     const unsigned int *output_swizzles;
     unsigned int output_swizzle_count;

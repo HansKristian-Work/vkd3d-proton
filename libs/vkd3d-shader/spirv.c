@@ -2477,6 +2477,46 @@ static uint32_t vkd3d_dxbc_compiler_emit_array_variable(struct vkd3d_dxbc_compil
     return vkd3d_spirv_build_op_variable(builder, stream, ptr_type_id, storage_class, 0);
 }
 
+static const struct vkd3d_shader_parameter *vkd3d_dxbc_compiler_get_shader_parameter(
+        struct vkd3d_dxbc_compiler *compiler, enum vkd3d_shader_parameter_name name)
+{
+    const struct vkd3d_shader_compile_arguments *compile_args = compiler->compile_args;
+    unsigned int i;
+
+    for (i = 0; compile_args && i < compile_args->parameter_count; ++i)
+    {
+        if (compile_args->parameters[i].name == name)
+            return &compile_args->parameters[i];
+    }
+
+    return NULL;
+}
+
+static uint32_t vkd3d_dxbc_compiler_emit_uint_shader_parameter(struct vkd3d_dxbc_compiler *compiler,
+        enum vkd3d_shader_parameter_name name)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_parameter *parameter;
+    uint32_t id;
+
+    if (!(parameter = vkd3d_dxbc_compiler_get_shader_parameter(compiler, name)))
+    {
+        FIXME("Unresolved shader parameter %#x.\n", name);
+        goto fail;
+    }
+
+    if (parameter->type == VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT)
+    {
+        return vkd3d_dxbc_compiler_get_constant_uint(compiler, parameter->u.immediate_constant.u.u32);
+    }
+
+    FIXME("Unhandled parameter type %#x.\n", parameter->type);
+
+fail:
+    id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    return vkd3d_spirv_build_op_undef(builder, &builder->global_stream, id);
+}
+
 static uint32_t vkd3d_dxbc_compiler_emit_construct_vector(struct vkd3d_dxbc_compiler *compiler,
         enum vkd3d_component_type component_type, unsigned int component_count,
         uint32_t val_id, unsigned int val_component_idx, unsigned int val_component_count)
@@ -7563,21 +7603,24 @@ static void vkd3d_dxbc_compiler_emit_sample_info(struct vkd3d_dxbc_compiler *com
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
     uint32_t constituents[VKD3D_VEC4_SIZE];
-    struct vkd3d_shader_image image;
     uint32_t type_id, val_id;
     unsigned int i;
 
     if (src->reg.type == VKD3DSPR_RASTERIZER)
     {
-        FIXME("Rasterizer not supported.\n");
-        return;
+        val_id = vkd3d_dxbc_compiler_emit_uint_shader_parameter(compiler,
+                VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT);
     }
+    else
+    {
+        struct vkd3d_shader_image image;
 
-    vkd3d_spirv_enable_capability(builder, SpvCapabilityImageQuery);
+        vkd3d_spirv_enable_capability(builder, SpvCapabilityImageQuery);
 
-    vkd3d_dxbc_compiler_prepare_image(compiler, &image, &src->reg, NULL, VKD3D_IMAGE_FLAG_NONE);
-    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-    val_id = vkd3d_spirv_build_op_image_query_samples(builder, type_id, image.image_id);
+        vkd3d_dxbc_compiler_prepare_image(compiler, &image, &src->reg, NULL, VKD3D_IMAGE_FLAG_NONE);
+        type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+        val_id = vkd3d_spirv_build_op_image_query_samples(builder, type_id, image.image_id);
+    }
 
     constituents[0] = val_id;
     for (i = 1; i < VKD3D_VEC4_SIZE; ++i)
