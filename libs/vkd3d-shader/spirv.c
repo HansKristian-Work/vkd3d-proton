@@ -1062,6 +1062,13 @@ static uint32_t vkd3d_spirv_get_op_constant_composite(struct vkd3d_spirv_builder
             constituents, constituent_count, vkd3d_spirv_build_op_constant_composite);
 }
 
+static uint32_t vkd3d_spirv_build_op_spec_constant(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t value)
+{
+    return vkd3d_spirv_build_op_tr1(builder, &builder->global_stream,
+            SpvOpSpecConstant, result_type, value);
+}
+
 static uint32_t vkd3d_spirv_build_op_variable(struct vkd3d_spirv_builder *builder,
         struct vkd3d_spirv_stream *stream, uint32_t type_id, uint32_t storage_class, uint32_t initializer)
 {
@@ -2492,12 +2499,25 @@ static const struct vkd3d_shader_parameter *vkd3d_dxbc_compiler_get_shader_param
     return NULL;
 }
 
+static uint32_t vkd3d_shader_get_default_spec_constant_value(enum vkd3d_shader_parameter_name name)
+{
+    switch (name)
+    {
+        case VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT:
+            return 1;
+
+        default:
+            FIXME("Unhandled parameter name %#x.\n", name);
+            return 0;
+    }
+}
+
 static uint32_t vkd3d_dxbc_compiler_emit_uint_shader_parameter(struct vkd3d_dxbc_compiler *compiler,
         enum vkd3d_shader_parameter_name name)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_parameter *parameter;
-    uint32_t id;
+    uint32_t type_id, id;
 
     if (!(parameter = vkd3d_dxbc_compiler_get_shader_parameter(compiler, name)))
     {
@@ -2509,12 +2529,21 @@ static uint32_t vkd3d_dxbc_compiler_emit_uint_shader_parameter(struct vkd3d_dxbc
     {
         return vkd3d_dxbc_compiler_get_constant_uint(compiler, parameter->u.immediate_constant.u.u32);
     }
+    else if (parameter->type == VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT)
+    {
+        type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+        id = vkd3d_spirv_build_op_spec_constant(builder,
+                type_id, vkd3d_shader_get_default_spec_constant_value(name));
+        vkd3d_spirv_build_op_decorate1(builder,
+                id, SpvDecorationSpecId, parameter->u.specialization_constant.id);
+        return id;
+    }
 
     FIXME("Unhandled parameter type %#x.\n", parameter->type);
 
 fail:
-    id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-    return vkd3d_spirv_build_op_undef(builder, &builder->global_stream, id);
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    return vkd3d_spirv_build_op_undef(builder, &builder->global_stream, type_id);
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_construct_vector(struct vkd3d_dxbc_compiler *compiler,
