@@ -9354,6 +9354,7 @@ static void test_shader_input_output_components(void)
     struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Resource *vb;
+    unsigned int i;
     HRESULT hr;
 
     static const DWORD vs1_code[] =
@@ -9527,6 +9528,43 @@ static void test_shader_input_output_components(void)
         0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps3 = {ps3_code, sizeof(ps3_code)};
+    /* position.xyw */
+    static const DWORD ps4_code[] =
+    {
+#if 0
+        void main(float4 position : Sv_Position,
+                float2 texcoord0 : TEXCOORD0, float2 texcoord1 : TEXCOORD1,
+                float4 texcoord2 : TEXCOORD2, float3 texcoord3 : TEXCOORD3,
+                out float4 target0 : Sv_Target0, out uint4 target1 : SV_Target1)
+        {
+            if (all(position.xy < float2(64, 64)))
+                target0 = float4(0, 1, 0, 1);
+            else
+                target0 = float4(0, 0, 0, 0);
+
+            target1.xyzw = 0;
+            target1.y = position.w;
+        }
+#endif
+        0x43425844, 0x6dac90a1, 0x518a6b0a, 0x393cc320, 0x5f6fbe5e, 0x00000001, 0x00000204, 0x00000003,
+        0x0000002c, 0x000000cc, 0x00000120, 0x4e475349, 0x00000098, 0x00000005, 0x00000008, 0x00000080,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x00000b0f, 0x0000008c, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000003, 0x0000008c, 0x00000001, 0x00000000, 0x00000003, 0x00000001,
+        0x0000000c, 0x0000008c, 0x00000002, 0x00000000, 0x00000003, 0x00000002, 0x0000000f, 0x0000008c,
+        0x00000003, 0x00000000, 0x00000003, 0x00000003, 0x00000007, 0x505f7653, 0x7469736f, 0x006e6f69,
+        0x43584554, 0x44524f4f, 0xababab00, 0x4e47534f, 0x0000004c, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x0000000f, 0x00000042, 0x00000001, 0x00000000,
+        0x00000001, 0x00000001, 0x0000000f, 0x545f7653, 0x65677261, 0x56530074, 0x7261545f, 0x00746567,
+        0x52444853, 0x000000dc, 0x00000040, 0x00000037, 0x04002064, 0x001010b2, 0x00000000, 0x00000001,
+        0x03000065, 0x001020f2, 0x00000000, 0x03000065, 0x001020f2, 0x00000001, 0x02000068, 0x00000001,
+        0x0a000031, 0x00100032, 0x00000000, 0x00101046, 0x00000000, 0x00004002, 0x42800000, 0x42800000,
+        0x00000000, 0x00000000, 0x07000001, 0x00100012, 0x00000000, 0x0010001a, 0x00000000, 0x0010000a,
+        0x00000000, 0x0a000001, 0x001020f2, 0x00000000, 0x00100006, 0x00000000, 0x00004002, 0x00000000,
+        0x3f800000, 0x00000000, 0x3f800000, 0x0500001c, 0x00102022, 0x00000001, 0x0010103a, 0x00000000,
+        0x08000036, 0x001020d2, 0x00000001, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps4 = {ps4_code, sizeof(ps4_code)};
     static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
     {
         {"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT,       0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
@@ -9550,17 +9588,19 @@ static void test_shader_input_output_components(void)
         {{ 1.0f, -1.0f}, {1, 2, 3, 4}, {3.0f, 3.0f, 8.0f, 4.0f}, {9.0f, 5.0f, 3.0f, 1.0f}, {7.0f, 2.0f, 5.0f}},
         {{ 1.0f,  1.0f}, {1, 2, 3, 4}, {3.0f, 3.0f, 8.0f, 4.0f}, {9.0f, 5.0f, 3.0f, 1.0f}, {7.0f, 2.0f, 5.0f}},
     };
-    static const struct vec4 expected_vec4[] =
+    static const struct
     {
-        {1.0f, 2.0f, 3.0f, 0.0f},
-        {6.0f, 4.0f, 7.0f, 8.0f},
-        {3.0f, 8.0f, 7.0f, 7.0f},
-    };
-    static const struct uvec4 expected_uvec4[] =
+        const D3D12_SHADER_BYTECODE *vs;
+        const D3D12_SHADER_BYTECODE *ps;
+        const struct vec4 expected_vec4;
+        const struct uvec4 expected_uvec4;
+    }
+    tests[] =
     {
-        {0xdeadbeef, 0, 2, 3},
-        {         9, 5, 0, 1},
-        {         9, 0, 0, 1},
+        {&vs1, &ps1, {1.0f, 2.0f, 3.0f, 0.0f}, {0xdeadbeef, 0, 2, 3}},
+        {&vs2, &ps2, {6.0f, 4.0f, 7.0f, 8.0f}, {         9, 5, 0, 1}},
+        {&vs2, &ps3, {3.0f, 8.0f, 7.0f, 7.0f}, {         9, 0, 0, 1}},
+        {&vs2, &ps4, {0.0f, 1.0f, 0.0f, 1.0f}, {         0, 1, 0, 0}},
     };
 
     memset(&desc, 0, sizeof(desc));
@@ -9577,12 +9617,9 @@ static void test_shader_input_output_components(void)
 
     input_layout.pInputElementDescs = layout_desc;
     input_layout.NumElements = ARRAY_SIZE(layout_desc);
-    init_pipeline_state_desc(&pso_desc, context.root_signature, desc.rt_format, &vs1, &ps1, &input_layout);
+    init_pipeline_state_desc(&pso_desc, context.root_signature, desc.rt_format, NULL, NULL, &input_layout);
     pso_desc.NumRenderTargets = 2;
     pso_desc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_UINT;
-    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
-            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
 
     rtvs[0] = context.rtv;
     rtvs[1] = get_cpu_rtv_handle(&context, context.rtv_heap, 1);
@@ -9595,80 +9632,46 @@ static void test_shader_input_output_components(void)
     vbv.StrideInBytes = sizeof(*quad);
     vbv.SizeInBytes = sizeof(quad);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 2, &context.rtv, TRUE, NULL);
-    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
-    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
-    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
-    ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 0, 0);
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        vkd3d_test_set_context("Test %u", i);
 
-    transition_resource_state(command_list, context.render_target,
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_vec4[0], 0);
-    reset_command_list(command_list, context.allocator);
-    transition_resource_state(command_list, uint_render_target,
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    check_sub_resource_uvec4(uint_render_target, 0, queue, command_list, &expected_uvec4[0]);
+        pso_desc.VS = *tests[i].vs;
+        pso_desc.PS = *tests[i].ps;
+        hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+                &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+        ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
 
-    ID3D12PipelineState_Release(context.pipeline_state);
-    pso_desc.VS = vs2;
-    pso_desc.PS = ps2;
-    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
-            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
-    reset_command_list(command_list, context.allocator);
-    transition_resource_state(command_list, context.render_target,
-            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    transition_resource_state(command_list, uint_render_target,
-            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        if (i)
+        {
+            reset_command_list(command_list, context.allocator);
+            transition_resource_state(command_list, context.render_target,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            transition_resource_state(command_list, uint_render_target,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        }
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 2, &context.rtv, TRUE, NULL);
-    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
-    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
-    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
-    ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 0, 0);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 2, &context.rtv, TRUE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 0, 0);
 
-    transition_resource_state(command_list, context.render_target,
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_vec4[1], 0);
-    reset_command_list(command_list, context.allocator);
-    transition_resource_state(command_list, uint_render_target,
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    check_sub_resource_uvec4(uint_render_target, 0, queue, command_list, &expected_uvec4[1]);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_vec4(context.render_target, 0, queue, command_list, &tests[i].expected_vec4, 0);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, uint_render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uvec4(uint_render_target, 0, queue, command_list, &tests[i].expected_uvec4);
 
-    ID3D12PipelineState_Release(context.pipeline_state);
-    pso_desc.VS = vs2;
-    pso_desc.PS = ps3;
-    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
-            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
-    reset_command_list(command_list, context.allocator);
-    transition_resource_state(command_list, context.render_target,
-            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    transition_resource_state(command_list, uint_render_target,
-            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 2, &context.rtv, TRUE, NULL);
-    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
-    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
-    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
-    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
-    ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 0, 0);
-
-    transition_resource_state(command_list, context.render_target,
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_vec4[2], 0);
-    reset_command_list(command_list, context.allocator);
-    transition_resource_state(command_list, uint_render_target,
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    check_sub_resource_uvec4(uint_render_target, 0, queue, command_list, &expected_uvec4[2]);
+        ID3D12PipelineState_Release(context.pipeline_state);
+        context.pipeline_state = NULL;
+    }
+    vkd3d_test_set_context(NULL);
 
     ID3D12Resource_Release(vb);
     ID3D12Resource_Release(uint_render_target);
