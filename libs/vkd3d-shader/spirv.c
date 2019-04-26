@@ -2012,6 +2012,8 @@ struct vkd3d_dxbc_compiler
     uint32_t private_output_variable_write_mask[MAX_REG_OUTPUT + 1]; /* 1 entry for oDepth */
     uint32_t epilogue_function_id;
 
+    uint32_t current_spec_constant_id;
+
     uint32_t binding_idx;
 
     const struct vkd3d_shader_scan_info *scan_info;
@@ -2499,51 +2501,93 @@ static const struct vkd3d_shader_parameter *vkd3d_dxbc_compiler_get_shader_param
     return NULL;
 }
 
-static uint32_t vkd3d_shader_get_default_spec_constant_value(enum vkd3d_shader_parameter_name name)
+static const struct vkd3d_spec_constant_info
 {
-    switch (name)
-    {
-        case VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT:
-            return 1;
+    enum vkd3d_shader_parameter_name name;
+    uint32_t default_value;
+    const char *debug_name;
+}
+vkd3d_shader_parameters[] =
+{
+    {VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT, 1, "sample_count"},
+};
 
-        default:
-            FIXME("Unhandled parameter name %#x.\n", name);
-            return 0;
+static const struct vkd3d_spec_constant_info *get_spec_constant_info(enum vkd3d_shader_parameter_name name)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(vkd3d_shader_parameters); ++i)
+    {
+        if (vkd3d_shader_parameters[i].name == name)
+            return &vkd3d_shader_parameters[i];
     }
+
+    FIXME("Unhandled parameter name %#x.\n", name);
+    return NULL;
+}
+
+static uint32_t vkd3d_dxbc_compiler_alloc_spec_constant_id(struct vkd3d_dxbc_compiler *compiler)
+{
+    if (!compiler->current_spec_constant_id && compiler->compile_args)
+    {
+        const struct vkd3d_shader_compile_arguments *compile_args = compiler->compile_args;
+        unsigned int i, id;
+
+        for (i = 0, id = 0; i < compile_args->parameter_count; ++i)
+        {
+            const struct vkd3d_shader_parameter *current = &compile_args->parameters[i];
+
+            if (current->type == VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT)
+                id = max(current->u.specialization_constant.id, id);
+        }
+
+        compiler->current_spec_constant_id = id + 1;
+    }
+
+    return compiler->current_spec_constant_id++;
+}
+
+static uint32_t vkd3d_dxbc_compiler_emit_spec_constant(struct vkd3d_dxbc_compiler *compiler,
+        enum vkd3d_shader_parameter_name name, uint32_t spec_id)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_spec_constant_info *info;
+    uint32_t type_id, id, default_value;
+
+    info = get_spec_constant_info(name);
+    default_value = info ? info->default_value : 0;
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    id = vkd3d_spirv_build_op_spec_constant(builder, type_id, default_value);
+    vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationSpecId, spec_id);
+
+    if (info)
+        vkd3d_spirv_build_op_name(builder, id, "%s", info->debug_name);
+
+    return id;
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_uint_shader_parameter(struct vkd3d_dxbc_compiler *compiler,
         enum vkd3d_shader_parameter_name name)
 {
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_parameter *parameter;
-    uint32_t type_id, id;
 
     if (!(parameter = vkd3d_dxbc_compiler_get_shader_parameter(compiler, name)))
     {
-        FIXME("Unresolved shader parameter %#x.\n", name);
-        goto fail;
+        WARN("Unresolved shader parameter %#x.\n", name);
+        goto default_parameter;
     }
 
     if (parameter->type == VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT)
-    {
         return vkd3d_dxbc_compiler_get_constant_uint(compiler, parameter->u.immediate_constant.u.u32);
-    }
-    else if (parameter->type == VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT)
-    {
-        type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-        id = vkd3d_spirv_build_op_spec_constant(builder,
-                type_id, vkd3d_shader_get_default_spec_constant_value(name));
-        vkd3d_spirv_build_op_decorate1(builder,
-                id, SpvDecorationSpecId, parameter->u.specialization_constant.id);
-        return id;
-    }
+    if (parameter->type == VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT)
+        return vkd3d_dxbc_compiler_emit_spec_constant(compiler, name, parameter->u.specialization_constant.id);
 
     FIXME("Unhandled parameter type %#x.\n", parameter->type);
 
-fail:
-    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-    return vkd3d_spirv_build_op_undef(builder, &builder->global_stream, type_id);
+default_parameter:
+    return vkd3d_dxbc_compiler_emit_spec_constant(compiler,
+            name, vkd3d_dxbc_compiler_alloc_spec_constant_id(compiler));
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_construct_vector(struct vkd3d_dxbc_compiler *compiler,
