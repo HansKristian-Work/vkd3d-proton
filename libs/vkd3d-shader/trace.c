@@ -1042,6 +1042,17 @@ static void shader_dump_register(struct vkd3d_string_buffer *buffer,
                 }
                 shader_addline(buffer, "%u]", reg->idx[1].offset);
             }
+
+            if (reg->idx[2].offset != ~0u)
+            {
+                shader_addline(buffer, "[");
+                if (reg->idx[2].rel_addr)
+                {
+                    shader_dump_src_param(buffer, reg->idx[2].rel_addr, shader_version);
+                    shader_addline(buffer, " + ");
+                }
+                shader_addline(buffer, "%u]", reg->idx[2].offset);
+            }
         }
 
         if (reg->type == VKD3DSPR_FUNCTIONPOINTER)
@@ -1333,6 +1344,13 @@ static void shader_dump_instruction_flags(struct vkd3d_string_buffer *buffer,
     }
 }
 
+static void shader_dump_register_space(struct vkd3d_string_buffer *buffer,
+        unsigned int register_space, const struct vkd3d_shader_version *shader_version)
+{
+    if (shader_version->major >= 5 && shader_version->minor >= 1)
+        shader_addline(buffer, ", space=%u", register_space);
+}
+
 static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
         const struct vkd3d_shader_instruction *ins, const struct vkd3d_shader_version *shader_version)
 {
@@ -1346,13 +1364,17 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
             shader_dump_ins_modifiers(buffer, &ins->declaration.semantic.reg);
             shader_addline(buffer, " ");
             shader_dump_dst_param(buffer, &ins->declaration.semantic.reg, shader_version);
+            shader_dump_register_space(buffer, ins->declaration.semantic.register_space, shader_version);
             break;
 
         case VKD3DSIH_DCL_CONSTANT_BUFFER:
             shader_addline(buffer, "%s ", shader_opcode_names[ins->handler_idx]);
-            shader_dump_src_param(buffer, &ins->declaration.src, shader_version);
+            shader_dump_src_param(buffer, &ins->declaration.cb.src, shader_version);
+            if (shader_version->major >= 5 && shader_version->minor >= 1)
+                shader_addline(buffer, "[%u]", ins->declaration.cb.size);
             shader_addline(buffer, ", %s",
                     ins->flags & VKD3DSI_INDEXED_DYNAMIC ? "dynamicIndexed" : "immediateIndexed");
+            shader_dump_register_space(buffer, ins->declaration.cb.register_space, shader_version);
             break;
 
         case VKD3DSIH_DCL_FUNCTION_BODY:
@@ -1447,20 +1469,23 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
 
         case VKD3DSIH_DCL_RESOURCE_RAW:
             shader_addline(buffer, "%s ", shader_opcode_names[ins->handler_idx]);
-            shader_dump_dst_param(buffer, &ins->declaration.dst, shader_version);
+            shader_dump_dst_param(buffer, &ins->declaration.raw_resource.dst, shader_version);
+            shader_dump_register_space(buffer, ins->declaration.raw_resource.register_space, shader_version);
             break;
 
         case VKD3DSIH_DCL_RESOURCE_STRUCTURED:
             shader_addline(buffer, "%s ", shader_opcode_names[ins->handler_idx]);
             shader_dump_dst_param(buffer, &ins->declaration.structured_resource.reg, shader_version);
             shader_addline(buffer, ", %u", ins->declaration.structured_resource.byte_stride);
+            shader_dump_register_space(buffer, ins->declaration.structured_resource.register_space, shader_version);
             break;
 
         case VKD3DSIH_DCL_SAMPLER:
             shader_addline(buffer, "%s ", shader_opcode_names[ins->handler_idx]);
-            shader_dump_dst_param(buffer, &ins->declaration.dst, shader_version);
+            shader_dump_src_param(buffer, &ins->declaration.sampler.src, shader_version);
             if (ins->flags == VKD3DSI_SAMPLER_COMPARISON_MODE)
                 shader_addline(buffer, ", comparisonMode");
+            shader_dump_register_space(buffer, ins->declaration.sampler.register_space, shader_version);
             break;
 
         case VKD3DSIH_DCL_TEMPS:
@@ -1512,7 +1537,8 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
             shader_addline(buffer, "%s", shader_opcode_names[ins->handler_idx]);
             shader_dump_uav_flags(buffer, ins->flags);
             shader_addline(buffer, " ");
-            shader_dump_dst_param(buffer, &ins->declaration.dst, shader_version);
+            shader_dump_dst_param(buffer, &ins->declaration.raw_resource.dst, shader_version);
+            shader_dump_register_space(buffer, ins->declaration.raw_resource.register_space, shader_version);
             break;
 
         case VKD3DSIH_DCL_UAV_STRUCTURED:
@@ -1521,6 +1547,7 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
             shader_addline(buffer, " ");
             shader_dump_dst_param(buffer, &ins->declaration.structured_resource.reg, shader_version);
             shader_addline(buffer, ", %u", ins->declaration.structured_resource.byte_stride);
+            shader_dump_register_space(buffer, ins->declaration.structured_resource.register_space, shader_version);
             break;
 
         case VKD3DSIH_DEF:

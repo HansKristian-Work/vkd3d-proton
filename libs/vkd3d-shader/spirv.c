@@ -4671,39 +4671,42 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
         const struct vkd3d_shader_instruction *instruction)
 {
     uint32_t vec4_id, array_type_id, length_id, struct_id, pointer_type_id, var_id;
-    const struct vkd3d_shader_register *reg = &instruction->declaration.src.reg;
+    const struct vkd3d_shader_constant_buffer *cb = &instruction->declaration.cb;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const SpvStorageClass storage_class = SpvStorageClassUniform;
+    const struct vkd3d_shader_register *reg = &cb->src.reg;
     struct vkd3d_push_constant_buffer_binding *push_cb;
     struct vkd3d_symbol reg_symbol;
-    unsigned int cb_size;
 
     assert(!(instruction->flags & ~VKD3DSI_INDEXED_DYNAMIC));
 
-    cb_size = reg->idx[1].offset;
+    if (cb->register_space)
+        FIXME("Unhandled register space %u.\n", cb->register_space);
 
     if ((push_cb = vkd3d_dxbc_compiler_find_push_constant_buffer(compiler, reg)))
     {
         /* Push constant buffers are handled in
          * vkd3d_dxbc_compiler_emit_push_constant_buffers().
          */
-        unsigned int cb_size_in_bytes = cb_size * VKD3D_VEC4_SIZE * sizeof(uint32_t);
+        unsigned int cb_size_in_bytes = cb->size * VKD3D_VEC4_SIZE * sizeof(uint32_t);
         push_cb->reg = *reg;
         if (cb_size_in_bytes > push_cb->pc.size)
+        {
             WARN("Constant buffer size %u exceeds push constant size %u.\n",
                     cb_size_in_bytes, push_cb->pc.size);
+        }
         return;
     }
 
     vec4_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
-    length_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, cb_size);
+    length_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, cb->size);
     array_type_id = vkd3d_spirv_build_op_type_array(builder, vec4_id, length_id);
     vkd3d_spirv_build_op_decorate1(builder, array_type_id, SpvDecorationArrayStride, 16);
 
     struct_id = vkd3d_spirv_build_op_type_struct(builder, &array_type_id, 1);
     vkd3d_spirv_build_op_decorate(builder, struct_id, SpvDecorationBlock, NULL, 0);
     vkd3d_spirv_build_op_member_decorate1(builder, struct_id, 0, SpvDecorationOffset, 0);
-    vkd3d_spirv_build_op_name(builder, struct_id, "cb%u_struct", cb_size);
+    vkd3d_spirv_build_op_name(builder, struct_id, "cb%u_struct", cb->size);
 
     pointer_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, struct_id);
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
@@ -4756,11 +4759,14 @@ static void vkd3d_dxbc_compiler_emit_dcl_immediate_constant_buffer(struct vkd3d_
 static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    const struct vkd3d_shader_register *reg = &instruction->declaration.dst.reg;
+    const struct vkd3d_shader_register *reg = &instruction->declaration.sampler.src.reg;
     const SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t type_id, ptr_type_id, var_id;
     struct vkd3d_symbol reg_symbol;
+
+    if (instruction->declaration.sampler.register_space)
+        FIXME("Unhandled register space %u.\n", instruction->declaration.sampler.register_space);
 
     if (vkd3d_dxbc_compiler_has_combined_sampler(compiler, NULL, reg))
         return;
@@ -4980,6 +4986,10 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *co
         const struct vkd3d_shader_instruction *instruction)
 {
     const struct vkd3d_shader_semantic *semantic = &instruction->declaration.semantic;
+
+    if (semantic->register_space)
+        FIXME("Unhandled register space %u.\n", semantic->register_space);
+
     vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &semantic->reg.reg,
             semantic->resource_type, semantic->resource_data_type, 0, false);
 }
@@ -4987,25 +4997,38 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *co
 static void vkd3d_dxbc_compiler_emit_dcl_resource_raw(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &instruction->declaration.dst.reg,
+    const struct vkd3d_shader_raw_resource *resource = &instruction->declaration.raw_resource;
+
+    if (resource->register_space)
+        FIXME("Unhandled register space %u.\n", resource->register_space);
+
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &resource->dst.reg,
             VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, 0, true);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_uav_raw(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
+    const struct vkd3d_shader_raw_resource *resource = &instruction->declaration.raw_resource;
+
+    if (resource->register_space)
+        FIXME("Unhandled register space %u.\n", resource->register_space);
     if (instruction->flags)
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
-    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &instruction->declaration.dst.reg,
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &resource->dst.reg,
             VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, 0, true);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_resource_structured(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    const struct vkd3d_shader_register *reg = &instruction->declaration.structured_resource.reg.reg;
-    unsigned int stride = instruction->declaration.structured_resource.byte_stride;
+    const struct vkd3d_shader_structured_resource *resource = &instruction->declaration.structured_resource;
+    const struct vkd3d_shader_register *reg = &resource->reg.reg;
+    unsigned int stride = resource->byte_stride;
+
+    if (resource->register_space)
+        FIXME("Unhandled register space %u.\n", resource->register_space);
 
     vkd3d_dxbc_compiler_emit_resource_declaration(compiler, reg,
             VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, stride / 4, false);
@@ -5014,9 +5037,12 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource_structured(struct vkd3d_dxbc_c
 static void vkd3d_dxbc_compiler_emit_dcl_uav_structured(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    const struct vkd3d_shader_register *reg = &instruction->declaration.structured_resource.reg.reg;
-    unsigned int stride = instruction->declaration.structured_resource.byte_stride;
+    const struct vkd3d_shader_structured_resource *resource = &instruction->declaration.structured_resource;
+    const struct vkd3d_shader_register *reg = &resource->reg.reg;
+    unsigned int stride = resource->byte_stride;
 
+    if (resource->register_space)
+        FIXME("Unhandled register space %u.\n", resource->register_space);
     if (instruction->flags)
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
@@ -5029,6 +5055,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_uav_typed(struct vkd3d_dxbc_compiler *c
 {
     const struct vkd3d_shader_semantic *semantic = &instruction->declaration.semantic;
 
+    if (semantic->register_space)
+        FIXME("Unhandled register space %u.\n", semantic->register_space);
     if (instruction->flags)
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 

@@ -78,6 +78,9 @@
 
 #define VKD3D_SM4_REGISTER_MODIFIER           (0x1u << 31)
 
+#define VKD3D_SM4_ADDRESSING_SHIFT2           28
+#define VKD3D_SM4_ADDRESSING_MASK2            (0x3u << VKD3D_SM4_ADDRESSING_SHIFT2)
+
 #define VKD3D_SM4_ADDRESSING_SHIFT1           25
 #define VKD3D_SM4_ADDRESSING_MASK1            (0x3u << VKD3D_SM4_ADDRESSING_SHIFT1)
 
@@ -512,10 +515,34 @@ static const enum vkd3d_data_type data_type_table[] =
     /* VKD3D_SM4_DATA_FLOAT */    VKD3D_DATA_FLOAT,
 };
 
+static bool shader_is_sm_5_1(const struct vkd3d_sm4_data *priv)
+{
+    const struct vkd3d_shader_version *version = &priv->shader_version;
+    return version->major >= 5 && version->minor >= 1;
+}
+
 static bool shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
         enum vkd3d_data_type data_type, struct vkd3d_shader_src_param *src_param);
 static bool shader_sm4_read_dst_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
         enum vkd3d_data_type data_type, struct vkd3d_shader_dst_param *dst_param);
+
+static bool shader_sm4_read_register_space(struct vkd3d_sm4_data *priv,
+        const DWORD **ptr, const DWORD *end, unsigned int *register_space)
+{
+    *register_space = 0;
+
+    if (!shader_is_sm_5_1(priv))
+        return true;
+
+    if (*ptr >= end)
+    {
+        WARN("Invalid ptr %p >= end %p.\n", *ptr, end);
+        return false;
+    }
+
+    *register_space = *(*ptr)++;
+    return true;
+}
 
 static void shader_sm4_read_conditional_op(struct vkd3d_shader_instruction *ins,
         DWORD opcode, DWORD opcode_token, const DWORD *tokens, unsigned int token_count,
@@ -560,6 +587,7 @@ static void shader_sm4_read_dcl_resource(struct vkd3d_shader_instruction *ins,
         struct vkd3d_sm4_data *priv)
 {
     enum vkd3d_sm4_resource_type resource_type;
+    const DWORD *end = &tokens[token_count];
     enum vkd3d_sm4_data_type data_type;
     enum vkd3d_data_type reg_data_type;
     DWORD components;
@@ -575,7 +603,7 @@ static void shader_sm4_read_dcl_resource(struct vkd3d_shader_instruction *ins,
         ins->declaration.semantic.resource_type = resource_type_table[resource_type];
     }
     reg_data_type = opcode == VKD3D_SM4_OP_DCL_RESOURCE ? VKD3D_DATA_RESOURCE : VKD3D_DATA_UAV;
-    shader_sm4_read_dst_param(priv, &tokens, &tokens[token_count], reg_data_type, &ins->declaration.semantic.reg);
+    shader_sm4_read_dst_param(priv, &tokens, end, reg_data_type, &ins->declaration.semantic.reg);
 
     components = *tokens++;
     if ((components & 0xfff0) != (components & 0xf) * 0x1110)
@@ -594,25 +622,47 @@ static void shader_sm4_read_dcl_resource(struct vkd3d_shader_instruction *ins,
 
     if (reg_data_type == VKD3D_DATA_UAV)
         ins->flags = (opcode_token & VKD3D_SM5_UAV_FLAGS_MASK) >> VKD3D_SM5_UAV_FLAGS_SHIFT;
+
+    shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.semantic.register_space);
 }
 
 static void shader_sm4_read_dcl_constant_buffer(struct vkd3d_shader_instruction *ins,
         DWORD opcode, DWORD opcode_token, const DWORD *tokens, unsigned int token_count,
         struct vkd3d_sm4_data *priv)
 {
-    shader_sm4_read_src_param(priv, &tokens, &tokens[token_count], VKD3D_DATA_FLOAT, &ins->declaration.src);
+    const DWORD *end = &tokens[token_count];
+
+    shader_sm4_read_src_param(priv, &tokens, end, VKD3D_DATA_FLOAT, &ins->declaration.cb.src);
     if (opcode_token & VKD3D_SM4_INDEX_TYPE_MASK)
         ins->flags |= VKD3DSI_INDEXED_DYNAMIC;
+
+    ins->declaration.cb.size = ins->declaration.cb.src.reg.idx[1].offset;
+    ins->declaration.cb.register_space = 0;
+
+    if (shader_is_sm_5_1(priv))
+    {
+        if (tokens >= end)
+        {
+            FIXME("Invalid ptr %p >= end %p.\n", tokens, end);
+            return;
+        }
+
+        ins->declaration.cb.size = *tokens++;
+        shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.cb.register_space);
+    }
 }
 
 static void shader_sm4_read_dcl_sampler(struct vkd3d_shader_instruction *ins,
         DWORD opcode, DWORD opcode_token, const DWORD *tokens, unsigned int token_count,
         struct vkd3d_sm4_data *priv)
 {
+    const DWORD *end = &tokens[token_count];
+
     ins->flags = (opcode_token & VKD3D_SM4_SAMPLER_MODE_MASK) >> VKD3D_SM4_SAMPLER_MODE_SHIFT;
     if (ins->flags & ~VKD3D_SM4_SAMPLER_COMPARISON)
         FIXME("Unhandled sampler mode %#x.\n", ins->flags);
-    shader_sm4_read_dst_param(priv, &tokens, &tokens[token_count], VKD3D_DATA_SAMPLER, &ins->declaration.dst);
+    shader_sm4_read_src_param(priv, &tokens, end, VKD3D_DATA_SAMPLER, &ins->declaration.sampler.src);
+    shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.sampler.register_space);
 }
 
 static void shader_sm4_read_dcl_index_range(struct vkd3d_shader_instruction *ins,
@@ -808,20 +858,25 @@ static void shader_sm5_read_dcl_uav_raw(struct vkd3d_shader_instruction *ins,
         DWORD opcode, DWORD opcode_token, const DWORD *tokens, unsigned int token_count,
         struct vkd3d_sm4_data *priv)
 {
-    shader_sm4_read_dst_param(priv, &tokens, &tokens[token_count], VKD3D_DATA_UAV, &ins->declaration.dst);
+    const DWORD *end = &tokens[token_count];
+
+    shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_UAV, &ins->declaration.raw_resource.dst);
     ins->flags = (opcode_token & VKD3D_SM5_UAV_FLAGS_MASK) >> VKD3D_SM5_UAV_FLAGS_SHIFT;
+    shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.raw_resource.register_space);
 }
 
 static void shader_sm5_read_dcl_uav_structured(struct vkd3d_shader_instruction *ins,
         DWORD opcode, DWORD opcode_token, const DWORD *tokens, unsigned int token_count,
         struct vkd3d_sm4_data *priv)
 {
-    shader_sm4_read_dst_param(priv, &tokens, &tokens[token_count], VKD3D_DATA_UAV,
-            &ins->declaration.structured_resource.reg);
+    const DWORD *end = &tokens[token_count];
+
+    shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_UAV, &ins->declaration.structured_resource.reg);
     ins->flags = (opcode_token & VKD3D_SM5_UAV_FLAGS_MASK) >> VKD3D_SM5_UAV_FLAGS_SHIFT;
     ins->declaration.structured_resource.byte_stride = *tokens;
     if (ins->declaration.structured_resource.byte_stride % 4)
         FIXME("Byte stride %u is not multiple of 4.\n", ins->declaration.structured_resource.byte_stride);
+    shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.structured_resource.register_space);
 }
 
 static void shader_sm5_read_dcl_tgsm_raw(struct vkd3d_shader_instruction *ins,
@@ -850,18 +905,23 @@ static void shader_sm5_read_dcl_resource_structured(struct vkd3d_shader_instruct
         DWORD opcode, DWORD opcode_token, const DWORD *tokens, unsigned int token_count,
         struct vkd3d_sm4_data *priv)
 {
-    shader_sm4_read_dst_param(priv, &tokens, &tokens[token_count], VKD3D_DATA_RESOURCE,
-            &ins->declaration.structured_resource.reg);
+    const DWORD *end = &tokens[token_count];
+
+    shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_RESOURCE, &ins->declaration.structured_resource.reg);
     ins->declaration.structured_resource.byte_stride = *tokens;
     if (ins->declaration.structured_resource.byte_stride % 4)
         FIXME("Byte stride %u is not multiple of 4.\n", ins->declaration.structured_resource.byte_stride);
+    shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.structured_resource.register_space);
 }
 
 static void shader_sm5_read_dcl_resource_raw(struct vkd3d_shader_instruction *ins,
         DWORD opcode, DWORD opcode_token, const DWORD *tokens, unsigned int token_count,
         struct vkd3d_sm4_data *priv)
 {
-    shader_sm4_read_dst_param(priv, &tokens, &tokens[token_count], VKD3D_DATA_RESOURCE, &ins->declaration.dst);
+    const DWORD *end = &tokens[token_count];
+
+    shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_RESOURCE, &ins->declaration.dst);
+    shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.raw_resource.register_space);
 }
 
 static void shader_sm5_read_sync(struct vkd3d_shader_instruction *ins,
@@ -1470,8 +1530,26 @@ static bool shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
         }
     }
 
-    if (order > 2)
-        FIXME("Unhandled order %u.\n", order);
+    if (order < 3)
+    {
+        param->idx[2].offset = ~0u;
+        param->idx[2].rel_addr = NULL;
+    }
+    else
+    {
+        DWORD addressing = (token & VKD3D_SM4_ADDRESSING_MASK2) >> VKD3D_SM4_ADDRESSING_SHIFT2;
+        if (!(shader_sm4_read_reg_idx(priv, ptr, end, addressing, &param->idx[2])))
+        {
+            ERR("Failed to read register index.\n");
+            return false;
+        }
+    }
+
+    if (order > 3)
+    {
+        WARN("Unhandled order %u.\n", order);
+        return false;
+    }
 
     if (register_type == VKD3D_SM4_RT_IMMCONST)
     {
