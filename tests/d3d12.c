@@ -27607,6 +27607,135 @@ static void test_shader_get_render_target_sample_count(void)
     destroy_test_context(&context);
 }
 
+static void test_shader_sample_position(void)
+{
+    D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
+    ID3D12Resource *texture, *readback_texture;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    uint32_t sample_index;
+    unsigned int i;
+    D3D12_BOX box;
+    HRESULT hr;
+
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const DWORD ps_code[] =
+    {
+#if 0
+        uint index;
+        Texture2DMS<float4> t;
+
+        float4 main() : SV_Target
+        {
+            return float4(t.GetSamplePosition(index), 0, 0);
+        }
+#endif
+        0x43425844, 0x89611945, 0x2b7e06f0, 0x953a72bb, 0x1590618f, 0x00000001, 0x000000f8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000080, 0x00000050, 0x00000020,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04002058, 0x00107000, 0x00000000,
+        0x00005555, 0x03000065, 0x001020f2, 0x00000000, 0x0900006e, 0x00102032, 0x00000000, 0x00107046,
+        0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x00000000, 0x08000036, 0x001020c2, 0x00000000,
+        0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.rt_width = desc.rt_height = 1;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_texture_root_signature(context.device,
+            D3D12_SHADER_VISIBILITY_PIXEL, 1, 0);
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc = ID3D12Resource_GetDesc(context.render_target);
+    resource_desc.SampleDesc.Count = 4;
+    hr = ID3D12Device_CreateCommittedResource(context.device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&texture);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 16);
+    readback_texture = create_default_texture(context.device, 4, 1, DXGI_FORMAT_R32G32B32A32_FLOAT,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    ID3D12Device_CreateShaderResourceView(context.device, texture, NULL,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
+
+    transition_resource_state(command_list,
+            texture, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+    for (sample_index = 0; sample_index < resource_desc.SampleDesc.Count; ++sample_index)
+    {
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+        ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0,
+                get_gpu_descriptor_handle(&context, heap, 0));
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 1, &sample_index, 0);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        src_location.pResource = context.render_target;
+        src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src_location.SubresourceIndex = 0;
+        dst_location.pResource = readback_texture;
+        dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dst_location.SubresourceIndex = 0;
+        set_box(&box, 0, 0, 0, 1, 1, 1);
+        ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst_location, sample_index, 0, 0, &src_location, &box);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+
+    transition_resource_state(command_list, readback_texture,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(readback_texture, 0, &rb, queue, command_list);
+    for (i = 0; i < resource_desc.SampleDesc.Count; ++i)
+    {
+        const struct vec4 *position = get_readback_vec4(&rb, i, 0);
+
+        vkd3d_test_set_context("Sample %u", i);
+
+        ok(-1.0f <= position->x && position->x <= 1.0f, "Unexpected x %.8e.\n", position->x);
+        ok(-1.0f <= position->y && position->y <= 1.0f, "Unexpected y %.8e.\n", position->y);
+        ok(!position->z, "Unexpected z %.8e.\n", position->z);
+        ok(!position->w, "Unexpected w %.8e.\n", position->w);
+
+        if (vkd3d_test_state.debug_level > 0)
+            trace("Sample %u position {%.8e, %.8e}.\n", i, position->x, position->y);
+
+        vkd3d_test_set_context(NULL);
+    }
+    release_resource_readback(&rb);
+
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12Resource_Release(texture);
+    ID3D12Resource_Release(readback_texture);
+    destroy_test_context(&context);
+}
+
 static void test_shader_eval_attribute(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -28623,6 +28752,7 @@ START_TEST(d3d12)
     run_test(test_sample_mask);
     run_test(test_coverage);
     run_test(test_shader_get_render_target_sample_count);
+    run_test(test_shader_sample_position);
     run_test(test_shader_eval_attribute);
     run_test(test_primitive_restart);
     run_test(test_vertex_shader_stream_output);
