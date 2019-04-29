@@ -2027,7 +2027,6 @@ bool d3d12_pipeline_state_is_render_pass_compatible(const struct d3d12_pipeline_
 {
     const struct d3d12_graphics_pipeline_state *a = &state_a->u.graphics;
     const struct d3d12_graphics_pipeline_state *b = &state_b->u.graphics;
-    unsigned int i;
 
     if (!state_a != !state_b)
         return false;
@@ -2038,18 +2037,7 @@ bool d3d12_pipeline_state_is_render_pass_compatible(const struct d3d12_pipeline_
             || state_b->vk_bind_point != VK_PIPELINE_BIND_POINT_GRAPHICS)
         return false;
 
-    if (a->rt_idx != b->rt_idx)
-        return false;
-    if (a->attachment_count != b->attachment_count)
-        return false;
-
-    for (i = 0; i < a->attachment_count; ++i)
-    {
-        if (a->attachments[i].format != b->attachments[i].format)
-            return false;
-    }
-
-    return true;
+    return a->render_pass == b->render_pass;
 }
 
 STATIC_ASSERT(sizeof(struct vkd3d_shader_transform_feedback_element) == sizeof(D3D12_SO_DECLARATION_ENTRY));
@@ -2140,11 +2128,11 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         WARN("Ignoring sample quality %u.\n", desc->SampleDesc.Quality);
 
     rt_count = desc->NumRenderTargets;
-    if (rt_count > ARRAY_SIZE(graphics->attachments) - 1)
+    if (rt_count > ARRAY_SIZE(graphics->blend_attachments))
     {
         FIXME("NumRenderTargets %zu > %zu, ignoring extra formats.\n",
-                rt_count, ARRAY_SIZE(graphics->attachments) - 1);
-        rt_count = ARRAY_SIZE(graphics->attachments) - 1;
+                rt_count, ARRAY_SIZE(graphics->blend_attachments));
+        rt_count = ARRAY_SIZE(graphics->blend_attachments);
     }
 
     if (desc->DSVFormat == DXGI_FORMAT_UNKNOWN
@@ -2156,7 +2144,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             && (desc->DepthStencilState.DepthEnable || desc->DepthStencilState.StencilEnable))
     {
         const D3D12_DEPTH_STENCIL_DESC *ds_desc = &desc->DepthStencilState;
-        VkImageLayout depth_layout;
 
         if (!(format = vkd3d_get_format(desc->DSVFormat, true)))
         {
@@ -2168,51 +2155,12 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (!(format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
             FIXME("Format %#x is not depth/stencil format.\n", format->dxgi_format);
 
-        if ((ds_desc->DepthEnable && ds_desc->DepthWriteMask)
-                || (ds_desc->StencilEnable && ds_desc->StencilWriteMask))
-        {
-            depth_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-            render_pass_key.depth_stencil_write = true;
-        }
-        else
-        {
-            depth_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-            render_pass_key.depth_stencil_write = false;
-        }
-
-        graphics->attachments[0].flags = 0;
-        graphics->attachments[0].format = format->vk_format;
-        graphics->attachments[0].samples = sample_count;
         render_pass_key.depth_enable = desc->DepthStencilState.DepthEnable;
-        if (desc->DepthStencilState.DepthEnable)
-        {
-            graphics->attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-            graphics->attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        }
-        else
-        {
-            graphics->attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-            graphics->attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        }
         render_pass_key.stencil_enable = desc->DepthStencilState.StencilEnable;
-        if (desc->DepthStencilState.StencilEnable)
-        {
-            graphics->attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-            graphics->attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-        }
-        else
-        {
-            graphics->attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-            graphics->attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        }
-        graphics->attachments[0].initialLayout = depth_layout;
-        graphics->attachments[0].finalLayout = depth_layout;
-
-        graphics->attachment_references[0].attachment = 0;
-        graphics->attachment_references[0].layout = depth_layout;
-        ++graphics->rt_idx;
-
+        render_pass_key.depth_stencil_write = (ds_desc->DepthEnable && ds_desc->DepthWriteMask)
+                || (ds_desc->StencilEnable && ds_desc->StencilWriteMask);
         render_pass_key.vk_formats[0] = format->vk_format;
+        ++graphics->rt_idx;
 
         if (!desc->PS.pShaderBytecode)
         {
@@ -2258,30 +2206,11 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
         ps_output_swizzle[i] = vkd3d_get_rt_format_swizzle(format);
 
-        graphics->attachments[idx].flags = 0;
-        graphics->attachments[idx].format = format->vk_format;
-        graphics->attachments[idx].samples = sample_count;
-        graphics->attachments[idx].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        graphics->attachments[idx].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        graphics->attachments[idx].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        graphics->attachments[idx].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        graphics->attachments[idx].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        graphics->attachments[idx].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-        graphics->attachment_references[idx].attachment = idx;
-        graphics->attachment_references[idx].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
         render_pass_key.vk_formats[idx] = format->vk_format;
 
         blend_attachment_from_d3d12(&graphics->blend_attachments[i], rt_desc);
     }
     graphics->attachment_count = graphics->rt_idx + rt_count;
-
-    render_pass_key.attachment_count = graphics->rt_idx + rt_count;
-    render_pass_key.padding = 0;
-    render_pass_key.sample_count = sample_count;
-    for (i = render_pass_key.attachment_count; i < ARRAY_SIZE(render_pass_key.vk_formats); ++i)
-        render_pass_key.vk_formats[i] = VK_FORMAT_UNDEFINED;
 
     ps_shader_parameters[0].name = VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT;
     ps_shader_parameters[0].type = VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT;
@@ -2539,6 +2468,12 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             hr = E_INVALIDARG;
             goto fail;
     }
+
+    render_pass_key.attachment_count = graphics->attachment_count;
+    render_pass_key.padding = 0;
+    render_pass_key.sample_count = sample_count;
+    for (i = render_pass_key.attachment_count; i < ARRAY_SIZE(render_pass_key.vk_formats); ++i)
+        render_pass_key.vk_formats[i] = VK_FORMAT_UNDEFINED;
 
     if (FAILED(hr = vkd3d_render_pass_cache_find(&device->render_pass_cache, device,
             &render_pass_key, &graphics->render_pass)))

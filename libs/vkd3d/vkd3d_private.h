@@ -660,10 +660,8 @@ struct d3d12_graphics_pipeline_state
     size_t instance_divisor_count;
     size_t attribute_count;
 
-    VkAttachmentDescription attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
-    VkAttachmentReference attachment_references[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
     VkPipelineColorBlendAttachmentState blend_attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-    size_t attachment_count, rt_idx;
+    unsigned int attachment_count, rt_idx;
     VkRenderPass render_pass;
 
     D3D12_INDEX_BUFFER_STRIP_CUT_VALUE index_buffer_strip_cut_value;
