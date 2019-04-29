@@ -1665,7 +1665,7 @@ static HRESULT d3d12_device_init_pipeline_cache(struct d3d12_device *device)
     VkResult vr;
     int rc;
 
-    if ((rc = pthread_mutex_init(&device->pipeline_cache_mutex, NULL)))
+    if ((rc = pthread_mutex_init(&device->mutex, NULL)))
     {
         ERR("Failed to initialize mutex, error %d.\n", rc);
         return hresult_from_errno(rc);
@@ -1693,7 +1693,7 @@ static void d3d12_device_destroy_pipeline_cache(struct d3d12_device *device)
     if (device->vk_pipeline_cache)
         VK_CALL(vkDestroyPipelineCache(device->vk_device, device->vk_pipeline_cache, NULL));
 
-    pthread_mutex_destroy(&device->pipeline_cache_mutex);
+    pthread_mutex_destroy(&device->mutex);
 }
 
 D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_allocator *allocator,
@@ -1866,6 +1866,7 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
 
         vkd3d_destroy_null_resources(&device->null_resources, device);
         vkd3d_gpu_va_allocator_cleanup(&device->gpu_va_allocator);
+        vkd3d_render_pass_cache_cleanup(&device->render_pass_cache, device);
         vkd3d_fence_worker_stop(&device->fence_worker, device);
         d3d12_device_destroy_pipeline_cache(device);
         d3d12_device_destroy_vkd3d_queues(device);
@@ -3030,6 +3031,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_init_null_resources(&device->null_resources, device)))
         goto out_stop_fence_worker;
 
+    vkd3d_render_pass_cache_init(&device->render_pass_cache);
     vkd3d_gpu_va_allocator_init(&device->gpu_va_allocator);
 
     if ((device->parent = create_info->parent))

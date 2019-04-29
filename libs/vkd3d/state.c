@@ -1033,6 +1033,196 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
     return S_OK;
 }
 
+/* vkd3d_render_pass_cache */
+struct vkd3d_render_pass_entry
+{
+    struct vkd3d_render_pass_key key;
+    VkRenderPass vk_render_pass;
+};
+
+STATIC_ASSERT(sizeof(struct vkd3d_render_pass_key) == 48);
+
+static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pass_cache *cache,
+        struct d3d12_device *device, const struct vkd3d_render_pass_key *key, VkRenderPass *vk_render_pass)
+{
+    VkAttachmentReference attachment_references[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+    VkAttachmentDescription attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_render_pass_entry *entry;
+    unsigned int color_attachment_index;
+    VkSubpassDescription sub_pass_desc;
+    VkRenderPassCreateInfo pass_info;
+    bool have_depth_stencil;
+    unsigned int index;
+    VkResult vr;
+
+    if (!vkd3d_array_reserve((void **)&cache->render_passes, &cache->render_passes_size,
+            cache->render_pass_count + 1, sizeof(*cache->render_passes)))
+    {
+        *vk_render_pass = VK_NULL_HANDLE;
+        return E_OUTOFMEMORY;
+    }
+
+    entry = &cache->render_passes[cache->render_pass_count];
+
+    entry->key = *key;
+
+    have_depth_stencil = key->depth_enable || key->stencil_enable;
+    color_attachment_index = have_depth_stencil ? 1 : 0;
+
+    index = 0;
+    if (have_depth_stencil)
+    {
+        VkImageLayout depth_layout = key->depth_stencil_write
+                ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+                : VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        attachments[index].flags = 0;
+        attachments[index].format = key->vk_formats[index];
+        attachments[index].samples = key->sample_count;
+
+        if (key->depth_enable)
+        {
+            attachments[index].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            attachments[index].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        }
+        else
+        {
+            attachments[index].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            attachments[index].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        }
+        if (key->stencil_enable)
+        {
+            attachments[index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            attachments[index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+        }
+        else
+        {
+            attachments[index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            attachments[index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        }
+        attachments[index].initialLayout = depth_layout;
+        attachments[index].finalLayout = depth_layout;
+
+        attachment_references[index].attachment = 0;
+        attachment_references[index].layout = depth_layout;
+
+        ++index;
+    }
+
+    assert(index == color_attachment_index);
+    for (; index < key->attachment_count; ++index)
+    {
+
+        attachments[index].flags = 0;
+        attachments[index].format = key->vk_formats[index];
+        attachments[index].samples = key->sample_count;
+        attachments[index].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        attachments[index].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        attachments[index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachments[index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        attachments[index].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        attachments[index].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        attachment_references[index].attachment = index;
+        attachment_references[index].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
+
+    sub_pass_desc.flags = 0;
+    sub_pass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    sub_pass_desc.inputAttachmentCount = 0;
+    sub_pass_desc.pInputAttachments = NULL;
+    sub_pass_desc.colorAttachmentCount = key->attachment_count - color_attachment_index;
+    sub_pass_desc.pColorAttachments = &attachment_references[color_attachment_index];
+    sub_pass_desc.pResolveAttachments = NULL;
+    if (have_depth_stencil)
+        sub_pass_desc.pDepthStencilAttachment = &attachment_references[0];
+    else
+        sub_pass_desc.pDepthStencilAttachment = NULL;
+    sub_pass_desc.preserveAttachmentCount = 0;
+    sub_pass_desc.pPreserveAttachments = NULL;
+
+    pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    pass_info.pNext = NULL;
+    pass_info.flags = 0;
+    pass_info.attachmentCount = key->attachment_count;
+    pass_info.pAttachments = attachments;
+    pass_info.subpassCount = 1;
+    pass_info.pSubpasses = &sub_pass_desc;
+    pass_info.dependencyCount = 0;
+    pass_info.pDependencies = NULL;
+    if ((vr = VK_CALL(vkCreateRenderPass(device->vk_device, &pass_info, NULL, vk_render_pass))) >= 0)
+    {
+        entry->vk_render_pass = *vk_render_pass;
+        ++cache->render_pass_count;
+    }
+    else
+    {
+        WARN("Failed to create Vulkan render pass, vr %d.\n", vr);
+        *vk_render_pass = VK_NULL_HANDLE;
+    }
+
+    return hresult_from_vk_result(vr);
+}
+
+HRESULT vkd3d_render_pass_cache_find(struct vkd3d_render_pass_cache *cache,
+        struct d3d12_device *device, const struct vkd3d_render_pass_key *key, VkRenderPass *vk_render_pass)
+{
+    bool found = false;
+    HRESULT hr = S_OK;
+    unsigned int i;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&device->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        *vk_render_pass = VK_NULL_HANDLE;
+        return hresult_from_errno(rc);
+    }
+
+    for (i = 0; i < cache->render_pass_count; ++i)
+    {
+        struct vkd3d_render_pass_entry *current = &cache->render_passes[i];
+
+        if (!memcmp(&current->key, key, sizeof(*key)))
+        {
+            *vk_render_pass = current->vk_render_pass;
+            found = true;
+            break;
+        }
+    }
+
+    if (!found)
+        hr = vkd3d_render_pass_cache_create_pass_locked(cache, device, key, vk_render_pass);
+
+    pthread_mutex_unlock(&device->mutex);
+
+    return hr;
+}
+
+void vkd3d_render_pass_cache_init(struct vkd3d_render_pass_cache *cache)
+{
+    cache->render_passes = NULL;
+    cache->render_pass_count = 0;
+    cache->render_passes_size = 0;
+}
+
+void vkd3d_render_pass_cache_cleanup(struct vkd3d_render_pass_cache *cache,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    unsigned int i;
+
+    for (i = 0; i < cache->render_pass_count; ++i)
+    {
+        struct vkd3d_render_pass_entry *current = &cache->render_passes[i];
+        VK_CALL(vkDestroyRenderPass(device->vk_device, current->vk_render_pass, NULL));
+    }
+
+    vkd3d_free(cache->render_passes);
+    cache->render_passes = NULL;
+}
+
 struct vkd3d_pipeline_key
 {
     D3D12_PRIMITIVE_TOPOLOGY topology;
@@ -1096,7 +1286,6 @@ static void d3d12_pipeline_state_destroy_graphics(struct d3d12_pipeline_state *s
     {
         VK_CALL(vkDestroyShaderModule(device->vk_device, graphics->stages[i].module, NULL));
     }
-    VK_CALL(vkDestroyRenderPass(device->vk_device, graphics->render_pass, NULL));
 
     LIST_FOR_EACH_ENTRY_SAFE(current, e, &graphics->compiled_pipelines, struct vkd3d_compiled_pipeline, entry)
     {
@@ -1883,17 +2072,15 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
     struct vkd3d_shader_signature input_signature;
+    struct vkd3d_render_pass_key render_pass_key;
     VkShaderStageFlagBits xfb_stage = 0;
     VkSampleCountFlagBits sample_count;
-    VkSubpassDescription sub_pass_desc;
     const struct vkd3d_format *format;
-    VkRenderPassCreateInfo pass_desc;
     unsigned int instance_divisor;
     VkVertexInputRate input_rate;
     unsigned int i, j;
     size_t rt_count;
     uint32_t mask;
-    VkResult vr;
     HRESULT hr;
     int ret;
 
@@ -1983,13 +2170,20 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
         if ((ds_desc->DepthEnable && ds_desc->DepthWriteMask)
                 || (ds_desc->StencilEnable && ds_desc->StencilWriteMask))
+        {
             depth_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            render_pass_key.depth_stencil_write = true;
+        }
         else
+        {
             depth_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+            render_pass_key.depth_stencil_write = false;
+        }
 
         graphics->attachments[0].flags = 0;
         graphics->attachments[0].format = format->vk_format;
         graphics->attachments[0].samples = sample_count;
+        render_pass_key.depth_enable = desc->DepthStencilState.DepthEnable;
         if (desc->DepthStencilState.DepthEnable)
         {
             graphics->attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -2000,6 +2194,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             graphics->attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
             graphics->attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         }
+        render_pass_key.stencil_enable = desc->DepthStencilState.StencilEnable;
         if (desc->DepthStencilState.StencilEnable)
         {
             graphics->attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -2017,6 +2212,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         graphics->attachment_references[0].layout = depth_layout;
         ++graphics->rt_idx;
 
+        render_pass_key.vk_formats[0] = format->vk_format;
+
         if (!desc->PS.pShaderBytecode)
         {
             if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
@@ -2025,6 +2222,12 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
             ++graphics->stage_count;
         }
+    }
+    else
+    {
+        render_pass_key.depth_enable = false;
+        render_pass_key.stencil_enable = false;
+        render_pass_key.depth_stencil_write = false;
     }
 
     for (i = 0; i < rt_count; ++i)
@@ -2068,9 +2271,17 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         graphics->attachment_references[idx].attachment = idx;
         graphics->attachment_references[idx].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+        render_pass_key.vk_formats[idx] = format->vk_format;
+
         blend_attachment_from_d3d12(&graphics->blend_attachments[i], rt_desc);
     }
     graphics->attachment_count = graphics->rt_idx + rt_count;
+
+    render_pass_key.attachment_count = graphics->rt_idx + rt_count;
+    render_pass_key.padding = 0;
+    render_pass_key.sample_count = sample_count;
+    for (i = render_pass_key.attachment_count; i < ARRAY_SIZE(render_pass_key.vk_formats); ++i)
+        render_pass_key.vk_formats[i] = VK_FORMAT_UNDEFINED;
 
     ps_shader_parameters[0].name = VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT;
     ps_shader_parameters[0].type = VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT;
@@ -2329,35 +2540,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
     }
 
-    sub_pass_desc.flags = 0;
-    sub_pass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    sub_pass_desc.inputAttachmentCount = 0;
-    sub_pass_desc.pInputAttachments = NULL;
-    sub_pass_desc.colorAttachmentCount = rt_count;
-    sub_pass_desc.pColorAttachments = &graphics->attachment_references[graphics->rt_idx];
-    sub_pass_desc.pResolveAttachments = NULL;
-    if (graphics->rt_idx)
-        sub_pass_desc.pDepthStencilAttachment = &graphics->attachment_references[0];
-    else
-        sub_pass_desc.pDepthStencilAttachment = NULL;
-    sub_pass_desc.preserveAttachmentCount = 0;
-    sub_pass_desc.pPreserveAttachments = NULL;
-
-    pass_desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    pass_desc.pNext = NULL;
-    pass_desc.flags = 0;
-    pass_desc.attachmentCount = graphics->attachment_count;
-    pass_desc.pAttachments = graphics->attachments;
-    pass_desc.subpassCount = 1;
-    pass_desc.pSubpasses = &sub_pass_desc;
-    pass_desc.dependencyCount = 0;
-    pass_desc.pDependencies = NULL;
-    if ((vr = VK_CALL(vkCreateRenderPass(device->vk_device, &pass_desc, NULL, &graphics->render_pass))) < 0)
-    {
-        WARN("Failed to create Vulkan render pass, vr %d.\n", vr);
-        hr = hresult_from_vk_result(vr);
+    if (FAILED(hr = vkd3d_render_pass_cache_find(&device->render_pass_cache, device,
+            &render_pass_key, &graphics->render_pass)))
         goto fail;
-    }
 
     rs_desc_from_d3d12(&graphics->rs_desc, &desc->RasterizerState);
     if ((!graphics->attachment_count && !(desc->PS.pShaderBytecode && desc->PS.BytecodeLength))
@@ -2392,10 +2577,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     list_init(&graphics->compiled_pipelines);
 
     if (FAILED(hr = vkd3d_private_store_init(&state->private_store)))
-    {
-        VK_CALL(vkDestroyRenderPass(device->vk_device, graphics->render_pass, NULL));
         goto fail;
-    }
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
     state->device = device;
@@ -2497,7 +2679,7 @@ static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(const struct d3d12
     struct vkd3d_compiled_pipeline *current;
     int rc;
 
-    if (!(rc = pthread_mutex_lock(&device->pipeline_cache_mutex)))
+    if (!(rc = pthread_mutex_lock(&device->mutex)))
     {
         LIST_FOR_EACH_ENTRY(current, &graphics->compiled_pipelines, struct vkd3d_compiled_pipeline, entry)
         {
@@ -2507,7 +2689,7 @@ static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(const struct d3d12
                 break;
             }
         }
-        pthread_mutex_unlock(&device->pipeline_cache_mutex);
+        pthread_mutex_unlock(&device->mutex);
     }
     else
     {
@@ -2531,7 +2713,7 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
     compiled_pipeline->key = *key;
     compiled_pipeline->vk_pipeline = vk_pipeline;
 
-    if ((rc = pthread_mutex_lock(&device->pipeline_cache_mutex)))
+    if ((rc = pthread_mutex_lock(&device->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
         vkd3d_free(compiled_pipeline);
@@ -2551,7 +2733,7 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
     if (compiled_pipeline)
         list_add_tail(&graphics->compiled_pipelines, &compiled_pipeline->entry);
 
-    pthread_mutex_unlock(&device->pipeline_cache_mutex);
+    pthread_mutex_unlock(&device->mutex);
     return compiled_pipeline;
 }
 

@@ -184,6 +184,33 @@ void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocato
 void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator,
         D3D12_GPU_VIRTUAL_ADDRESS address) DECLSPEC_HIDDEN;
 
+struct vkd3d_render_pass_key
+{
+    unsigned int attachment_count;
+    bool depth_enable;
+    bool stencil_enable;
+    bool depth_stencil_write;
+    bool padding;
+    unsigned int sample_count;
+    VkFormat vk_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+};
+
+struct vkd3d_render_pass_entry;
+
+struct vkd3d_render_pass_cache
+{
+    struct vkd3d_render_pass_entry *render_passes;
+    size_t render_pass_count;
+    size_t render_passes_size;
+};
+
+void vkd3d_render_pass_cache_cleanup(struct vkd3d_render_pass_cache *cache,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
+HRESULT vkd3d_render_pass_cache_find(struct vkd3d_render_pass_cache *cache,
+        struct d3d12_device *device, const struct vkd3d_render_pass_key *key,
+        VkRenderPass *vk_render_pass) DECLSPEC_HIDDEN;
+void vkd3d_render_pass_cache_init(struct vkd3d_render_pass_cache *cache) DECLSPEC_HIDDEN;
+
 struct vkd3d_private_store
 {
     pthread_mutex_t mutex;
@@ -925,7 +952,8 @@ struct d3d12_device
     struct vkd3d_gpu_va_allocator gpu_va_allocator;
     struct vkd3d_fence_worker fence_worker;
 
-    pthread_mutex_t pipeline_cache_mutex;
+    pthread_mutex_t mutex;
+    struct vkd3d_render_pass_cache render_pass_cache;
     VkPipelineCache vk_pipeline_cache;
 
     VkPhysicalDeviceMemoryProperties memory_properties;
