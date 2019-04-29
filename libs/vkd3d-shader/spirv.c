@@ -1530,6 +1530,13 @@ static uint32_t vkd3d_spirv_build_op_image_query_samples(struct vkd3d_spirv_buil
             SpvOpImageQuerySamples, result_type, image_id);
 }
 
+static uint32_t vkd3d_spirv_build_op_image_query_lod(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t image_id, uint32_t coordinate_id)
+{
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            SpvOpImageQueryLod, result_type, image_id, coordinate_id);
+}
+
 static void vkd3d_spirv_build_op_emit_vertex(struct vkd3d_spirv_builder *builder)
 {
     return vkd3d_spirv_build_op(&builder->function_stream, SpvOpEmitVertex);
@@ -6966,6 +6973,32 @@ static void vkd3d_dxbc_compiler_emit_ld(struct vkd3d_dxbc_compiler *compiler,
             dst, val_id, image.sampled_type, src[1].swizzle);
 }
 
+static void vkd3d_dxbc_compiler_emit_lod(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    const struct vkd3d_shader_src_param *resource, *sampler;
+    uint32_t type_id, coordinate_id, val_id;
+    struct vkd3d_shader_image image;
+
+    vkd3d_spirv_enable_capability(builder, SpvCapabilityImageQuery);
+
+    resource = &src[1];
+    sampler = &src[2];
+    vkd3d_dxbc_compiler_prepare_image(compiler, &image,
+            &resource->reg, &sampler->reg, VKD3D_IMAGE_FLAG_SAMPLED);
+
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 2);
+    coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_ALL);
+    val_id = vkd3d_spirv_build_op_image_query_lod(builder,
+            type_id, image.sampled_image_id, coordinate_id);
+
+    vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
+            dst, val_id, image.sampled_type, resource->swizzle);
+}
+
 static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -8257,6 +8290,9 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_LD2DMS:
         case VKD3DSIH_LD:
             vkd3d_dxbc_compiler_emit_ld(compiler, instruction);
+            break;
+        case VKD3DSIH_LOD:
+            vkd3d_dxbc_compiler_emit_lod(compiler, instruction);
             break;
         case VKD3DSIH_SAMPLE:
         case VKD3DSIH_SAMPLE_B:
