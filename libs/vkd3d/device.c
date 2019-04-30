@@ -2129,6 +2129,22 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
 
             *data = device->feature_options;
 
+            TRACE("Double precision shader ops %#x.\n", data->DoublePrecisionFloatShaderOps);
+            TRACE("Output merger logic op %#x.\n", data->OutputMergerLogicOp);
+            TRACE("Shader min precision support %#x.\n", data->MinPrecisionSupport);
+            TRACE("Tiled resources tier %#x.\n", data->TiledResourcesTier);
+            TRACE("Resource binding tier %#x.\n", data->ResourceBindingTier);
+            TRACE("PS specified stencil ref %#x.\n", data->PSSpecifiedStencilRefSupported);
+            TRACE("Typed UAV load and additional formats %#x.\n", data->TypedUAVLoadAdditionalFormats);
+            TRACE("ROV %#x.\n", data->ROVsSupported);
+            TRACE("Conservative rasterization tier %#x.\n", data->ConservativeRasterizationTier);
+            TRACE("Max GPU virtual address bits per resource %u.\n", data->MaxGPUVirtualAddressBitsPerResource);
+            TRACE("Standard swizzle 64KB %#x.\n", data->StandardSwizzle64KBSupported);
+            TRACE("Cross-node sharing tier %#x.\n", data->CrossNodeSharingTier);
+            TRACE("Cross-adapter row-major texture %#x.\n", data->CrossAdapterRowMajorTextureSupported);
+            TRACE("VP and RT array index from any shader without GS emulation %#x.\n",
+                    data->VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation);
+            TRACE("Resource heap tier %#x.\n", data->ResourceHeapTier);
             return S_OK;
         }
 
@@ -2148,7 +2164,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
                 return E_INVALIDARG;
             }
 
-            FIXME("Assuming device does not support tile based rendering.\n");
+            WARN("Assuming device does not support tile based rendering.\n");
             data->TileBasedRenderer = FALSE;
 
             data->UMA = TRUE;
@@ -2160,7 +2176,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
                 if (!(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
                     data->CacheCoherentUMA = FALSE;
             }
-            TRACE("UMA: %#x CacheCoherentUMA: %#x.\n", data->UMA, data->CacheCoherentUMA);
+
+            TRACE("Tile based renderer %#x, UMA %#x, cache coherent UMA %#x.\n",
+                    data->TileBasedRenderer, data->UMA, data->CacheCoherentUMA);
             return S_OK;
         }
 
@@ -2185,6 +2203,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
                 if (data->MaxSupportedFeatureLevel < fl && fl <= vulkan_info->max_feature_level)
                     data->MaxSupportedFeatureLevel = fl;
             }
+
+            TRACE("Max supported feature level %#x.\n", data->MaxSupportedFeatureLevel);
             return S_OK;
         }
 
@@ -2258,6 +2278,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
 
             vkd3d_restrict_format_support_for_feature_level(data);
 
+            TRACE("Format %#x, support1 %#x, support2 %#x.\n", data->Format, data->Support1, data->Support2);
             return S_OK;
         }
 
@@ -2287,6 +2308,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
 
             data->MaxGPUVirtualAddressBitsPerResource = options->MaxGPUVirtualAddressBitsPerResource;
             data->MaxGPUVirtualAddressBitsPerProcess = options->MaxGPUVirtualAddressBitsPerResource;
+
+            TRACE("Max GPU virtual address bits per resource %u, Max GPU virtual address bits per process %u.\n",
+                    data->MaxGPUVirtualAddressBitsPerResource, data->MaxGPUVirtualAddressBitsPerProcess);
             return S_OK;
         }
 
@@ -2303,6 +2327,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             TRACE("Request shader model %#x.\n", data->HighestShaderModel);
 
             data->HighestShaderModel = D3D_SHADER_MODEL_5_1;
+
+            TRACE("Shader model %#x.\n", data->HighestShaderModel);
             return S_OK;
         }
 
@@ -2318,6 +2344,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
 
             FIXME("Root signature version 1_1 not supported yet.\n");
             data->HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+
+            TRACE("Root signature version %#x.\n", data->HighestVersion);
             return S_OK;
         }
 
