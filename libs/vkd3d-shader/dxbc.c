@@ -3080,7 +3080,7 @@ static int convert_root_parameters_to_v_1_0(struct vkd3d_root_parameter *dst,
                 }
                 p->u.descriptor_table.descriptor_ranges = ranges;
                 ranges1 = p1->u.descriptor_table.descriptor_ranges;
-                for (j = 0; j < p1->u.descriptor_table.descriptor_range_count; ++j)
+                for (j = 0; j < p->u.descriptor_table.descriptor_range_count; ++j)
                 {
                     ranges[j].range_type = ranges1[j].range_type;
                     ranges[j].descriptor_count = ranges1[j].descriptor_count;
@@ -3199,7 +3199,7 @@ static int convert_root_parameters_to_v_1_1(struct vkd3d_root_parameter1 *dst,
                 }
                 p1->u.descriptor_table.descriptor_ranges = ranges1;
                 ranges = p->u.descriptor_table.descriptor_ranges;
-                for (j = 0; j < p->u.descriptor_table.descriptor_range_count; ++j)
+                for (j = 0; j < p1->u.descriptor_table.descriptor_range_count; ++j)
                 {
                     ranges1[j].range_type = ranges[j].range_type;
                     ranges1[j].descriptor_count = ranges[j].descriptor_count;
