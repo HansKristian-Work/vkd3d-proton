@@ -113,6 +113,11 @@ struct vkd3d_vulkan_info
     D3D_FEATURE_LEVEL max_feature_level;
 };
 
+enum vkd3d_config_flags
+{
+    VKD3D_CONFIG_FLAG_VULKAN_DEBUG = 0x00000001,
+};
+
 struct vkd3d_instance
 {
     VkInstance vk_instance;
@@ -126,6 +131,8 @@ struct vkd3d_instance
     struct vkd3d_vulkan_info vk_info;
     struct vkd3d_vk_global_procs vk_global_procs;
     void *libvulkan;
+
+    uint64_t config_flags;
 
     VkDebugReportCallbackEXT vk_debug_callback;
 

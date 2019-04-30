@@ -25,6 +25,7 @@
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 
 #define VKD3D_DEBUG_BUFFER_COUNT 64
@@ -315,4 +316,42 @@ unsigned int vkd3d_env_var_as_uint(const char *name, unsigned int default_value)
     }
 
     return default_value;
+}
+
+static bool is_option_separator(char c)
+{
+    return c == ',' || c == ';' || c == '\0';
+}
+
+uint64_t vkd3d_parse_debug_options(const char *string,
+        const struct vkd3d_debug_option *options, unsigned int option_count)
+{
+    char prev_char, next_char;
+    uint64_t flags = 0;
+    unsigned int i;
+    const char *p;
+
+    for (i = 0; i < option_count; ++i)
+    {
+        const struct vkd3d_debug_option *opt = &options[i];
+
+        p = string;
+        while (p)
+        {
+            if ((p = strstr(p, opt->name)))
+            {
+                prev_char = p > string ? p[-1] : 0;
+                p += strlen(opt->name);
+                next_char = *p;
+
+                if (is_option_separator(prev_char) && is_option_separator(next_char))
+                {
+                    flags |= opt->flag;
+                    break;
+                }
+            }
+        }
+    }
+
+    return flags;
 }
