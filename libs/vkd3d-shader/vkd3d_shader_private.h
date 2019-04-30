@@ -883,13 +883,14 @@ static inline unsigned int vkd3d_write_mask_get_component_idx(DWORD write_mask)
 
 static inline unsigned int vkd3d_write_mask_component_count(DWORD write_mask)
 {
-    assert(write_mask);
-    return vkd3d_popcount(write_mask & VKD3DSP_WRITEMASK_ALL);
+    unsigned int count = vkd3d_popcount(write_mask & VKD3DSP_WRITEMASK_ALL);
+    assert(1 <= count && count <= VKD3D_VEC4_SIZE);
+    return count;
 }
 
 static inline unsigned int vkd3d_write_mask_from_component_count(unsigned int component_count)
 {
-    assert(component_count <= 4);
+    assert(component_count <= VKD3D_VEC4_SIZE);
     return (VKD3DSP_WRITEMASK_0 << component_count) - 1;
 }
 
