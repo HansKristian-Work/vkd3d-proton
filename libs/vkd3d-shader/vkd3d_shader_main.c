@@ -401,7 +401,7 @@ struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
     e = signature->elements;
     for (i = 0; i < signature->element_count; ++i)
     {
-        if (!strcasecmp(e[i].semantic_name, semantic_name)
+        if (!ascii_strcasecmp(e[i].semantic_name, semantic_name)
                 && e[i].semantic_index == semantic_index
                 && e[i].stream_index == stream_index)
             return &e[i];

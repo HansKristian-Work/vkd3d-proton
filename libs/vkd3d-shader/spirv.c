@@ -3709,7 +3709,7 @@ static void vkd3d_dxbc_compiler_decorate_xfb_output(struct vkd3d_dxbc_compiler *
         const struct vkd3d_shader_transform_feedback_element *e = &xfb_info->elements[i];
 
         if (e->stream_index == signature_element->stream_index
-                && !strcasecmp(e->semantic_name, signature_element->semantic_name)
+                && !ascii_strcasecmp(e->semantic_name, signature_element->semantic_name)
                 && e->semantic_index == signature_element->semantic_index)
         {
             xfb_element = e;

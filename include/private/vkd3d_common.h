@@ -88,6 +88,29 @@ static inline unsigned int vkd3d_log2i(unsigned int x)
 #endif
 }
 
+static inline int ascii_isupper(int c)
+{
+    return 'A' <= c && c <= 'Z';
+}
+
+static inline int ascii_tolower(int c)
+{
+    return ascii_isupper(c) ? c - 'A' + 'a' : c;
+}
+
+static inline int ascii_strcasecmp(const char *a, const char *b)
+{
+    int c_a, c_b;
+
+    do
+    {
+        c_a = ascii_tolower(*a++);
+        c_b = ascii_tolower(*b++);
+    } while (c_a == c_b && c_a != '\0');
+
+    return c_a - c_b;
+}
+
 #ifndef _WIN32
 # if HAVE_SYNC_ADD_AND_FETCH
 static inline LONG InterlockedIncrement(LONG volatile *x)
