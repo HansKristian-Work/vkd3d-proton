@@ -530,6 +530,12 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         buffer_info.usage |= VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
 
     /* Buffers always have properties of D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS. */
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
+    {
+        WARN("D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS cannot be set for buffers.\n");
+        return E_INVALIDARG;
+    }
+
     buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
     buffer_info.queueFamilyIndexCount = device->queue_family_count;
     buffer_info.pQueueFamilyIndices = device->queue_family_indices;
