@@ -287,6 +287,7 @@ struct vkd3d_signaled_semaphore
     uint64_t value;
     VkSemaphore vk_semaphore;
     VkFence vk_fence;
+    bool is_acquired;
 };
 
 /* ID3D12Fence */
