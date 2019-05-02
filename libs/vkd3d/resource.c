@@ -621,11 +621,18 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
         image_info.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
 
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
-        FIXME("Ignoring D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS.\n");
-
-    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    image_info.queueFamilyIndexCount = 0;
-    image_info.pQueueFamilyIndices = NULL;
+    {
+        TRACE("Creating image with VK_SHARING_MODE_CONCURRENT.\n");
+        image_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+        image_info.queueFamilyIndexCount = device->queue_family_count;
+        image_info.pQueueFamilyIndices = device->queue_family_indices;
+    }
+    else
+    {
+        image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        image_info.queueFamilyIndexCount = 0;
+        image_info.pQueueFamilyIndices = NULL;
+    }
 
     image_info.initialLayout = is_cpu_accessible_heap(heap_properties) ?
             VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
