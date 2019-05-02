@@ -279,6 +279,14 @@ HRESULT vkd3d_set_private_data(struct vkd3d_private_store *store,
 HRESULT vkd3d_set_private_data_interface(struct vkd3d_private_store *store,
         const GUID *tag, const IUnknown *object) DECLSPEC_HIDDEN;
 
+struct vkd3d_signaled_semaphore
+{
+    struct list entry;
+    uint64_t value;
+    VkSemaphore vk_semaphore;
+    VkFence vk_fence;
+};
+
 /* ID3D12Fence */
 struct d3d12_fence
 {
@@ -296,14 +304,8 @@ struct d3d12_fence
     size_t events_size;
     size_t event_count;
 
-    struct vkd3d_signaled_semaphore
-    {
-        uint64_t value;
-        VkSemaphore vk_semaphore;
-        VkFence vk_fence;
-    } *semaphores;
-    size_t semaphores_size;
-    size_t semaphore_count;
+    struct list semaphores;
+    unsigned int semaphore_count;
 
     VkFence old_vk_fences[VKD3D_MAX_VK_SYNC_OBJECTS_PER_D3D12_FENCE];
 
