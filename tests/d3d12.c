@@ -28611,6 +28611,230 @@ skip_tests:
     destroy_test_context(&context);
 }
 
+static void test_graphics_compute_queue_synchronization(void)
+{
+    ID3D12GraphicsCommandList *graphics_lists[2], *compute_lists[2];
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12PipelineState *compute_pipeline_state;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    ID3D12CommandQueue *queue, *compute_queue;
+    ID3D12DescriptorHeap *cpu_heap, *gpu_heap;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    ID3D12CommandAllocator *allocators[3];
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Fence *fence, *fence2;
+    ID3D12Resource *buffer;
+    ID3D12Device *device;
+    uint32_t value;
+    unsigned int i;
+    HRESULT hr;
+
+    unsigned int clear_value[4] = {0};
+    static const DWORD cs_code[] =
+    {
+#if 0
+        uint expected_value;
+        RWByteAddressBuffer u : register(u1);
+
+        [numthreads(64, 1, 1)]
+        void main(void)
+        {
+            u.InterlockedCompareStore(0, expected_value, expected_value + 10);
+        }
+#endif
+        0x43425844, 0x7909aab0, 0xf8576455, 0x58f9dd61, 0x3e7e64f0, 0x00000001, 0x000000e0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x0000008c, 0x00050050, 0x00000023, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300009d, 0x0011e000, 0x00000001, 0x02000068,
+        0x00000001, 0x0400009b, 0x00000040, 0x00000001, 0x00000001, 0x0800001e, 0x00100012, 0x00000000,
+        0x0020800a, 0x00000000, 0x00000000, 0x00004001, 0x0000000a, 0x0a0000ac, 0x0011e000, 0x00000001,
+        0x00004001, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0010000a, 0x00000000, 0x0100003e,
+    };
+    static const DWORD ps_code[] =
+    {
+#if 0
+        uint expected_value;
+        RWByteAddressBuffer u;
+
+        float4 main(void) : SV_Target
+        {
+            u.InterlockedCompareStore(0, expected_value, expected_value + 2);
+            return float4(0, 1, 0, 1);
+        }
+#endif
+        0x43425844, 0x82fbce04, 0xa014204c, 0xc4d46d91, 0x1081c7a7, 0x00000001, 0x00000120, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000a8, 0x00000050, 0x0000002a,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300009d, 0x0011e000, 0x00000001,
+        0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0800001e, 0x00100012, 0x00000000,
+        0x0020800a, 0x00000000, 0x00000000, 0x00004001, 0x00000002, 0x0a0000ac, 0x0011e000, 0x00000001,
+        0x00004001, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0010000a, 0x00000000, 0x08000036,
+        0x001020f2, 0x00000000, 0x00004002, 0x00000000, 0x3f800000, 0x00000000, 0x3f800000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    queue = context.queue;
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[0].Descriptor.ShaderRegister = 1;
+    root_parameters[0].Descriptor.RegisterSpace = 0;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[1].Constants.ShaderRegister = 0;
+    root_parameters[1].Constants.RegisterSpace = 0;
+    root_parameters[1].Constants.Num32BitValues = 1;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    compute_pipeline_state = create_compute_pipeline_state(device, context.root_signature,
+            shader_bytecode(cs_code, sizeof(cs_code)));
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
+
+    compute_queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_COMPUTE, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence2);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+
+    buffer = create_default_buffer(device, 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            &IID_ID3D12CommandAllocator, (void **)&allocators[0]);
+    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            allocators[0], NULL, &IID_ID3D12GraphicsCommandList, (void **)&graphics_lists[0]);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+
+    graphics_lists[1] = context.list;
+    ID3D12GraphicsCommandList_AddRef(graphics_lists[1]);
+
+    for (i = 0; i < ARRAY_SIZE(compute_lists); ++i)
+    {
+        hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+                &IID_ID3D12CommandAllocator, (void **)&allocators[i + 1]);
+        ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
+        hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+                allocators[i + 1], NULL, &IID_ID3D12GraphicsCommandList, (void **)&compute_lists[i]);
+        ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+    }
+
+    cpu_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    gpu_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.Format = DXGI_FORMAT_R32_UINT;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Buffer.NumElements = 1024 / sizeof(uint32_t);
+    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, cpu_heap, 0));
+    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, gpu_heap, 0));
+
+    ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(compute_lists[0],
+            get_gpu_descriptor_handle(&context, gpu_heap, 0),
+            get_cpu_descriptor_handle(&context, cpu_heap, 0),
+            buffer, clear_value, 0, NULL);
+    uav_barrier(compute_lists[0], buffer);
+
+    value = 0;
+    for (i = 0; i < ARRAY_SIZE(compute_lists); ++i)
+    {
+        command_list = compute_lists[i];
+
+        ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, compute_pipeline_state);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list,
+                0, ID3D12Resource_GetGPUVirtualAddress(buffer));
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(command_list, 1, 1, &value, 0);
+        ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
+        hr = ID3D12GraphicsCommandList_Close(command_list);
+        ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
+
+        value += 10;
+
+        command_list = graphics_lists[i];
+
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(command_list,
+                0, ID3D12Resource_GetGPUVirtualAddress(buffer));
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 1, &value, 0);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+        hr = ID3D12GraphicsCommandList_Close(command_list);
+        ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
+
+        value += 2;
+    }
+
+    exec_command_list(compute_queue, compute_lists[0]);
+    hr = ID3D12CommandQueue_Signal(compute_queue, fence, 1);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+
+    hr = ID3D12CommandQueue_Wait(queue, fence, 1);
+    ok(hr == S_OK, "Failed to submit wait operation to queue, hr %#x.\n", hr);
+    exec_command_list(queue, graphics_lists[0]);
+    hr = ID3D12CommandQueue_Signal(queue, fence2, 1);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+
+    hr = ID3D12CommandQueue_Wait(compute_queue, fence2, 1);
+    ok(hr == S_OK, "Failed to submit wait operation to queue, hr %#x.\n", hr);
+    exec_command_list(compute_queue, compute_lists[1]);
+    hr = ID3D12CommandQueue_Signal(compute_queue, fence, 2);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+
+    hr = ID3D12CommandQueue_Wait(queue, fence, 2);
+    ok(hr == S_OK, "Failed to submit wait operation to queue, hr %#x.\n", hr);
+    exec_command_list(queue, graphics_lists[1]);
+
+    hr = wait_for_fence(fence2, 1);
+    ok(hr == S_OK, "Failed to wait for fence, hr %#x.\n", hr);
+    reset_command_list(graphics_lists[0], allocators[0]);
+    command_list = graphics_lists[0];
+
+    transition_resource_state(command_list, buffer,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    value = get_readback_uint(&rb, 0, 0, 0);
+    ok(value == 24, "Got unexpected value %u.\n", value);
+    release_resource_readback(&rb);
+
+    ID3D12DescriptorHeap_Release(cpu_heap);
+    ID3D12DescriptorHeap_Release(gpu_heap);
+    for (i = 0; i < ARRAY_SIZE(graphics_lists); ++i)
+        ID3D12GraphicsCommandList_Release(graphics_lists[i]);
+    for (i = 0; i < ARRAY_SIZE(compute_lists); ++i)
+        ID3D12GraphicsCommandList_Release(compute_lists[i]);
+    for (i = 0; i < ARRAY_SIZE(allocators); ++i)
+        ID3D12CommandAllocator_Release(allocators[i]);
+    ID3D12Fence_Release(fence);
+    ID3D12Fence_Release(fence2);
+    ID3D12Resource_Release(buffer);
+    ID3D12CommandQueue_Release(compute_queue);
+    ID3D12PipelineState_Release(compute_pipeline_state);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     parse_args(argc, argv);
@@ -28761,4 +28985,5 @@ START_TEST(d3d12)
     run_test(test_vertex_shader_stream_output);
     run_test(test_read_write_subresource);
     run_test(test_queue_wait);
+    run_test(test_graphics_compute_queue_synchronization);
 }
