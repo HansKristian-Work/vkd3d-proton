@@ -1449,22 +1449,31 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
     device->compute_queue = NULL;
     device->copy_queue = NULL;
 
-    if (FAILED((hr = vkd3d_queue_create(device, direct_family_index,
+    device->queue_family_count = 0;
+    memset(device->queue_family_indices, 0, sizeof(device->queue_family_indices));
+
+    if (SUCCEEDED((hr = vkd3d_queue_create(device, direct_family_index,
             &queue_info->vk_properties[VKD3D_QUEUE_FAMILY_DIRECT], &device->direct_queue))))
+        device->queue_family_indices[device->queue_family_count++] = direct_family_index;
+    else
         goto out_destroy_queues;
 
     if (compute_family_index == direct_family_index)
         device->compute_queue = device->direct_queue;
-    else if (FAILED(hr = vkd3d_queue_create(device, compute_family_index,
+    else if (SUCCEEDED(hr = vkd3d_queue_create(device, compute_family_index,
             &queue_info->vk_properties[VKD3D_QUEUE_FAMILY_COMPUTE], &device->compute_queue)))
+        device->queue_family_indices[device->queue_family_count++] = compute_family_index;
+    else
         goto out_destroy_queues;
 
     if (transfer_family_index == direct_family_index)
         device->copy_queue = device->direct_queue;
     else if (transfer_family_index == compute_family_index)
         device->copy_queue = device->compute_queue;
-    else if (FAILED(hr = vkd3d_queue_create(device, transfer_family_index,
+    else if (SUCCEEDED(hr = vkd3d_queue_create(device, transfer_family_index,
             &queue_info->vk_properties[VKD3D_QUEUE_FAMILY_TRANSFER], &device->copy_queue)))
+        device->queue_family_indices[device->queue_family_count++] = transfer_family_index;
+    else
         goto out_destroy_queues;
 
     return S_OK;

@@ -48,8 +48,9 @@
 #define VKD3D_DESCRIPTOR_MAGIC_DSV     0x00565344u
 #define VKD3D_DESCRIPTOR_MAGIC_RTV     0x00565452u
 
-#define VKD3D_MAX_SHADER_STAGES     5u
-#define VKD3D_MAX_VK_SYNC_OBJECTS_PER_D3D12_FENCE 4
+#define VKD3D_MAX_QUEUE_FAMILY_COUNT              3u
+#define VKD3D_MAX_SHADER_STAGES                   5u
+#define VKD3D_MAX_VK_SYNC_OBJECTS_PER_D3D12_FENCE 4u
 
 struct d3d12_command_list;
 struct d3d12_device;
@@ -970,6 +971,8 @@ struct d3d12_device
     struct vkd3d_queue *direct_queue;
     struct vkd3d_queue *compute_queue;
     struct vkd3d_queue *copy_queue;
+    uint32_t queue_family_indices[VKD3D_MAX_QUEUE_FAMILY_COUNT];
+    unsigned int queue_family_count;
 
     struct vkd3d_instance *vkd3d_instance;
 
