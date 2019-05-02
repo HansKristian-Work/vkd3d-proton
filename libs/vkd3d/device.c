@@ -1425,12 +1425,12 @@ struct vkd3d_device_queue_info
 static void d3d12_device_destroy_vkd3d_queues(struct d3d12_device *device)
 {
     if (device->direct_queue)
-        vkd3d_queue_destroy(device->direct_queue);
+        vkd3d_queue_destroy(device->direct_queue, device);
     if (device->compute_queue && device->compute_queue != device->direct_queue)
-        vkd3d_queue_destroy(device->compute_queue);
+        vkd3d_queue_destroy(device->compute_queue, device);
     if (device->copy_queue && device->copy_queue != device->direct_queue
             && device->copy_queue != device->compute_queue)
-        vkd3d_queue_destroy(device->copy_queue);
+        vkd3d_queue_destroy(device->copy_queue, device);
 
     device->direct_queue = NULL;
     device->compute_queue = NULL;

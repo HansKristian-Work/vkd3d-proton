@@ -157,7 +157,9 @@ struct vkd3d_fence_worker
     struct vkd3d_waiting_fence
     {
         struct d3d12_fence *fence;
-        UINT64 value;
+        uint64_t value;
+        struct vkd3d_queue *queue;
+        uint64_t queue_sequence_number;
     } *fences;
     size_t fences_size;
 
@@ -882,17 +884,30 @@ struct vkd3d_queue
 {
     /* Access to VkQueue must be externally synchronized. */
     pthread_mutex_t mutex;
+
     VkQueue vk_queue;
+
+    uint64_t completed_sequence_number;
+    uint64_t submitted_sequence_number;
+
     uint32_t vk_family_index;
     VkQueueFlags vk_queue_flags;
     uint32_t timestamp_bits;
+
+    struct
+    {
+        VkSemaphore vk_semaphore;
+        uint64_t sequence_number;
+    } *semaphores;
+    size_t semaphores_size;
+    size_t semaphore_count;
 };
 
 VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue) DECLSPEC_HIDDEN;
 HRESULT vkd3d_queue_create(struct d3d12_device *device,
         uint32_t family_index, const VkQueueFamilyProperties *properties,
         struct vkd3d_queue **queue) DECLSPEC_HIDDEN;
-void vkd3d_queue_destroy(struct vkd3d_queue *queue) DECLSPEC_HIDDEN;
+void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_queue_release(struct vkd3d_queue *queue) DECLSPEC_HIDDEN;
 
 /* ID3D12CommandQueue */
