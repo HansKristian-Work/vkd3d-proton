@@ -161,6 +161,21 @@ static void vkd3d_queue_update_sequence_number(struct vkd3d_queue *queue,
     pthread_mutex_unlock(&queue->mutex);
 }
 
+static uint64_t vkd3d_queue_reset_sequence_number_locked(struct vkd3d_queue *queue)
+{
+    unsigned int i;
+
+    WARN("Ressetting sequence number for queue %p.\n", queue);
+
+    queue->completed_sequence_number = 0;
+    queue->submitted_sequence_number = 1;
+
+    for (i = 0; i < queue->semaphore_count; ++i)
+        queue->semaphores[i].sequence_number = queue->submitted_sequence_number;
+
+    return queue->submitted_sequence_number;
+}
+
 /* Fence worker thread */
 static HRESULT vkd3d_enqueue_gpu_fence(struct vkd3d_fence_worker *worker,
         VkFence vk_fence, struct d3d12_fence *fence, uint64_t value,
@@ -5298,11 +5313,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
     }
 
     if ((vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, vk_fence))) >= 0)
+    {
         sequence_number = ++vkd3d_queue->submitted_sequence_number;
 
-    vkd3d_queue_release(vkd3d_queue);
+        /* We don't expect to overrun the 64-bit counter, but we handle it gracefully anyway. */
+        if (!sequence_number)
+            sequence_number = vkd3d_queue_reset_sequence_number_locked(vkd3d_queue);
+    }
 
-    assert(sequence_number != ~(uint64_t)0);
+    vkd3d_queue_release(vkd3d_queue);
 
     if (vr < 0)
     {
