@@ -2744,9 +2744,6 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         b->stride = strides[binding];
         b->inputRate = graphics->input_rates[binding];
 
-        if (!b->stride)
-            FIXME("Invalid stride for input slot %u.\n", binding);
-
         pipeline_key.strides[binding_count] = strides[binding];
 
         ++binding_count;
