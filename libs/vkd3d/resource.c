@@ -549,6 +549,9 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         buffer_info.pQueueFamilyIndices = NULL;
     }
 
+    if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+        FIXME("Unsupported resource flags %#x.\n", desc->Flags);
+
     if ((vr = VK_CALL(vkCreateBuffer(device->vk_device, &buffer_info, NULL, vk_buffer))) < 0)
     {
         WARN("Failed to create Vulkan buffer, vr %d.\n", vr);
@@ -672,6 +675,7 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     HRESULT hr;
 
     assert(desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER);
+    assert(d3d12_resource_validate_desc(desc) == S_OK);
 
     if (!desc->MipLevels)
     {
@@ -1190,6 +1194,22 @@ struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface)
     return impl_from_ID3D12Resource(iface);
 }
 
+static void d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
+{
+    unsigned int unknown_flags = flags & ~(D3D12_RESOURCE_FLAG_NONE
+            | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET
+            | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL
+            | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
+            | D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE
+            | D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER
+            | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS);
+
+    if (unknown_flags)
+        FIXME("Unknown resource flags %#x.\n", unknown_flags);
+    if (flags & D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER)
+        FIXME("Ignoring D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER.\n");
+}
+
 HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc)
 {
     switch (desc->Dimension)
@@ -1227,6 +1247,8 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc)
             WARN("Invalid resource dimension %#x.\n", desc->Dimension);
             return E_INVALIDARG;
     }
+
+    d3d12_validate_resource_flags(desc->Flags);
 
     /* FIXME: Validate alignment for textures. */
 
