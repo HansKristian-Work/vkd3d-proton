@@ -48,9 +48,9 @@
 #define VKD3D_DESCRIPTOR_MAGIC_DSV     0x00565344u
 #define VKD3D_DESCRIPTOR_MAGIC_RTV     0x00565452u
 
-#define VKD3D_MAX_QUEUE_FAMILY_COUNT              3u
-#define VKD3D_MAX_SHADER_STAGES                   5u
-#define VKD3D_MAX_VK_SYNC_OBJECTS_PER_D3D12_FENCE 4u
+#define VKD3D_MAX_QUEUE_FAMILY_COUNT 3u
+#define VKD3D_MAX_SHADER_STAGES      5u
+#define VKD3D_MAX_VK_SYNC_OBJECTS    4u
 
 struct d3d12_command_list;
 struct d3d12_device;
@@ -310,7 +310,7 @@ struct d3d12_fence
     struct list semaphores;
     unsigned int semaphore_count;
 
-    VkFence old_vk_fences[VKD3D_MAX_VK_SYNC_OBJECTS_PER_D3D12_FENCE];
+    VkFence old_vk_fences[VKD3D_MAX_VK_SYNC_OBJECTS];
 
     struct d3d12_device *device;
 
@@ -902,6 +902,8 @@ struct vkd3d_queue
     } *semaphores;
     size_t semaphores_size;
     size_t semaphore_count;
+
+    VkSemaphore old_vk_semaphores[VKD3D_MAX_VK_SYNC_OBJECTS];
 };
 
 VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue) DECLSPEC_HIDDEN;
