@@ -536,9 +536,18 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
-    buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
-    buffer_info.queueFamilyIndexCount = device->queue_family_count;
-    buffer_info.pQueueFamilyIndices = device->queue_family_indices;
+    if (device->queue_family_count > 1)
+    {
+        buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+        buffer_info.queueFamilyIndexCount = device->queue_family_count;
+        buffer_info.pQueueFamilyIndices = device->queue_family_indices;
+    }
+    else
+    {
+        buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        buffer_info.queueFamilyIndexCount = 0;
+        buffer_info.pQueueFamilyIndices = NULL;
+    }
 
     if ((vr = VK_CALL(vkCreateBuffer(device->vk_device, &buffer_info, NULL, vk_buffer))) < 0)
     {
@@ -626,7 +635,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
         image_info.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
 
-    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
+    if ((desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) && device->queue_family_count > 1)
     {
         TRACE("Creating image with VK_SHARING_MODE_CONCURRENT.\n");
         image_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
