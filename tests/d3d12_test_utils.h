@@ -93,6 +93,24 @@ static inline void reset_command_list_(unsigned int line,
     ok_(line)(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
 }
 
+#define queue_signal(a, b, c) queue_signal_(__LINE__, a, b, c)
+static inline void queue_signal_(unsigned int line, ID3D12CommandQueue *queue, ID3D12Fence *fence, uint64_t value)
+{
+    HRESULT hr;
+
+    hr = ID3D12CommandQueue_Signal(queue, fence, value);
+    ok_(line)(hr == S_OK, "Failed to submit signal operation to queue, hr %#x.\n", hr);
+}
+
+#define queue_wait(a, b, c) queue_wait_(__LINE__, a, b, c)
+static inline void queue_wait_(unsigned int line, ID3D12CommandQueue *queue, ID3D12Fence *fence, uint64_t value)
+{
+    HRESULT hr;
+
+    hr = ID3D12CommandQueue_Wait(queue, fence, value);
+    ok_(line)(hr == S_OK, "Failed to submit wait operation to queue, hr %#x.\n", hr);
+}
+
 #define create_buffer(a, b, c, d, e) create_buffer_(__LINE__, a, b, c, d, e)
 static ID3D12Resource *create_buffer_(unsigned int line, ID3D12Device *device,
         D3D12_HEAP_TYPE heap_type, size_t size, D3D12_RESOURCE_FLAGS resource_flags,
