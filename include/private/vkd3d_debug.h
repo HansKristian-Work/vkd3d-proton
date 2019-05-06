@@ -26,6 +26,7 @@
 
 #ifdef VKD3D_NO_TRACE_MESSAGES
 #define TRACE(args...) do { } while (0)
+#define TRACE_ON() (false)
 #endif
 
 #ifdef VKD3D_NO_DEBUG_MESSAGES
@@ -74,7 +75,9 @@ const char *debugstr_w(const WCHAR *wstr, size_t wchar_size) DECLSPEC_HIDDEN;
 
 #define ERR   VKD3D_DBG_LOG(ERR)
 
+#ifndef TRACE_ON
 #define TRACE_ON() (vkd3d_dbg_get_level() == VKD3D_DBG_LEVEL_TRACE)
+#endif
 
 #define VKD3D_DEBUG_ENV_NAME(name) const char *vkd3d_dbg_env_name = name
 
