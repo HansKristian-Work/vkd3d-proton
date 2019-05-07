@@ -1006,6 +1006,7 @@ struct d3d12_device
 
     HRESULT removed_reason;
 
+    const struct vkd3d_format *depth_stencil_formats;
     struct vkd3d_null_resources null_resources;
 };
 
@@ -1027,6 +1028,7 @@ struct vkd3d_format
     size_t block_height;
     size_t block_byte_count;
     VkImageAspectFlags vk_aspect_mask;
+    bool is_emulated;
 };
 
 static inline bool vkd3d_format_is_compressed(const struct vkd3d_format *format)
@@ -1036,6 +1038,9 @@ static inline bool vkd3d_format_is_compressed(const struct vkd3d_format *format)
 
 const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
         DXGI_FORMAT dxgi_format, bool depth_stencil) DECLSPEC_HIDDEN;
+
+HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device) DECLSPEC_HIDDEN;
+void vkd3d_cleanup_depth_stencil_formats(struct d3d12_device *device) DECLSPEC_HIDDEN;
 
 bool dxgi_format_is_typeless(DXGI_FORMAT dxgi_format) DECLSPEC_HIDDEN;
 

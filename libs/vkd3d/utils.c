@@ -132,6 +132,53 @@ static const struct vkd3d_format vkd3d_depth_stencil_formats[] =
 #undef STENCIL
 #undef DEPTH_STENCIL
 
+HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device)
+{
+    const unsigned int count = ARRAY_SIZE(vkd3d_depth_stencil_formats);
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkFormatProperties properties;
+    struct vkd3d_format *formats;
+    unsigned int i;
+
+    VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device,
+            VK_FORMAT_D24_UNORM_S8_UINT, &properties));
+
+    if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+    {
+        device->depth_stencil_formats = vkd3d_depth_stencil_formats;
+    }
+    else
+    {
+        /* AMD doesn't support VK_FORMAT_D24_UNORM_S8_UINT. */
+        WARN("Mapping VK_FORMAT_D24_UNORM_S8_UINT to VK_FORMAT_D32_SFLOAT_S8_UINT.\n");
+
+        if (!(formats = vkd3d_calloc(count, sizeof(*formats))))
+            return E_OUTOFMEMORY;
+
+        memcpy(formats, vkd3d_depth_stencil_formats, sizeof(vkd3d_depth_stencil_formats));
+        for (i = 0; i < count; ++i)
+        {
+            if (formats[i].vk_format == VK_FORMAT_D24_UNORM_S8_UINT)
+            {
+                formats[i].vk_format = VK_FORMAT_D32_SFLOAT_S8_UINT;
+                formats[i].is_emulated = true;
+            }
+        }
+
+        device->depth_stencil_formats = formats;
+    }
+
+    return S_OK;
+}
+
+void vkd3d_cleanup_depth_stencil_formats(struct d3d12_device *device)
+{
+    if (vkd3d_depth_stencil_formats != device->depth_stencil_formats)
+        vkd3d_free((void *)device->depth_stencil_formats);
+
+    device->depth_stencil_formats = NULL;
+}
+
 /* We use overrides for depth/stencil formats. This is required in order to
  * properly support typeless formats because depth/stencil formats are only
  * compatible with themselves in Vulkan.
@@ -139,14 +186,16 @@ static const struct vkd3d_format vkd3d_depth_stencil_formats[] =
 static const struct vkd3d_format *vkd3d_get_depth_stencil_format(const struct d3d12_device *device,
         DXGI_FORMAT dxgi_format)
 {
+    const struct vkd3d_format *formats;
     unsigned int i;
 
     assert(device);
+    formats = device->depth_stencil_formats;
 
     for (i = 0; i < ARRAY_SIZE(vkd3d_depth_stencil_formats); ++i)
     {
-        if (vkd3d_depth_stencil_formats[i].dxgi_format == dxgi_format)
-            return &vkd3d_depth_stencil_formats[i];
+        if (formats[i].dxgi_format == dxgi_format)
+            return &formats[i];
     }
 
     return NULL;

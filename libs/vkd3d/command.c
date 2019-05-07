@@ -3233,6 +3233,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
             return;
         }
 
+        if (dst_format->is_emulated)
+        {
+            FIXME("Format %#x is not supported yet.\n", dst_format->dxgi_format);
+            return;
+        }
+
         if ((dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
                 && (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
             FIXME("Depth-stencil format %#x not fully supported yet.\n", dst_format->dxgi_format);
@@ -3253,6 +3259,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
                 &dst_resource->desc, src->u.PlacedFootprint.Footprint.Format)))
         {
             WARN("Invalid format %#x.\n", src->u.PlacedFootprint.Footprint.Format);
+            return;
+        }
+
+        if (src_format->is_emulated)
+        {
+            FIXME("Format %#x is not supported yet.\n", src_format->dxgi_format);
             return;
         }
 
