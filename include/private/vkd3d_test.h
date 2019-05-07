@@ -116,6 +116,7 @@ static struct
 
     unsigned int bug_level;
     bool bug_do_loop;
+    bool bug_enabled;
 
     char context[1024];
 } vkd3d_test_state;
@@ -165,7 +166,7 @@ vkd3d_test_check_ok(unsigned int line, bool result, const char *fmt, va_list arg
     bool is_todo = vkd3d_test_state.todo_level && !vkd3d_test_platform_is_windows();
     bool is_bug = vkd3d_test_state.bug_level && !vkd3d_test_platform_is_windows();
 
-    if (is_bug)
+    if (is_bug && vkd3d_test_state.bug_enabled)
     {
         InterlockedIncrement(&vkd3d_test_state.bug_count);
         if (is_todo)
@@ -255,9 +256,11 @@ int main(int argc, char **argv)
 {
     const char *debug_level = getenv("VKD3D_TEST_DEBUG");
     char *test_platform = getenv("VKD3D_TEST_PLATFORM");
+    const char *bug = getenv("VKD3D_TEST_BUG");
 
     memset(&vkd3d_test_state, 0, sizeof(vkd3d_test_state));
-    vkd3d_test_state.debug_level = !debug_level ? 0 : atoi(debug_level);
+    vkd3d_test_state.debug_level = debug_level ? atoi(debug_level) : 0;
+    vkd3d_test_state.bug_enabled = bug ? atoi(bug) : true;
 
     if (test_platform)
     {
