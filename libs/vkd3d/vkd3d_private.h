@@ -1034,14 +1034,15 @@ static inline bool vkd3d_format_is_compressed(const struct vkd3d_format *format)
     return format->block_byte_count != 1;
 }
 
-const struct vkd3d_format *vkd3d_get_format(DXGI_FORMAT dxgi_format, bool depth_stencil) DECLSPEC_HIDDEN;
+const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
+        DXGI_FORMAT dxgi_format, bool depth_stencil) DECLSPEC_HIDDEN;
 
 bool dxgi_format_is_typeless(DXGI_FORMAT dxgi_format) DECLSPEC_HIDDEN;
 
 static inline const struct vkd3d_format *vkd3d_format_from_d3d12_resource_desc(
         const struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc, DXGI_FORMAT view_format)
 {
-    return vkd3d_get_format(view_format ? view_format : desc->Format,
+    return vkd3d_get_format(device, view_format ? view_format : desc->Format,
             desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
 }
 

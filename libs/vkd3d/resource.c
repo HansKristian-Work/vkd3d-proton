@@ -1701,12 +1701,12 @@ static bool vkd3d_create_buffer_view(struct d3d12_device *device,
 
     if (view_format == DXGI_FORMAT_R32_TYPELESS && (flags & VKD3D_VIEW_RAW_BUFFER))
     {
-        format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
+        format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
         element_size = format->byte_count;
     }
     else if (view_format == DXGI_FORMAT_UNKNOWN && structure_stride)
     {
-        format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
+        format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
         element_size = structure_stride;
     }
     else if ((format = vkd3d_format_from_d3d12_resource_desc(device, &resource->desc, view_format)))
@@ -2055,7 +2055,7 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
 
     WARN("Creating NULL SRV %#x.\n", desc->ViewDimension);
 
-    vkd3d_desc.format = vkd3d_get_format(VKD3D_NULL_VIEW_FORMAT, 0);
+    vkd3d_desc.format = vkd3d_get_format(device, VKD3D_NULL_VIEW_FORMAT, 0);
     vkd3d_desc.miplevel_idx = 0;
     vkd3d_desc.miplevel_count = 1;
     vkd3d_desc.layer_idx = 0;
@@ -2258,7 +2258,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
         assert(d3d12_resource_is_buffer(counter_resource));
         assert(desc->u.Buffer.StructureByteStride);
 
-        format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
+        format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
         if (!vkd3d_create_vk_buffer_view(device, counter_resource, format,
                 desc->u.Buffer.CounterOffsetInBytes, sizeof(uint32_t), &view->vk_counter_view))
         {
@@ -2272,7 +2272,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     if ((desc->Format == DXGI_FORMAT_R32_TYPELESS && (desc->u.Buffer.Flags & VKD3D_VIEW_RAW_BUFFER))
             || desc->Format == DXGI_FORMAT_R32_UINT)
     {
-        const struct vkd3d_format *format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
+        const struct vkd3d_format *format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
 
         descriptor->uav.buffer.offset = desc->u.Buffer.FirstElement * format->byte_count;
         descriptor->uav.buffer.size = desc->u.Buffer.NumElements * format->byte_count;
@@ -2367,7 +2367,7 @@ bool vkd3d_create_raw_buffer_view(struct d3d12_device *device,
     const struct vkd3d_format *format;
     struct d3d12_resource *resource;
 
-    format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
+    format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
     resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, gpu_address);
     return vkd3d_create_vk_buffer_view(device, resource, format,
             gpu_address - resource->gpu_address, VK_WHOLE_SIZE, vk_buffer_view);

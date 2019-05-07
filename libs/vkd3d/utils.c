@@ -136,9 +136,12 @@ static const struct vkd3d_format vkd3d_depth_stencil_formats[] =
  * properly support typeless formats because depth/stencil formats are only
  * compatible with themselves in Vulkan.
  */
-static const struct vkd3d_format *vkd3d_get_depth_stencil_format(DXGI_FORMAT dxgi_format)
+static const struct vkd3d_format *vkd3d_get_depth_stencil_format(const struct d3d12_device *device,
+        DXGI_FORMAT dxgi_format)
 {
     unsigned int i;
+
+    assert(device);
 
     for (i = 0; i < ARRAY_SIZE(vkd3d_depth_stencil_formats); ++i)
     {
@@ -149,12 +152,13 @@ static const struct vkd3d_format *vkd3d_get_depth_stencil_format(DXGI_FORMAT dxg
     return NULL;
 }
 
-const struct vkd3d_format *vkd3d_get_format(DXGI_FORMAT dxgi_format, bool depth_stencil)
+const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
+        DXGI_FORMAT dxgi_format, bool depth_stencil)
 {
     const struct vkd3d_format *format;
     unsigned int i;
 
-    if (depth_stencil && (format = vkd3d_get_depth_stencil_format(dxgi_format)))
+    if (depth_stencil && (format = vkd3d_get_depth_stencil_format(device, dxgi_format)))
         return format;
 
     for (i = 0; i < ARRAY_SIZE(vkd3d_formats); ++i)
@@ -170,7 +174,7 @@ VkFormat vkd3d_get_vk_format(DXGI_FORMAT format)
 {
     const struct vkd3d_format *vkd3d_format;
 
-    if (!(vkd3d_format = vkd3d_get_format(format, false)))
+    if (!(vkd3d_format = vkd3d_get_format(NULL, format, false)))
         return VK_FORMAT_UNDEFINED;
 
     return vkd3d_format->vk_format;

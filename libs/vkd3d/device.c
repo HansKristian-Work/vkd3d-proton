@@ -2103,8 +2103,8 @@ static HRESULT d3d12_device_check_multisample_quality_levels(struct d3d12_device
     if (data->Format == DXGI_FORMAT_UNKNOWN)
         goto done;
 
-    if (!(format = vkd3d_get_format(data->Format, false)))
-        format = vkd3d_get_format(data->Format, true);
+    if (!(format = vkd3d_get_format(device, data->Format, false)))
+        format = vkd3d_get_format(device, data->Format, true);
     if (!format)
     {
         FIXME("Unhandled format %#x.\n", data->Format);
@@ -2257,8 +2257,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
 
             data->Support1 = D3D12_FORMAT_SUPPORT1_NONE;
             data->Support2 = D3D12_FORMAT_SUPPORT2_NONE;
-            if (!(format = vkd3d_get_format(data->Format, false)))
-                format = vkd3d_get_format(data->Format, true);
+            if (!(format = vkd3d_get_format(device, data->Format, false)))
+                format = vkd3d_get_format(device, data->Format, true);
             if (!format)
             {
                 FIXME("Unhandled format %#x.\n", data->Format);

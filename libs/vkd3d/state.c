@@ -1969,8 +1969,8 @@ static bool is_dual_source_blending(const D3D12_RENDER_TARGET_BLEND_DESC *desc)
             || is_dual_source_blending_blend(desc->DestBlendAlpha));
 }
 
-static HRESULT compute_input_layout_offsets(const D3D12_INPUT_LAYOUT_DESC *input_layout_desc,
-        uint32_t *offsets)
+static HRESULT compute_input_layout_offsets(const struct d3d12_device *device,
+        const D3D12_INPUT_LAYOUT_DESC *input_layout_desc, uint32_t *offsets)
 {
     uint32_t input_slot_offsets[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT] = {0};
     const D3D12_INPUT_ELEMENT_DESC *e;
@@ -1993,7 +1993,7 @@ static HRESULT compute_input_layout_offsets(const D3D12_INPUT_LAYOUT_DESC *input
             return E_INVALIDARG;
         }
 
-        if (!(format = vkd3d_get_format(e->Format, false)))
+        if (!(format = vkd3d_get_format(device, e->Format, false)))
         {
             WARN("Invalid input element format %#x.\n", e->Format);
             return E_INVALIDARG;
@@ -2145,7 +2145,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     {
         const D3D12_DEPTH_STENCIL_DESC *ds_desc = &desc->DepthStencilState;
 
-        if (!(format = vkd3d_get_format(desc->DSVFormat, true)))
+        if (!(format = vkd3d_get_format(device, desc->DSVFormat, true)))
         {
             WARN("Invalid DSV format %#x.\n", desc->DSVFormat);
             hr = E_INVALIDARG;
@@ -2183,7 +2183,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         const D3D12_RENDER_TARGET_BLEND_DESC *rt_desc;
         size_t idx = graphics->rt_idx + i;
 
-        if (!(format = vkd3d_get_format(desc->RTVFormats[i], false)))
+        if (!(format = vkd3d_get_format(device, desc->RTVFormats[i], false)))
         {
             WARN("Invalid RTV format %#x.\n", desc->RTVFormats[i]);
             hr = E_INVALIDARG;
@@ -2368,7 +2368,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         goto fail;
     }
 
-    if (FAILED(hr = compute_input_layout_offsets(&desc->InputLayout, aligned_offsets)))
+    if (FAILED(hr = compute_input_layout_offsets(device, &desc->InputLayout, aligned_offsets)))
         goto fail;
 
     graphics->instance_divisor_count = 0;
@@ -2377,7 +2377,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         const D3D12_INPUT_ELEMENT_DESC *e = &desc->InputLayout.pInputElementDescs[i];
         const struct vkd3d_shader_signature_element *signature_element;
 
-        if (!(format = vkd3d_get_format(e->Format, false)))
+        if (!(format = vkd3d_get_format(device, e->Format, false)))
         {
             WARN("Invalid input element format %#x.\n", e->Format);
             hr = E_INVALIDARG;
