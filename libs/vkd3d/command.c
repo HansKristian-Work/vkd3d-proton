@@ -2029,7 +2029,7 @@ static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12
 
     assert(d3d12_resource_is_texture(resource));
 
-    if (!(format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, 0)))
+    if (!(format = vkd3d_format_from_d3d12_resource_desc(list->device, &resource->desc, 0)))
     {
         ERR("Resource %p has invalid format %#x.\n", resource, resource->desc.Format);
         return;
@@ -3226,8 +3226,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
         assert(d3d12_resource_is_buffer(dst_resource));
         assert(d3d12_resource_is_texture(src_resource));
 
-        if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(&src_resource->desc,
-                dst->u.PlacedFootprint.Footprint.Format)))
+        if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(list->device,
+                &src_resource->desc, dst->u.PlacedFootprint.Footprint.Format)))
         {
             WARN("Invalid format %#x.\n", dst->u.PlacedFootprint.Footprint.Format);
             return;
@@ -3249,8 +3249,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
         assert(d3d12_resource_is_texture(dst_resource));
         assert(d3d12_resource_is_buffer(src_resource));
 
-        if (!(src_format = vkd3d_format_from_d3d12_resource_desc(&dst_resource->desc,
-                src->u.PlacedFootprint.Footprint.Format)))
+        if (!(src_format = vkd3d_format_from_d3d12_resource_desc(list->device,
+                &dst_resource->desc, src->u.PlacedFootprint.Footprint.Format)))
         {
             WARN("Invalid format %#x.\n", src->u.PlacedFootprint.Footprint.Format);
             return;
@@ -3272,12 +3272,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
         assert(d3d12_resource_is_texture(dst_resource));
         assert(d3d12_resource_is_texture(src_resource));
 
-        if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(&dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
+        if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(list->device,
+                &dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
         {
             WARN("Invalid format %#x.\n", dst_resource->desc.Format);
             return;
         }
-        if (!(src_format = vkd3d_format_from_d3d12_resource_desc(&src_resource->desc, DXGI_FORMAT_UNKNOWN)))
+        if (!(src_format = vkd3d_format_from_d3d12_resource_desc(list->device,
+                &src_resource->desc, DXGI_FORMAT_UNKNOWN)))
         {
             WARN("Invalid format %#x.\n", src_resource->desc.Format);
             return;
@@ -3348,12 +3350,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(ID3D12GraphicsComm
     }
     else
     {
-        if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(&dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
+        if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(list->device,
+                &dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
         {
             WARN("Invalid format %#x.\n", dst_resource->desc.Format);
             return;
         }
-        if (!(src_format = vkd3d_format_from_d3d12_resource_desc(&src_resource->desc, DXGI_FORMAT_UNKNOWN)))
+        if (!(src_format = vkd3d_format_from_d3d12_resource_desc(list->device,
+                &src_resource->desc, DXGI_FORMAT_UNKNOWN)))
         {
             WARN("Invalid format %#x.\n", src_resource->desc.Format);
             return;
@@ -3398,12 +3402,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(ID3D12Graphi
     const struct vkd3d_format *src_format, *dst_format, *vk_format;
     struct d3d12_resource *dst_resource, *src_resource;
     const struct vkd3d_vk_device_procs *vk_procs;
+    const struct d3d12_device *device;
     VkImageResolve vk_image_resolve;
 
     TRACE("iface %p, dst_resource %p, dst_sub_resource_idx %u, src_resource %p, src_sub_resource_idx %u, "
             "format %#x.\n", iface, dst, dst_sub_resource_idx, src, src_sub_resource_idx, format);
 
-    vk_procs = &list->device->vk_procs;
+    device = list->device;
+    vk_procs = &device->vk_procs;
 
     dst_resource = unsafe_impl_from_ID3D12Resource(dst);
     src_resource = unsafe_impl_from_ID3D12Resource(src);
@@ -3416,12 +3422,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(ID3D12Graphi
 
     d3d12_command_list_end_current_render_pass(list);
 
-    if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(&dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
+    if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(device, &dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
     {
         WARN("Invalid format %#x.\n", dst_resource->desc.Format);
         return;
     }
-    if (!(src_format = vkd3d_format_from_d3d12_resource_desc(&src_resource->desc, DXGI_FORMAT_UNKNOWN)))
+    if (!(src_format = vkd3d_format_from_d3d12_resource_desc(device, &src_resource->desc, DXGI_FORMAT_UNKNOWN)))
     {
         WARN("Invalid format %#x.\n", src_resource->desc.Format);
         return;
@@ -3429,7 +3435,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(ID3D12Graphi
 
     if (dxgi_format_is_typeless(dst_resource->desc.Format) || dxgi_format_is_typeless(src_resource->desc.Format))
     {
-        if (!(vk_format = vkd3d_format_from_d3d12_resource_desc(&dst_resource->desc, format)))
+        if (!(vk_format = vkd3d_format_from_d3d12_resource_desc(device, &dst_resource->desc, format)))
         {
             WARN("Invalid format %#x.\n", format);
             return;
@@ -3736,7 +3742,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
             const struct vkd3d_format *format;
             VkImageMemoryBarrier vk_barrier;
 
-            if (!(format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, 0)))
+            if (!(format = vkd3d_format_from_d3d12_resource_desc(list->device, &resource->desc, 0)))
             {
                 ERR("Resource %p has invalid format %#x.\n", resource, resource->desc.Format);
                 continue;

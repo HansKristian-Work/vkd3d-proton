@@ -577,7 +577,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     VkImageCreateInfo image_info;
     VkResult vr;
 
-    if (!(format = vkd3d_format_from_d3d12_resource_desc(desc, 0)))
+    if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
     {
         WARN("Invalid DXGI format %#x.\n", desc->Format);
         return E_INVALIDARG;
@@ -1709,7 +1709,7 @@ static bool vkd3d_create_buffer_view(struct d3d12_device *device,
         format = vkd3d_get_format(DXGI_FORMAT_R32_UINT, false);
         element_size = structure_stride;
     }
-    else if ((format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, view_format)))
+    else if ((format = vkd3d_format_from_d3d12_resource_desc(device, &resource->desc, view_format)))
     {
         element_size = format->byte_count;
     }
@@ -1888,7 +1888,9 @@ struct vkd3d_texture_view_desc
 static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
         struct d3d12_resource *resource, DXGI_FORMAT view_format)
 {
-    if (!(desc->format = vkd3d_format_from_d3d12_resource_desc(&resource->desc, view_format)))
+    const struct d3d12_device *device = resource->device;
+
+    if (!(desc->format = vkd3d_format_from_d3d12_resource_desc(device, &resource->desc, view_format)))
     {
         FIXME("Failed to find format (resource format %#x, view format %#x).\n",
                 resource->desc.Format, view_format);

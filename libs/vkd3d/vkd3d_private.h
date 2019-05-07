@@ -1039,7 +1039,7 @@ const struct vkd3d_format *vkd3d_get_format(DXGI_FORMAT dxgi_format, bool depth_
 bool dxgi_format_is_typeless(DXGI_FORMAT dxgi_format) DECLSPEC_HIDDEN;
 
 static inline const struct vkd3d_format *vkd3d_format_from_d3d12_resource_desc(
-        const D3D12_RESOURCE_DESC *desc, DXGI_FORMAT view_format)
+        const struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc, DXGI_FORMAT view_format)
 {
     return vkd3d_get_format(view_format ? view_format : desc->Format,
             desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);

@@ -2631,7 +2631,7 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
 
         if (info->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
         {
-            if (!(format = vkd3d_format_from_d3d12_resource_desc(desc, 0)))
+            if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
             {
                 WARN("Invalid format %#x.\n", desc->Format);
                 goto invalid;
@@ -2840,6 +2840,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         UINT64 base_offset, D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts,
         UINT *row_counts, UINT64 *row_sizes, UINT64 *total_bytes)
 {
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
     static const struct vkd3d_format vkd3d_format_unknown
             = {DXGI_FORMAT_UNKNOWN, VK_FORMAT_UNDEFINED, 1, 1, 1, 1, 0};
 
@@ -2866,7 +2867,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
     {
         format = &vkd3d_format_unknown;
     }
-    else if (!(format = vkd3d_format_from_d3d12_resource_desc(desc, 0)))
+    else if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
     {
         WARN("Invalid format %#x.\n", desc->Format);
         return;
