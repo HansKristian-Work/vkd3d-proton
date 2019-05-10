@@ -43,6 +43,7 @@ enum vkd3d_structure_type
     VKD3D_STRUCTURE_TYPE_OPTIONAL_INSTANCE_EXTENSIONS_INFO,
 
     VKD3D_STRUCTURE_TYPE_OPTIONAL_DEVICE_EXTENSIONS_INFO,
+    VKD3D_STRUCTURE_TYPE_APPLICATION_INFO,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_STRUCTURE_TYPE),
 };
@@ -81,6 +82,19 @@ struct vkd3d_optional_instance_extensions_info
 
     const char * const *extensions;
     uint32_t extension_count;
+};
+
+/* Extends vkd3d_instance_create_info. */
+struct vkd3d_application_info
+{
+    enum vkd3d_structure_type type;
+    const void *next;
+
+    const char *application_name;
+    uint32_t application_version;
+
+    const char *engine_name; /* "vkd3d" if NULL */
+    uint32_t engine_version; /* vkd3d version if engine_name is NULL */
 };
 
 struct vkd3d_device_create_info

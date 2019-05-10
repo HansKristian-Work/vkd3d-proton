@@ -1052,6 +1052,49 @@ static void test_formats(void)
     }
 }
 
+static void test_application_info(void)
+{
+    struct vkd3d_instance_create_info create_info;
+    struct vkd3d_application_info app_info;
+    struct vkd3d_instance *instance;
+    ULONG refcount;
+    HRESULT hr;
+
+    app_info.type = VKD3D_STRUCTURE_TYPE_APPLICATION_INFO;
+    app_info.next = NULL;
+    app_info.engine_name = NULL;
+    app_info.engine_version = 0;
+    app_info.application_name = NULL;
+    app_info.application_version = 0;
+
+    create_info = instance_default_create_info;
+    create_info.next = &app_info;
+    hr = vkd3d_create_instance(&create_info, &instance);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    refcount = vkd3d_instance_decref(instance);
+    ok(!refcount, "Instance has %u references left.\n", refcount);
+
+    app_info.application_name = "vkd3d_api_tests";
+    app_info.application_version = 0xdeadbeef;
+    hr = vkd3d_create_instance(&create_info, &instance);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    refcount = vkd3d_instance_decref(instance);
+    ok(!refcount, "Instance has %u references left.\n", refcount);
+
+    app_info.engine_name = "engine_name";
+    hr = vkd3d_create_instance(&create_info, &instance);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    refcount = vkd3d_instance_decref(instance);
+    ok(!refcount, "Instance has %u references left.\n", refcount);
+
+    app_info.engine_name = "engine_name";
+    app_info.engine_version = 2;
+    hr = vkd3d_create_instance(&create_info, &instance);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    refcount = vkd3d_instance_decref(instance);
+    ok(!refcount, "Instance has %u references left.\n", refcount);
+}
+
 static bool have_d3d12_device(void)
 {
     ID3D12Device *device;
@@ -1083,4 +1126,5 @@ START_TEST(vkd3d_api)
     run_test(test_external_resource_map);
     run_test(test_external_resource_present_state);
     run_test(test_formats);
+    run_test(test_application_info);
 }
