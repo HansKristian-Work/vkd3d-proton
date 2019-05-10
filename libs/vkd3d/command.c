@@ -152,7 +152,8 @@ static void vkd3d_queue_update_sequence_number(struct vkd3d_queue *queue,
     completed_sequence_number = queue->completed_sequence_number;
     queue->completed_sequence_number = max(sequence_number, queue->completed_sequence_number);
 
-    TRACE("Sequence number %"PRIu64" -> %"PRIu64".\n", completed_sequence_number, queue->completed_sequence_number);
+    TRACE("Queue %p sequence number %"PRIu64" -> %"PRIu64".\n",
+            queue, completed_sequence_number, queue->completed_sequence_number);
 
     for (i = 0; i < queue->semaphore_count; ++i)
     {
