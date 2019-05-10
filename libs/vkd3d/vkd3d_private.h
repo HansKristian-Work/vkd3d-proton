@@ -675,6 +675,7 @@ struct d3d12_graphics_pipeline_state
 
     VkPipelineColorBlendAttachmentState blend_attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     unsigned int attachment_count, rt_idx;
+    unsigned int null_attachment_mask;
     VkRenderPass render_pass;
 
     D3D12_INDEX_BUFFER_STRIP_CUT_VALUE index_buffer_strip_cut_value;

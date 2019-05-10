@@ -2331,8 +2331,11 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
 {
     struct d3d12_device *device = list->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+    struct d3d12_graphics_pipeline_state *graphics;
     struct VkFramebufferCreateInfo fb_desc;
     VkFramebuffer vk_framebuffer;
+    unsigned int view_count;
     size_t start_idx = 0;
     unsigned int i;
     VkResult vr;
@@ -2340,24 +2343,35 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
     if (list->current_framebuffer != VK_NULL_HANDLE)
         return true;
 
-    if (!list->state->u.graphics.rt_idx)
+    graphics = &list->state->u.graphics;
+
+    if (!graphics->rt_idx)
         ++start_idx;
 
-    for (i = 0; i < list->state->u.graphics.attachment_count; ++i)
+    for (i = 0, view_count = 0; i < graphics->attachment_count; ++i)
     {
+        if (graphics->null_attachment_mask & (1u << i))
+        {
+            if (list->views[start_idx + i])
+                WARN("Expected NULL view for attachment %u.\n", i);
+            continue;
+        }
+
         if (!list->views[start_idx + i])
         {
-            FIXME("Invalid attachment %u.\n", i);
+            FIXME("Invalid view for attachment %u.\n", i);
             return false;
         }
+
+        views[view_count++] = list->views[start_idx + i];
     }
 
     fb_desc.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     fb_desc.pNext = NULL;
     fb_desc.flags = 0;
-    fb_desc.renderPass = list->state->u.graphics.render_pass;
-    fb_desc.attachmentCount = list->state->u.graphics.attachment_count;
-    fb_desc.pAttachments = &list->views[start_idx];
+    fb_desc.renderPass = graphics->render_pass;
+    fb_desc.attachmentCount = view_count;
+    fb_desc.pAttachments = views;
     d3d12_command_list_get_fb_extent(list, &fb_desc.width, &fb_desc.height, &fb_desc.layers);
     if ((vr = VK_CALL(vkCreateFramebuffer(device->vk_device, &fb_desc, NULL, &vk_framebuffer))) < 0)
     {
