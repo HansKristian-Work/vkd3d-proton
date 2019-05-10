@@ -924,6 +924,9 @@ struct d3d12_command_queue
 
     struct vkd3d_queue *vkd3d_queue;
 
+    const struct d3d12_fence *last_waited_fence;
+    uint64_t last_waited_fence_value;
+
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;

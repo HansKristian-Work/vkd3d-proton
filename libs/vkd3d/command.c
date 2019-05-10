@@ -5471,11 +5471,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Wait(ID3D12CommandQueue *if
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     const struct vkd3d_vk_device_procs *vk_procs;
     struct vkd3d_signaled_semaphore *semaphore;
-    VkQueue vk_queue = VK_NULL_HANDLE;
     uint64_t completed_value = 0;
     struct vkd3d_queue *queue;
     struct d3d12_fence *fence;
     VkSubmitInfo submit_info;
+    VkQueue vk_queue;
     VkResult vr;
     HRESULT hr;
 
@@ -5486,18 +5486,34 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Wait(ID3D12CommandQueue *if
 
     fence = unsafe_impl_from_ID3D12Fence(fence_iface);
 
-    if (!(semaphore = d3d12_fence_acquire_vk_semaphore(fence, value, &completed_value)))
+    semaphore = d3d12_fence_acquire_vk_semaphore(fence, value, &completed_value);
+    if (!semaphore && completed_value >= value)
     {
-        if (completed_value >= value)
+        /* We don't get a Vulkan semaphore if the fence was signaled on CPU. */
+        TRACE("Already signaled %p, value %#"PRIx64".\n", fence, completed_value);
+        return S_OK;
+    }
+
+    if (!(vk_queue = vkd3d_queue_acquire(queue)))
+    {
+        ERR("Failed to acquire queue %p.\n", queue);
+        hr = E_FAIL;
+        goto fail;
+    }
+
+    if (!semaphore)
+    {
+        if (command_queue->last_waited_fence == fence && command_queue->last_waited_fence_value >= value)
         {
-            TRACE("Already signaled %p, value %#"PRIx64".\n", fence, completed_value);
+            WARN("Already waited on fence %p, value %#"PRIx64".\n", fence, value);
         }
         else
         {
-            FIXME("Failed to acquire Vulkan semaphore for fence %p, value %#"PRIx64", completed value %#"PRIx64".\n",
-                    fence, value, completed_value);
+            FIXME("Failed to acquire Vulkan semaphore for fence %p, value %#"PRIx64
+                    ", completed value %#"PRIx64".\n", fence, value, completed_value);
         }
 
+        vkd3d_queue_release(queue);
         return S_OK;
     }
 
@@ -5510,13 +5526,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Wait(ID3D12CommandQueue *if
     submit_info.pCommandBuffers = NULL;
     submit_info.signalSemaphoreCount = 0;
     submit_info.pSignalSemaphores = NULL;
-
-    if (!(vk_queue = vkd3d_queue_acquire(queue)))
-    {
-        ERR("Failed to acquire queue %p.\n", queue);
-        hr = E_FAIL;
-        goto fail;
-    }
 
     if (!vkd3d_array_reserve((void **)&queue->semaphores, &queue->semaphores_size,
             queue->semaphore_count + 1, sizeof(*queue->semaphores)))
@@ -5532,6 +5541,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Wait(ID3D12CommandQueue *if
         queue->semaphores[queue->semaphore_count].vk_semaphore = semaphore->vk_semaphore;
         queue->semaphores[queue->semaphore_count].sequence_number = queue->submitted_sequence_number + 1;
         ++queue->semaphore_count;
+
+        command_queue->last_waited_fence = fence;
+        command_queue->last_waited_fence_value = value;
     }
 
     vkd3d_queue_release(queue);
@@ -5631,6 +5643,9 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
 
     if (!(queue->vkd3d_queue = d3d12_device_get_vkd3d_queue(device, desc->Type)))
         return E_NOTIMPL;
+
+    queue->last_waited_fence = NULL;
+    queue->last_waited_fence_value = 0;
 
     if (desc->Priority == D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME)
     {
