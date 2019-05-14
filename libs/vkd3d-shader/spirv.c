@@ -4474,10 +4474,6 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_
     vkd3d_spirv_build_op_return(&compiler->spirv_builder);
     vkd3d_spirv_build_op_function_end(builder);
 
-    /* Fork and join phases share output registers (patch constants). */
-    if (!phase || is_control_point_phase(phase))
-        memset(compiler->output_info, 0, signature->element_count * sizeof(*compiler->output_info));
-
     memset(compiler->private_output_variable, 0, sizeof(compiler->private_output_variable));
     memset(compiler->private_output_variable_write_mask, 0, sizeof(compiler->private_output_variable_write_mask));
     compiler->epilogue_function_id = 0;
@@ -5442,6 +5438,12 @@ static void vkd3d_dxbc_compiler_leave_shader_phase(struct vkd3d_dxbc_compiler *c
     {
         memset(&reg, 0, sizeof(reg));
         reg.idx[1].offset = ~0u;
+
+        /* Fork and join phases share output registers (patch constants).
+         * Control point phase has separate output registers. */
+        memset(compiler->output_info, 0, signature->element_count * sizeof(*compiler->output_info));
+        memset(compiler->private_output_variable, 0, sizeof(compiler->private_output_variable));
+        memset(compiler->private_output_variable_write_mask, 0, sizeof(compiler->private_output_variable_write_mask));
 
         for (i = 0; i < signature->element_count; ++i)
         {
