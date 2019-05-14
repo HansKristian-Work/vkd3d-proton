@@ -3967,6 +3967,7 @@ static void vkd3d_dxbc_compiler_emit_shader_phase_input(struct vkd3d_dxbc_compil
             vkd3d_dxbc_compiler_emit_input(compiler, dst, VKD3D_SIV_NONE);
             return;
         case VKD3DSPR_OUTPOINTID:
+        case VKD3DSPR_PRIMID:
             vkd3d_dxbc_compiler_emit_input_register(compiler, dst);
             return;
         case VKD3DSPR_FORKINSTID:
