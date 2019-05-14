@@ -3179,7 +3179,7 @@ static void vkd3d_dxbc_compiler_emit_store(struct vkd3d_dxbc_compiler *compiler,
         for (i = 0, component_idx = 0; i < dst_component_count; ++i)
         {
             if (write_mask & (VKD3DSP_WRITEMASK_0 << i))
-                components[i] = VKD3D_VEC4_SIZE + component_idx++;
+                components[i] = dst_component_count + component_idx++;
             else
                 components[i] = i;
         }
