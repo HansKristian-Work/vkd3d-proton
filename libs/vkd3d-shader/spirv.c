@@ -2436,16 +2436,10 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_COLOROUT:
             snprintf(buffer, buffer_size, "o%u", idx);
             break;
-        case VKD3DSPR_OUTPOINTID:
-            snprintf(buffer, buffer_size, "vOutputControlPointID");
-            break;
         case VKD3DSPR_DEPTHOUT:
         case VKD3DSPR_DEPTHOUTGE:
         case VKD3DSPR_DEPTHOUTLE:
             snprintf(buffer, buffer_size, "oDepth");
-            break;
-        case VKD3DSPR_PRIMID:
-            snprintf(buffer, buffer_size, "vPrim");
             break;
         case VKD3DSPR_FORKINSTID:
             snprintf(buffer, buffer_size, "vForkInstanceId");
@@ -2483,6 +2477,10 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_SAMPLEMASK:
             snprintf(buffer, buffer_size, "oMask");
             break;
+        case VKD3DSPR_OUTPOINTID:
+        case VKD3DSPR_PRIMID:
+            /* SPIRV-Tools disassembler generates names for SPIR-V built-ins. */
+            return false;
         default:
             FIXME("Unhandled register %#x.\n", reg->type);
             snprintf(buffer, buffer_size, "unrecognized_%#x", reg->type);
