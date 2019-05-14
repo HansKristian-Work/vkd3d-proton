@@ -3330,6 +3330,36 @@ static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *com
     vkd3d_spirv_build_op_decorate1(builder, target_id, SpvDecorationBuiltIn, builtin);
 }
 
+static void vkd3d_dxbc_compiler_emit_interpolation_decorations(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t id, enum vkd3d_shader_interpolation_mode mode)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    switch (mode)
+    {
+        case VKD3DSIM_NONE:
+            break;
+        case VKD3DSIM_CONSTANT:
+            vkd3d_spirv_build_op_decorate(builder, id, SpvDecorationFlat, NULL, 0);
+            break;
+        case VKD3DSIM_LINEAR:
+            break;
+        case VKD3DSIM_LINEAR_CENTROID:
+            vkd3d_spirv_build_op_decorate(builder, id, SpvDecorationCentroid, NULL, 0);
+            break;
+        case VKD3DSIM_LINEAR_NOPERSPECTIVE:
+            vkd3d_spirv_build_op_decorate(builder, id, SpvDecorationNoPerspective, NULL, 0);
+            break;
+        case VKD3DSIM_LINEAR_SAMPLE:
+            vkd3d_spirv_enable_capability(builder, SpvCapabilitySampleRateShading);
+            vkd3d_spirv_build_op_decorate(builder, id, SpvDecorationSample, NULL, 0);
+            break;
+        default:
+            FIXME("Unhandled interpolation mode %#x.\n", mode);
+            break;
+    }
+}
+
 static uint32_t vkd3d_dxbc_compiler_emit_int_to_bool(struct vkd3d_dxbc_compiler *compiler,
         enum vkd3d_shader_conditional_op condition, unsigned int component_count, uint32_t val_id)
 {
@@ -3768,7 +3798,8 @@ static bool needs_private_io_variable(const struct vkd3d_shader_signature *signa
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval)
+        const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval,
+        enum vkd3d_shader_interpolation_mode interpolation_mode)
 {
     unsigned int component_idx, component_count, input_component_count;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -3857,6 +3888,8 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationLocation, reg_idx);
         if (component_idx)
             vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationComponent, component_idx);
+
+        vkd3d_dxbc_compiler_emit_interpolation_decorations(compiler, input_id, interpolation_mode);
     }
 
     if (reg->type == VKD3DSPR_PATCHCONST)
@@ -3961,7 +3994,7 @@ static void vkd3d_dxbc_compiler_emit_shader_phase_input(struct vkd3d_dxbc_compil
     switch (reg->type)
     {
         case VKD3DSPR_INPUT:
-            vkd3d_dxbc_compiler_emit_input(compiler, dst, VKD3D_SIV_NONE);
+            vkd3d_dxbc_compiler_emit_input(compiler, dst, VKD3D_SIV_NONE, VKD3DSIM_NONE);
             return;
         case VKD3DSPR_OUTPOINTID:
         case VKD3DSPR_PRIMID:
@@ -5089,64 +5122,30 @@ static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compi
     if ((phase = vkd3d_dxbc_compiler_get_current_shader_phase(compiler)))
         vkd3d_dxbc_compiler_emit_shader_phase_input(compiler, phase, dst);
     else if (vkd3d_shader_register_is_input(&dst->reg) || dst->reg.type == VKD3DSPR_PATCHCONST)
-        vkd3d_dxbc_compiler_emit_input(compiler, dst, VKD3D_SIV_NONE);
+        vkd3d_dxbc_compiler_emit_input(compiler, dst, VKD3D_SIV_NONE, VKD3DSIM_NONE);
     else
         vkd3d_dxbc_compiler_emit_input_register(compiler, dst);
-}
-
-static void vkd3d_dxbc_compiler_emit_interpolation_decorations(struct vkd3d_dxbc_compiler *compiler,
-        uint32_t id, enum vkd3d_shader_interpolation_mode mode)
-{
-    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-
-    switch (mode)
-    {
-        case VKD3DSIM_CONSTANT:
-            vkd3d_spirv_build_op_decorate(builder, id, SpvDecorationFlat, NULL, 0);
-            break;
-        case VKD3DSIM_LINEAR:
-            break;
-        case VKD3DSIM_LINEAR_CENTROID:
-            vkd3d_spirv_build_op_decorate(builder, id, SpvDecorationCentroid, NULL, 0);
-            break;
-        case VKD3DSIM_LINEAR_NOPERSPECTIVE:
-            vkd3d_spirv_build_op_decorate(builder, id, SpvDecorationNoPerspective, NULL, 0);
-            break;
-        case VKD3DSIM_LINEAR_SAMPLE:
-            vkd3d_spirv_enable_capability(builder, SpvCapabilitySampleRateShading);
-            vkd3d_spirv_build_op_decorate(builder, id, SpvDecorationSample, NULL, 0);
-            break;
-        default:
-            FIXME("Unhandled interpolation mode %#x.\n", mode);
-            break;
-    }
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_input_ps(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    uint32_t input_id;
-
-    if ((input_id = vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.dst, VKD3D_SIV_NONE)))
-        vkd3d_dxbc_compiler_emit_interpolation_decorations(compiler, input_id, instruction->flags);
+    vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.dst, VKD3D_SIV_NONE, instruction->flags);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_input_ps_sysval(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     const struct vkd3d_shader_register_semantic *semantic = &instruction->declaration.register_semantic;
-    uint32_t input_id;
 
-    input_id = vkd3d_dxbc_compiler_emit_input(compiler, &semantic->reg, semantic->sysval_semantic);
-    if (input_id && !semantic->sysval_semantic)
-        vkd3d_dxbc_compiler_emit_interpolation_decorations(compiler, input_id, instruction->flags);
+    vkd3d_dxbc_compiler_emit_input(compiler, &semantic->reg, semantic->sysval_semantic, instruction->flags);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_input_sysval(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     vkd3d_dxbc_compiler_emit_input(compiler, &instruction->declaration.register_semantic.reg,
-            instruction->declaration.register_semantic.sysval_semantic);
+            instruction->declaration.register_semantic.sysval_semantic, VKD3DSIM_NONE);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_output(struct vkd3d_dxbc_compiler *compiler,

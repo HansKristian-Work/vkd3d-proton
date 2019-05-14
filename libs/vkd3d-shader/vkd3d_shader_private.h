@@ -430,6 +430,7 @@ enum vkd3d_shader_dst_modifier
 
 enum vkd3d_shader_interpolation_mode
 {
+    VKD3DSIM_NONE = 0,
     VKD3DSIM_CONSTANT = 1,
     VKD3DSIM_LINEAR = 2,
     VKD3DSIM_LINEAR_CENTROID = 3,
