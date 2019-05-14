@@ -9756,86 +9756,6 @@ static void test_shader_input_output_components(void)
     destroy_test_context(&context);
 }
 
-static void test_incompletely_initialized_shader_outputs(void)
-{
-    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
-    ID3D12GraphicsCommandList *command_list;
-    struct test_context_desc desc;
-    struct test_context context;
-    ID3D12CommandQueue *queue;
-    unsigned int i;
-
-    static const DWORD ps_code[] =
-    {
-#if 0
-        float3 color;
-
-        void main(out float4 o : SV_Target)
-        {
-            o.xyz = color;
-        }
-#endif
-        0x43425844, 0xb5d86526, 0xc6c2455a, 0x8d02fe46, 0x5932818b, 0x00000001, 0x000000bc, 0x00000003,
-        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
-        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
-        0x0000080f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000044, 0x00000050, 0x00000011,
-        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x00102072, 0x00000000,
-        0x06000036, 0x00102072, 0x00000000, 0x00208246, 0x00000000, 0x00000000, 0x0100003e,
-    };
-    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
-    static struct
-    {
-        struct vec4 input;
-        struct vec4 output;
-    }
-    tests[] =
-    {
-        {{0.0f, 0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f, 0.0f}},
-        {{1.0f, 1.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 0.0f}},
-        {{1.0f, 2.0f, 3.0f, 4.0f}, {1.0f, 2.0f, 3.0f, 0.0f}},
-    };
-
-    memset(&desc, 0, sizeof(desc));
-    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    desc.no_root_signature = true;
-    if (!init_test_context(&context, &desc))
-        return;
-    command_list = context.list;
-    queue = context.queue;
-
-    context.root_signature = create_32bit_constants_root_signature(context.device,
-            0, 4, D3D12_SHADER_VISIBILITY_PIXEL);
-    context.pipeline_state = create_pipeline_state(context.device,
-            context.root_signature, desc.rt_format, NULL, &ps, NULL);
-
-    for (i = 0; i < ARRAY_SIZE(tests); ++i)
-    {
-        vkd3d_test_set_context("Test %u", i);
-
-        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
-        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
-        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, &tests[i].input, 0);
-        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
-        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
-        ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 0, 0);
-
-        transition_resource_state(command_list, context.render_target,
-                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        check_sub_resource_vec4(context.render_target, 0, queue, command_list, &tests[i].output, 0);
-
-        reset_command_list(command_list, context.allocator);
-        transition_resource_state(command_list, context.render_target,
-                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    }
-    vkd3d_test_set_context(NULL);
-
-    destroy_test_context(&context);
-}
-
 static void check_descriptor_range_(unsigned int line, const D3D12_DESCRIPTOR_RANGE *range,
         const D3D12_DESCRIPTOR_RANGE *expected_range)
 {
@@ -29121,7 +29041,6 @@ START_TEST(d3d12)
     run_test(test_discard_instruction);
     run_test(test_shader_interstage_interface);
     run_test(test_shader_input_output_components);
-    run_test(test_incompletely_initialized_shader_outputs);
     run_test(test_root_signature_byte_code);
     run_test(test_cs_constant_buffer);
     run_test(test_constant_buffer_relative_addressing);
