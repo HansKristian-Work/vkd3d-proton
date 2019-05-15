@@ -4290,6 +4290,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(ID3D12GraphicsComm
 
             list->so_counter_buffers[start_slot + i] = VK_NULL_HANDLE;
             list->so_counter_buffer_offsets[start_slot + i] = 0;
+
+            WARN("Trying to unbind transform feedback buffer %u. Ignoring.\n", start_slot + i);
         }
     }
 
