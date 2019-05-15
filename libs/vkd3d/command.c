@@ -2787,9 +2787,9 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
         return false;
     }
 
-    if (!d3d12_command_list_update_current_framebuffer(list))
-        return false;
     if (!d3d12_command_list_update_current_pipeline(list))
+        return false;
+    if (!d3d12_command_list_update_current_framebuffer(list))
         return false;
 
     d3d12_command_list_update_descriptors(list, VK_PIPELINE_BIND_POINT_GRAPHICS);
