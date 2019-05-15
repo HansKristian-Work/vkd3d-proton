@@ -2832,7 +2832,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_MakeResident(ID3D12Device *iface,
     FIXME("iface %p, object_count %u, objects %p stub!\n",
             iface, object_count, objects);
 
-    return E_NOTIMPL;
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_Evict(ID3D12Device *iface,
@@ -2841,7 +2841,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_Evict(ID3D12Device *iface,
     FIXME("iface %p, object_count %u, objects %p stub!\n",
             iface, object_count, objects);
 
-    return E_NOTIMPL;
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateFence(ID3D12Device *iface,
