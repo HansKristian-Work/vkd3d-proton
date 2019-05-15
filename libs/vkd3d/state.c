@@ -1236,6 +1236,7 @@ struct vkd3d_pipeline_key
 {
     D3D12_PRIMITIVE_TOPOLOGY topology;
     uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    VkFormat dsv_format;
 };
 
 struct vkd3d_compiled_pipeline
@@ -1243,6 +1244,7 @@ struct vkd3d_compiled_pipeline
     struct list entry;
     struct vkd3d_pipeline_key key;
     VkPipeline vk_pipeline;
+    VkRenderPass vk_render_pass;
 };
 
 /* ID3D12PipelineState */
@@ -2052,7 +2054,8 @@ bool d3d12_pipeline_state_is_render_pass_compatible(const struct d3d12_pipeline_
 STATIC_ASSERT(sizeof(struct vkd3d_shader_transform_feedback_element) == sizeof(D3D12_SO_DECLARATION_ENTRY));
 
 static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
-        struct d3d12_graphics_pipeline_state *graphics, struct d3d12_device *device)
+        struct d3d12_graphics_pipeline_state *graphics, struct d3d12_device *device,
+        VkFormat dynamic_dsv_format, VkRenderPass *vk_render_pass)
 {
     struct vkd3d_render_pass_key key;
     unsigned int i;
@@ -2064,7 +2067,12 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
         key.stencil_enable = graphics->ds_desc.stencilTestEnable;
         key.depth_stencil_write = graphics->ds_desc.depthWriteEnable
                 || graphics->ds_desc.front.writeMask;
-        key.vk_formats[0] = graphics->dsv_format;
+
+        if (!(key.vk_formats[0] = graphics->dsv_format))
+            key.vk_formats[0] = dynamic_dsv_format;
+
+        if (!key.vk_formats[0])
+            FIXME("Compiling with DXGI_FORMAT_UNKNOWN.\n");
     }
     else
     {
@@ -2082,7 +2090,7 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
     key.padding = 0;
     key.sample_count = graphics->ms_desc.rasterizationSamples;
 
-    return vkd3d_render_pass_cache_find(&device->render_pass_cache, device, &key, &graphics->render_pass);
+    return vkd3d_render_pass_cache_find(&device->render_pass_cache, device, &key, vk_render_pass);
 }
 
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
@@ -2177,26 +2185,29 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         rt_count = ARRAY_SIZE(graphics->blend_attachments);
     }
 
-    if (desc->DSVFormat == DXGI_FORMAT_UNKNOWN
-            && (desc->DepthStencilState.DepthEnable || desc->DepthStencilState.StencilEnable))
-        FIXME("DSV format is DXGI_FORMAT_UNKNOWN, disabling depth/stencil tests.\n");
-
     graphics->rt_idx = 0;
     graphics->null_attachment_mask = 0;
-    if (desc->DSVFormat != DXGI_FORMAT_UNKNOWN
-            && (desc->DepthStencilState.DepthEnable || desc->DepthStencilState.StencilEnable))
+    if (desc->DepthStencilState.DepthEnable || desc->DepthStencilState.StencilEnable)
     {
-        if (!(format = vkd3d_get_format(device, desc->DSVFormat, true)))
+        if (desc->DSVFormat == DXGI_FORMAT_UNKNOWN)
+        {
+            WARN("DSV format is DXGI_FORMAT_UNKNOWN.\n");
+            graphics->dsv_format = VK_FORMAT_UNDEFINED;
+        }
+        else if ((format = vkd3d_get_format(device, desc->DSVFormat, true)))
+        {
+            if (!(format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
+                FIXME("Format %#x is not depth/stencil format.\n", format->dxgi_format);
+
+            graphics->dsv_format = format->vk_format;
+        }
+        else
         {
             WARN("Invalid DSV format %#x.\n", desc->DSVFormat);
             hr = E_INVALIDARG;
             goto fail;
         }
 
-        if (!(format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
-            FIXME("Format %#x is not depth/stencil format.\n", format->dxgi_format);
-
-        graphics->dsv_format = format->vk_format;
         ++graphics->rt_idx;
 
         if (!desc->PS.pShaderBytecode)
@@ -2538,7 +2549,10 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     ds_desc_from_d3d12(&graphics->ds_desc, &desc->DepthStencilState);
 
-    if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device)))
+    if (graphics->dsv_format == VK_FORMAT_UNDEFINED)
+        graphics->render_pass = VK_NULL_HANDLE;
+    else if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics,
+            device, 0, &graphics->render_pass)))
         goto fail;
 
     graphics->root_signature = root_signature;
@@ -2640,13 +2654,15 @@ static enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_
 }
 
 static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(const struct d3d12_pipeline_state *state,
-        const struct vkd3d_pipeline_key *key)
+        const struct vkd3d_pipeline_key *key, VkRenderPass *vk_render_pass)
 {
     const struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
     struct d3d12_device *device = state->device;
     VkPipeline vk_pipeline = VK_NULL_HANDLE;
     struct vkd3d_compiled_pipeline *current;
     int rc;
+
+    *vk_render_pass = VK_NULL_HANDLE;
 
     if (!(rc = pthread_mutex_lock(&device->mutex)))
     {
@@ -2655,6 +2671,7 @@ static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(const struct d3d12
             if (!memcmp(&current->key, key, sizeof(*key)))
             {
                 vk_pipeline = current->vk_pipeline;
+                *vk_render_pass = current->vk_render_pass;
                 break;
             }
         }
@@ -2669,7 +2686,7 @@ static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(const struct d3d12
 }
 
 static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_state *state,
-        const struct vkd3d_pipeline_key *key, VkPipeline vk_pipeline)
+        const struct vkd3d_pipeline_key *key, VkPipeline vk_pipeline, VkRenderPass vk_render_pass)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
     struct vkd3d_compiled_pipeline *compiled_pipeline, *current;
@@ -2681,6 +2698,7 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
 
     compiled_pipeline->key = *key;
     compiled_pipeline->vk_pipeline = vk_pipeline;
+    compiled_pipeline->vk_render_pass = vk_render_pass;
 
     if ((rc = pthread_mutex_lock(&device->mutex)))
     {
@@ -2707,7 +2725,8 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
 }
 
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
-        D3D12_PRIMITIVE_TOPOLOGY topology, const uint32_t *strides)
+        D3D12_PRIMITIVE_TOPOLOGY topology, const uint32_t *strides, VkFormat dsv_format,
+        VkRenderPass *vk_render_pass)
 {
     VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
@@ -2725,6 +2744,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     unsigned int i;
     uint32_t mask;
     VkResult vr;
+    HRESULT hr;
 
     static const VkPipelineViewportStateCreateInfo vp_desc =
     {
@@ -2753,6 +2773,8 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     };
 
     assert(d3d12_pipeline_state_is_graphics(state));
+
+    *vk_render_pass = VK_NULL_HANDLE;
 
     memset(&pipeline_key, 0, sizeof(pipeline_key));
     pipeline_key.topology = topology;
@@ -2783,7 +2805,9 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         ++binding_count;
     }
 
-    if ((vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key)))
+    pipeline_key.dsv_format = dsv_format;
+
+    if ((vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, vk_render_pass)))
         return vk_pipeline;
 
     input_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -2846,6 +2870,18 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     pipeline_desc.subpass = 0;
     pipeline_desc.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_desc.basePipelineIndex = -1;
+
+    /* Create a render pass for pipelines with DXGI_FORMAT_UNKNOWN. */
+    if (!pipeline_desc.renderPass)
+    {
+        TRACE("Compiling %p with DSV format %#x.\n", state, dsv_format);
+        if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device, dsv_format,
+                &pipeline_desc.renderPass)))
+            return VK_NULL_HANDLE;
+
+        *vk_render_pass = pipeline_desc.renderPass;
+    }
+
     if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device, device->vk_pipeline_cache,
             1, &pipeline_desc, NULL, &vk_pipeline))) < 0)
     {
@@ -2853,12 +2889,12 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         return VK_NULL_HANDLE;
     }
 
-    if (d3d12_pipeline_state_put_pipeline_to_cache(state, &pipeline_key, vk_pipeline))
+    if (d3d12_pipeline_state_put_pipeline_to_cache(state, &pipeline_key, vk_pipeline, pipeline_desc.renderPass))
         return vk_pipeline;
 
     /* Other thread compiled the pipeline before us. */
     VK_CALL(vkDestroyPipeline(device->vk_device, vk_pipeline, NULL));
-    vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key);
+    vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, vk_render_pass);
     if (!vk_pipeline)
         ERR("Could not get the pipeline compiled by other thread from the cache.\n");
     return vk_pipeline;

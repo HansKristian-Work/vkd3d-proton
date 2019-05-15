@@ -2251,11 +2251,13 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->fb_width = 0;
     list->fb_height = 0;
     list->fb_layer_count = 0;
+    list->dsv_format = VK_FORMAT_UNDEFINED;
 
     list->xfb_enabled = false;
 
     list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;
+    list->pso_render_pass = VK_NULL_HANDLE;
     list->current_render_pass = VK_NULL_HANDLE;
 
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
@@ -2370,7 +2372,7 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
     fb_desc.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     fb_desc.pNext = NULL;
     fb_desc.flags = 0;
-    fb_desc.renderPass = graphics->render_pass;
+    fb_desc.renderPass = list->pso_render_pass;
     fb_desc.attachmentCount = view_count;
     fb_desc.pAttachments = views;
     d3d12_command_list_get_fb_extent(list, &fb_desc.width, &fb_desc.height, &fb_desc.layers);
@@ -2407,8 +2409,11 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     }
 
     if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
-            list->primitive_topology, list->strides)))
+            list->primitive_topology, list->strides, list->dsv_format, &list->pso_render_pass)))
         return false;
+
+    if (!list->pso_render_pass)
+        list->pso_render_pass = list->state->u.graphics.render_pass;
 
     VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, vk_pipeline));
     list->current_pipeline = vk_pipeline;
@@ -2797,7 +2802,8 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     if (list->current_render_pass != VK_NULL_HANDLE)
         return true;
 
-    vk_render_pass = list->state->u.graphics.render_pass;
+    vk_render_pass = list->pso_render_pass;
+    assert(vk_render_pass);
 
     begin_desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     begin_desc.pNext = NULL;
@@ -4373,11 +4379,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
             list->fb_width = max(list->fb_width, dsv_desc->width);
             list->fb_height = max(list->fb_height, dsv_desc->height);
             list->fb_layer_count = max(list->fb_layer_count, dsv_desc->layer_count);
+            list->dsv_format = dsv_desc->format;
         }
         else
         {
             WARN("DSV descriptor is not initialized.\n");
             list->views[0] = VK_NULL_HANDLE;
+            list->dsv_format = VK_FORMAT_UNDEFINED;
         }
     }
 
