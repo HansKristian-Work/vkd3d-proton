@@ -4186,17 +4186,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
         UINT start_slot, UINT view_count, const D3D12_VERTEX_BUFFER_VIEW *views)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList1(iface);
+    const struct vkd3d_null_resources *null_resources;
     struct vkd3d_gpu_va_allocator *gpu_va_allocator;
     VkDeviceSize offsets[ARRAY_SIZE(list->strides)];
     const struct vkd3d_vk_device_procs *vk_procs;
     VkBuffer buffers[ARRAY_SIZE(list->strides)];
-    unsigned int i, first, count, stride;
     struct d3d12_resource *resource;
     bool invalidate = false;
+    unsigned int i, stride;
 
     TRACE("iface %p, start_slot %u, view_count %u, views %p.\n", iface, start_slot, view_count, views);
 
     vk_procs = &list->device->vk_procs;
+    null_resources = &list->device->null_resources;
     gpu_va_allocator = &list->device->gpu_va_allocator;
 
     if (start_slot >= ARRAY_SIZE(list->strides) || view_count > ARRAY_SIZE(list->strides) - start_slot)
@@ -4205,25 +4207,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
         return;
     }
 
-    count = 0;
-    first = start_slot;
     for (i = 0; i < view_count; ++i)
     {
         if (views[i].BufferLocation)
         {
             resource = vkd3d_gpu_va_allocator_dereference(gpu_va_allocator, views[i].BufferLocation);
-            buffers[count] = resource->u.vk_buffer;
-            offsets[count] = views[i].BufferLocation - resource->gpu_address;
+            buffers[i] = resource->u.vk_buffer;
+            offsets[i] = views[i].BufferLocation - resource->gpu_address;
             stride = views[i].StrideInBytes;
-            ++count;
         }
         else
         {
-            if (count)
-                VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer, first, count, buffers, offsets));
-            count = 0;
-            first = start_slot + i + 1;
-
+            buffers[i] = null_resources->vk_buffer;
+            offsets[i] = 0;
             stride = 0;
         }
 
@@ -4231,8 +4227,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
         list->strides[start_slot + i] = stride;
     }
 
-    if (count)
-        VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer, first, count, buffers, offsets));
+    if (view_count)
+        VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer, start_slot, view_count, buffers, offsets));
 
     if (invalidate)
         d3d12_command_list_invalidate_current_pipeline(list);

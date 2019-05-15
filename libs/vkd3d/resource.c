@@ -18,7 +18,7 @@
 
 #include "vkd3d_private.h"
 
-#define VKD3D_NULL_CBV_BUFFER_SIZE 4
+#define VKD3D_NULL_BUFFER_SIZE 16
 #define VKD3D_NULL_VIEW_FORMAT DXGI_FORMAT_R8G8B8A8_UNORM
 
 static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32_t memory_type_mask,
@@ -2005,9 +2005,9 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
     else
     {
         /* NULL descriptor */
-        buffer_info->buffer = device->null_resources.vk_uniform_buffer;
+        buffer_info->buffer = device->null_resources.vk_buffer;
         buffer_info->offset = 0;
-        buffer_info->range = VKD3D_NULL_CBV_BUFFER_SIZE;
+        buffer_info->range = VKD3D_NULL_BUFFER_SIZE;
     }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_CBV;
@@ -3235,7 +3235,7 @@ static HRESULT vkd3d_init_null_resources_data(struct vkd3d_null_resources *null_
     }
 
     /* fill CBV buffer */
-    VK_CALL(vkCmdFillBuffer(vk_command_buffer, null_resource->vk_uniform_buffer, 0, VK_WHOLE_SIZE, 0x00000000));
+    VK_CALL(vkCmdFillBuffer(vk_command_buffer, null_resource->vk_buffer, 0, VK_WHOLE_SIZE, 0x00000000));
 
     /* transition 2D SRV image */
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -3322,7 +3322,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     /* CBV */
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
     resource_desc.Alignment = 0;
-    resource_desc.Width = VKD3D_NULL_CBV_BUFFER_SIZE;
+    resource_desc.Width = VKD3D_NULL_BUFFER_SIZE;
     resource_desc.Height = 1;
     resource_desc.DepthOrArraySize = 1;
     resource_desc.MipLevels = 1;
@@ -3333,10 +3333,10 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     resource_desc.Flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
 
     if (FAILED(hr = vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
-            &resource_desc, &null_resources->vk_uniform_buffer)))
+            &resource_desc, &null_resources->vk_buffer)))
         goto fail;
-    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_uniform_buffer,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_uniform_buffer_memory)))
+    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_buffer,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_buffer_memory)))
         goto fail;
 
     /* 2D SRV */
@@ -3360,10 +3360,10 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
         goto fail;
 
     /* set Vulkan object names */
-    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_uniform_buffer,
-            VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, "NULL CBV buffer");
-    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_uniform_buffer_memory,
-            VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, "NULL CBV memory");
+    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_buffer,
+            VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, "NULL buffer");
+    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_buffer_memory,
+            VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, "NULL memory");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_image,
             VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, "NULL 2D SRV image");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_image_memory,
@@ -3382,8 +3382,8 @@ void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
-    VK_CALL(vkDestroyBuffer(device->vk_device, null_resources->vk_uniform_buffer, NULL));
-    VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_uniform_buffer_memory, NULL));
+    VK_CALL(vkDestroyBuffer(device->vk_device, null_resources->vk_buffer, NULL));
+    VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_buffer_memory, NULL));
 
     VK_CALL(vkDestroyImage(device->vk_device, null_resources->vk_2d_image, NULL));
     VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_2d_image_memory, NULL));

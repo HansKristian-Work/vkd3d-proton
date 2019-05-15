@@ -960,8 +960,8 @@ struct d3d12_command_signature *unsafe_impl_from_ID3D12CommandSignature(ID3D12Co
 /* NULL resources */
 struct vkd3d_null_resources
 {
-    VkBuffer vk_uniform_buffer;
-    VkDeviceMemory vk_uniform_buffer_memory;
+    VkBuffer vk_buffer;
+    VkDeviceMemory vk_buffer_memory;
 
     VkImage vk_2d_image;
     VkDeviceMemory vk_2d_image_memory;
