@@ -2051,6 +2051,40 @@ bool d3d12_pipeline_state_is_render_pass_compatible(const struct d3d12_pipeline_
 
 STATIC_ASSERT(sizeof(struct vkd3d_shader_transform_feedback_element) == sizeof(D3D12_SO_DECLARATION_ENTRY));
 
+static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
+        struct d3d12_graphics_pipeline_state *graphics, struct d3d12_device *device)
+{
+    struct vkd3d_render_pass_key key;
+    unsigned int i;
+
+    if (graphics->rt_idx)
+    {
+        assert(graphics->ds_desc.front.writeMask == graphics->ds_desc.back.writeMask);
+        key.depth_enable = graphics->ds_desc.depthTestEnable;
+        key.stencil_enable = graphics->ds_desc.stencilTestEnable;
+        key.depth_stencil_write = graphics->ds_desc.depthWriteEnable
+                || graphics->ds_desc.front.writeMask;
+        key.vk_formats[0] = graphics->dsv_format;
+    }
+    else
+    {
+        key.depth_enable = false;
+        key.stencil_enable = false;
+        key.depth_stencil_write = false;
+        key.vk_formats[ARRAY_SIZE(key.vk_formats) - 1] = VK_FORMAT_UNDEFINED;
+    }
+
+    memcpy(&key.vk_formats[graphics->rt_idx], graphics->rtv_formats, sizeof(graphics->rtv_formats));
+    for (i = graphics->attachment_count; i < ARRAY_SIZE(key.vk_formats); ++i)
+        assert(key.vk_formats[i] == VK_FORMAT_UNDEFINED);
+
+    key.attachment_count = graphics->attachment_count;
+    key.padding = 0;
+    key.sample_count = graphics->ms_desc.rasterizationSamples;
+
+    return vkd3d_render_pass_cache_find(&device->render_pass_cache, device, &key, &graphics->render_pass);
+}
+
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc)
 {
@@ -2069,7 +2103,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
     struct vkd3d_shader_signature input_signature;
-    struct vkd3d_render_pass_key render_pass_key;
     VkShaderStageFlagBits xfb_stage = 0;
     VkSampleCountFlagBits sample_count;
     const struct vkd3d_format *format;
@@ -2153,8 +2186,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     if (desc->DSVFormat != DXGI_FORMAT_UNKNOWN
             && (desc->DepthStencilState.DepthEnable || desc->DepthStencilState.StencilEnable))
     {
-        const D3D12_DEPTH_STENCIL_DESC *ds_desc = &desc->DepthStencilState;
-
         if (!(format = vkd3d_get_format(device, desc->DSVFormat, true)))
         {
             WARN("Invalid DSV format %#x.\n", desc->DSVFormat);
@@ -2165,11 +2196,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (!(format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
             FIXME("Format %#x is not depth/stencil format.\n", format->dxgi_format);
 
-        render_pass_key.depth_enable = desc->DepthStencilState.DepthEnable;
-        render_pass_key.stencil_enable = desc->DepthStencilState.StencilEnable;
-        render_pass_key.depth_stencil_write = (ds_desc->DepthEnable && ds_desc->DepthWriteMask)
-                || (ds_desc->StencilEnable && ds_desc->StencilWriteMask);
-        render_pass_key.vk_formats[0] = format->vk_format;
+        graphics->dsv_format = format->vk_format;
         ++graphics->rt_idx;
 
         if (!desc->PS.pShaderBytecode)
@@ -2181,28 +2208,21 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             ++graphics->stage_count;
         }
     }
-    else
-    {
-        render_pass_key.depth_enable = false;
-        render_pass_key.stencil_enable = false;
-        render_pass_key.depth_stencil_write = false;
-    }
 
     for (i = 0; i < rt_count; ++i)
     {
         const D3D12_RENDER_TARGET_BLEND_DESC *rt_desc;
-        size_t idx = graphics->rt_idx + i;
 
         if (desc->RTVFormats[i] == DXGI_FORMAT_UNKNOWN)
         {
-            graphics->null_attachment_mask |= 1u << idx;
+            graphics->null_attachment_mask |= 1u << i;
             ps_output_swizzle[i] = VKD3D_NO_SWIZZLE;
-            render_pass_key.vk_formats[idx] = VK_FORMAT_UNDEFINED;
+            graphics->rtv_formats[i] = VK_FORMAT_UNDEFINED;
         }
         else if ((format = vkd3d_get_format(device, desc->RTVFormats[i], false)))
         {
             ps_output_swizzle[i] = vkd3d_get_rt_format_swizzle(format);
-            render_pass_key.vk_formats[idx] = format->vk_format;
+            graphics->rtv_formats[i] = format->vk_format;
         }
         else
         {
@@ -2227,7 +2247,11 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
         blend_attachment_from_d3d12(&graphics->blend_attachments[i], rt_desc);
     }
+    graphics->null_attachment_mask <<= graphics->rt_idx;
     graphics->attachment_count = graphics->rt_idx + rt_count;
+
+    for (i = rt_count; i < ARRAY_SIZE(graphics->rtv_formats); ++i)
+        graphics->rtv_formats[i] = VK_FORMAT_UNDEFINED;
 
     ps_shader_parameters[0].name = VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT;
     ps_shader_parameters[0].type = VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT;
@@ -2486,16 +2510,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
     }
 
-    render_pass_key.attachment_count = graphics->attachment_count;
-    render_pass_key.padding = 0;
-    render_pass_key.sample_count = sample_count;
-    for (i = render_pass_key.attachment_count; i < ARRAY_SIZE(render_pass_key.vk_formats); ++i)
-        render_pass_key.vk_formats[i] = VK_FORMAT_UNDEFINED;
-
-    if (FAILED(hr = vkd3d_render_pass_cache_find(&device->render_pass_cache, device,
-            &render_pass_key, &graphics->render_pass)))
-        goto fail;
-
     rs_desc_from_d3d12(&graphics->rs_desc, &desc->RasterizerState);
     if ((!graphics->attachment_count && !(desc->PS.pShaderBytecode && desc->PS.BytecodeLength))
             || so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM)
@@ -2523,6 +2537,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->ms_desc.alphaToOneEnable = VK_FALSE;
 
     ds_desc_from_d3d12(&graphics->ds_desc, &desc->DepthStencilState);
+
+    if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device)))
+        goto fail;
 
     graphics->root_signature = root_signature;
 
