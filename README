@@ -28,3 +28,40 @@ at build-time with some modest source modifications.
 
 If vkd3d is available when building Wine, then Wine will use it to support
 Direct3D 12 applications.
+
+=====================
+Environment variables
+=====================
+
+Most of the environment variables used by vkd3d are for debugging purposes. The
+environment variables are not considered a part of API and might be changed or
+removed in the future versions of vkd3d.
+
+Some of debug variables are lists of elements. Elements must be separated by
+commas or semicolons.
+
+ * VKD3D_CONFIG - a list of options that change the behavior of libvkd3d.
+    * vk_debug - enables Vulkan debug extensions.
+
+ * VKD3D_DEBUG - controls the debug level for log messages produced by
+   libvkd3d. Accepts the following values: none, err, fixme, warn, trace.
+
+ * VKD3D_VULKAN_DEVICE - a zero-based device index. Use to force the selected
+   Vulkan device.
+
+ * VKD3D_DISABLE_EXTENSIONS - a list of Vulkan extensions that libvkd3d should
+   not use even if available.
+
+ * VKD3D_SHADER_DEBUG - controls the debug level for log messages produced by
+   libvkd3d-shader. See VKD3D_DEBUG for accepted values.
+
+ * VKD3D_SHADER_DUMP_PATH - path where shader bytecode is dumped.
+
+ * VKD3D_TEST_DEBUG - enables additional debug messages in tests. Set to 0, 1
+   or 2.
+
+ * VKD3D_TEST_PLATFORM - can be set to "wine", "windows" or "other". The test
+   platform controls the behavior of todo(), todo_if(), bug_if() and broken()
+   conditions in tests.
+
+ * VKD3D_TEST_BUG - set to 0 to disable bug_if() conditions in tests.
