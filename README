@@ -19,6 +19,11 @@ available or is not recent (>= 3.20), then you can build Wine with `make
 tools/widl' to avoid building all of Wine. You can then point vkd3d's
 configure at that widl binary with `WIDL="/path/to/widl"'.
 
+For release builds, you may want to define NDEBUG. If you do not need debug log
+messages, you may also consider VKD3D_NO_TRACE_MESSAGES and
+VKD3D_NO_DEBUG_MESSAGES. For example, you can pass `CPPFLAGS="-DNDEBUG
+-DVKD3D_NO_TRACE_MESSAGES"' to configure.
+
 ===========
 Using vkd3d
 ===========
