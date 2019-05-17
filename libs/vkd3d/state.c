@@ -1050,10 +1050,10 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_render_pass_entry *entry;
     unsigned int index, attachment_index;
-    unsigned int color_attachment_index;
     VkSubpassDescription sub_pass_desc;
     VkRenderPassCreateInfo pass_info;
     bool have_depth_stencil;
+    unsigned int rt_count;
     VkResult vr;
 
     if (!vkd3d_array_reserve((void **)&cache->render_passes, &cache->render_passes_size,
@@ -1068,51 +1068,10 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
     entry->key = *key;
 
     have_depth_stencil = key->depth_enable || key->stencil_enable;
-    color_attachment_index = have_depth_stencil ? 1 : 0;
+    rt_count = have_depth_stencil ? key->attachment_count - 1 : key->attachment_count;
+    assert(rt_count <= D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT);
 
-    index = 0;
-    if (have_depth_stencil)
-    {
-        VkImageLayout depth_layout = key->depth_stencil_write
-                ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-                : VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-        attachments[index].flags = 0;
-        attachments[index].format = key->vk_formats[index];
-        attachments[index].samples = key->sample_count;
-
-        if (key->depth_enable)
-        {
-            attachments[index].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-            attachments[index].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        }
-        else
-        {
-            attachments[index].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-            attachments[index].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        }
-        if (key->stencil_enable)
-        {
-            attachments[index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-            attachments[index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-        }
-        else
-        {
-            attachments[index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-            attachments[index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        }
-        attachments[index].initialLayout = depth_layout;
-        attachments[index].finalLayout = depth_layout;
-
-        attachment_references[index].attachment = index;
-        attachment_references[index].layout = depth_layout;
-
-        ++index;
-    }
-
-    attachment_index = index;
-    assert(index == color_attachment_index);
-    for (; index < key->attachment_count; ++index)
+    for (index = 0, attachment_index = 0; index < rt_count; ++index)
     {
         if (!key->vk_formats[index])
         {
@@ -1137,15 +1096,54 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
         ++attachment_index;
     }
 
+    if (have_depth_stencil)
+    {
+        VkImageLayout depth_layout = key->depth_stencil_write
+                ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+                : VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        attachments[attachment_index].flags = 0;
+        attachments[attachment_index].format = key->vk_formats[index];
+        attachments[attachment_index].samples = key->sample_count;
+
+        if (key->depth_enable)
+        {
+            attachments[attachment_index].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            attachments[attachment_index].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        }
+        else
+        {
+            attachments[attachment_index].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            attachments[attachment_index].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        }
+        if (key->stencil_enable)
+        {
+            attachments[attachment_index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            attachments[attachment_index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+        }
+        else
+        {
+            attachments[attachment_index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            attachments[attachment_index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        }
+        attachments[attachment_index].initialLayout = depth_layout;
+        attachments[attachment_index].finalLayout = depth_layout;
+
+        attachment_references[index].attachment = attachment_index;
+        attachment_references[index].layout = depth_layout;
+
+        attachment_index++;
+    }
+
     sub_pass_desc.flags = 0;
     sub_pass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     sub_pass_desc.inputAttachmentCount = 0;
     sub_pass_desc.pInputAttachments = NULL;
-    sub_pass_desc.colorAttachmentCount = key->attachment_count - color_attachment_index;
-    sub_pass_desc.pColorAttachments = &attachment_references[color_attachment_index];
+    sub_pass_desc.colorAttachmentCount = rt_count;
+    sub_pass_desc.pColorAttachments = attachment_references;
     sub_pass_desc.pResolveAttachments = NULL;
     if (have_depth_stencil)
-        sub_pass_desc.pDepthStencilAttachment = &attachment_references[0];
+        sub_pass_desc.pDepthStencilAttachment = &attachment_references[rt_count];
     else
         sub_pass_desc.pDepthStencilAttachment = NULL;
     sub_pass_desc.preserveAttachmentCount = 0;
@@ -2059,11 +2057,13 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
 {
     struct vkd3d_render_pass_key key;
     VkFormat dsv_format;
-    unsigned int i = 0;
+    unsigned int i;
 
-    dsv_format = graphics->rt_idx ?
-            graphics->dsv_format ? graphics->dsv_format : dynamic_dsv_format
-            : VK_FORMAT_UNDEFINED;
+    memcpy(key.vk_formats, graphics->rtv_formats, sizeof(graphics->rtv_formats));
+    key.attachment_count = graphics->rt_count;
+
+    if (!(dsv_format = graphics->dsv_format) && (graphics->null_attachment_mask & (1u << graphics->rt_count)))
+        dsv_format = dynamic_dsv_format;
 
     if (dsv_format)
     {
@@ -2072,23 +2072,20 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
         key.stencil_enable = graphics->ds_desc.stencilTestEnable;
         key.depth_stencil_write = graphics->ds_desc.depthWriteEnable
                 || graphics->ds_desc.front.writeMask;
-        key.vk_formats[i++] = dsv_format;
+        key.vk_formats[key.attachment_count++] = dsv_format;
     }
     else
     {
         key.depth_enable = false;
         key.stencil_enable = false;
         key.depth_stencil_write = false;
-        key.vk_formats[ARRAY_SIZE(key.vk_formats) - 1] = VK_FORMAT_UNDEFINED;
     }
 
-    memcpy(&key.vk_formats[i], graphics->rtv_formats, sizeof(graphics->rtv_formats));
-    for (i = graphics->attachment_count; i < ARRAY_SIZE(key.vk_formats); ++i)
+    if (key.attachment_count != ARRAY_SIZE(key.vk_formats))
+        key.vk_formats[ARRAY_SIZE(key.vk_formats) - 1] = VK_FORMAT_UNDEFINED;
+    for (i = key.attachment_count; i < ARRAY_SIZE(key.vk_formats); ++i)
         assert(key.vk_formats[i] == VK_FORMAT_UNDEFINED);
 
-    key.attachment_count = graphics->attachment_count;
-    if (!dsv_format && graphics->rt_idx)
-        --key.attachment_count;
     key.padding = 0;
     key.sample_count = graphics->ms_desc.rasterizationSamples;
 
@@ -2118,6 +2115,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     const struct vkd3d_format *format;
     unsigned int instance_divisor;
     VkVertexInputRate input_rate;
+    bool have_attachment;
     unsigned int i, j;
     size_t rt_count;
     uint32_t mask;
@@ -2187,41 +2185,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         rt_count = ARRAY_SIZE(graphics->blend_attachments);
     }
 
-    graphics->rt_idx = 0;
     graphics->null_attachment_mask = 0;
-    if (desc->DepthStencilState.DepthEnable || desc->DepthStencilState.StencilEnable)
-    {
-        if (desc->DSVFormat == DXGI_FORMAT_UNKNOWN)
-        {
-            WARN("DSV format is DXGI_FORMAT_UNKNOWN.\n");
-            graphics->dsv_format = VK_FORMAT_UNDEFINED;
-        }
-        else if ((format = vkd3d_get_format(device, desc->DSVFormat, true)))
-        {
-            if (!(format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
-                FIXME("Format %#x is not depth/stencil format.\n", format->dxgi_format);
-
-            graphics->dsv_format = format->vk_format;
-        }
-        else
-        {
-            WARN("Invalid DSV format %#x.\n", desc->DSVFormat);
-            hr = E_INVALIDARG;
-            goto fail;
-        }
-
-        ++graphics->rt_idx;
-
-        if (!desc->PS.pShaderBytecode)
-        {
-            if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
-                    VK_SHADER_STAGE_FRAGMENT_BIT, &default_ps, NULL, NULL)))
-                goto fail;
-
-            ++graphics->stage_count;
-        }
-    }
-
     for (i = 0; i < rt_count; ++i)
     {
         const D3D12_RENDER_TARGET_BLEND_DESC *rt_desc;
@@ -2260,11 +2224,42 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
         blend_attachment_from_d3d12(&graphics->blend_attachments[i], rt_desc);
     }
-    graphics->null_attachment_mask <<= graphics->rt_idx;
-    graphics->attachment_count = graphics->rt_idx + rt_count;
-
     for (i = rt_count; i < ARRAY_SIZE(graphics->rtv_formats); ++i)
         graphics->rtv_formats[i] = VK_FORMAT_UNDEFINED;
+    graphics->rt_count = rt_count;
+
+    graphics->dsv_format = VK_FORMAT_UNDEFINED;
+    if (desc->DepthStencilState.DepthEnable || desc->DepthStencilState.StencilEnable)
+    {
+        if (desc->DSVFormat == DXGI_FORMAT_UNKNOWN)
+        {
+            WARN("DSV format is DXGI_FORMAT_UNKNOWN.\n");
+            graphics->dsv_format = VK_FORMAT_UNDEFINED;
+            graphics->null_attachment_mask |= 1u << graphics->rt_count;
+        }
+        else if ((format = vkd3d_get_format(device, desc->DSVFormat, true)))
+        {
+            if (!(format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
+                FIXME("Format %#x is not depth/stencil format.\n", format->dxgi_format);
+
+            graphics->dsv_format = format->vk_format;
+        }
+        else
+        {
+            WARN("Invalid DSV format %#x.\n", desc->DSVFormat);
+            hr = E_INVALIDARG;
+            goto fail;
+        }
+
+        if (!desc->PS.pShaderBytecode)
+        {
+            if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
+                    VK_SHADER_STAGE_FRAGMENT_BIT, &default_ps, NULL, NULL)))
+                goto fail;
+
+            ++graphics->stage_count;
+        }
+    }
 
     ps_shader_parameters[0].name = VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT;
     ps_shader_parameters[0].type = VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT;
@@ -2524,7 +2519,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
 
     rs_desc_from_d3d12(&graphics->rs_desc, &desc->RasterizerState);
-    if ((!graphics->attachment_count && !(desc->PS.pShaderBytecode && desc->PS.BytecodeLength))
+    have_attachment = graphics->rt_count || graphics->dsv_format || (graphics->null_attachment_mask & (1u << graphics->rt_count));
+    if ((!have_attachment && !(desc->PS.pShaderBytecode && desc->PS.BytecodeLength))
             || so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM)
         graphics->rs_desc.rasterizerDiscardEnable = VK_TRUE;
 
@@ -2846,7 +2842,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     blend_desc.flags = 0;
     blend_desc.logicOpEnable = VK_FALSE;
     blend_desc.logicOp = VK_LOGIC_OP_COPY;
-    blend_desc.attachmentCount = graphics->attachment_count - graphics->rt_idx;
+    blend_desc.attachmentCount = graphics->rt_count;
     blend_desc.pAttachments = graphics->blend_attachments;
     blend_desc.blendConstants[0] = D3D12_DEFAULT_BLEND_FACTOR_RED;
     blend_desc.blendConstants[1] = D3D12_DEFAULT_BLEND_FACTOR_GREEN;

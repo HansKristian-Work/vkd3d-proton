@@ -2247,11 +2247,12 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 
     list->index_buffer_format = DXGI_FORMAT_UNKNOWN;
 
-    memset(list->views, 0, sizeof(list->views));
+    memset(list->rtvs, 0, sizeof(list->rtvs));
+    list->dsv = VK_NULL_HANDLE;
+    list->dsv_format = VK_FORMAT_UNDEFINED;
     list->fb_width = 0;
     list->fb_height = 0;
     list->fb_layer_count = 0;
-    list->dsv_format = VK_FORMAT_UNDEFINED;
 
     list->xfb_enabled = false;
 
@@ -2309,12 +2310,24 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_ClearState(ID3D12GraphicsCom
     return E_NOTIMPL;
 }
 
+static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list *list)
+{
+    struct d3d12_graphics_pipeline_state *graphics;
+
+    assert(d3d12_pipeline_state_is_graphics(list->state));
+    graphics = &list->state->u.graphics;
+
+    return graphics->dsv_format
+            || (graphics->null_attachment_mask & (1u << graphics->rt_count) && list->dsv_format);
+}
+
 static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
         uint32_t *width, uint32_t *height, uint32_t *layer_count)
 {
+    struct d3d12_graphics_pipeline_state *graphics = &list->state->u.graphics;
     struct d3d12_device *device = list->device;
 
-    if (list->state->u.graphics.attachment_count)
+    if (graphics->rt_count || d3d12_command_list_has_depth_stencil_view(list))
     {
         *width = list->fb_width;
         *height = list->fb_height;
@@ -2339,8 +2352,6 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
     struct VkFramebufferCreateInfo fb_desc;
     VkFramebuffer vk_framebuffer;
     unsigned int view_count;
-    size_t start_idx = 0;
-    bool null_attachment;
     unsigned int i;
     VkResult vr;
 
@@ -2349,29 +2360,31 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
 
     graphics = &list->state->u.graphics;
 
-    if (!graphics->rt_idx)
-        ++start_idx;
-
-    for (i = 0, view_count = 0; i < graphics->attachment_count; ++i)
+    for (i = 0, view_count = 0; i < graphics->rt_count; ++i)
     {
-        null_attachment = graphics->null_attachment_mask & (1u << i);
-        if (graphics->rt_idx && i == 0)
-            null_attachment = list->dsv_format == VK_FORMAT_UNDEFINED;
-
-        if (null_attachment)
+        if (graphics->null_attachment_mask & (1u << i))
         {
-            if (list->views[start_idx + i])
-                WARN("Expected NULL view for attachment %u.\n", i);
+            if (list->rtvs[i])
+                WARN("Expected NULL RTV for attachment %u.\n", i);
             continue;
         }
 
-        if (!list->views[start_idx + i])
+        if (!list->rtvs[i])
         {
-            FIXME("Invalid view for attachment %u.\n", i);
+            FIXME("Invalid RTV for attachment %u.\n", i);
             return false;
         }
 
-        views[view_count++] = list->views[start_idx + i];
+        views[view_count++] = list->rtvs[i];
+    }
+
+    if (d3d12_command_list_has_depth_stencil_view(list))
+    {
+        if (!(views[view_count++] = list->dsv))
+        {
+            FIXME("Invalid DSV.\n");
+            return false;
+        }
     }
 
     fb_desc.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -4319,11 +4332,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
             iface, render_target_descriptor_count, render_target_descriptors,
             single_descriptor_handle, depth_stencil_descriptor);
 
-    if (render_target_descriptor_count > ARRAY_SIZE(list->views) - 1)
+    if (render_target_descriptor_count > ARRAY_SIZE(list->rtvs))
     {
         WARN("Descriptor count %u > %zu, ignoring extra descriptors.\n",
-                render_target_descriptor_count, ARRAY_SIZE(list->views) - 1);
-        render_target_descriptor_count = ARRAY_SIZE(list->views) - 1;
+                render_target_descriptor_count, ARRAY_SIZE(list->rtvs));
+        render_target_descriptor_count = ARRAY_SIZE(list->rtvs);
     }
 
     list->fb_width = 0;
@@ -4344,7 +4357,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
         if (!rtv_desc || !rtv_desc->resource)
         {
             WARN("RTV descriptor %u is not initialized.\n", i);
-            list->views[i + 1] = VK_NULL_HANDLE;
+            list->rtvs[i] = VK_NULL_HANDLE;
             continue;
         }
 
@@ -4357,7 +4370,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
             WARN("Failed to add view.\n");
         }
 
-        list->views[i + 1] = view->u.vk_image_view;
+        list->rtvs[i] = view->u.vk_image_view;
         list->fb_width = max(list->fb_width, rtv_desc->width);
         list->fb_height = max(list->fb_height, rtv_desc->height);
         list->fb_layer_count = max(list->fb_layer_count, rtv_desc->layer_count);
@@ -4375,10 +4388,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
             if (!d3d12_command_allocator_add_view(list->allocator, view))
             {
                 WARN("Failed to add view.\n");
-                list->views[0] = VK_NULL_HANDLE;
+                list->dsv = VK_NULL_HANDLE;
             }
 
-            list->views[0] = view->u.vk_image_view;
+            list->dsv = view->u.vk_image_view;
             list->fb_width = max(list->fb_width, dsv_desc->width);
             list->fb_height = max(list->fb_height, dsv_desc->height);
             list->fb_layer_count = max(list->fb_layer_count, dsv_desc->layer_count);
@@ -4387,7 +4400,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
         else
         {
             WARN("DSV descriptor is not initialized.\n");
-            list->views[0] = VK_NULL_HANDLE;
+            list->dsv = VK_NULL_HANDLE;
             list->dsv_format = VK_FORMAT_UNDEFINED;
         }
     }

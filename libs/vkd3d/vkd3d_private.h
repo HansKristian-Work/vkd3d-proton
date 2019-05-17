@@ -674,7 +674,7 @@ struct d3d12_graphics_pipeline_state
     size_t attribute_count;
 
     VkPipelineColorBlendAttachmentState blend_attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-    unsigned int attachment_count, rt_idx;
+    unsigned int rt_count;
     unsigned int null_attachment_mask;
     VkFormat dsv_format;
     VkFormat rtv_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
@@ -858,7 +858,8 @@ struct d3d12_command_list
 
     DXGI_FORMAT index_buffer_format;
 
-    VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+    VkImageView rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    VkImageView dsv;
     unsigned int fb_width;
     unsigned int fb_height;
     unsigned int fb_layer_count;
