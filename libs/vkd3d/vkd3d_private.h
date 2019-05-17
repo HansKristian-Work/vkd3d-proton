@@ -743,8 +743,6 @@ HRESULT d3d12_pipeline_state_create_graphics(struct d3d12_device *device,
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
         D3D12_PRIMITIVE_TOPOLOGY topology, const uint32_t *strides, VkFormat dsv_format,
         VkRenderPass *vk_render_pass) DECLSPEC_HIDDEN;
-bool d3d12_pipeline_state_is_render_pass_compatible(const struct d3d12_pipeline_state *state_a,
-        const struct d3d12_pipeline_state *state_b) DECLSPEC_HIDDEN;
 struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface) DECLSPEC_HIDDEN;
 
 struct vkd3d_buffer

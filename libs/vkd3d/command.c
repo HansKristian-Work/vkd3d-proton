@@ -2415,6 +2415,7 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
 static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkRenderPass vk_render_pass;
     VkPipeline vk_pipeline;
 
     if (list->current_pipeline != VK_NULL_HANDLE)
@@ -2427,11 +2428,20 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     }
 
     if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
-            list->primitive_topology, list->strides, list->dsv_format, &list->pso_render_pass)))
+            list->primitive_topology, list->strides, list->dsv_format, &vk_render_pass)))
         return false;
 
-    if (!list->pso_render_pass)
-        list->pso_render_pass = list->state->u.graphics.render_pass;
+    if (!vk_render_pass)
+        vk_render_pass = list->state->u.graphics.render_pass;
+
+    /* The render pass cache ensures that we use the same Vulkan render pass
+     * object for compatible render passes. */
+    if (list->pso_render_pass != vk_render_pass)
+    {
+        list->pso_render_pass = vk_render_pass;
+        d3d12_command_list_invalidate_current_framebuffer(list);
+        d3d12_command_list_invalidate_current_render_pass(list);
+    }
 
     VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, vk_pipeline));
     list->current_pipeline = vk_pipeline;
@@ -3648,11 +3658,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(ID3D12Graphics
     }
     else
     {
-        if (!d3d12_pipeline_state_is_render_pass_compatible(list->state, state))
-        {
-            d3d12_command_list_invalidate_current_framebuffer(list);
-            d3d12_command_list_invalidate_current_render_pass(list);
-        }
         d3d12_command_list_invalidate_current_pipeline(list);
     }
 

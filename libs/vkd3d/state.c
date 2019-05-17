@@ -2027,28 +2027,6 @@ static unsigned int vkd3d_get_rt_format_swizzle(const struct vkd3d_format *forma
     return VKD3D_NO_SWIZZLE;
 }
 
-/*
- * This must return results in accordance with render passes created by
- * d3d12_pipeline_state_init_graphics().
- */
-bool d3d12_pipeline_state_is_render_pass_compatible(const struct d3d12_pipeline_state *state_a,
-        const struct d3d12_pipeline_state *state_b)
-{
-    const struct d3d12_graphics_pipeline_state *a = &state_a->u.graphics;
-    const struct d3d12_graphics_pipeline_state *b = &state_b->u.graphics;
-
-    if (!state_a != !state_b)
-        return false;
-    if (!state_a && !state_b)
-        return true;
-
-    if (state_a->vk_bind_point != VK_PIPELINE_BIND_POINT_GRAPHICS
-            || state_b->vk_bind_point != VK_PIPELINE_BIND_POINT_GRAPHICS)
-        return false;
-
-    return a->render_pass == b->render_pass;
-}
-
 STATIC_ASSERT(sizeof(struct vkd3d_shader_transform_feedback_element) == sizeof(D3D12_SO_DECLARATION_ENTRY));
 
 static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
