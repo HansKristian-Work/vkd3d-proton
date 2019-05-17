@@ -323,34 +323,40 @@ static bool is_option_separator(char c)
     return c == ',' || c == ';' || c == '\0';
 }
 
+bool vkd3d_debug_list_has_member(const char *string, const char *member)
+{
+    char prev_char, next_char;
+    const char *p;
+
+    p = string;
+    while (p)
+    {
+        if ((p = strstr(p, member)))
+        {
+            prev_char = p > string ? p[-1] : 0;
+            p += strlen(member);
+            next_char = *p;
+
+            if (is_option_separator(prev_char) && is_option_separator(next_char))
+                return true;
+        }
+    }
+
+    return false;
+}
+
 uint64_t vkd3d_parse_debug_options(const char *string,
         const struct vkd3d_debug_option *options, unsigned int option_count)
 {
-    char prev_char, next_char;
     uint64_t flags = 0;
     unsigned int i;
-    const char *p;
 
     for (i = 0; i < option_count; ++i)
     {
         const struct vkd3d_debug_option *opt = &options[i];
 
-        p = string;
-        while (p)
-        {
-            if ((p = strstr(p, opt->name)))
-            {
-                prev_char = p > string ? p[-1] : 0;
-                p += strlen(opt->name);
-                next_char = *p;
-
-                if (is_option_separator(prev_char) && is_option_separator(next_char))
-                {
-                    flags |= opt->flag;
-                    break;
-                }
-            }
-        }
+        if (vkd3d_debug_list_has_member(string, opt->name))
+            flags |= opt->flag;
     }
 
     return flags;

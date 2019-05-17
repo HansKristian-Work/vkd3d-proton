@@ -22,6 +22,7 @@
 #include "vkd3d_common.h"
 
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef VKD3D_NO_TRACE_MESSAGES
@@ -100,6 +101,7 @@ struct vkd3d_debug_option
     uint64_t flag;
 };
 
+bool vkd3d_debug_list_has_member(const char *string, const char *member) DECLSPEC_HIDDEN;
 uint64_t vkd3d_parse_debug_options(const char *string,
         const struct vkd3d_debug_option *options, unsigned int option_count) DECLSPEC_HIDDEN;
 

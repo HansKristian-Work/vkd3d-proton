@@ -180,16 +180,11 @@ static unsigned int get_spec_version(const VkExtensionProperties *extensions,
 static bool is_extension_disabled(const char *extension_name)
 {
     const char *disabled_extensions;
-    const char *s;
-    size_t len;
 
     if (!(disabled_extensions = getenv("VKD3D_DISABLE_EXTENSIONS")))
         return false;
 
-    if (!(s = strstr(disabled_extensions, extension_name)))
-        return false;
-    len = strlen(extension_name);
-    return s[len] == ';' || s[len] == '\0';
+    return vkd3d_debug_list_has_member(disabled_extensions, extension_name);
 }
 
 static bool has_extension(const VkExtensionProperties *extensions,
