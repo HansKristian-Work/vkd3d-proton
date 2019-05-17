@@ -2110,12 +2110,12 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
     struct vkd3d_shader_signature input_signature;
+    bool have_attachment, is_dsv_format_unknown;
     VkShaderStageFlagBits xfb_stage = 0;
     VkSampleCountFlagBits sample_count;
     const struct vkd3d_format *format;
     unsigned int instance_divisor;
     VkVertexInputRate input_rate;
-    bool have_attachment;
     unsigned int i, j;
     size_t rt_count;
     uint32_t mask;
@@ -2527,8 +2527,10 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
     }
 
+    is_dsv_format_unknown = graphics->null_attachment_mask & (1u << graphics->rt_count);
+
     rs_desc_from_d3d12(&graphics->rs_desc, &desc->RasterizerState);
-    have_attachment = graphics->rt_count || graphics->dsv_format || (graphics->null_attachment_mask & (1u << graphics->rt_count));
+    have_attachment = graphics->rt_count || graphics->dsv_format || is_dsv_format_unknown;
     if ((!have_attachment && !(desc->PS.pShaderBytecode && desc->PS.BytecodeLength))
             || so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM)
         graphics->rs_desc.rasterizerDiscardEnable = VK_TRUE;
@@ -2554,7 +2556,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->ms_desc.alphaToCoverageEnable = desc->BlendState.AlphaToCoverageEnable;
     graphics->ms_desc.alphaToOneEnable = VK_FALSE;
 
-    if (graphics->dsv_format == VK_FORMAT_UNDEFINED)
+    /* We defer creating the render pass for pipelines wth DSVFormat equal to
+     * DXGI_FORMAT_UNKNOWN. We take the actual DSV format from the bound DSV. */
+    if (is_dsv_format_unknown)
         graphics->render_pass = VK_NULL_HANDLE;
     else if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics,
             device, 0, &graphics->render_pass)))
