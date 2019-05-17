@@ -2058,21 +2058,21 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
         VkFormat dynamic_dsv_format, VkRenderPass *vk_render_pass)
 {
     struct vkd3d_render_pass_key key;
-    unsigned int i;
+    VkFormat dsv_format;
+    unsigned int i = 0;
 
-    if (graphics->rt_idx)
+    dsv_format = graphics->rt_idx ?
+            graphics->dsv_format ? graphics->dsv_format : dynamic_dsv_format
+            : VK_FORMAT_UNDEFINED;
+
+    if (dsv_format)
     {
         assert(graphics->ds_desc.front.writeMask == graphics->ds_desc.back.writeMask);
         key.depth_enable = graphics->ds_desc.depthTestEnable;
         key.stencil_enable = graphics->ds_desc.stencilTestEnable;
         key.depth_stencil_write = graphics->ds_desc.depthWriteEnable
                 || graphics->ds_desc.front.writeMask;
-
-        if (!(key.vk_formats[0] = graphics->dsv_format))
-            key.vk_formats[0] = dynamic_dsv_format;
-
-        if (!key.vk_formats[0])
-            FIXME("Compiling with DXGI_FORMAT_UNKNOWN.\n");
+        key.vk_formats[i++] = dsv_format;
     }
     else
     {
@@ -2082,11 +2082,13 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
         key.vk_formats[ARRAY_SIZE(key.vk_formats) - 1] = VK_FORMAT_UNDEFINED;
     }
 
-    memcpy(&key.vk_formats[graphics->rt_idx], graphics->rtv_formats, sizeof(graphics->rtv_formats));
+    memcpy(&key.vk_formats[i], graphics->rtv_formats, sizeof(graphics->rtv_formats));
     for (i = graphics->attachment_count; i < ARRAY_SIZE(key.vk_formats); ++i)
         assert(key.vk_formats[i] == VK_FORMAT_UNDEFINED);
 
     key.attachment_count = graphics->attachment_count;
+    if (!dsv_format && graphics->rt_idx)
+        --key.attachment_count;
     key.padding = 0;
     key.sample_count = graphics->ms_desc.rasterizationSamples;
 

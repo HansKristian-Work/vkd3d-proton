@@ -2340,6 +2340,7 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
     VkFramebuffer vk_framebuffer;
     unsigned int view_count;
     size_t start_idx = 0;
+    bool null_attachment;
     unsigned int i;
     VkResult vr;
 
@@ -2353,7 +2354,11 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
 
     for (i = 0, view_count = 0; i < graphics->attachment_count; ++i)
     {
-        if (graphics->null_attachment_mask & (1u << i))
+        null_attachment = graphics->null_attachment_mask & (1u << i);
+        if (graphics->rt_idx && i == 0)
+            null_attachment = list->dsv_format == VK_FORMAT_UNDEFINED;
+
+        if (null_attachment)
         {
             if (list->views[start_idx + i])
                 WARN("Expected NULL view for attachment %u.\n", i);
