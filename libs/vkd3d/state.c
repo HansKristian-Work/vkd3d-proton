@@ -2228,8 +2228,17 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         graphics->rtv_formats[i] = VK_FORMAT_UNDEFINED;
     graphics->rt_count = rt_count;
 
+    ds_desc_from_d3d12(&graphics->ds_desc, &desc->DepthStencilState);
+    if (desc->DSVFormat == DXGI_FORMAT_UNKNOWN
+            && graphics->ds_desc.depthTestEnable && !graphics->ds_desc.depthWriteEnable
+            && graphics->ds_desc.depthCompareOp == VK_COMPARE_OP_ALWAYS && !graphics->ds_desc.stencilTestEnable)
+    {
+        TRACE("Disabling depth test.\n");
+        graphics->ds_desc.depthTestEnable = VK_FALSE;
+    }
+
     graphics->dsv_format = VK_FORMAT_UNDEFINED;
-    if (desc->DepthStencilState.DepthEnable || desc->DepthStencilState.StencilEnable)
+    if (graphics->ds_desc.depthTestEnable || graphics->ds_desc.stencilTestEnable)
     {
         if (desc->DSVFormat == DXGI_FORMAT_UNKNOWN)
         {
@@ -2544,8 +2553,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
     graphics->ms_desc.alphaToCoverageEnable = desc->BlendState.AlphaToCoverageEnable;
     graphics->ms_desc.alphaToOneEnable = VK_FALSE;
-
-    ds_desc_from_d3d12(&graphics->ds_desc, &desc->DepthStencilState);
 
     if (graphics->dsv_format == VK_FORMAT_UNDEFINED)
         graphics->render_pass = VK_NULL_HANDLE;
