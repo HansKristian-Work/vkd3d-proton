@@ -580,6 +580,7 @@ struct vkd3d_shader_signature_element
     enum vkd3d_component_type component_type;
     unsigned int register_index;
     unsigned int mask;
+    unsigned int min_precision;
 };
 
 struct vkd3d_shader_signature

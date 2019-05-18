@@ -1852,9 +1852,12 @@ bool shader_sm4_is_end(void *data, const DWORD **ptr)
     ((DWORD)(ch2) << 16) | ((DWORD)(ch3) << 24 ))
 #define TAG_DXBC MAKE_TAG('D', 'X', 'B', 'C')
 #define TAG_ISGN MAKE_TAG('I', 'S', 'G', 'N')
+#define TAG_ISG1 MAKE_TAG('I', 'S', 'G', '1')
 #define TAG_OSGN MAKE_TAG('O', 'S', 'G', 'N')
 #define TAG_OSG5 MAKE_TAG('O', 'S', 'G', '5')
+#define TAG_OSG1 MAKE_TAG('O', 'S', 'G', '1')
 #define TAG_PCSG MAKE_TAG('P', 'C', 'S', 'G')
+#define TAG_PSG1 MAKE_TAG('P', 'S', 'G', '1')
 #define TAG_SHDR MAKE_TAG('S', 'H', 'D', 'R')
 #define TAG_SHEX MAKE_TAG('S', 'H', 'E', 'X')
 #define TAG_AON9 MAKE_TAG('A', 'o', 'n', '9')
@@ -1993,6 +1996,7 @@ static int shader_parse_signature(DWORD tag, const char *data, DWORD data_size,
     const char *ptr = data;
     unsigned int i;
     DWORD count;
+    bool has_stream_index, has_min_precision;
 
     if (!require_space(0, 2, sizeof(DWORD), data_size))
     {
@@ -2017,11 +2021,14 @@ static int shader_parse_signature(DWORD tag, const char *data, DWORD data_size,
         return VKD3D_ERROR_OUT_OF_MEMORY;
     }
 
+    has_min_precision = tag == TAG_OSG1 || tag == TAG_PSG1 || tag == TAG_ISG1;
+    has_stream_index = tag == TAG_OSG5 || has_min_precision;
+
     for (i = 0; i < count; ++i)
     {
         DWORD name_offset;
 
-        if (tag == TAG_OSG5)
+        if (has_stream_index)
             read_dword(&ptr, &e[i].stream_index);
         else
             e[i].stream_index = 0;
@@ -2038,10 +2045,15 @@ static int shader_parse_signature(DWORD tag, const char *data, DWORD data_size,
         read_dword(&ptr, &e[i].register_index);
         read_dword(&ptr, &e[i].mask);
 
+        if (has_min_precision)
+            read_dword(&ptr, &e[i].min_precision);
+        else
+            e[i].min_precision = 0;
+
         TRACE("Stream: %u, semantic: %s, semantic idx: %u, sysval_semantic %#x, "
-                "type %u, register idx: %u, use_mask %#x, input_mask %#x.\n",
+                "type %u, register idx: %u, use_mask %#x, input_mask %#x, precision %u.\n",
                 e[i].stream_index, debugstr_a(e[i].semantic_name), e[i].semantic_index, e[i].sysval_semantic,
-                e[i].component_type, e[i].register_index, (e[i].mask >> 8) & 0xff, e[i].mask & 0xff);
+                e[i].component_type, e[i].register_index, (e[i].mask >> 8) & 0xff, e[i].mask & 0xff, e[i].min_precision);
     }
 
     s->elements = e;
@@ -2084,6 +2096,7 @@ static int shdr_handler(const char *data, DWORD data_size, DWORD tag, void *cont
     switch (tag)
     {
         case TAG_ISGN:
+        case TAG_ISG1:
             if (desc->input_signature.elements)
             {
                 FIXME("Multiple input signatures.\n");
@@ -2095,6 +2108,7 @@ static int shdr_handler(const char *data, DWORD data_size, DWORD tag, void *cont
 
         case TAG_OSGN:
         case TAG_OSG5:
+        case TAG_OSG1:
             if (desc->output_signature.elements)
             {
                 FIXME("Multiple output signatures.\n");
@@ -2105,6 +2119,7 @@ static int shdr_handler(const char *data, DWORD data_size, DWORD tag, void *cont
             break;
 
         case TAG_PCSG:
+        case TAG_PSG1:
             if (desc->patch_constant_signature.elements)
             {
                 FIXME("Multiple patch constant signatures.\n");
