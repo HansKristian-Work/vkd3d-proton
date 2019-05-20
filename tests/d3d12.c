@@ -21554,10 +21554,10 @@ static void test_resolve_query_data_in_reordered_command_list(void)
 
 static void test_execute_indirect(void)
 {
+    ID3D12Resource *argument_buffer, *count_buffer, *uav;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     ID3D12CommandSignature *command_signature;
     ID3D12GraphicsCommandList *command_list;
-    ID3D12Resource *argument_buffer, *uav;
     D3D12_INPUT_LAYOUT_DESC input_layout;
     D3D12_ROOT_PARAMETER root_parameter;
     ID3D12PipelineState *pipeline_state;
@@ -21682,6 +21682,7 @@ static void test_execute_indirect(void)
         {2, 3, 4},
         {{6, 1, 0, 0, 0}, {6, 1, 0, 4, 0}},
     };
+    static const uint32_t count_data[] = {1, 2};
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
     memset(&desc, 0, sizeof(desc));
@@ -21692,6 +21693,7 @@ static void test_execute_indirect(void)
     queue = context.queue;
 
     argument_buffer = create_upload_buffer(context.device, sizeof(argument_data), &argument_data);
+    count_buffer = create_upload_buffer(context.device, sizeof(count_data), count_data);
 
     command_signature = create_command_signature(context.device, D3D12_INDIRECT_ARGUMENT_TYPE_DRAW);
 
@@ -21704,6 +21706,25 @@ static void test_execute_indirect(void)
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
     ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1, argument_buffer, 0, NULL, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1, argument_buffer, 0,
+            count_buffer, 0);
 
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -21796,6 +21817,35 @@ static void test_execute_indirect(void)
     check_readback_data_uint(&rb, &box, 0xff00ff00, 0);
     release_resource_readback(&rb);
 
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_IASetIndexBuffer(command_list, &ibv);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature,
+            ARRAY_SIZE(argument_data.indexed_draws), argument_buffer,
+            offsetof(struct argument_data, indexed_draws), count_buffer, sizeof(uint32_t));
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    set_box(&box, 0, 0, 0, 32, 8, 1);
+    check_readback_data_uint(&rb, &box, 0xffffff00, 0);
+    set_box(&box, 24, 8, 0, 32, 32, 1);
+    check_readback_data_uint(&rb, &box, 0xffffff00, 0);
+    set_box(&box, 0, 8, 0, 24, 32, 1);
+    check_readback_data_uint(&rb, &box, 0xff00ff00, 0);
+    release_resource_readback(&rb);
+
     ID3D12PipelineState_Release(pipeline_state);
     ID3D12RootSignature_Release(root_signature);
     ID3D12Resource_Release(ib);
@@ -21803,6 +21853,7 @@ static void test_execute_indirect(void)
     ID3D12Resource_Release(vb);
     ID3D12CommandSignature_Release(command_signature);
     ID3D12Resource_Release(argument_buffer);
+    ID3D12Resource_Release(count_buffer);
     destroy_test_context(&context);
 }
 
