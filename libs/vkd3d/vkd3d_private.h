@@ -92,6 +92,7 @@ struct vkd3d_vulkan_info
 
     /* KHR device extensions */
     bool KHR_dedicated_allocation;
+    bool KHR_draw_indirect_count;
     bool KHR_get_memory_requirements2;
     bool KHR_maintenance3;
     bool KHR_push_descriptor;

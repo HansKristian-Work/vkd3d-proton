@@ -151,6 +151,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 {
     /* KHR extensions */
     {VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_dedicated_allocation)},
+    {VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_draw_indirect_count)},
     {VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_get_memory_requirements2)},
     {VK_KHR_MAINTENANCE3_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_maintenance3)},
     {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_push_descriptor)},
