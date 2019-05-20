@@ -4872,6 +4872,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(ID3D12GraphicsC
         UINT64 arg_buffer_offset, ID3D12Resource *count_buffer, UINT64 count_buffer_offset)
 {
     struct d3d12_command_signature *sig_impl = unsafe_impl_from_ID3D12CommandSignature(command_signature);
+    struct d3d12_resource *count_impl = unsafe_impl_from_ID3D12Resource(count_buffer);
     struct d3d12_resource *arg_impl = unsafe_impl_from_ID3D12Resource(arg_buffer);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList1(iface);
     const D3D12_COMMAND_SIGNATURE_DESC *signature_desc;
@@ -4885,9 +4886,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(ID3D12GraphicsC
 
     vk_procs = &list->device->vk_procs;
 
-    if (count_buffer)
+    if (count_buffer && !list->device->vk_info.KHR_draw_indirect_count)
     {
-        FIXME("Count buffers not implemented.\n");
+        FIXME("Count buffers not supported by Vulkan implementation.\n");
         return;
     }
 
@@ -4905,8 +4906,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(ID3D12GraphicsC
                     break;
                 }
 
-                VK_CALL(vkCmdDrawIndirect(list->vk_command_buffer, arg_impl->u.vk_buffer,
-                        arg_buffer_offset, max_command_count, signature_desc->ByteStride));
+                if (count_buffer)
+                {
+                    VK_CALL(vkCmdDrawIndirectCountKHR(list->vk_command_buffer, arg_impl->u.vk_buffer,
+                            arg_buffer_offset, count_impl->u.vk_buffer, count_buffer_offset,
+                            max_command_count, signature_desc->ByteStride));
+                }
+                else
+                {
+                    VK_CALL(vkCmdDrawIndirect(list->vk_command_buffer, arg_impl->u.vk_buffer,
+                            arg_buffer_offset, max_command_count, signature_desc->ByteStride));
+                }
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
@@ -4918,13 +4928,28 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(ID3D12GraphicsC
 
                 d3d12_command_list_check_index_buffer_strip_cut_value(list);
 
-                VK_CALL(vkCmdDrawIndexedIndirect(list->vk_command_buffer, arg_impl->u.vk_buffer,
-                        arg_buffer_offset, max_command_count, signature_desc->ByteStride));
+                if (count_buffer)
+                {
+                    VK_CALL(vkCmdDrawIndexedIndirectCountKHR(list->vk_command_buffer, arg_impl->u.vk_buffer,
+                            arg_buffer_offset, count_impl->u.vk_buffer, count_buffer_offset,
+                            max_command_count, signature_desc->ByteStride));
+                }
+                else
+                {
+                    VK_CALL(vkCmdDrawIndexedIndirect(list->vk_command_buffer, arg_impl->u.vk_buffer,
+                            arg_buffer_offset, max_command_count, signature_desc->ByteStride));
+                }
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
                 if (max_command_count != 1)
                     FIXME("Ignoring command count %u.\n", max_command_count);
+
+                if (count_buffer)
+                {
+                    FIXME("Count buffers not supported for indirect dispatch.\n");
+                    break;
+                }
 
                 if (list->state->vk_bind_point != VK_PIPELINE_BIND_POINT_COMPUTE)
                 {
