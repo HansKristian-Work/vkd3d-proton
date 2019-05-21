@@ -2761,8 +2761,6 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
 
     assert(d3d12_pipeline_state_is_graphics(state));
 
-    *vk_render_pass = VK_NULL_HANDLE;
-
     memset(&pipeline_key, 0, sizeof(pipeline_key));
     pipeline_key.topology = topology;
 
@@ -2853,21 +2851,22 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     pipeline_desc.pColorBlendState = &blend_desc;
     pipeline_desc.pDynamicState = &dynamic_desc;
     pipeline_desc.layout = graphics->root_signature->vk_pipeline_layout;
-    pipeline_desc.renderPass = graphics->render_pass;
     pipeline_desc.subpass = 0;
     pipeline_desc.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_desc.basePipelineIndex = -1;
 
     /* Create a render pass for pipelines with DXGI_FORMAT_UNKNOWN. */
-    if (!pipeline_desc.renderPass)
+    if (!(pipeline_desc.renderPass = graphics->render_pass))
     {
-        TRACE("Compiling %p with DSV format %#x.\n", state, dsv_format);
+        if (graphics->null_attachment_mask & (1u << graphics->rt_count))
+            TRACE("Compiling %p with DSV format %#x.\n", state, dsv_format);
+
         if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device, dsv_format,
                 &pipeline_desc.renderPass)))
             return VK_NULL_HANDLE;
-
-        *vk_render_pass = pipeline_desc.renderPass;
     }
+
+    *vk_render_pass = pipeline_desc.renderPass;
 
     if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device, device->vk_pipeline_cache,
             1, &pipeline_desc, NULL, &vk_pipeline))) < 0)

@@ -2431,9 +2431,6 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
             list->primitive_topology, list->strides, list->dsv_format, &vk_render_pass)))
         return false;
 
-    if (!vk_render_pass)
-        vk_render_pass = list->state->u.graphics.render_pass;
-
     /* The render pass cache ensures that we use the same Vulkan render pass
      * object for compatible render passes. */
     if (list->pso_render_pass != vk_render_pass)
