@@ -1992,11 +1992,11 @@ static int parse_dxbc(const char *data, size_t data_size,
 static int shader_parse_signature(DWORD tag, const char *data, DWORD data_size,
         struct vkd3d_shader_signature *s)
 {
+    bool has_stream_index, has_min_precision;
     struct vkd3d_shader_signature_element *e;
     const char *ptr = data;
     unsigned int i;
     DWORD count;
-    bool has_stream_index, has_min_precision;
 
     if (!require_space(0, 2, sizeof(DWORD), data_size))
     {
@@ -2032,6 +2032,7 @@ static int shader_parse_signature(DWORD tag, const char *data, DWORD data_size,
             read_dword(&ptr, &e[i].stream_index);
         else
             e[i].stream_index = 0;
+
         read_dword(&ptr, &name_offset);
         if (!(e[i].semantic_name = shader_get_string(data, data_size, name_offset)))
         {
@@ -2048,7 +2049,7 @@ static int shader_parse_signature(DWORD tag, const char *data, DWORD data_size,
         if (has_min_precision)
             read_dword(&ptr, &e[i].min_precision);
         else
-            e[i].min_precision = 0;
+            e[i].min_precision = VKD3D_SHADER_MINIMUM_PRECISION_NONE;
 
         TRACE("Stream: %u, semantic: %s, semantic idx: %u, sysval_semantic %#x, "
                 "type %u, register idx: %u, use_mask %#x, input_mask %#x, precision %u.\n",

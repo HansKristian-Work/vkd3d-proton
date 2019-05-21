@@ -571,6 +571,15 @@ enum vkd3d_sysval_semantic
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SYSVAL_SEMANTIC),
 };
 
+enum vkd3d_shader_minimum_precision
+{
+    VKD3D_SHADER_MINIMUM_PRECISION_NONE      = 0,
+    VKD3D_SHADER_MINIMUM_PRECISION_FLOAT_16  = 1,
+    VKD3D_SHADER_MINIMUM_PRECISION_FLOAT_8_2 = 2,
+    VKD3D_SHADER_MINIMUM_PRECISION_INT_16    = 4,
+    VKD3D_SHADER_MINIMUM_PRECISION_UINT_16   = 5,
+};
+
 struct vkd3d_shader_signature_element
 {
     const char *semantic_name;
@@ -580,7 +589,7 @@ struct vkd3d_shader_signature_element
     enum vkd3d_component_type component_type;
     unsigned int register_index;
     unsigned int mask;
-    unsigned int min_precision;
+    enum vkd3d_shader_minimum_precision min_precision;
 };
 
 struct vkd3d_shader_signature
