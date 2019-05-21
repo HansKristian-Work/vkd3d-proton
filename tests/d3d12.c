@@ -4749,6 +4749,7 @@ static void test_unknown_rtv_format(void)
     D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
     D3D12_CPU_DESCRIPTOR_HANDLE rtvs[3];
     ID3D12Resource *render_targets[2];
+    struct depth_stencil_resource ds;
     struct test_context_desc desc;
     struct test_context context;
     ID3D12CommandQueue *queue;
@@ -4784,11 +4785,17 @@ static void test_unknown_rtv_format(void)
     command_list = context.list;
     queue = context.queue;
 
+    init_depth_stencil(&ds, context.device, 32, 32, 1, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
+
     init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
     pso_desc.NumRenderTargets = ARRAY_SIZE(rtvs);
     for (i = 0; i < ARRAY_SIZE(rtvs); ++i)
         pso_desc.RTVFormats[i] = desc.rt_format;
     pso_desc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
@@ -4811,10 +4818,11 @@ static void test_unknown_rtv_format(void)
     ID3D12Device_CreateRenderTargetView(context.device, NULL, &rtv_desc,
             get_cpu_rtv_handle(&context, context.rtv_heap, 0));
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, ARRAY_SIZE(rtvs), rtvs, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, ARRAY_SIZE(rtvs), rtvs, FALSE, &ds.dsv_handle);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    set_viewport(&context.viewport, 0.0f, 0.0f, 32.0f, 32.0f, 0.5f, 0.5f);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
@@ -4834,8 +4842,14 @@ static void test_unknown_rtv_format(void)
     expected_vec4.x = 3.0f;
     check_sub_resource_vec4(render_targets[1], 0, queue, command_list, &expected_vec4, 0);
 
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, ds.texture,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_float(ds.texture, 0, queue, command_list, 0.5f, 1);
+
     for (i = 0; i < ARRAY_SIZE(render_targets); ++i)
         ID3D12Resource_Release(render_targets[i]);
+    destroy_depth_stencil(&ds);
     destroy_test_context(&context);
 }
 
