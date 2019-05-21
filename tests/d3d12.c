@@ -21589,6 +21589,11 @@ static void test_execute_indirect(void)
         {{-1.0f,  0.5f, 0.0f, 1.0f}, 0xff00ff00},
         {{ 0.5f, -1.0f, 0.0f, 1.0f}, 0xff00ff00},
         {{ 0.5f,  0.5f, 0.0f, 1.0f}, 0xff00ff00},
+
+        {{-1.0f, -1.0f, 0.0f, 1.0f}, 0xff00ff00},
+        {{-1.0f,  1.0f, 0.0f, 1.0f}, 0xff00ff00},
+        {{ 1.0f, -1.0f, 0.0f, 1.0f}, 0xff00ff00},
+        {{ 1.0f,  1.0f, 0.0f, 1.0f}, 0xff00ff00},
     };
     static const uint32_t indices[] = {0, 1, 2, 3, 2, 1};
     static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
@@ -21672,25 +21677,41 @@ static void test_execute_indirect(void)
     };
     static const struct argument_data
     {
-        D3D12_DRAW_ARGUMENTS draw;
+        D3D12_DRAW_ARGUMENTS draws[4];
         D3D12_DISPATCH_ARGUMENTS dispatch;
         D3D12_DRAW_INDEXED_ARGUMENTS indexed_draws[2];
     }
     argument_data =
     {
-        {3, 1, 0, 0},
+        {{6, 1, 4, 0}, {6, 1, 8, 0}, {6, 1, 0, 0}},
         {2, 3, 4},
         {{6, 1, 0, 0, 0}, {6, 1, 0, 4, 0}},
     };
-    static const uint32_t count_data[] = {1, 2};
+    static const uint32_t count_data[] = {2, 1};
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
     memset(&desc, 0, sizeof(desc));
     desc.root_signature_flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    desc.no_pipeline = true;
     if (!init_test_context(&context, &desc))
         return;
     command_list = context.list;
     queue = context.queue;
+
+    input_layout.pInputElementDescs = layout_desc;
+    input_layout.NumElements = ARRAY_SIZE(layout_desc);
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, context.render_target_desc.Format, &vs, &ps, &input_layout);
+
+    vb = create_upload_buffer(context.device, sizeof(vertices), vertices);
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
+    vbv.StrideInBytes = sizeof(*vertices);
+    vbv.SizeInBytes = sizeof(vertices);
+
+    ib = create_upload_buffer(context.device, sizeof(indices), indices);
+    ibv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(ib);
+    ibv.SizeInBytes = sizeof(indices);
+    ibv.Format = DXGI_FORMAT_R32_UINT;
 
     argument_buffer = create_upload_buffer(context.device, sizeof(argument_data), &argument_data);
     count_buffer = create_upload_buffer(context.device, sizeof(count_data), count_data);
@@ -21702,10 +21723,11 @@ static void test_execute_indirect(void)
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
-    ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1, argument_buffer, 0, NULL, 0);
+    ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 2, argument_buffer, 0, NULL, 0);
 
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -21720,10 +21742,11 @@ static void test_execute_indirect(void)
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
-    ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1, argument_buffer, 0,
+    ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 4, argument_buffer, 0,
             count_buffer, 0);
 
     transition_resource_state(command_list, context.render_target,
@@ -21776,22 +21799,6 @@ static void test_execute_indirect(void)
     ID3D12CommandSignature_Release(command_signature);
     command_signature = create_command_signature(context.device, D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED);
 
-    ID3D12PipelineState_Release(context.pipeline_state);
-    input_layout.pInputElementDescs = layout_desc;
-    input_layout.NumElements = ARRAY_SIZE(layout_desc);
-    context.pipeline_state = create_pipeline_state(context.device,
-            context.root_signature, context.render_target_desc.Format, &vs, &ps, &input_layout);
-
-    vb = create_upload_buffer(context.device, sizeof(vertices), vertices);
-    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
-    vbv.StrideInBytes = sizeof(*vertices);
-    vbv.SizeInBytes = sizeof(vertices);
-
-    ib = create_upload_buffer(context.device, sizeof(indices), indices);
-    ibv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(ib);
-    ibv.SizeInBytes = sizeof(indices);
-    ibv.Format = DXGI_FORMAT_R32_UINT;
-
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -21837,14 +21844,7 @@ static void test_execute_indirect(void)
 
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    set_box(&box, 0, 0, 0, 32, 8, 1);
-    check_readback_data_uint(&rb, &box, 0xffffff00, 0);
-    set_box(&box, 24, 8, 0, 32, 32, 1);
-    check_readback_data_uint(&rb, &box, 0xffffff00, 0);
-    set_box(&box, 0, 8, 0, 24, 32, 1);
-    check_readback_data_uint(&rb, &box, 0xff00ff00, 0);
-    release_resource_readback(&rb);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xffffff00, 0);
 
     ID3D12PipelineState_Release(pipeline_state);
     ID3D12RootSignature_Release(root_signature);
