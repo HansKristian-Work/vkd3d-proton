@@ -2054,6 +2054,19 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
 
     switch (desc->ViewDimension)
     {
+        case D3D12_SRV_DIMENSION_BUFFER:
+            WARN("Creating NULL buffer SRV %#x.\n", desc->Format);
+
+            if (vkd3d_create_buffer_view(device, null_resources->vk_buffer,
+                    vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
+                    0, VKD3D_NULL_BUFFER_SIZE, &view))
+            {
+                descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
+                descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+                descriptor->u.view = view;
+            }
+            return;
+
         case D3D12_SRV_DIMENSION_TEXTURE2D:
             vk_image = null_resources->vk_2d_image;
             vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
@@ -2070,7 +2083,7 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
 
     WARN("Creating NULL SRV %#x.\n", desc->ViewDimension);
 
-    vkd3d_desc.format = vkd3d_get_format(device, VKD3D_NULL_VIEW_FORMAT, 0);
+    vkd3d_desc.format = vkd3d_get_format(device, VKD3D_NULL_VIEW_FORMAT, false);
     vkd3d_desc.miplevel_idx = 0;
     vkd3d_desc.miplevel_count = 1;
     vkd3d_desc.layer_idx = 0;
@@ -3250,7 +3263,7 @@ static HRESULT vkd3d_init_null_resources_data(struct vkd3d_null_resources *null_
         goto done;
     }
 
-    /* fill CBV buffer */
+    /* fill buffer */
     VK_CALL(vkCmdFillBuffer(vk_command_buffer, null_resource->vk_buffer, 0, VK_WHOLE_SIZE, 0x00000000));
 
     /* transition 2D SRV image */
@@ -3335,7 +3348,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
-    /* CBV */
+    /* buffer */
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
     resource_desc.Alignment = 0;
     resource_desc.Width = VKD3D_NULL_BUFFER_SIZE;
@@ -3346,7 +3359,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     resource_desc.SampleDesc.Count = 1;
     resource_desc.SampleDesc.Quality = 0;
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
     if (FAILED(hr = vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, &null_resources->vk_buffer)))
