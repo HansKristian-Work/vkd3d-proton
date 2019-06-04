@@ -963,6 +963,9 @@ struct vkd3d_null_resources
     VkBuffer vk_buffer;
     VkDeviceMemory vk_buffer_memory;
 
+    VkBuffer vk_storage_buffer;
+    VkDeviceMemory vk_storage_buffer_memory;
+
     VkImage vk_2d_image;
     VkDeviceMemory vk_2d_image_memory;
 };

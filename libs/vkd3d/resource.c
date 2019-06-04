@@ -2247,6 +2247,39 @@ static unsigned int vkd3d_view_flags_from_d3d12_buffer_uav_flags(D3D12_BUFFER_UA
     return 0;
 }
 
+static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
+        struct d3d12_device *device, const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
+{
+    struct vkd3d_null_resources *null_resources = &device->null_resources;
+    struct vkd3d_view *view;
+
+    if (!desc)
+    {
+        WARN("View desc is required for NULL view.\n");
+        return;
+    }
+
+    switch (desc->ViewDimension)
+    {
+        case D3D12_UAV_DIMENSION_BUFFER:
+            WARN("Creating NULL UAV %#x.\n", desc->Format);
+
+            if (vkd3d_create_buffer_view(device, null_resources->vk_storage_buffer,
+                    vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
+                    0, VKD3D_NULL_BUFFER_SIZE, &view))
+            {
+                descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
+                descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+                descriptor->u.view = view;
+            }
+            break;
+
+        default:
+            FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
+            break;
+    }
+}
+
 static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_device *device,
         struct d3d12_resource *resource, struct d3d12_resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
@@ -2373,7 +2406,9 @@ void d3d12_desc_create_uav(struct d3d12_desc *descriptor, struct d3d12_device *d
 
     if (!resource)
     {
-        FIXME("NULL resource UAV not implemented.\n");
+        if (counter_resource)
+            FIXME("Ignoring counter resource %p.\n", counter_resource);
+        vkd3d_create_null_uav(descriptor, device, desc);
         return;
     }
 
@@ -3266,6 +3301,9 @@ static HRESULT vkd3d_init_null_resources_data(struct vkd3d_null_resources *null_
     /* fill buffer */
     VK_CALL(vkCmdFillBuffer(vk_command_buffer, null_resource->vk_buffer, 0, VK_WHOLE_SIZE, 0x00000000));
 
+    /* fill UAV buffer */
+    VK_CALL(vkCmdFillBuffer(vk_command_buffer, null_resource->vk_storage_buffer, 0, VK_WHOLE_SIZE, 0x00000000));
+
     /* transition 2D SRV image */
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.pNext = NULL;
@@ -3368,6 +3406,16 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_buffer_memory)))
         goto fail;
 
+    /* buffer UAV */
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    if (FAILED(hr = vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, &null_resources->vk_storage_buffer)))
+        goto fail;
+    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_storage_buffer,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_storage_buffer_memory)))
+        goto fail;
+
     /* 2D SRV */
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     resource_desc.Alignment = 0;
@@ -3393,6 +3441,10 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, "NULL buffer");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_buffer_memory,
             VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, "NULL memory");
+    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_storage_buffer,
+            VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, "NULL UAV buffer");
+    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_storage_buffer_memory,
+            VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, "NULL UAV buffer memory");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_image,
             VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, "NULL 2D SRV image");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_image_memory,
@@ -3413,6 +3465,9 @@ void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
 
     VK_CALL(vkDestroyBuffer(device->vk_device, null_resources->vk_buffer, NULL));
     VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_buffer_memory, NULL));
+
+    VK_CALL(vkDestroyBuffer(device->vk_device, null_resources->vk_storage_buffer, NULL));
+    VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_storage_buffer_memory, NULL));
 
     VK_CALL(vkDestroyImage(device->vk_device, null_resources->vk_2d_image, NULL));
     VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_2d_image_memory, NULL));
