@@ -2251,7 +2251,9 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
         struct d3d12_device *device, const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
     struct vkd3d_null_resources *null_resources = &device->null_resources;
+    struct vkd3d_texture_view_desc vkd3d_desc;
     struct vkd3d_view *view;
+    VkImage vk_image;
 
     if (!desc)
     {
@@ -2262,7 +2264,7 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
     switch (desc->ViewDimension)
     {
         case D3D12_UAV_DIMENSION_BUFFER:
-            WARN("Creating NULL UAV %#x.\n", desc->Format);
+            WARN("Creating NULL buffer UAV %#x.\n", desc->Format);
 
             if (vkd3d_create_buffer_view(device, null_resources->vk_storage_buffer,
                     vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
@@ -2272,12 +2274,41 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
                 descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
                 descriptor->u.view = view;
             }
+            return;
+
+        case D3D12_UAV_DIMENSION_TEXTURE2D:
+            vk_image = null_resources->vk_2d_storage_image;
+            vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
+            break;
+        case D3D12_UAV_DIMENSION_TEXTURE2DARRAY:
+            vk_image = null_resources->vk_2d_storage_image;
+            vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
             break;
 
         default:
             FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
-            break;
+            return;
     }
+
+    WARN("Creating NULL UAV %#x.\n", desc->ViewDimension);
+
+    vkd3d_desc.format = vkd3d_get_format(device, VKD3D_NULL_VIEW_FORMAT, false);
+    vkd3d_desc.miplevel_idx = 0;
+    vkd3d_desc.miplevel_count = 1;
+    vkd3d_desc.layer_idx = 0;
+    vkd3d_desc.layer_count = 1;
+    vkd3d_desc.components.r = VK_COMPONENT_SWIZZLE_R;
+    vkd3d_desc.components.g = VK_COMPONENT_SWIZZLE_G;
+    vkd3d_desc.components.b = VK_COMPONENT_SWIZZLE_B;
+    vkd3d_desc.components.a = VK_COMPONENT_SWIZZLE_A;
+    vkd3d_desc.allowed_swizzle = false;
+
+    if (!vkd3d_create_texture_view(device, vk_image, &vkd3d_desc, &view))
+        return;
+
+    descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
+    descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    descriptor->u.view = view;
 }
 
 static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_device *device,
@@ -3248,6 +3279,7 @@ static HRESULT vkd3d_init_null_resources_data(struct vkd3d_null_resources *null_
         struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    static const VkClearColorValue clear_color = {{0}};
     VkCommandBufferAllocateInfo command_buffer_info;
     VkCommandPool vk_command_pool = VK_NULL_HANDLE;
     VkCommandPoolCreateInfo command_pool_info;
@@ -3255,6 +3287,7 @@ static HRESULT vkd3d_init_null_resources_data(struct vkd3d_null_resources *null_
     VkCommandBufferBeginInfo begin_info;
     VkCommandBuffer vk_command_buffer;
     VkFence vk_fence = VK_NULL_HANDLE;
+    VkImageSubresourceRange range;
     VkImageMemoryBarrier barrier;
     VkFenceCreateInfo fence_info;
     struct vkd3d_queue *queue;
@@ -3303,6 +3336,35 @@ static HRESULT vkd3d_init_null_resources_data(struct vkd3d_null_resources *null_
 
     /* fill UAV buffer */
     VK_CALL(vkCmdFillBuffer(vk_command_buffer, null_resource->vk_storage_buffer, 0, VK_WHOLE_SIZE, 0x00000000));
+
+    /* clear 2D UAV image */
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.pNext = NULL;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = null_resource->vk_2d_storage_image;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+    VK_CALL(vkCmdPipelineBarrier(vk_command_buffer,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+            0, NULL, 0, NULL, 1, &barrier));
+
+    range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    range.baseMipLevel = 0;
+    range.levelCount = 1;
+    range.baseArrayLayer = 0;
+    range.layerCount = 1;
+
+    VK_CALL(vkCmdClearColorImage(vk_command_buffer,
+            null_resource->vk_2d_storage_image, VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range));
 
     /* transition 2D SRV image */
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -3436,6 +3498,26 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_2d_image_memory)))
         goto fail;
 
+    /* 2D UAV */
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 1;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = VKD3D_NULL_VIEW_FORMAT;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    if (FAILED(hr = vkd3d_create_image(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, &null_resources->vk_2d_storage_image)))
+        goto fail;
+    if (FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_storage_image,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_2d_storage_image_memory)))
+        goto fail;
+
     /* set Vulkan object names */
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_buffer,
             VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, "NULL buffer");
@@ -3449,6 +3531,10 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, "NULL 2D SRV image");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_image_memory,
             VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, "NULL 2D SRV memory");
+    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_storage_image,
+            VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, "NULL 2D UAV image");
+    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_storage_image_memory,
+            VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, "NULL 2D UAV memory");
 
     return vkd3d_init_null_resources_data(null_resources, device);
 
@@ -3471,6 +3557,9 @@ void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
 
     VK_CALL(vkDestroyImage(device->vk_device, null_resources->vk_2d_image, NULL));
     VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_2d_image_memory, NULL));
+
+    VK_CALL(vkDestroyImage(device->vk_device, null_resources->vk_2d_storage_image, NULL));
+    VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_2d_storage_image_memory, NULL));
 
     memset(null_resources, 0, sizeof(*null_resources));
 }

@@ -968,6 +968,9 @@ struct vkd3d_null_resources
 
     VkImage vk_2d_image;
     VkDeviceMemory vk_2d_image_memory;
+
+    VkImage vk_2d_storage_image;
+    VkDeviceMemory vk_2d_storage_image_memory;
 };
 
 HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
