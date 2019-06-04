@@ -17007,6 +17007,29 @@ static void test_null_srv(void)
         0x001020f2, 0x00000000, 0x00208a46, 0x00000000, 0x00000000, 0x00107e46, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_ld = {ps_ld_code, sizeof(ps_ld_code)};
+    static const DWORD ps_buffer_code[] =
+    {
+#if 0
+        ByteAddressBuffer t;
+
+        uint location;
+
+        float4 main(float4 position : SV_Position) : SV_Target
+        {
+            return t.Load(location);
+        }
+#endif
+        0x43425844, 0x70170f6b, 0x16097169, 0x714f155c, 0x1e3d860f, 0x00000001, 0x00000118, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x0000007c, 0x00000050,
+        0x0000001f, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x030000a1, 0x00107000,
+        0x00000000, 0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x8a0000a5, 0x800002c2,
+        0x00199983, 0x00100012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x00107006, 0x00000000,
+        0x05000056, 0x001020f2, 0x00000000, 0x00100006, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_buffer = {ps_buffer_code, sizeof(ps_buffer_code)};
     static const DXGI_FORMAT formats[] =
     {
         DXGI_FORMAT_R32_FLOAT,
@@ -17105,6 +17128,43 @@ static void test_null_srv(void)
     location.y = 20;
     location.z = 0;
     location.w = 0;
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 4, &location, 0);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_sub_resource_state(command_list, context.render_target, 0,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0x00000000, 0);
+
+    /* buffer */
+    ID3D12PipelineState_Release(context.pipeline_state);
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, context.render_target_desc.Format, NULL, &ps_buffer, NULL);
+    reset_command_list(command_list, context.allocator);
+    transition_sub_resource_state(command_list, context.render_target, 0,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    srv_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.Buffer.FirstElement = 0;
+    srv_desc.Buffer.NumElements = 1024;
+    srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+    ID3D12Device_CreateShaderResourceView(device, NULL, &srv_desc,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    location.x = 0;
     ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 4, &location, 0);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
