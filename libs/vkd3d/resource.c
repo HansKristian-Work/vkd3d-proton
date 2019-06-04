@@ -1663,6 +1663,7 @@ static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
         VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
     struct VkBufferViewCreateInfo view_desc;
     VkResult vr;
 
@@ -1672,6 +1673,12 @@ static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
     {
         WARN("Invalid format for buffer view %#x.\n", format->dxgi_format);
         return false;
+    }
+
+    if (offset % vk_info->device_limits.minTexelBufferOffsetAlignment)
+    {
+        FIXME("Offset %#"PRIx64" violates the minimum required alignment %#"PRIx64".\n",
+                offset, vk_info->device_limits.minTexelBufferOffsetAlignment);
     }
 
     view_desc.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
