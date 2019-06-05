@@ -616,6 +616,36 @@ static bool is_min_max_filtering_supported(ID3D12Device *device)
     return options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_2;
 }
 
+static D3D12_TILED_RESOURCES_TIER get_tiled_resources_tier(ID3D12Device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    HRESULT hr;
+
+    if (FAILED(hr = ID3D12Device_CheckFeatureSupport(device,
+            D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))))
+    {
+        trace("Failed to check feature support, hr %#x.\n", hr);
+        return D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
+    }
+
+    return options.TiledResourcesTier;
+}
+
+static bool is_standard_swizzle_64kb_supported(ID3D12Device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    HRESULT hr;
+
+    if (FAILED(hr = ID3D12Device_CheckFeatureSupport(device,
+            D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))))
+    {
+        trace("Failed to check feature support, hr %#x.\n", hr);
+        return false;
+    }
+
+    return options.StandardSwizzle64KBSupported;
+}
+
 #define create_cb_root_signature(a, b, c, e) create_cb_root_signature_(__LINE__, a, b, c, e)
 static ID3D12RootSignature *create_cb_root_signature_(unsigned int line,
         ID3D12Device *device, unsigned int reg_idx, D3D12_SHADER_VISIBILITY shader_visibility,
@@ -2122,6 +2152,138 @@ static void test_create_placed_resource(void)
         ID3D12Heap_Release(heap);
     }
 
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
+static void test_create_reserved_resource(void)
+{
+    D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_CLEAR_VALUE clear_value;
+    D3D12_HEAP_FLAGS heap_flags;
+    ID3D12Resource *resource;
+    bool standard_swizzle;
+    ID3D12Device *device;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    if (get_tiled_resources_tier(device) == D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED)
+    {
+        skip("Tiled resources are not supported.\n");
+        goto done;
+    }
+
+    standard_swizzle = is_standard_swizzle_64kb_supported(device);
+    trace("Standard swizzle 64KB: %#x.\n", standard_swizzle);
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 32;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = 0;
+
+    hr = ID3D12Device_CreateReservedResource(device,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
+
+    check_interface(resource, &IID_ID3D12Object, TRUE);
+    check_interface(resource, &IID_ID3D12DeviceChild, TRUE);
+    check_interface(resource, &IID_ID3D12Pageable, TRUE);
+    check_interface(resource, &IID_ID3D12Resource, TRUE);
+
+    gpu_address = ID3D12Resource_GetGPUVirtualAddress(resource);
+    ok(gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
+
+    heap_flags = 0xdeadbeef;
+    hr = ID3D12Resource_GetHeapProperties(resource, &heap_properties, &heap_flags);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(heap_flags == 0xdeadbeef, "Got unexpected heap flags %#x.\n", heap_flags);
+
+    refcount = ID3D12Resource_Release(resource);
+    ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+
+    /* The clear value must be NULL for buffers. */
+    clear_value.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    clear_value.Color[0] = 1.0f;
+    clear_value.Color[1] = 0.0f;
+    clear_value.Color[2] = 0.0f;
+    clear_value.Color[3] = 1.0f;
+
+    hr = ID3D12Device_CreateReservedResource(device,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, &clear_value,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    /* D3D12_TEXTURE_LAYOUT_ROW_MAJOR must be used for buffers. */
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
+    hr = ID3D12Device_CreateReservedResource(device,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    hr = ID3D12Device_CreateReservedResource(device,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    /* D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE must be used for textures. */
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 64;
+    resource_desc.Height = 64;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 4;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
+    resource_desc.Flags = 0;
+
+    hr = ID3D12Device_CreateReservedResource(device,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
+    refcount = ID3D12Resource_Release(resource);
+    ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    hr = ID3D12Device_CreateReservedResource(device,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    resource_desc.MipLevels = 1;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    hr = ID3D12Device_CreateReservedResource(device,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_STANDARD_SWIZZLE;
+    hr = ID3D12Device_CreateReservedResource(device,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == (standard_swizzle ? S_OK : E_INVALIDARG) || broken(use_warp_device), "Got unexpected hr %#x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(resource);
+
+done:
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
@@ -29603,6 +29765,7 @@ START_TEST(d3d12)
     run_test(test_create_committed_resource);
     run_test(test_create_heap);
     run_test(test_create_placed_resource);
+    run_test(test_create_reserved_resource);
     run_test(test_create_descriptor_heap);
     run_test(test_create_sampler);
     run_test(test_create_unordered_access_view);
