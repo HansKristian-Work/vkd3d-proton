@@ -21,6 +21,8 @@
 #define VKD3D_NULL_BUFFER_SIZE 16
 #define VKD3D_NULL_VIEW_FORMAT DXGI_FORMAT_R8G8B8A8_UNORM
 
+#define VKD3D_HEAP_TYPE_INVALID ((D3D12_HEAP_TYPE)~0u)
+
 static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32_t memory_type_mask,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
 {
@@ -497,13 +499,24 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC *desc, VkBuffer *vk_buffer)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const bool sparse_resource = !heap_properties;
     VkBufferCreateInfo buffer_info;
+    D3D12_HEAP_TYPE heap_type;
     VkResult vr;
+
+    heap_type = heap_properties ? heap_properties->Type : D3D12_HEAP_TYPE_DEFAULT;
 
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     buffer_info.pNext = NULL;
     buffer_info.flags = 0;
     buffer_info.size = desc->Width;
+
+    if (sparse_resource)
+    {
+        buffer_info.flags |= VK_BUFFER_CREATE_SPARSE_BINDING_BIT;
+        if (device->vk_info.sparse_properties.residencyNonResidentStrict)
+            buffer_info.flags |= VK_BUFFER_CREATE_SPARSE_RESIDENCY_BIT;
+    }
 
     buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
             | VK_BUFFER_USAGE_TRANSFER_DST_BIT
@@ -512,16 +525,15 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
             | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
             | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
 
-    if (heap_properties->Type == D3D12_HEAP_TYPE_DEFAULT
-            && device->vk_info.EXT_transform_feedback)
+    if (heap_type == D3D12_HEAP_TYPE_DEFAULT && device->vk_info.EXT_transform_feedback)
     {
         buffer_info.usage |= VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_BUFFER_BIT_EXT
                 | VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT;
     }
 
-    if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD)
+    if (heap_type == D3D12_HEAP_TYPE_UPLOAD)
         buffer_info.usage &= ~VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    else if (heap_properties->Type == D3D12_HEAP_TYPE_READBACK)
+    else if (heap_type == D3D12_HEAP_TYPE_READBACK)
         buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
@@ -573,6 +585,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC *desc, VkImage *vk_image)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const bool sparse_resource = !heap_properties;
     const struct vkd3d_format *format;
     VkImageCreateInfo image_info;
     VkResult vr;
@@ -595,6 +608,13 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
         image_info.flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT_KHR;
 
+    if (sparse_resource)
+    {
+        image_info.flags |= VK_IMAGE_CREATE_SPARSE_BINDING_BIT;
+        if (device->vk_info.sparse_properties.residencyNonResidentStrict)
+            image_info.flags |= VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT;
+    }
+
     image_info.imageType = vk_image_type_from_d3d12_resource_dimension(desc->Dimension);
     image_info.format = format->vk_format;
     image_info.extent.width = desc->Width;
@@ -614,7 +634,17 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     image_info.mipLevels = min(desc->MipLevels, max_miplevel_count(desc));
     image_info.samples = vk_samples_from_dxgi_sample_desc(&desc->SampleDesc);
 
-    if (desc->Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN)
+    if (sparse_resource)
+    {
+        if (desc->Layout != D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE)
+        {
+            WARN("D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE must be used for reserved texture.\n");
+            return E_INVALIDARG;
+        }
+
+        image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    }
+    else if (desc->Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN)
     {
         image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     }
@@ -652,7 +682,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
         image_info.pQueueFamilyIndices = NULL;
     }
 
-    image_info.initialLayout = is_cpu_accessible_heap(heap_properties) ?
+    image_info.initialLayout = heap_properties && is_cpu_accessible_heap(heap_properties) ?
             VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
 
     if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, vk_image))) < 0)
@@ -1155,6 +1185,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_GetHeapProperties(ID3D12Resource
     TRACE("iface %p, heap_properties %p, flags %p.\n",
             iface, heap_properties, flags);
 
+    if (resource->heap_properties.Type == VKD3D_HEAP_TYPE_INVALID)
+    {
+        WARN("Cannot get heap properties for reserved resources.\n");
+        return E_INVALIDARG;
+    }
+
     if (heap_properties)
         *heap_properties = resource->heap_properties;
     if (flags)
@@ -1255,6 +1291,39 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc)
     return S_OK;
 }
 
+static bool d3d12_resource_validate_heap_properties(const struct d3d12_resource *resource,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_RESOURCE_STATES initial_state)
+{
+    if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD
+            || heap_properties->Type == D3D12_HEAP_TYPE_READBACK)
+    {
+        if (d3d12_resource_is_texture(resource))
+        {
+            WARN("Textures cannot be created on upload/readback heaps.\n");
+            return false;
+        }
+
+        if (resource->desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
+        {
+            WARN("Render target and unordered access buffers cannot be created on upload/readback heaps.\n");
+            return false;
+        }
+    }
+
+    if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD && initial_state != D3D12_RESOURCE_STATE_GENERIC_READ)
+    {
+        WARN("For D3D12_HEAP_TYPE_UPLOAD the state must be D3D12_RESOURCE_STATE_GENERIC_READ.\n");
+        return false;
+    }
+    if (heap_properties->Type == D3D12_HEAP_TYPE_READBACK && initial_state != D3D12_RESOURCE_STATE_COPY_DEST)
+    {
+        WARN("For D3D12_HEAP_TYPE_READBACK the state must be D3D12_RESOURCE_STATE_COPY_DEST.\n");
+        return false;
+    }
+
+    return true;
+}
+
 static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
@@ -1268,32 +1337,8 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
 
     resource->desc = *desc;
 
-    if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD
-            || heap_properties->Type == D3D12_HEAP_TYPE_READBACK)
-    {
-        if (d3d12_resource_is_texture(resource))
-        {
-            WARN("Textures cannot be created on upload/readback heaps.\n");
-            return E_INVALIDARG;
-        }
-
-        if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
-        {
-            WARN("Render target and unordered access buffers cannot be created on upload/readback heaps.\n");
-            return E_INVALIDARG;
-        }
-    }
-
-    if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD && initial_state != D3D12_RESOURCE_STATE_GENERIC_READ)
-    {
-        WARN("For D3D12_HEAP_TYPE_UPLOAD the state must be D3D12_RESOURCE_STATE_GENERIC_READ.\n");
+    if (heap_properties && !d3d12_resource_validate_heap_properties(resource, heap_properties, initial_state))
         return E_INVALIDARG;
-    }
-    if (heap_properties->Type == D3D12_HEAP_TYPE_READBACK && initial_state != D3D12_RESOURCE_STATE_COPY_DEST)
-    {
-        WARN("For D3D12_HEAP_TYPE_READBACK the state must be D3D12_RESOURCE_STATE_COPY_DEST.\n");
-        return E_INVALIDARG;
-    }
 
     if (!is_valid_resource_state(initial_state))
     {
@@ -1351,8 +1396,18 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     resource->map_count = 0;
     resource->map_ptr = NULL;
 
-    resource->heap_properties = *heap_properties;
-    resource->heap_flags = heap_flags;
+    if (heap_properties)
+    {
+        resource->heap_properties = *heap_properties;
+        resource->heap_flags = heap_flags;
+    }
+    else
+    {
+        memset(&resource->heap_properties, 0, sizeof(resource->heap_properties));
+        resource->heap_properties.Type = VKD3D_HEAP_TYPE_INVALID;
+        resource->heap_flags = 0;
+    }
+
     resource->initial_state = initial_state;
 
     resource->heap = NULL;
@@ -1416,6 +1471,12 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
 {
     struct d3d12_resource *object;
     HRESULT hr;
+
+    if (!heap_properties)
+    {
+        WARN("Heap properties are NULL.\n");
+        return E_INVALIDARG;
+    }
 
     if (FAILED(hr = d3d12_resource_create(device, heap_properties, heap_flags,
             desc, initial_state, optimized_clear_value, &object)))
@@ -1497,6 +1558,24 @@ HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_h
     }
 
     TRACE("Created placed resource %p.\n", object);
+
+    *resource = object;
+
+    return S_OK;
+}
+
+HRESULT d3d12_reserved_resource_create(struct d3d12_device *device,
+        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
+{
+    struct d3d12_resource *object;
+    HRESULT hr;
+
+    if (FAILED(hr = d3d12_resource_create(device, NULL, 0,
+            desc, initial_state, optimized_clear_value, &object)))
+        return hr;
+
+    TRACE("Created reserved resource %p.\n", object);
 
     *resource = object;
 
