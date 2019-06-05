@@ -1090,7 +1090,8 @@ static void vkd3d_trace_physical_device_features(const VkPhysicalDeviceFeatures2
 }
 
 static void vkd3d_init_feature_level(struct vkd3d_vulkan_info *vk_info,
-        const VkPhysicalDeviceFeatures *features)
+        const VkPhysicalDeviceFeatures *features,
+        const D3D12_FEATURE_DATA_D3D12_OPTIONS *d3d12_options)
 {
     bool have_11_0 = true;
 
@@ -1158,11 +1159,23 @@ static void vkd3d_init_feature_level(struct vkd3d_vulkan_info *vk_info,
     vk_info->max_feature_level = D3D_FEATURE_LEVEL_11_0;
 
     if (have_11_0
-            && features->logicOp
+            && d3d12_options->OutputMergerLogicOp
             && features->vertexPipelineStoresAndAtomics
             && vk_info->device_limits.maxPerStageDescriptorStorageBuffers >= D3D12_UAV_SLOT_COUNT
             && vk_info->device_limits.maxPerStageDescriptorStorageImages >= D3D12_UAV_SLOT_COUNT)
         vk_info->max_feature_level = D3D_FEATURE_LEVEL_11_1;
+
+    /* TODO: MinMaxFiltering */
+    if (vk_info->max_feature_level >= D3D_FEATURE_LEVEL_11_1
+            && d3d12_options->TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_2
+            && d3d12_options->ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_2
+            && d3d12_options->TypedUAVLoadAdditionalFormats)
+        vk_info->max_feature_level = D3D_FEATURE_LEVEL_12_0;
+
+    if (vk_info->max_feature_level >= D3D_FEATURE_LEVEL_12_0
+            && d3d12_options->ROVsSupported
+            && d3d12_options->ConservativeRasterizationTier >= D3D12_CONSERVATIVE_RASTERIZATION_TIER_1)
+        vk_info->max_feature_level = D3D_FEATURE_LEVEL_12_1;
 
     TRACE("Max feature level: %#x.\n", vk_info->max_feature_level);
 }
@@ -1333,7 +1346,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 
     vkd3d_free(vk_extensions);
 
-    vkd3d_init_feature_level(vulkan_info, features);
+    vkd3d_init_feature_level(vulkan_info, features, &device->feature_options);
     if (vulkan_info->max_feature_level < create_info->minimum_feature_level)
     {
         WARN("Feature level %#x is not supported.\n", create_info->minimum_feature_level);
