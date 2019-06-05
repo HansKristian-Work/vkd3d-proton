@@ -1213,6 +1213,13 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     vkd3d_trace_physical_device_features(features2);
     vkd3d_trace_physical_device_limits(&device_properties2);
 
+    if (!features->sparseResidencyBuffer || !features->sparseResidencyImage2D)
+    {
+        features->sparseResidencyBuffer = VK_FALSE;
+        features->sparseResidencyImage2D = VK_FALSE;
+        device_properties2.properties.sparseProperties.residencyNonResidentStrict = VK_FALSE;
+    }
+
     vulkan_info->device_limits = device_properties2.properties.limits;
     vulkan_info->sparse_properties = device_properties2.properties.sparseProperties;
     vulkan_info->rasterization_stream = xfb_properties.transformFeedbackRasterizationStreamSelect;
