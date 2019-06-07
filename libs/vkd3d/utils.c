@@ -409,10 +409,10 @@ static const char *debug_d3d12_shader_component(D3D12_SHADER_COMPONENT_MAPPING c
 const char *debug_d3d12_shader_component_mapping(unsigned int mapping)
 {
     return vkd3d_dbg_sprintf("{%s, %s, %s, %s}",
-            debug_d3d12_shader_component(D3D12_DECODE_SHADER_4_COMPONENT_MAPPING(mapping, 0)),
-            debug_d3d12_shader_component(D3D12_DECODE_SHADER_4_COMPONENT_MAPPING(mapping, 1)),
-            debug_d3d12_shader_component(D3D12_DECODE_SHADER_4_COMPONENT_MAPPING(mapping, 2)),
-            debug_d3d12_shader_component(D3D12_DECODE_SHADER_4_COMPONENT_MAPPING(mapping, 3)));
+            debug_d3d12_shader_component(D3D12_DECODE_SHADER_4_COMPONENT_MAPPING(0, mapping)),
+            debug_d3d12_shader_component(D3D12_DECODE_SHADER_4_COMPONENT_MAPPING(1, mapping)),
+            debug_d3d12_shader_component(D3D12_DECODE_SHADER_4_COMPONENT_MAPPING(2, mapping)),
+            debug_d3d12_shader_component(D3D12_DECODE_SHADER_4_COMPONENT_MAPPING(3, mapping)));
 }
 
 const char *debug_vk_extent_3d(VkExtent3D extent)
