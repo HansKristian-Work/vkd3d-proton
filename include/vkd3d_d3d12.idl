@@ -1639,6 +1639,23 @@ typedef struct D3D12_SUBRESOURCE_DATA
     LONG_PTR SlicePitch;
 } D3D12_SUBRESOURCE_DATA;
 
+typedef enum D3D12_MULTIPLE_FENCE_WAIT_FLAGS
+{
+    D3D12_MULTIPLE_FENCE_WAIT_FLAG_NONE = 0x0,
+    D3D12_MULTIPLE_FENCE_WAIT_FLAG_ANY = 0x1,
+    D3D12_MULTIPLE_FENCE_WAIT_FLAG_ALL = 0x0,
+} D3D12_MULTIPLE_FENCE_WAIT_FLAGS;
+cpp_quote("DEFINE_ENUM_FLAG_OPERATORS(D3D12_MULTIPLE_FENCE_WAIT_FLAGS);")
+
+typedef enum D3D12_RESIDENCY_PRIORITY
+{
+    D3D12_RESIDENCY_PRIORITY_MINIMUM = 0x28000000,
+    D3D12_RESIDENCY_PRIORITY_LOW = 0x50000000,
+    D3D12_RESIDENCY_PRIORITY_NORMAL = 0x78000000,
+    D3D12_RESIDENCY_PRIORITY_HIGH = 0xa0010000,
+    D3D12_RESIDENCY_PRIORITY_MAXIMUM = 0xc8000000,
+} D3D12_RESIDENCY_PRIORITY;
+
 [
     uuid(c4fec28f-7966-4e95-9f94-f431cb56c3b8),
     object,
@@ -2282,6 +2299,23 @@ interface ID3D12Device : ID3D12Object
             D3D12_SUBRESOURCE_TILING *sub_resource_tilings);
 
     LUID GetAdapterLuid();
+}
+
+[
+    uuid(77acce80-638e-4e65-8895-c1f23386863e),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12Device1 : ID3D12Device
+{
+    HRESULT CreatePipelineLibrary(const void *blob, SIZE_T blob_size, REFIID iid, void **lib);
+
+    HRESULT SetEventOnMultipleFenceCompletion(ID3D12Fence * const *fences,
+            const UINT64 *values, UINT fence_count, D3D12_MULTIPLE_FENCE_WAIT_FLAGS flags, HANDLE event);
+
+    HRESULT SetResidencyPriority(UINT object_count, ID3D12Pageable * const *objects,
+            const D3D12_RESIDENCY_PRIORITY *priorities);
 }
 
 [
