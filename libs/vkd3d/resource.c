@@ -174,7 +174,7 @@ static ULONG STDMETHODCALLTYPE d3d12_heap_Release(ID3D12Heap *iface)
 
         vkd3d_free(heap);
 
-        ID3D12Device_Release(&device->ID3D12Device_iface);
+        d3d12_device_release(device);
     }
 
     return refcount;
@@ -220,14 +220,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_SetName(ID3D12Heap *iface, const WCH
             VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, name);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_heap_GetDevice(ID3D12Heap *iface,
-        REFIID riid, void **device)
+static HRESULT STDMETHODCALLTYPE d3d12_heap_GetDevice(ID3D12Heap *iface, REFIID iid, void **device)
 {
     struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
 
-    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+    TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
-    return ID3D12Device_QueryInterface(&heap->device->ID3D12Device_iface, riid, device);
+    return d3d12_device_query_interface(heap->device, iid, device);
 }
 
 static D3D12_HEAP_DESC * STDMETHODCALLTYPE d3d12_heap_GetDesc(ID3D12Heap *iface,
@@ -416,8 +415,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
         return hr;
     }
 
-    heap->device = device;
-    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+    d3d12_device_add_ref(heap->device = device);
 
     return S_OK;
 }
@@ -929,7 +927,7 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_AddRef(ID3D12Resource *iface)
     {
         struct d3d12_device *device = resource->device;
 
-        ID3D12Device_AddRef(&device->ID3D12Device_iface);
+        d3d12_device_add_ref(device);
         d3d12_resource_incref(resource);
     }
 
@@ -949,7 +947,7 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_Release(ID3D12Resource *iface)
 
         d3d12_resource_decref(resource);
 
-        ID3D12Device_Release(&device->ID3D12Device_iface);
+        d3d12_device_release(device);
     }
 
     return refcount;
@@ -1007,14 +1005,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(ID3D12Resource *iface, c
                 VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, name);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_resource_GetDevice(ID3D12Resource *iface,
-        REFIID riid, void **device)
+static HRESULT STDMETHODCALLTYPE d3d12_resource_GetDevice(ID3D12Resource *iface, REFIID iid, void **device)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
 
-    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+    TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
-    return ID3D12Device_QueryInterface(&resource->device->ID3D12Device_iface, riid, device);
+    return d3d12_device_query_interface(resource->device, iid, device);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT sub_resource,
@@ -1419,8 +1416,7 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
         return hr;
     }
 
-    resource->device = device;
-    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+    d3d12_device_add_ref(resource->device = device);
 
     return S_OK;
 }
@@ -1627,8 +1623,7 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device,
         return hr;
     }
 
-    object->device = d3d12_device;
-    ID3D12Device_AddRef(&d3d12_device->ID3D12Device_iface);
+    d3d12_device_add_ref(object->device = d3d12_device);
 
     TRACE("Created resource %p.\n", object);
 
@@ -2953,7 +2948,7 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
 
         vkd3d_free(heap);
 
-        ID3D12Device_Release(&device->ID3D12Device_iface);
+        d3d12_device_release(device);
     }
 
     return refcount;
@@ -2998,14 +2993,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetName(ID3D12DescriptorH
     return name ? S_OK : E_INVALIDARG;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_GetDevice(ID3D12DescriptorHeap *iface,
-        REFIID riid, void **device)
+static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_GetDevice(ID3D12DescriptorHeap *iface, REFIID iid, void **device)
 {
     struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
 
-    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+    TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
-    return ID3D12Device_QueryInterface(&heap->device->ID3D12Device_iface, riid, device);
+    return d3d12_device_query_interface(heap->device, iid, device);
 }
 
 static D3D12_DESCRIPTOR_HEAP_DESC * STDMETHODCALLTYPE d3d12_descriptor_heap_GetDesc(ID3D12DescriptorHeap *iface,
@@ -3075,8 +3069,7 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
     if (FAILED(hr = vkd3d_private_store_init(&descriptor_heap->private_store)))
         return hr;
 
-    descriptor_heap->device = device;
-    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+    d3d12_device_add_ref(descriptor_heap->device = device);
 
     return S_OK;
 }
@@ -3088,7 +3081,7 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
     struct d3d12_descriptor_heap *object;
     HRESULT hr;
 
-    if (!(descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(&device->ID3D12Device_iface, desc->Type)))
+    if (!(descriptor_size = d3d12_device_get_descriptor_handle_increment_size(device, desc->Type)))
     {
         WARN("No descriptor size for descriptor type %#x.\n", desc->Type);
         return E_INVALIDARG;
@@ -3183,7 +3176,7 @@ static ULONG STDMETHODCALLTYPE d3d12_query_heap_Release(ID3D12QueryHeap *iface)
 
         vkd3d_free(heap);
 
-        ID3D12Device_Release(&device->ID3D12Device_iface);
+        d3d12_device_release(device);
     }
 
     return refcount;
@@ -3229,14 +3222,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetName(ID3D12QueryHeap *iface
             VK_DEBUG_REPORT_OBJECT_TYPE_QUERY_POOL_EXT, name);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_query_heap_GetDevice(ID3D12QueryHeap *iface,
-        REFIID iid, void **device)
+static HRESULT STDMETHODCALLTYPE d3d12_query_heap_GetDevice(ID3D12QueryHeap *iface, REFIID iid, void **device)
 {
     struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(iface);
 
     TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
-    return ID3D12Device_QueryInterface(&heap->device->ID3D12Device_iface, iid, device);
+    return d3d12_device_query_interface(heap->device, iid, device);
 }
 
 static const struct ID3D12QueryHeapVtbl d3d12_query_heap_vtbl =
@@ -3345,7 +3337,7 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
         return hresult_from_vk_result(vr);
     }
 
-    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+    d3d12_device_add_ref(device);
 
     TRACE("Created query heap %p.\n", object);
 

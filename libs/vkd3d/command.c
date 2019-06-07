@@ -885,7 +885,7 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_Release(ID3D12Fence *iface)
             ERR("Failed to destroy mutex, error %d.\n", rc);
         vkd3d_free(fence);
 
-        ID3D12Device_Release(&device->ID3D12Device_iface);
+        d3d12_device_release(device);
     }
 
     return refcount;
@@ -932,14 +932,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetName(ID3D12Fence *iface, const W
     return name ? S_OK : E_INVALIDARG;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_fence_GetDevice(ID3D12Fence *iface,
-        REFIID riid, void **device)
+static HRESULT STDMETHODCALLTYPE d3d12_fence_GetDevice(ID3D12Fence *iface, REFIID iid, void **device)
 {
     struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
 
-    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+    TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
-    return ID3D12Device_QueryInterface(&fence->device->ID3D12Device_iface, riid, device);
+    return d3d12_device_query_interface(fence->device, iid, device);
 }
 
 static UINT64 STDMETHODCALLTYPE d3d12_fence_GetCompletedValue(ID3D12Fence *iface)
@@ -1081,8 +1080,7 @@ static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *
         return hr;
     }
 
-    fence->device = device;
-    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+    d3d12_device_add_ref(fence->device = device);
 
     return S_OK;
 }
@@ -1517,7 +1515,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
 
         vkd3d_free(allocator);
 
-        ID3D12Device_Release(&device->ID3D12Device_iface);
+        d3d12_device_release(device);
     }
 
     return refcount;
@@ -1563,14 +1561,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetName(ID3D12CommandAl
             VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_POOL_EXT, name);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_GetDevice(ID3D12CommandAllocator *iface,
-        REFIID riid, void **device)
+static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_GetDevice(ID3D12CommandAllocator *iface, REFIID iid, void **device)
 {
     struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
 
-    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+    TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
-    return ID3D12Device_QueryInterface(&allocator->device->ID3D12Device_iface, riid, device);
+    return d3d12_device_query_interface(allocator->device, iid, device);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllocator *iface)
@@ -1727,8 +1724,7 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
 
     allocator->current_command_list = NULL;
 
-    allocator->device = device;
-    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+    d3d12_device_add_ref(allocator->device = device);
 
     return S_OK;
 }
@@ -2132,7 +2128,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(ID3D12GraphicsCommandL
 
         vkd3d_free(list);
 
-        ID3D12Device_Release(&device->ID3D12Device_iface);
+        d3d12_device_release(device);
     }
 
     return refcount;
@@ -2177,14 +2173,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_SetName(ID3D12GraphicsComman
     return name ? S_OK : E_INVALIDARG;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_list_GetDevice(ID3D12GraphicsCommandList1 *iface,
-        REFIID riid, void **device)
+static HRESULT STDMETHODCALLTYPE d3d12_command_list_GetDevice(ID3D12GraphicsCommandList1 *iface, REFIID iid, void **device)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList1(iface);
 
-    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+    TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
-    return ID3D12Device_QueryInterface(&list->device->ID3D12Device_iface, riid, device);
+    return d3d12_device_query_interface(list->device, iid, device);
 }
 
 static D3D12_COMMAND_LIST_TYPE STDMETHODCALLTYPE d3d12_command_list_GetType(ID3D12GraphicsCommandList1 *iface)
@@ -5118,8 +5113,7 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     if (FAILED(hr = vkd3d_private_store_init(&list->private_store)))
         return hr;
 
-    list->device = device;
-    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+    d3d12_device_add_ref(list->device = device);
 
     list->allocator = allocator;
 
@@ -5130,7 +5124,7 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     else
     {
         vkd3d_private_store_destroy(&list->private_store);
-        ID3D12Device_Release(&device->ID3D12Device_iface);
+        d3d12_device_release(device);
     }
 
     return hr;
@@ -5228,7 +5222,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *i
 
         vkd3d_free(command_queue);
 
-        ID3D12Device_Release(&device->ID3D12Device_iface);
+        d3d12_device_release(device);
     }
 
     return refcount;
@@ -5284,14 +5278,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetName(ID3D12CommandQueue 
     return hr;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetDevice(ID3D12CommandQueue *iface,
-        REFIID riid, void **device)
+static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetDevice(ID3D12CommandQueue *iface, REFIID iid, void **device)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
 
-    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+    TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
-    return ID3D12Device_QueryInterface(&command_queue->device->ID3D12Device_iface, riid, device);
+    return d3d12_device_query_interface(command_queue->device, iid, device);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12CommandQueue *iface,
@@ -5713,8 +5706,7 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     if (FAILED(hr = vkd3d_private_store_init(&queue->private_store)))
         return hr;
 
-    queue->device = device;
-    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+    d3d12_device_add_ref(queue->device = device);
 
     return S_OK;
 }
@@ -5816,7 +5808,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_signature_Release(ID3D12CommandSign
         vkd3d_free((void *)signature->desc.pArgumentDescs);
         vkd3d_free(signature);
 
-        ID3D12Device_Release(&device->ID3D12Device_iface);
+        d3d12_device_release(device);
     }
 
     return refcount;
@@ -5861,14 +5853,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetName(ID3D12CommandSi
     return name ? S_OK : E_INVALIDARG;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_signature_GetDevice(ID3D12CommandSignature *iface,
-        REFIID iid, void **device)
+static HRESULT STDMETHODCALLTYPE d3d12_command_signature_GetDevice(ID3D12CommandSignature *iface, REFIID iid, void **device)
 {
     struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
 
     TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
-    return ID3D12Device_QueryInterface(&signature->device->ID3D12Device_iface, iid, device);
+    return d3d12_device_query_interface(signature->device, iid, device);
 }
 
 static const struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl =
@@ -5942,8 +5933,7 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_
         return hr;
     }
 
-    object->device = device;
-    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+    d3d12_device_add_ref(object->device = device);
 
     TRACE("Created command signature %p.\n", object);
 

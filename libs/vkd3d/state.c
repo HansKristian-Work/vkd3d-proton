@@ -118,7 +118,7 @@ static ULONG STDMETHODCALLTYPE d3d12_root_signature_Release(ID3D12RootSignature 
         vkd3d_private_store_destroy(&root_signature->private_store);
         d3d12_root_signature_cleanup(root_signature, device);
         vkd3d_free(root_signature);
-        ID3D12Device_Release(&device->ID3D12Device_iface);
+        d3d12_device_release(device);
     }
 
     return refcount;
@@ -164,13 +164,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_root_signature_SetName(ID3D12RootSignatur
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_root_signature_GetDevice(ID3D12RootSignature *iface,
-        REFIID riid, void **device)
+        REFIID iid, void **device)
 {
     struct d3d12_root_signature *root_signature = impl_from_ID3D12RootSignature(iface);
 
-    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+    TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
-    return ID3D12Device_QueryInterface(&root_signature->device->ID3D12Device_iface, riid, device);
+    return d3d12_device_query_interface(root_signature->device, iid, device);
 }
 
 static const struct ID3D12RootSignatureVtbl d3d12_root_signature_vtbl =
@@ -982,8 +982,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (FAILED(hr = vkd3d_private_store_init(&root_signature->private_store)))
         goto fail;
 
-    root_signature->device = device;
-    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+    d3d12_device_add_ref(root_signature->device = device);
 
     return S_OK;
 
@@ -1331,7 +1330,7 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState 
 
         vkd3d_free(state);
 
-        ID3D12Device_Release(&device->ID3D12Device_iface);
+        d3d12_device_release(device);
     }
 
     return refcount;
@@ -1383,13 +1382,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetName(ID3D12PipelineStat
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetDevice(ID3D12PipelineState *iface,
-        REFIID riid, void **device)
+        REFIID iid, void **device)
 {
     struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
 
-    TRACE("iface %p, riid %s, device %p.\n", iface, debugstr_guid(riid), device);
+    TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
-    return ID3D12Device_QueryInterface(&state->device->ID3D12Device_iface, riid, device);
+    return d3d12_device_query_interface(state->device, iid, device);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetCachedBlob(ID3D12PipelineState *iface,
@@ -1646,8 +1645,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     }
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
-    state->device = device;
-    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+    d3d12_device_add_ref(state->device = device);
 
     return S_OK;
 }
@@ -2550,8 +2548,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         goto fail;
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    state->device = device;
-    ID3D12Device_AddRef(&device->ID3D12Device_iface);
+    d3d12_device_add_ref(state->device = device);
 
     return S_OK;
 
