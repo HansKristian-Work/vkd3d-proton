@@ -29966,6 +29966,159 @@ static void test_graphics_compute_queue_synchronization(void)
     destroy_test_context(&context);
 }
 
+static void test_early_depth_stencil_tests(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12DescriptorHeap *cpu_heap, *gpu_heap;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_DESCRIPTOR_RANGE descriptor_range;
+    D3D12_ROOT_PARAMETER root_parameter;
+    struct depth_stencil_resource ds;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *texture;
+    HRESULT hr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        RWTexture2D<int> u;
+
+        [earlydepthstencil]
+        void main()
+        {
+            InterlockedAdd(u[uint2(0, 0)], 1);
+        }
+#endif
+        0x43425844, 0xd8c9f845, 0xadb9dbe2, 0x4e8aea86, 0x80f0b053, 0x00000001, 0x0000009c, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000048, 0x00000050, 0x00000012, 0x0100286a,
+        0x0400189c, 0x0011e000, 0x00000000, 0x00003333, 0x0a0000ad, 0x0011e000, 0x00000000, 0x00004002,
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00004001, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const UINT values[4] = {0};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    descriptor_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    descriptor_range.NumDescriptors = 1;
+    descriptor_range.BaseShaderRegister = 0;
+    descriptor_range.RegisterSpace = 0;
+    descriptor_range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    root_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameter.DescriptorTable.NumDescriptorRanges = 1;
+    root_parameter.DescriptorTable.pDescriptorRanges = &descriptor_range;
+    root_parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_signature_desc.NumParameters = 1;
+    root_signature_desc.pParameters = &root_parameter;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
+    pso_desc.NumRenderTargets = 0;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+
+    init_depth_stencil(&ds, context.device, 1, 1, 1, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
+    set_rect(&context.scissor_rect, 0, 0, 1, 1);
+
+    texture = create_default_texture(context.device, 1, 1, DXGI_FORMAT_R32_SINT,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    gpu_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    ID3D12Device_CreateUnorderedAccessView(context.device, texture, NULL, NULL,
+            get_cpu_descriptor_handle(&context, cpu_heap, 0));
+    ID3D12Device_CreateUnorderedAccessView(context.device, texture, NULL, NULL,
+            get_cpu_descriptor_handle(&context, gpu_heap, 0));
+
+    set_viewport(&context.viewport, 0.0f, 0.0f, 1.0f, 100.0f, 0.5f, 0.5f);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &gpu_heap);
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0,
+            get_gpu_descriptor_handle(&context, gpu_heap, 0));
+
+    ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list,
+            get_gpu_descriptor_handle(&context, gpu_heap, 0),
+            get_cpu_descriptor_handle(&context, cpu_heap, 0), texture, values, 0, NULL);
+
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+            D3D12_CLEAR_FLAG_DEPTH, 0.6f, 0, 0, NULL);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, ds.texture,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_float(ds.texture, 0, queue, command_list, 0.6f, 1);
+    reset_command_list(command_list, context.allocator);
+    check_sub_resource_uint(texture, 0, queue, command_list, 2, 1);
+
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, ds.texture,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &gpu_heap);
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0,
+            get_gpu_descriptor_handle(&context, gpu_heap, 0));
+
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+            D3D12_CLEAR_FLAG_DEPTH, 0.3f, 0, 0, NULL);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+            D3D12_CLEAR_FLAG_DEPTH, 0.55f, 0, 0, NULL);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+            D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0, 0, NULL);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, ds.texture,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_float(ds.texture, 0, queue, command_list, 0.5f, 1);
+    reset_command_list(command_list, context.allocator);
+    check_sub_resource_uint(texture, 0, queue, command_list, 4, 1);
+
+    ID3D12Resource_Release(texture);
+    ID3D12DescriptorHeap_Release(cpu_heap);
+    ID3D12DescriptorHeap_Release(gpu_heap);
+    destroy_depth_stencil(&ds);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     parse_args(argc, argv);
@@ -30123,4 +30276,5 @@ START_TEST(d3d12)
     run_test(test_read_write_subresource);
     run_test(test_queue_wait);
     run_test(test_graphics_compute_queue_synchronization);
+    run_test(test_early_depth_stencil_tests);
 }
