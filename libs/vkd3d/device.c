@@ -3112,7 +3112,6 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     vkd3d_instance_incref(device->vkd3d_instance = instance);
     device->vk_info = instance->vk_info;
     device->signal_event = instance->signal_event;
-    device->join_thread = instance->join_thread;
     device->wchar_size = instance->wchar_size;
 
     device->adapter_luid = create_info->adapter_luid;
@@ -3216,6 +3215,28 @@ HRESULT vkd3d_create_thread(struct vkd3d_instance *instance,
         if ((rc = pthread_create(&thread->pthread, NULL, thread_main, data)))
         {
             ERR("Failed to create thread, error %d.\n", rc);
+            hr = hresult_from_errno(rc);
+        }
+    }
+
+    return hr;
+}
+
+HRESULT vkd3d_join_thread(struct vkd3d_instance *instance, union vkd3d_thread_handle *thread)
+{
+    HRESULT hr = S_OK;
+    int rc;
+
+    if (instance->join_thread)
+    {
+        if (FAILED(hr = instance->join_thread(thread->handle)))
+            ERR("Failed to join thread, hr %#x.\n", hr);
+    }
+    else
+    {
+        if ((rc = pthread_join(thread->pthread, NULL)))
+        {
+            ERR("Failed to join thread, error %d.\n", rc);
             hr = hresult_from_errno(rc);
         }
     }

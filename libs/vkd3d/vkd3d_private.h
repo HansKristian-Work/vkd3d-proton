@@ -149,6 +149,7 @@ union vkd3d_thread_handle
 
 HRESULT vkd3d_create_thread(struct vkd3d_instance *instance,
         PFN_vkd3d_thread thread_main, void *data, union vkd3d_thread_handle *thread) DECLSPEC_HIDDEN;
+HRESULT vkd3d_join_thread(struct vkd3d_instance *instance, union vkd3d_thread_handle *thread) DECLSPEC_HIDDEN;
 
 struct vkd3d_fence_worker
 {
@@ -1018,8 +1019,6 @@ struct d3d12_device
     unsigned int queue_family_count;
 
     struct vkd3d_instance *vkd3d_instance;
-
-    PFN_vkd3d_join_thread join_thread;
 
     IUnknown *parent;
     LUID adapter_luid;

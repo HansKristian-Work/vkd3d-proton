@@ -467,22 +467,8 @@ HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
 
     pthread_mutex_unlock(&worker->mutex);
 
-    if (device->join_thread)
-    {
-        if (FAILED(hr = device->join_thread(worker->thread.handle)))
-        {
-            ERR("Failed to join fence worker thread, hr %#x.\n", hr);
-            return hr;
-        }
-    }
-    else
-    {
-        if ((rc = pthread_join(worker->thread.pthread, NULL)))
-        {
-            ERR("Failed to join fence worker thread, error %d.\n", rc);
-            return hresult_from_errno(rc);
-        }
-    }
+    if (FAILED(hr = vkd3d_join_thread(device->vkd3d_instance, &worker->thread)))
+        return hr;
 
     pthread_mutex_destroy(&worker->mutex);
     pthread_cond_destroy(&worker->cond);
