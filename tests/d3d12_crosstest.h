@@ -198,7 +198,7 @@ static inline bool join_thread(HANDLE untyped_thread)
 }
 #endif
 
-static HRESULT wait_for_fence(ID3D12Fence *fence, UINT64 value)
+static HRESULT wait_for_fence(ID3D12Fence *fence, uint64_t value)
 {
     unsigned int ret;
     HANDLE event;

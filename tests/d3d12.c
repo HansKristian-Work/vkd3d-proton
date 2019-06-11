@@ -224,8 +224,8 @@ static void upload_texture_data_(unsigned int line, ID3D12Resource *texture,
 {
     D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts;
+    uint64_t *row_sizes, required_size;
     D3D12_RESOURCE_DESC resource_desc;
-    UINT64 *row_sizes, required_size;
     ID3D12Resource *upload_buffer;
     D3D12_MEMCPY_DEST dst_data;
     ID3D12Device *device;
@@ -388,9 +388,9 @@ static uint16_t get_readback_uint16(struct resource_readback *rb, unsigned int x
     return *(uint16_t *)get_readback_data(rb, x, y, 0, sizeof(uint16_t));
 }
 
-static UINT64 get_readback_uint64(struct resource_readback *rb, unsigned int x, unsigned int y)
+static uint64_t get_readback_uint64(struct resource_readback *rb, unsigned int x, unsigned int y)
 {
-    return *(UINT64 *)get_readback_data(rb, x, y, 0, sizeof(UINT64));
+    return *(uint64_t *)get_readback_data(rb, x, y, 0, sizeof(uint64_t));
 }
 
 static float get_readback_float(struct resource_readback *rb, unsigned int x, unsigned int y)
@@ -1900,7 +1900,7 @@ static void test_create_heap(void)
 
     static const struct
     {
-        UINT64 alignment;
+        uint64_t alignment;
         HRESULT expected_hr;
     }
     tests[] =
@@ -2887,7 +2887,7 @@ static void test_create_fence(void)
     ID3D12Device *device, *tmp_device;
     ID3D12Fence *fence;
     ULONG refcount;
-    UINT64 value;
+    uint64_t value;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -3491,7 +3491,7 @@ static void test_cpu_signal_fence(void)
     unsigned int i, ret;
     ID3D12Fence *fence;
     ULONG refcount;
-    UINT64 value;
+    uint64_t value;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -3626,7 +3626,7 @@ static void test_cpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     hr = ID3D12Fence_SetEventOnCompletion(fence, 100, event1);
     ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, ~(UINT64)0, event2);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, ~(uint64_t)0, event2);
     ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
 
     hr = ID3D12Fence_Signal(fence, 50);
@@ -3673,7 +3673,7 @@ static void test_cpu_signal_fence(void)
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_Signal(fence, ~(UINT64)0);
+    hr = ID3D12Fence_Signal(fence, ~(uint64_t)0);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -3682,7 +3682,7 @@ static void test_cpu_signal_fence(void)
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_Signal(fence, ~(UINT64)0);
+    hr = ID3D12Fence_Signal(fence, ~(uint64_t)0);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -3761,7 +3761,7 @@ static void test_gpu_signal_fence(void)
     unsigned int i, ret;
     ID3D12Fence *fence;
     ULONG refcount;
-    UINT64 value;
+    uint64_t value;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -3869,7 +3869,7 @@ static void test_gpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     hr = ID3D12Fence_SetEventOnCompletion(fence, 100, event1);
     ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, ~(UINT64)0, event2);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, ~(uint64_t)0, event2);
     ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
 
     queue_signal(queue, fence, 50);
@@ -3916,7 +3916,7 @@ static void test_gpu_signal_fence(void)
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    queue_signal(queue, fence, ~(UINT64)0);
+    queue_signal(queue, fence, ~(uint64_t)0);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -3925,7 +3925,7 @@ static void test_gpu_signal_fence(void)
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    queue_signal(queue, fence, ~(UINT64)0);
+    queue_signal(queue, fence, ~(uint64_t)0);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -3980,7 +3980,7 @@ struct multithread_fence_wait_data
 {
     HANDLE event;
     ID3D12Fence *fence;
-    UINT64 value;
+    uint64_t value;
 };
 
 static void fence_event_wait_main(void *untyped_data)
@@ -4092,8 +4092,8 @@ static void test_multithread_fence_wait(void)
 
 static void test_fence_values(void)
 {
+    uint64_t value, next_value;
     ID3D12CommandQueue *queue;
-    UINT64 value, next_value;
     ID3D12Device *device;
     ID3D12Fence *fence;
     ULONG refcount;
@@ -17668,12 +17668,12 @@ static void test_null_vbv(void)
 #define check_copyable_footprints(a, b, c, d, e, f, g, h) \
         check_copyable_footprints_(__LINE__, a, b, c, d, e, f, g, h)
 static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_DESC *desc,
-        unsigned int sub_resource_idx, unsigned int sub_resource_count, UINT64 base_offset,
+        unsigned int sub_resource_idx, unsigned int sub_resource_count, uint64_t base_offset,
         const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts, const UINT *row_counts,
-        const UINT64 *row_sizes, UINT64 *total_size)
+        const uint64_t *row_sizes, uint64_t *total_size)
 {
     unsigned int miplevel, width, height, depth, row_count, row_size, row_pitch;
-    UINT64 offset, size, total;
+    uint64_t offset, size, total;
     unsigned int i;
 
     offset = total = 0;
@@ -17722,8 +17722,8 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
 static void test_get_copyable_footprints(void)
 {
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT layouts[10];
+    uint64_t row_sizes[10], total_size;
     D3D12_RESOURCE_DESC resource_desc;
-    UINT64 row_sizes[10], total_size;
     unsigned int sub_resource_count;
     unsigned int i, j, k, l;
     ID3D12Device *device;
@@ -17779,9 +17779,9 @@ static void test_get_copyable_footprints(void)
         {DXGI_FORMAT_BC6H_SF16, true},
         {DXGI_FORMAT_BC7_UNORM, true},
     };
-    static const UINT64 base_offsets[] =
+    static const uint64_t base_offsets[] =
     {
-        0, 1, 2, 30, 255, 512, 513, 600, 4096, 4194304, ~(UINT64)0,
+        0, 1, 2, 30, 255, 512, 513, 600, 4096, 4194304, ~(uint64_t)0,
     };
     static const struct
     {
@@ -17953,7 +17953,7 @@ static void test_get_copyable_footprints(void)
         {
             const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *l = &layouts[j];
 
-            ok(l->Offset == ~(UINT64)0, "Got offset %"PRIu64".\n", l->Offset);
+            ok(l->Offset == ~(uint64_t)0, "Got offset %"PRIu64".\n", l->Offset);
             ok(l->Footprint.Format == ~(DXGI_FORMAT)0, "Got format %#x.\n", l->Footprint.Format);
             ok(l->Footprint.Width == ~0u, "Got width %u.\n", l->Footprint.Width);
             ok(l->Footprint.Height == ~0u, "Got height %u.\n", l->Footprint.Height);
@@ -17961,10 +17961,10 @@ static void test_get_copyable_footprints(void)
             ok(l->Footprint.RowPitch == ~0u, "Got row pitch %u.\n", l->Footprint.RowPitch);
 
             ok(row_counts[j] == ~0u, "Got row count %u.\n", row_counts[j]);
-            ok(row_sizes[j] == ~(UINT64)0, "Got row size %"PRIu64".\n", row_sizes[j]);
+            ok(row_sizes[j] == ~(uint64_t)0, "Got row size %"PRIu64".\n", row_sizes[j]);
         }
 
-        ok(total_size == ~(UINT64)0, "Got total size %"PRIu64".\n", total_size);
+        ok(total_size == ~(uint64_t)0, "Got total size %"PRIu64".\n", total_size);
     }
 
     refcount = ID3D12Device_Release(device);
@@ -21662,7 +21662,7 @@ static void test_create_query_heap(void)
 
 static void test_query_timestamp(void)
 {
-    UINT64 timestamps[4], timestamp_frequency, timestamp_diff, time_diff;
+    uint64_t timestamps[4], timestamp_frequency, timestamp_diff, time_diff;
     ID3D12GraphicsCommandList *command_list;
     D3D12_QUERY_HEAP_DESC heap_desc;
     struct test_context_desc desc;
@@ -21703,7 +21703,7 @@ static void test_query_timestamp(void)
     ID3D12GraphicsCommandList_ResolveQueryData(command_list, query_heap,
             D3D12_QUERY_TYPE_TIMESTAMP, 0, 1, resource, 0);
     ID3D12GraphicsCommandList_ResolveQueryData(command_list, query_heap,
-            D3D12_QUERY_TYPE_TIMESTAMP, 1, 3, resource, sizeof(UINT64));
+            D3D12_QUERY_TYPE_TIMESTAMP, 1, 3, resource, sizeof(uint64_t));
 
     get_buffer_readback_with_command_list(resource, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
 
@@ -21718,7 +21718,7 @@ static void test_query_timestamp(void)
                 "but got %"PRIu64" > %"PRIu64".\n", timestamps[i], timestamps[i + 1]);
     }
 
-    time_diff = (UINT64)difftime(time_end, time_start) * timestamp_frequency;
+    time_diff = (uint64_t)difftime(time_end, time_start) * timestamp_frequency;
     timestamp_diff = timestamps[ARRAY_SIZE(timestamps) - 1] - timestamps[0];
 
     ok(timestamp_diff <= time_diff, "Expected timestamp difference to be bounded by CPU time difference, "
@@ -21784,9 +21784,9 @@ static void test_query_pipeline_statistics(void)
 
     get_buffer_readback_with_command_list(resource, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
 
-    for (i = 0; i < sizeof(struct D3D12_QUERY_DATA_PIPELINE_STATISTICS) / sizeof(UINT64); ++i)
+    for (i = 0; i < sizeof(struct D3D12_QUERY_DATA_PIPELINE_STATISTICS) / sizeof(uint64_t); ++i)
     {
-        UINT64 value = get_readback_uint64(&rb, i, 0);
+        uint64_t value = get_readback_uint64(&rb, i, 0);
         ok(!value, "Element %d: Got %"PRIu64", expected 0.\n", i, value);
     }
 
@@ -21914,7 +21914,7 @@ static void test_query_occlusion(void)
     hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
     ok(SUCCEEDED(hr), "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, hr);
 
-    resource = create_readback_buffer(device, ARRAY_SIZE(tests) * sizeof(UINT64));
+    resource = create_readback_buffer(device, ARRAY_SIZE(tests) * sizeof(uint64_t));
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &ds.dsv_handle);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -21940,7 +21940,7 @@ static void test_query_occlusion(void)
 
         ID3D12GraphicsCommandList_EndQuery(command_list, query_heap, tests[i].type, i);
         ID3D12GraphicsCommandList_ResolveQueryData(command_list, query_heap, tests[i].type, i, 1,
-                resource, i * sizeof(UINT64));
+                resource, i * sizeof(uint64_t));
     }
     vkd3d_test_set_context(NULL);
 
@@ -21948,8 +21948,8 @@ static void test_query_occlusion(void)
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
         const bool samples_passed = tests[i].draw && tests[i].clear_depth > tests[i].depth;
-        const UINT64 result = get_readback_uint64(&rb, i, 0);
-        UINT64 expected_result;
+        const uint64_t result = get_readback_uint64(&rb, i, 0);
+        uint64_t expected_result;
 
         if (tests[i].type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)
             expected_result = samples_passed ? 1 : 0;
@@ -21969,7 +21969,7 @@ static void test_query_occlusion(void)
 
 static void test_resolve_non_issued_query_data(void)
 {
-    static const UINT64 initial_data[] = {0xdeadbeef, 0xdeadbeef, 0xdeadbabe, 0xdeadbeef};
+    static const uint64_t initial_data[] = {0xdeadbeef, 0xdeadbeef, 0xdeadbabe, 0xdeadbeef};
     ID3D12Resource *readback_buffer, *upload_buffer;
     ID3D12GraphicsCommandList *command_list;
     D3D12_QUERY_HEAP_DESC heap_desc;
@@ -21979,7 +21979,7 @@ static void test_resolve_non_issued_query_data(void)
     struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
-    UINT64 *timestamps;
+    uint64_t *timestamps;
     HRESULT hr;
 
     memset(&desc, 0, sizeof(desc));
@@ -22049,7 +22049,7 @@ static void test_resolve_query_data_in_different_command_list(void)
     hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
     ok(SUCCEEDED(hr), "Failed to create query heap, hr %#x.\n", hr);
 
-    readback_buffer = create_readback_buffer(device, readback_buffer_capacity * sizeof(UINT64));
+    readback_buffer = create_readback_buffer(device, readback_buffer_capacity * sizeof(uint64_t));
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -22072,7 +22072,7 @@ static void test_resolve_query_data_in_different_command_list(void)
     for (i = 0; i < readback_buffer_capacity / 2; ++i)
     {
         ID3D12GraphicsCommandList_ResolveQueryData(command_list,
-                query_heap, D3D12_QUERY_TYPE_OCCLUSION, 0, 1, readback_buffer, i * sizeof(UINT64));
+                query_heap, D3D12_QUERY_TYPE_OCCLUSION, 0, 1, readback_buffer, i * sizeof(uint64_t));
     }
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
@@ -22083,14 +22083,14 @@ static void test_resolve_query_data_in_different_command_list(void)
     for (; i < readback_buffer_capacity; ++i)
     {
         ID3D12GraphicsCommandList_ResolveQueryData(command_list,
-                query_heap, D3D12_QUERY_TYPE_OCCLUSION, 0, 1, readback_buffer, i * sizeof(UINT64));
+                query_heap, D3D12_QUERY_TYPE_OCCLUSION, 0, 1, readback_buffer, i * sizeof(uint64_t));
     }
 
     get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
     for (i = 0; i < readback_buffer_capacity; ++i)
     {
-        UINT64 expected_result = context.render_target_desc.Width * context.render_target_desc.Height;
-        UINT64 result = get_readback_uint64(&rb, i, 0);
+        uint64_t expected_result = context.render_target_desc.Width * context.render_target_desc.Height;
+        uint64_t result = get_readback_uint64(&rb, i, 0);
 
         ok(result == expected_result, "Got unexpected result %"PRIu64" at %u.\n", result, i);
     }
@@ -22112,7 +22112,7 @@ static void test_resolve_query_data_in_reordered_command_list(void)
     struct test_context context;
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
-    UINT64 result;
+    uint64_t result;
     HRESULT hr;
 
     if (!init_test_context(&context, NULL))
@@ -22134,7 +22134,7 @@ static void test_resolve_query_data_in_reordered_command_list(void)
     hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
     ok(SUCCEEDED(hr), "Failed to create query heap, hr %#x.\n", hr);
 
-    readback_buffer = create_readback_buffer(device, sizeof(UINT64));
+    readback_buffer = create_readback_buffer(device, sizeof(uint64_t));
 
     /* Read query results in the second command list. */
     ID3D12GraphicsCommandList_ResolveQueryData(command_lists[1],
@@ -27749,7 +27749,7 @@ static void test_resource_allocation_info(void)
     ID3D12Device *device;
     unsigned int i, j;
     ULONG refcount;
-    UINT64 size;
+    uint64_t size;
 
     static const unsigned int alignments[] =
     {
@@ -27823,7 +27823,7 @@ static void test_resource_allocation_info(void)
             }
             else
             {
-                ok(info.SizeInBytes == ~(UINT64)0,
+                ok(info.SizeInBytes == ~(uint64_t)0,
                         "Got unexpected size %"PRIu64".\n", info.SizeInBytes);
                 ok(info.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
                         "Got unexpected alignment %"PRIu64".\n", info.Alignment);
@@ -27868,7 +27868,7 @@ static void test_resource_allocation_info(void)
         }
         else
         {
-            ok(info.SizeInBytes == ~(UINT64)0,
+            ok(info.SizeInBytes == ~(uint64_t)0,
                     "Got unexpected size %"PRIu64".\n", info.SizeInBytes);
             ok(info.Alignment >= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
                     "Got unexpected alignment %"PRIu64".\n", info.Alignment);
