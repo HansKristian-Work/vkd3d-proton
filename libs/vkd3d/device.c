@@ -2623,8 +2623,8 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     const struct vkd3d_format *format;
     const D3D12_RESOURCE_DESC *desc;
-    UINT64 requested_alignment;
-    UINT64 estimated_size;
+    uint64_t requested_alignment;
+    uint64_t estimated_size;
 
     TRACE("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p.\n",
             iface, info, visible_mask, count, resource_descs);
@@ -2694,7 +2694,7 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
     return info;
 
 invalid:
-    info->SizeInBytes = ~(UINT64)0;
+    info->SizeInBytes = ~(uint64_t)0;
 
     /* FIXME: Should we support D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT for small MSSA resources? */
     if (desc->SampleDesc.Count != 1)
@@ -2890,7 +2890,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
     unsigned int i, sub_resource_idx, miplevel_idx, row_count, row_size, row_pitch;
     unsigned int width, height, depth, array_size;
     const struct vkd3d_format *format;
-    UINT64 offset, size, total;
+    uint64_t offset, size, total;
 
     TRACE("iface %p, desc %p, first_sub_resource %u, sub_resource_count %u, base_offset %#"PRIx64", "
             "layouts %p, row_counts %p, row_sizes %p, total_bytes %p.\n",
@@ -2904,7 +2904,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
     if (row_sizes)
         memset(row_sizes, 0xff, sizeof(*row_sizes) * sub_resource_count);
     if (total_bytes)
-        *total_bytes = ~(UINT64)0;
+        *total_bytes = ~(uint64_t)0;
 
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {

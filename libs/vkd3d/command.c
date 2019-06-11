@@ -944,7 +944,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_GetDevice(ID3D12Fence *iface, REFII
 static UINT64 STDMETHODCALLTYPE d3d12_fence_GetCompletedValue(ID3D12Fence *iface)
 {
     struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
-    UINT64 completed_value;
+    uint64_t completed_value;
     int rc;
 
     TRACE("iface %p.\n", iface);
@@ -1086,7 +1086,7 @@ static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *
 }
 
 HRESULT d3d12_fence_create(struct d3d12_device *device,
-        UINT64 initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence)
+        uint64_t initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence)
 {
     struct d3d12_fence *object;
 

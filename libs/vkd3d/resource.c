@@ -265,7 +265,7 @@ struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface)
     return impl_from_ID3D12Heap(iface);
 }
 
-static HRESULT d3d12_heap_map(struct d3d12_heap *heap, UINT64 offset, void **data)
+static HRESULT d3d12_heap_map(struct d3d12_heap *heap, uint64_t offset, void **data)
 {
     struct d3d12_device *device = heap->device;
     HRESULT hr = S_OK;
@@ -1540,7 +1540,7 @@ allocate_memory:
     return vkd3d_allocate_resource_memory(device, resource, &heap->desc.Properties, heap->desc.Flags);
 }
 
-HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_heap *heap, UINT64 heap_offset,
+HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_heap *heap, uint64_t heap_offset,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
 {
@@ -3036,7 +3036,7 @@ static D3D12_GPU_DESCRIPTOR_HANDLE * STDMETHODCALLTYPE d3d12_descriptor_heap_Get
 
     TRACE("iface %p, descriptor %p.\n", iface, descriptor);
 
-    descriptor->ptr = (UINT64)(intptr_t)heap->descriptors;
+    descriptor->ptr = (uint64_t)(intptr_t)heap->descriptors;
 
     return descriptor;
 }

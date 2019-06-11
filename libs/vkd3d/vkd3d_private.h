@@ -319,7 +319,7 @@ struct d3d12_fence
 };
 
 HRESULT d3d12_fence_create(struct d3d12_device *device,
-        UINT64 initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence) DECLSPEC_HIDDEN;
+        uint64_t initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence) DECLSPEC_HIDDEN;
 
 /* ID3D12Heap */
 struct d3d12_heap
@@ -371,7 +371,7 @@ struct d3d12_resource
     void *map_ptr;
 
     struct d3d12_heap *heap;
-    UINT64 heap_offset;
+    uint64_t heap_offset;
 
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_HEAP_FLAGS heap_flags;
@@ -399,7 +399,7 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource) DECLSPEC_HIDDEN;
-HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_heap *heap, UINT64 heap_offset,
+HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_heap *heap, uint64_t heap_offset,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource) DECLSPEC_HIDDEN;
 HRESULT d3d12_reserved_resource_create(struct d3d12_device *device,
