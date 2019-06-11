@@ -4373,6 +4373,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
         list->fb_layer_count = max(list->fb_layer_count, rtv_desc->layer_count);
     }
 
+    list->dsv = VK_NULL_HANDLE;
+    list->dsv_format = VK_FORMAT_UNDEFINED;
     if (depth_stencil_descriptor)
     {
         if ((dsv_desc = d3d12_dsv_desc_from_cpu_handle(*depth_stencil_descriptor))
@@ -4397,8 +4399,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
         else
         {
             WARN("DSV descriptor is not initialized.\n");
-            list->dsv = VK_NULL_HANDLE;
-            list->dsv_format = VK_FORMAT_UNDEFINED;
         }
     }
 
