@@ -4618,6 +4618,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
     const struct vkd3d_vk_device_procs *vk_procs;
     const struct d3d12_desc *cpu_descriptor;
     struct d3d12_resource *resource_impl;
+    VkBufferMemoryBarrier buffer_barrier;
+    VkImageMemoryBarrier image_barrier;
+    VkPipelineStageFlags stage_mask;
     VkImageSubresourceRange range;
     VkClearColorValue color;
 
@@ -4650,6 +4653,22 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
 
         VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, resource_impl->u.vk_buffer,
                 cpu_descriptor->uav.buffer.offset, cpu_descriptor->uav.buffer.size, values[0]));
+
+        buffer_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        buffer_barrier.pNext = NULL;
+        buffer_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        buffer_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        buffer_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        buffer_barrier.buffer = resource_impl->u.vk_buffer;
+        buffer_barrier.offset = cpu_descriptor->uav.buffer.offset;
+        buffer_barrier.size = cpu_descriptor->uav.buffer.size;
+
+        vk_barrier_parameters_from_d3d12_resource_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                resource_impl, list->vk_queue_flags, &buffer_barrier.dstAccessMask, &stage_mask, NULL);
+
+        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, stage_mask, 0,
+                0, NULL, 1, &buffer_barrier, 0, NULL));
     }
     else
     {
@@ -4666,6 +4685,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
 
         VK_CALL(vkCmdClearColorImage(list->vk_command_buffer,
                 resource_impl->u.vk_image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range));
+
+        image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        image_barrier.pNext = NULL;
+        image_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        image_barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        image_barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        image_barrier.image = resource_impl->u.vk_image;
+        image_barrier.subresourceRange = range;
+
+        vk_barrier_parameters_from_d3d12_resource_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                resource_impl, list->vk_queue_flags, &image_barrier.dstAccessMask, &stage_mask, NULL);
+
+        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, stage_mask, 0,
+                0, NULL, 0, NULL, 1, &image_barrier));
     }
 }
 
