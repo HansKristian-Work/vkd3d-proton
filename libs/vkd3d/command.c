@@ -2721,11 +2721,11 @@ done:
 static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point)
 {
+    VkWriteDescriptorSet vk_descriptor_writes[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS];
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct d3d12_pipeline_state *state = list->state;
     VkDevice vk_device = list->device->vk_device;
-    VkWriteDescriptorSet *vk_descriptor_writes;
     VkDescriptorSet vk_descriptor_set;
     unsigned int uav_counter_count;
     unsigned int i;
@@ -2734,12 +2734,10 @@ static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_comma
         return;
 
     uav_counter_count = vkd3d_popcount(state->uav_counter_mask);
+    assert(uav_counter_count <= ARRAY_SIZE(vk_descriptor_writes));
 
     vk_descriptor_set = d3d12_command_allocator_allocate_descriptor_set(list->allocator, state->vk_set_layout);
     if (!vk_descriptor_set)
-        return;
-
-    if (!(vk_descriptor_writes = vkd3d_calloc(uav_counter_count, sizeof(*vk_descriptor_writes))))
         return;
 
     for (i = 0; i < uav_counter_count; ++i)
@@ -2762,7 +2760,6 @@ static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_comma
     }
 
     VK_CALL(vkUpdateDescriptorSets(vk_device, uav_counter_count, vk_descriptor_writes, 0, NULL));
-    vkd3d_free(vk_descriptor_writes);
 
     VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
             state->vk_pipeline_layout, state->set_index, 1, &vk_descriptor_set, 0, NULL));
