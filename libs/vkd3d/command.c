@@ -3562,7 +3562,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(ID3D12GraphicsCo
 
     TRACE("iface %p, viewport_count %u, viewports %p.\n", iface, viewport_count, viewports);
 
-    assert(viewport_count <= D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE);
+    if (viewport_count > ARRAY_SIZE(vk_viewports))
+    {
+        FIXME("Viewport count %u > D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE.\n", viewport_count);
+        viewport_count = ARRAY_SIZE(vk_viewports);
+    }
 
     for (i = 0; i < viewport_count; ++i)
     {
@@ -3588,16 +3592,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(ID3D12Graphic
         UINT rect_count, const D3D12_RECT *rects)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList1(iface);
+    VkRect2D vk_rects[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
     const struct vkd3d_vk_device_procs *vk_procs;
-    struct VkRect2D *vk_rects;
     unsigned int i;
 
     TRACE("iface %p, rect_count %u, rects %p.\n", iface, rect_count, rects);
 
-    if (!(vk_rects = vkd3d_calloc(rect_count, sizeof(*vk_rects))))
+    if (rect_count > ARRAY_SIZE(vk_rects))
     {
-        ERR("Failed to allocate Vulkan scissor rects.\n");
-        return;
+        FIXME("Rect count %u > D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE.\n", rect_count);
+        rect_count = ARRAY_SIZE(vk_rects);
     }
 
     for (i = 0; i < rect_count; ++i)
@@ -3610,8 +3614,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(ID3D12Graphic
 
     vk_procs = &list->device->vk_procs;
     VK_CALL(vkCmdSetScissor(list->vk_command_buffer, 0, rect_count, vk_rects));
-
-    free(vk_rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetBlendFactor(ID3D12GraphicsCommandList1 *iface,
