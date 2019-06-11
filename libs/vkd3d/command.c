@@ -2305,6 +2305,17 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_ClearState(ID3D12GraphicsCom
     return E_NOTIMPL;
 }
 
+static bool d3d12_command_list_has_unknown_dsv_format(struct d3d12_command_list *list)
+{
+    struct d3d12_graphics_pipeline_state *graphics;
+
+    if (!d3d12_pipeline_state_is_graphics(list->state))
+        return false;
+
+    graphics = &list->state->u.graphics;
+    return graphics->null_attachment_mask & (1u << graphics->rt_count);
+}
+
 static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list *list)
 {
     struct d3d12_graphics_pipeline_state *graphics;
@@ -2312,8 +2323,7 @@ static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list 
     assert(d3d12_pipeline_state_is_graphics(list->state));
     graphics = &list->state->u.graphics;
 
-    return graphics->dsv_format
-            || (graphics->null_attachment_mask & (1u << graphics->rt_count) && list->dsv_format);
+    return graphics->dsv_format || (d3d12_command_list_has_unknown_dsv_format(list) && list->dsv_format);
 }
 
 static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
@@ -4321,6 +4331,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList1(iface);
     const struct d3d12_rtv_desc *rtv_desc;
     const struct d3d12_dsv_desc *dsv_desc;
+    VkFormat prev_dsv_format;
     struct vkd3d_view *view;
     unsigned int i;
 
@@ -4373,6 +4384,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
         list->fb_layer_count = max(list->fb_layer_count, rtv_desc->layer_count);
     }
 
+    prev_dsv_format = list->dsv_format;
     list->dsv = VK_NULL_HANDLE;
     list->dsv_format = VK_FORMAT_UNDEFINED;
     if (depth_stencil_descriptor)
@@ -4401,6 +4413,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
             WARN("DSV descriptor is not initialized.\n");
         }
     }
+
+    if (prev_dsv_format != list->dsv_format && d3d12_command_list_has_unknown_dsv_format(list))
+        d3d12_command_list_invalidate_current_pipeline(list);
 
     d3d12_command_list_invalidate_current_framebuffer(list);
     d3d12_command_list_invalidate_current_render_pass(list);
