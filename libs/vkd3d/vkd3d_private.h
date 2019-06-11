@@ -141,13 +141,18 @@ struct vkd3d_instance
     LONG refcount;
 };
 
+union vkd3d_thread_handle
+{
+    pthread_t pthread;
+    void *handle;
+};
+
+HRESULT vkd3d_create_thread(struct vkd3d_instance *instance,
+        PFN_vkd3d_thread thread_main, void *data, union vkd3d_thread_handle *thread) DECLSPEC_HIDDEN;
+
 struct vkd3d_fence_worker
 {
-    union
-    {
-        pthread_t thread;
-        void *handle;
-    } u;
+    union vkd3d_thread_handle thread;
     pthread_mutex_t mutex;
     pthread_cond_t cond;
     bool should_exit;
@@ -1014,7 +1019,6 @@ struct d3d12_device
 
     struct vkd3d_instance *vkd3d_instance;
 
-    PFN_vkd3d_create_thread create_thread;
     PFN_vkd3d_join_thread join_thread;
 
     IUnknown *parent;

@@ -3112,7 +3112,6 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     vkd3d_instance_incref(device->vkd3d_instance = instance);
     device->vk_info = instance->vk_info;
     device->signal_event = instance->signal_event;
-    device->create_thread = instance->create_thread;
     device->join_thread = instance->join_thread;
     device->wchar_size = instance->wchar_size;
 
@@ -3196,6 +3195,32 @@ void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
     va_end(args);
 
     device->removed_reason = reason;
+}
+
+HRESULT vkd3d_create_thread(struct vkd3d_instance *instance,
+        PFN_vkd3d_thread thread_main, void *data, union vkd3d_thread_handle *thread)
+{
+    HRESULT hr = S_OK;
+    int rc;
+
+    if (instance->create_thread)
+    {
+        if (!(thread->handle = instance->create_thread(thread_main, data)))
+        {
+            ERR("Failed to create thread.\n");
+            hr = E_FAIL;
+        }
+    }
+    else
+    {
+        if ((rc = pthread_create(&thread->pthread, NULL, thread_main, data)))
+        {
+            ERR("Failed to create thread, error %d.\n", rc);
+            hr = hresult_from_errno(rc);
+        }
+    }
+
+    return hr;
 }
 
 IUnknown *vkd3d_get_device_parent(ID3D12Device *device)
