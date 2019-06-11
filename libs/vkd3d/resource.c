@@ -1492,7 +1492,7 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
 }
 
 static HRESULT vkd3d_bind_heap_memory(struct d3d12_device *device,
-        struct d3d12_resource *resource, struct d3d12_heap *heap, UINT64 heap_offset)
+        struct d3d12_resource *resource, struct d3d12_heap *heap, uint64_t heap_offset)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDevice vk_device = device->vk_device;
@@ -1506,16 +1506,16 @@ static HRESULT vkd3d_bind_heap_memory(struct d3d12_device *device,
 
     if (heap_offset % requirements.alignment)
     {
-        FIXME("Invalid heap offset %#"PRIx64".\n", heap_offset);
-        return E_INVALIDARG;
+        FIXME("Invalid heap offset %#"PRIx64" (alignment %#"PRIx64").\n",
+                heap_offset, requirements.alignment);
+        goto allocate_memory;
     }
 
     if (!(requirements.memoryTypeBits & (1u << heap->vk_memory_type)))
     {
-        FIXME("Memory type %u cannot be bound to resource %p (allowed types %#x), "
-                "allocating device memory.\n",
+        FIXME("Memory type %u cannot be bound to resource %p (allowed types %#x).\n",
                 heap->vk_memory_type, resource, requirements.memoryTypeBits);
-        return vkd3d_allocate_resource_memory(device, resource, &heap->desc.Properties, heap->desc.Flags);
+        goto allocate_memory;
     }
 
     if (d3d12_resource_is_buffer(resource))
@@ -1534,6 +1534,10 @@ static HRESULT vkd3d_bind_heap_memory(struct d3d12_device *device,
     }
 
     return hresult_from_vk_result(vr);
+
+allocate_memory:
+    FIXME("Allocating device memory.\n");
+    return vkd3d_allocate_resource_memory(device, resource, &heap->desc.Properties, heap->desc.Flags);
 }
 
 HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_heap *heap, UINT64 heap_offset,
