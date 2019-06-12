@@ -1720,7 +1720,7 @@ static void rs_desc_from_d3d12(VkPipelineRasterizationStateCreateInfo *vk_desc,
     vk_desc->lineWidth = 1.0f;
 
     if (d3d12_desc->MultisampleEnable)
-        FIXME("Ignoring MultisampleEnable %#x.\n", d3d12_desc->MultisampleEnable);
+        FIXME_ONCE("Ignoring MultisampleEnable %#x.\n", d3d12_desc->MultisampleEnable);
     if (d3d12_desc->AntialiasedLineEnable)
         FIXME("Ignoring AntialiasedLineEnable %#x.\n", d3d12_desc->AntialiasedLineEnable);
     if (d3d12_desc->ForcedSampleCount)

@@ -59,6 +59,14 @@ const char *debugstr_w(const WCHAR *wstr, size_t wchar_size) DECLSPEC_HIDDEN;
         const enum vkd3d_dbg_level vkd3d_dbg_level = VKD3D_DBG_LEVEL_##level; \
         VKD3D_DBG_PRINTF
 
+#define VKD3D_DBG_LOG_ONCE(first_time_level, level) \
+        do { \
+        static bool vkd3d_dbg_next_time; \
+        const enum vkd3d_dbg_level vkd3d_dbg_level = vkd3d_dbg_next_time \
+        ? VKD3D_DBG_LEVEL_##level : VKD3D_DBG_LEVEL_##first_time_level; \
+        vkd3d_dbg_next_time = true; \
+        VKD3D_DBG_PRINTF
+
 #define VKD3D_DBG_PRINTF(args...) \
         vkd3d_dbg_printf(vkd3d_dbg_level, __FUNCTION__, args); } while (0)
 
@@ -79,6 +87,8 @@ const char *debugstr_w(const WCHAR *wstr, size_t wchar_size) DECLSPEC_HIDDEN;
 #ifndef TRACE_ON
 #define TRACE_ON() (vkd3d_dbg_get_level() == VKD3D_DBG_LEVEL_TRACE)
 #endif
+
+#define FIXME_ONCE VKD3D_DBG_LOG_ONCE(FIXME, WARN)
 
 #define VKD3D_DEBUG_ENV_NAME(name) const char *vkd3d_dbg_env_name = name
 

@@ -3538,7 +3538,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(ID3D12GraphicsCo
 
         if (!vk_viewports[i].width || !vk_viewports[i].height)
         {
-            FIXME("Invalid viewport %u, ignoring RSSetViewports().\n", i);
+            FIXME_ONCE("Invalid viewport %u, ignoring RSSetViewports().\n", i);
             return;
         }
     }
@@ -3790,7 +3790,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
                 /* FIXME: Some formats in D3D12 are planar. Each plane is a separate sub-resource. */
                 if (sub_resource_idx >= d3d12_resource_desc_get_sub_resource_count(&resource->desc))
                 {
-                    FIXME("Unhandled sub-resource idx %u.\n", sub_resource_idx);
+                    FIXME_ONCE("Unhandled sub-resource idx %u.\n", sub_resource_idx);
                     continue;
                 }
 
@@ -3806,7 +3806,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
     }
 
     if (have_aliasing_barriers)
-        FIXME("Aliasing barriers not implemented yet.\n");
+        FIXME_ONCE("Aliasing barriers not implemented yet.\n");
 
     /* Vulkan doesn't support split barriers. */
     if (have_split_barriers)
@@ -4684,7 +4684,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(I
 static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(ID3D12GraphicsCommandList1 *iface,
         ID3D12Resource *resource, const D3D12_DISCARD_REGION *region)
 {
-    FIXME("iface %p, resource %p, region %p stub!\n", iface, resource, region);
+    FIXME_ONCE("iface %p, resource %p, region %p stub!\n", iface, resource, region);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(ID3D12GraphicsCommandList1 *iface,
@@ -4788,7 +4788,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
      * count precisely, even when it was signalled that non-precise is enough.
      */
     if (type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)
-        FIXME("D3D12 guarantees binary occlusion queries result in only 0 and 1.\n");
+        FIXME_ONCE("D3D12 guarantees binary occlusion queries result in only 0 and 1.\n");
 
     if (!d3d12_resource_is_buffer(buffer))
     {

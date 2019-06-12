@@ -2838,7 +2838,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandleByName(ID3D12Devic
 static HRESULT STDMETHODCALLTYPE d3d12_device_MakeResident(ID3D12Device *iface,
         UINT object_count, ID3D12Pageable * const *objects)
 {
-    FIXME("iface %p, object_count %u, objects %p stub!\n",
+    FIXME_ONCE("iface %p, object_count %u, objects %p stub!\n",
             iface, object_count, objects);
 
     return S_OK;
@@ -2847,7 +2847,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_MakeResident(ID3D12Device *iface,
 static HRESULT STDMETHODCALLTYPE d3d12_device_Evict(ID3D12Device *iface,
         UINT object_count, ID3D12Pageable * const *objects)
 {
-    FIXME("iface %p, object_count %u, objects %p stub!\n",
+    FIXME_ONCE("iface %p, object_count %u, objects %p stub!\n",
             iface, object_count, objects);
 
     return S_OK;
