@@ -2038,7 +2038,7 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
     memcpy(key.vk_formats, graphics->rtv_formats, sizeof(graphics->rtv_formats));
     key.attachment_count = graphics->rt_count;
 
-    if (!(dsv_format = graphics->dsv_format) && (graphics->null_attachment_mask & (1u << graphics->rt_count)))
+    if (!(dsv_format = graphics->dsv_format) && (graphics->null_attachment_mask & dsv_attachment_mask(graphics)))
         dsv_format = dynamic_dsv_format;
 
     if (dsv_format)
@@ -2220,7 +2220,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         {
             WARN("DSV format is DXGI_FORMAT_UNKNOWN.\n");
             graphics->dsv_format = VK_FORMAT_UNDEFINED;
-            graphics->null_attachment_mask |= 1u << graphics->rt_count;
+            graphics->null_attachment_mask |= dsv_attachment_mask(graphics);
         }
         else if ((format = vkd3d_get_format(device, desc->DSVFormat, true)))
         {
@@ -2503,7 +2503,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
     }
 
-    is_dsv_format_unknown = graphics->null_attachment_mask & (1u << graphics->rt_count);
+    is_dsv_format_unknown = graphics->null_attachment_mask & dsv_attachment_mask(graphics);
 
     rs_desc_from_d3d12(&graphics->rs_desc, &desc->RasterizerState);
     have_attachment = graphics->rt_count || graphics->dsv_format || is_dsv_format_unknown;
@@ -2855,7 +2855,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     /* Create a render pass for pipelines with DXGI_FORMAT_UNKNOWN. */
     if (!(pipeline_desc.renderPass = graphics->render_pass))
     {
-        if (graphics->null_attachment_mask & (1u << graphics->rt_count))
+        if (graphics->null_attachment_mask & dsv_attachment_mask(graphics))
             TRACE("Compiling %p with DSV format %#x.\n", state, dsv_format);
 
         if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device, dsv_format,

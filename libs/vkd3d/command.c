@@ -2278,17 +2278,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_ClearState(ID3D12GraphicsCom
     return E_NOTIMPL;
 }
 
-static bool d3d12_command_list_has_unknown_dsv_format(struct d3d12_command_list *list)
-{
-    struct d3d12_graphics_pipeline_state *graphics;
-
-    if (!d3d12_pipeline_state_is_graphics(list->state))
-        return false;
-
-    graphics = &list->state->u.graphics;
-    return graphics->null_attachment_mask & (1u << graphics->rt_count);
-}
-
 static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list *list)
 {
     struct d3d12_graphics_pipeline_state *graphics;
@@ -2296,7 +2285,7 @@ static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list 
     assert(d3d12_pipeline_state_is_graphics(list->state));
     graphics = &list->state->u.graphics;
 
-    return graphics->dsv_format || (d3d12_command_list_has_unknown_dsv_format(list) && list->dsv_format);
+    return graphics->dsv_format || (d3d12_pipeline_state_has_unknown_dsv_format(list->state) && list->dsv_format);
 }
 
 static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
@@ -4386,7 +4375,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
         }
     }
 
-    if (prev_dsv_format != list->dsv_format && d3d12_command_list_has_unknown_dsv_format(list))
+    if (prev_dsv_format != list->dsv_format && d3d12_pipeline_state_has_unknown_dsv_format(list->state))
         d3d12_command_list_invalidate_current_pipeline(list);
 
     d3d12_command_list_invalidate_current_framebuffer(list);

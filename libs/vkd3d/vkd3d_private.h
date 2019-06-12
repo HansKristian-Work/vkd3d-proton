@@ -706,6 +706,11 @@ struct d3d12_graphics_pipeline_state
     bool xfb_enabled;
 };
 
+static inline unsigned int dsv_attachment_mask(const struct d3d12_graphics_pipeline_state *graphics)
+{
+    return 1u << graphics->rt_count;
+}
+
 struct d3d12_compute_pipeline_state
 {
     VkPipeline vk_pipeline;
@@ -744,6 +749,18 @@ static inline bool d3d12_pipeline_state_is_compute(const struct d3d12_pipeline_s
 static inline bool d3d12_pipeline_state_is_graphics(const struct d3d12_pipeline_state *state)
 {
     return state && state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS;
+}
+
+static inline bool d3d12_pipeline_state_has_unknown_dsv_format(struct d3d12_pipeline_state *state)
+{
+    if (d3d12_pipeline_state_is_graphics(state))
+    {
+        struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
+
+        return graphics->null_attachment_mask & dsv_attachment_mask(graphics);
+    }
+
+    return false;
 }
 
 HRESULT d3d12_pipeline_state_create_compute(struct d3d12_device *device,
