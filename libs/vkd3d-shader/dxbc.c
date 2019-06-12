@@ -3007,6 +3007,103 @@ static int shader_write_root_signature(struct root_signature_writer_context *con
     return shader_write_static_samplers(context, desc);
 }
 
+static int validate_descriptor_table_v_1_0(const struct vkd3d_root_descriptor_table *descriptor_table)
+{
+    bool have_srv_uav_cbv = false;
+    bool have_sampler = false;
+    unsigned int i;
+
+    for (i = 0; i < descriptor_table->descriptor_range_count; ++i)
+    {
+        const struct vkd3d_descriptor_range *r = &descriptor_table->descriptor_ranges[i];
+
+        if (r->range_type == VKD3D_DESCRIPTOR_RANGE_TYPE_SRV
+                || r->range_type == VKD3D_DESCRIPTOR_RANGE_TYPE_UAV
+                || r->range_type == VKD3D_DESCRIPTOR_RANGE_TYPE_CBV)
+        {
+            have_srv_uav_cbv = true;
+        }
+        else if (r->range_type == VKD3D_DESCRIPTOR_RANGE_TYPE_SAMPLER)
+        {
+            have_sampler = true;
+        }
+        else
+        {
+            WARN("Invalid descriptor range type %#x.\n", r->range_type);
+            return VKD3D_ERROR_INVALID_ARGUMENT;
+        }
+    }
+
+    if (have_srv_uav_cbv && have_sampler)
+    {
+        WARN("Samplers cannot be mixed with CBVs/SRVs/UAVs in descriptor tables.\n");
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+
+    return VKD3D_OK;
+}
+
+static int validate_descriptor_table_v_1_1(const struct vkd3d_root_descriptor_table1 *descriptor_table)
+{
+    bool have_srv_uav_cbv = false;
+    bool have_sampler = false;
+    unsigned int i;
+
+    for (i = 0; i < descriptor_table->descriptor_range_count; ++i)
+    {
+        const struct vkd3d_descriptor_range1 *r = &descriptor_table->descriptor_ranges[i];
+
+        if (r->range_type == VKD3D_DESCRIPTOR_RANGE_TYPE_SRV
+                || r->range_type == VKD3D_DESCRIPTOR_RANGE_TYPE_UAV
+                || r->range_type == VKD3D_DESCRIPTOR_RANGE_TYPE_CBV)
+        {
+            have_srv_uav_cbv = true;
+        }
+        else if (r->range_type == VKD3D_DESCRIPTOR_RANGE_TYPE_SAMPLER)
+        {
+            have_sampler = true;
+        }
+        else
+        {
+            WARN("Invalid descriptor range type %#x.\n", r->range_type);
+            return VKD3D_ERROR_INVALID_ARGUMENT;
+        }
+    }
+
+    if (have_srv_uav_cbv && have_sampler)
+    {
+        WARN("Samplers cannot be mixed with CBVs/SRVs/UAVs in descriptor tables.\n");
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+
+    return VKD3D_OK;
+}
+
+static int validate_root_signature_desc(const struct vkd3d_versioned_root_signature_desc *desc)
+{
+    int ret = VKD3D_OK;
+    unsigned int i;
+
+    for (i = 0; i < versioned_root_signature_get_parameter_count(desc); ++i)
+    {
+        enum vkd3d_root_parameter_type type;
+
+        type = versioned_root_signature_get_parameter_type(desc, i);
+        if (type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+        {
+            if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
+                ret = validate_descriptor_table_v_1_0(&desc->u.v_1_0.parameters[i].u.descriptor_table);
+            else
+                ret = validate_descriptor_table_v_1_1(&desc->u.v_1_1.parameters[i].u.descriptor_table);
+        }
+
+        if (ret < 0)
+            break;
+    }
+
+    return ret;
+}
+
 int vkd3d_shader_serialize_root_signature(const struct vkd3d_versioned_root_signature_desc *root_signature,
         struct vkd3d_shader_code *dxbc)
 {
@@ -3023,6 +3120,9 @@ int vkd3d_shader_serialize_root_signature(const struct vkd3d_versioned_root_sign
         WARN("Root signature version %#x not supported.\n", root_signature->version);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
+
+    if ((ret = validate_root_signature_desc(root_signature)) < 0)
+        return ret;
 
     memset(dxbc, 0, sizeof(*dxbc));
     memset(&context, 0, sizeof(context));
