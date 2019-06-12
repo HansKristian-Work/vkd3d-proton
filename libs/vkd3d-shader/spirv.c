@@ -3630,6 +3630,29 @@ static const struct vkd3d_shader_signature_element *vkd3d_find_signature_element
     return NULL;
 }
 
+static uint32_t vkd3d_dxbc_compiler_get_invocation_id(struct vkd3d_dxbc_compiler *compiler)
+{
+    struct vkd3d_shader_register r;
+
+    assert(compiler->shader_type == VKD3D_SHADER_TYPE_HULL);
+
+    memset(&r, 0, sizeof(r));
+    r.type = VKD3DSPR_OUTPOINTID;
+    r.idx[0].offset = ~0u;
+    r.idx[1].offset = ~0u;
+    return vkd3d_dxbc_compiler_get_register_id(compiler, &r);
+}
+
+static uint32_t vkd3d_dxbc_compiler_emit_load_invocation_id(struct vkd3d_dxbc_compiler *compiler)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t type_id, id;
+
+    id = vkd3d_dxbc_compiler_get_invocation_id(compiler);
+    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_INT, 1);
+    return vkd3d_spirv_build_op_load(builder, type_id, id, SpvMemoryAccessMaskNone);
+}
+
 static void vkd3d_dxbc_compiler_emit_shader_phase_name(struct vkd3d_dxbc_compiler *compiler,
         uint32_t id, const struct vkd3d_shader_phase *phase, const char *suffix)
 {
@@ -4055,7 +4078,6 @@ static void vkd3d_dxbc_compiler_emit_shader_phase_input(struct vkd3d_dxbc_compil
         case VKD3DSPR_INPUT:
             vkd3d_dxbc_compiler_emit_input(compiler, dst, VKD3D_SIV_NONE, VKD3DSIM_NONE);
             return;
-        case VKD3DSPR_OUTPOINTID:
         case VKD3DSPR_PRIMID:
             vkd3d_dxbc_compiler_emit_input_register(compiler, dst);
             return;
@@ -4063,8 +4085,8 @@ static void vkd3d_dxbc_compiler_emit_shader_phase_input(struct vkd3d_dxbc_compil
         case VKD3DSPR_JOININSTID:
             val_id = phase->instance_id;
             break;
-        case VKD3DSPR_OUTCONTROLPOINT:
-            /* See vkd3d_dxbc_compiler_leave_shader_phase(). */
+        case VKD3DSPR_OUTPOINTID: /* Emitted in vkd3d_dxbc_compiler_emit_initial_declarations(). */
+        case VKD3DSPR_OUTCONTROLPOINT: /* See vkd3d_dxbc_compiler_leave_shader_phase(). */
             return;
         default:
             FIXME("Unhandled shader phase input register %#x.\n", reg->type);
@@ -4355,14 +4377,7 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         reg_symbol.info.reg.is_aggregate = use_private_variable ? false : array_size;
         if (!use_private_variable && is_control_point_phase(phase))
         {
-            struct vkd3d_shader_register r;
-
-            memset(&r, 0, sizeof(r));
-            r.type = VKD3DSPR_OUTPOINTID;
-            r.idx[0].offset = ~0u;
-            r.idx[1].offset = ~0u;
-
-            reg_symbol.info.reg.member_idx = vkd3d_dxbc_compiler_get_register_id(compiler, &r);
+            reg_symbol.info.reg.member_idx = vkd3d_dxbc_compiler_get_invocation_id(compiler);
             reg_symbol.info.reg.is_dynamically_indexed = true;
         }
         vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
@@ -4548,19 +4563,7 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_
     }
 
     if (is_control_point_phase(phase))
-    {
-        struct vkd3d_shader_register r;
-        uint32_t invocation_id;
-
-        memset(&r, 0, sizeof(r));
-        r.type = VKD3DSPR_OUTPOINTID;
-        r.idx[0].offset = ~0u;
-        r.idx[1].offset = ~0u;
-
-        type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_INT, 1);
-        invocation_id = vkd3d_dxbc_compiler_get_register_id(compiler, &r);
-        output_index_id = vkd3d_spirv_build_op_load(builder, type_id, invocation_id, SpvMemoryAccessMaskNone);
-    }
+        output_index_id = vkd3d_dxbc_compiler_emit_load_invocation_id(compiler);
 
     for (i = 0; i < signature->element_count; ++i)
     {
@@ -4583,6 +4586,18 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_
     compiler->epilogue_function_id = 0;
 }
 
+static void vkd3d_dxbc_compiler_emit_hull_shader_builtins(struct vkd3d_dxbc_compiler *compiler)
+{
+    struct vkd3d_shader_dst_param dst;
+
+    memset(&dst, 0, sizeof(dst));
+    dst.reg.type = VKD3DSPR_OUTPOINTID;
+    dst.reg.idx[0].offset = ~0u;
+    dst.reg.idx[1].offset = ~0u;
+    dst.write_mask = VKD3DSP_WRITEMASK_0;
+    vkd3d_dxbc_compiler_emit_input_register(compiler, &dst);
+}
+
 static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler)
 {
     const struct vkd3d_shader_transform_feedback_info *xfb_info = compiler->xfb_info;
@@ -4595,6 +4610,7 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
             break;
         case VKD3D_SHADER_TYPE_HULL:
             vkd3d_spirv_set_execution_model(builder, SpvExecutionModelTessellationControl);
+            vkd3d_dxbc_compiler_emit_hull_shader_builtins(compiler);
             break;
         case VKD3D_SHADER_TYPE_DOMAIN:
             vkd3d_spirv_set_execution_model(builder, SpvExecutionModelTessellationEvaluation);
@@ -5643,19 +5659,15 @@ static void vkd3d_dxbc_compiler_emit_default_control_point_phase(struct vkd3d_dx
     const struct vkd3d_shader_signature *output_signature = compiler->output_signature;
     const struct vkd3d_shader_signature *input_signature = compiler->input_signature;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    const struct vkd3d_spirv_builtin *builtin, *input_builtin;
     uint32_t type_id, input_ptr_type_id, output_ptr_type_id;
+    const struct vkd3d_spirv_builtin *input_builtin;
     uint32_t input_id, output_id, dst_id, src_id;
     enum vkd3d_component_type component_type;
     unsigned int component_count;
     uint32_t invocation_id;
     unsigned int i;
 
-    builtin = get_spirv_builtin_for_register(VKD3DSPR_OUTPOINTID);
-    invocation_id = vkd3d_dxbc_compiler_emit_builtin_variable(compiler, builtin, SpvStorageClassInput, 0);
-
-    type_id = vkd3d_spirv_get_type_id(builder, builtin->component_type, builtin->component_count);
-    invocation_id = vkd3d_spirv_build_op_load(builder, type_id, invocation_id, SpvMemoryAccessMaskNone);
+    invocation_id = vkd3d_dxbc_compiler_emit_load_invocation_id(compiler);
 
     assert(input_signature->element_count == output_signature->element_count);
     for (i = 0; i < output_signature->element_count; ++i)
