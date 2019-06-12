@@ -3937,10 +3937,15 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     }
     else
     {
+        unsigned int location = reg_idx;
+
+        if (reg->type == VKD3DSPR_PATCHCONST)
+            location += compiler->input_signature->element_count;
+
         input_id = vkd3d_dxbc_compiler_emit_array_variable(compiler, &builder->global_stream,
                 storage_class, component_type, input_component_count, array_size);
         vkd3d_spirv_add_iface_variable(builder, input_id);
-        vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationLocation, reg_idx);
+        vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationLocation, location);
         if (component_idx)
             vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationComponent, component_idx);
 
@@ -4301,6 +4306,11 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         }
         else
         {
+            unsigned int location = reg->idx[0].offset;
+
+            if (is_patch_constant)
+                location += compiler->output_signature->element_count;
+
             id = vkd3d_dxbc_compiler_emit_array_variable(compiler, &builder->global_stream,
                     storage_class, component_type, output_component_count, array_size);
             vkd3d_spirv_add_iface_variable(builder, id);
@@ -4312,7 +4322,7 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
             }
             else
             {
-                vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationLocation, reg->idx[0].offset);
+                vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationLocation, location);
             }
 
             if (component_idx)
