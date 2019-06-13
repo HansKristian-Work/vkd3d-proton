@@ -362,7 +362,7 @@ static void vkd3d_wait_for_gpu_fences(struct vkd3d_fence_worker *worker)
         return;
 
     vr = VK_CALL(vkWaitForFences(device->vk_device,
-            worker->fence_count, worker->vk_fences, VK_FALSE, 0));
+            worker->fence_count, worker->vk_fences, VK_FALSE, ~(uint64_t)0));
     if (vr == VK_TIMEOUT)
         return;
     if (vr != VK_SUCCESS)
