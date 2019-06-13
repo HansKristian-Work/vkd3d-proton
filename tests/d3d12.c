@@ -27042,6 +27042,7 @@ static void test_line_tessellation(void)
                 data->x, data->y, data->z, data->w, expected->x, expected->y, expected->z, expected->w, i);
         ++data;
         expected = &expected_data[3 * i + 1];
+        bug_if(is_nvidia_device(context.device))
         ok(compare_vec4(data, expected, 1),
                 "Got color {%.8e, %.8e, %.8e, %.8e}, expected {%.8e, %.8e, %.8e, %.8e} at %u.\n",
                 data->x, data->y, data->z, data->w, expected->x, expected->y, expected->z, expected->w, i);
