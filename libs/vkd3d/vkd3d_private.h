@@ -156,7 +156,20 @@ struct vkd3d_fence_worker
     union vkd3d_thread_handle thread;
     pthread_mutex_t mutex;
     pthread_cond_t cond;
+    pthread_cond_t fence_destruction_cond;
     bool should_exit;
+    bool pending_fence_destruction;
+
+    size_t enqueued_fence_count;
+    struct vkd3d_enqueued_fence
+    {
+        VkFence vk_fence;
+        struct d3d12_fence *fence;
+        uint64_t value;
+        struct vkd3d_queue *queue;
+        uint64_t queue_sequence_number;
+    } *enqueued_fences;
+    size_t enqueued_fences_size;
 
     size_t fence_count;
     VkFence *vk_fences;
@@ -316,6 +329,8 @@ struct d3d12_fence
 
     struct list semaphores;
     unsigned int semaphore_count;
+
+    LONG pending_worker_operation_count;
 
     VkFence old_vk_fences[VKD3D_MAX_VK_SYNC_OBJECTS];
 

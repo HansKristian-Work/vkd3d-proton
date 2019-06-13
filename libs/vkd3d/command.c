@@ -257,27 +257,22 @@ static HRESULT vkd3d_enqueue_gpu_fence(struct vkd3d_fence_worker *worker,
         return hresult_from_errno(rc);
     }
 
-    if (!vkd3d_array_reserve((void **)&worker->vk_fences, &worker->vk_fences_size,
-            worker->fence_count + 1, sizeof(*worker->vk_fences)))
-    {
-        ERR("Failed to add GPU fence.\n");
-        pthread_mutex_unlock(&worker->mutex);
-        return E_OUTOFMEMORY;
-    }
-    if (!vkd3d_array_reserve((void **)&worker->fences, &worker->fences_size,
-            worker->fence_count + 1, sizeof(*worker->fences)))
+    if (!vkd3d_array_reserve((void **)&worker->enqueued_fences, &worker->enqueued_fences_size,
+            worker->enqueued_fence_count + 1, sizeof(*worker->enqueued_fences)))
     {
         ERR("Failed to add GPU fence.\n");
         pthread_mutex_unlock(&worker->mutex);
         return E_OUTOFMEMORY;
     }
 
-    worker->vk_fences[worker->fence_count] = vk_fence;
-    worker->fences[worker->fence_count].fence = fence;
-    worker->fences[worker->fence_count].value = value;
-    worker->fences[worker->fence_count].queue = queue;
-    worker->fences[worker->fence_count].queue_sequence_number = queue_sequence_number;
-    ++worker->fence_count;
+    worker->enqueued_fences[worker->enqueued_fence_count].vk_fence = vk_fence;
+    worker->enqueued_fences[worker->enqueued_fence_count].fence = fence;
+    worker->enqueued_fences[worker->enqueued_fence_count].value = value;
+    worker->enqueued_fences[worker->enqueued_fence_count].queue = queue;
+    worker->enqueued_fences[worker->enqueued_fence_count].queue_sequence_number = queue_sequence_number;
+    ++worker->enqueued_fence_count;
+
+    InterlockedIncrement(&fence->pending_worker_operation_count);
 
     pthread_cond_signal(&worker->cond);
     pthread_mutex_unlock(&worker->mutex);
@@ -287,10 +282,13 @@ static HRESULT vkd3d_enqueue_gpu_fence(struct vkd3d_fence_worker *worker,
 
 static void vkd3d_fence_worker_remove_fence(struct vkd3d_fence_worker *worker, struct d3d12_fence *fence)
 {
-    struct d3d12_device *device = worker->device;
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    unsigned int i, j;
+    LONG count;
     int rc;
+
+    if (!(count = atomic_add_fetch(&fence->pending_worker_operation_count, 0)))
+        return;
+
+    WARN("Waiting for %u pending fence operations (fence %p).\n", count, fence);
 
     if ((rc = pthread_mutex_lock(&worker->mutex)))
     {
@@ -298,24 +296,57 @@ static void vkd3d_fence_worker_remove_fence(struct vkd3d_fence_worker *worker, s
         return;
     }
 
-    for (i = 0, j = 0; i < worker->fence_count; ++i)
+    while ((count = atomic_add_fetch(&fence->pending_worker_operation_count, 0)))
     {
-        if (worker->fences[i].fence == fence)
-        {
-            VK_CALL(vkDestroyFence(device->vk_device, worker->vk_fences[i], NULL));
-            continue;
-        }
+        TRACE("Still waiting for %u pending fence operations (fence %p).\n", count, fence);
 
-        if (i != j)
-        {
-            worker->vk_fences[j] = worker->vk_fences[i];
-            worker->fences[j] = worker->fences[i];
-        }
-        ++j;
+        worker->pending_fence_destruction = true;
+        pthread_cond_signal(&worker->cond);
+
+        pthread_cond_wait(&worker->fence_destruction_cond, &worker->mutex);
     }
-    worker->fence_count = j;
+
+    TRACE("Removed fence %p.\n", fence);
 
     pthread_mutex_unlock(&worker->mutex);
+}
+
+static void vkd3d_fence_worker_move_enqueued_fences_locked(struct vkd3d_fence_worker *worker)
+{
+    unsigned int i;
+    size_t count;
+    bool ret;
+
+    if (!worker->enqueued_fence_count)
+        return;
+
+    count = worker->fence_count + worker->enqueued_fence_count;
+
+    ret = vkd3d_array_reserve((void **)&worker->vk_fences, &worker->vk_fences_size,
+            count, sizeof(*worker->vk_fences));
+    ret &= vkd3d_array_reserve((void **)&worker->fences, &worker->fences_size,
+            count, sizeof(*worker->fences));
+    if (!ret)
+    {
+        ERR("Failed to reserve memory.\n");
+        return;
+    }
+
+    for (i = 0; i < worker->enqueued_fence_count; ++i)
+    {
+        struct vkd3d_enqueued_fence *current = &worker->enqueued_fences[i];
+
+        worker->vk_fences[worker->fence_count] = current->vk_fence;
+
+        worker->fences[worker->fence_count].fence = current->fence;
+        worker->fences[worker->fence_count].value = current->value;
+        worker->fences[worker->fence_count].queue = current->queue;
+        worker->fences[worker->fence_count].queue_sequence_number = current->queue_sequence_number;
+
+        ++worker->fence_count;
+    }
+    assert(worker->fence_count == count);
+    worker->enqueued_fence_count = 0;
 }
 
 static void vkd3d_wait_for_gpu_fences(struct vkd3d_fence_worker *worker)
@@ -351,6 +382,8 @@ static void vkd3d_wait_for_gpu_fences(struct vkd3d_fence_worker *worker)
             if (FAILED(hr = d3d12_fence_signal(current->fence, current->value, vk_fence)))
                 ERR("Failed to signal D3D12 fence, hr %#x.\n", hr);
 
+            InterlockedDecrement(&current->fence->pending_worker_operation_count);
+
             vkd3d_queue_update_sequence_number(current->queue, current->queue_sequence_number, device);
             continue;
         }
@@ -373,35 +406,48 @@ static void *vkd3d_fence_worker_main(void *arg)
     struct vkd3d_fence_worker *worker = arg;
     int rc;
 
-    vkd3d_set_thread_name("vkd3d_worker");
+    vkd3d_set_thread_name("vkd3d_fence");
 
     for (;;)
     {
-        if ((rc = pthread_mutex_lock(&worker->mutex)))
-        {
-            ERR("Failed to lock mutex, error %d.\n", rc);
-            return NULL;
-        }
-
-        if (worker->should_exit && !worker->fence_count)
-        {
-            pthread_mutex_unlock(&worker->mutex);
-            break;
-        }
-
-        if (!worker->fence_count)
-        {
-            if ((rc = pthread_cond_wait(&worker->cond, &worker->mutex)))
-            {
-                ERR("Failed to wait on condition variable, error %d.\n", rc);
-                pthread_mutex_unlock(&worker->mutex);
-                return NULL;
-            }
-        }
-
         vkd3d_wait_for_gpu_fences(worker);
 
-        pthread_mutex_unlock(&worker->mutex);
+        if (!worker->fence_count || atomic_add_fetch(&worker->enqueued_fence_count, 0))
+        {
+            if ((rc = pthread_mutex_lock(&worker->mutex)))
+            {
+                ERR("Failed to lock mutex, error %d.\n", rc);
+                break;
+            }
+
+            if (worker->pending_fence_destruction)
+            {
+                pthread_cond_broadcast(&worker->fence_destruction_cond);
+                worker->pending_fence_destruction = false;
+            }
+
+            if (worker->enqueued_fence_count)
+            {
+                vkd3d_fence_worker_move_enqueued_fences_locked(worker);
+            }
+            else
+            {
+                if (worker->should_exit)
+                {
+                    pthread_mutex_unlock(&worker->mutex);
+                    break;
+                }
+
+                if ((rc = pthread_cond_wait(&worker->cond, &worker->mutex)))
+                {
+                    ERR("Failed to wait on condition variable, error %d.\n", rc);
+                    pthread_mutex_unlock(&worker->mutex);
+                    break;
+                }
+            }
+
+            pthread_mutex_unlock(&worker->mutex);
+        }
     }
 
     return NULL;
@@ -416,7 +462,12 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
     TRACE("worker %p.\n", worker);
 
     worker->should_exit = false;
+    worker->pending_fence_destruction = false;
     worker->device = device;
+
+    worker->enqueued_fence_count = 0;
+    worker->enqueued_fences = NULL;
+    worker->enqueued_fences_size = 0;
 
     worker->fence_count = 0;
 
@@ -438,11 +489,20 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
         return hresult_from_errno(rc);
     }
 
+    if ((rc = pthread_cond_init(&worker->fence_destruction_cond, NULL)))
+    {
+        ERR("Failed to initialize condition variable, error %d.\n", rc);
+        pthread_mutex_destroy(&worker->mutex);
+        pthread_cond_destroy(&worker->cond);
+        return hresult_from_errno(rc);
+    }
+
     if (FAILED(hr = vkd3d_create_thread(device->vkd3d_instance,
             vkd3d_fence_worker_main, worker, &worker->thread)))
     {
         pthread_mutex_destroy(&worker->mutex);
         pthread_cond_destroy(&worker->cond);
+        pthread_cond_destroy(&worker->fence_destruction_cond);
     }
 
     return hr;
@@ -472,7 +532,9 @@ HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
 
     pthread_mutex_destroy(&worker->mutex);
     pthread_cond_destroy(&worker->cond);
+    pthread_cond_destroy(&worker->fence_destruction_cond);
 
+    vkd3d_free(worker->enqueued_fences);
     vkd3d_free(worker->vk_fences);
     vkd3d_free(worker->fences);
 
@@ -1046,6 +1108,8 @@ static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *
     fence->semaphore_count = 0;
 
     memset(fence->old_vk_fences, 0, sizeof(fence->old_vk_fences));
+
+    fence->pending_worker_operation_count = 0;
 
     if (FAILED(hr = vkd3d_private_store_init(&fence->private_store)))
     {
