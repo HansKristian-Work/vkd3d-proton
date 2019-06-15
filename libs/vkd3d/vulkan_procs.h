@@ -192,6 +192,10 @@ VK_DEVICE_EXT_PFN(vkGetDescriptorSetLayoutSupportKHR)
 /* VK_KHR_push_descriptor */
 VK_DEVICE_EXT_PFN(vkCmdPushDescriptorSetKHR)
 
+/* VK_EXT_conditional_rendering */
+VK_DEVICE_EXT_PFN(vkCmdBeginConditionalRenderingEXT)
+VK_DEVICE_EXT_PFN(vkCmdEndConditionalRenderingEXT)
+
 /* VK_EXT_debug_marker */
 VK_DEVICE_EXT_PFN(vkDebugMarkerSetObjectNameEXT)
 

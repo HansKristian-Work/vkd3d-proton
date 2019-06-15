@@ -97,6 +97,7 @@ struct vkd3d_vulkan_info
     bool KHR_maintenance3;
     bool KHR_push_descriptor;
     /* EXT device extensions */
+    bool EXT_conditional_rendering;
     bool EXT_debug_marker;
     bool EXT_depth_clip_enable;
     bool EXT_descriptor_indexing;
@@ -906,6 +907,8 @@ struct d3d12_command_list
     VkFormat dsv_format;
 
     bool xfb_enabled;
+
+    bool is_predicated;
 
     VkFramebuffer current_framebuffer;
     VkPipeline current_pipeline;

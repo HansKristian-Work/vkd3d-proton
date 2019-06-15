@@ -2288,6 +2288,8 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 
     list->xfb_enabled = false;
 
+    list->is_predicated = false;
+
     list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;
     list->pso_render_pass = VK_NULL_HANDLE;
@@ -4910,8 +4912,70 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(ID3D12Graphics
 static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(ID3D12GraphicsCommandList1 *iface,
         ID3D12Resource *buffer, UINT64 aligned_buffer_offset, D3D12_PREDICATION_OP operation)
 {
-    FIXME("iface %p, buffer %p, aligned_buffer_offset %#"PRIx64", operation %#x stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList1(iface);
+    struct d3d12_resource *resource = unsafe_impl_from_ID3D12Resource(buffer);
+    const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
+    const struct vkd3d_vk_device_procs *vk_procs;
+
+    TRACE("iface %p, buffer %p, aligned_buffer_offset %#"PRIx64", operation %#x.\n",
             iface, buffer, aligned_buffer_offset, operation);
+
+    if (!vk_info->EXT_conditional_rendering)
+    {
+        FIXME("Vulkan conditional rendering extension not present. Conditional rendering not supported.\n");
+        return;
+    }
+
+    vk_procs = &list->device->vk_procs;
+
+    if (resource)
+    {
+        VkConditionalRenderingBeginInfoEXT cond_info;
+
+        if (aligned_buffer_offset & (sizeof(UINT64) - 1))
+        {
+            WARN("Unaligned predicate argument buffer offset %#"PRIx64".\n", aligned_buffer_offset);
+            return;
+        }
+
+        if (!d3d12_resource_is_buffer(resource))
+        {
+            WARN("Predicate arguments must be stored in a buffer resource.\n");
+            return;
+        }
+
+        FIXME("Predication doesn't support clear and copy commands, "
+                "and predication values are treated as 32-bit values.\n");
+
+        cond_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
+        cond_info.pNext = NULL;
+        cond_info.buffer = resource->u.vk_buffer;
+        cond_info.offset = aligned_buffer_offset;
+        switch (operation)
+        {
+            case D3D12_PREDICATION_OP_EQUAL_ZERO:
+                cond_info.flags = 0;
+                break;
+
+            case D3D12_PREDICATION_OP_NOT_EQUAL_ZERO:
+                cond_info.flags = VK_CONDITIONAL_RENDERING_INVERTED_BIT_EXT;
+                break;
+
+            default:
+                FIXME("Unhandled predication operation %#x.\n", operation);
+                return;
+        }
+
+        if (list->is_predicated)
+            VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
+        VK_CALL(vkCmdBeginConditionalRenderingEXT(list->vk_command_buffer, &cond_info));
+        list->is_predicated = true;
+    }
+    else if (list->is_predicated)
+    {
+        VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
+        list->is_predicated = false;
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetMarker(ID3D12GraphicsCommandList1 *iface,

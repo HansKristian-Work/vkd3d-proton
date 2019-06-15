@@ -142,6 +142,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     {VK_KHR_MAINTENANCE3_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_maintenance3)},
     {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_push_descriptor)},
     /* EXT extensions */
+    {VK_EXT_CONDITIONAL_RENDERING_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_conditional_rendering)},
     {VK_EXT_DEBUG_MARKER_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_debug_marker)},
     {VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_depth_clip_enable)},
     {VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_descriptor_indexing)},
@@ -673,6 +674,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceProperties2KHR properties2;
 
     /* features */
+    VkPhysicalDeviceConditionalRenderingFeaturesEXT conditional_rendering_features;
     VkPhysicalDeviceDepthClipEnableFeaturesEXT depth_clip_features;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
@@ -684,6 +686,7 @@ struct vkd3d_physical_device_info
 static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkPhysicalDeviceConditionalRenderingFeaturesEXT *conditional_rendering_features;
     VkPhysicalDeviceDescriptorIndexingPropertiesEXT *descriptor_indexing_properties;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT *vertex_divisor_properties;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing_features;
@@ -696,6 +699,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
 
     memset(info, 0, sizeof(*info));
+    conditional_rendering_features = &info->conditional_rendering_features;
     depth_clip_features = &info->depth_clip_features;
     descriptor_indexing_features = &info->descriptor_indexing_features;
     descriptor_indexing_properties = &info->descriptor_indexing_properties;
@@ -705,7 +709,9 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     xfb_features = &info->xfb_features;
     xfb_properties = &info->xfb_properties;
 
+    conditional_rendering_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT;
     depth_clip_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT;
+    depth_clip_features->pNext = conditional_rendering_features;
     descriptor_indexing_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
     descriptor_indexing_features->pNext = depth_clip_features;
     xfb_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT;
@@ -999,6 +1005,7 @@ static void vkd3d_trace_physical_device_limits(const struct vkd3d_physical_devic
 
 static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_device_info *info)
 {
+    const VkPhysicalDeviceConditionalRenderingFeaturesEXT *conditional_rendering_features;
     const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
     const VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
     const VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
@@ -1108,6 +1115,10 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
             descriptor_indexing->descriptorBindingVariableDescriptorCount);
     TRACE("    runtimeDescriptorArray: %#x.\n",
             descriptor_indexing->runtimeDescriptorArray);
+
+    conditional_rendering_features = &info->conditional_rendering_features;
+    TRACE("  VkPhysicalDeviceConditionalRenderingFeaturesEXT:\n");
+    TRACE("    conditionalRendering: %#x.\n", conditional_rendering_features->conditionalRendering);
 
     depth_clip_features = &info->depth_clip_features;
     TRACE("  VkPhysicalDeviceDepthClipEnableFeaturesEXT:\n");
@@ -1337,6 +1348,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
             *user_extension_supported, vulkan_info, "device",
             device->vkd3d_instance->config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG);
 
+    vulkan_info->EXT_conditional_rendering = physical_device_info->conditional_rendering_features.conditionalRendering;
     vulkan_info->EXT_depth_clip_enable = physical_device_info->depth_clip_features.depthClipEnable;
 
     if (get_spec_version(vk_extensions, count, VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME) >= 3)
