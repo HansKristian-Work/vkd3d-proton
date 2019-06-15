@@ -30470,6 +30470,371 @@ static void test_early_depth_stencil_tests(void)
     destroy_test_context(&context);
 }
 
+static void prepare_instanced_draw(struct test_context *context)
+{
+    ID3D12GraphicsCommandList *command_list = context->list;
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context->root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context->pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context->viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context->scissor_rect);
+}
+
+static void test_conditional_rendering(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12CommandSignature *command_signature;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    ID3D12Resource *texture, *texture_copy;
+    ID3D12PipelineState *pipeline_state;
+    ID3D12RootSignature *root_signature;
+    struct test_context context;
+    ID3D12Resource *buffer, *cb;
+    struct resource_readback rb;
+    ID3D12Resource *conditions;
+    ID3D12CommandQueue *queue;
+    unsigned int i;
+    uint32_t value;
+    HRESULT hr;
+
+    static const uint64_t predicate_args[] = {0, 1, (uint64_t)1 << 32};
+    static const uint32_t r8g8b8a8_data[] = {0x28384858, 0x39495969};
+    static const D3D12_DRAW_ARGUMENTS draw_args = {3, 1, 0, 0};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const float green[] = {0.0f, 1.0f, 0.0f, 1.0f};
+    static const uint32_t init_value = 0xdeadbeef;
+    static const D3D12_SUBRESOURCE_DATA copy_data[] =
+    {
+        {&r8g8b8a8_data[0], sizeof(r8g8b8a8_data[0]), sizeof(r8g8b8a8_data[0])},
+        {&r8g8b8a8_data[1], sizeof(r8g8b8a8_data[1]), sizeof(r8g8b8a8_data[1])}
+    };
+    static const DWORD cs_code[] =
+    {
+#if 0
+        cbuffer cb
+        {
+            unsigned int offset;
+            unsigned int value;
+        };
+
+        RWByteAddressBuffer b;
+
+        [numthreads(1, 1, 1)]
+        void main()
+        {
+            b.Store(4 * offset, value);
+        }
+#endif
+        0x43425844, 0xaadc5460, 0x88c27e90, 0x2acacf4e, 0x4e06019a, 0x00000001, 0x000000d8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000084, 0x00050050, 0x00000021, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300009d, 0x0011e000, 0x00000000, 0x02000068,
+        0x00000001, 0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x08000029, 0x00100012, 0x00000000,
+        0x0020800a, 0x00000000, 0x00000000, 0x00004001, 0x00000002, 0x080000a6, 0x0011e012, 0x00000000,
+        0x0010000a, 0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const struct
+    {
+        uint32_t offset;
+        uint32_t value;
+        uint32_t uav_offset;
+    }
+    input = {0, 4, 0};
+
+    if (!init_test_context(&context, NULL))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    conditions = create_default_buffer(context.device, sizeof(predicate_args),
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    upload_buffer_data(conditions, 0, sizeof(predicate_args), &predicate_args, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, conditions,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PREDICATION);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    /* Skip draw on zero. */
+    prepare_instanced_draw(&context);
+    ID3D12GraphicsCommandList_SetPredication(command_list, conditions, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList_SetPredication(command_list, NULL, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xffffffff, 0);
+
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Skip draw on non-zero. */
+    prepare_instanced_draw(&context);
+    ID3D12GraphicsCommandList_SetPredication(command_list, conditions,
+            sizeof(uint64_t), D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    /* Don't reset predication to test automatic reset on next SetPredication() call. */
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xffffffff, 0);
+
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Skip clear on zero. */
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_SetPredication(command_list, conditions, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, green, 0, NULL);
+    ID3D12GraphicsCommandList_SetPredication(command_list, NULL, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    todo check_readback_data_uint(&rb, NULL, 0xffffffff, 0);
+    release_resource_readback(&rb);
+
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Draw on zero. */
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    prepare_instanced_draw(&context);
+    ID3D12GraphicsCommandList_SetPredication(command_list, conditions, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList_SetPredication(command_list, NULL, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Draw on non-zero. */
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    prepare_instanced_draw(&context);
+    ID3D12GraphicsCommandList_SetPredication(command_list, conditions,
+            sizeof(uint64_t), D3D12_PREDICATION_OP_EQUAL_ZERO);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList_SetPredication(command_list, NULL, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* 64-bit conditional 0x100000000 - fails due to Vulkan 32-bit values. */
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    prepare_instanced_draw(&context);
+    ID3D12GraphicsCommandList_SetPredication(command_list, conditions,
+            2 * sizeof(uint64_t), D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList_SetPredication(command_list, NULL, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    todo check_readback_data_uint(&rb, NULL, 0xffffffff, 0);
+    release_resource_readback(&rb);
+    reset_command_list(command_list, context.allocator);
+
+    /* ExecuteIndirect(). */
+    buffer = create_upload_buffer(context.device, sizeof(draw_args), &draw_args);
+
+    command_signature = create_command_signature(context.device, D3D12_INDIRECT_ARGUMENT_TYPE_DRAW);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    prepare_instanced_draw(&context);
+    /* Skip. */
+    ID3D12GraphicsCommandList_SetPredication(command_list, conditions, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+    ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1, buffer, 0, NULL, 0);
+    ID3D12GraphicsCommandList_SetPredication(command_list, NULL, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xffffffff, 0);
+
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    prepare_instanced_draw(&context);
+    /* Draw. */
+    ID3D12GraphicsCommandList_SetPredication(command_list, conditions, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+    ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1, buffer, 0, NULL, 0);
+    ID3D12GraphicsCommandList_SetPredication(command_list, NULL, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+
+    ID3D12Resource_Release(buffer);
+    ID3D12CommandSignature_Release(command_signature);
+    reset_command_list(command_list, context.allocator);
+
+    /* CopyResource(). */
+    texture = create_default_texture(context.device,
+            1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    upload_texture_data(texture, &copy_data[0], 1, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    texture_copy = create_default_texture(context.device,
+                1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    upload_texture_data(texture_copy, &copy_data[1], 1, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+
+    /* Skip. */
+    ID3D12GraphicsCommandList_SetPredication(command_list, conditions, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+    ID3D12GraphicsCommandList_CopyResource(command_list, texture_copy, texture);
+    ID3D12GraphicsCommandList_SetPredication(command_list, NULL, 0, 0);
+
+    transition_resource_state(command_list, texture_copy,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(texture_copy, 0, &rb, queue, command_list);
+    todo check_readback_data_uint(&rb, NULL, r8g8b8a8_data[1], 0);
+    release_resource_readback(&rb);
+
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, texture_copy,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    /* Copy. */
+    ID3D12GraphicsCommandList_SetPredication(command_list, conditions, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+    ID3D12GraphicsCommandList_CopyResource(command_list, texture_copy, texture);
+    ID3D12GraphicsCommandList_SetPredication(command_list, NULL, 0, 0);
+
+    transition_resource_state(command_list, texture_copy,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(texture_copy, 0, queue, command_list, r8g8b8a8_data[0], 0);
+
+    /* ResolveSubresource(). */
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, texture_copy,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+    upload_texture_data(texture_copy, &copy_data[1], 1, queue, command_list);
+
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, texture_copy,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+
+    /* Skip. */
+    ID3D12GraphicsCommandList_SetPredication(command_list, conditions, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+    ID3D12GraphicsCommandList_ResolveSubresource(command_list,
+            texture_copy, 0, texture, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+    ID3D12GraphicsCommandList_SetPredication(command_list, NULL, 0, 0);
+
+    transition_resource_state(command_list, texture_copy,
+            D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(texture_copy, 0, &rb, queue, command_list);
+    todo check_readback_data_uint(&rb, NULL, r8g8b8a8_data[1], 0);
+    release_resource_readback(&rb);
+
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, texture_copy,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+
+    /* Resolve. */
+    ID3D12GraphicsCommandList_SetPredication(command_list, conditions, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+    ID3D12GraphicsCommandList_ResolveSubresource(command_list,
+            texture_copy, 0, texture, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+    ID3D12GraphicsCommandList_SetPredication(command_list, NULL, 0, 0);
+
+    transition_resource_state(command_list, texture_copy,
+            D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(texture_copy, 0, queue, command_list, r8g8b8a8_data[0], 0);
+
+    reset_command_list(command_list, context.allocator);
+
+    /* Dispatch(). */
+    cb = create_upload_buffer(context.device, sizeof(input), &input);
+
+    buffer = create_default_buffer(context.device, 512,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+    upload_buffer_data(buffer, 0, sizeof(uint32_t), &init_value, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+    transition_sub_resource_state(command_list, buffer, 0,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    root_parameters[0].Descriptor.ShaderRegister = 0;
+    root_parameters[0].Descriptor.RegisterSpace = 0;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[1].Descriptor.ShaderRegister = 0;
+    root_parameters[1].Descriptor.RegisterSpace = 0;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    memset(&root_signature_desc, 0, sizeof(root_signature_desc));
+    root_signature_desc.NumParameters = 2;
+    root_signature_desc.pParameters = root_parameters;
+    hr = create_root_signature(context.device, &root_signature_desc, &root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    pipeline_state = create_compute_pipeline_state(context.device, root_signature,
+            shader_bytecode(cs_code, sizeof(cs_code)));
+
+    for (i = 0; i < 2; ++i)
+    {
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
+        ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(command_list,
+                0, ID3D12Resource_GetGPUVirtualAddress(cb));
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list,
+                1, ID3D12Resource_GetGPUVirtualAddress(buffer));
+        ID3D12GraphicsCommandList_SetPredication(command_list, conditions, i * sizeof(uint64_t),
+                D3D12_PREDICATION_OP_EQUAL_ZERO);
+        ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
+        ID3D12GraphicsCommandList_SetPredication(command_list, NULL, 0, 0);
+
+        transition_sub_resource_state(command_list, buffer, 0,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+        value = get_readback_uint(&rb, 0, 0, 0);
+        ok(value == (!i ? init_value : input.value), "Got %#x, expected %#x.\n", value, input.value);
+        release_resource_readback(&rb);
+        reset_command_list(command_list, context.allocator);
+
+        transition_sub_resource_state(command_list, buffer, 0,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
+
+    ID3D12Resource_Release(texture);
+    ID3D12Resource_Release(texture_copy);
+    ID3D12Resource_Release(conditions);
+    ID3D12Resource_Release(cb);
+    ID3D12Resource_Release(buffer);
+    ID3D12RootSignature_Release(root_signature);
+    ID3D12PipelineState_Release(pipeline_state);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     parse_args(argc, argv);
@@ -30629,4 +30994,5 @@ START_TEST(d3d12)
     run_test(test_queue_wait);
     run_test(test_graphics_compute_queue_synchronization);
     run_test(test_early_depth_stencil_tests);
+    run_test(test_conditional_rendering);
 }
