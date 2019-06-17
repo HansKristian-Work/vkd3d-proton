@@ -32,7 +32,7 @@ static void recreate_command_list_(unsigned int line, ID3D12Device *device,
     ok_(line)(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
 }
 
-static void test_invalid_texture_resource_barriers(void)
+static void test_invalid_resource_barriers(void)
 {
     ID3D12Resource *texture, *readback_buffer, *upload_buffer;
     ID3D12CommandAllocator *command_allocator;
@@ -126,6 +126,14 @@ static void test_invalid_texture_resource_barriers(void)
             D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_COMMON);
     hr = ID3D12GraphicsCommandList_Close(command_list);
     todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    recreate_command_list(device, command_allocator, &command_list);
+
+    /* NULL resource. */
+    transition_resource_state(command_list, NULL,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     ID3D12CommandAllocator_Release(command_allocator);
     ID3D12CommandQueue_Release(queue);
@@ -284,6 +292,6 @@ START_TEST(d3d12_invalid_usage)
     enable_d3d12_debug_layer(argc, argv);
     init_adapter_info();
 
-    run_test(test_invalid_texture_resource_barriers);
+    run_test(test_invalid_resource_barriers);
     run_test(test_invalid_copy_texture_region);
 }

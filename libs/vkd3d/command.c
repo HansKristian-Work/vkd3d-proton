@@ -1140,6 +1140,18 @@ HRESULT d3d12_fence_create(struct d3d12_device *device,
 }
 
 /* Command buffers */
+static void d3d12_command_list_mark_as_invalid(struct d3d12_command_list *list,
+        const char *message, ...)
+{
+    va_list args;
+
+    va_start(args, message);
+    WARN("Command list %p is invalid: \"%s\".\n", list, vkd3d_dbg_vsprintf(message, args));
+    va_end(args);
+
+    list->is_valid = false;
+}
+
 static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list *list)
 {
     struct d3d12_device *device = list->device;
@@ -3731,19 +3743,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
 
                 if (!is_valid_resource_state(transition->StateBefore))
                 {
-                    WARN("Invalid StateBefore %#x (barrier %u).\n", transition->StateBefore, i);
-                    list->is_valid = false;
+                    d3d12_command_list_mark_as_invalid(list,
+                            "Invalid StateBefore %#x (barrier %u).", transition->StateBefore, i);
                     continue;
                 }
                 if (!is_valid_resource_state(transition->StateAfter))
                 {
-                    WARN("Invalid StateAfter %#x (barrier %u).\n", transition->StateAfter, i);
-                    list->is_valid = false;
+                    d3d12_command_list_mark_as_invalid(list,
+                            "Invalid StateAfter %#x (barrier %u).", transition->StateAfter, i);
                     continue;
                 }
 
-                resource = unsafe_impl_from_ID3D12Resource(transition->pResource);
-                assert(resource);
+                if (!(resource = unsafe_impl_from_ID3D12Resource(transition->pResource)))
+                {
+                    d3d12_command_list_mark_as_invalid(list, "A resource pointer is NULL.");
+                    continue;
+                }
+
                 sub_resource_idx = transition->Subresource;
 
                 if (!vk_barrier_parameters_from_d3d12_resource_state(transition->StateBefore,
