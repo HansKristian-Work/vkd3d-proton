@@ -28,6 +28,7 @@ extern "C" {
 #define VKD3D_WAIT_FAILED (~0u)
 #define VKD3D_INFINITE (~0u)
 
+/* 1.0 */
 HANDLE vkd3d_create_event(void);
 HRESULT vkd3d_signal_event(HANDLE event);
 unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds);

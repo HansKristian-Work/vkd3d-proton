@@ -36,12 +36,15 @@ extern "C" {
 
 enum vkd3d_structure_type
 {
+    /* 1.0 */
     VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
     VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
     VKD3D_STRUCTURE_TYPE_IMAGE_RESOURCE_CREATE_INFO,
 
+    /* 1.1 */
     VKD3D_STRUCTURE_TYPE_OPTIONAL_INSTANCE_EXTENSIONS_INFO,
 
+    /* 1.2 */
     VKD3D_STRUCTURE_TYPE_OPTIONAL_DEVICE_EXTENSIONS_INFO,
     VKD3D_STRUCTURE_TYPE_APPLICATION_INFO,
 
@@ -74,7 +77,7 @@ struct vkd3d_instance_create_info
     uint32_t instance_extension_count;
 };
 
-/* Extends vkd3d_instance_create_info. */
+/* Extends vkd3d_instance_create_info. Available since 1.1. */
 struct vkd3d_optional_instance_extensions_info
 {
     enum vkd3d_structure_type type;
@@ -84,7 +87,7 @@ struct vkd3d_optional_instance_extensions_info
     uint32_t extension_count;
 };
 
-/* Extends vkd3d_instance_create_info. */
+/* Extends vkd3d_instance_create_info. Available since 1.2. */
 struct vkd3d_application_info
 {
     enum vkd3d_structure_type type;
@@ -116,7 +119,7 @@ struct vkd3d_device_create_info
     LUID adapter_luid;
 };
 
-/* Extends vkd3d_device_create_info. */
+/* Extends vkd3d_device_create_info. Available since 1.2. */
 struct vkd3d_optional_device_extensions_info
 {
     enum vkd3d_structure_type type;
@@ -167,18 +170,19 @@ ULONG vkd3d_resource_incref(ID3D12Resource *resource);
 
 HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob);
-
-HRESULT vkd3d_serialize_versioned_root_signature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
-        ID3DBlob **blob, ID3DBlob **error_blob);
-
 HRESULT vkd3d_create_root_signature_deserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer);
 
+VkFormat vkd3d_get_vk_format(DXGI_FORMAT format);
+
+/* 1.1 */
+DXGI_FORMAT vkd3d_get_dxgi_format(VkFormat format);
+
+/* 1.2 */
+HRESULT vkd3d_serialize_versioned_root_signature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
+        ID3DBlob **blob, ID3DBlob **error_blob);
 HRESULT vkd3d_create_versioned_root_signature_deserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer);
-
-DXGI_FORMAT vkd3d_get_dxgi_format(VkFormat format);
-VkFormat vkd3d_get_vk_format(DXGI_FORMAT format);
 
 #endif  /* VKD3D_NO_PROTOTYPES */
 
@@ -209,18 +213,19 @@ typedef ULONG (*PFN_vkd3d_resource_incref)(ID3D12Resource *resource);
 
 typedef HRESULT (*PFN_vkd3d_serialize_root_signature)(const D3D12_ROOT_SIGNATURE_DESC *desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob);
-
-typedef HRESULT (*PFN_vkd3d_serialize_versioned_root_signature)(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
-        ID3DBlob **blob, ID3DBlob **error_blob);
-
 typedef HRESULT (*PFN_vkd3d_create_root_signature_deserializer)(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer);
 
+typedef VkFormat (*PFN_vkd3d_get_vk_format)(DXGI_FORMAT format);
+
+/* 1.1 */
+typedef DXGI_FORMAT (*PFN_vkd3d_get_dxgi_format)(VkFormat format);
+
+/* 1.2 */
+typedef HRESULT (*PFN_vkd3d_serialize_versioned_root_signature)(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
+        ID3DBlob **blob, ID3DBlob **error_blob);
 typedef HRESULT (*PFN_vkd3d_create_versioned_root_signature_deserializer)(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer);
-
-typedef DXGI_FORMAT (*PFN_vkd3d_get_dxgi_format)(VkFormat format);
-typedef VkFormat (*PFN_vkd3d_get_vk_format)(DXGI_FORMAT format);
 
 #ifdef __cplusplus
 }
