@@ -22,6 +22,8 @@
 #include "config.h"
 #include "vkd3d_windows.h"
 
+#include <ctype.h>
+
 #ifndef ARRAY_SIZE
 # define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
 #endif
@@ -136,5 +138,17 @@ static inline LONG InterlockedDecrement(LONG volatile *x)
 #else
 # error "atomic_add_fetch() not implemented for this platform"
 #endif  /* HAVE_SYNC_ADD_AND_FETCH */
+
+static inline void vkd3d_parse_version(const char *version, int *major, int *minor)
+{
+    *major = atoi(version);
+
+    while (isdigit(*version))
+        ++version;
+    if (*version == '.')
+        ++version;
+
+    *minor = atoi(version);
+}
 
 #endif  /* __VKD3D_COMMON_H */

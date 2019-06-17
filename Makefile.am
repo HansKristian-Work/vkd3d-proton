@@ -36,6 +36,7 @@ vkd3d_demos_shaders = \
 
 vkd3d_tests = \
 	tests/vkd3d_api \
+	tests/vkd3d_common \
 	tests/vkd3d_shader_api
 
 vkd3d_cross_tests = \

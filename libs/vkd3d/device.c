@@ -18,8 +18,6 @@
 
 #include "vkd3d_private.h"
 
-#include <ctype.h>
-
 #ifdef HAVE_DLFCN_H
 #include <dlfcn.h>
 
@@ -94,20 +92,9 @@ struct vk_struct
 
 static uint32_t vkd3d_get_vk_version(void)
 {
-    const char *ptr = PACKAGE_VERSION;
     int major, minor;
 
-    major = atoi(ptr);
-
-    while (isdigit(*ptr))
-        ++ptr;
-    if (*ptr == '.')
-        ++ptr;
-
-    minor = atoi(ptr);
-
-    TRACE("Version %d.%d.\n", major, minor);
-
+    vkd3d_parse_version(PACKAGE_VERSION, &major, &minor);
     return VK_MAKE_VERSION(major, minor, 0);
 }
 
