@@ -3944,6 +3944,10 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         component_count = VKD3D_VEC4_SIZE;
         write_mask = VKD3DSP_WRITEMASK_ALL;
     }
+    else
+    {
+        component_idx = vkd3d_write_mask_get_component_idx(write_mask);
+    }
 
     storage_class = SpvStorageClassInput;
 
@@ -4299,6 +4303,10 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
     {
         use_private_variable = true;
         write_mask = VKD3DSP_WRITEMASK_ALL;
+    }
+    else
+    {
+        component_idx = vkd3d_write_mask_get_component_idx(write_mask);
     }
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
