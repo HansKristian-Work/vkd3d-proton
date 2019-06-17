@@ -1203,6 +1203,8 @@ HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
 
 extern const char vkd3d_build[];
 
+bool vkd3d_get_program_name(char program_name[PATH_MAX]) DECLSPEC_HIDDEN;
+
 static inline void vkd3d_set_thread_name(const char *name)
 {
 #if defined(HAVE_PTHREAD_SETNAME_NP_2)

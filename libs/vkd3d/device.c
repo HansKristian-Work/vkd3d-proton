@@ -467,6 +467,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     bool *user_extension_supported = NULL;
     VkApplicationInfo application_info;
     VkInstanceCreateInfo instance_info;
+    char application_name[PATH_MAX];
     uint32_t extension_count;
     const char **extensions;
     VkInstance vk_instance;
@@ -530,6 +531,12 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
             application_info.engineVersion = vkd3d_application_info->engine_version;
         }
     }
+    else if (vkd3d_get_program_name(application_name))
+    {
+        application_info.pApplicationName = application_name;
+    }
+
+    TRACE("Application: %s.\n", debugstr_a(application_info.pApplicationName));
 
     if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
     {

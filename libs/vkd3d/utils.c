@@ -602,6 +602,50 @@ HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
     return S_OK;
 }
 
+#ifdef _GNU_SOURCE
+
+bool vkd3d_get_program_name(char program_name[PATH_MAX])
+{
+    char *name, *p, *real_path = NULL;
+
+    if ((name = strrchr(program_invocation_name, '/')))
+    {
+        real_path = realpath("/proc/self/exe", NULL);
+
+        /* Try to strip command line arguments. */
+        if (real_path && (p = strrchr(real_path, '/'))
+                && !strncmp(real_path, program_invocation_name, strlen(real_path)))
+        {
+            name = p;
+        }
+
+        ++name;
+    }
+    else if ((name = strrchr(program_invocation_name, '\\')))
+    {
+        ++name;
+    }
+    else
+    {
+        name = program_invocation_name;
+    }
+
+    strncpy(program_name, name, PATH_MAX);
+    program_name[PATH_MAX - 1] = '\0';
+    free(real_path);
+    return true;
+}
+
+#else
+
+bool vkd3d_get_program_name(char program_name[PATH_MAX])
+{
+    *program_name = '\0';
+    return false;
+}
+
+#endif  /* _GNU_SOURCE */
+
 static struct vkd3d_private_data *vkd3d_private_store_get_private_data(
         const struct vkd3d_private_store *store, const GUID *tag)
 {
