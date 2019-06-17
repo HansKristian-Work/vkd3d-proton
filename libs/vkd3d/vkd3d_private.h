@@ -152,6 +152,14 @@ HRESULT vkd3d_create_thread(struct vkd3d_instance *instance,
         PFN_vkd3d_thread thread_main, void *data, union vkd3d_thread_handle *thread) DECLSPEC_HIDDEN;
 HRESULT vkd3d_join_thread(struct vkd3d_instance *instance, union vkd3d_thread_handle *thread) DECLSPEC_HIDDEN;
 
+struct vkd3d_waiting_fence
+{
+    struct d3d12_fence *fence;
+    uint64_t value;
+    struct vkd3d_queue *queue;
+    uint64_t queue_sequence_number;
+};
+
 struct vkd3d_fence_worker
 {
     union vkd3d_thread_handle thread;
@@ -165,23 +173,14 @@ struct vkd3d_fence_worker
     struct vkd3d_enqueued_fence
     {
         VkFence vk_fence;
-        struct d3d12_fence *fence;
-        uint64_t value;
-        struct vkd3d_queue *queue;
-        uint64_t queue_sequence_number;
+        struct vkd3d_waiting_fence waiting_fence;
     } *enqueued_fences;
     size_t enqueued_fences_size;
 
     size_t fence_count;
     VkFence *vk_fences;
     size_t vk_fences_size;
-    struct vkd3d_waiting_fence
-    {
-        struct d3d12_fence *fence;
-        uint64_t value;
-        struct vkd3d_queue *queue;
-        uint64_t queue_sequence_number;
-    } *fences;
+    struct vkd3d_waiting_fence *fences;
     size_t fences_size;
 
     struct d3d12_device *device;

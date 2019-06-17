@@ -247,6 +247,7 @@ static HRESULT vkd3d_enqueue_gpu_fence(struct vkd3d_fence_worker *worker,
         VkFence vk_fence, struct d3d12_fence *fence, uint64_t value,
         struct vkd3d_queue *queue, uint64_t queue_sequence_number)
 {
+    struct vkd3d_waiting_fence *waiting_fence;
     int rc;
 
     TRACE("worker %p, fence %p, value %#"PRIx64".\n", worker, fence, value);
@@ -266,10 +267,11 @@ static HRESULT vkd3d_enqueue_gpu_fence(struct vkd3d_fence_worker *worker,
     }
 
     worker->enqueued_fences[worker->enqueued_fence_count].vk_fence = vk_fence;
-    worker->enqueued_fences[worker->enqueued_fence_count].fence = fence;
-    worker->enqueued_fences[worker->enqueued_fence_count].value = value;
-    worker->enqueued_fences[worker->enqueued_fence_count].queue = queue;
-    worker->enqueued_fences[worker->enqueued_fence_count].queue_sequence_number = queue_sequence_number;
+    waiting_fence = &worker->enqueued_fences[worker->enqueued_fence_count].waiting_fence;
+    waiting_fence->fence = fence;
+    waiting_fence->value = value;
+    waiting_fence->queue = queue;
+    waiting_fence->queue_sequence_number = queue_sequence_number;
     ++worker->enqueued_fence_count;
 
     InterlockedIncrement(&fence->pending_worker_operation_count);
@@ -337,12 +339,7 @@ static void vkd3d_fence_worker_move_enqueued_fences_locked(struct vkd3d_fence_wo
         struct vkd3d_enqueued_fence *current = &worker->enqueued_fences[i];
 
         worker->vk_fences[worker->fence_count] = current->vk_fence;
-
-        worker->fences[worker->fence_count].fence = current->fence;
-        worker->fences[worker->fence_count].value = current->value;
-        worker->fences[worker->fence_count].queue = current->queue;
-        worker->fences[worker->fence_count].queue_sequence_number = current->queue_sequence_number;
-
+        worker->fences[worker->fence_count] = current->waiting_fence;
         ++worker->fence_count;
     }
     assert(worker->fence_count == count);
