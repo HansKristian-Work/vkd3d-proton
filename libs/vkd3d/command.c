@@ -2254,6 +2254,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(ID3D12GraphicsCommandL
     vk_procs = &list->device->vk_procs;
 
     d3d12_command_list_end_current_render_pass(list);
+    if (list->is_predicated)
+        VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
 
     if ((vr = VK_CALL(vkEndCommandBuffer(list->vk_command_buffer))) < 0)
     {
