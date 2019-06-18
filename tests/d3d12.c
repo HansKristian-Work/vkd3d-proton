@@ -30932,6 +30932,13 @@ static void test_conditional_rendering(void)
     command_list = context.list;
     queue = context.queue;
 
+    if (is_intel_windows_device(context.device))
+    {
+        skip("Predicated rendering is broken on Intel.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
     conditions = create_default_buffer(context.device, sizeof(predicate_args),
             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
     upload_buffer_data(conditions, 0, sizeof(predicate_args), &predicate_args, queue, command_list);
@@ -30950,7 +30957,7 @@ static void test_conditional_rendering(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xffffffff, 0);
+    todo check_sub_resource_uint(context.render_target, 0, queue, command_list, 0x00000000, 0);
 
     reset_command_list(command_list, context.allocator);
     transition_resource_state(command_list, context.render_target,

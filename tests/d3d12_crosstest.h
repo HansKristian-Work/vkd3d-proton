@@ -323,13 +323,14 @@ static void init_adapter_info(void)
     IDXGIAdapter_Release(dxgi_adapter);
 }
 
-static inline bool is_amd_windows_device(ID3D12Device *device)
+static inline bool get_adapter_desc(ID3D12Device *device, DXGI_ADAPTER_DESC *desc)
 {
-    DXGI_ADAPTER_DESC desc = {0};
     IDXGIFactory4 *factory;
     IDXGIAdapter *adapter;
     HRESULT hr;
     LUID luid;
+
+    memset(desc, 0, sizeof(*desc));
 
     if (!vkd3d_test_platform_is_windows())
         return false;
@@ -342,14 +343,27 @@ static inline bool is_amd_windows_device(ID3D12Device *device)
     hr = IDXGIFactory4_EnumAdapterByLuid(factory, luid, &IID_IDXGIAdapter, (void **)&adapter);
     if (SUCCEEDED(hr))
     {
-        hr = IDXGIAdapter_GetDesc(adapter, &desc);
+        hr = IDXGIAdapter_GetDesc(adapter, desc);
         ok(hr == S_OK, "Failed to get adapter desc, hr %#x.\n", hr);
         IDXGIAdapter_Release(adapter);
     }
 
     IDXGIFactory4_Release(factory);
+    return SUCCEEDED(hr);
+}
 
-    return desc.VendorId == 0x1002;
+static inline bool is_amd_windows_device(ID3D12Device *device)
+{
+    DXGI_ADAPTER_DESC desc;
+
+    return get_adapter_desc(device, &desc) && desc.VendorId == 0x1002;
+}
+
+static inline bool is_intel_windows_device(ID3D12Device *device)
+{
+    DXGI_ADAPTER_DESC desc;
+
+    return get_adapter_desc(device, &desc) && desc.VendorId == 0x8086;
 }
 
 static inline bool is_mesa_device(ID3D12Device *device)
@@ -562,6 +576,11 @@ static void init_adapter_info(void)
 }
 
 static inline bool is_amd_windows_device(ID3D12Device *device)
+{
+    return false;
+}
+
+static inline bool is_intel_windows_device(ID3D12Device *device)
 {
     return false;
 }
