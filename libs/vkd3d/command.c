@@ -4941,11 +4941,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(ID3D12GraphicsCo
 
     vk_procs = &list->device->vk_procs;
 
+    /* FIXME: Add support for conditional rendering in render passes. */
+    d3d12_command_list_end_current_render_pass(list);
+
     if (resource)
     {
         VkConditionalRenderingBeginInfoEXT cond_info;
 
-        if (aligned_buffer_offset & (sizeof(UINT64) - 1))
+        if (aligned_buffer_offset & (sizeof(uint64_t) - 1))
         {
             WARN("Unaligned predicate argument buffer offset %#"PRIx64".\n", aligned_buffer_offset);
             return;
@@ -4957,7 +4960,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(ID3D12GraphicsCo
             return;
         }
 
-        FIXME("Predication doesn't support clear and copy commands, "
+        FIXME_ONCE("Predication doesn't support clear and copy commands, "
                 "and predication values are treated as 32-bit values.\n");
 
         cond_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
