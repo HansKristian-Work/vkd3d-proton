@@ -30868,8 +30868,11 @@ static void test_conditional_rendering(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[2];
     ID3D12Resource *texture, *texture_copy;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
     ID3D12PipelineState *pipeline_state;
     ID3D12RootSignature *root_signature;
+    D3D12_RESOURCE_DESC resource_desc;
     struct test_context context;
     ID3D12Resource *buffer, *cb;
     struct resource_readback rb;
@@ -30884,6 +30887,7 @@ static void test_conditional_rendering(void)
     static const D3D12_DRAW_ARGUMENTS draw_args = {3, 1, 0, 0};
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     static const float green[] = {0.0f, 1.0f, 0.0f, 1.0f};
+    static const float ms_color[] = {0.345f, 0.282f, 0.219f, 0.156f};
     static const uint32_t init_value = 0xdeadbeef;
     static const D3D12_SUBRESOURCE_DATA copy_data[] =
     {
@@ -31033,6 +31037,8 @@ static void test_conditional_rendering(void)
     todo check_readback_data_uint(&rb, NULL, 0xffffffff, 0);
     release_resource_readback(&rb);
     reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     /* ExecuteIndirect(). */
     buffer = create_upload_buffer(context.device, sizeof(draw_args), &draw_args);
@@ -31109,17 +31115,43 @@ static void test_conditional_rendering(void)
 
     check_sub_resource_uint(texture_copy, 0, queue, command_list, r8g8b8a8_data[0], 0);
 
-    /* ResolveSubresource(). */
+    /* Multisample texture. */
+    ID3D12Resource_Release(texture);
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Width = 1;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.SampleDesc.Count = 4;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&texture);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+
+    memset(&rtv_desc, 0, sizeof(rtv_desc));
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
+    rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    ID3D12Device_CreateRenderTargetView(context.device, texture, &rtv_desc,
+            get_cpu_rtv_handle(&context, context.rtv_heap, 0));
+
     reset_command_list(command_list, context.allocator);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, ms_color, 0, NULL);
+
+    /* ResolveSubresource(). */
     transition_resource_state(command_list, texture_copy,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
     upload_texture_data(texture_copy, &copy_data[1], 1, queue, command_list);
 
     reset_command_list(command_list, context.allocator);
     transition_resource_state(command_list, texture_copy,
-            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RESOLVE_DEST);
     transition_resource_state(command_list, texture,
-            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
 
     /* Skip. */
     ID3D12GraphicsCommandList_SetPredication(command_list, conditions, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
@@ -31147,7 +31179,7 @@ static void test_conditional_rendering(void)
     transition_resource_state(command_list, texture_copy,
             D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    check_sub_resource_uint(texture_copy, 0, queue, command_list, r8g8b8a8_data[0], 0);
+    check_sub_resource_uint(texture_copy, 0, queue, command_list, r8g8b8a8_data[0], 2);
 
     reset_command_list(command_list, context.allocator);
 
@@ -31156,7 +31188,7 @@ static void test_conditional_rendering(void)
 
     buffer = create_default_buffer(context.device, 512,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
-    upload_buffer_data(buffer, 0, sizeof(uint32_t), &init_value, queue, command_list);
+    upload_buffer_data(buffer, 0, sizeof(init_value), &init_value, queue, command_list);
     reset_command_list(command_list, context.allocator);
     transition_sub_resource_state(command_list, buffer, 0,
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
