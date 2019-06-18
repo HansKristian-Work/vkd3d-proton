@@ -1870,7 +1870,7 @@ static void d3d12_command_list_invalidate_bindings(struct d3d12_command_list *li
 }
 
 static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
-        const struct d3d12_resource *resource, VkQueueFlags vk_queue_flags,
+        const struct d3d12_resource *resource, VkQueueFlags vk_queue_flags, const struct vkd3d_vulkan_info *vk_info,
         VkAccessFlags *access_mask, VkPipelineStageFlags *stage_flags, VkImageLayout *image_layout)
 {
     bool is_swapchain_image = resource && (resource->flags & VKD3D_RESOURCE_PRESENT_STATE_TRANSITION);
@@ -1909,7 +1909,7 @@ static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
                 else if (resource->present_state != D3D12_RESOURCE_STATE_COMMON)
                 {
                     vk_barrier_parameters_from_d3d12_resource_state(resource->present_state,
-                            resource, vk_queue_flags, access_mask, stage_flags, image_layout);
+                            resource, vk_queue_flags, vk_info, access_mask, stage_flags, image_layout);
                     return true;
                 }
             }
@@ -2044,6 +2044,11 @@ static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state,
     {
         *access_mask |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
         *stage_flags |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+        if (vk_info->EXT_conditional_rendering)
+        {
+            *access_mask |= VK_ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT;
+            *stage_flags |= VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT;
+        }
         state &= ~D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
     }
 
@@ -2066,6 +2071,7 @@ static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12
         struct d3d12_resource *resource)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
     VkPipelineStageFlags src_stage_mask, dst_stage_mask;
     const struct vkd3d_format *format;
     VkImageMemoryBarrier barrier;
@@ -2088,7 +2094,7 @@ static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12
             VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
 
     if (!vk_barrier_parameters_from_d3d12_resource_state(resource->initial_state,
-            resource, list->vk_queue_flags, &barrier.dstAccessMask, &dst_stage_mask, &barrier.newLayout))
+            resource, list->vk_queue_flags, vk_info, &barrier.dstAccessMask, &dst_stage_mask, &barrier.newLayout))
     {
         FIXME("Unhandled state %#x.\n", resource->initial_state);
         return;
@@ -3710,11 +3716,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList1(iface);
     bool have_aliasing_barriers = false, have_split_barriers = false;
     const struct vkd3d_vk_device_procs *vk_procs;
+    const struct vkd3d_vulkan_info *vk_info;
     unsigned int i;
 
     TRACE("iface %p, barrier_count %u, barriers %p.\n", iface, barrier_count, barriers);
 
     vk_procs = &list->device->vk_procs;
+    vk_info = &list->device->vk_info;
 
     d3d12_command_list_end_current_render_pass(list);
 
@@ -3762,13 +3770,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
                 sub_resource_idx = transition->Subresource;
 
                 if (!vk_barrier_parameters_from_d3d12_resource_state(transition->StateBefore,
-                        resource, list->vk_queue_flags, &src_access_mask, &src_stage_mask, &layout_before))
+                        resource, list->vk_queue_flags, vk_info, &src_access_mask, &src_stage_mask, &layout_before))
                 {
                     FIXME("Unhandled state %#x.\n", transition->StateBefore);
                     continue;
                 }
                 if (!vk_barrier_parameters_from_d3d12_resource_state(transition->StateAfter,
-                        resource, list->vk_queue_flags, &dst_access_mask, &dst_stage_mask, &layout_after))
+                        resource, list->vk_queue_flags, vk_info, &dst_access_mask, &dst_stage_mask, &layout_after))
                 {
                     FIXME("Unhandled state %#x.\n", transition->StateAfter);
                     continue;
@@ -3788,7 +3796,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
 
                 resource = unsafe_impl_from_ID3D12Resource(uav->pResource);
                 vk_barrier_parameters_from_d3d12_resource_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                        resource, list->vk_queue_flags, &access_mask, &stage_mask, &image_layout);
+                        resource, list->vk_queue_flags, vk_info, &access_mask, &stage_mask, &image_layout);
                 src_access_mask = dst_access_mask = access_mask;
                 src_stage_mask = dst_stage_mask = stage_mask;
                 layout_before = layout_after = image_layout;
@@ -4658,6 +4666,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList1(iface);
     const struct vkd3d_vk_device_procs *vk_procs;
+    const struct vkd3d_vulkan_info *vk_info;
     const struct d3d12_desc *cpu_descriptor;
     struct d3d12_resource *resource_impl;
     VkBufferMemoryBarrier buffer_barrier;
@@ -4670,6 +4679,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
     vk_procs = &list->device->vk_procs;
+    vk_info = &list->device->vk_info;
 
     resource_impl = unsafe_impl_from_ID3D12Resource(resource);
 
@@ -4706,7 +4716,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
         buffer_barrier.size = cpu_descriptor->uav.buffer.size;
 
         vk_barrier_parameters_from_d3d12_resource_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                resource_impl, list->vk_queue_flags, &buffer_barrier.dstAccessMask, &stage_mask, NULL);
+                resource_impl, list->vk_queue_flags, vk_info, &buffer_barrier.dstAccessMask, &stage_mask, NULL);
 
         VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
                 VK_PIPELINE_STAGE_TRANSFER_BIT, stage_mask, 0,
@@ -4739,7 +4749,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
         image_barrier.subresourceRange = range;
 
         vk_barrier_parameters_from_d3d12_resource_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                resource_impl, list->vk_queue_flags, &image_barrier.dstAccessMask, &stage_mask, NULL);
+                resource_impl, list->vk_queue_flags, vk_info, &image_barrier.dstAccessMask, &stage_mask, NULL);
 
         VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
                 VK_PIPELINE_STAGE_TRANSFER_BIT, stage_mask, 0,
