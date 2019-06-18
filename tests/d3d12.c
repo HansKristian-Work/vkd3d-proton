@@ -31047,6 +31047,39 @@ static void test_conditional_rendering(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
+    /* Direct3D latches the value of the predicate upon beginning predicated rendering. */
+    buffer = create_default_buffer(context.device, sizeof(predicate_args),
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    transition_resource_state(command_list, conditions,
+            D3D12_RESOURCE_STATE_PREDICATION, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    ID3D12GraphicsCommandList_CopyResource(command_list, buffer, conditions);
+    transition_resource_state(command_list,
+            buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PREDICATION);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    prepare_instanced_draw(&context);
+    ID3D12GraphicsCommandList_SetPredication(command_list, buffer, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+
+    transition_resource_state(command_list, buffer,
+            D3D12_RESOURCE_STATE_PREDICATION, D3D12_RESOURCE_STATE_COPY_DEST);
+    ID3D12GraphicsCommandList_CopyBufferRegion(command_list, buffer, 0, conditions, sizeof(uint64_t), sizeof(uint64_t));
+    transition_resource_state(command_list,
+            buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PREDICATION);
+    transition_resource_state(command_list,
+            conditions, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PREDICATION);
+
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList_SetPredication(command_list, NULL, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+
+    ID3D12Resource_Release(buffer);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
     /* ExecuteIndirect(). */
     buffer = create_upload_buffer(context.device, sizeof(draw_args), &draw_args);
 
