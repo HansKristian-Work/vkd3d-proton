@@ -414,6 +414,7 @@ static inline bool d3d12_resource_is_texture(const struct d3d12_resource *resour
     return resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER;
 }
 
+bool d3d12_resource_is_cpu_accessible(const struct d3d12_resource *resource) DECLSPEC_HIDDEN;
 HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc) DECLSPEC_HIDDEN;
 
 HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
@@ -1164,18 +1165,6 @@ bool is_valid_feature_level(D3D_FEATURE_LEVEL feature_level) DECLSPEC_HIDDEN;
 
 bool is_valid_resource_state(D3D12_RESOURCE_STATES state) DECLSPEC_HIDDEN;
 bool is_write_resource_state(D3D12_RESOURCE_STATES state) DECLSPEC_HIDDEN;
-
-static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *properties)
-{
-    if (properties->Type == D3D12_HEAP_TYPE_DEFAULT)
-        return false;
-    if (properties->Type == D3D12_HEAP_TYPE_CUSTOM)
-    {
-        return properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE
-                || properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
-    }
-    return true;
-}
 
 HRESULT return_interface(void *iface, REFIID iface_iid,
         REFIID requested_iid, void **object) DECLSPEC_HIDDEN;

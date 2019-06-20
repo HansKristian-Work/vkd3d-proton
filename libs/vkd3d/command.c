@@ -2090,7 +2090,7 @@ static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12
     /* vkQueueSubmit() defines a memory dependency with prior host writes. */
     src_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     barrier.srcAccessMask = 0;
-    barrier.oldLayout = is_cpu_accessible_heap(&resource->heap_properties) ?
+    barrier.oldLayout = d3d12_resource_is_cpu_accessible(resource) ?
             VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
 
     if (!vk_barrier_parameters_from_d3d12_resource_state(resource->initial_state,

@@ -23,6 +23,18 @@
 
 #define VKD3D_HEAP_TYPE_INVALID ((D3D12_HEAP_TYPE)~0u)
 
+static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *properties)
+{
+    if (properties->Type == D3D12_HEAP_TYPE_DEFAULT)
+        return false;
+    if (properties->Type == D3D12_HEAP_TYPE_CUSTOM)
+    {
+        return properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE
+                || properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    }
+    return true;
+}
+
 static unsigned int vkd3d_select_memory_type(struct d3d12_device *device, uint32_t memory_type_mask,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
 {
@@ -894,6 +906,11 @@ static ULONG d3d12_resource_decref(struct d3d12_resource *resource)
     return refcount;
 }
 
+bool d3d12_resource_is_cpu_accessible(const struct d3d12_resource *resource)
+{
+    return is_cpu_accessible_heap(&resource->heap_properties);
+}
+
 /* ID3D12Resource */
 static inline struct d3d12_resource *impl_from_ID3D12Resource(ID3D12Resource *iface)
 {
@@ -1034,7 +1051,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
 
     device = resource->device;
 
-    if (!is_cpu_accessible_heap(&resource->heap_properties))
+    if (!d3d12_resource_is_cpu_accessible(resource))
     {
         WARN("Resource is not CPU accessible.\n");
         return E_INVALIDARG;
