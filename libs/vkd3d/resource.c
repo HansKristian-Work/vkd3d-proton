@@ -116,6 +116,125 @@ static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
     return S_OK;
 }
 
+HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        VkDeviceMemory *vk_memory)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryDedicatedAllocateInfo *dedicated_allocation = NULL;
+    VkMemoryDedicatedRequirements dedicated_requirements;
+    VkMemoryDedicatedAllocateInfo dedicated_info;
+    VkMemoryRequirements2 memory_requirements2;
+    VkMemoryRequirements *memory_requirements;
+    VkBufferMemoryRequirementsInfo2 info;
+    VkResult vr;
+    HRESULT hr;
+
+    memory_requirements = &memory_requirements2.memoryRequirements;
+
+    if (device->vk_info.KHR_dedicated_allocation)
+    {
+        info.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_REQUIREMENTS_INFO_2;
+        info.pNext = NULL;
+        info.buffer = vk_buffer;
+
+        dedicated_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS;
+        dedicated_requirements.pNext = NULL;
+
+        memory_requirements2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+        memory_requirements2.pNext = &dedicated_requirements;
+
+        VK_CALL(vkGetBufferMemoryRequirements2KHR(device->vk_device, &info, &memory_requirements2));
+
+        if (dedicated_requirements.prefersDedicatedAllocation)
+        {
+            dedicated_allocation = &dedicated_info;
+
+            dedicated_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+            dedicated_info.pNext = NULL;
+            dedicated_info.image = VK_NULL_HANDLE;
+            dedicated_info.buffer = vk_buffer;
+        }
+    }
+    else
+    {
+        VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, vk_buffer, memory_requirements));
+    }
+
+    if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
+            memory_requirements, dedicated_allocation, vk_memory, NULL)))
+        return hr;
+
+    if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, vk_buffer, *vk_memory, 0))) < 0)
+    {
+        WARN("Failed to bind memory, vr %d.\n", vr);
+        VK_CALL(vkFreeMemory(device->vk_device, *vk_memory, NULL));
+        *vk_memory = VK_NULL_HANDLE;
+    }
+
+    return hresult_from_vk_result(vr);
+}
+
+static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_image,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        VkDeviceMemory *vk_memory)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryDedicatedAllocateInfo *dedicated_allocation = NULL;
+    VkMemoryDedicatedRequirements dedicated_requirements;
+    VkMemoryDedicatedAllocateInfo dedicated_info;
+    VkMemoryRequirements2 memory_requirements2;
+    VkMemoryRequirements *memory_requirements;
+    VkImageMemoryRequirementsInfo2 info;
+    VkResult vr;
+    HRESULT hr;
+
+    memory_requirements = &memory_requirements2.memoryRequirements;
+
+    if (device->vk_info.KHR_dedicated_allocation)
+    {
+        info.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2;
+        info.pNext = NULL;
+        info.image = vk_image;
+
+        dedicated_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS;
+        dedicated_requirements.pNext = NULL;
+
+        memory_requirements2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+        memory_requirements2.pNext = &dedicated_requirements;
+
+        VK_CALL(vkGetImageMemoryRequirements2KHR(device->vk_device, &info, &memory_requirements2));
+
+        if (dedicated_requirements.prefersDedicatedAllocation)
+        {
+            dedicated_allocation = &dedicated_info;
+
+            dedicated_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+            dedicated_info.pNext = NULL;
+            dedicated_info.image = vk_image;
+            dedicated_info.buffer = VK_NULL_HANDLE;
+        }
+    }
+    else
+    {
+        VK_CALL(vkGetImageMemoryRequirements(device->vk_device, vk_image, memory_requirements));
+    }
+
+    if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
+            memory_requirements, dedicated_allocation, vk_memory, NULL)))
+        return hr;
+
+    if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, vk_image, *vk_memory, 0))) < 0)
+    {
+        WARN("Failed to bind memory, vr %d.\n", vr);
+        VK_CALL(vkFreeMemory(device->vk_device, *vk_memory, NULL));
+        *vk_memory = VK_NULL_HANDLE;
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
 /* ID3D12Heap */
 static inline struct d3d12_heap *impl_from_ID3D12Heap(ID3D12Heap *iface)
 {
@@ -729,125 +848,6 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     }
 
     return hr;
-}
-
-HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        VkDeviceMemory *vk_memory)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkMemoryDedicatedAllocateInfo *dedicated_allocation = NULL;
-    VkMemoryDedicatedRequirements dedicated_requirements;
-    VkMemoryDedicatedAllocateInfo dedicated_info;
-    VkMemoryRequirements2 memory_requirements2;
-    VkMemoryRequirements *memory_requirements;
-    VkBufferMemoryRequirementsInfo2 info;
-    VkResult vr;
-    HRESULT hr;
-
-    memory_requirements = &memory_requirements2.memoryRequirements;
-
-    if (device->vk_info.KHR_dedicated_allocation)
-    {
-        info.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_REQUIREMENTS_INFO_2;
-        info.pNext = NULL;
-        info.buffer = vk_buffer;
-
-        dedicated_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS;
-        dedicated_requirements.pNext = NULL;
-
-        memory_requirements2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
-        memory_requirements2.pNext = &dedicated_requirements;
-
-        VK_CALL(vkGetBufferMemoryRequirements2KHR(device->vk_device, &info, &memory_requirements2));
-
-        if (dedicated_requirements.prefersDedicatedAllocation)
-        {
-            dedicated_allocation = &dedicated_info;
-
-            dedicated_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
-            dedicated_info.pNext = NULL;
-            dedicated_info.image = VK_NULL_HANDLE;
-            dedicated_info.buffer = vk_buffer;
-        }
-    }
-    else
-    {
-        VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, vk_buffer, memory_requirements));
-    }
-
-    if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
-            memory_requirements, dedicated_allocation, vk_memory, NULL)))
-        return hr;
-
-    if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, vk_buffer, *vk_memory, 0))) < 0)
-    {
-        WARN("Failed to bind memory, vr %d.\n", vr);
-        VK_CALL(vkFreeMemory(device->vk_device, *vk_memory, NULL));
-        *vk_memory = VK_NULL_HANDLE;
-    }
-
-    return hresult_from_vk_result(vr);
-}
-
-static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_image,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        VkDeviceMemory *vk_memory)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkMemoryDedicatedAllocateInfo *dedicated_allocation = NULL;
-    VkMemoryDedicatedRequirements dedicated_requirements;
-    VkMemoryDedicatedAllocateInfo dedicated_info;
-    VkMemoryRequirements2 memory_requirements2;
-    VkMemoryRequirements *memory_requirements;
-    VkImageMemoryRequirementsInfo2 info;
-    VkResult vr;
-    HRESULT hr;
-
-    memory_requirements = &memory_requirements2.memoryRequirements;
-
-    if (device->vk_info.KHR_dedicated_allocation)
-    {
-        info.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2;
-        info.pNext = NULL;
-        info.image = vk_image;
-
-        dedicated_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS;
-        dedicated_requirements.pNext = NULL;
-
-        memory_requirements2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
-        memory_requirements2.pNext = &dedicated_requirements;
-
-        VK_CALL(vkGetImageMemoryRequirements2KHR(device->vk_device, &info, &memory_requirements2));
-
-        if (dedicated_requirements.prefersDedicatedAllocation)
-        {
-            dedicated_allocation = &dedicated_info;
-
-            dedicated_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
-            dedicated_info.pNext = NULL;
-            dedicated_info.image = vk_image;
-            dedicated_info.buffer = VK_NULL_HANDLE;
-        }
-    }
-    else
-    {
-        VK_CALL(vkGetImageMemoryRequirements(device->vk_device, vk_image, memory_requirements));
-    }
-
-    if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
-            memory_requirements, dedicated_allocation, vk_memory, NULL)))
-        return hr;
-
-    if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, vk_image, *vk_memory, 0))) < 0)
-    {
-        WARN("Failed to bind memory, vr %d.\n", vr);
-        VK_CALL(vkFreeMemory(device->vk_device, *vk_memory, NULL));
-        *vk_memory = VK_NULL_HANDLE;
-        return hresult_from_vk_result(vr);
-    }
-
-    return S_OK;
 }
 
 static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12_device *device)
