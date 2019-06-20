@@ -391,7 +391,6 @@ struct d3d12_resource
     unsigned int flags;
 
     unsigned int map_count;
-    void *map_ptr;
 
     struct d3d12_heap *heap;
     uint64_t heap_offset;

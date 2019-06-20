@@ -411,7 +411,8 @@ struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface)
     return impl_from_ID3D12Heap(iface);
 }
 
-static HRESULT d3d12_heap_map(struct d3d12_heap *heap, uint64_t offset, void **data)
+static HRESULT d3d12_heap_map(struct d3d12_heap *heap, uint64_t offset,
+        struct d3d12_resource *resource, void **data)
 {
     struct d3d12_device *device = heap->device;
     HRESULT hr = S_OK;
@@ -425,29 +426,41 @@ static HRESULT d3d12_heap_map(struct d3d12_heap *heap, uint64_t offset, void **d
         return hresult_from_errno(rc);
     }
 
-    if (!heap->map_ptr)
+    assert(!resource->map_count || heap->map_ptr);
+
+    if (!resource->map_count)
     {
-        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-
-        TRACE("Mapping heap %p.\n", heap);
-
-        if ((vr = VK_CALL(vkMapMemory(device->vk_device, heap->vk_memory,
-                0, VK_WHOLE_SIZE, 0, &heap->map_ptr))) < 0)
+        if (!heap->map_ptr)
         {
-            WARN("Failed to map device memory, vr %d.\n", vr);
-            heap->map_ptr = NULL;
+            const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+            TRACE("Mapping heap %p.\n", heap);
+
+            assert(!heap->map_count);
+
+            if ((vr = VK_CALL(vkMapMemory(device->vk_device, heap->vk_memory,
+                    0, VK_WHOLE_SIZE, 0, &heap->map_ptr))) < 0)
+            {
+                WARN("Failed to map device memory, vr %d.\n", vr);
+                heap->map_ptr = NULL;
+            }
+
+            hr = hresult_from_vk_result(vr);
         }
 
-        hr = hresult_from_vk_result(vr);
+        if (heap->map_ptr)
+            ++heap->map_count;
     }
 
-    if (heap->map_ptr)
+    if (hr == S_OK)
     {
+        assert(heap->map_ptr);
         *data = (BYTE *)heap->map_ptr + offset;
-        ++heap->map_count;
+        ++resource->map_count;
     }
     else
     {
+        assert(!heap->map_ptr);
         *data = NULL;
     }
 
@@ -456,7 +469,7 @@ static HRESULT d3d12_heap_map(struct d3d12_heap *heap, uint64_t offset, void **d
     return hr;
 }
 
-static void d3d12_heap_unmap(struct d3d12_heap *heap)
+static void d3d12_heap_unmap(struct d3d12_heap *heap, struct d3d12_resource *resource)
 {
     struct d3d12_device *device = heap->device;
     int rc;
@@ -467,24 +480,34 @@ static void d3d12_heap_unmap(struct d3d12_heap *heap)
         return;
     }
 
-    if (heap->map_count)
+    if (!resource->map_count)
     {
-        --heap->map_count;
-        if (!heap->map_count)
-        {
-            const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-
-            TRACE("Unmapping heap %p.\n", heap);
-
-            VK_CALL(vkUnmapMemory(device->vk_device, heap->vk_memory));
-            heap->map_ptr = NULL;
-        }
-    }
-    else
-    {
-        WARN("Heap %p is not mapped.\n", heap);
+        WARN("Resource %p is not mapped.\n", resource);
+        goto done;
     }
 
+    --resource->map_count;
+    if (resource->map_count)
+        goto done;
+
+    if (!heap->map_count)
+    {
+        ERR("Heap %p is not mapped.\n", heap);
+        goto done;
+    }
+
+    --heap->map_count;
+    if (!heap->map_count)
+    {
+        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+        TRACE("Unmapping heap %p, ptr %p.\n", heap, heap->map_ptr);
+
+        VK_CALL(vkUnmapMemory(device->vk_device, heap->vk_memory));
+        heap->map_ptr = NULL;
+    }
+
+done:
     pthread_mutex_unlock(&heap->mutex);
 }
 
@@ -1087,7 +1110,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
     unsigned int sub_resource_count;
-    HRESULT hr = S_OK;
+    HRESULT hr;
 
     TRACE("iface %p, sub_resource %u, read_range %p, data %p.\n",
             iface, sub_resource, read_range, data);
@@ -1120,20 +1143,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
 
     WARN("Ignoring read range %p.\n", read_range);
 
-    if (!resource->map_count)
-    {
-        if FAILED(hr = d3d12_heap_map(resource->heap, resource->heap_offset, &resource->map_ptr))
-        {
-            WARN("Failed to map resource, hr %#x.\n", hr);
-            resource->map_ptr = NULL;
-        }
-    }
+    if (FAILED(hr = d3d12_heap_map(resource->heap, resource->heap_offset, resource, data)))
+        WARN("Failed to map resource %p, hr %#x.\n", resource, hr);
 
-    if (resource->map_ptr)
-    {
-        *data = resource->map_ptr;
-        ++resource->map_count;
-    }
+    TRACE("Returning pointer %p.\n", *data);
 
     return hr;
 }
@@ -1154,22 +1167,9 @@ static void STDMETHODCALLTYPE d3d12_resource_Unmap(ID3D12Resource *iface, UINT s
         return;
     }
 
-    if (!resource->map_count)
-    {
-        WARN("Resource %p is not mapped.\n", resource);
-        return;
-    }
-
     WARN("Ignoring written range %p.\n", written_range);
 
-    --resource->map_count;
-    if (!resource->map_count)
-    {
-        resource->map_ptr = NULL;
-
-        assert(resource->heap);
-        d3d12_heap_unmap(resource->heap);
-    }
+    d3d12_heap_unmap(resource->heap, resource);
 }
 
 static D3D12_RESOURCE_DESC * STDMETHODCALLTYPE d3d12_resource_GetDesc(ID3D12Resource *iface,
@@ -1445,7 +1445,6 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     }
 
     resource->map_count = 0;
-    resource->map_ptr = NULL;
 
     resource->initial_state = initial_state;
 
