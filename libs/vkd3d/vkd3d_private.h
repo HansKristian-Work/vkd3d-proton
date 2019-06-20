@@ -54,6 +54,7 @@
 
 struct d3d12_command_list;
 struct d3d12_device;
+struct d3d12_resource;
 
 struct vkd3d_vk_global_procs
 {
@@ -348,6 +349,7 @@ struct d3d12_heap
     ID3D12Heap ID3D12Heap_iface;
     LONG refcount;
 
+    bool is_private;
     D3D12_HEAP_DESC desc;
 
     pthread_mutex_t mutex;
@@ -362,13 +364,14 @@ struct d3d12_heap
     struct vkd3d_private_store private_store;
 };
 
-HRESULT d3d12_heap_create(struct d3d12_device *device,
-        const D3D12_HEAP_DESC *desc, struct d3d12_heap **heap) DECLSPEC_HIDDEN;
+HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
+        const struct d3d12_resource *resource, struct d3d12_heap **heap) DECLSPEC_HIDDEN;
 struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface) DECLSPEC_HIDDEN;
 
 #define VKD3D_RESOURCE_PUBLIC_FLAGS \
         (VKD3D_RESOURCE_INITIAL_STATE_TRANSITION | VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)
-#define VKD3D_RESOURCE_EXTERNAL 0x00000004
+#define VKD3D_RESOURCE_EXTERNAL       0x00000004
+#define VKD3D_RESOURCE_DEDICATED_HEAP 0x00000008
 
 /* ID3D12Resource */
 struct d3d12_resource
@@ -385,7 +388,6 @@ struct d3d12_resource
         VkBuffer vk_buffer;
         VkImage vk_image;
     } u;
-    VkDeviceMemory vk_memory;
     unsigned int flags;
 
     unsigned int map_count;
@@ -394,8 +396,6 @@ struct d3d12_resource
     struct d3d12_heap *heap;
     uint64_t heap_offset;
 
-    D3D12_HEAP_PROPERTIES heap_properties;
-    D3D12_HEAP_FLAGS heap_flags;
     D3D12_RESOURCE_STATES initial_state;
     D3D12_RESOURCE_STATES present_state;
 
