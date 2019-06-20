@@ -3177,7 +3177,7 @@ static HRESULT d3d12_command_list_allocate_transfer_buffer(struct d3d12_command_
             &buffer_desc, &buffer->vk_buffer)))
         return hr;
     if (FAILED(hr = vkd3d_allocate_buffer_memory(device, buffer->vk_buffer,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &buffer->vk_memory)))
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &buffer->vk_memory, NULL, NULL)))
     {
         VK_CALL(vkDestroyBuffer(device->vk_device, buffer->vk_buffer, NULL));
         return hr;

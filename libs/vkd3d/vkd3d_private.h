@@ -431,7 +431,7 @@ struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface) DE
 
 HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        VkDeviceMemory *vk_memory) DECLSPEC_HIDDEN;
+        VkDeviceMemory *vk_memory, uint32_t *vk_memory_type, VkDeviceSize *vk_memory_size) DECLSPEC_HIDDEN;
 HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, VkBuffer *vk_buffer) DECLSPEC_HIDDEN;

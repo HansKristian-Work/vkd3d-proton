@@ -130,7 +130,7 @@ static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
 
 HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        VkDeviceMemory *vk_memory)
+        VkDeviceMemory *vk_memory, uint32_t *vk_memory_type, VkDeviceSize *vk_memory_size)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryDedicatedAllocateInfo *dedicated_allocation = NULL;
@@ -174,7 +174,7 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
     }
 
     if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
-            memory_requirements, dedicated_allocation, vk_memory, NULL)))
+            memory_requirements, dedicated_allocation, vk_memory, vk_memory_type)))
         return hr;
 
     if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, vk_buffer, *vk_memory, 0))) < 0)
@@ -184,12 +184,15 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
         *vk_memory = VK_NULL_HANDLE;
     }
 
+    if (vk_memory_size)
+        *vk_memory_size = memory_requirements->size;
+
     return hresult_from_vk_result(vr);
 }
 
 static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_image,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        VkDeviceMemory *vk_memory)
+        VkDeviceMemory *vk_memory, uint32_t *vk_memory_type, VkDeviceSize *vk_memory_size)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryDedicatedAllocateInfo *dedicated_allocation = NULL;
@@ -233,7 +236,7 @@ static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage 
     }
 
     if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
-            memory_requirements, dedicated_allocation, vk_memory, NULL)))
+            memory_requirements, dedicated_allocation, vk_memory, vk_memory_type)))
         return hr;
 
     if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, vk_image, *vk_memory, 0))) < 0)
@@ -243,6 +246,9 @@ static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage 
         *vk_memory = VK_NULL_HANDLE;
         return hresult_from_vk_result(vr);
     }
+
+    if (vk_memory_size)
+        *vk_memory_size = memory_requirements->size;
 
     return S_OK;
 }
@@ -1474,12 +1480,12 @@ static HRESULT vkd3d_allocate_resource_memory(
     if (d3d12_resource_is_buffer(resource))
     {
         return vkd3d_allocate_buffer_memory(device, resource->u.vk_buffer,
-                heap_properties, heap_flags, &resource->vk_memory);
+                heap_properties, heap_flags, &resource->vk_memory, NULL, NULL);
     }
     else
     {
         return vkd3d_allocate_image_memory(device, resource->u.vk_image,
-                heap_properties, heap_flags, &resource->vk_memory);
+                heap_properties, heap_flags, &resource->vk_memory, NULL, NULL);
     }
 }
 
@@ -3591,7 +3597,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             &resource_desc, &null_resources->vk_buffer)))
         goto fail;
     if (FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_buffer,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_buffer_memory)))
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_buffer_memory, NULL, NULL)))
         goto fail;
 
     /* buffer UAV */
@@ -3601,7 +3607,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             &resource_desc, &null_resources->vk_storage_buffer)))
         goto fail;
     if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_storage_buffer,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_storage_buffer_memory)))
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_storage_buffer_memory, NULL, NULL)))
         goto fail;
 
     /* 2D SRV */
@@ -3621,7 +3627,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             &resource_desc, &null_resources->vk_2d_image)))
         goto fail;
     if (FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_image,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_2d_image_memory)))
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_2d_image_memory, NULL, NULL)))
         goto fail;
 
     /* 2D UAV */
@@ -3642,7 +3648,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             &resource_desc, &null_resources->vk_2d_storage_image)))
         goto fail;
     if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_storage_image,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_2d_storage_image_memory)))
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_2d_storage_image_memory, NULL, NULL)))
         goto fail;
 
     /* set Vulkan object names */
