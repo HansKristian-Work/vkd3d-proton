@@ -4047,6 +4047,7 @@ static void vkd3d_dxbc_compiler_emit_input_register(struct vkd3d_dxbc_compiler *
     const struct vkd3d_shader_register *reg = &dst->reg;
     const struct vkd3d_spirv_builtin *builtin;
     struct vkd3d_symbol reg_symbol;
+    struct rb_entry *entry;
     uint32_t input_id;
 
     assert(!reg->idx[0].rel_addr);
@@ -4059,9 +4060,13 @@ static void vkd3d_dxbc_compiler_emit_input_register(struct vkd3d_dxbc_compiler *
         return;
     }
 
+    /* vPrim may be declared in multiple hull shader phases. */
+    vkd3d_symbol_make_register(&reg_symbol, reg);
+    if ((entry = rb_get(&compiler->symbol_table, &reg_symbol)))
+        return;
+
     input_id = vkd3d_dxbc_compiler_emit_builtin_variable(compiler, builtin, SpvStorageClassInput, 0);
 
-    vkd3d_symbol_make_register(&reg_symbol, reg);
     vkd3d_symbol_set_register_info(&reg_symbol, input_id, SpvStorageClassInput,
             builtin->component_type, vkd3d_write_mask_from_component_count(builtin->component_count));
     reg_symbol.info.reg.is_aggregate = builtin->spirv_array_size;
