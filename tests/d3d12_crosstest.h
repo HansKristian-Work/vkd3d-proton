@@ -297,9 +297,11 @@ static ID3D12Device *create_device(void)
 
 static void init_adapter_info(void)
 {
+    char name[MEMBER_SIZE(DXGI_ADAPTER_DESC, Description)];
     IDXGIAdapter *dxgi_adapter;
     DXGI_ADAPTER_DESC desc;
     IUnknown *adapter;
+    unsigned int i;
     HRESULT hr;
 
     if (!(adapter = create_adapter()))
@@ -312,7 +314,12 @@ static void init_adapter_info(void)
     hr = IDXGIAdapter_GetDesc(dxgi_adapter, &desc);
     ok(hr == S_OK, "Failed to get adapter desc, hr %#x.\n", hr);
 
-    trace("Adapter: %04x:%04x.\n", desc.VendorId, desc.DeviceId);
+    /* FIXME: Use debugstr_w(). */
+    for (i = 0; i < ARRAY_SIZE(desc.Description) && isprint(desc.Description[i]); ++i)
+        name[i] = desc.Description[i];
+    name[min(i, ARRAY_SIZE(name) - 1)] = '\0';
+
+    trace("Adapter: %s, %04x:%04x.\n", name, desc.VendorId, desc.DeviceId);
 
     if (desc.VendorId == 0x1414 && desc.DeviceId == 0x008c)
     {
