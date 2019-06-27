@@ -1092,25 +1092,25 @@ static void test_check_feature_support(void)
     memset(&format_info, 0, sizeof(format_info));
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_INFO,
             &format_info, sizeof(format_info));
-    todo ok(hr == S_OK, "Failed to get format info, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get format info, hr %#x.\n", hr);
     ok(format_info.Format == DXGI_FORMAT_UNKNOWN, "Got unexpected format %#x.\n", format_info.Format);
-    todo ok(format_info.PlaneCount == 1, "Got unexpected plane count %u.\n", format_info.PlaneCount);
+    ok(format_info.PlaneCount == 1, "Got unexpected plane count %u.\n", format_info.PlaneCount);
 
     memset(&format_info, 0, sizeof(format_info));
     format_info.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_INFO,
             &format_info, sizeof(format_info));
-    todo ok(hr == S_OK, "Failed to get format info, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get format info, hr %#x.\n", hr);
     ok(format_info.Format == DXGI_FORMAT_R8G8B8A8_UNORM, "Got unexpected format %#x.\n", format_info.Format);
-    todo ok(format_info.PlaneCount == 1, "Got unexpected plane count %u.\n", format_info.PlaneCount);
+    ok(format_info.PlaneCount == 1, "Got unexpected plane count %u.\n", format_info.PlaneCount);
 
     memset(&format_info, 0, sizeof(format_info));
     format_info.Format = DXGI_FORMAT_R24G8_TYPELESS;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_INFO,
             &format_info, sizeof(format_info));
-    todo ok(hr == S_OK, "Failed to get format info, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get format info, hr %#x.\n", hr);
     ok(format_info.Format == DXGI_FORMAT_R24G8_TYPELESS, "Got unexpected format %#x.\n", format_info.Format);
-    todo ok(format_info.PlaneCount == 2, "Got unexpected plane count %u.\n", format_info.PlaneCount);
+    ok(format_info.PlaneCount == 2, "Got unexpected plane count %u.\n", format_info.PlaneCount);
 
     /* GPU virtual address */
     memset(&gpu_virtual_address, 0, sizeof(gpu_virtual_address));

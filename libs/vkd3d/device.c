@@ -2371,6 +2371,37 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             return d3d12_device_check_multisample_quality_levels(device, data);
         }
 
+        case D3D12_FEATURE_FORMAT_INFO:
+        {
+            D3D12_FEATURE_DATA_FORMAT_INFO *data = feature_data;
+            const struct vkd3d_format *format;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            if (data->Format == DXGI_FORMAT_UNKNOWN)
+            {
+                data->PlaneCount = 1;
+                return S_OK;
+            }
+
+            if (!(format = vkd3d_get_format(device, data->Format, false)))
+                format = vkd3d_get_format(device, data->Format, true);
+            if (!format)
+            {
+                FIXME("Unhandled format %#x.\n", data->Format);
+                return E_INVALIDARG;
+            }
+
+            data->PlaneCount = format->plane_count;
+
+            TRACE("Format %#x, plane count %"PRIu8".\n", data->Format, data->PlaneCount);
+            return S_OK;
+        }
+
         case D3D12_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT:
         {
             const D3D12_FEATURE_DATA_D3D12_OPTIONS *options = &device->feature_options;

@@ -1104,6 +1104,7 @@ struct vkd3d_format
     size_t block_height;
     size_t block_byte_count;
     VkImageAspectFlags vk_aspect_mask;
+    unsigned int plane_count;
     bool is_emulated;
 };
 
