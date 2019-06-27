@@ -1184,8 +1184,6 @@ static void test_format_support(void)
         /* A recent version of WARP suppots B8G8R8A8 UAVs even on D3D_FEATURE_LEVEL_11_0. */
         {{DXGI_FORMAT_B8G8R8A8_TYPELESS, D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
                 D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE}, true},
-        {{DXGI_FORMAT_B8G8R8A8_UNORM,    D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
-                D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE}, true},
     };
 
     if (!(device = create_device()))
@@ -1796,26 +1794,6 @@ static void test_create_committed_resource(void)
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
             &IID_ID3D12Resource, (void **)&resource);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
-
-    /* DXGI_FORMAT_B8G8R8A8_UNORM does not support D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS. */
-    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = 32;
-    resource_desc.Height = 32;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
-            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
-            &IID_ID3D12Resource, (void **)&resource);
-    todo ok(hr == E_INVALIDARG || broken_on_warp(true), "Got unexpected hr %#x.\n", hr);
-    if (SUCCEEDED(hr))
-        ID3D12Resource_Release(resource);
 
     heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
 
