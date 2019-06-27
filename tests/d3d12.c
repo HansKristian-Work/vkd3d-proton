@@ -30883,6 +30883,7 @@ static void prepare_instanced_draw(struct test_context *context)
 static void test_conditional_rendering(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12Resource *conditions, *upload_buffer;
     ID3D12CommandSignature *command_signature;
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[2];
@@ -30895,7 +30896,6 @@ static void test_conditional_rendering(void)
     struct test_context context;
     ID3D12Resource *buffer, *cb;
     struct resource_readback rb;
-    ID3D12Resource *conditions;
     ID3D12CommandQueue *queue;
     unsigned int i;
     uint32_t value;
@@ -30976,7 +30976,7 @@ static void test_conditional_rendering(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    todo check_sub_resource_uint(context.render_target, 0, queue, command_list, 0x00000000, 0);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xffffffff, 0);
 
     reset_command_list(command_list, context.allocator);
     transition_resource_state(command_list, context.render_target,
@@ -30992,6 +30992,8 @@ static void test_conditional_rendering(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
+    ID3D12GraphicsCommandList_SetPredication(command_list, conditions,
+            sizeof(uint64_t), D3D12_PREDICATION_OP_EQUAL_ZERO);
     check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xffffffff, 0);
 
     reset_command_list(command_list, context.allocator);
@@ -31095,6 +31097,26 @@ static void test_conditional_rendering(void)
     check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
 
     ID3D12Resource_Release(buffer);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* SetPredication() and upload buffer. */
+    upload_buffer = create_upload_buffer(context.device, sizeof(predicate_args), predicate_args);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    prepare_instanced_draw(&context);
+    /* Skip. */
+    ID3D12GraphicsCommandList_SetPredication(command_list, upload_buffer,
+            0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    ID3D12GraphicsCommandList_SetPredication(command_list, upload_buffer,
+            0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xffffffff, 0);
+
     reset_command_list(command_list, context.allocator);
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -31300,6 +31322,7 @@ static void test_conditional_rendering(void)
     ID3D12Resource_Release(conditions);
     ID3D12Resource_Release(cb);
     ID3D12Resource_Release(buffer);
+    ID3D12Resource_Release(upload_buffer);
     ID3D12RootSignature_Release(root_signature);
     ID3D12PipelineState_Release(pipeline_state);
     destroy_test_context(&context);
