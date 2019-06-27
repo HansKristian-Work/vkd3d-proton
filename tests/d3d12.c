@@ -975,8 +975,11 @@ static void test_check_feature_support(void)
     D3D_FEATURE_LEVEL max_supported_feature_level;
     D3D12_FEATURE_DATA_ARCHITECTURE architecture;
     D3D12_FEATURE_DATA_FORMAT_INFO format_info;
+    unsigned int expected_plane_count;
     ID3D12Device *device;
+    DXGI_FORMAT format;
     ULONG refcount;
+    bool is_todo;
     HRESULT hr;
 
     static const D3D_FEATURE_LEVEL all_feature_levels[] =
@@ -1096,21 +1099,58 @@ static void test_check_feature_support(void)
     ok(format_info.Format == DXGI_FORMAT_UNKNOWN, "Got unexpected format %#x.\n", format_info.Format);
     ok(format_info.PlaneCount == 1, "Got unexpected plane count %u.\n", format_info.PlaneCount);
 
-    memset(&format_info, 0, sizeof(format_info));
-    format_info.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_INFO,
-            &format_info, sizeof(format_info));
-    ok(hr == S_OK, "Failed to get format info, hr %#x.\n", hr);
-    ok(format_info.Format == DXGI_FORMAT_R8G8B8A8_UNORM, "Got unexpected format %#x.\n", format_info.Format);
-    ok(format_info.PlaneCount == 1, "Got unexpected plane count %u.\n", format_info.PlaneCount);
+    for (format = DXGI_FORMAT_UNKNOWN; format <= DXGI_FORMAT_B4G4R4A4_UNORM; ++format)
+    {
+        vkd3d_test_set_context("format %#x", format);
 
-    memset(&format_info, 0, sizeof(format_info));
-    format_info.Format = DXGI_FORMAT_R24G8_TYPELESS;
-    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_INFO,
-            &format_info, sizeof(format_info));
-    ok(hr == S_OK, "Failed to get format info, hr %#x.\n", hr);
-    ok(format_info.Format == DXGI_FORMAT_R24G8_TYPELESS, "Got unexpected format %#x.\n", format_info.Format);
-    ok(format_info.PlaneCount == 2, "Got unexpected plane count %u.\n", format_info.PlaneCount);
+        switch (format)
+        {
+            case DXGI_FORMAT_R32G8X24_TYPELESS:
+            case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+            case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
+            case DXGI_FORMAT_X32_TYPELESS_G8X24_UINT:
+            case DXGI_FORMAT_D24_UNORM_S8_UINT:
+            case DXGI_FORMAT_R24G8_TYPELESS:
+            case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
+            case DXGI_FORMAT_X24_TYPELESS_G8_UINT:
+            case DXGI_FORMAT_NV12:
+            case DXGI_FORMAT_P010:
+            case DXGI_FORMAT_P016:
+            case DXGI_FORMAT_NV11:
+                expected_plane_count = 2;
+                break;
+            default:
+                expected_plane_count = 1;
+                break;
+        }
+
+        is_todo = format == DXGI_FORMAT_R9G9B9E5_SHAREDEXP
+                || format == DXGI_FORMAT_R8G8_B8G8_UNORM
+                || format == DXGI_FORMAT_G8R8_G8B8_UNORM
+                || format == DXGI_FORMAT_B5G6R5_UNORM
+                || format == DXGI_FORMAT_B5G5R5A1_UNORM
+                || format == DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM
+                || (DXGI_FORMAT_AYUV <= format && format <= DXGI_FORMAT_B4G4R4A4_UNORM);
+
+        memset(&format_info, 0, sizeof(format_info));
+        format_info.Format = format;
+        hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_INFO,
+                &format_info, sizeof(format_info));
+
+        if (format == DXGI_FORMAT_R1_UNORM)
+        {
+            ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+            continue;
+        }
+
+        todo_if(is_todo)
+        ok(hr == S_OK, "Failed to get format info, hr %#x.\n", hr);
+        ok(format_info.Format == format, "Got unexpected format %#x.\n", format_info.Format);
+        todo_if(is_todo)
+        ok(format_info.PlaneCount == expected_plane_count,
+                "Got plane count %u, expected %u.\n", format_info.PlaneCount, expected_plane_count);
+    }
+    vkd3d_test_set_context(NULL);
 
     /* GPU virtual address */
     memset(&gpu_virtual_address, 0, sizeof(gpu_virtual_address));
