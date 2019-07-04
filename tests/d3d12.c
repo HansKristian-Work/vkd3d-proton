@@ -6769,11 +6769,11 @@ static void test_map_placed_resources(void)
     release_resource_readback(&rb);
 
     ID3D12Resource_Release(uav_buffer);
-    for (i = 0; i < ARRAY_SIZE(cb); ++i)
-        ID3D12Resource_Release(cb[i]);
     ID3D12Resource_Release(readback_buffer);
     ID3D12Heap_Release(upload_heap);
     ID3D12Heap_Release(readback_heap);
+    for (i = 0; i < ARRAY_SIZE(cb); ++i)
+        ID3D12Resource_Release(cb[i]);
     destroy_test_context(&context);
 }
 
