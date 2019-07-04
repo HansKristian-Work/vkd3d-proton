@@ -102,6 +102,7 @@ struct vkd3d_vulkan_info
     bool EXT_debug_marker;
     bool EXT_depth_clip_enable;
     bool EXT_descriptor_indexing;
+    bool EXT_texel_buffer_alignment;
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
 
@@ -113,6 +114,8 @@ struct vkd3d_vulkan_info
 
     VkPhysicalDeviceLimits device_limits;
     VkPhysicalDeviceSparseProperties sparse_properties;
+
+    VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
 
     D3D_FEATURE_LEVEL max_feature_level;
 };

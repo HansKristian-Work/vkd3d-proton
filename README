@@ -9,7 +9,7 @@ similar, but not identical, to Direct3D 12.
 Building vkd3d
 ==============
 
-Vkd3d depends on SPIRV-Headers and Vulkan-Headers (>= 1.1.101).
+Vkd3d depends on SPIRV-Headers and Vulkan-Headers (>= 1.1.113).
 
 Vkd3d generates some of its headers from IDL files. If you are using the
 release tarballs, then these headers are pre-generated and are included. If

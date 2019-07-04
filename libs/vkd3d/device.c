@@ -133,6 +133,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     {VK_EXT_DEBUG_MARKER_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_debug_marker)},
     {VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_depth_clip_enable)},
     {VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_descriptor_indexing)},
+    {VK_EXT_TEXEL_BUFFER_ALIGNMENT_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_texel_buffer_alignment)},
     {VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME,
             offsetof(struct vkd3d_vulkan_info, EXT_transform_feedback)},
     {VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME,
@@ -662,6 +663,7 @@ struct vkd3d_physical_device_info
     /* properties */
     VkPhysicalDeviceDescriptorIndexingPropertiesEXT descriptor_indexing_properties;
     VkPhysicalDeviceMaintenance3Properties maintenance3_properties;
+    VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT xfb_properties;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
 
@@ -671,6 +673,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceConditionalRenderingFeaturesEXT conditional_rendering_features;
     VkPhysicalDeviceDepthClipEnableFeaturesEXT depth_clip_features;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features;
+    VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT texel_buffer_alignment_features;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
 
@@ -683,8 +686,10 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceConditionalRenderingFeaturesEXT *conditional_rendering_features;
     VkPhysicalDeviceDescriptorIndexingPropertiesEXT *descriptor_indexing_properties;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT *vertex_divisor_properties;
+    VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT *buffer_alignment_properties;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing_features;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *vertex_divisor_features;
+    VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT *buffer_alignment_features;
     VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
     VkPhysicalDeviceMaintenance3Properties *maintenance3_properties;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT *xfb_properties;
@@ -698,6 +703,8 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     descriptor_indexing_features = &info->descriptor_indexing_features;
     descriptor_indexing_properties = &info->descriptor_indexing_properties;
     maintenance3_properties = &info->maintenance3_properties;
+    buffer_alignment_features = &info->texel_buffer_alignment_features;
+    buffer_alignment_properties = &info->texel_buffer_alignment_properties;
     vertex_divisor_features = &info->vertex_divisor_features;
     vertex_divisor_properties = &info->vertex_divisor_properties;
     xfb_features = &info->xfb_features;
@@ -708,8 +715,10 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     depth_clip_features->pNext = conditional_rendering_features;
     descriptor_indexing_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
     descriptor_indexing_features->pNext = depth_clip_features;
+    buffer_alignment_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_FEATURES_EXT;
+    buffer_alignment_features->pNext = descriptor_indexing_features;
     xfb_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT;
-    xfb_features->pNext = descriptor_indexing_features;
+    xfb_features->pNext = buffer_alignment_features;
     vertex_divisor_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT;
     vertex_divisor_features->pNext = xfb_features;
 
@@ -724,8 +733,10 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     maintenance3_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES;
     descriptor_indexing_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES_EXT;
     descriptor_indexing_properties->pNext = maintenance3_properties;
+    buffer_alignment_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES_EXT;
+    buffer_alignment_properties->pNext = descriptor_indexing_properties;
     xfb_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT;
-    xfb_properties->pNext = descriptor_indexing_properties;
+    xfb_properties->pNext = buffer_alignment_properties;
     vertex_divisor_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES_EXT;
     vertex_divisor_properties->pNext = xfb_properties;
 
@@ -800,6 +811,7 @@ static void vkd3d_trace_physical_device_limits(const struct vkd3d_physical_devic
     const VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT *divisor_properties;
     const VkPhysicalDeviceLimits *limits = &info->properties2.properties.limits;
     const VkPhysicalDeviceDescriptorIndexingPropertiesEXT *descriptor_indexing;
+    const VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT *buffer_alignment;
     const VkPhysicalDeviceMaintenance3Properties *maintenance3;
     const VkPhysicalDeviceTransformFeedbackPropertiesEXT *xfb;
 
@@ -979,6 +991,17 @@ static void vkd3d_trace_physical_device_limits(const struct vkd3d_physical_devic
     TRACE("    maxPerSetDescriptors: %u.\n", maintenance3->maxPerSetDescriptors);
     TRACE("    maxMemoryAllocationSize: %#"PRIx64".\n", maintenance3->maxMemoryAllocationSize);
 
+    buffer_alignment = &info->texel_buffer_alignment_properties;
+    TRACE("  VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT:\n");
+    TRACE("    storageTexelBufferOffsetAlignmentBytes: %#"PRIx64".\n",
+            buffer_alignment->storageTexelBufferOffsetAlignmentBytes);
+    TRACE("    storageTexelBufferOffsetSingleTexelAlignment: %#x.\n",
+            buffer_alignment->storageTexelBufferOffsetSingleTexelAlignment);
+    TRACE("    uniformTexelBufferOffsetAlignmentBytes: %#"PRIx64".\n",
+            buffer_alignment->uniformTexelBufferOffsetAlignmentBytes);
+    TRACE("    uniformTexelBufferOffsetSingleTexelAlignment: %#x.\n",
+            buffer_alignment->uniformTexelBufferOffsetSingleTexelAlignment);
+
     xfb = &info->xfb_properties;
     TRACE("  VkPhysicalDeviceTransformFeedbackPropertiesEXT:\n");
     TRACE("    maxTransformFeedbackStreams: %u.\n", xfb->maxTransformFeedbackStreams);
@@ -1000,6 +1023,7 @@ static void vkd3d_trace_physical_device_limits(const struct vkd3d_physical_devic
 static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_device_info *info)
 {
     const VkPhysicalDeviceConditionalRenderingFeaturesEXT *conditional_rendering_features;
+    const VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT *buffer_alignment_features;
     const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
     const VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
     const VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
@@ -1117,6 +1141,10 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
     depth_clip_features = &info->depth_clip_features;
     TRACE("  VkPhysicalDeviceDepthClipEnableFeaturesEXT:\n");
     TRACE("    depthClipEnable: %#x.\n", depth_clip_features->depthClipEnable);
+
+    buffer_alignment_features = &info->texel_buffer_alignment_features;
+    TRACE("  VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT:\n");
+    TRACE("    texelBufferAlignment: %#x.\n", buffer_alignment_features->texelBufferAlignment);
 
     xfb = &info->xfb_features;
     TRACE("  VkPhysicalDeviceTransformFeedbackFeaturesEXT:\n");
@@ -1342,8 +1370,14 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
             *user_extension_supported, vulkan_info, "device",
             device->vkd3d_instance->config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG);
 
-    vulkan_info->EXT_conditional_rendering = physical_device_info->conditional_rendering_features.conditionalRendering;
-    vulkan_info->EXT_depth_clip_enable = physical_device_info->depth_clip_features.depthClipEnable;
+    if (!physical_device_info->conditional_rendering_features.conditionalRendering)
+        vulkan_info->EXT_conditional_rendering = false;
+    if (!physical_device_info->depth_clip_features.depthClipEnable)
+        vulkan_info->EXT_depth_clip_enable = false;
+    if (!physical_device_info->texel_buffer_alignment_features.texelBufferAlignment)
+        vulkan_info->EXT_texel_buffer_alignment = false;
+
+    vulkan_info->texel_buffer_alignment_properties = physical_device_info->texel_buffer_alignment_properties;
 
     if (get_spec_version(vk_extensions, count, VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME) >= 3)
     {

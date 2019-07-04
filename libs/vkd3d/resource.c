@@ -1772,13 +1772,40 @@ void d3d12_desc_copy(struct d3d12_desc *dst, const struct d3d12_desc *src,
     }
 }
 
+static VkDeviceSize vkd3d_get_required_texel_buffer_alignment(const struct d3d12_device *device,
+        const struct vkd3d_format *format)
+{
+    const VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT *properties;
+    const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
+    VkDeviceSize alignment;
+
+    if (vk_info->EXT_texel_buffer_alignment)
+    {
+        properties = &vk_info->texel_buffer_alignment_properties;
+
+        alignment = max(properties->storageTexelBufferOffsetAlignmentBytes,
+                properties->uniformTexelBufferOffsetAlignmentBytes);
+
+        if (properties->storageTexelBufferOffsetSingleTexelAlignment
+                && properties->uniformTexelBufferOffsetSingleTexelAlignment)
+        {
+            assert(!vkd3d_format_is_compressed(format));
+            return min(format->byte_count, alignment);
+        }
+
+        return alignment;
+    }
+
+    return vk_info->device_limits.minTexelBufferOffsetAlignment;
+}
+
 static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
         VkBuffer vk_buffer, const struct vkd3d_format *format,
         VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
     struct VkBufferViewCreateInfo view_desc;
+    VkDeviceSize alignment;
     VkResult vr;
 
     if (vkd3d_format_is_compressed(format))
@@ -1787,11 +1814,9 @@ static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
         return false;
     }
 
-    if (offset % vk_info->device_limits.minTexelBufferOffsetAlignment)
-    {
-        FIXME("Offset %#"PRIx64" violates the minimum required alignment %#"PRIx64".\n",
-                offset, vk_info->device_limits.minTexelBufferOffsetAlignment);
-    }
+    alignment = vkd3d_get_required_texel_buffer_alignment(device, format);
+    if (offset % alignment)
+        FIXME("Offset %#"PRIx64" violates the required alignment %#"PRIx64".\n", offset, alignment);
 
     view_desc.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
     view_desc.pNext = NULL;
