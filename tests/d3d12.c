@@ -2186,6 +2186,7 @@ static void test_create_reserved_resource(void)
     ID3D12Device *device;
     ULONG refcount;
     HRESULT hr;
+    void *ptr;
 
     if (!(device = create_device()))
     {
@@ -2231,6 +2232,10 @@ static void test_create_reserved_resource(void)
     hr = ID3D12Resource_GetHeapProperties(resource, &heap_properties, &heap_flags);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
     ok(heap_flags == 0xdeadbeef, "Got unexpected heap flags %#x.\n", heap_flags);
+
+    /* Map() is not allowed on reserved resources */
+    hr = ID3D12Resource_Map(resource, 0, NULL, &ptr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     refcount = ID3D12Resource_Release(resource);
     ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
