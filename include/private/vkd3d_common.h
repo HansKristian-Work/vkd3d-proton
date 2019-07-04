@@ -23,6 +23,8 @@
 #include "vkd3d_windows.h"
 
 #include <ctype.h>
+#include <limits.h>
+#include <stdbool.h>
 
 #ifndef ARRAY_SIZE
 # define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
@@ -56,6 +58,21 @@ static inline unsigned int vkd3d_popcount(unsigned int v)
     v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
     return (((v + (v >> 4)) & 0x0f0f0f0f) * 0x01010101) >> 24;
 #endif
+}
+
+static inline bool vkd3d_bitmask_is_contiguous(unsigned int mask)
+{
+    unsigned int i, j;
+
+    for (i = 0, j = 0; i < sizeof(mask) * CHAR_BIT; ++i)
+    {
+        if (mask & (1u << i))
+            ++j;
+        else if (j)
+            break;
+    }
+
+    return vkd3d_popcount(mask) == j;
 }
 
 /* Undefined for x == 0. */

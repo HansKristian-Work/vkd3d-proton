@@ -3807,22 +3807,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_builtin_variable(struct vkd3d_dxbc_comp
     return id;
 }
 
-static bool vkd3d_write_mask_is_contiguous(unsigned int mask)
-{
-    unsigned int i, j;
-
-    assert(mask);
-    for (i = 0, j = 0; i < VKD3D_VEC4_SIZE; ++i)
-    {
-        if (mask & (1u << i))
-            ++j;
-        else if (j)
-            break;
-    }
-
-    return vkd3d_write_mask_component_count(mask) == j;
-}
-
 static bool needs_private_io_variable(const struct vkd3d_shader_signature *signature,
         unsigned int reg_idx, const struct vkd3d_spirv_builtin *builtin,
         unsigned int *component_count, unsigned int *out_write_mask)
@@ -3854,7 +3838,7 @@ static bool needs_private_io_variable(const struct vkd3d_shader_signature *signa
     if (builtin || have_sysval)
         return true;
 
-    if (!vkd3d_write_mask_is_contiguous(write_mask))
+    if (!vkd3d_bitmask_is_contiguous(write_mask))
     {
         FIXME("Write mask %#x is non-contiguous.\n", write_mask);
         return true;
