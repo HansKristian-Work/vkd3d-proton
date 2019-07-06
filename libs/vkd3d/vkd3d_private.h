@@ -1215,4 +1215,14 @@ VkResult vkd3d_set_vk_object_name_utf8(struct d3d12_device *device, uint64_t vk_
 HRESULT vkd3d_set_vk_object_name(struct d3d12_device *device, uint64_t vk_object,
         VkDebugReportObjectTypeEXT vk_object_type, const WCHAR *name) DECLSPEC_HIDDEN;
 
+static inline void vk_append_struct(void *h, void *structure)
+{
+    VkBaseOutStructure *header = h;
+
+    while (header->pNext)
+        header = header->pNext;
+
+    header->pNext = structure;
+}
+
 #endif  /* __VKD3D_PRIVATE_H */

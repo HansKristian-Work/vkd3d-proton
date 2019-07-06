@@ -19,16 +19,6 @@
 
 #include "vkd3d_private.h"
 
-static void vk_append_struct(void *h, void *structure)
-{
-    VkBaseOutStructure *header = h;
-
-    while (header->pNext)
-        header = header->pNext;
-
-    header->pNext = structure;
-}
-
 /* ID3D12RootSignature */
 static inline struct d3d12_root_signature *impl_from_ID3D12RootSignature(ID3D12RootSignature *iface)
 {

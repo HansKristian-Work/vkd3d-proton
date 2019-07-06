@@ -84,12 +84,6 @@ static const void *vkd3d_find_struct_(const struct vkd3d_struct *chain,
     return NULL;
 }
 
-struct vk_struct
-{
-    VkStructureType sType;
-    struct vk_struct *pNext;
-};
-
 static uint32_t vkd3d_get_vk_version(void)
 {
     int major, minor;
@@ -716,40 +710,40 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     xfb_features = &info->xfb_features;
     xfb_properties = &info->xfb_properties;
 
-    conditional_rendering_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT;
-    depth_clip_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT;
-    depth_clip_features->pNext = conditional_rendering_features;
-    descriptor_indexing_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
-    descriptor_indexing_features->pNext = depth_clip_features;
-    demote_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES_EXT;
-    demote_features->pNext = descriptor_indexing_features;
-    buffer_alignment_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_FEATURES_EXT;
-    buffer_alignment_features->pNext = demote_features;
-    xfb_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT;
-    xfb_features->pNext = buffer_alignment_features;
-    vertex_divisor_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT;
-    vertex_divisor_features->pNext = xfb_features;
-
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    info->features2.pNext = vertex_divisor_features;
+
+    conditional_rendering_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT;
+    vk_append_struct(&info->features2, conditional_rendering_features);
+    depth_clip_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT;
+    vk_append_struct(&info->features2, depth_clip_features);
+    descriptor_indexing_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
+    vk_append_struct(&info->features2, descriptor_indexing_features);
+    demote_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES_EXT;
+    vk_append_struct(&info->features2, demote_features);
+    buffer_alignment_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_FEATURES_EXT;
+    vk_append_struct(&info->features2, buffer_alignment_features);
+    xfb_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT;
+    vk_append_struct(&info->features2, xfb_features);
+    vertex_divisor_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT;
+    vk_append_struct(&info->features2, vertex_divisor_features);
 
     if (vulkan_info->KHR_get_physical_device_properties2)
         VK_CALL(vkGetPhysicalDeviceFeatures2KHR(physical_device, &info->features2));
     else
         VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &info->features2.features));
 
-    maintenance3_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES;
-    descriptor_indexing_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES_EXT;
-    descriptor_indexing_properties->pNext = maintenance3_properties;
-    buffer_alignment_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES_EXT;
-    buffer_alignment_properties->pNext = descriptor_indexing_properties;
-    xfb_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT;
-    xfb_properties->pNext = buffer_alignment_properties;
-    vertex_divisor_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES_EXT;
-    vertex_divisor_properties->pNext = xfb_properties;
-
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-    info->properties2.pNext = vertex_divisor_properties;
+
+    maintenance3_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES;
+    vk_append_struct(&info->properties2, maintenance3_properties);
+    descriptor_indexing_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES_EXT;
+    vk_append_struct(&info->properties2, descriptor_indexing_properties);
+    buffer_alignment_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES_EXT;
+    vk_append_struct(&info->properties2, buffer_alignment_properties);
+    xfb_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT;
+    vk_append_struct(&info->properties2, xfb_properties);
+    vertex_divisor_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES_EXT;
+    vk_append_struct(&info->properties2, vertex_divisor_properties);
 
     if (vulkan_info->KHR_get_physical_device_properties2)
         VK_CALL(vkGetPhysicalDeviceProperties2KHR(physical_device, &info->properties2));
