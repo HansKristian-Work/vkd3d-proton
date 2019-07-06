@@ -69,6 +69,13 @@ AS_IF([test "x$ac_cv_header_spirv_unified1_GLSL_std_450_h" != "xyes" \
 
 VKD3D_CHECK_VULKAN_HEADER_VERSION([113], [AC_MSG_ERROR([Vulkan headers are too old, 1.1.113 is required.])])
 
+AC_CHECK_DECL([SpvCapabilityDemoteToHelperInvocationEXT],, [AC_MSG_ERROR([SPIR-V headers are too old.])], [
+#ifdef HAVE_SPIRV_UNIFIED1_SPIRV_H
+# include "spirv/unified1/spirv.h"
+#else
+# include "vulkan/spirv.h"
+#endif])
+
 dnl Check for libraries
 m4_ifdef([PKG_PROG_PKG_CONFIG], [PKG_PROG_PKG_CONFIG], [m4_fatal([pkg-config autoconf macros not found.])])
 
