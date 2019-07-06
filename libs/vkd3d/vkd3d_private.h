@@ -49,6 +49,7 @@
 #define VKD3D_DESCRIPTOR_MAGIC_RTV     0x00565452u
 
 #define VKD3D_MAX_QUEUE_FAMILY_COUNT 3u
+#define VKD3D_MAX_SHADER_EXTENSIONS  1u
 #define VKD3D_MAX_SHADER_STAGES      5u
 #define VKD3D_MAX_VK_SYNC_OBJECTS    4u
 
@@ -102,6 +103,7 @@ struct vkd3d_vulkan_info
     bool EXT_debug_marker;
     bool EXT_depth_clip_enable;
     bool EXT_descriptor_indexing;
+    bool EXT_shader_demote_to_helper_invocation;
     bool EXT_texel_buffer_alignment;
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
@@ -116,6 +118,9 @@ struct vkd3d_vulkan_info
     VkPhysicalDeviceSparseProperties sparse_properties;
 
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
+
+    unsigned int shader_extension_count;
+    enum vkd3d_shader_target_extension shader_extensions[VKD3D_MAX_SHADER_EXTENSIONS];
 
     D3D_FEATURE_LEVEL max_feature_level;
 };
