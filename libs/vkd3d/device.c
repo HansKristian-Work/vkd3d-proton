@@ -105,13 +105,17 @@ struct vkd3d_optional_extension_info
     bool is_debug_only;
 };
 
+#define VK_EXTENSION(name, member) \
+        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member)}
+#define VK_DEBUG_EXTENSION(name, member) \
+        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), true}
+
 static const struct vkd3d_optional_extension_info optional_instance_extensions[] =
 {
     /* KHR extensions */
-    {VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-            offsetof(struct vkd3d_vulkan_info, KHR_get_physical_device_properties2)},
+    VK_EXTENSION(KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2, KHR_get_physical_device_properties2),
     /* EXT extensions */
-    {VK_EXT_DEBUG_REPORT_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_debug_report), true},
+    VK_DEBUG_EXTENSION(EXT_DEBUG_REPORT, EXT_debug_report),
 };
 
 static const char * const required_device_extensions[] =
@@ -123,23 +127,20 @@ static const char * const required_device_extensions[] =
 static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 {
     /* KHR extensions */
-    {VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_dedicated_allocation)},
-    {VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_draw_indirect_count)},
-    {VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_get_memory_requirements2)},
-    {VK_KHR_MAINTENANCE3_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_maintenance3)},
-    {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, KHR_push_descriptor)},
+    VK_EXTENSION(KHR_DEDICATED_ALLOCATION, KHR_dedicated_allocation),
+    VK_EXTENSION(KHR_DRAW_INDIRECT_COUNT, KHR_draw_indirect_count),
+    VK_EXTENSION(KHR_GET_MEMORY_REQUIREMENTS_2, KHR_get_memory_requirements2),
+    VK_EXTENSION(KHR_MAINTENANCE3, KHR_maintenance3),
+    VK_EXTENSION(KHR_PUSH_DESCRIPTOR, KHR_push_descriptor),
     /* EXT extensions */
-    {VK_EXT_CONDITIONAL_RENDERING_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_conditional_rendering)},
-    {VK_EXT_DEBUG_MARKER_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_debug_marker)},
-    {VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_depth_clip_enable)},
-    {VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_descriptor_indexing)},
-    {VK_EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION_EXTENSION_NAME,
-            offsetof(struct vkd3d_vulkan_info, EXT_shader_demote_to_helper_invocation)},
-    {VK_EXT_TEXEL_BUFFER_ALIGNMENT_EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, EXT_texel_buffer_alignment)},
-    {VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME,
-            offsetof(struct vkd3d_vulkan_info, EXT_transform_feedback)},
-    {VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME,
-            offsetof(struct vkd3d_vulkan_info, EXT_vertex_attribute_divisor)},
+    VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
+    VK_EXTENSION(EXT_DEBUG_MARKER, EXT_debug_marker),
+    VK_EXTENSION(EXT_DEPTH_CLIP_ENABLE, EXT_depth_clip_enable),
+    VK_EXTENSION(EXT_DESCRIPTOR_INDEXING, EXT_descriptor_indexing),
+    VK_EXTENSION(EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION, EXT_shader_demote_to_helper_invocation),
+    VK_EXTENSION(EXT_TEXEL_BUFFER_ALIGNMENT, EXT_texel_buffer_alignment),
+    VK_EXTENSION(EXT_TRANSFORM_FEEDBACK, EXT_transform_feedback),
+    VK_EXTENSION(EXT_VERTEX_ATTRIBUTE_DIVISOR, EXT_vertex_attribute_divisor),
 };
 
 static unsigned int get_spec_version(const VkExtensionProperties *extensions,
