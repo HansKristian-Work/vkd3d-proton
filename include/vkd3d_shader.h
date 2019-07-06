@@ -224,6 +224,13 @@ enum vkd3d_shader_target
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_TARGET),
 };
 
+enum vkd3d_shader_target_extension
+{
+    VKD3D_SHADER_TARGET_EXTENSION_NONE,
+
+    VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION,
+};
+
 struct vkd3d_shader_compile_arguments
 {
     enum vkd3d_shader_structure_type type;
@@ -231,8 +238,11 @@ struct vkd3d_shader_compile_arguments
 
     enum vkd3d_shader_target target;
 
+    unsigned int target_extension_count;
+    const enum vkd3d_shader_target_extension *target_extensions;
+
     unsigned int parameter_count;
-    struct vkd3d_shader_parameter *parameters;
+    const struct vkd3d_shader_parameter *parameters;
 
     bool dual_source_blending;
     const unsigned int *output_swizzles;

@@ -266,6 +266,7 @@ struct vkd3d_spirv_builder
 {
     uint64_t capability_mask;
     uint64_t capability_draw_parameters : 1;
+    uint64_t capability_demote_to_helper_invocation : 1;
     uint32_t ext_instr_set_glsl_450;
     SpvExecutionModel execution_model;
 
@@ -310,6 +311,10 @@ static void vkd3d_spirv_enable_capability(struct vkd3d_spirv_builder *builder,
     else if (cap == SpvCapabilityDrawParameters)
     {
         builder->capability_draw_parameters = 1;
+    }
+    else if (cap == SpvCapabilityDemoteToHelperInvocationEXT)
+    {
+        builder->capability_demote_to_helper_invocation = 1;
     }
     else
     {
@@ -1222,6 +1227,11 @@ static void vkd3d_spirv_build_op_kill(struct vkd3d_spirv_builder *builder)
     vkd3d_spirv_build_op(&builder->function_stream, SpvOpKill);
 }
 
+static void vkd3d_spirv_build_op_demote_to_helper_invocation(struct vkd3d_spirv_builder *builder)
+{
+    vkd3d_spirv_build_op(&builder->function_stream, SpvOpDemoteToHelperInvocationEXT);
+}
+
 static void vkd3d_spirv_build_op_return(struct vkd3d_spirv_builder *builder)
 {
     vkd3d_spirv_build_op(&builder->function_stream, SpvOpReturn);
@@ -1703,10 +1713,14 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
     }
     if (builder->capability_draw_parameters)
         vkd3d_spirv_build_op_capability(&stream, SpvCapabilityDrawParameters);
+    if (builder->capability_demote_to_helper_invocation)
+        vkd3d_spirv_build_op_capability(&stream, SpvCapabilityDemoteToHelperInvocationEXT);
 
     /* extensions */
     if (builder->capability_draw_parameters)
         vkd3d_spirv_build_op_extension(&stream, "SPV_KHR_shader_draw_parameters");
+    if (builder->capability_demote_to_helper_invocation)
+        vkd3d_spirv_build_op_extension(&stream, "SPV_EXT_demote_to_helper_invocation");
 
     if (builder->ext_instr_set_glsl_450)
         vkd3d_spirv_build_op_ext_inst_import(&stream, builder->ext_instr_set_glsl_450, "GLSL.std.450");
@@ -2146,6 +2160,21 @@ static enum vkd3d_shader_target vkd3d_dxbc_compiler_get_target(const struct vkd3
 static bool vkd3d_dxbc_compiler_is_opengl_target(const struct vkd3d_dxbc_compiler *compiler)
 {
     return vkd3d_dxbc_compiler_get_target(compiler) == VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5;
+}
+
+static bool vkd3d_dxbc_compiler_is_target_extension_supported(const struct vkd3d_dxbc_compiler *compiler,
+        enum vkd3d_shader_target_extension extension)
+{
+    const struct vkd3d_shader_compile_arguments *args = compiler->compile_args;
+    unsigned int i;
+
+    for (i = 0; args && i < args->target_extension_count; ++i)
+    {
+        if (args->target_extensions[i] == extension)
+            return true;
+    }
+
+    return false;
 }
 
 static bool vkd3d_dxbc_compiler_check_shader_visibility(const struct vkd3d_dxbc_compiler *compiler,
@@ -6477,7 +6506,18 @@ static void vkd3d_dxbc_compiler_emit_kill(struct vkd3d_dxbc_compiler *compiler,
     merge_block_id = vkd3d_dxbc_compiler_emit_conditional_branch(compiler, instruction, target_id);
 
     vkd3d_spirv_build_op_label(builder, target_id);
-    vkd3d_spirv_build_op_kill(builder);
+
+    if (vkd3d_dxbc_compiler_is_target_extension_supported(compiler,
+            VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION))
+    {
+        vkd3d_spirv_build_op_demote_to_helper_invocation(builder);
+        vkd3d_spirv_build_op_branch(builder, merge_block_id);
+    }
+    else
+    {
+        vkd3d_spirv_build_op_kill(builder);
+    }
+
     vkd3d_spirv_build_op_label(builder, merge_block_id);
 }
 

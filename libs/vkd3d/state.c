@@ -2254,6 +2254,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     ps_compile_args.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS;
     ps_compile_args.next = NULL;
     ps_compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
+    ps_compile_args.target_extension_count = 0;
+    ps_compile_args.target_extensions = NULL;
     ps_compile_args.parameter_count = ARRAY_SIZE(ps_shader_parameters);
     ps_compile_args.parameters = ps_shader_parameters;
     ps_compile_args.dual_source_blending = is_dual_source_blending(&desc->BlendState.RenderTarget[0]);
