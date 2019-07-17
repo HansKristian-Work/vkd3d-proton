@@ -65,6 +65,10 @@ commas or semicolons.
  * VKD3D_TEST_DEBUG - enables additional debug messages in tests. Set to 0, 1
    or 2.
 
+ * VKD3D_TEST_FILTER - a filter string. Only the tests whose names matches the
+   filter string will be run, e.g. VKD3D_TEST_FILTER=clear_render_target.
+   Useful for debugging or developing new tests.
+
  * VKD3D_TEST_PLATFORM - can be set to "wine", "windows" or "other". The test
    platform controls the behavior of todo(), todo_if(), bug_if() and broken()
    conditions in tests.

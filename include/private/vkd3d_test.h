@@ -118,6 +118,7 @@ static struct
     bool bug_do_loop;
     bool bug_enabled;
 
+    const char *test_name_filter;
     char context[1024];
 } vkd3d_test_state;
 
@@ -254,6 +255,7 @@ vkd3d_test_debug(const char *fmt, ...)
 
 int main(int argc, char **argv)
 {
+    const char *test_filter = getenv("VKD3D_TEST_FILTER");
     const char *debug_level = getenv("VKD3D_TEST_DEBUG");
     char *test_platform = getenv("VKD3D_TEST_PLATFORM");
     const char *bug = getenv("VKD3D_TEST_BUG");
@@ -261,6 +263,7 @@ int main(int argc, char **argv)
     memset(&vkd3d_test_state, 0, sizeof(vkd3d_test_state));
     vkd3d_test_state.debug_level = debug_level ? atoi(debug_level) : 0;
     vkd3d_test_state.bug_enabled = bug ? atoi(bug) : true;
+    vkd3d_test_state.test_name_filter = test_filter;
 
     if (test_platform)
     {
@@ -341,6 +344,9 @@ typedef void (*vkd3d_test_pfn)(void);
 
 static inline void vkd3d_run_test(const char *name, vkd3d_test_pfn test_pfn)
 {
+    if (vkd3d_test_state.test_name_filter && !strstr(name, vkd3d_test_state.test_name_filter))
+        return;
+
     vkd3d_test_debug("%s", name);
     test_pfn();
 }
