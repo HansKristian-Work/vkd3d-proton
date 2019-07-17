@@ -124,12 +124,12 @@ struct cx_gears
     struct demo_swapchain *swapchain;
     ID3D12DescriptorHeap *rtv_heap, *dsv_heap;
     unsigned int rtv_descriptor_size;
-    ID3D12Resource *render_targets[2];
-    ID3D12CommandAllocator *command_allocator[2];
+    ID3D12Resource *render_targets[3];
+    ID3D12CommandAllocator *command_allocator[3];
 
     ID3D12RootSignature *root_signature;
     ID3D12PipelineState *pipeline_state_smooth, *pipeline_state_flat;
-    ID3D12GraphicsCommandList *command_list[2];
+    ID3D12GraphicsCommandList *command_list[3];
     ID3D12Resource *ds, *cb, *vb[2], *ib;
     D3D12_VERTEX_BUFFER_VIEW vbv[2];
     D3D12_INDEX_BUFFER_VIEW ibv;
@@ -306,8 +306,10 @@ static void cxg_destroy_pipeline(struct cx_gears *cxg)
 {
     unsigned int i;
 
-    ID3D12CommandAllocator_Release(cxg->command_allocator[1]);
-    ID3D12CommandAllocator_Release(cxg->command_allocator[0]);
+    for (i = 0; i < ARRAY_SIZE(cxg->command_allocator); ++i)
+    {
+        ID3D12CommandAllocator_Release(cxg->command_allocator[i]);
+    }
     for (i = 0; i < ARRAY_SIZE(cxg->render_targets); ++i)
     {
         ID3D12Resource_Release(cxg->render_targets[i]);
@@ -371,12 +373,12 @@ static void cxg_load_pipeline(struct cx_gears *cxg)
             &IID_ID3D12DescriptorHeap, (void **)&cxg->dsv_heap);
     assert(SUCCEEDED(hr));
 
-    hr = ID3D12Device_CreateCommandAllocator(cxg->device, D3D12_COMMAND_LIST_TYPE_DIRECT,
-            &IID_ID3D12CommandAllocator, (void **)&cxg->command_allocator[0]);
-    assert(SUCCEEDED(hr));
-    hr = ID3D12Device_CreateCommandAllocator(cxg->device, D3D12_COMMAND_LIST_TYPE_DIRECT,
-            &IID_ID3D12CommandAllocator, (void **)&cxg->command_allocator[1]);
-    assert(SUCCEEDED(hr));
+    for (i = 0; i < ARRAY_SIZE(cxg->command_allocator); ++i)
+    {
+        hr = ID3D12Device_CreateCommandAllocator(cxg->device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                &IID_ID3D12CommandAllocator, (void **)&cxg->command_allocator[i]);
+        assert(SUCCEEDED(hr));
+    }
 }
 
 static void cxg_fence_destroy(struct cxg_fence *cxg_fence)
@@ -387,6 +389,8 @@ static void cxg_fence_destroy(struct cxg_fence *cxg_fence)
 
 static void cxg_destroy_assets(struct cx_gears *cxg)
 {
+    unsigned int i;
+
     cxg_fence_destroy(&cxg->fence);
     ID3D12Resource_Release(cxg->ib);
     ID3D12Resource_Unmap(cxg->vb[1], 0, NULL);
@@ -395,8 +399,8 @@ static void cxg_destroy_assets(struct cx_gears *cxg)
     ID3D12Resource_Unmap(cxg->cb, 0, NULL);
     ID3D12Resource_Release(cxg->cb);
     ID3D12Resource_Release(cxg->ds);
-    ID3D12GraphicsCommandList_Release(cxg->command_list[1]);
-    ID3D12GraphicsCommandList_Release(cxg->command_list[0]);
+    for (i = 0; i < ARRAY_SIZE(cxg->command_list); ++i)
+        ID3D12GraphicsCommandList_Release(cxg->command_list[i]);
     ID3D12PipelineState_Release(cxg->pipeline_state_smooth);
     ID3D12PipelineState_Release(cxg->pipeline_state_flat);
     ID3D12RootSignature_Release(cxg->root_signature);
@@ -659,6 +663,7 @@ static void cxg_load_assets(struct cx_gears *cxg)
     D3D12_HEAP_PROPERTIES heap_desc;
     D3D12_RANGE read_range = {0, 0};
     D3D12_CLEAR_VALUE clear_value;
+    unsigned int i;
     HRESULT hr;
 
     root_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -709,16 +714,15 @@ static void cxg_load_assets(struct cx_gears *cxg)
             &IID_ID3D12PipelineState, (void **)&cxg->pipeline_state_smooth);
     assert(SUCCEEDED(hr));
 
-    hr = ID3D12Device_CreateCommandList(cxg->device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, cxg->command_allocator[0],
-            cxg->pipeline_state_flat, &IID_ID3D12GraphicsCommandList, (void **)&cxg->command_list[0]);
-    assert(SUCCEEDED(hr));
-    hr = ID3D12GraphicsCommandList_Close(cxg->command_list[0]);
-    assert(SUCCEEDED(hr));
-    hr = ID3D12Device_CreateCommandList(cxg->device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, cxg->command_allocator[1],
-            cxg->pipeline_state_flat, &IID_ID3D12GraphicsCommandList, (void **)&cxg->command_list[1]);
-    assert(SUCCEEDED(hr));
-    hr = ID3D12GraphicsCommandList_Close(cxg->command_list[1]);
-    assert(SUCCEEDED(hr));
+    for (i = 0; i < ARRAY_SIZE(cxg->command_list); ++i)
+    {
+        hr = ID3D12Device_CreateCommandList(cxg->device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                cxg->command_allocator[i], cxg->pipeline_state_flat,
+                &IID_ID3D12GraphicsCommandList, (void **)&cxg->command_list[i]);
+        assert(SUCCEEDED(hr));
+        hr = ID3D12GraphicsCommandList_Close(cxg->command_list[i]);
+        assert(SUCCEEDED(hr));
+    }
 
     heap_desc.Type = D3D12_HEAP_TYPE_DEFAULT;
     heap_desc.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
@@ -861,6 +865,7 @@ static int cxg_main(void)
     cxg_load_assets(&cxg);
     cxg_populate_command_list(&cxg, 0);
     cxg_populate_command_list(&cxg, 1);
+    cxg_populate_command_list(&cxg, 2);
 
     demo_process_events(&cxg.demo);
 
