@@ -958,10 +958,10 @@ static void test_create_device(void)
         return;
     }
 
-    check_interface(device, &IID_ID3D12Object, TRUE);
-    check_interface(device, &IID_ID3D12DeviceChild, FALSE);
-    check_interface(device, &IID_ID3D12Pageable, FALSE);
-    check_interface(device, &IID_ID3D12Device, TRUE);
+    check_interface(device, &IID_ID3D12Object, true);
+    check_interface(device, &IID_ID3D12DeviceChild, false);
+    check_interface(device, &IID_ID3D12Pageable, false);
+    check_interface(device, &IID_ID3D12Device, true);
 
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
@@ -1356,12 +1356,12 @@ static void test_multisample_quality_levels(void)
     /* invalid sample counts */
     for (i = 1; i <= 32; ++i)
     {
-        BOOL valid_sample_count = FALSE;
+        bool valid_sample_count = false;
         for (j = 0; j < ARRAY_SIZE(sample_counts); ++j)
         {
             if (sample_counts[j] == i)
             {
-                valid_sample_count = TRUE;
+                valid_sample_count = true;
                 break;
             }
         }
@@ -1434,10 +1434,10 @@ static void test_create_command_allocator(void)
     refcount = ID3D12Device_Release(tmp_device);
     ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
 
-    check_interface(command_allocator, &IID_ID3D12Object, TRUE);
-    check_interface(command_allocator, &IID_ID3D12DeviceChild, TRUE);
-    check_interface(command_allocator, &IID_ID3D12Pageable, TRUE);
-    check_interface(command_allocator, &IID_ID3D12CommandAllocator, TRUE);
+    check_interface(command_allocator, &IID_ID3D12Object, true);
+    check_interface(command_allocator, &IID_ID3D12DeviceChild, true);
+    check_interface(command_allocator, &IID_ID3D12Pageable, true);
+    check_interface(command_allocator, &IID_ID3D12CommandAllocator, true);
 
     refcount = ID3D12CommandAllocator_Release(command_allocator);
     ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", (unsigned int)refcount);
@@ -1509,12 +1509,12 @@ static void test_create_command_list(void)
     refcount = ID3D12Device_Release(tmp_device);
     ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
 
-    check_interface(command_list, &IID_ID3D12Object, TRUE);
-    check_interface(command_list, &IID_ID3D12DeviceChild, TRUE);
-    check_interface(command_list, &IID_ID3D12Pageable, FALSE);
-    check_interface(command_list, &IID_ID3D12CommandList, TRUE);
-    check_interface(command_list, &IID_ID3D12GraphicsCommandList, TRUE);
-    check_interface(command_list, &IID_ID3D12CommandAllocator, FALSE);
+    check_interface(command_list, &IID_ID3D12Object, true);
+    check_interface(command_list, &IID_ID3D12DeviceChild, true);
+    check_interface(command_list, &IID_ID3D12Pageable, false);
+    check_interface(command_list, &IID_ID3D12CommandList, true);
+    check_interface(command_list, &IID_ID3D12GraphicsCommandList, true);
+    check_interface(command_list, &IID_ID3D12CommandAllocator, false);
 
     refcount = ID3D12CommandList_Release(command_list);
     ok(!refcount, "ID3D12CommandList has %u references left.\n", (unsigned int)refcount);
@@ -1530,7 +1530,7 @@ static void test_create_command_list(void)
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_BUNDLE,
             command_allocator, NULL, &IID_ID3D12CommandList, (void **)&command_list);
     ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
-    check_interface(command_list, &IID_ID3D12GraphicsCommandList, TRUE);
+    check_interface(command_list, &IID_ID3D12GraphicsCommandList, true);
     refcount = ID3D12CommandList_Release(command_list);
     ok(!refcount, "ID3D12CommandList has %u references left.\n", (unsigned int)refcount);
     refcount = ID3D12CommandAllocator_Release(command_allocator);
@@ -1545,7 +1545,7 @@ static void test_create_command_list(void)
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
             command_allocator, NULL, &IID_ID3D12CommandList, (void **)&command_list);
     ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
-    check_interface(command_list, &IID_ID3D12GraphicsCommandList, TRUE);
+    check_interface(command_list, &IID_ID3D12GraphicsCommandList, true);
     refcount = ID3D12CommandList_Release(command_list);
     ok(!refcount, "ID3D12CommandList has %u references left.\n", (unsigned int)refcount);
     refcount = ID3D12CommandAllocator_Release(command_allocator);
@@ -1563,7 +1563,7 @@ static void test_create_command_list(void)
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_COPY,
             command_allocator, NULL, &IID_ID3D12CommandList, (void **)&command_list);
     ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
-    check_interface(command_list, &IID_ID3D12GraphicsCommandList, TRUE);
+    check_interface(command_list, &IID_ID3D12GraphicsCommandList, true);
     refcount = ID3D12CommandList_Release(command_list);
     ok(!refcount, "ID3D12CommandList has %u references left.\n", (unsigned int)refcount);
     refcount = ID3D12CommandAllocator_Release(command_allocator);
@@ -1605,10 +1605,10 @@ static void test_create_command_queue(void)
     refcount = ID3D12Device_Release(tmp_device);
     ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
 
-    check_interface(queue, &IID_ID3D12Object, TRUE);
-    check_interface(queue, &IID_ID3D12DeviceChild, TRUE);
-    check_interface(queue, &IID_ID3D12Pageable, TRUE);
-    check_interface(queue, &IID_ID3D12CommandQueue, TRUE);
+    check_interface(queue, &IID_ID3D12Object, true);
+    check_interface(queue, &IID_ID3D12DeviceChild, true);
+    check_interface(queue, &IID_ID3D12Pageable, true);
+    check_interface(queue, &IID_ID3D12CommandQueue, true);
 
     result_desc = ID3D12CommandQueue_GetDesc(queue);
     ok(result_desc.Type == desc.Type, "Got unexpected type %#x.\n", result_desc.Type);
@@ -1775,10 +1775,10 @@ static void test_create_committed_resource(void)
     refcount = ID3D12Device_Release(tmp_device);
     ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
 
-    check_interface(resource, &IID_ID3D12Object, TRUE);
-    check_interface(resource, &IID_ID3D12DeviceChild, TRUE);
-    check_interface(resource, &IID_ID3D12Pageable, TRUE);
-    check_interface(resource, &IID_ID3D12Resource, TRUE);
+    check_interface(resource, &IID_ID3D12Object, true);
+    check_interface(resource, &IID_ID3D12DeviceChild, true);
+    check_interface(resource, &IID_ID3D12Pageable, true);
+    check_interface(resource, &IID_ID3D12Resource, true);
 
     gpu_address = ID3D12Resource_GetGPUVirtualAddress(resource);
     ok(!gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
@@ -1860,10 +1860,10 @@ static void test_create_committed_resource(void)
             &IID_ID3D12Resource, (void **)&resource);
     ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
 
-    check_interface(resource, &IID_ID3D12Object, TRUE);
-    check_interface(resource, &IID_ID3D12DeviceChild, TRUE);
-    check_interface(resource, &IID_ID3D12Pageable, TRUE);
-    check_interface(resource, &IID_ID3D12Resource, TRUE);
+    check_interface(resource, &IID_ID3D12Object, true);
+    check_interface(resource, &IID_ID3D12DeviceChild, true);
+    check_interface(resource, &IID_ID3D12Pageable, true);
+    check_interface(resource, &IID_ID3D12Resource, true);
 
     gpu_address = ID3D12Resource_GetGPUVirtualAddress(resource);
     ok(gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
@@ -2010,10 +2010,10 @@ static void test_create_heap(void)
     refcount = ID3D12Device_Release(tmp_device);
     ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
 
-    check_interface(heap, &IID_ID3D12Object, TRUE);
-    check_interface(heap, &IID_ID3D12DeviceChild, TRUE);
-    check_interface(heap, &IID_ID3D12Pageable, TRUE);
-    check_interface(heap, &IID_ID3D12Heap, TRUE);
+    check_interface(heap, &IID_ID3D12Object, true);
+    check_interface(heap, &IID_ID3D12DeviceChild, true);
+    check_interface(heap, &IID_ID3D12Pageable, true);
+    check_interface(heap, &IID_ID3D12Heap, true);
 
     result_desc = ID3D12Heap_GetDesc(heap);
     check_heap_desc(&result_desc, &desc);
@@ -2163,10 +2163,10 @@ static void test_create_placed_resource(void)
     refcount = ID3D12Device_Release(tmp_device);
     ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
 
-    check_interface(resource, &IID_ID3D12Object, TRUE);
-    check_interface(resource, &IID_ID3D12DeviceChild, TRUE);
-    check_interface(resource, &IID_ID3D12Pageable, TRUE);
-    check_interface(resource, &IID_ID3D12Resource, TRUE);
+    check_interface(resource, &IID_ID3D12Object, true);
+    check_interface(resource, &IID_ID3D12DeviceChild, true);
+    check_interface(resource, &IID_ID3D12Pageable, true);
+    check_interface(resource, &IID_ID3D12Resource, true);
 
     gpu_address = ID3D12Resource_GetGPUVirtualAddress(resource);
     ok(gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
@@ -2266,10 +2266,10 @@ static void test_create_reserved_resource(void)
             &IID_ID3D12Resource, (void **)&resource);
     ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
 
-    check_interface(resource, &IID_ID3D12Object, TRUE);
-    check_interface(resource, &IID_ID3D12DeviceChild, TRUE);
-    check_interface(resource, &IID_ID3D12Pageable, TRUE);
-    check_interface(resource, &IID_ID3D12Resource, TRUE);
+    check_interface(resource, &IID_ID3D12Object, true);
+    check_interface(resource, &IID_ID3D12DeviceChild, true);
+    check_interface(resource, &IID_ID3D12Pageable, true);
+    check_interface(resource, &IID_ID3D12Resource, true);
 
     gpu_address = ID3D12Resource_GetGPUVirtualAddress(resource);
     ok(gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
@@ -2387,10 +2387,10 @@ static void test_create_descriptor_heap(void)
     refcount = ID3D12Device_Release(tmp_device);
     ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
 
-    check_interface(heap, &IID_ID3D12Object, TRUE);
-    check_interface(heap, &IID_ID3D12DeviceChild, TRUE);
-    check_interface(heap, &IID_ID3D12Pageable, TRUE);
-    check_interface(heap, &IID_ID3D12DescriptorHeap, TRUE);
+    check_interface(heap, &IID_ID3D12Object, true);
+    check_interface(heap, &IID_ID3D12DeviceChild, true);
+    check_interface(heap, &IID_ID3D12Pageable, true);
+    check_interface(heap, &IID_ID3D12DescriptorHeap, true);
 
     refcount = ID3D12DescriptorHeap_Release(heap);
     ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
@@ -2597,10 +2597,10 @@ static void test_create_root_signature(void)
     refcount = ID3D12Device_Release(tmp_device);
     ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
 
-    check_interface(root_signature, &IID_ID3D12Object, TRUE);
-    check_interface(root_signature, &IID_ID3D12DeviceChild, TRUE);
-    check_interface(root_signature, &IID_ID3D12Pageable, FALSE);
-    check_interface(root_signature, &IID_ID3D12RootSignature, TRUE);
+    check_interface(root_signature, &IID_ID3D12Object, true);
+    check_interface(root_signature, &IID_ID3D12DeviceChild, true);
+    check_interface(root_signature, &IID_ID3D12Pageable, false);
+    check_interface(root_signature, &IID_ID3D12RootSignature, true);
 
     refcount = ID3D12RootSignature_Release(root_signature);
     ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
@@ -2809,10 +2809,10 @@ static void test_create_compute_pipeline_state(void)
     refcount = ID3D12Device_Release(tmp_device);
     ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
 
-    check_interface(pipeline_state, &IID_ID3D12Object, TRUE);
-    check_interface(pipeline_state, &IID_ID3D12DeviceChild, TRUE);
-    check_interface(pipeline_state, &IID_ID3D12Pageable, TRUE);
-    check_interface(pipeline_state, &IID_ID3D12PipelineState, TRUE);
+    check_interface(pipeline_state, &IID_ID3D12Object, true);
+    check_interface(pipeline_state, &IID_ID3D12DeviceChild, true);
+    check_interface(pipeline_state, &IID_ID3D12Pageable, true);
+    check_interface(pipeline_state, &IID_ID3D12PipelineState, true);
 
     refcount = ID3D12PipelineState_Release(pipeline_state);
     ok(!refcount, "ID3D12PipelineState has %u references left.\n", (unsigned int)refcount);
@@ -2875,10 +2875,10 @@ static void test_create_graphics_pipeline_state(void)
     refcount = ID3D12Device_Release(tmp_device);
     ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
 
-    check_interface(pipeline_state, &IID_ID3D12Object, TRUE);
-    check_interface(pipeline_state, &IID_ID3D12DeviceChild, TRUE);
-    check_interface(pipeline_state, &IID_ID3D12Pageable, TRUE);
-    check_interface(pipeline_state, &IID_ID3D12PipelineState, TRUE);
+    check_interface(pipeline_state, &IID_ID3D12Object, true);
+    check_interface(pipeline_state, &IID_ID3D12DeviceChild, true);
+    check_interface(pipeline_state, &IID_ID3D12Pageable, true);
+    check_interface(pipeline_state, &IID_ID3D12PipelineState, true);
 
     refcount = ID3D12PipelineState_Release(pipeline_state);
     ok(!refcount, "ID3D12PipelineState has %u references left.\n", (unsigned int)refcount);
@@ -2996,10 +2996,10 @@ static void test_create_fence(void)
     refcount = ID3D12Device_Release(tmp_device);
     ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
 
-    check_interface(fence, &IID_ID3D12Object, TRUE);
-    check_interface(fence, &IID_ID3D12DeviceChild, TRUE);
-    check_interface(fence, &IID_ID3D12Pageable, TRUE);
-    check_interface(fence, &IID_ID3D12Fence, TRUE);
+    check_interface(fence, &IID_ID3D12Object, true);
+    check_interface(fence, &IID_ID3D12DeviceChild, true);
+    check_interface(fence, &IID_ID3D12Pageable, true);
+    check_interface(fence, &IID_ID3D12Fence, true);
 
     value = ID3D12Fence_GetCompletedValue(fence);
     ok(value == 0, "Got unexpected value %"PRIu64".\n", value);
@@ -11353,12 +11353,12 @@ static void test_root_signature_byte_code(void)
             &IID_ID3D12RootSignatureDeserializer, (void **)&deserializer);
     ok(hr == S_OK, "Failed to create deserializer, hr %#x.\n", hr);
 
-    check_interface(deserializer, &IID_IUnknown, FALSE);
-    check_interface(deserializer, &IID_ID3D12RootSignatureDeserializer, TRUE);
-    check_interface(deserializer, &IID_ID3D12VersionedRootSignatureDeserializer, FALSE);
-    check_interface(deserializer, &IID_ID3D12Object, FALSE);
-    check_interface(deserializer, &IID_ID3D12DeviceChild, FALSE);
-    check_interface(deserializer, &IID_ID3D12Pageable, FALSE);
+    check_interface(deserializer, &IID_IUnknown, false);
+    check_interface(deserializer, &IID_ID3D12RootSignatureDeserializer, true);
+    check_interface(deserializer, &IID_ID3D12VersionedRootSignatureDeserializer, false);
+    check_interface(deserializer, &IID_ID3D12Object, false);
+    check_interface(deserializer, &IID_ID3D12DeviceChild, false);
+    check_interface(deserializer, &IID_ID3D12Pageable, false);
 
     refcount = ID3D12RootSignatureDeserializer_Release(deserializer);
     ok(!refcount, "ID3D12RootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
@@ -11402,12 +11402,12 @@ static void test_root_signature_byte_code(void)
             &IID_ID3D12VersionedRootSignatureDeserializer, (void **)&versioned_deserializer);
     ok(hr == S_OK, "Failed to create deserializer, hr %#x.\n", hr);
 
-    check_interface(versioned_deserializer, &IID_IUnknown, FALSE);
-    check_interface(versioned_deserializer, &IID_ID3D12RootSignatureDeserializer, FALSE);
-    check_interface(versioned_deserializer, &IID_ID3D12VersionedRootSignatureDeserializer, TRUE);
-    check_interface(versioned_deserializer, &IID_ID3D12Object, FALSE);
-    check_interface(versioned_deserializer, &IID_ID3D12DeviceChild, FALSE);
-    check_interface(versioned_deserializer, &IID_ID3D12Pageable, FALSE);
+    check_interface(versioned_deserializer, &IID_IUnknown, false);
+    check_interface(versioned_deserializer, &IID_ID3D12RootSignatureDeserializer, false);
+    check_interface(versioned_deserializer, &IID_ID3D12VersionedRootSignatureDeserializer, true);
+    check_interface(versioned_deserializer, &IID_ID3D12Object, false);
+    check_interface(versioned_deserializer, &IID_ID3D12DeviceChild, false);
+    check_interface(versioned_deserializer, &IID_ID3D12Pageable, false);
 
     refcount = ID3D12VersionedRootSignatureDeserializer_Release(versioned_deserializer);
     ok(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
@@ -21472,7 +21472,7 @@ static void test_atomic_instructions(void)
         get_buffer_readback_with_command_list(cs_buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
         for (j = 0; j < ARRAY_SIZE(instructions); ++j)
         {
-            BOOL todo_instruction = !strcmp(imm_instructions[j], "imm_atomic_imax")
+            bool todo_instruction = !strcmp(imm_instructions[j], "imm_atomic_imax")
                     || !strcmp(imm_instructions[j], "imm_atomic_imin");
             unsigned int value = get_readback_uint(&rb, j, 0, 0);
             unsigned int expected = test->expected_result[j];
@@ -23390,8 +23390,8 @@ static void test_vertex_id(void)
         {0xf, 2, 9},
     };
 
-    BOOL found_values[ARRAY_SIZE(expected_values)] = {0};
-    BOOL used_values[ARRAY_SIZE(expected_values)] = {0};
+    bool found_values[ARRAY_SIZE(expected_values)] = {0};
+    bool used_values[ARRAY_SIZE(expected_values)] = {0};
     ID3D12Resource *args_buffer, *indexed_args_buffer;
     ID3D12CommandSignature *indexed_command_signature;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -23524,8 +23524,8 @@ static void test_vertex_id(void)
         {
             if (!used_values[j] && compare_uvec4(get_readback_uvec4(&rb, j, 0), &expected_values[i]))
             {
-                found_values[i] = TRUE;
-                used_values[j] = TRUE;
+                found_values[i] = true;
+                used_values[j] = true;
                 break;
             }
         }
@@ -24704,20 +24704,20 @@ static void test_face_culling(void)
     static const struct
     {
         D3D12_CULL_MODE cull_mode;
-        BOOL front_ccw;
-        BOOL expected_cw;
-        BOOL expected_ccw;
+        bool front_ccw;
+        bool expected_cw;
+        bool expected_ccw;
     }
     tests[] =
     {
-        {D3D12_CULL_MODE_NONE,  FALSE, TRUE,  TRUE},
-        {D3D12_CULL_MODE_NONE,  TRUE,  TRUE,  TRUE},
-        {D3D12_CULL_MODE_FRONT, FALSE, FALSE, TRUE},
-        {D3D12_CULL_MODE_FRONT, TRUE,  TRUE,  FALSE},
-        {D3D12_CULL_MODE_BACK,  FALSE, TRUE,  FALSE},
-        {D3D12_CULL_MODE_BACK,  TRUE,  FALSE, TRUE},
+        {D3D12_CULL_MODE_NONE,  false, true,  true},
+        {D3D12_CULL_MODE_NONE,  true,  true,  true},
+        {D3D12_CULL_MODE_FRONT, false, false, true},
+        {D3D12_CULL_MODE_FRONT, true,  true,  false},
+        {D3D12_CULL_MODE_BACK,  false, true,  false},
+        {D3D12_CULL_MODE_BACK,  true,  false, true},
     };
-    static const BOOL front_tests[] = {FALSE, TRUE};
+    static const bool front_tests[] = {false, true};
 
     memset(&desc, 0, sizeof(desc));
     desc.no_root_signature = true;
@@ -28110,7 +28110,7 @@ static void test_clip_distance(void)
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     struct
     {
-        BOOL use_constant;
+        bool use_constant;
         float clip_distance0;
         float clip_distance1;
         float padding;
@@ -28193,7 +28193,7 @@ static void test_clip_distance(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     check_clip_distance(&context, pso, vbv, vb[1], vs_cb, gs_cb);
 
-    cb_data.use_constant = TRUE;
+    cb_data.use_constant = true;
     cb_data.clip_distance0 = -1.0f;
     update_buffer_data(vs_cb, 0, sizeof(cb_data), &cb_data);
 
@@ -28207,7 +28207,7 @@ static void test_clip_distance(void)
 
     check_clip_distance(&context, pso, vbv, vb[1], vs_cb, gs_cb);
 
-    cb_data.use_constant = TRUE;
+    cb_data.use_constant = true;
     cb_data.clip_distance0 = 1.0f;
     update_buffer_data(gs_cb, 0, sizeof(cb_data), &cb_data);
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
@@ -28239,7 +28239,7 @@ static void test_clip_distance(void)
             &IID_ID3D12PipelineState, (void **)&pso);
     ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
 
-    cb_data.use_constant = FALSE;
+    cb_data.use_constant = false;
     update_buffer_data(vs_cb, 0, sizeof(cb_data), &cb_data);
 
     for (i = 0; i < ARRAY_SIZE(vertices); ++i)
@@ -28301,7 +28301,7 @@ static void test_clip_distance(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
-    cb_data.use_constant = TRUE;
+    cb_data.use_constant = true;
     cb_data.clip_distance0 = 0.0f;
     cb_data.clip_distance1 = 0.0f;
     update_buffer_data(vs_cb, 0, sizeof(cb_data), &cb_data);
@@ -28441,27 +28441,27 @@ static void test_combined_clip_and_cull_distances(void)
     static const struct test
     {
         float vertices[4];
-        BOOL triangle_visible[2];
+        bool triangle_visible[2];
     }
     cull_distance_tests[] =
     {
-        {{-1.0f,  1.0f,  1.0f,  1.0f}, {TRUE, TRUE}},
-        {{ 1.0f, -1.0f,  1.0f,  1.0f}, {TRUE, TRUE}},
-        {{ 1.0f,  1.0f,  1.0f, -1.0f}, {TRUE, TRUE}},
-        {{-1.0f, -1.0f,  1.0f,  1.0f}, {TRUE, TRUE}},
-        {{-1.0f,  1.0f, -1.0f,  1.0f}, {TRUE, TRUE}},
-        {{-1.0f,  1.0f,  1.0f, -1.0f}, {TRUE, TRUE}},
-        {{ 1.0f, -1.0f, -1.0f,  1.0f}, {TRUE, TRUE}},
-        {{ 1.0f, -1.0f,  1.0f, -1.0f}, {TRUE, TRUE}},
-        {{ 1.0f,  1.0f, -1.0f, -1.0f}, {TRUE, TRUE}},
+        {{-1.0f,  1.0f,  1.0f,  1.0f}, {true, true}},
+        {{ 1.0f, -1.0f,  1.0f,  1.0f}, {true, true}},
+        {{ 1.0f,  1.0f,  1.0f, -1.0f}, {true, true}},
+        {{-1.0f, -1.0f,  1.0f,  1.0f}, {true, true}},
+        {{-1.0f,  1.0f, -1.0f,  1.0f}, {true, true}},
+        {{-1.0f,  1.0f,  1.0f, -1.0f}, {true, true}},
+        {{ 1.0f, -1.0f, -1.0f,  1.0f}, {true, true}},
+        {{ 1.0f, -1.0f,  1.0f, -1.0f}, {true, true}},
+        {{ 1.0f,  1.0f, -1.0f, -1.0f}, {true, true}},
 
-        {{-1.0f, -1.0f, -1.0f,  1.0f}, {FALSE, TRUE}},
-        {{-1.0f, -1.0f,  1.0f, -1.0f}, {TRUE,  TRUE}},
-        {{-1.0f, -1.0f,  1.0f, -1.0f}, {TRUE,  TRUE}},
-        {{-1.0f,  1.0f, -1.0f, -1.0f}, {TRUE,  TRUE}},
-        {{ 1.0f, -1.0f, -1.0f, -1.0f}, {TRUE,  FALSE}},
+        {{-1.0f, -1.0f, -1.0f,  1.0f}, {false, true}},
+        {{-1.0f, -1.0f,  1.0f, -1.0f}, {true,  true}},
+        {{-1.0f, -1.0f,  1.0f, -1.0f}, {true,  true}},
+        {{-1.0f,  1.0f, -1.0f, -1.0f}, {true,  true}},
+        {{ 1.0f, -1.0f, -1.0f, -1.0f}, {true,  false}},
 
-        {{-1.0f, -1.0f, -1.0f, -1.0f}, {FALSE, FALSE}},
+        {{-1.0f, -1.0f, -1.0f, -1.0f}, {false, false}},
     };
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
@@ -28805,10 +28805,10 @@ static void test_suballocate_small_textures(void)
                 NULL, &IID_ID3D12Resource, (void **)&textures[i]);
         ok(hr == S_OK, "Failed to create placed resource %u, hr %#x.\n", i, hr);
 
-        check_interface(textures[i], &IID_ID3D12Object, TRUE);
-        check_interface(textures[i], &IID_ID3D12DeviceChild, TRUE);
-        check_interface(textures[i], &IID_ID3D12Pageable, TRUE);
-        check_interface(textures[i], &IID_ID3D12Resource, TRUE);
+        check_interface(textures[i], &IID_ID3D12Object, true);
+        check_interface(textures[i], &IID_ID3D12DeviceChild, true);
+        check_interface(textures[i], &IID_ID3D12Pageable, true);
+        check_interface(textures[i], &IID_ID3D12Resource, true);
 
         gpu_address = ID3D12Resource_GetGPUVirtualAddress(textures[i]);
         ok(!gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
