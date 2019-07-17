@@ -2884,8 +2884,8 @@ static void test_create_graphics_pipeline_state(void)
     ok(!refcount, "ID3D12PipelineState has %u references left.\n", (unsigned int)refcount);
 
     blend = &pso_desc.BlendState;
-    blend->IndependentBlendEnable = FALSE;
-    blend->RenderTarget[0].BlendEnable = TRUE;
+    blend->IndependentBlendEnable = false;
+    blend->RenderTarget[0].BlendEnable = true;
     blend->RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_COLOR;
     blend->RenderTarget[0].DestBlend = D3D12_BLEND_DEST_COLOR;
     blend->RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
@@ -2899,9 +2899,9 @@ static void test_create_graphics_pipeline_state(void)
     ID3D12PipelineState_Release(pipeline_state);
 
     /* Only one of BlendEnable or LogicOpEnable can be set to true. */
-    blend->IndependentBlendEnable = FALSE;
-    blend->RenderTarget[0].BlendEnable = TRUE;
-    blend->RenderTarget[0].LogicOpEnable = TRUE;
+    blend->IndependentBlendEnable = false;
+    blend->RenderTarget[0].BlendEnable = true;
+    blend->RenderTarget[0].LogicOpEnable = true;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
@@ -2910,17 +2910,17 @@ static void test_create_graphics_pipeline_state(void)
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
-    blend->IndependentBlendEnable = FALSE;
-    blend->RenderTarget[0].BlendEnable = FALSE;
-    blend->RenderTarget[0].LogicOpEnable = TRUE;
+    blend->IndependentBlendEnable = false;
+    blend->RenderTarget[0].BlendEnable = false;
+    blend->RenderTarget[0].LogicOpEnable = true;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
     ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
     ID3D12PipelineState_Release(pipeline_state);
 
     /* IndependentBlendEnable must be set to false when logic operations are enabled. */
-    blend->IndependentBlendEnable = TRUE;
-    blend->RenderTarget[0].LogicOpEnable = TRUE;
+    blend->IndependentBlendEnable = true;
+    blend->RenderTarget[0].LogicOpEnable = true;
     for (i = 1; i < ARRAY_SIZE(blend->RenderTarget); ++i)
         blend->RenderTarget[i] = blend->RenderTarget[0];
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
@@ -2930,7 +2930,7 @@ static void test_create_graphics_pipeline_state(void)
     /* DSVFormat = DXGI_FORMAT_UNKNOWN */
     memset(blend, 0, sizeof(*blend));
     pso_desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
-    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthEnable = true;
     pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
@@ -2940,7 +2940,7 @@ static void test_create_graphics_pipeline_state(void)
 
     /* Invalid DSVFormat */
     pso_desc.DSVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthEnable = true;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
@@ -4759,13 +4759,13 @@ static void test_set_render_targets(void)
     dsv = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv_heap);
     rtv = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, FALSE, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, TRUE, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, TRUE, &dsv);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, &rtv, TRUE, &dsv);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, &rtv, FALSE, &dsv);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, TRUE, &dsv);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &dsv);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, false, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, true, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, true, &dsv);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, &rtv, true, &dsv);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, &rtv, false, &dsv);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, true, &dsv);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, false, &dsv);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
@@ -4795,7 +4795,7 @@ static void test_draw_instanced(void)
         ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
     }
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -4840,7 +4840,7 @@ static void test_draw_indexed_instanced(void)
         ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, 3, 1, 0, 0, 0);
     }
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -4911,7 +4911,7 @@ static void test_draw_no_descriptor_bindings(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -4992,7 +4992,7 @@ static void test_multiple_render_targets(void)
     for (i = 0; i < ARRAY_SIZE(rtvs); ++i)
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[i], white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, ARRAY_SIZE(rtvs), rtvs, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, ARRAY_SIZE(rtvs), rtvs, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -5024,7 +5024,7 @@ static void test_multiple_render_targets(void)
     transition_resource_state(command_list, render_targets[1],
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, ARRAY_SIZE(rtvs), &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, ARRAY_SIZE(rtvs), &context.rtv, true, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -5107,7 +5107,7 @@ static void test_unknown_rtv_format(void)
         pso_desc.RTVFormats[i] = desc.rt_format;
     pso_desc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthEnable = true;
     pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
@@ -5132,7 +5132,7 @@ static void test_unknown_rtv_format(void)
     ID3D12Device_CreateRenderTargetView(context.device, NULL, &rtv_desc,
             get_cpu_rtv_handle(&context, context.rtv_heap, 0));
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, ARRAY_SIZE(rtvs), rtvs, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, ARRAY_SIZE(rtvs), rtvs, false, &ds.dsv_handle);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -5220,7 +5220,7 @@ static void test_unknown_dsv_format(void)
     /* DSVFormat = DXGI_FORMAT_UNKNOWN and D3D12_DEPTH_WRITE_MASK_ZERO */
     init_pipeline_state_desc(&pso_desc, context.root_signature, desc.rt_format, NULL, &ps_color, NULL);
     pso_desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
-    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthEnable = true;
     pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_EQUAL;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
@@ -5231,7 +5231,7 @@ static void test_unknown_dsv_format(void)
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
             D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, &ds.dsv_handle);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -5271,7 +5271,7 @@ static void test_unknown_dsv_format(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -5304,7 +5304,7 @@ static void test_unknown_dsv_format(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, &ds.dsv_handle);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -5344,13 +5344,13 @@ static void test_unknown_dsv_format(void)
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, &ds.dsv_handle);
     ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, &red.x, 0);
     set_viewport(&context.viewport, 0.0f, 0.0f, 32.0f, 32.0f, 1.0f, 1.0f);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, &green.x, 0);
     set_viewport(&context.viewport, 0.0f, 0.0f, 32.0f, 32.0f, 0.6f, 0.6f);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
@@ -5540,7 +5540,7 @@ static void test_append_aligned_element(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -5677,7 +5677,7 @@ static void test_gpu_virtual_address(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -5812,7 +5812,7 @@ static void test_fragment_coords(void)
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -5978,7 +5978,7 @@ static void test_fractional_viewports(void)
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -6058,7 +6058,7 @@ static void test_scissor(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, red, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -6156,7 +6156,7 @@ static void test_draw_depth_no_ps(void)
     memset(&pso_desc.PS, 0, sizeof(pso_desc.PS));
     pso_desc.NumRenderTargets = 0;
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthEnable = true;
     pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
@@ -6166,7 +6166,7 @@ static void test_draw_depth_no_ps(void)
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
             D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, false, &ds.dsv_handle);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -6249,7 +6249,7 @@ static void test_draw_depth_only(void)
     init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
     pso_desc.NumRenderTargets = 0;
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthEnable = true;
     pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
@@ -6263,7 +6263,7 @@ static void test_draw_depth_only(void)
         ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
                 D3D12_CLEAR_FLAG_DEPTH, tests[i].clear_depth, 0, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &ds.dsv_handle);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, false, &ds.dsv_handle);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -6285,7 +6285,7 @@ static void test_draw_depth_only(void)
 
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
             D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, false, &ds.dsv_handle);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -6934,7 +6934,7 @@ static void test_bundle_state_inheritance(void)
     /* A bundle does not inherit the current pipeline state. */
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -6970,7 +6970,7 @@ static void test_bundle_state_inheritance(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -7007,7 +7007,7 @@ static void test_bundle_state_inheritance(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
@@ -7031,7 +7031,7 @@ static void test_bundle_state_inheritance(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
 
@@ -9410,7 +9410,7 @@ static void test_shader_instructions(void)
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
                 ID3D12Resource_GetGPUVirtualAddress(cb));
@@ -9463,7 +9463,7 @@ static void test_shader_instructions(void)
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
                 ID3D12Resource_GetGPUVirtualAddress(cb));
@@ -9757,7 +9757,7 @@ static void test_discard_instruction(void)
         update_buffer_data(cb, 0, sizeof(values[i]), &values[i]);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
                 ID3D12Resource_GetGPUVirtualAddress(cb));
@@ -9775,7 +9775,7 @@ static void test_discard_instruction(void)
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
                 ID3D12Resource_GetGPUVirtualAddress(cb));
@@ -9933,7 +9933,7 @@ static void test_shader_interstage_interface(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -10316,7 +10316,7 @@ static void test_shader_input_output_components(void)
                     D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
         }
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 2, &context.rtv, TRUE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 2, &context.rtv, true, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -11762,7 +11762,7 @@ static void test_immediate_constant_buffer(void)
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
                 ID3D12Resource_GetGPUVirtualAddress(cb));
@@ -11982,7 +11982,7 @@ static void test_root_constants(void)
             context.root_signature, desc.rt_format, NULL, &ps_uint_constant, NULL);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0,
             ARRAY_SIZE(constants), constants, 0);
@@ -12029,7 +12029,7 @@ static void test_root_constants(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     vs_cb_color = ps_cb_color = expected_result = (struct vec4){0.0f, 1.0f, 0.0f, 1.0f};
     ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, &vs_cb_color.x, 0);
@@ -12050,7 +12050,7 @@ static void test_root_constants(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     vs_cb_color = (struct vec4){0.0f, 1.0f, 0.0f, 1.0f};
     ps_cb_color = (struct vec4){1.0f, 1.0f, 1.0f, 1.0f};
@@ -12101,7 +12101,7 @@ static void test_root_constants(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     vs_cb_color = expected_result = (struct vec4){0.0f, 1.0f, 0.0f, 1.0f};
     ps_cb_color = (struct vec4){1.0f, 1.0f, 1.0f, 1.0f};
@@ -12125,7 +12125,7 @@ static void test_root_constants(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     vs_cb_color = (struct vec4){0.0f, 1.0f, 0.0f, 1.0f};
     ps_cb_color = expected_result = (struct vec4){1.0f, 1.0f, 1.0f, 1.0f};
@@ -12149,7 +12149,7 @@ static void test_root_constants(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     vs_cb_color = (struct vec4){0.5f, 1.0f, 0.5f, 1.0f};
     ps_cb_color = (struct vec4){0.5f, 0.7f, 1.0f, 1.0f};
@@ -12289,7 +12289,7 @@ static void test_texture(void)
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, red, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -12521,7 +12521,7 @@ static void test_texture_ld(void)
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -12740,7 +12740,7 @@ static void test_gather(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -12778,7 +12778,7 @@ static void test_gather(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -12816,7 +12816,7 @@ static void test_gather(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -12854,7 +12854,7 @@ static void test_gather(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -12890,7 +12890,7 @@ static void test_gather(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -13080,7 +13080,7 @@ static void test_gather_c(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -13118,7 +13118,7 @@ static void test_gather_c(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -13154,7 +13154,7 @@ static void test_gather_c(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -13407,7 +13407,7 @@ static void test_sample_c_lz(void)
         ps_constant.y = tests[i].layer;
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, clear_color, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -13452,7 +13452,7 @@ static void test_sample_c_lz(void)
         ps_constant.y = tests[i].layer;
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, clear_color, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -13762,7 +13762,7 @@ static void test_cube_maps(void)
             constants.cube = (sub_resource_idx / test->miplevel_count) / 6;
 
             ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
             ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
             ID3D12GraphicsCommandList_SetPipelineState(command_list, pso);
             ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -13973,7 +13973,7 @@ static void test_multisample_array_texture(void)
         vkd3d_test_set_context("Test %u", i);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -14356,7 +14356,7 @@ static void test_resinfo(void)
             constant.x = type;
             constant.y = test->miplevel;
 
-            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
             ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
             ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
             ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -14598,7 +14598,7 @@ static void test_srv_component_mapping(void)
 
             ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
             ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
             ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
             ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -14801,7 +14801,7 @@ static void test_descriptor_tables(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     heaps[0] = heap; heaps[1] = sampler_heap;
@@ -15267,7 +15267,7 @@ static void test_update_descriptor_tables(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -15402,7 +15402,7 @@ static void test_update_descriptor_heap_after_closing_command_list(void)
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -16123,7 +16123,7 @@ static void test_update_descriptor_tables_after_root_signature_change(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
 
@@ -16867,7 +16867,7 @@ static void test_copy_descriptors_range_sizes(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -17156,7 +17156,7 @@ static void test_descriptors_visibility(void)
             5, get_gpu_descriptor_handle(&context, heap, 1));
 
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
@@ -17335,7 +17335,7 @@ static void test_null_cbv(void)
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -17491,7 +17491,7 @@ static void test_null_srv(void)
 
             ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
             ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
             ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
             ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -17527,7 +17527,7 @@ static void test_null_srv(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -17567,7 +17567,7 @@ static void test_null_srv(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
@@ -17733,7 +17733,7 @@ static void test_null_uav(void)
                 ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(uav_heap));
         ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(command_list, 1, test->location, 0);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
         ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
@@ -17847,7 +17847,7 @@ static void test_null_vbv(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -18306,8 +18306,8 @@ static void test_depth_clip(void)
     input_layout.NumElements = ARRAY_SIZE(layout_desc);
     init_pipeline_state_desc(&pso_desc, context.root_signature,
             context.render_target_desc.Format, &vs, NULL, &input_layout);
-    pso_desc.RasterizerState.DepthClipEnable = TRUE;
-    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.RasterizerState.DepthClipEnable = true;
+    pso_desc.DepthStencilState.DepthEnable = true;
     pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
@@ -18323,7 +18323,7 @@ static void test_depth_clip(void)
         ID3D12GraphicsCommandList_ClearDepthStencilView(command_list,
                 ds.dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.125f, 0, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, &ds.dsv_handle);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, &ds.dsv_handle);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -18349,7 +18349,7 @@ static void test_depth_clip(void)
     }
 
     ID3D12PipelineState_Release(context.pipeline_state);
-    pso_desc.RasterizerState.DepthClipEnable = FALSE;
+    pso_desc.RasterizerState.DepthClipEnable = false;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
@@ -18362,7 +18362,7 @@ static void test_depth_clip(void)
         ID3D12GraphicsCommandList_ClearDepthStencilView(command_list,
                 ds.dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.125f, 0, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, &ds.dsv_handle);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, &ds.dsv_handle);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -18389,7 +18389,7 @@ static void test_depth_clip(void)
 
     ID3D12PipelineState_Release(context.pipeline_state);
     pso_desc.PS = ps_depth;
-    pso_desc.RasterizerState.DepthClipEnable = TRUE;
+    pso_desc.RasterizerState.DepthClipEnable = true;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
@@ -18398,7 +18398,7 @@ static void test_depth_clip(void)
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list,
             ds.dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.125f, 0, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, &ds.dsv_handle);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -18443,7 +18443,7 @@ static void check_depth_stencil_sampling_(unsigned int line, struct test_context
             D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context->rtv, black, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, false, NULL);
 
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pso);
 
@@ -18950,7 +18950,7 @@ static void test_depth_load(void)
                 D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
         ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
 
@@ -19047,7 +19047,7 @@ static void test_depth_read_only_view(void)
     init_pipeline_state_desc(&pso_desc, context.root_signature,
             context.render_target_desc.Format, NULL, &ps, NULL);
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthEnable = true;
     pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_GREATER;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
@@ -19075,7 +19075,7 @@ static void test_depth_read_only_view(void)
             D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_DEPTH_READ);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, &dsv_handle);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, &dsv_handle);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
 
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
@@ -19244,7 +19244,7 @@ static void test_stencil_load(void)
                 D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
         ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
 
@@ -20429,7 +20429,7 @@ static void test_uav_load(void)
                 ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(uav_heap));
         ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(command_list, 1, test->constant, 0);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &cpu_handle, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &cpu_handle, false, NULL);
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, cpu_handle, white, 0, NULL);
         ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
@@ -21777,7 +21777,7 @@ static void test_buffer_srv(void)
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -21979,7 +21979,7 @@ static void test_query_pipeline_statistics(void)
     /* Second query: draw something simple. */
     ID3D12GraphicsCommandList_BeginQuery(command_list, query_heap, D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 1);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -22110,7 +22110,7 @@ static void test_query_occlusion(void)
     init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
     pso_desc.NumRenderTargets = 0;
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthEnable = true;
     pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
@@ -22125,7 +22125,7 @@ static void test_query_occlusion(void)
 
     resource = create_readback_buffer(device, ARRAY_SIZE(tests) * sizeof(uint64_t));
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, false, &ds.dsv_handle);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -22262,7 +22262,7 @@ static void test_resolve_query_data_in_different_command_list(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -22352,7 +22352,7 @@ static void test_resolve_query_data_in_reordered_command_list(void)
     ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
 
     /* Produce query results in the first command list. */
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_lists[0], 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_lists[0], 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_lists[0], context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_lists[0], context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_lists[0], D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -22550,7 +22550,7 @@ static void test_execute_indirect(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -22569,7 +22569,7 @@ static void test_execute_indirect(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -22638,7 +22638,7 @@ static void test_execute_indirect(void)
     ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature,
             ARRAY_SIZE(argument_data.indexed_draws), argument_buffer,
             offsetof(struct argument_data, indexed_draws), NULL, 0);
@@ -22667,7 +22667,7 @@ static void test_execute_indirect(void)
     ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature,
             ARRAY_SIZE(argument_data.indexed_draws), argument_buffer,
             offsetof(struct argument_data, indexed_draws), count_buffer, sizeof(uint32_t));
@@ -22934,7 +22934,7 @@ static void test_zero_vertex_stride(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -22955,7 +22955,7 @@ static void test_zero_vertex_stride(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, instance_pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -23216,7 +23216,7 @@ static void test_instance_id(void)
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[0], white, 0, NULL);
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[1], white, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 2, rtvs, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 2, rtvs, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -23717,7 +23717,7 @@ static void test_copy_texture(void)
                 D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
         ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
 
@@ -24565,7 +24565,7 @@ static void test_separate_bindings(void)
     ID3D12Device_CreateUnorderedAccessView(device, ps_textures[1], NULL, NULL,
             get_cpu_descriptor_handle(&context, heap, 11));
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
@@ -24736,7 +24736,7 @@ static void test_face_culling(void)
             context.render_target_desc.Format, &vs_ccw, &ps_color, NULL);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -24753,7 +24753,7 @@ static void test_face_culling(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -24782,7 +24782,7 @@ static void test_face_culling(void)
         ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
         ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -24806,7 +24806,7 @@ static void test_face_culling(void)
         ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
         ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -24841,7 +24841,7 @@ static void test_face_culling(void)
         ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
         ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -24864,7 +24864,7 @@ static void test_face_culling(void)
         ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
         ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -24919,7 +24919,7 @@ static void draw_thread_main(void *thread_data)
     for (i = 0; i < 100; ++i)
     {
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context->root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context->pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -24964,7 +24964,7 @@ static void test_multithread_command_queue_exec(void)
     for (i = 0; i < 100; ++i)
     {
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -25201,7 +25201,7 @@ static void test_geometry_shader(void)
     for (i = 0; i < ARRAY_SIZE(rtvs); ++i)
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[i], red, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtvs[0], FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtvs[0], false, NULL);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -25210,7 +25210,7 @@ static void test_geometry_shader(void)
     ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 1, 1, 0, 0);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtvs[1], FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtvs[1], false, NULL);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pso_5_0);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 1, 1, 0, 0);
 
@@ -25432,7 +25432,7 @@ static void test_layered_rendering(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -25583,7 +25583,7 @@ static void test_ps_layer(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
@@ -25839,7 +25839,7 @@ static void test_nop_tessellation_shaders(void)
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
@@ -26223,7 +26223,7 @@ static void test_quad_tessellation(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
@@ -26262,7 +26262,7 @@ static void test_quad_tessellation(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
@@ -26293,7 +26293,7 @@ static void test_quad_tessellation(void)
     transition_resource_state(command_list, so_buffer,
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_STREAM_OUT);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
@@ -26521,7 +26521,7 @@ static void test_tessellation_dcl_index_range(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
@@ -26672,7 +26672,7 @@ static void test_hull_shader_control_point_phase(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
@@ -26905,7 +26905,7 @@ static void test_hull_shader_fork_phase(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST);
@@ -27555,7 +27555,7 @@ static void test_tessellation_primitive_id(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
@@ -27611,7 +27611,7 @@ static void test_render_a8(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, black, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -27715,7 +27715,7 @@ static void test_cpu_descriptors_lifetime(void)
     ID3D12Device_CreateRenderTargetView(device, red_resource, NULL, rtv_handle);
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, red, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv_handle, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv_handle, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -27727,7 +27727,7 @@ static void test_cpu_descriptors_lifetime(void)
     ID3D12Device_CreateRenderTargetView(device, blue_resource, NULL, rtv_handle);
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, blue, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv_handle, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv_handle, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -27775,7 +27775,7 @@ static void check_clip_distance(struct test_context *context,
     for (i = 0; i < ARRAY_SIZE(vertices); ++i)
         vertices[i].clip_distance0 = 1.0f;
     update_buffer_data(vb, 0, sizeof(vertices), vertices);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context->root_signature);
     ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
             ID3D12Resource_GetGPUVirtualAddress(vs_cb));
@@ -27799,7 +27799,7 @@ static void check_clip_distance(struct test_context *context,
     for (i = 0; i < ARRAY_SIZE(vertices); ++i)
         vertices[i].clip_distance0 = 0.0f;
     update_buffer_data(vb, 0, sizeof(vertices), vertices);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context->root_signature);
     ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
             ID3D12Resource_GetGPUVirtualAddress(vs_cb));
@@ -27823,7 +27823,7 @@ static void check_clip_distance(struct test_context *context,
     for (i = 0; i < ARRAY_SIZE(vertices); ++i)
         vertices[i].clip_distance0 = -1.0f;
     update_buffer_data(vb, 0, sizeof(vertices), vertices);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context->root_signature);
     ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
             ID3D12Resource_GetGPUVirtualAddress(vs_cb));
@@ -27847,7 +27847,7 @@ static void check_clip_distance(struct test_context *context,
     for (i = 0; i < ARRAY_SIZE(vertices); ++i)
         vertices[i].clip_distance0 = i < 2 ? 1.0f : -1.0f;
     update_buffer_data(vb, 0, sizeof(vertices), vertices);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context->root_signature);
     ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
             ID3D12Resource_GetGPUVirtualAddress(vs_cb));
@@ -27876,7 +27876,7 @@ static void check_clip_distance(struct test_context *context,
     for (i = 0; i < ARRAY_SIZE(vertices); ++i)
         vertices[i].clip_distance0 = i % 2 ? 1.0f : -1.0f;
     update_buffer_data(vb, 0, sizeof(vertices), vertices);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context->root_signature);
     ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
             ID3D12Resource_GetGPUVirtualAddress(vs_cb));
@@ -28169,7 +28169,7 @@ static void test_clip_distance(void)
     vs_cb = create_upload_buffer(device, sizeof(cb_data), &cb_data);
     gs_cb = create_upload_buffer(device, sizeof(cb_data), &cb_data);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
             ID3D12Resource_GetGPUVirtualAddress(vs_cb));
@@ -28210,7 +28210,7 @@ static void test_clip_distance(void)
     cb_data.use_constant = true;
     cb_data.clip_distance0 = 1.0f;
     update_buffer_data(gs_cb, 0, sizeof(cb_data), &cb_data);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
             ID3D12Resource_GetGPUVirtualAddress(vs_cb));
@@ -28245,7 +28245,7 @@ static void test_clip_distance(void)
     for (i = 0; i < ARRAY_SIZE(vertices); ++i)
         vertices[i].clip_distance0 = 1.0f;
     update_buffer_data(vb[1], 0, sizeof(vertices), vertices);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
             ID3D12Resource_GetGPUVirtualAddress(vs_cb));
@@ -28272,7 +28272,7 @@ static void test_clip_distance(void)
         vertices[i].clip_distance1 = i % 2 ? 1.0f : -1.0f;
     }
     update_buffer_data(vb[1], 0, sizeof(vertices), vertices);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
             ID3D12Resource_GetGPUVirtualAddress(vs_cb));
@@ -28305,7 +28305,7 @@ static void test_clip_distance(void)
     cb_data.clip_distance0 = 0.0f;
     cb_data.clip_distance1 = 0.0f;
     update_buffer_data(vs_cb, 0, sizeof(cb_data), &cb_data);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 0,
             ID3D12Resource_GetGPUVirtualAddress(vs_cb));
@@ -28492,7 +28492,7 @@ static void test_combined_clip_and_cull_distances(void)
     vbv[1].StrideInBytes = sizeof(*vertices);
     vbv[1].SizeInBytes = sizeof(vertices);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -28521,7 +28521,7 @@ static void test_combined_clip_and_cull_distances(void)
                 vertices[k].cull_distance[i] = test->vertices[k];
             update_buffer_data(vb[1], 0, sizeof(vertices), vertices);
 
-            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+            ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
             ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
             ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
             ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -28565,7 +28565,7 @@ static void test_combined_clip_and_cull_distances(void)
             vertices[j].clip_distance[i] = -1.0f;
         update_buffer_data(vb[1], 0, sizeof(vertices), vertices);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -28589,7 +28589,7 @@ static void test_combined_clip_and_cull_distances(void)
 
     memset(vertices, 0, sizeof(vertices));
     update_buffer_data(vb[1], 0, sizeof(vertices), vertices);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -28871,7 +28871,7 @@ static void test_command_list_initial_pipeline_state(void)
     ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
@@ -28889,7 +28889,7 @@ static void test_command_list_initial_pipeline_state(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
@@ -28938,7 +28938,7 @@ static void test_blend_factor(void)
 
     init_pipeline_state_desc(&pso_desc, context.root_signature,
             context.render_target_desc.Format, NULL, NULL, NULL);
-    pso_desc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+    pso_desc.BlendState.RenderTarget[0].BlendEnable = true;
     pso_desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_BLEND_FACTOR;
     pso_desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_BLEND_FACTOR;
     pso_desc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
@@ -28954,7 +28954,7 @@ static void test_blend_factor(void)
         vkd3d_test_set_context("Test %u", i);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -29037,7 +29037,7 @@ static void test_dual_source_blending(void)
 
     init_pipeline_state_desc(&pso_desc, context.root_signature,
             context.render_target_desc.Format, NULL, &ps, NULL);
-    pso_desc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+    pso_desc.BlendState.RenderTarget[0].BlendEnable = true;
     pso_desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_COLOR;
     pso_desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_SRC1_COLOR;
     pso_desc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
@@ -29053,7 +29053,7 @@ static void test_dual_source_blending(void)
         vkd3d_test_set_context("Test %u", i);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -29072,7 +29072,7 @@ static void test_dual_source_blending(void)
     vkd3d_test_set_context(NULL);
 
     ID3D12PipelineState_Release(context.pipeline_state);
-    pso_desc.BlendState.IndependentBlendEnable = TRUE;
+    pso_desc.BlendState.IndependentBlendEnable = true;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
@@ -29093,8 +29093,8 @@ static void test_dual_source_blending(void)
 
     pso_desc.NumRenderTargets = 2;
     pso_desc.RTVFormats[1] = pso_desc.RTVFormats[0];
-    pso_desc.BlendState.IndependentBlendEnable = FALSE;
-    pso_desc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+    pso_desc.BlendState.IndependentBlendEnable = false;
+    pso_desc.BlendState.RenderTarget[0].BlendEnable = true;
     pso_desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_COLOR;
     pso_desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_SRC1_COLOR;
     pso_desc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
@@ -29228,7 +29228,7 @@ static void test_multisample_rendering(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, ms_rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &ms_rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &ms_rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, ms_pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -29258,7 +29258,7 @@ static void test_multisample_rendering(void)
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -29345,7 +29345,7 @@ static void test_sample_mask(void)
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, ms_rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &ms_rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &ms_rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -29494,7 +29494,7 @@ static void test_coverage(void)
         uav_barrier(command_list, texture);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, black, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -29574,7 +29574,7 @@ static void test_shader_get_render_target_sample_count(void)
     ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, black, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -29664,7 +29664,7 @@ static void test_shader_sample_position(void)
     for (sample_index = 0; sample_index < resource_desc.SampleDesc.Count; ++sample_index)
     {
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -29862,7 +29862,7 @@ static void test_shader_eval_attribute(void)
     ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -29886,7 +29886,7 @@ static void test_shader_eval_attribute(void)
     ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -30033,7 +30033,7 @@ static void test_primitive_restart(void)
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -30468,7 +30468,7 @@ static void test_queue_wait(void)
     readback_buffer = create_readback_buffer(device, buffer_size);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -30778,7 +30778,7 @@ static void test_graphics_compute_queue_synchronization(void)
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
         ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
-        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(command_list,
                 0, ID3D12Resource_GetGPUVirtualAddress(buffer));
         ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 1, &value, 0);
@@ -30893,7 +30893,7 @@ static void test_early_depth_stencil_tests(void)
     init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
     pso_desc.NumRenderTargets = 0;
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthEnable = true;
     pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
@@ -30914,7 +30914,7 @@ static void test_early_depth_stencil_tests(void)
 
     set_viewport(&context.viewport, 0.0f, 0.0f, 1.0f, 100.0f, 0.5f, 0.5f);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, false, &ds.dsv_handle);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -30946,7 +30946,7 @@ static void test_early_depth_stencil_tests(void)
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
     transition_resource_state(command_list, texture,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, FALSE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, false, &ds.dsv_handle);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -30988,7 +30988,7 @@ static void prepare_instanced_draw(struct test_context *context)
 {
     ID3D12GraphicsCommandList *command_list = context->list;
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context->rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context->root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context->pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
