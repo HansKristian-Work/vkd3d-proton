@@ -800,7 +800,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.pNext = NULL;
     image_info.flags = 0;
-    if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) && dxgi_format_is_typeless(desc->Format))
+    if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) && format->type == VKD3D_FORMAT_TYPE_TYPELESS)
         image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
             && desc->Width == desc->Height && desc->DepthOrArraySize >= 6

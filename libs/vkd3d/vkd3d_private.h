@@ -1106,6 +1106,7 @@ static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(str
 enum vkd3d_format_type
 {
     VKD3D_FORMAT_TYPE_OTHER,
+    VKD3D_FORMAT_TYPE_TYPELESS,
     VKD3D_FORMAT_TYPE_SINT,
     VKD3D_FORMAT_TYPE_UINT,
 };
@@ -1134,8 +1135,6 @@ const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
 
 HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_cleanup_depth_stencil_formats(struct d3d12_device *device) DECLSPEC_HIDDEN;
-
-bool dxgi_format_is_typeless(DXGI_FORMAT dxgi_format) DECLSPEC_HIDDEN;
 
 static inline const struct vkd3d_format *vkd3d_format_from_d3d12_resource_desc(
         const struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc, DXGI_FORMAT view_format)

@@ -3538,7 +3538,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(ID3D12Graphi
         return;
     }
 
-    if (dxgi_format_is_typeless(dst_resource->desc.Format) || dxgi_format_is_typeless(src_resource->desc.Format))
+    if (dst_format->type == VKD3D_FORMAT_TYPE_TYPELESS || src_format->type == VKD3D_FORMAT_TYPE_TYPELESS)
     {
         if (!(vk_format = vkd3d_format_from_d3d12_resource_desc(device, &dst_resource->desc, format)))
         {
