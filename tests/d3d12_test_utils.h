@@ -88,9 +88,9 @@ static inline void reset_command_list_(unsigned int line,
     HRESULT hr;
 
     hr = ID3D12CommandAllocator_Reset(allocator);
-    ok_(line)(SUCCEEDED(hr), "Failed to reset command allocator, hr %#x.\n", hr);
+    assert_that_(line)(hr == S_OK, "Failed to reset command allocator, hr %#x.\n", hr);
     hr = ID3D12GraphicsCommandList_Reset(list, allocator, NULL);
-    ok_(line)(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+    assert_that_(line)(hr == S_OK, "Failed to reset command list, hr %#x.\n", hr);
 }
 
 #define queue_signal(a, b, c) queue_signal_(__LINE__, a, b, c)
