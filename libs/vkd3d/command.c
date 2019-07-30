@@ -4631,11 +4631,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(ID3D12Gra
 static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12GraphicsCommandList1 *iface,
         D3D12_CPU_DESCRIPTOR_HANDLE rtv, const FLOAT color[4], UINT rect_count, const D3D12_RECT *rects)
 {
-    const union VkClearValue clear_value = {{{color[0], color[1], color[2], color[3]}}};
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList1(iface);
     const struct d3d12_rtv_desc *rtv_desc = d3d12_rtv_desc_from_cpu_handle(rtv);
     struct VkAttachmentDescription attachment_desc;
     struct VkAttachmentReference color_reference;
+    VkClearValue clear_value;
 
     TRACE("iface %p, rtv %#lx, color %p, rect_count %u, rects %p.\n",
             iface, rtv.ptr, color, rect_count, rects);
@@ -4654,6 +4654,28 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
 
     color_reference.attachment = 0;
     color_reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    if (rtv_desc->format->type == VKD3D_FORMAT_TYPE_UINT)
+    {
+        clear_value.color.uint32[0] = max(0, color[0]);
+        clear_value.color.uint32[1] = max(0, color[1]);
+        clear_value.color.uint32[2] = max(0, color[2]);
+        clear_value.color.uint32[3] = max(0, color[3]);
+    }
+    else if (rtv_desc->format->type == VKD3D_FORMAT_TYPE_SINT)
+    {
+        clear_value.color.int32[0] = color[0];
+        clear_value.color.int32[1] = color[1];
+        clear_value.color.int32[2] = color[2];
+        clear_value.color.int32[3] = color[3];
+    }
+    else
+    {
+        clear_value.color.float32[0] = color[0];
+        clear_value.color.float32[1] = color[1];
+        clear_value.color.float32[2] = color[2];
+        clear_value.color.float32[3] = color[3];
+    }
 
     d3d12_command_list_clear(list, &attachment_desc, &color_reference, NULL,
             rtv_desc->view, rtv_desc->width, rtv_desc->height, rtv_desc->layer_count,

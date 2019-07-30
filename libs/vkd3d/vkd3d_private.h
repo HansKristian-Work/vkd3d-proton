@@ -1103,6 +1103,13 @@ static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(str
 }
 
 /* utils */
+enum vkd3d_format_type
+{
+    VKD3D_FORMAT_TYPE_OTHER,
+    VKD3D_FORMAT_TYPE_SINT,
+    VKD3D_FORMAT_TYPE_UINT,
+};
+
 struct vkd3d_format
 {
     DXGI_FORMAT dxgi_format;
@@ -1113,6 +1120,7 @@ struct vkd3d_format
     size_t block_byte_count;
     VkImageAspectFlags vk_aspect_mask;
     unsigned int plane_count;
+    enum vkd3d_format_type type;
     bool is_emulated;
 };
 

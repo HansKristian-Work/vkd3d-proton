@@ -4455,7 +4455,6 @@ static void test_clear_render_target_view(void)
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, r8g8b8a8[i].color, 0, NULL);
         transition_resource_state(command_list, resource,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        todo_if(rtv_desc.Format == DXGI_FORMAT_R8G8B8A8_UINT || rtv_desc.Format == DXGI_FORMAT_R8G8B8A8_SINT)
         check_sub_resource_uint(resource, 0, queue, command_list, r8g8b8a8[i].result, 2);
 
         reset_command_list(command_list, context.allocator);
@@ -4486,7 +4485,6 @@ static void test_clear_render_target_view(void)
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, r16g16b16a16[i].color, 0, NULL);
         transition_resource_state(command_list, resource,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        todo_if(rtv_desc.Format != DXGI_FORMAT_R16G16B16A16_UNORM)
         check_sub_resource_uint64(resource, 0, queue, command_list, r16g16b16a16[i].result, 0);
 
         reset_command_list(command_list, context.allocator);
