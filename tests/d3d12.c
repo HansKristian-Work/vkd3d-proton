@@ -89,6 +89,11 @@ static bool compare_uint16(uint16_t a, uint16_t b, unsigned int max_diff)
     return abs(a - b) <= max_diff;
 }
 
+static bool compare_uint64(uint64_t a, uint64_t b, unsigned int max_diff)
+{
+    return llabs(a - b) <= max_diff;
+}
+
 static ULONG get_refcount(void *iface)
 {
     IUnknown *unk = iface;
@@ -528,6 +533,47 @@ static void check_sub_resource_uint16_(unsigned int line, ID3D12Resource *textur
 
     get_texture_readback_with_command_list(texture, sub_resource_idx, &rb, queue, command_list);
     check_readback_data_uint16_(line, &rb, NULL, expected, max_diff);
+    release_resource_readback(&rb);
+}
+
+#define check_readback_data_uint64(a, b, c, d) check_readback_data_uint64_(__LINE__, a, b, c, d)
+static void check_readback_data_uint64_(unsigned int line, struct resource_readback *rb,
+        const RECT *rect, uint64_t expected, unsigned int max_diff)
+{
+    RECT r = {0, 0, rb->width, rb->height};
+    unsigned int x = 0, y;
+    bool all_match = true;
+    uint64_t got = 0;
+
+    if (rect)
+        r = *rect;
+
+    for (y = r.top; y < r.bottom; ++y)
+    {
+        for (x = r.left; x < r.right; ++x)
+        {
+            got = get_readback_uint64(rb, x, y);
+            if (!compare_uint64(got, expected, max_diff))
+            {
+                all_match = false;
+                break;
+            }
+        }
+        if (!all_match)
+            break;
+    }
+    ok_(line)(all_match, "Got %#"PRIx64", expected %#"PRIx64" at (%u, %u).\n", got, expected, x, y);
+}
+
+#define check_sub_resource_uint64(a, b, c, d, e, f) check_sub_resource_uint64_(__LINE__, a, b, c, d, e, f)
+static void check_sub_resource_uint64_(unsigned int line, ID3D12Resource *texture,
+        unsigned int sub_resource_idx, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list,
+        uint64_t expected, unsigned int max_diff)
+{
+    struct resource_readback rb;
+
+    get_texture_readback_with_command_list(texture, sub_resource_idx, &rb, queue, command_list);
+    check_readback_data_uint64_(line, &rb, NULL, expected, max_diff);
     release_resource_readback(&rb);
 }
 
@@ -4334,6 +4380,24 @@ static void test_clear_render_target_view(void)
         {color,          DXGI_FORMAT_R8G8B8A8_SINT,       0x00000000},
         {negative_value, DXGI_FORMAT_R8G8B8A8_SINT,       0xfe00ff01},
     };
+    static const struct
+    {
+        const float *color;
+        DXGI_FORMAT format;
+        uint64_t result;
+    }
+    r16g16b16a16[] =
+    {
+        {green,          DXGI_FORMAT_R16G16B16A16_UNORM, 0xffff0000ffff0000},
+
+        {green,          DXGI_FORMAT_R16G16B16A16_UINT,  0x0001000000010000},
+        {color,          DXGI_FORMAT_R16G16B16A16_UINT,  0x0000000000000000},
+        {negative_value, DXGI_FORMAT_R16G16B16A16_UINT,  0x0000000000000001},
+
+        {green,          DXGI_FORMAT_R16G16B16A16_SINT,  0x0001000000010000},
+        {color,          DXGI_FORMAT_R16G16B16A16_SINT,  0x0000000000000000},
+        {negative_value, DXGI_FORMAT_R16G16B16A16_SINT,  0xfffe0000ffff0001},
+    };
 
     STATIC_ASSERT(ARRAY_SIZE(array_colors) == ARRAY_SIZE(array_expected_colors));
 
@@ -4400,11 +4464,43 @@ static void test_clear_render_target_view(void)
     }
     vkd3d_test_set_context(NULL);
 
+    /* R16G16B16A16 */
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
+    reset_command_list(command_list, context.allocator);
+    ID3D12Resource_Release(resource);
+    resource_desc.Format = DXGI_FORMAT_R16G16B16A16_TYPELESS;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(r16g16b16a16); ++i)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        rtv_desc.Format = r16g16b16a16[i].format;
+        ID3D12Device_CreateRenderTargetView(device, resource, &rtv_desc, rtv_handle);
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, r16g16b16a16[i].color, 0, NULL);
+        transition_resource_state(command_list, resource,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        todo_if(rtv_desc.Format != DXGI_FORMAT_R16G16B16A16_UNORM)
+        check_sub_resource_uint64(resource, 0, queue, command_list, r16g16b16a16[i].result, 0);
+
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, resource,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+    vkd3d_test_set_context(NULL);
+
     /* 2D array texture */
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
     reset_command_list(command_list, context.allocator);
     ID3D12Resource_Release(resource);
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_TYPELESS;
     resource_desc.DepthOrArraySize = ARRAY_SIZE(array_colors);
     hr = ID3D12Device_CreateCommittedResource(device,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
