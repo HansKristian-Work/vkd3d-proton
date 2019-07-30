@@ -2827,8 +2827,8 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
         return;
 
     rtv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_RTV;
-    rtv_desc->format = vkd3d_desc.format->vk_format;
     rtv_desc->sample_count = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
+    rtv_desc->format = vkd3d_desc.format;
     rtv_desc->width = d3d12_resource_desc_get_width(&resource->desc, vkd3d_desc.miplevel_idx);
     rtv_desc->height = d3d12_resource_desc_get_height(&resource->desc, vkd3d_desc.miplevel_idx);
     rtv_desc->layer_count = vkd3d_desc.layer_count;
@@ -2910,8 +2910,8 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
         return;
 
     dsv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_DSV;
-    dsv_desc->format = vkd3d_desc.format->vk_format;
     dsv_desc->sample_count = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
+    dsv_desc->format = vkd3d_desc.format;
     dsv_desc->width = d3d12_resource_desc_get_width(&resource->desc, vkd3d_desc.miplevel_idx);
     dsv_desc->height = d3d12_resource_desc_get_height(&resource->desc, vkd3d_desc.miplevel_idx);
     dsv_desc->layer_count = vkd3d_desc.layer_count;

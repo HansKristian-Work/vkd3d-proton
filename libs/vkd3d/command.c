@@ -4456,7 +4456,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
             list->fb_width = max(list->fb_width, dsv_desc->width);
             list->fb_height = max(list->fb_height, dsv_desc->height);
             list->fb_layer_count = max(list->fb_layer_count, dsv_desc->layer_count);
-            list->dsv_format = dsv_desc->format;
+            list->dsv_format = dsv_desc->format->vk_format;
         }
         else
         {
@@ -4595,7 +4595,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(ID3D12Gra
     d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
 
     attachment_desc.flags = 0;
-    attachment_desc.format = dsv_desc->format;
+    attachment_desc.format = dsv_desc->format->vk_format;
     attachment_desc.samples = dsv_desc->sample_count;
     if (flags & D3D12_CLEAR_FLAG_DEPTH)
     {
@@ -4643,7 +4643,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
     d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
 
     attachment_desc.flags = 0;
-    attachment_desc.format = rtv_desc->format;
+    attachment_desc.format = rtv_desc->format->vk_format;
     attachment_desc.samples = rtv_desc->sample_count;
     attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;

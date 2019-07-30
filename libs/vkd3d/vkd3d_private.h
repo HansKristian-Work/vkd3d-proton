@@ -518,8 +518,8 @@ HRESULT vkd3d_create_static_sampler(struct d3d12_device *device,
 struct d3d12_rtv_desc
 {
     uint32_t magic;
-    VkFormat format;
     VkSampleCountFlagBits sample_count;
+    const struct vkd3d_format *format;
     uint64_t width;
     unsigned int height;
     unsigned int layer_count;
@@ -538,8 +538,8 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 struct d3d12_dsv_desc
 {
     uint32_t magic;
-    VkFormat format;
     VkSampleCountFlagBits sample_count;
+    const struct vkd3d_format *format;
     uint64_t width;
     unsigned int height;
     unsigned int layer_count;
