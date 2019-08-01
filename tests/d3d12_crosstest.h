@@ -647,7 +647,8 @@ static void parse_args(int argc, char **argv)
 
 static void enable_d3d12_debug_layer(int argc, char **argv)
 {
-    bool enable_debug_layer = false;
+    bool enable_debug_layer = false, enable_gpu_based_validation = false;
+    ID3D12Debug1 *debug1;
     ID3D12Debug *debug;
     unsigned int i;
 
@@ -655,6 +656,22 @@ static void enable_d3d12_debug_layer(int argc, char **argv)
     {
         if (!strcmp(argv[i], "--validate"))
             enable_debug_layer = true;
+        else if (!strcmp(argv[i], "--gbv"))
+            enable_gpu_based_validation = true;
+    }
+
+    if (enable_gpu_based_validation)
+    {
+        if (SUCCEEDED(D3D12GetDebugInterface(&IID_ID3D12Debug1, (void **)&debug1)))
+        {
+            ID3D12Debug1_SetEnableGPUBasedValidation(debug1, true);
+            ID3D12Debug1_Release(debug1);
+            enable_debug_layer = true;
+        }
+        else
+        {
+            trace("Failed to enable GPU-based validation.\n");
+        }
     }
 
     if (enable_debug_layer && SUCCEEDED(D3D12GetDebugInterface(&IID_ID3D12Debug, (void **)&debug)))
