@@ -5,6 +5,7 @@ AM_LDFLAGS = -no-undefined
 
 widl_headers = \
 	include/vkd3d_d3d12.h \
+	include/vkd3d_d3d12sdklayers.h \
 	include/vkd3d_d3dcommon.h \
 	include/vkd3d_dxgi.h \
 	include/vkd3d_dxgi1_2.h \
@@ -17,6 +18,7 @@ widl_headers = \
 vkd3d_public_headers = \
 	include/vkd3d.h \
 	include/vkd3d_d3d12.h \
+	include/vkd3d_d3d12sdklayers.h \
 	include/vkd3d_d3dcommon.h \
 	include/vkd3d_dxgibase.h \
 	include/vkd3d_dxgiformat.h \
