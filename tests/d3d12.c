@@ -12171,21 +12171,27 @@ static void test_root_constants(void)
     destroy_test_context(&context);
 }
 
-static void test_texture(void)
+static void test_sample_instructions(void)
 {
+    ID3D12DescriptorHeap *heap, *sampler_heap, *heaps[2];
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_DESCRIPTOR_RANGE descriptor_range[2];
+    D3D12_ROOT_PARAMETER root_parameters[3];
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    D3D12_SAMPLER_DESC sampler_desc;
     struct test_context_desc desc;
     struct resource_readback rb;
     struct test_context context;
     unsigned int x_step, y_step;
-    ID3D12DescriptorHeap *heap;
     ID3D12CommandQueue *queue;
     ID3D12Resource *texture;
     unsigned int i, x, y;
+    ID3D12Device *device;
+    HRESULT hr;
 
-    static const DWORD ps_code[] =
+    static const DWORD ps_sample_code[] =
     {
 #if 0
         Texture2D t;
@@ -12195,12 +12201,12 @@ static void test_texture(void)
         {
             float2 p;
 
-            p.x = position.x / 32.0f;
-            p.y = position.y / 32.0f;
+            p.x = position.x / 640.0f;
+            p.y = position.y / 480.0f;
             return t.Sample(s, p);
         }
 #endif
-        0x43425844, 0x7a0c3929, 0x75ff3ca4, 0xccb318b2, 0xe6965b4c, 0x00000001, 0x00000140, 0x00000003,
+        0x43425844, 0xd48f8d1c, 0x91689a9a, 0x99683e50, 0xae5e3efd, 0x00000001, 0x00000140, 0x00000003,
         0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
         0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x5449534f, 0x004e4f49,
         0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
@@ -12208,11 +12214,72 @@ static void test_texture(void)
         0x00000029, 0x0100086a, 0x0300005a, 0x00106000, 0x00000000, 0x04001858, 0x00107000, 0x00000000,
         0x00005555, 0x04002064, 0x00101032, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
         0x02000068, 0x00000001, 0x0a000038, 0x00100032, 0x00000000, 0x00101046, 0x00000000, 0x00004002,
-        0x3d000000, 0x3d000000, 0x00000000, 0x00000000, 0x8b000045, 0x800000c2, 0x00155543, 0x001020f2,
+        0x3acccccd, 0x3b088889, 0x00000000, 0x00000000, 0x8b000045, 0x800000c2, 0x00155543, 0x001020f2,
         0x00000000, 0x00100046, 0x00000000, 0x00107e46, 0x00000000, 0x00106000, 0x00000000, 0x0100003e,
     };
-    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
-    static const float red[] = {1.0f, 0.0f, 0.0f, 0.5f};
+    static const D3D12_SHADER_BYTECODE ps_sample = {ps_sample_code, sizeof(ps_sample_code)};
+    static const DWORD ps_sample_b_code[] =
+    {
+#if 0
+        Texture2D t;
+        SamplerState s;
+
+        float bias;
+
+        float4 main(float4 position : SV_POSITION) : SV_Target
+        {
+            float2 p;
+
+            p.x = position.x / 640.0f;
+            p.y = position.y / 480.0f;
+            return t.SampleBias(s, p, bias);
+        }
+#endif
+        0x43425844, 0xc39b0686, 0x8244a7fc, 0x14c0b97a, 0x2900b3b7, 0x00000001, 0x00000150, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x000000b4, 0x00000040,
+        0x0000002d, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300005a, 0x00106000, 0x00000000,
+        0x04001858, 0x00107000, 0x00000000, 0x00005555, 0x04002064, 0x00101032, 0x00000000, 0x00000001,
+        0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0a000038, 0x00100032, 0x00000000,
+        0x00101046, 0x00000000, 0x00004002, 0x3acccccd, 0x3b088889, 0x00000000, 0x00000000, 0x0c00004a,
+        0x001020f2, 0x00000000, 0x00100046, 0x00000000, 0x00107e46, 0x00000000, 0x00106000, 0x00000000,
+        0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_sample_b = {ps_sample_b_code, sizeof(ps_sample_b_code)};
+    static const DWORD ps_sample_d_code[] =
+    {
+#if 0
+        Texture2D t;
+        SamplerState s;
+
+        float4 dd;
+
+        float4 main(float4 position : SV_POSITION) : SV_Target
+        {
+            float2 p;
+
+            p.x = position.x / 640.0f;
+            p.y = position.y / 480.0f;
+            return t.SampleGrad(s, p, float2(dd.x, dd.y), float2(dd.z, dd.w));
+       }
+#endif
+        0x43425844, 0xecc423bc, 0x3742699c, 0xf08f6dd7, 0x9976ad55, 0x00000001, 0x00000168, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000cc, 0x00000050,
+        0x00000033, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300005a, 0x00106000,
+        0x00000000, 0x04001858, 0x00107000, 0x00000000, 0x00005555, 0x04002064, 0x00101032, 0x00000000,
+        0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0a000038, 0x00100032,
+        0x00000000, 0x00101046, 0x00000000, 0x00004002, 0x3acccccd, 0x3b088889, 0x00000000, 0x00000000,
+        0x91000049, 0x800000c2, 0x00155543, 0x001020f2, 0x00000000, 0x00100046, 0x00000000, 0x00107e46,
+        0x00000000, 0x00106000, 0x00000000, 0x00208046, 0x00000000, 0x00000000, 0x00208ae6, 0x00000000,
+        0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_sample_d = {ps_sample_d_code, sizeof(ps_sample_d_code)};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     static const unsigned int r8g8b8a8_data[] =
     {
         0xff0000ff, 0xff00ffff, 0xff00ff00, 0xffffff00,
@@ -12234,85 +12301,213 @@ static void test_texture(void)
         0xff000000, 0xf0000000, 0x0f000000, 0xff000000,
         0xfa000000, 0xfe000000, 0xaa000000, 0xcc000000,
     };
-    static const struct
+    static const unsigned int rgba_level_0[] =
+    {
+        0xff0000ff, 0xff00ffff, 0xff00ff00, 0xffffff00,
+        0xffff0000, 0xffff00ff, 0xff000000, 0xff7f7f7f,
+        0xffffffff, 0xffffffff, 0xffffffff, 0xff000000,
+        0xffffffff, 0xff000000, 0xff000000, 0xff000000,
+    };
+    static const unsigned int rgba_level_1[] =
+    {
+        0xffffffff, 0xff0000ff,
+        0xff000000, 0xff00ff00,
+    };
+    static const unsigned int rgba_level_2[] =
+    {
+        0xffff0000,
+    };
+    static const unsigned int level_1_colors[] =
+    {
+        0xffffffff, 0xffffffff, 0xff0000ff, 0xff0000ff,
+        0xffffffff, 0xffffffff, 0xff0000ff, 0xff0000ff,
+        0xff000000, 0xff000000, 0xff00ff00, 0xff00ff00,
+        0xff000000, 0xff000000, 0xff00ff00, 0xff00ff00,
+    };
+    static const unsigned int level_2_colors[] =
+    {
+        0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000,
+        0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000,
+        0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000,
+        0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000,
+    };
+    struct texture
     {
         unsigned int width;
         unsigned int height;
+        unsigned int miplevel_count;
+        unsigned int array_size;
         DXGI_FORMAT format;
-        D3D12_SUBRESOURCE_DATA data;
+        D3D12_SUBRESOURCE_DATA data[3];
+    };
+    static const struct texture r8g8b8a8_texture =
+    {
+        4, 4, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
+        {
+            {r8g8b8a8_data, 4 * sizeof(*r8g8b8a8_data), 16 * sizeof(*r8g8b8a8_data)},
+        },
+    };
+    static const struct texture a8_texture =
+    {
+        4, 4, 1, 1, DXGI_FORMAT_A8_UNORM,
+        {
+            {a8_data, 4 * sizeof(*a8_data), 16 * sizeof(*a8_data)},
+        },
+    };
+    static const struct texture rgba_texture =
+    {
+        4, 4, 3, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
+        {
+            {rgba_level_0, 4 * sizeof(*rgba_level_0), 0},
+            {rgba_level_1, 2 * sizeof(*rgba_level_1), 0},
+            {rgba_level_2,     sizeof(*rgba_level_2), 0},
+        },
+    };
+    static const struct
+    {
+        const D3D12_SHADER_BYTECODE *ps_code;
+        const struct texture *texture;
+        float lod_bias;
+        float min_lod;
+        float max_lod;
+        float ps_constants[4];
         const unsigned int *expected_data;
     }
     tests[] =
     {
-        {
-            4, 4, DXGI_FORMAT_R8G8B8A8_UNORM,
-            {r8g8b8a8_data, 4 * sizeof(*r8g8b8a8_data), 16 * sizeof(*r8g8b8a8_data)},
-            r8g8b8a8_data,
-        },
-        {
-            4, 4, DXGI_FORMAT_A8_UNORM,
-            {a8_data, 4 * sizeof(*a8_data), 16 * sizeof(*a8_data)},
-            a8_expected_data,
-        },
+#define MIP_MAX D3D12_FLOAT32_MAX
+        {&ps_sample,   &r8g8b8a8_texture, 0.0f, 0.0f, MIP_MAX, {0.0f},                   r8g8b8a8_data},
+        {&ps_sample,   &a8_texture,       0.0f, 0.0f, MIP_MAX, {0.0f},                   a8_expected_data},
+        {&ps_sample_b, &r8g8b8a8_texture, 0.0f, 0.0f, MIP_MAX, {0.0f},                   r8g8b8a8_data},
+        {&ps_sample_b, &a8_texture,       0.0f, 0.0f, MIP_MAX, {0.0f},                   a8_expected_data},
+        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {0.0f},                   rgba_level_0},
+        {&ps_sample_b, &rgba_texture,     8.0f, 0.0f, MIP_MAX, {0.0f},                   level_1_colors},
+        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {8.0f},                   level_1_colors},
+        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {8.4f},                   level_1_colors},
+        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {8.5f},                   level_2_colors},
+        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {9.0f},                   level_2_colors},
+        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, 2.0f,    {1.0f},                   rgba_level_0},
+        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, 2.0f,    {9.0f},                   level_2_colors},
+        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, 1.0f,    {9.0f},                   level_1_colors},
+        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, 0.0f,    {9.0f},                   rgba_level_0},
+        {&ps_sample_d, &r8g8b8a8_texture, 0.0f, 0.0f, MIP_MAX, {0.0f, 0.0f, 0.0f, 0.0f}, r8g8b8a8_data},
+        {&ps_sample_d, &a8_texture,       0.0f, 0.0f, MIP_MAX, {0.0f, 0.0f, 0.0f, 0.0f}, a8_expected_data},
+        {&ps_sample_d, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {0.0f, 0.0f, 0.0f, 0.0f}, rgba_level_0},
+        {&ps_sample_d, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {0.3f, 0.0f, 0.0f, 0.0f}, rgba_level_0},
+        {&ps_sample_d, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {0.4f, 0.0f, 0.0f, 0.0f}, level_1_colors},
+        {&ps_sample_d, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {1.0f, 0.0f, 0.0f, 0.0f}, level_2_colors},
+#undef MIP_MAX
     };
 
     memset(&desc, 0, sizeof(desc));
-    desc.rt_width = desc.rt_height = 32;
+    desc.rt_width = 640;
+    desc.rt_height = 480;
     desc.no_root_signature = true;
     if (!init_test_context(&context, &desc))
         return;
+    device = context.device;
     command_list = context.list;
     queue = context.queue;
 
-    context.root_signature = create_texture_root_signature(context.device,
-            D3D12_SHADER_VISIBILITY_PIXEL, 0, 0);
-    context.pipeline_state = create_pipeline_state(context.device,
-            context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
+    descriptor_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    descriptor_range[0].NumDescriptors = 1;
+    descriptor_range[0].BaseShaderRegister = 0;
+    descriptor_range[0].RegisterSpace = 0;
+    descriptor_range[0].OffsetInDescriptorsFromTableStart = 0;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = &descriptor_range[0];
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
-    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    descriptor_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+    descriptor_range[1].NumDescriptors = 1;
+    descriptor_range[1].BaseShaderRegister = 0;
+    descriptor_range[1].RegisterSpace = 0;
+    descriptor_range[1].OffsetInDescriptorsFromTableStart = 0;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[1].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[1].DescriptorTable.pDescriptorRanges = &descriptor_range[1];
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    root_parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[2].Constants.ShaderRegister = 0;
+    root_parameters[2].Constants.RegisterSpace = 0;
+    root_parameters[2].Constants.Num32BitValues = ARRAY_SIZE(tests->ps_constants);
+    root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    memset(&root_signature_desc, 0, sizeof(root_signature_desc));
+    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
+    root_signature_desc.pParameters = root_parameters;
+    hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
     gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
+
+    sampler_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 1);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
         vkd3d_test_set_context("Test %u", i);
 
-        texture = create_default_texture(context.device,
-                tests[i].width, tests[i].height, tests[i].format, 0, D3D12_RESOURCE_STATE_COPY_DEST);
-        upload_texture_data(texture, &tests[i].data, 1, queue, command_list);
-        reset_command_list(command_list, context.allocator);
+        memset(&sampler_desc, 0, sizeof(sampler_desc));
+        sampler_desc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+        sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler_desc.MipLODBias = tests[i].lod_bias;
+        sampler_desc.MinLOD = tests[i].min_lod;
+        sampler_desc.MaxLOD = tests[i].max_lod;
+        ID3D12Device_CreateSampler(device, &sampler_desc, get_cpu_sampler_handle(&context, sampler_heap, 0));
 
+        if (context.pipeline_state)
+            ID3D12PipelineState_Release(context.pipeline_state);
+        context.pipeline_state = create_pipeline_state(device, context.root_signature,
+                context.render_target_desc.Format, NULL, tests[i].ps_code, NULL);
+
+        texture = create_default_texture2d(device, tests[i].texture->width, tests[i].texture->height,
+                tests[i].texture->array_size, tests[i].texture->miplevel_count, tests[i].texture->format,
+                D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+        upload_texture_data(texture, tests[i].texture->data,
+                tests[i].texture->miplevel_count * tests[i].texture->array_size, queue, command_list);
+        reset_command_list(command_list, context.allocator);
         transition_resource_state(command_list, texture,
                 D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
-        ID3D12Device_CreateShaderResourceView(context.device, texture, NULL, cpu_handle);
+        ID3D12Device_CreateShaderResourceView(device, texture, NULL, cpu_handle);
 
-        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, red, 0, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
         ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
-        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+        heaps[0] = heap; heaps[1] = sampler_heap;
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, ARRAY_SIZE(heaps), heaps);
         ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
+        ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 1,
+                get_gpu_sampler_handle(&context, sampler_heap, 0));
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
         ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 2,
+                ARRAY_SIZE(tests[i].ps_constants), tests[i].ps_constants, 0);
         ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-        x_step = desc.rt_width / tests[i].width;
-        y_step = desc.rt_height / tests[i].height;
+        x_step = desc.rt_width / tests[i].texture->width;
+        y_step = desc.rt_height / tests[i].texture->height;
         get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-        for (y = 0; y < tests[i].height; ++y)
+        for (y = 0; y < tests[i].texture->height; ++y)
         {
-            for (x = 0; x < tests[i].width; ++x)
+            for (x = 0; x < tests[i].texture->width; ++x)
             {
                 unsigned int color = get_readback_uint(&rb, x * x_step + x_step / 2, y * y_step + y_step / 2, 0);
-                ok(compare_color(color, tests[i].expected_data[tests[i].width * y + x], 1),
+                ok(compare_color(color, tests[i].expected_data[tests[i].texture->width * y + x], 1),
                         "Got color 0x%08x, expected 0x%08x at (%u, %u).\n",
-                        color, tests[i].expected_data[tests[i].width * y + x], x, y);
+                        color, tests[i].expected_data[tests[i].texture->width * y + x], x, y);
             }
         }
         release_resource_readback(&rb);
@@ -12325,6 +12520,7 @@ static void test_texture(void)
     vkd3d_test_set_context(NULL);
 
     ID3D12DescriptorHeap_Release(heap);
+    ID3D12DescriptorHeap_Release(sampler_heap);
     destroy_test_context(&context);
 }
 
@@ -31516,7 +31712,7 @@ START_TEST(d3d12)
     run_test(test_constant_buffer_relative_addressing);
     run_test(test_immediate_constant_buffer);
     run_test(test_root_constants);
-    run_test(test_texture);
+    run_test(test_sample_instructions);
     run_test(test_texture_ld);
     run_test(test_gather);
     run_test(test_gather_c);
