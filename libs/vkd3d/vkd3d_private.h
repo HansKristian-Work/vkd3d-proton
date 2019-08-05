@@ -1233,14 +1233,13 @@ VkResult vkd3d_set_vk_object_name_utf8(struct d3d12_device *device, uint64_t vk_
 HRESULT vkd3d_set_vk_object_name(struct d3d12_device *device, uint64_t vk_object,
         VkDebugReportObjectTypeEXT vk_object_type, const WCHAR *name) DECLSPEC_HIDDEN;
 
-static inline void vk_append_struct(void *h, void *structure)
+static inline void vk_prepend_struct(void *header, void *structure)
 {
-    VkBaseOutStructure *header = h;
+    VkBaseOutStructure *vk_header = header, *vk_structure = structure;
 
-    while (header->pNext)
-        header = header->pNext;
-
-    header->pNext = structure;
+    assert(!vk_structure->pNext);
+    vk_structure->pNext = vk_header->pNext;
+    vk_header->pNext = vk_structure;
 }
 
 #endif  /* __VKD3D_PRIVATE_H */

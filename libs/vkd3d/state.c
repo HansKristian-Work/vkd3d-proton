@@ -1729,7 +1729,7 @@ static void rs_depth_clip_info_from_d3d12(VkPipelineRasterizationDepthClipStateC
     depth_clip_info->flags = 0;
     depth_clip_info->depthClipEnable = d3d12_desc->DepthClipEnable;
 
-    vk_append_struct(vk_rs_desc, depth_clip_info);
+    vk_prepend_struct(vk_rs_desc, depth_clip_info);
 }
 
 static void rs_stream_info_from_d3d12(VkPipelineRasterizationStateStreamCreateInfoEXT *stream_info,
@@ -1750,7 +1750,7 @@ static void rs_stream_info_from_d3d12(VkPipelineRasterizationStateStreamCreateIn
     stream_info->flags = 0;
     stream_info->rasterizationStream = so_desc->RasterizedStream;
 
-    vk_append_struct(vk_rs_desc, stream_info);
+    vk_prepend_struct(vk_rs_desc, stream_info);
 }
 
 static enum VkStencilOp vk_stencil_op_from_d3d12(D3D12_STENCIL_OP op)
