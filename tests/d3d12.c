@@ -2509,9 +2509,9 @@ static void test_create_unordered_access_view(void)
 {
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    ID3D12Resource *buffer, *texture;
     unsigned int descriptor_size;
     ID3D12DescriptorHeap *heap;
-    ID3D12Resource *resource;
     ID3D12Device *device;
     ULONG refcount;
 
@@ -2528,7 +2528,7 @@ static void test_create_unordered_access_view(void)
 
     heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 16);
 
-    resource = create_default_buffer(device, 64 * sizeof(float),
+    buffer = create_default_buffer(device, 64 * sizeof(float),
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
@@ -2539,15 +2539,26 @@ static void test_create_unordered_access_view(void)
     uav_desc.Buffer.StructureByteStride = 0;
     uav_desc.Buffer.CounterOffsetInBytes = 0;
     uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
-    ID3D12Device_CreateUnorderedAccessView(device, resource, NULL, &uav_desc, cpu_handle);
+    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc, cpu_handle);
 
     cpu_handle.ptr += descriptor_size;
 
     /* The following call fails. Buffer views cannot be created for compressed formats. */
     uav_desc.Format = DXGI_FORMAT_BC1_UNORM;
-    ID3D12Device_CreateUnorderedAccessView(device, resource, NULL, &uav_desc, cpu_handle);
+    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc, cpu_handle);
 
-    ID3D12Resource_Release(resource);
+    /* DXGI_FORMAT_R32_UINT view for DXGI_FORMAT_R8G8B8A8_TYPELESS resources. */
+    texture = create_default_texture(device, 8, 8, DXGI_FORMAT_R8G8B8A8_TYPELESS,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    uav_desc.Format = DXGI_FORMAT_R32_UINT;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    uav_desc.Texture2D.MipSlice = 0;
+    uav_desc.Texture2D.PlaneSlice = 0;
+    ID3D12Device_CreateUnorderedAccessView(device, texture, NULL, &uav_desc, cpu_handle);
+
+    ID3D12Resource_Release(buffer);
+    ID3D12Resource_Release(texture);
     refcount = ID3D12DescriptorHeap_Release(heap);
     ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
     refcount = ID3D12Device_Release(device);
