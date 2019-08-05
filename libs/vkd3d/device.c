@@ -1895,6 +1895,7 @@ void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocato
 void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator, D3D12_GPU_VIRTUAL_ADDRESS address)
 {
     struct vkd3d_gpu_va_allocation *allocation;
+    unsigned int index;
     int rc;
 
     if ((rc = pthread_mutex_lock(&allocator->mutex)))
@@ -1906,7 +1907,15 @@ void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator, D3D12
     allocation = bsearch(&address, allocator->allocations, allocator->allocation_count,
             sizeof(*allocation), vkd3d_gpu_va_allocation_compare);
     if (allocation && allocation->base == address)
-        allocation->ptr = NULL;
+    {
+        index = allocation - allocator->allocations;
+        --allocator->allocation_count;
+        if (index != allocator->allocation_count)
+        {
+            memmove(&allocator->allocations[index], &allocator->allocations[index + 1],
+                    (allocator->allocation_count - index) * sizeof(*allocation));
+        }
+    }
 
     pthread_mutex_unlock(&allocator->mutex);
 }
