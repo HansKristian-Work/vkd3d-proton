@@ -661,9 +661,6 @@ struct d3d12_root_signature
     VkDescriptorSetLayout vk_push_set_layout;
     VkDescriptorSetLayout vk_set_layout;
 
-    VkDescriptorPoolSize *pool_sizes;
-    size_t pool_size_count;
-
     struct d3d12_root_parameter *parameters;
     unsigned int parameter_count;
     uint32_t main_set;

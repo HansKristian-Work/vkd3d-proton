@@ -64,8 +64,6 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
 
     if (root_signature->vk_pipeline_layout)
         VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->vk_pipeline_layout, NULL));
-    if (root_signature->pool_sizes)
-        vkd3d_free(root_signature->pool_sizes);
     if (root_signature->vk_set_layout)
         VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
     if (root_signature->vk_push_set_layout)
@@ -426,80 +424,6 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
 
     info->sampler_count += desc->NumStaticSamplers;
     info->descriptor_count += desc->NumStaticSamplers;
-
-    return S_OK;
-}
-
-static HRESULT d3d12_root_signature_init_descriptor_pool_size(struct d3d12_root_signature *root_signature,
-        const struct d3d12_root_signature_info *info)
-{
-    unsigned int i;
-
-    root_signature->pool_size_count = 0;
-    if (info->cbv_count)
-        ++root_signature->pool_size_count;
-    if (info->buffer_srv_count || info->srv_count)
-        ++root_signature->pool_size_count;
-    if (info->srv_count)
-        ++root_signature->pool_size_count;
-    if (info->buffer_uav_count || info->uav_count)
-        ++root_signature->pool_size_count;
-    if (info->uav_count)
-        ++root_signature->pool_size_count;
-    if (info->sampler_count)
-        ++root_signature->pool_size_count;
-
-    if (root_signature->pool_size_count)
-    {
-        if (!(root_signature->pool_sizes = vkd3d_calloc(root_signature->pool_size_count,
-                sizeof(*root_signature->pool_sizes))))
-        {
-            return E_OUTOFMEMORY;
-        }
-
-        i = 0;
-        if (info->cbv_count)
-        {
-            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            root_signature->pool_sizes[i++].descriptorCount = info->cbv_count;
-        }
-        /* Each D3D12_DESCRIPTOR_RANGE_TYPE_SRV descriptor can be either a
-         * buffer or a texture view. Allocate one buffer view and one image
-         * view Vulkan descriptor for each. */
-        if (info->buffer_srv_count || info->srv_count)
-        {
-            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-            root_signature->pool_sizes[i++].descriptorCount = info->buffer_srv_count + info->srv_count;
-        }
-        if (info->srv_count)
-        {
-            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-            root_signature->pool_sizes[i++].descriptorCount = info->srv_count;
-        }
-        /* Each D3D12_DESCRIPTOR_RANGE_TYPE_UAV descriptor can be either a
-         * buffer or a texture view. Allocate one buffer view and one image
-         * view Vulkan descriptor for each. */
-        if (info->buffer_uav_count || info->uav_count)
-        {
-            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-            root_signature->pool_sizes[i++].descriptorCount = info->buffer_uav_count + info->uav_count;
-        }
-        if (info->uav_count)
-        {
-            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            root_signature->pool_sizes[i++].descriptorCount = info->uav_count;
-        }
-        if (info->sampler_count)
-        {
-            root_signature->pool_sizes[i].type = VK_DESCRIPTOR_TYPE_SAMPLER;
-            root_signature->pool_sizes[i++].descriptorCount = info->sampler_count;
-        }
-    }
-    else
-    {
-        root_signature->pool_sizes = NULL;
-        root_signature->pool_size_count = 0;
-    }
 
     return S_OK;
 }
@@ -874,7 +798,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     root_signature->refcount = 1;
 
     root_signature->vk_pipeline_layout = VK_NULL_HANDLE;
-    root_signature->pool_sizes = NULL;
     root_signature->vk_push_set_layout = VK_NULL_HANDLE;
     root_signature->vk_set_layout = VK_NULL_HANDLE;
     root_signature->parameters = NULL;
@@ -924,9 +847,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (!(binding_desc = vkd3d_calloc(info.descriptor_count, sizeof(*binding_desc))))
         goto fail;
     context.current_binding = binding_desc;
-
-    if (FAILED(hr = d3d12_root_signature_init_descriptor_pool_size(root_signature, &info)))
-        goto fail;
 
     if (FAILED(hr = d3d12_root_signature_init_root_descriptors(root_signature, desc, &context)))
         goto fail;

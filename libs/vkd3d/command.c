@@ -2821,7 +2821,7 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     struct d3d12_desc *base_descriptor;
     unsigned int i;
 
-    if (!rs || !rs->pool_size_count || !rs->vk_set_layout)
+    if (!rs || !rs->vk_set_layout)
         return;
 
     if (bindings->descriptor_table_dirty_mask || bindings->push_descriptor_dirty_mask)
