@@ -124,6 +124,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_DEDICATED_ALLOCATION, KHR_dedicated_allocation),
     VK_EXTENSION(KHR_DRAW_INDIRECT_COUNT, KHR_draw_indirect_count),
     VK_EXTENSION(KHR_GET_MEMORY_REQUIREMENTS_2, KHR_get_memory_requirements2),
+    VK_EXTENSION(KHR_IMAGE_FORMAT_LIST, KHR_image_format_list),
     VK_EXTENSION(KHR_MAINTENANCE3, KHR_maintenance3),
     VK_EXTENSION(KHR_PUSH_DESCRIPTOR, KHR_push_descriptor),
     /* EXT extensions */
@@ -1989,7 +1990,7 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
 
         vkd3d_private_store_destroy(&device->private_store);
 
-        vkd3d_cleanup_depth_stencil_formats(device);
+        vkd3d_cleanup_format_info(device);
         vkd3d_destroy_null_resources(&device->null_resources, device);
         vkd3d_gpu_va_allocator_cleanup(&device->gpu_va_allocator);
         vkd3d_render_pass_cache_cleanup(&device->render_pass_cache, device);
@@ -3218,11 +3219,11 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_fence_worker_start(&device->fence_worker, device)))
         goto out_free_private_store;
 
-    if (FAILED(hr = vkd3d_init_depth_stencil_formats(device)))
+    if (FAILED(hr = vkd3d_init_format_info(device)))
         goto out_stop_fence_worker;
 
     if (FAILED(hr = vkd3d_init_null_resources(&device->null_resources, device)))
-        goto out_cleanup_depth_stencil_formats;
+        goto out_cleanup_format_info;
 
     vkd3d_render_pass_cache_init(&device->render_pass_cache);
     vkd3d_gpu_va_allocator_init(&device->gpu_va_allocator);
@@ -3232,8 +3233,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     return S_OK;
 
-out_cleanup_depth_stencil_formats:
-    vkd3d_cleanup_depth_stencil_formats(device);
+out_cleanup_format_info:
+    vkd3d_cleanup_format_info(device);
 out_stop_fence_worker:
     vkd3d_fence_worker_stop(&device->fence_worker, device);
 out_free_private_store:

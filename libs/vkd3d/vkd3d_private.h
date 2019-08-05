@@ -48,10 +48,11 @@
 #define VKD3D_DESCRIPTOR_MAGIC_DSV     0x00565344u
 #define VKD3D_DESCRIPTOR_MAGIC_RTV     0x00565452u
 
-#define VKD3D_MAX_QUEUE_FAMILY_COUNT 3u
-#define VKD3D_MAX_SHADER_EXTENSIONS  1u
-#define VKD3D_MAX_SHADER_STAGES      5u
-#define VKD3D_MAX_VK_SYNC_OBJECTS    4u
+#define VKD3D_MAX_COMPATIBLE_FORMAT_COUNT 6u
+#define VKD3D_MAX_QUEUE_FAMILY_COUNT      3u
+#define VKD3D_MAX_SHADER_EXTENSIONS       1u
+#define VKD3D_MAX_SHADER_STAGES           5u
+#define VKD3D_MAX_VK_SYNC_OBJECTS         4u
 
 struct d3d12_command_list;
 struct d3d12_device;
@@ -96,6 +97,7 @@ struct vkd3d_vulkan_info
     bool KHR_dedicated_allocation;
     bool KHR_draw_indirect_count;
     bool KHR_get_memory_requirements2;
+    bool KHR_image_format_list;
     bool KHR_maintenance3;
     bool KHR_push_descriptor;
     /* EXT device extensions */
@@ -1029,6 +1031,13 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
 void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
 
+struct vkd3d_format_compatibility_list
+{
+    DXGI_FORMAT typeless_format;
+    unsigned int format_count;
+    VkFormat vk_formats[VKD3D_MAX_COMPATIBLE_FORMAT_COUNT];
+};
+
 /* ID3D12Device */
 struct d3d12_device
 {
@@ -1070,6 +1079,8 @@ struct d3d12_device
     HRESULT removed_reason;
 
     const struct vkd3d_format *depth_stencil_formats;
+    unsigned int format_compatibility_list_count;
+    const struct vkd3d_format_compatibility_list *format_compatibility_lists;
     struct vkd3d_null_resources null_resources;
 };
 
@@ -1133,8 +1144,8 @@ static inline bool vkd3d_format_is_compressed(const struct vkd3d_format *format)
 const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
         DXGI_FORMAT dxgi_format, bool depth_stencil) DECLSPEC_HIDDEN;
 
-HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device) DECLSPEC_HIDDEN;
-void vkd3d_cleanup_depth_stencil_formats(struct d3d12_device *device) DECLSPEC_HIDDEN;
+HRESULT vkd3d_init_format_info(struct d3d12_device *device) DECLSPEC_HIDDEN;
+void vkd3d_cleanup_format_info(struct d3d12_device *device) DECLSPEC_HIDDEN;
 
 static inline const struct vkd3d_format *vkd3d_format_from_d3d12_resource_desc(
         const struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc, DXGI_FORMAT view_format)

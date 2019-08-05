@@ -781,12 +781,28 @@ static unsigned int max_miplevel_count(const D3D12_RESOURCE_DESC *desc)
     return vkd3d_log2i(size) + 1;
 }
 
+static const struct vkd3d_format_compatibility_list *vkd3d_get_format_compatibility_list(
+        const struct d3d12_device *device, DXGI_FORMAT dxgi_format)
+{
+    unsigned int i;
+
+    for (i = 0; i < device->format_compatibility_list_count; ++i)
+    {
+        if (device->format_compatibility_lists[i].typeless_format == dxgi_format)
+            return &device->format_compatibility_lists[i];
+    }
+
+    return NULL;
+}
+
 static HRESULT vkd3d_create_image(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, VkImage *vk_image)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const struct vkd3d_format_compatibility_list *compat_list;
     const bool sparse_resource = !heap_properties;
+    VkImageFormatListCreateInfoKHR format_list;
     const struct vkd3d_format *format;
     VkImageCreateInfo image_info;
     VkResult vr;
@@ -801,7 +817,21 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     image_info.pNext = NULL;
     image_info.flags = 0;
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) && format->type == VKD3D_FORMAT_TYPE_TYPELESS)
+    {
         image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+
+        /* Format compatibility rules are more relaxed for UAVs. */
+        if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
+                && (compat_list = vkd3d_get_format_compatibility_list(device, desc->Format)))
+        {
+            format_list.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR;
+            format_list.pNext = NULL;
+            format_list.viewFormatCount = compat_list->format_count;
+            format_list.pViewFormats = compat_list->vk_formats;
+
+            image_info.pNext = &format_list;
+        }
+    }
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
             && desc->Width == desc->Height && desc->DepthOrArraySize >= 6
             && desc->SampleDesc.Count == 1)

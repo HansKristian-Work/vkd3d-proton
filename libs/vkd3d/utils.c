@@ -139,7 +139,213 @@ static const struct vkd3d_format vkd3d_depth_stencil_formats[] =
 #undef SINT
 #undef UINT
 
-HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device)
+static const struct vkd3d_format_compatibility_info
+{
+    DXGI_FORMAT format;
+    DXGI_FORMAT typeless_format;
+}
+vkd3d_format_compatibility_info[] =
+{
+    /* DXGI_FORMAT_R32G32B32A32_TYPELESS */
+    {DXGI_FORMAT_R32G32B32A32_UINT,        DXGI_FORMAT_R32G32B32A32_TYPELESS},
+    {DXGI_FORMAT_R32G32B32A32_SINT,        DXGI_FORMAT_R32G32B32A32_TYPELESS},
+    {DXGI_FORMAT_R32G32B32A32_FLOAT,       DXGI_FORMAT_R32G32B32A32_TYPELESS},
+    /* DXGI_FORMAT_R32G32B32_TYPELESS */
+    {DXGI_FORMAT_R32G32B32_UINT,           DXGI_FORMAT_R32G32B32_TYPELESS},
+    {DXGI_FORMAT_R32G32B32_SINT,           DXGI_FORMAT_R32G32B32_TYPELESS},
+    {DXGI_FORMAT_R32G32B32_FLOAT,          DXGI_FORMAT_R32G32B32_TYPELESS},
+    /* DXGI_FORMAT_R16G16B16A16_TYPELESS */
+    {DXGI_FORMAT_R16G16B16A16_UNORM,       DXGI_FORMAT_R16G16B16A16_TYPELESS},
+    {DXGI_FORMAT_R16G16B16A16_SNORM,       DXGI_FORMAT_R16G16B16A16_TYPELESS},
+    {DXGI_FORMAT_R16G16B16A16_UINT,        DXGI_FORMAT_R16G16B16A16_TYPELESS},
+    {DXGI_FORMAT_R16G16B16A16_SINT,        DXGI_FORMAT_R16G16B16A16_TYPELESS},
+    {DXGI_FORMAT_R16G16B16A16_FLOAT,       DXGI_FORMAT_R16G16B16A16_TYPELESS},
+    /* DXGI_FORMAT_R32G32_TYPELESS */
+    {DXGI_FORMAT_R32G32_UINT,              DXGI_FORMAT_R32G32_TYPELESS},
+    {DXGI_FORMAT_R32G32_SINT,              DXGI_FORMAT_R32G32_TYPELESS},
+    {DXGI_FORMAT_R32G32_FLOAT,             DXGI_FORMAT_R32G32_TYPELESS},
+    /* DXGI_FORMAT_R32G8X24_TYPELESS */
+    {DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS, DXGI_FORMAT_R32G8X24_TYPELESS},
+    {DXGI_FORMAT_X32_TYPELESS_G8X24_UINT,  DXGI_FORMAT_R32G8X24_TYPELESS},
+    {DXGI_FORMAT_D32_FLOAT_S8X24_UINT,     DXGI_FORMAT_R32G8X24_TYPELESS},
+    /* DXGI_FORMAT_R10G10B10A2_TYPELESS */
+    {DXGI_FORMAT_R10G10B10A2_UINT,         DXGI_FORMAT_R10G10B10A2_TYPELESS},
+    {DXGI_FORMAT_R10G10B10A2_UNORM,        DXGI_FORMAT_R10G10B10A2_TYPELESS},
+    /* DXGI_FORMAT_R8G8B8A8_TYPELESS */
+    {DXGI_FORMAT_R8G8B8A8_UINT,            DXGI_FORMAT_R8G8B8A8_TYPELESS},
+    {DXGI_FORMAT_R8G8B8A8_SINT,            DXGI_FORMAT_R8G8B8A8_TYPELESS},
+    {DXGI_FORMAT_R8G8B8A8_SNORM,           DXGI_FORMAT_R8G8B8A8_TYPELESS},
+    {DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,      DXGI_FORMAT_R8G8B8A8_TYPELESS},
+    {DXGI_FORMAT_R8G8B8A8_UNORM,           DXGI_FORMAT_R8G8B8A8_TYPELESS},
+    /* DXGI_FORMAT_R16G16_TYPELESS */
+    {DXGI_FORMAT_R16G16_UNORM,             DXGI_FORMAT_R16G16_TYPELESS},
+    {DXGI_FORMAT_R16G16_SNORM,             DXGI_FORMAT_R16G16_TYPELESS},
+    {DXGI_FORMAT_R16G16_UINT,              DXGI_FORMAT_R16G16_TYPELESS},
+    {DXGI_FORMAT_R16G16_SINT,              DXGI_FORMAT_R16G16_TYPELESS},
+    {DXGI_FORMAT_R16G16_FLOAT,             DXGI_FORMAT_R16G16_TYPELESS},
+    /* DXGI_FORMAT_R32_TYPELESS */
+    {DXGI_FORMAT_D32_FLOAT,                DXGI_FORMAT_R32_TYPELESS},
+    {DXGI_FORMAT_R32_FLOAT,                DXGI_FORMAT_R32_TYPELESS},
+    {DXGI_FORMAT_R32_UINT,                 DXGI_FORMAT_R32_TYPELESS},
+    {DXGI_FORMAT_R32_SINT,                 DXGI_FORMAT_R32_TYPELESS},
+    /* DXGI_FORMAT_R24G8_TYPELESS */
+    {DXGI_FORMAT_R24_UNORM_X8_TYPELESS,    DXGI_FORMAT_R24G8_TYPELESS},
+    {DXGI_FORMAT_X24_TYPELESS_G8_UINT,     DXGI_FORMAT_R24G8_TYPELESS},
+    {DXGI_FORMAT_D24_UNORM_S8_UINT,        DXGI_FORMAT_R24G8_TYPELESS},
+    /* DXGI_FORMAT_R8G8_TYPELESS */
+    {DXGI_FORMAT_R8G8_SNORM,               DXGI_FORMAT_R8G8_TYPELESS},
+    {DXGI_FORMAT_R8G8_UNORM,               DXGI_FORMAT_R8G8_TYPELESS},
+    {DXGI_FORMAT_R8G8_UINT,                DXGI_FORMAT_R8G8_TYPELESS},
+    {DXGI_FORMAT_R8G8_SINT,                DXGI_FORMAT_R8G8_TYPELESS},
+    /* DXGI_FORMAT_R16_TYPELESS */
+    {DXGI_FORMAT_D16_UNORM,                DXGI_FORMAT_R16_TYPELESS},
+    {DXGI_FORMAT_R16_UNORM,                DXGI_FORMAT_R16_TYPELESS},
+    {DXGI_FORMAT_R16_SNORM,                DXGI_FORMAT_R16_TYPELESS},
+    {DXGI_FORMAT_R16_UINT,                 DXGI_FORMAT_R16_TYPELESS},
+    {DXGI_FORMAT_R16_SINT,                 DXGI_FORMAT_R16_TYPELESS},
+    {DXGI_FORMAT_R16_FLOAT,                DXGI_FORMAT_R16_TYPELESS},
+    /* DXGI_FORMAT_R8_TYPELESS */
+    {DXGI_FORMAT_R8_UNORM,                 DXGI_FORMAT_R8_TYPELESS},
+    {DXGI_FORMAT_R8_SNORM,                 DXGI_FORMAT_R8_TYPELESS},
+    {DXGI_FORMAT_R8_UINT,                  DXGI_FORMAT_R8_TYPELESS},
+    {DXGI_FORMAT_R8_SINT,                  DXGI_FORMAT_R8_TYPELESS},
+    /* DXGI_FORMAT_BC1_TYPELESS */
+    {DXGI_FORMAT_BC1_UNORM_SRGB,           DXGI_FORMAT_BC1_TYPELESS},
+    {DXGI_FORMAT_BC1_UNORM,                DXGI_FORMAT_BC1_TYPELESS},
+    /* DXGI_FORMAT_BC2_TYPELESS */
+    {DXGI_FORMAT_BC2_UNORM_SRGB,           DXGI_FORMAT_BC2_TYPELESS},
+    {DXGI_FORMAT_BC2_UNORM,                DXGI_FORMAT_BC2_TYPELESS},
+    /* DXGI_FORMAT_BC3_TYPELESS */
+    {DXGI_FORMAT_BC3_UNORM_SRGB,           DXGI_FORMAT_BC3_TYPELESS},
+    {DXGI_FORMAT_BC3_UNORM,                DXGI_FORMAT_BC3_TYPELESS},
+    /* DXGI_FORMAT_BC4_TYPELESS */
+    {DXGI_FORMAT_BC4_UNORM,                DXGI_FORMAT_BC4_TYPELESS},
+    {DXGI_FORMAT_BC4_SNORM,                DXGI_FORMAT_BC4_TYPELESS},
+    /* DXGI_FORMAT_BC5_TYPELESS */
+    {DXGI_FORMAT_BC5_UNORM,                DXGI_FORMAT_BC5_TYPELESS},
+    {DXGI_FORMAT_BC5_SNORM,                DXGI_FORMAT_BC5_TYPELESS},
+    /* DXGI_FORMAT_BC6H_TYPELESS */
+    {DXGI_FORMAT_BC6H_UF16,                DXGI_FORMAT_BC6H_TYPELESS},
+    {DXGI_FORMAT_BC6H_SF16,                DXGI_FORMAT_BC6H_TYPELESS},
+    /* DXGI_FORMAT_BC7_TYPELESS */
+    {DXGI_FORMAT_BC7_UNORM_SRGB,           DXGI_FORMAT_BC7_TYPELESS},
+    {DXGI_FORMAT_BC7_UNORM,                DXGI_FORMAT_BC7_TYPELESS},
+    /* DXGI_FORMAT_B8G8R8A8_TYPELESS */
+    {DXGI_FORMAT_B8G8R8A8_UNORM_SRGB,      DXGI_FORMAT_B8G8R8A8_TYPELESS},
+    {DXGI_FORMAT_B8G8R8A8_UNORM,           DXGI_FORMAT_B8G8R8A8_TYPELESS},
+    /* DXGI_FORMAT_B8G8R8X8_TYPELESS */
+    {DXGI_FORMAT_B8G8R8X8_UNORM_SRGB,      DXGI_FORMAT_B8G8R8X8_TYPELESS},
+    {DXGI_FORMAT_B8G8R8X8_UNORM,           DXGI_FORMAT_B8G8R8X8_TYPELESS},
+};
+
+static bool dxgi_format_is_depth_stencil(DXGI_FORMAT dxgi_format)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(vkd3d_formats); ++i)
+    {
+        const struct vkd3d_format *current = &vkd3d_formats[i];
+
+        if (current->dxgi_format == dxgi_format)
+            return current->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(vkd3d_depth_stencil_formats); ++i)
+    {
+        if (vkd3d_depth_stencil_formats[i].dxgi_format == dxgi_format)
+            return true;
+    }
+
+    return false;
+}
+
+/* FIXME: This table should be generated at compile-time. */
+static HRESULT vkd3d_init_format_compatibility_lists(struct d3d12_device *device)
+{
+    struct vkd3d_format_compatibility_list *lists, *current_list;
+    const struct vkd3d_format_compatibility_info *current;
+    DXGI_FORMAT dxgi_format;
+    VkFormat vk_format;
+    unsigned int count;
+    unsigned int i, j;
+
+    device->format_compatibility_list_count = 0;
+    device->format_compatibility_lists = NULL;
+
+    if (!device->vk_info.KHR_image_format_list)
+        return S_OK;
+
+    count = 1;
+    dxgi_format = vkd3d_format_compatibility_info[0].typeless_format;
+    for (i = 0; i < ARRAY_SIZE(vkd3d_format_compatibility_info); ++i)
+    {
+        DXGI_FORMAT typeless_format = vkd3d_format_compatibility_info[i].typeless_format;
+
+        if (dxgi_format != typeless_format)
+        {
+            ++count;
+            dxgi_format = typeless_format;
+        }
+    }
+
+    if (!(lists = vkd3d_calloc(count, sizeof(*lists))))
+        return E_OUTOFMEMORY;
+
+    count = 0;
+    current_list = lists;
+    current_list->typeless_format = vkd3d_format_compatibility_info[0].typeless_format;
+    for (i = 0; i < ARRAY_SIZE(vkd3d_format_compatibility_info); ++i)
+    {
+        current = &vkd3d_format_compatibility_info[i];
+
+        if (current_list->typeless_format != current->typeless_format)
+        {
+            /* Avoid empty format lists. */
+            if (current_list->format_count)
+            {
+                ++current_list;
+                ++count;
+            }
+
+            current_list->typeless_format = current->typeless_format;
+        }
+
+        /* In Vulkan, each depth-stencil format is only compatible with itself. */
+        if (dxgi_format_is_depth_stencil(current->format))
+            continue;
+
+        if (!(vk_format = vkd3d_get_vk_format(current->format)))
+            continue;
+
+        for (j = 0; j < current_list->format_count; ++j)
+        {
+            if (current_list->vk_formats[j] == vk_format)
+                break;
+        }
+
+        if (j >= current_list->format_count)
+        {
+            assert(current_list->format_count < VKD3D_MAX_COMPATIBLE_FORMAT_COUNT);
+            current_list->vk_formats[current_list->format_count++] = vk_format;
+        }
+    }
+    if (current_list->format_count)
+        ++count;
+
+    device->format_compatibility_list_count = count;
+    device->format_compatibility_lists = lists;
+    return S_OK;
+}
+
+static void vkd3d_cleanup_format_compatibility_lists(struct d3d12_device *device)
+{
+    vkd3d_free((void *)device->format_compatibility_lists);
+
+    device->format_compatibility_lists = NULL;
+    device->format_compatibility_list_count = 0;
+}
+
+static HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device)
 {
     const unsigned int count = ARRAY_SIZE(vkd3d_depth_stencil_formats);
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -178,12 +384,31 @@ HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device)
     return S_OK;
 }
 
-void vkd3d_cleanup_depth_stencil_formats(struct d3d12_device *device)
+static void vkd3d_cleanup_depth_stencil_formats(struct d3d12_device *device)
 {
     if (vkd3d_depth_stencil_formats != device->depth_stencil_formats)
         vkd3d_free((void *)device->depth_stencil_formats);
 
     device->depth_stencil_formats = NULL;
+}
+
+HRESULT vkd3d_init_format_info(struct d3d12_device *device)
+{
+    HRESULT hr;
+
+    if (FAILED(hr = vkd3d_init_depth_stencil_formats(device)))
+        return hr;
+
+    if FAILED(hr = vkd3d_init_format_compatibility_lists(device))
+        vkd3d_cleanup_depth_stencil_formats(device);
+
+    return hr;
+}
+
+void vkd3d_cleanup_format_info(struct d3d12_device *device)
+{
+    vkd3d_cleanup_depth_stencil_formats(device);
+    vkd3d_cleanup_format_compatibility_lists(device);
 }
 
 /* We use overrides for depth/stencil formats. This is required in order to
