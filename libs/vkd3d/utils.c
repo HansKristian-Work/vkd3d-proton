@@ -702,10 +702,12 @@ HRESULT hresult_from_vk_result(VkResult vr)
             return S_OK;
         case VK_ERROR_OUT_OF_DEVICE_MEMORY:
             WARN("Out of device memory.\n");
+            /* fall-through */
         case VK_ERROR_OUT_OF_HOST_MEMORY:
             return E_OUTOFMEMORY;
         default:
             FIXME("Unhandled VkResult %d.\n", vr);
+            /* fall-through */
         case VK_ERROR_DEVICE_LOST:
         case VK_ERROR_EXTENSION_NOT_PRESENT:
             return E_FAIL;
