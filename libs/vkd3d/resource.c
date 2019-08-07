@@ -795,9 +795,30 @@ static const struct vkd3d_format_compatibility_list *vkd3d_get_format_compatibil
     return NULL;
 }
 
+static bool vkd3d_is_linear_tiling_supported(const struct d3d12_device *device, VkImageCreateInfo *image_info)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkImageFormatProperties properties;
+    VkResult vr;
+
+    if ((vr = VK_CALL(vkGetPhysicalDeviceImageFormatProperties(device->vk_physical_device, image_info->format,
+            image_info->imageType, VK_IMAGE_TILING_LINEAR, image_info->usage, image_info->flags, &properties))) < 0)
+    {
+        if (vr != VK_ERROR_FORMAT_NOT_SUPPORTED)
+            WARN("Failed to get device image format properties, vr %d.\n", vr);
+
+        return false;
+    }
+
+    return image_info->extent.depth <= properties.maxExtent.depth
+            && image_info->mipLevels <= properties.maxMipLevels
+            && image_info->arrayLayers <= properties.maxArrayLayers
+            && (image_info->samples & properties.sampleCounts);
+}
+
 static HRESULT vkd3d_create_image(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        const D3D12_RESOURCE_DESC *desc, VkImage *vk_image)
+        const D3D12_RESOURCE_DESC *desc, struct d3d12_resource *resource, VkImage *vk_image)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_format_compatibility_list *compat_list;
@@ -913,16 +934,29 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
         image_info.pQueueFamilyIndices = NULL;
     }
 
-    image_info.initialLayout = heap_properties && is_cpu_accessible_heap(heap_properties) ?
-            VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
-
-    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, vk_image))) < 0)
+    if (heap_properties && is_cpu_accessible_heap(heap_properties))
     {
-        WARN("Failed to create Vulkan image, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
+        image_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+
+        if (vkd3d_is_linear_tiling_supported(device, &image_info))
+        {
+            /* Required for ReadFromSubresource(). */
+            WARN("Forcing VK_IMAGE_TILING_LINEAR for CPU readable texture.\n");
+            image_info.tiling = VK_IMAGE_TILING_LINEAR;
+        }
+    }
+    else
+    {
+        image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     }
 
-    return S_OK;
+    if (resource && image_info.tiling == VK_IMAGE_TILING_LINEAR)
+        resource->flags |= VKD3D_RESOURCE_LINEAR_TILING;
+
+    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, vk_image))) < 0)
+        WARN("Failed to create Vulkan image, vr %d.\n", vr);
+
+    return hresult_from_vk_result(vr);
 }
 
 HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
@@ -946,7 +980,7 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     }
 
     /* XXX: We have to create an image to get its memory requirements. */
-    if (SUCCEEDED(hr = vkd3d_create_image(device, &heap_properties, 0, desc, &vk_image)))
+    if (SUCCEEDED(hr = vkd3d_create_image(device, &heap_properties, 0, desc, NULL, &vk_image)))
     {
         VK_CALL(vkGetImageMemoryRequirements(device->vk_device, vk_image, &requirements));
         VK_CALL(vkDestroyImage(device->vk_device, vk_image, NULL));
@@ -1462,7 +1496,7 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
                 resource->desc.MipLevels = max_miplevel_count(desc);
             resource->flags |= VKD3D_RESOURCE_INITIAL_STATE_TRANSITION;
             if (FAILED(hr = vkd3d_create_image(device, heap_properties, heap_flags,
-                    &resource->desc, &resource->u.vk_image)))
+                    &resource->desc, resource, &resource->u.vk_image)))
                 return hr;
             break;
 
@@ -3686,7 +3720,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
     if (FAILED(hr = vkd3d_create_image(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
-            &resource_desc, &null_resources->vk_2d_image)))
+            &resource_desc, NULL, &null_resources->vk_2d_image)))
         goto fail;
     if (FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_image,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_2d_image_memory, NULL, NULL)))
@@ -3707,7 +3741,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
     if (FAILED(hr = vkd3d_create_image(device, use_sparse_resources ? NULL : &heap_properties, D3D12_HEAP_FLAG_NONE,
-            &resource_desc, &null_resources->vk_2d_storage_image)))
+            &resource_desc, NULL, &null_resources->vk_2d_storage_image)))
         goto fail;
     if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_storage_image,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_2d_storage_image_memory, NULL, NULL)))
