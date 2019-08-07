@@ -286,6 +286,44 @@ static void test_invalid_copy_texture_region(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_invalid_unordered_access_views(void)
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *buffer;
+    ID3D12Device *device;
+    ULONG refcount;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 16);
+
+    buffer = create_default_buffer(device, 64 * sizeof(float),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+
+    /* Buffer views cannot be created for compressed formats. */
+    uav_desc.Format = DXGI_FORMAT_BC1_UNORM;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Buffer.FirstElement = 0;
+    uav_desc.Buffer.NumElements = 64;
+    uav_desc.Buffer.StructureByteStride = 0;
+    uav_desc.Buffer.CounterOffsetInBytes = 0;
+    uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc, cpu_handle);
+
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12Resource_Release(buffer);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 START_TEST(d3d12_invalid_usage)
 {
     parse_args(argc, argv);
@@ -294,4 +332,5 @@ START_TEST(d3d12_invalid_usage)
 
     run_test(test_invalid_resource_barriers);
     run_test(test_invalid_copy_texture_region);
+    run_test(test_invalid_unordered_access_views);
 }

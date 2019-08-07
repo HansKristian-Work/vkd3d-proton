@@ -2543,10 +2543,6 @@ static void test_create_unordered_access_view(void)
 
     cpu_handle.ptr += descriptor_size;
 
-    /* The following call fails. Buffer views cannot be created for compressed formats. */
-    uav_desc.Format = DXGI_FORMAT_BC1_UNORM;
-    ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc, cpu_handle);
-
     /* DXGI_FORMAT_R32_UINT view for DXGI_FORMAT_R8G8B8A8_TYPELESS resources. */
     texture = create_default_texture(device, 8, 8, DXGI_FORMAT_R8G8B8A8_TYPELESS,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
