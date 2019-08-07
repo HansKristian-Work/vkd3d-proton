@@ -30434,7 +30434,7 @@ static void test_read_write_subresource(void)
     todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12Resource_ReadFromSubresource(rb_buffer, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     ID3D12Resource_Release(rb_buffer);
 
@@ -30468,7 +30468,8 @@ static void test_read_write_subresource(void)
     todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, NULL);
-    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    todo_if(is_nvidia_device(device))
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
     /* Empty box */
     set_box(&box, 0, 0, 0, 0, 0, 0);
@@ -30476,7 +30477,7 @@ static void test_read_write_subresource(void)
     todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
     for (z = 0; z < 64; ++z)
     {
@@ -30511,13 +30512,15 @@ static void test_read_write_subresource(void)
     /* Read region 1 */
     set_box(&box, 0, 0, 0, 2, 2, 2);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    todo_if(is_nvidia_device(device))
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
     /* Read region 2 */
     set_box(&box, 2, 2, 2, 11, 13, 17);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, &dst_buffer[2 * 128 * 100 + 2 * 128 + 2], row_pitch,
             slice_pitch, 0, &box);
-    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    todo_if(is_nvidia_device(device))
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
     for (z = 0; z < 64; ++z)
     {
