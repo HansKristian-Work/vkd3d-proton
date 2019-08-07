@@ -30390,6 +30390,7 @@ static void test_vertex_shader_stream_output(void)
 static void test_read_write_subresource(void)
 {
     D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
+    uint32_t *dst_buffer, *zero_buffer, *ptr;
     ID3D12GraphicsCommandList *command_list;
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_SUBRESOURCE_DATA texture_data;
@@ -30399,16 +30400,14 @@ static void test_read_write_subresource(void)
     struct resource_readback rb;
     ID3D12Resource *src_texture;
     ID3D12Resource *dst_texture;
-    unsigned int got, expected;
     ID3D12CommandQueue *queue;
     ID3D12Resource *rb_buffer;
-    unsigned int *dst_buffer;
     unsigned int buffer_size;
     unsigned int slice_pitch;
+    unsigned int x, y, z, i;
     unsigned int row_pitch;
-    unsigned int x, y, z;
+    uint32_t got, expected;
     ID3D12Device *device;
-    unsigned int *ptr;
     D3D12_BOX box;
     HRESULT hr;
 
@@ -30428,6 +30427,9 @@ static void test_read_write_subresource(void)
     rb_buffer = create_readback_buffer(device, buffer_size);
     dst_buffer = malloc(buffer_size);
     ok(dst_buffer, "Failed to allocate memory.\n");
+    zero_buffer = malloc(buffer_size);
+    ok(zero_buffer, "Failed to allocate memory.\n");
+    memset(zero_buffer, 0, buffer_size);
 
     set_box(&box, 0, 0, 0, 1, 1, 1);
     hr = ID3D12Resource_WriteToSubresource(rb_buffer, 0, &box, dst_buffer, row_pitch, slice_pitch);
@@ -30479,73 +30481,99 @@ static void test_read_write_subresource(void)
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
-    for (z = 0; z < 64; ++z)
+    for (i = 0; i < 2; ++i)
     {
-        for (y = 0; y < 100; ++y)
+        vkd3d_test_set_context("Test %u", i);
+
+        for (z = 0; z < 64; ++z)
         {
-            for (x = 0; x < 128; ++x)
+            for (y = 0; y < 100; ++y)
             {
-                ptr = &dst_buffer[z * 128 * 100 + y * 128 + x];
-                if (x < 2 && y< 2 && z < 2) /* Region 1 */
-                    *ptr = (z + 1) << 16 | (y + 1) << 8 | (x + 1);
-                else if (2 <= x && x < 11 && 2 <= y && y < 13 && 2 <= z && z < 17) /* Region 2 */
-                    *ptr = (z + 2) << 16 | (y + 2) << 8 | (x + 2);
-                else
-                    *ptr = 0xdeadbeef;
+                for (x = 0; x < 128; ++x)
+                {
+                    ptr = &dst_buffer[z * 128 * 100 + y * 128 + x];
+                    if (x < 2 && y< 2 && z < 2) /* Region 1 */
+                        *ptr = (z + 1) << 16 | (y + 1) << 8 | (x + 1);
+                    else if (2 <= x && x < 11 && 2 <= y && y < 13 && 2 <= z && z < 17) /* Region 2 */
+                        *ptr = (z + 2) << 16 | (y + 2) << 8 | (x + 2);
+                    else
+                        *ptr = 0xdeadbeef;
+                }
             }
         }
-    }
 
-    /* Write region 1 */
-    set_box(&box, 0, 0, 0, 2, 2, 2);
-    hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, dst_buffer, row_pitch, slice_pitch);
-    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
-
-    /* Write region 2 */
-    set_box(&box, 2, 2, 2, 11, 13, 17);
-    hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, &dst_buffer[2 * 128 * 100 + 2 * 128 + 2],
-            row_pitch, slice_pitch);
-    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
-
-    memset(dst_buffer, 0, buffer_size);
-
-    /* Read region 1 */
-    set_box(&box, 0, 0, 0, 2, 2, 2);
-    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    todo_if(is_nvidia_device(device))
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
-
-    /* Read region 2 */
-    set_box(&box, 2, 2, 2, 11, 13, 17);
-    hr = ID3D12Resource_ReadFromSubresource(src_texture, &dst_buffer[2 * 128 * 100 + 2 * 128 + 2], row_pitch,
-            slice_pitch, 0, &box);
-    todo_if(is_nvidia_device(device))
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
-
-    for (z = 0; z < 64; ++z)
-    {
-        for (y = 0; y < 100; ++y)
+        if (i)
         {
-            for (x = 0; x < 128; ++x)
-            {
-                if (x < 2 && y < 2 && z < 2) /* Region 1 */
-                    expected = (z + 1) << 16 | (y + 1) << 8 | (x + 1);
-                else if (2 <= x && x < 11 && 2 <= y && y < 13 && 2 <= z && z < 17) /* Region 2 */
-                    expected = (z + 2) << 16 | (y + 2) << 8 | (x + 2);
-                else /* Untouched */
-                    expected = 0;
+            hr = ID3D12Resource_WriteToSubresource(src_texture, 0, NULL, zero_buffer, row_pitch, slice_pitch);
+            todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
-                got = dst_buffer[z * 128 * 100 + y * 128 + x];
+            /* Write region 1 */
+            set_box(&box, 0, 0, 0, 2, 2, 2);
+            hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, dst_buffer, row_pitch, slice_pitch);
+            todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+            /* Write region 2 */
+            set_box(&box, 2, 2, 2, 11, 13, 17);
+            hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, &dst_buffer[2 * 128 * 100 + 2 * 128 + 2],
+                    row_pitch, slice_pitch);
+            todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        }
+        else
+        {
+            /* Upload the test data */
+            transition_resource_state(command_list, src_texture,
+                    D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+            texture_data.pData = dst_buffer;
+            texture_data.RowPitch = row_pitch;
+            texture_data.SlicePitch = slice_pitch;
+            upload_texture_data(src_texture, &texture_data, 1, queue, command_list);
+            reset_command_list(command_list, context.allocator);
+            transition_resource_state(command_list, src_texture,
+                    D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
+        }
+
+        memset(dst_buffer, 0, buffer_size);
+
+        /* Read region 1 */
+        set_box(&box, 0, 0, 0, 2, 2, 2);
+        hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+        todo_if(is_nvidia_device(device))
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        /* Read region 2 */
+        set_box(&box, 2, 2, 2, 11, 13, 17);
+        hr = ID3D12Resource_ReadFromSubresource(src_texture, &dst_buffer[2 * 128 * 100 + 2 * 128 + 2], row_pitch,
+                slice_pitch, 0, &box);
+        todo_if(is_nvidia_device(device))
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        for (z = 0; z < 64; ++z)
+        {
+            for (y = 0; y < 100; ++y)
+            {
+                for (x = 0; x < 128; ++x)
+                {
+                    if (x < 2 && y < 2 && z < 2) /* Region 1 */
+                        expected = (z + 1) << 16 | (y + 1) << 8 | (x + 1);
+                    else if (2 <= x && x < 11 && 2 <= y && y < 13 && 2 <= z && z < 17) /* Region 2 */
+                        expected = (z + 2) << 16 | (y + 2) << 8 | (x + 2);
+                    else /* Untouched */
+                        expected = 0;
+
+                    got = dst_buffer[z * 128 * 100 + y * 128 + x];
+                    if (got != expected)
+                        break;
+                }
                 if (got != expected)
                     break;
             }
             if (got != expected)
                 break;
         }
-        if (got != expected)
-            break;
+        todo_if(is_nvidia_device(device))
+        ok(got == expected, "Got unexpected value 0x%08x at (%u, %u, %u), expected 0x%08x.\n", got, x, y, z, expected);
     }
-    todo ok(got == expected, "Got unexpected value 0x%08x at (%u, %u, %u), expected 0x%08x.\n", got, x, y, z, expected);
+    vkd3d_test_set_context(NULL);
 
     /* Test layout is the same */
     dst_texture = create_default_texture3d(device, 128, 100, 64, 1, DXGI_FORMAT_R8G8B8A8_UNORM, 0,
@@ -30601,6 +30629,7 @@ static void test_read_write_subresource(void)
 
 done:
     free(dst_buffer);
+    free(zero_buffer);
     destroy_test_context(&context);
 }
 
