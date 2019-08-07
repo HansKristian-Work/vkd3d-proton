@@ -1041,6 +1041,33 @@ bool d3d12_resource_is_cpu_accessible(const struct d3d12_resource *resource)
     return resource->heap && is_cpu_accessible_heap(&resource->heap->desc.Properties);
 }
 
+static bool d3d12_resource_validate_box(const struct d3d12_resource *resource,
+        unsigned int sub_resource_idx, const D3D12_BOX *box)
+{
+    unsigned int mip_level = sub_resource_idx % resource->desc.MipLevels;
+    struct d3d12_device *device = resource->device;
+    const struct vkd3d_format *vkd3d_format;
+    uint32_t width_mask, height_mask;
+    uint64_t width, height, depth;
+
+    width = d3d12_resource_desc_get_width(&resource->desc, mip_level);
+    height = d3d12_resource_desc_get_height(&resource->desc, mip_level);
+    depth = d3d12_resource_desc_get_depth(&resource->desc, mip_level);
+
+    vkd3d_format = vkd3d_format_from_d3d12_resource_desc(device, &resource->desc, 0);
+    assert(vkd3d_format);
+    width_mask = vkd3d_format->block_width - 1;
+    height_mask = vkd3d_format->block_height - 1;
+
+    return box->left <= width && box->right <= width
+            && box->top <= height && box->bottom <= height
+            && box->front <= depth && box->back <= depth
+            && !(box->left & width_mask)
+            && !(box->right & width_mask)
+            && !(box->top & height_mask)
+            && !(box->bottom & height_mask);
+}
+
 /* ID3D12Resource */
 static inline struct d3d12_resource *impl_from_ID3D12Resource(ID3D12Resource *iface)
 {
@@ -1282,8 +1309,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(ID3D12Resour
     HRESULT hr;
 
     TRACE("iface %p, dst_data %p, dst_row_pitch %u, dst_slice_pitch %u, "
-            "src_sub_resource %u, src_box %p.\n",
-            iface, dst_data, dst_row_pitch, dst_slice_pitch, src_sub_resource, src_box);
+            "src_sub_resource %u, src_box %s.\n",
+            iface, dst_data, dst_row_pitch, dst_slice_pitch, src_sub_resource, debug_d3d12_box(src_box));
 
     if (d3d12_resource_is_buffer(resource))
     {
@@ -1311,6 +1338,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(ID3D12Resour
 
     if (src_box)
     {
+        if (!d3d12_resource_validate_box(resource, src_sub_resource, src_box))
+        {
+            WARN("Invalid box %s.\n", debug_d3d12_box(src_box));
+            return E_INVALIDARG;
+        }
+
         box = *src_box;
     }
     else
@@ -1323,7 +1356,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(ID3D12Resour
         box.back = d3d12_resource_desc_get_depth(&resource->desc, vk_sub_resource.mipLevel);
     }
     if (box.right <= box.left || box.bottom <= box.top || box.back <= box.front)
+    {
+        WARN("Empty box %s.\n", debug_d3d12_box(src_box));
         return S_OK;
+    }
 
     if (!d3d12_resource_is_cpu_accessible(resource))
     {

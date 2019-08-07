@@ -30465,6 +30465,19 @@ static void test_read_write_subresource(void)
         goto done;
     }
 
+    /* Invalid box */
+    set_box(&box, 0, 0, 0, 128, 100, 65);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    set_box(&box, 0, 0, 65, 128, 100, 65);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    set_box(&box, 128, 0, 0, 128, 100, 65);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
     /* NULL box */
     hr = ID3D12Resource_WriteToSubresource(src_texture, 0, NULL, dst_buffer, row_pitch, slice_pitch);
     todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
@@ -30474,6 +30487,10 @@ static void test_read_write_subresource(void)
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
     /* Empty box */
+    set_box(&box, 128, 100, 64, 128, 100, 64);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
     set_box(&box, 0, 0, 0, 0, 0, 0);
     hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, dst_buffer, row_pitch, slice_pitch);
     todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
@@ -30625,7 +30642,51 @@ static void test_read_write_subresource(void)
 
     ID3D12Resource_Release(src_texture);
     ID3D12Resource_Release(dst_texture);
-    reset_command_list(command_list, context.allocator);
+
+    /* Invalid box */
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 64;
+    resource_desc.Height = 32;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_BC1_UNORM;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = 0;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_CUSTOM;
+    heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&src_texture);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+    /* Unaligned coordinates for BC format */
+    set_box(&box, 0, 0, 0, 2, 2, 1);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    set_box(&box, 2, 2, 0, 4, 4, 1);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    set_box(&box, 2, 2, 0, 6, 6, 1);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    /* Invalid coordinates for resource dimensions */
+    set_box(&box, 0, 0, 0, 64, 32, 2);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    set_box(&box, 0, 0, 0, 68, 32, 1);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    ID3D12Resource_Release(src_texture);
 
 done:
     free(dst_buffer);
