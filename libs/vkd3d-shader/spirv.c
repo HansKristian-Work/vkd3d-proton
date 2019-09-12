@@ -6510,6 +6510,7 @@ static void vkd3d_dxbc_compiler_emit_kill(struct vkd3d_dxbc_compiler *compiler,
     if (vkd3d_dxbc_compiler_is_target_extension_supported(compiler,
             VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION))
     {
+        vkd3d_spirv_enable_capability(builder, SpvCapabilityDemoteToHelperInvocationEXT);
         vkd3d_spirv_build_op_demote_to_helper_invocation(builder);
         vkd3d_spirv_build_op_branch(builder, merge_block_id);
     }
