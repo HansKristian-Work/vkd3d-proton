@@ -26,6 +26,10 @@
 #include <limits.h>
 #include <stdbool.h>
 
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
+
 #ifndef ARRAY_SIZE
 # define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
 #endif
@@ -51,7 +55,9 @@ static inline size_t align(size_t addr, size_t alignment)
 
 static inline unsigned int vkd3d_popcount(unsigned int v)
 {
-#ifdef HAVE_BUILTIN_POPCOUNT
+#ifdef _MSC_VER
+	return __popcnt(v);
+#elif defined(HAVE_BUILTIN_POPCOUNT)
     return __builtin_popcount(v);
 #else
     v -= (v >> 1) & 0x55555555;
@@ -78,7 +84,11 @@ static inline bool vkd3d_bitmask_is_contiguous(unsigned int mask)
 /* Undefined for x == 0. */
 static inline unsigned int vkd3d_log2i(unsigned int x)
 {
-#ifdef HAVE_BUILTIN_CLZ
+#ifdef _MSC_VER
+	unsigned long result;
+	_BitScanForward(&result, x);
+	return (unsigned int)x;
+#elif defined(HAVE_BUILTIN_CLZ)
     return __builtin_clz(x) ^ 0x1f;
 #else
     static const unsigned int l[] =
@@ -152,8 +162,8 @@ static inline LONG InterlockedDecrement(LONG volatile *x)
 
 #if HAVE_SYNC_ADD_AND_FETCH
 # define atomic_add_fetch(ptr, val) __sync_add_and_fetch(ptr, val)
-#else
-# error "atomic_add_fetch() not implemented for this platform"
+#elif defined(_MSC_VER)
+# define atomic_add_fetch(ptr, val) InterlockedAdd(ptr, val)
 #endif  /* HAVE_SYNC_ADD_AND_FETCH */
 
 static inline void vkd3d_parse_version(const char *version, int *major, int *minor)

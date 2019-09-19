@@ -178,8 +178,8 @@ VK_DEVICE_PFN(vkUpdateDescriptorSets)
 VK_DEVICE_PFN(vkWaitForFences)
 
 /* VK_KHR_draw_indirect_count */
-VK_DEVICE_EXT_PFN(vkCmdDrawIndirectCountKHR);
-VK_DEVICE_EXT_PFN(vkCmdDrawIndexedIndirectCountKHR);
+VK_DEVICE_EXT_PFN(vkCmdDrawIndirectCountKHR)
+VK_DEVICE_EXT_PFN(vkCmdDrawIndexedIndirectCountKHR)
 
 /* VK_KHR_get_memory_requirements2 */
 VK_DEVICE_EXT_PFN(vkGetBufferMemoryRequirements2KHR)

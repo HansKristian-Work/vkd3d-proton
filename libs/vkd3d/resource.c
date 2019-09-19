@@ -302,7 +302,7 @@ static void d3d12_heap_destroy(struct d3d12_heap *heap)
 
     VK_CALL(vkFreeMemory(device->vk_device, heap->vk_memory, NULL));
 
-    pthread_mutex_destroy(&heap->mutex);
+    vkd3d_pthread_mutex_destroy(&heap->mutex);
 
     if (heap->is_private)
         device = NULL;
@@ -419,7 +419,7 @@ static HRESULT d3d12_heap_map(struct d3d12_heap *heap, uint64_t offset,
     VkResult vr;
     int rc;
 
-    if ((rc = pthread_mutex_lock(&heap->mutex)))
+    if ((rc = vkd3d_pthread_mutex_lock(&heap->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
         *data = NULL;
@@ -464,7 +464,7 @@ static HRESULT d3d12_heap_map(struct d3d12_heap *heap, uint64_t offset,
         *data = NULL;
     }
 
-    pthread_mutex_unlock(&heap->mutex);
+    vkd3d_pthread_mutex_unlock(&heap->mutex);
 
     return hr;
 }
@@ -474,7 +474,7 @@ static void d3d12_heap_unmap(struct d3d12_heap *heap, struct d3d12_resource *res
     struct d3d12_device *device = heap->device;
     int rc;
 
-    if ((rc = pthread_mutex_lock(&heap->mutex)))
+    if ((rc = vkd3d_pthread_mutex_lock(&heap->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
         return;
@@ -508,7 +508,7 @@ static void d3d12_heap_unmap(struct d3d12_heap *heap, struct d3d12_resource *res
     }
 
 done:
-    pthread_mutex_unlock(&heap->mutex);
+    vkd3d_pthread_mutex_unlock(&heap->mutex);
 }
 
 static HRESULT validate_heap_desc(const D3D12_HEAP_DESC *desc, const struct d3d12_resource *resource)
@@ -567,7 +567,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     if (FAILED(hr = validate_heap_desc(&heap->desc, resource)))
         return hr;
 
-    if ((rc = pthread_mutex_init(&heap->mutex, NULL)))
+    if ((rc = vkd3d_pthread_mutex_init(&heap->mutex)))
     {
         ERR("Failed to initialize mutex, error %d.\n", rc);
         return hresult_from_errno(rc);
@@ -575,7 +575,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
 
     if (FAILED(hr = vkd3d_private_store_init(&heap->private_store)))
     {
-        pthread_mutex_destroy(&heap->mutex);
+        vkd3d_pthread_mutex_destroy(&heap->mutex);
         return hr;
     }
 
@@ -609,7 +609,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     if (FAILED(hr))
     {
         vkd3d_private_store_destroy(&heap->private_store);
-        pthread_mutex_destroy(&heap->mutex);
+        vkd3d_pthread_mutex_destroy(&heap->mutex);
         return hr;
     }
 
@@ -1387,7 +1387,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(ID3D12Resour
     size = (box.right - box.left) / format->block_width * format->byte_count * format->block_byte_count;
     for (z = box.front; z < box.back; ++z)
     {
-        dst = dst_data + (z - box.front) * dst_slice_pitch;
+        dst = (uint8_t *)dst_data + (z - box.front) * dst_slice_pitch;
         src = src_data + z * vk_layout.depthPitch + box.top / format->block_height * vk_layout.rowPitch;
         for (y = box.top; y < box.bottom; y += format->block_height)
         {

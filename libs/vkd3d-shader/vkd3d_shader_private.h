@@ -56,7 +56,7 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <string.h>
-#include <strings.h>
+//#include <strings.h>
 
 #define VKD3D_VEC4_SIZE 4
 

@@ -31,11 +31,11 @@
 
 #include "vkd3d.h"
 #include "vkd3d_shader.h"
+#include "vkd3d_threads.h"
 
 #include <assert.h>
 #include <inttypes.h>
 #include <limits.h>
-#include <pthread.h>
 #include <stdbool.h>
 
 #define VK_CALL(f) (vk_procs->f)
@@ -155,7 +155,7 @@ struct vkd3d_instance
 
 union vkd3d_thread_handle
 {
-    pthread_t pthread;
+    vkd3d_pthread_t pthread;
     void *handle;
 };
 
@@ -174,9 +174,9 @@ struct vkd3d_waiting_fence
 struct vkd3d_fence_worker
 {
     union vkd3d_thread_handle thread;
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
-    pthread_cond_t fence_destruction_cond;
+    vkd3d_pthread_mutex_t mutex;
+    vkd3d_pthread_cond_t cond;
+    vkd3d_pthread_cond_t fence_destruction_cond;
     bool should_exit;
     bool pending_fence_destruction;
 
@@ -204,7 +204,7 @@ HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
 
 struct vkd3d_gpu_va_allocator
 {
-    pthread_mutex_t mutex;
+    vkd3d_pthread_mutex_t mutex;
 
     D3D12_GPU_VIRTUAL_ADDRESS floor;
 
@@ -254,7 +254,7 @@ void vkd3d_render_pass_cache_init(struct vkd3d_render_pass_cache *cache) DECLSPE
 
 struct vkd3d_private_store
 {
-    pthread_mutex_t mutex;
+    vkd3d_pthread_mutex_t mutex;
 
     struct list content;
 };
@@ -287,7 +287,7 @@ static inline HRESULT vkd3d_private_store_init(struct vkd3d_private_store *store
 
     list_init(&store->content);
 
-    if ((rc = pthread_mutex_init(&store->mutex, NULL)))
+    if ((rc = vkd3d_pthread_mutex_init(&store->mutex)))
         ERR("Failed to initialize mutex, error %d.\n", rc);
 
     return hresult_from_errno(rc);
@@ -302,7 +302,7 @@ static inline void vkd3d_private_store_destroy(struct vkd3d_private_store *store
         vkd3d_private_data_destroy(data);
     }
 
-    pthread_mutex_destroy(&store->mutex);
+    vkd3d_pthread_mutex_destroy(&store->mutex);
 }
 
 HRESULT vkd3d_get_private_data(struct vkd3d_private_store *store,
@@ -328,7 +328,7 @@ struct d3d12_fence
     LONG refcount;
 
     uint64_t value;
-    pthread_mutex_t mutex;
+    vkd3d_pthread_mutex_t mutex;
 
     struct vkd3d_waiting_event
     {
@@ -362,7 +362,7 @@ struct d3d12_heap
     bool is_private;
     D3D12_HEAP_DESC desc;
 
-    pthread_mutex_t mutex;
+    vkd3d_pthread_mutex_t mutex;
 
     VkDeviceMemory vk_memory;
     void *map_ptr;
@@ -941,7 +941,7 @@ HRESULT d3d12_command_list_create(struct d3d12_device *device,
 struct vkd3d_queue
 {
     /* Access to VkQueue must be externally synchronized. */
-    pthread_mutex_t mutex;
+    vkd3d_pthread_mutex_t mutex;
 
     VkQueue vk_queue;
 
@@ -1051,7 +1051,7 @@ struct d3d12_device
     struct vkd3d_gpu_va_allocator gpu_va_allocator;
     struct vkd3d_fence_worker fence_worker;
 
-    pthread_mutex_t mutex;
+    vkd3d_pthread_mutex_t mutex;
     struct vkd3d_render_pass_cache render_pass_cache;
     VkPipelineCache vk_pipeline_cache;
 
@@ -1215,16 +1215,13 @@ HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
 
 extern const char vkd3d_build[];
 
-bool vkd3d_get_program_name(char program_name[PATH_MAX]) DECLSPEC_HIDDEN;
-
-static inline void vkd3d_set_thread_name(const char *name)
-{
-#if defined(HAVE_PTHREAD_SETNAME_NP_2)
-    pthread_setname_np(pthread_self(), name);
-#elif defined(HAVE_PTHREAD_SETNAME_NP_1)
-    pthread_setname_np(name);
+#ifdef PATH_MAX
+#define VKD3D_PATH_MAX PATH_MAX
+#else
+#define VKD3D_PATH_MAX 256
 #endif
-}
+
+bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX]) DECLSPEC_HIDDEN;
 
 VkResult vkd3d_set_vk_object_name_utf8(struct d3d12_device *device, uint64_t vk_object,
         VkDebugReportObjectTypeEXT vk_object_type, const char *name) DECLSPEC_HIDDEN;

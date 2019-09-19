@@ -4540,7 +4540,7 @@ static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compi
 
 static void vkd3d_dxbc_compiler_emit_shader_epilogue_function(struct vkd3d_dxbc_compiler *compiler)
 {
-    uint32_t param_type_id[MAX_REG_OUTPUT + 1], param_id[MAX_REG_OUTPUT + 1] = {};
+    uint32_t param_type_id[MAX_REG_OUTPUT + 1], param_id[MAX_REG_OUTPUT + 1] = {0};
     uint32_t void_id, type_id, ptr_type_id, function_type_id, function_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_signature *signature;

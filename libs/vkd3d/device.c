@@ -453,7 +453,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     bool *user_extension_supported = NULL;
     VkApplicationInfo application_info;
     VkInstanceCreateInfo instance_info;
-    char application_name[PATH_MAX];
+    char application_name[VKD3D_PATH_MAX];
     uint32_t extension_count;
     const char **extensions;
     VkInstance vk_instance;
@@ -1791,7 +1791,7 @@ static HRESULT d3d12_device_init_pipeline_cache(struct d3d12_device *device)
     VkResult vr;
     int rc;
 
-    if ((rc = pthread_mutex_init(&device->mutex, NULL)))
+    if ((rc = vkd3d_pthread_mutex_init(&device->mutex)))
     {
         ERR("Failed to initialize mutex, error %d.\n", rc);
         return hresult_from_errno(rc);
@@ -1819,7 +1819,7 @@ static void d3d12_device_destroy_pipeline_cache(struct d3d12_device *device)
     if (device->vk_pipeline_cache)
         VK_CALL(vkDestroyPipelineCache(device->vk_device, device->vk_pipeline_cache, NULL));
 
-    pthread_mutex_destroy(&device->mutex);
+    vkd3d_pthread_mutex_destroy(&device->mutex);
 }
 
 D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_allocator *allocator,
@@ -1829,7 +1829,7 @@ D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_al
     struct vkd3d_gpu_va_allocation *allocation;
     int rc;
 
-    if ((rc = pthread_mutex_lock(&allocator->mutex)))
+    if ((rc = vkd3d_pthread_mutex_lock(&allocator->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
         return 0;
@@ -1838,13 +1838,13 @@ D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_al
     if (!vkd3d_array_reserve((void **)&allocator->allocations, &allocator->allocations_size,
             allocator->allocation_count + 1, sizeof(*allocator->allocations)))
     {
-        pthread_mutex_unlock(&allocator->mutex);
+        vkd3d_pthread_mutex_unlock(&allocator->mutex);
         return 0;
     }
 
     if (size > ceiling || ceiling - size < allocator->floor)
     {
-        pthread_mutex_unlock(&allocator->mutex);
+        vkd3d_pthread_mutex_unlock(&allocator->mutex);
         return 0;
     }
 
@@ -1855,7 +1855,7 @@ D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_al
 
     allocator->floor += size;
 
-    pthread_mutex_unlock(&allocator->mutex);
+    vkd3d_pthread_mutex_unlock(&allocator->mutex);
 
     return allocation->base;
 }
@@ -1878,7 +1878,7 @@ void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocato
     struct vkd3d_gpu_va_allocation *allocation;
     int rc;
 
-    if ((rc = pthread_mutex_lock(&allocator->mutex)))
+    if ((rc = vkd3d_pthread_mutex_lock(&allocator->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
         return NULL;
@@ -1887,7 +1887,7 @@ void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocato
     allocation = bsearch(&address, allocator->allocations, allocator->allocation_count,
             sizeof(*allocation), vkd3d_gpu_va_allocation_compare);
 
-    pthread_mutex_unlock(&allocator->mutex);
+    vkd3d_pthread_mutex_unlock(&allocator->mutex);
 
     return allocation ? allocation->ptr : NULL;
 }
@@ -1898,7 +1898,7 @@ void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator, D3D12
     unsigned int index;
     int rc;
 
-    if ((rc = pthread_mutex_lock(&allocator->mutex)))
+    if ((rc = vkd3d_pthread_mutex_lock(&allocator->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
         return;
@@ -1917,7 +1917,7 @@ void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator, D3D12
         }
     }
 
-    pthread_mutex_unlock(&allocator->mutex);
+    vkd3d_pthread_mutex_unlock(&allocator->mutex);
 }
 
 static bool vkd3d_gpu_va_allocator_init(struct vkd3d_gpu_va_allocator *allocator)
@@ -1927,7 +1927,7 @@ static bool vkd3d_gpu_va_allocator_init(struct vkd3d_gpu_va_allocator *allocator
     memset(allocator, 0, sizeof(*allocator));
     allocator->floor = 0x1000;
 
-    if ((rc = pthread_mutex_init(&allocator->mutex, NULL)))
+    if ((rc = vkd3d_pthread_mutex_init(&allocator->mutex)))
     {
         ERR("Failed to initialize mutex, error %d.\n", rc);
         return false;
@@ -1940,14 +1940,14 @@ static void vkd3d_gpu_va_allocator_cleanup(struct vkd3d_gpu_va_allocator *alloca
 {
     int rc;
 
-    if ((rc = pthread_mutex_lock(&allocator->mutex)))
+    if ((rc = vkd3d_pthread_mutex_lock(&allocator->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
         return;
     }
     vkd3d_free(allocator->allocations);
-    pthread_mutex_unlock(&allocator->mutex);
-    pthread_mutex_destroy(&allocator->mutex);
+    vkd3d_pthread_mutex_unlock(&allocator->mutex);
+    vkd3d_pthread_mutex_destroy(&allocator->mutex);
 }
 
 /* ID3D12Device */
@@ -3309,7 +3309,7 @@ HRESULT vkd3d_create_thread(struct vkd3d_instance *instance,
     }
     else
     {
-        if ((rc = pthread_create(&thread->pthread, NULL, thread_main, data)))
+        if ((rc = vkd3d_pthread_create(&thread->pthread, thread_main, data)))
         {
             ERR("Failed to create thread, error %d.\n", rc);
             hr = hresult_from_errno(rc);
@@ -3331,7 +3331,7 @@ HRESULT vkd3d_join_thread(struct vkd3d_instance *instance, union vkd3d_thread_ha
     }
     else
     {
-        if ((rc = pthread_join(thread->pthread, NULL)))
+        if ((rc = vkd3d_pthread_join(thread->pthread)))
         {
             ERR("Failed to join thread, error %d.\n", rc);
             hr = hresult_from_errno(rc);
