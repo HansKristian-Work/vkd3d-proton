@@ -31,11 +31,11 @@
 
 #include "vkd3d.h"
 #include "vkd3d_shader.h"
+#include "vkd3d_threads.h"
 
 #include <assert.h>
 #include <inttypes.h>
 #include <limits.h>
-#include <pthread.h>
 #include <stdbool.h>
 
 #define VK_CALL(f) (vk_procs->f)
@@ -1231,16 +1231,13 @@ HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
 
 extern const char vkd3d_build[];
 
-bool vkd3d_get_program_name(char program_name[PATH_MAX]) DECLSPEC_HIDDEN;
-
-static inline void vkd3d_set_thread_name(const char *name)
-{
-#if defined(HAVE_PTHREAD_SETNAME_NP_2)
-    pthread_setname_np(pthread_self(), name);
-#elif defined(HAVE_PTHREAD_SETNAME_NP_1)
-    pthread_setname_np(name);
+#ifdef PATH_MAX
+#define VKD3D_PATH_MAX PATH_MAX
+#else
+#define VKD3D_PATH_MAX 256
 #endif
-}
+
+bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX]) DECLSPEC_HIDDEN;
 
 VkResult vkd3d_set_vk_object_name_utf8(struct d3d12_device *device, uint64_t vk_object,
         VkDebugReportObjectTypeEXT vk_object_type, const char *name) DECLSPEC_HIDDEN;
