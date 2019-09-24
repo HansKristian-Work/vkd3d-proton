@@ -1648,8 +1648,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
         allocator->command_buffer_count = 0;
     }
 
-    if ((vr = VK_CALL(vkResetCommandPool(device->vk_device, allocator->vk_command_pool,
-            VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT))))
+    /* The intent here is to recycle memory, so do not use RELEASE_RESOURCES_BIT here. */
+    if ((vr = VK_CALL(vkResetCommandPool(device->vk_device, allocator->vk_command_pool, 0))))
     {
         WARN("Resetting command pool failed, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -1723,7 +1723,10 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
 
     command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     command_pool_info.pNext = NULL;
-    command_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    /* Do not use RESET_COMMAND_BUFFER_BIT. This allows the CommandPool to be a D3D12-style command pool.
+     * Memory is owned by the pool and CommandBuffers become lightweight handles,
+     * assuming a half-decent driver implementation. */
+    command_pool_info.flags = 0;
     command_pool_info.queueFamilyIndex = queue->vk_family_index;
 
     if ((vr = VK_CALL(vkCreateCommandPool(device->vk_device, &command_pool_info, NULL,
