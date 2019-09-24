@@ -512,6 +512,8 @@ void d3d12_desc_create_uav(struct d3d12_desc *descriptor, struct d3d12_device *d
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc) DECLSPEC_HIDDEN;
 void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc) DECLSPEC_HIDDEN;
+void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *src,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
 
 bool vkd3d_create_raw_buffer_view(struct d3d12_device *device,
         D3D12_GPU_VIRTUAL_ADDRESS gpu_address, VkBufferView *vk_buffer_view) DECLSPEC_HIDDEN;
@@ -1052,6 +1054,7 @@ struct d3d12_device
     struct vkd3d_fence_worker fence_worker;
 
     pthread_mutex_t mutex;
+    pthread_mutex_t desc_mutex[8];
     struct vkd3d_render_pass_cache render_pass_cache;
     VkPipelineCache vk_pipeline_cache;
 
@@ -1109,6 +1112,19 @@ static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(str
         D3D12_DESCRIPTOR_HEAP_TYPE descriptor_type)
 {
     return ID3D12Device_GetDescriptorHandleIncrementSize(&device->ID3D12Device_iface, descriptor_type);
+}
+
+static inline pthread_mutex_t *d3d12_device_get_descriptor_mutex(struct d3d12_device *device,
+        const struct d3d12_desc *descriptor)
+{
+    STATIC_ASSERT(!(ARRAY_SIZE(device->desc_mutex) & (ARRAY_SIZE(device->desc_mutex) - 1)));
+    uintptr_t idx = (uintptr_t)descriptor;
+
+    idx ^= idx >> 12;
+    idx ^= idx >> 6;
+    idx ^= idx >> 3;
+
+    return &device->desc_mutex[idx & (ARRAY_SIZE(device->desc_mutex) - 1)];
 }
 
 /* utils */

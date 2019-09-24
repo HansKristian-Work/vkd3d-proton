@@ -1,5 +1,6 @@
 /*
  * Copyright 2016 Józef Kucia for CodeWeavers
+ * Copyright 2019 Conor McCarthy for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -1891,14 +1892,10 @@ void vkd3d_view_incref(struct vkd3d_view *view)
     InterlockedIncrement(&view->refcount);
 }
 
-static void vkd3d_view_decref_descriptor(struct vkd3d_view *view,
+static void vkd3d_view_destroy_descriptor(struct vkd3d_view *view,
         const struct d3d12_desc *descriptor, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    ULONG refcount = InterlockedDecrement(&view->refcount);
-
-    if (refcount)
-        return;
 
     TRACE("Destroying view %p.\n", view);
 
@@ -1927,31 +1924,56 @@ static void vkd3d_view_decref_descriptor(struct vkd3d_view *view,
 
 void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device)
 {
-    vkd3d_view_decref_descriptor(view, NULL, device);
+    if (!InterlockedDecrement(&view->refcount))
+        vkd3d_view_destroy_descriptor(view, NULL, device);
 }
 
-static void d3d12_desc_destroy(struct d3d12_desc *descriptor,
+void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *src,
         struct d3d12_device *device)
 {
-    /* Nothing to do for VKD3D_DESCRIPTOR_MAGIC_CBV. */
-    if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
-            || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
-            || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
-    {
-        vkd3d_view_decref_descriptor(descriptor->u.view, descriptor, device);
-    }
+    struct d3d12_desc destroy_desc;
+    pthread_mutex_t *mutex;
 
-    memset(descriptor, 0, sizeof(*descriptor));
+    destroy_desc.u.view = NULL;
+
+    mutex = d3d12_device_get_descriptor_mutex(device, dst);
+    pthread_mutex_lock(mutex);
+
+    /* Nothing to do for VKD3D_DESCRIPTOR_MAGIC_CBV. */
+    if ((dst->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
+            || dst->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
+            || dst->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
+            && !InterlockedDecrement(&dst->u.view->refcount))
+        destroy_desc = *dst;
+
+    *dst = *src;
+
+    pthread_mutex_unlock(mutex);
+
+    /* Destroy the view after unlocking to reduce wait time. */
+    if (destroy_desc.u.view)
+        vkd3d_view_destroy_descriptor(destroy_desc.u.view, &destroy_desc, device);
+}
+
+static void d3d12_desc_destroy(struct d3d12_desc *descriptor, struct d3d12_device *device)
+{
+    static const struct d3d12_desc null_desc = {0};
+
+    d3d12_desc_write_atomic(descriptor, &null_desc, device);
 }
 
 void d3d12_desc_copy(struct d3d12_desc *dst, const struct d3d12_desc *src,
         struct d3d12_device *device)
 {
+    struct d3d12_desc tmp;
+    pthread_mutex_t *mutex;
+
     assert(dst != src);
 
-    d3d12_desc_destroy(dst, device);
-
-    *dst = *src;
+    /* Shadow of the Tomb Raider and possibly other titles sometimes destroy
+     * and rewrite a descriptor in another thread while it is being copied. */
+    mutex = d3d12_device_get_descriptor_mutex(device, src);
+    pthread_mutex_lock(mutex);
 
     if (src->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
             || src->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
@@ -1959,6 +1981,12 @@ void d3d12_desc_copy(struct d3d12_desc *dst, const struct d3d12_desc *src,
     {
         vkd3d_view_incref(src->u.view);
     }
+
+    tmp = *src;
+
+    pthread_mutex_unlock(mutex);
+
+    d3d12_desc_write_atomic(dst, &tmp, device);
 }
 
 static VkDeviceSize vkd3d_get_required_texel_buffer_alignment(const struct d3d12_device *device,
@@ -2323,8 +2351,6 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
     struct VkDescriptorBufferInfo *buffer_info;
     struct d3d12_resource *resource;
 
-    d3d12_desc_destroy(descriptor, device);
-
     if (!desc)
     {
         WARN("Constant buffer desc is NULL.\n");
@@ -2466,8 +2492,6 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
 {
     struct vkd3d_texture_view_desc vkd3d_desc;
     struct vkd3d_view *view;
-
-    d3d12_desc_destroy(descriptor, device);
 
     if (!resource)
     {
@@ -2761,8 +2785,6 @@ void d3d12_desc_create_uav(struct d3d12_desc *descriptor, struct d3d12_device *d
         struct d3d12_resource *resource, struct d3d12_resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
-    d3d12_desc_destroy(descriptor, device);
-
     if (!resource)
     {
         if (counter_resource)
@@ -2888,8 +2910,6 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc)
 {
     struct vkd3d_view *view;
-
-    d3d12_desc_destroy(sampler, device);
 
     if (!desc)
     {
