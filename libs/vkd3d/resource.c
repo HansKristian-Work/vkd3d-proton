@@ -299,6 +299,9 @@ static void d3d12_heap_destroy(struct d3d12_heap *heap)
 
     TRACE("Destroying heap %p.\n", heap);
 
+    if (heap->is_persistent && heap->map_ptr)
+        VK_CALL(vkUnmapMemory(device->vk_device, heap->vk_memory));
+
     vkd3d_private_store_destroy(&heap->private_store);
 
     VK_CALL(vkFreeMemory(device->vk_device, heap->vk_memory, NULL));
@@ -412,6 +415,8 @@ struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface)
     return impl_from_ID3D12Heap(iface);
 }
 
+static LONG vkd3d_perf_map_memory_count = 0;
+
 static HRESULT d3d12_heap_map(struct d3d12_heap *heap, uint64_t offset,
         struct d3d12_resource *resource, void **data)
 {
@@ -420,16 +425,23 @@ static HRESULT d3d12_heap_map(struct d3d12_heap *heap, uint64_t offset,
     VkResult vr;
     int rc;
 
+    /* If we have a persistent heap, there is no need to lock and map/unmap.
+     * Just hand a pointer to caller. There is technically a need to do cache maintenance here
+     * but we always use COHERENT memory types for host memory, so no need to deal with incoherent
+     * cached host memory. */
+    if (heap->is_persistent)
+    {
+        TRACE("Mapping persistently mapped heap %p.\n", heap);
+        assert(heap->map_ptr);
+        *data = (BYTE *)heap->map_ptr + offset;
+        return S_OK;
+    }
+
     if ((rc = pthread_mutex_lock(&heap->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
         *data = NULL;
         return hresult_from_errno(rc);
-    }
-
-    {
-        static LONG heap_map_count = 0;
-        PERF("HeapMap count: %u\n", InterlockedIncrement(&heap_map_count));
     }
 
     assert(!resource->map_count || heap->map_ptr);
@@ -443,6 +455,9 @@ static HRESULT d3d12_heap_map(struct d3d12_heap *heap, uint64_t offset,
             TRACE("Mapping heap %p.\n", heap);
 
             assert(!heap->map_count);
+
+            if (PERF_ON())
+                PERF("vkMapMemory count: %u\n", (unsigned)InterlockedIncrement(&vkd3d_perf_map_memory_count));
 
             if ((vr = VK_CALL(vkMapMemory(device->vk_device, heap->vk_memory,
                     0, VK_WHOLE_SIZE, 0, &heap->map_ptr))) < 0)
@@ -479,6 +494,10 @@ static void d3d12_heap_unmap(struct d3d12_heap *heap, struct d3d12_resource *res
 {
     struct d3d12_device *device = heap->device;
     int rc;
+
+    /* If the heap is persistent, mapping happens when heap is destroyed. */
+    if (heap->is_persistent)
+        return;
 
     if ((rc = pthread_mutex_lock(&heap->mutex)))
     {
@@ -553,6 +572,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     heap->refcount = 1;
 
     heap->is_private = !!resource;
+    heap->is_persistent = false;
 
     heap->desc = *desc;
 
@@ -618,6 +638,22 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
         vkd3d_private_store_destroy(&heap->private_store);
         pthread_mutex_destroy(&heap->mutex);
         return hr;
+    }
+
+    /* If the heap is in HOST_VISIBLE space, just persistently map it.
+     * This way we avoid mapping and unmapping the whole memory block and taking locks every time
+     * a small sub-region is mapped. */
+    if ((device->vkd3d_instance->config_flags & VKD3D_CONFIG_FLAG_NO_PERSISTENT_MAPPING) == 0)
+    {
+        if (device->memory_properties.memoryTypes[heap->vk_memory_type].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+        {
+            const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+            if (VK_CALL(vkMapMemory(device->vk_device, heap->vk_memory, 0, VK_WHOLE_SIZE, 0, &heap->map_ptr)) == VK_SUCCESS)
+                heap->is_persistent = true;
+
+            if (PERF_ON())
+                PERF("vkMapMemory count: %u\n", (unsigned)InterlockedIncrement(&vkd3d_perf_map_memory_count));
+        }
     }
 
     heap->device = device;

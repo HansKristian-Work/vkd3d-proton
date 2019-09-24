@@ -130,6 +130,7 @@ struct vkd3d_vulkan_info
 enum vkd3d_config_flags
 {
     VKD3D_CONFIG_FLAG_VULKAN_DEBUG = 0x00000001,
+    VKD3D_CONFIG_FLAG_NO_PERSISTENT_MAPPING = 0x00000002
 };
 
 struct vkd3d_instance
@@ -360,6 +361,7 @@ struct d3d12_heap
     LONG refcount;
 
     bool is_private;
+    bool is_persistent;
     D3D12_HEAP_DESC desc;
 
     pthread_mutex_t mutex;
