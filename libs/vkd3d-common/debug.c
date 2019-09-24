@@ -40,6 +40,7 @@ static const char *debug_level_names[] =
     /* VKD3D_DBG_LEVEL_FIXME */ "fixme",
     /* VKD3D_DBG_LEVEL_WARN  */ "warn",
     /* VKD3D_DBG_LEVEL_TRACE */ "trace",
+    /* VKD3D_DBG_LEVEL_PERF  */ "perf",
 };
 
 enum vkd3d_dbg_level vkd3d_dbg_get_level(void)

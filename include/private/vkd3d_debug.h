@@ -42,6 +42,7 @@ enum vkd3d_dbg_level
     VKD3D_DBG_LEVEL_FIXME,
     VKD3D_DBG_LEVEL_WARN,
     VKD3D_DBG_LEVEL_TRACE,
+    VKD3D_DBG_LEVEL_PERF
 };
 
 enum vkd3d_dbg_level vkd3d_dbg_get_level(void) DECLSPEC_HIDDEN;
@@ -83,6 +84,8 @@ const char *debugstr_w(const WCHAR *wstr, size_t wchar_size) DECLSPEC_HIDDEN;
 #endif
 
 #define ERR   VKD3D_DBG_LOG(ERR)
+
+#define PERF  VKD3D_DBG_LOG(PERF)
 
 #ifndef TRACE_ON
 #define TRACE_ON() (vkd3d_dbg_get_level() == VKD3D_DBG_LEVEL_TRACE)

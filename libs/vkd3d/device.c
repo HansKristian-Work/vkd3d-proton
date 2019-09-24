@@ -2851,6 +2851,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource(ID3D12Devi
         return hr;
     }
 
+    {
+        static LONG create_commited_counter = 0;
+        PERF("CreateCommittedResource count: %u.\n", (unsigned)InterlockedIncrement(&create_commited_counter));
+    }
+
     return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
 }
 

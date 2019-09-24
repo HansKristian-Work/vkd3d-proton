@@ -427,6 +427,11 @@ static HRESULT d3d12_heap_map(struct d3d12_heap *heap, uint64_t offset,
         return hresult_from_errno(rc);
     }
 
+    {
+        static LONG heap_map_count = 0;
+        PERF("HeapMap count: %u\n", InterlockedIncrement(&heap_map_count));
+    }
+
     assert(!resource->map_count || heap->map_ptr);
 
     if (!resource->map_count)
@@ -607,6 +612,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
                 heap->desc.Flags, &memory_requirements, NULL,
                 &heap->vk_memory, &heap->vk_memory_type);
     }
+
     if (FAILED(hr))
     {
         vkd3d_private_store_destroy(&heap->private_store);
