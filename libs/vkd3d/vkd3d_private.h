@@ -203,24 +203,34 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
 HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
 
+struct vkd3d_gpu_va_allocation
+{
+    D3D12_GPU_VIRTUAL_ADDRESS base;
+    SIZE_T size;
+    void *ptr;
+};
+
+struct vkd3d_gpu_va_slab_entry
+{
+    void *ptr;
+};
+
 struct vkd3d_gpu_va_allocator
 {
     pthread_mutex_t mutex;
 
-    D3D12_GPU_VIRTUAL_ADDRESS floor;
+    struct vkd3d_gpu_va_slab_entry *slab_mem_allocations;
+    uint16_t *mem_vacant;
+    size_t mem_vacant_count;
 
-    struct vkd3d_gpu_va_allocation
-    {
-        D3D12_GPU_VIRTUAL_ADDRESS base;
-        SIZE_T size;
-        void *ptr;
-    } *allocations;
-    size_t allocations_size;
-    size_t allocation_count;
+    struct vkd3d_gpu_va_allocation *fallback_mem_allocations;
+    size_t fallback_mem_allocations_size;
+    size_t fallback_mem_allocation_count;
+    D3D12_GPU_VIRTUAL_ADDRESS fallback_mem_floor;
 };
 
 D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_allocator *allocator,
-        size_t size, void *ptr) DECLSPEC_HIDDEN;
+        size_t size, size_t alignment, void *ptr) DECLSPEC_HIDDEN;
 void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocator,
         D3D12_GPU_VIRTUAL_ADDRESS address) DECLSPEC_HIDDEN;
 void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator,
