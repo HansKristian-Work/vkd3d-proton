@@ -12286,6 +12286,36 @@ static void test_sample_instructions(void)
         0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps_sample_d = {ps_sample_d_code, sizeof(ps_sample_d_code)};
+    static const DWORD ps_sample_l_code[] =
+    {
+#if 0
+        Texture2D t;
+        SamplerState s;
+
+        float level;
+
+        float4 main(float4 position : SV_POSITION) : SV_Target
+        {
+            float2 p;
+
+            p.x = position.x / 640.0f;
+            p.y = position.y / 480.0f;
+            return t.SampleLevel(s, p, level);
+        }
+#endif
+        0x43425844, 0x61e05d85, 0x2a7300fb, 0x0a83706b, 0x889d1683, 0x00000001, 0x00000150, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x000000b4, 0x00000040,
+        0x0000002d, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300005a, 0x00106000, 0x00000000,
+        0x04001858, 0x00107000, 0x00000000, 0x00005555, 0x04002064, 0x00101032, 0x00000000, 0x00000001,
+        0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0a000038, 0x00100032, 0x00000000,
+        0x00101046, 0x00000000, 0x00004002, 0x3acccccd, 0x3b088889, 0x00000000, 0x00000000, 0x0c000048,
+        0x001020f2, 0x00000000, 0x00100046, 0x00000000, 0x00107e46, 0x00000000, 0x00106000, 0x00000000,
+        0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_sample_l = {ps_sample_l_code, sizeof(ps_sample_l_code)};
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     static const unsigned int r8g8b8a8_data[] =
     {
@@ -12338,6 +12368,13 @@ static void test_sample_instructions(void)
         0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000,
         0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000,
     };
+    static const unsigned int lerp_1_2_colors[] =
+    {
+        0xffff7f7f, 0xffff7f7f, 0xff7f007f, 0xff7f007f,
+        0xffff7f7f, 0xffff7f7f, 0xff7f007f, 0xff7f007f,
+        0xff7f0000, 0xff7f0000, 0xff7f7f00, 0xff7f7f00,
+        0xff7f0000, 0xff7f0000, 0xff7f7f00, 0xff7f7f00,
+    };
     struct texture
     {
         unsigned int width;
@@ -12374,6 +12411,7 @@ static void test_sample_instructions(void)
     {
         const D3D12_SHADER_BYTECODE *ps_code;
         const struct texture *texture;
+        D3D12_FILTER filter;
         float lod_bias;
         float min_lod;
         float max_lod;
@@ -12382,28 +12420,58 @@ static void test_sample_instructions(void)
     }
     tests[] =
     {
-#define MIP_MAX D3D12_FLOAT32_MAX
-        {&ps_sample,   &r8g8b8a8_texture, 0.0f, 0.0f, MIP_MAX, {0.0f},                   r8g8b8a8_data},
-        {&ps_sample,   &a8_texture,       0.0f, 0.0f, MIP_MAX, {0.0f},                   a8_expected_data},
-        {&ps_sample_b, &r8g8b8a8_texture, 0.0f, 0.0f, MIP_MAX, {0.0f},                   r8g8b8a8_data},
-        {&ps_sample_b, &a8_texture,       0.0f, 0.0f, MIP_MAX, {0.0f},                   a8_expected_data},
-        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {0.0f},                   rgba_level_0},
-        {&ps_sample_b, &rgba_texture,     8.0f, 0.0f, MIP_MAX, {0.0f},                   level_1_colors},
-        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {8.0f},                   level_1_colors},
-        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {8.4f},                   level_1_colors},
-        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {8.5f},                   level_2_colors},
-        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {9.0f},                   level_2_colors},
-        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, 2.0f,    {1.0f},                   rgba_level_0},
-        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, 2.0f,    {9.0f},                   level_2_colors},
-        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, 1.0f,    {9.0f},                   level_1_colors},
-        {&ps_sample_b, &rgba_texture,     0.0f, 0.0f, 0.0f,    {9.0f},                   rgba_level_0},
-        {&ps_sample_d, &r8g8b8a8_texture, 0.0f, 0.0f, MIP_MAX, {0.0f, 0.0f, 0.0f, 0.0f}, r8g8b8a8_data},
-        {&ps_sample_d, &a8_texture,       0.0f, 0.0f, MIP_MAX, {0.0f, 0.0f, 0.0f, 0.0f}, a8_expected_data},
-        {&ps_sample_d, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {0.0f, 0.0f, 0.0f, 0.0f}, rgba_level_0},
-        {&ps_sample_d, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {0.3f, 0.0f, 0.0f, 0.0f}, rgba_level_0},
-        {&ps_sample_d, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {0.4f, 0.0f, 0.0f, 0.0f}, level_1_colors},
-        {&ps_sample_d, &rgba_texture,     0.0f, 0.0f, MIP_MAX, {1.0f, 0.0f, 0.0f, 0.0f}, level_2_colors},
+#define MIP_MAX      D3D12_FLOAT32_MAX
+#define POINT        D3D12_FILTER_MIN_MAG_MIP_POINT
+#define POINT_LINEAR D3D12_FILTER_MIN_MAG_POINT_MIP_LINEAR
+        {&ps_sample,   &r8g8b8a8_texture,    POINT, 0.0f, 0.0f, MIP_MAX, {0.0f},                   r8g8b8a8_data},
+        {&ps_sample,   &a8_texture,          POINT, 0.0f, 0.0f, MIP_MAX, {0.0f},                   a8_expected_data},
+        {&ps_sample_b, &r8g8b8a8_texture,    POINT, 0.0f, 0.0f, MIP_MAX, {0.0f},                   r8g8b8a8_data},
+        {&ps_sample_b, &a8_texture,          POINT, 0.0f, 0.0f, MIP_MAX, {0.0f},                   a8_expected_data},
+        {&ps_sample_b, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {0.0f},                   rgba_level_0},
+        {&ps_sample_b, &rgba_texture,        POINT, 8.0f, 0.0f, MIP_MAX, {0.0f},                   level_1_colors},
+        {&ps_sample_b, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {8.0f},                   level_1_colors},
+        {&ps_sample_b, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {8.4f},                   level_1_colors},
+        {&ps_sample_b, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {8.5f},                   level_2_colors},
+        {&ps_sample_b, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {9.0f},                   level_2_colors},
+        {&ps_sample_b, &rgba_texture,        POINT, 0.0f, 0.0f, 2.0f,    {1.0f},                   rgba_level_0},
+        {&ps_sample_b, &rgba_texture,        POINT, 0.0f, 0.0f, 2.0f,    {9.0f},                   level_2_colors},
+        {&ps_sample_b, &rgba_texture,        POINT, 0.0f, 0.0f, 1.0f,    {9.0f},                   level_1_colors},
+        {&ps_sample_b, &rgba_texture,        POINT, 0.0f, 0.0f, 0.0f,    {9.0f},                   rgba_level_0},
+        {&ps_sample_d, &r8g8b8a8_texture,    POINT, 0.0f, 0.0f, MIP_MAX, {0.0f, 0.0f, 0.0f, 0.0f}, r8g8b8a8_data},
+        {&ps_sample_d, &a8_texture,          POINT, 0.0f, 0.0f, MIP_MAX, {0.0f, 0.0f, 0.0f, 0.0f}, a8_expected_data},
+        {&ps_sample_d, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {0.0f, 0.0f, 0.0f, 0.0f}, rgba_level_0},
+        {&ps_sample_d, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {0.3f, 0.0f, 0.0f, 0.0f}, rgba_level_0},
+        {&ps_sample_d, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {0.4f, 0.0f, 0.0f, 0.0f}, level_1_colors},
+        {&ps_sample_d, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {1.0f, 0.0f, 0.0f, 0.0f}, level_2_colors},
+        {&ps_sample_l, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {-1.0f},                  rgba_level_0},
+        {&ps_sample_l, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {0.0f},                   rgba_level_0},
+        {&ps_sample_l, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {0.4f},                   rgba_level_0},
+        {&ps_sample_l, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {0.5f},                   level_1_colors},
+        {&ps_sample_l, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {1.0f},                   level_1_colors},
+        {&ps_sample_l, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {1.4f},                   level_1_colors},
+        {&ps_sample_l, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {1.5f},                   level_2_colors},
+        {&ps_sample_l, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {2.0f},                   level_2_colors},
+        {&ps_sample_l, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {3.0f},                   level_2_colors},
+        {&ps_sample_l, &rgba_texture,        POINT, 0.0f, 0.0f, MIP_MAX, {4.0f},                   level_2_colors},
+        {&ps_sample_l, &rgba_texture, POINT_LINEAR, 0.0f, 0.0f, MIP_MAX, {1.5f},                   lerp_1_2_colors},
+        {&ps_sample_l, &rgba_texture, POINT_LINEAR, 2.0f, 0.0f, MIP_MAX, {-2.0f},                  rgba_level_0},
+        {&ps_sample_l, &rgba_texture, POINT_LINEAR, 2.0f, 0.0f, MIP_MAX, {-1.0f},                  level_1_colors},
+        {&ps_sample_l, &rgba_texture, POINT_LINEAR, 2.0f, 0.0f, MIP_MAX, {0.0f},                   level_2_colors},
+        {&ps_sample_l, &rgba_texture, POINT_LINEAR, 2.0f, 0.0f, MIP_MAX, {1.0f},                   level_2_colors},
+        {&ps_sample_l, &rgba_texture, POINT_LINEAR, 2.0f, 0.0f, MIP_MAX, {1.5f},                   level_2_colors},
+        {&ps_sample_l, &rgba_texture, POINT_LINEAR, 2.0f, 2.0f, 2.0f,    {-9.0f},                  level_2_colors},
+        {&ps_sample_l, &rgba_texture, POINT_LINEAR, 2.0f, 2.0f, 2.0f,    {-1.0f},                  level_2_colors},
+        {&ps_sample_l, &rgba_texture, POINT_LINEAR, 2.0f, 2.0f, 2.0f,    {0.0f},                   level_2_colors},
+        {&ps_sample_l, &rgba_texture, POINT_LINEAR, 2.0f, 2.0f, 2.0f,    {1.0f},                   level_2_colors},
+        {&ps_sample_l, &rgba_texture, POINT_LINEAR, 2.0f, 2.0f, 2.0f,    {9.0f},                   level_2_colors},
+        {&ps_sample_l, &rgba_texture,        POINT, 2.0f, 2.0f, 2.0f,    {-9.0f},                  level_2_colors},
+        {&ps_sample_l, &rgba_texture,        POINT, 2.0f, 2.0f, 2.0f,    {-1.0f},                  level_2_colors},
+        {&ps_sample_l, &rgba_texture,        POINT, 2.0f, 2.0f, 2.0f,    {0.0f},                   level_2_colors},
+        {&ps_sample_l, &rgba_texture,        POINT, 2.0f, 2.0f, 2.0f,    {1.0f},                   level_2_colors},
+        {&ps_sample_l, &rgba_texture,        POINT, 2.0f, 2.0f, 2.0f,    {9.0f},                   level_2_colors},
 #undef MIP_MAX
+#undef POINT
+#undef POINT_LINEAR
     };
 
     memset(&desc, 0, sizeof(desc));
@@ -12459,7 +12527,7 @@ static void test_sample_instructions(void)
         vkd3d_test_set_context("Test %u", i);
 
         memset(&sampler_desc, 0, sizeof(sampler_desc));
-        sampler_desc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+        sampler_desc.Filter = tests[i].filter;
         sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
