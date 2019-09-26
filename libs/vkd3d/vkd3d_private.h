@@ -203,24 +203,64 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
 HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
 
+/* We have three size classes.
+ * For max(allocations, alignment) <= 64kB, we allocate from the LOW size class,
+ * which contains a bucket of 64k allocations.
+ * For max(allocations, alignment) <= 16MiB, we allocate from the MID size class,
+ * which contains a bucket of 64k allocations.
+ * If we exceed our initial allocation, or size is too large, allocate VA from
+ * a simple fallback allocator.
+ * For LOW/MID classes we get lockless dereferences, and HIGH class means a lock + bsearch to resolve
+ * the VA.
+ *
+ * It's fine to use massive allocations here. We're allocating in VA space and it's 64-bit.
+ */
+enum vkd3d_va_allocator_size_class
+{
+    VKD3D_VA_SIZE_CLASS_LOW = 0,
+    VKD3D_VA_SIZE_CLASS_MID,
+    VKD3D_VA_SIZE_CLASS_HUGE,
+    VKD3D_NUM_VA_SIZE_CLASSES,
+};
+
+enum vkd3d_va_allocator_size_class_dimensions
+{
+    VKD3D_VA_SIZE_CLASS_LOW_SIZE = 64 * 1024,
+    VKD3D_VA_SIZE_CLASS_MID_SIZE = 16 * 1024 * 1024,
+    VKD3D_VA_SIZE_CLASS_HUGE_SIZE = 1 * 1024 * 1024 * 1024,
+    VKD3D_VA_SIZE_CLASS_LOW_SIZE_LOG2 = 16,
+    VKD3D_VA_SIZE_CLASS_MID_SIZE_LOG2 = 24,
+    VKD3D_VA_SIZE_CLASS_HUGE_SIZE_LOG2 = 30,
+};
+
+struct vkd3d_gpu_va_allocation
+{
+    D3D12_GPU_VIRTUAL_ADDRESS base;
+    SIZE_T size;
+    void *ptr;
+};
+
+struct vkd3d_gpu_va_slab_entry
+{
+    void *ptr;
+};
+
 struct vkd3d_gpu_va_allocator
 {
     pthread_mutex_t mutex;
 
-    D3D12_GPU_VIRTUAL_ADDRESS floor;
+    struct vkd3d_gpu_va_slab_entry *slab_mem_allocations[VKD3D_NUM_VA_SIZE_CLASSES];
+    uint16_t *mem_vacant[VKD3D_NUM_VA_SIZE_CLASSES];
+    size_t mem_vacant_count[VKD3D_NUM_VA_SIZE_CLASSES];
 
-    struct vkd3d_gpu_va_allocation
-    {
-        D3D12_GPU_VIRTUAL_ADDRESS base;
-        SIZE_T size;
-        void *ptr;
-    } *allocations;
-    size_t allocations_size;
-    size_t allocation_count;
+    struct vkd3d_gpu_va_allocation *fallback_mem_allocations;
+    size_t fallback_mem_allocations_size;
+    size_t fallback_mem_allocation_count;
+    D3D12_GPU_VIRTUAL_ADDRESS fallback_mem_floor;
 };
 
 D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_allocator *allocator,
-        size_t size, void *ptr) DECLSPEC_HIDDEN;
+        size_t size, size_t alignment, void *ptr) DECLSPEC_HIDDEN;
 void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocator,
         D3D12_GPU_VIRTUAL_ADDRESS address) DECLSPEC_HIDDEN;
 void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator,
