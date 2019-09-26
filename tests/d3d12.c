@@ -31741,6 +31741,371 @@ static void test_conditional_rendering(void)
     ID3D12PipelineState_Release(pipeline_state);
     destroy_test_context(&context);
 }
+static void test_bufinfo_instruction(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    const D3D12_SHADER_BYTECODE *current_shader;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_DESCRIPTOR_RANGE descriptor_range;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
+    D3D12_ROOT_PARAMETER root_parameter;
+    struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct test_context context;
+    ID3D12Resource *vb, *buffer;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    HRESULT hr;
+    int i;
+    static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+    static const DWORD vs_code[] =
+    {
+#if 0
+        void main(float4 in_position : POSITION, out float4 out_position : SV_POSITION)
+        {
+            out_position = in_position;
+        }
+#endif
+        0x43425844, 0xa7a2f22d, 0x83ff2560, 0xe61638bd, 0x87e3ce90, 0x00000001, 0x000000d8, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x49534f50, 0x4e4f4954, 0xababab00,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x52444853, 0x0000003c, 0x00010040,
+        0x0000000f, 0x0300005f, 0x001010f2, 0x00000000, 0x04000067, 0x001020f2, 0x00000000, 0x00000001,
+        0x05000036, 0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs = {vs_code, sizeof(vs_code)};
+    static const DWORD ps_srv_raw_code[] =
+    {
+#if 0
+        ByteAddressBuffer b;
+
+        uint4 main(void) : SV_Target
+        {
+            uint width;
+            b.GetDimensions(width);
+            return width;
+        }
+#endif
+        0x43425844, 0x934bc27a, 0x3251cc9d, 0xa129bdd3, 0xf7cedcc4, 0x00000001, 0x000000d8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000060, 0x00000050, 0x00000018,
+        0x0100086a, 0x030000a1, 0x00107000, 0x00000000, 0x03000065, 0x001020f2, 0x00000000, 0x02000068,
+        0x00000001, 0x87000079, 0x800002c2, 0x00199983, 0x00100012, 0x00000000, 0x00107e46, 0x00000000,
+        0x05000036, 0x001020f2, 0x00000000, 0x00100006, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_srv_raw = {ps_srv_raw_code, sizeof(ps_srv_raw_code)};
+    static const DWORD ps_srv_structured_code[] =
+    {
+#if 0
+        StructuredBuffer<bool> b;
+
+        uint4 main(void) : SV_Target
+        {
+            uint count, stride;
+            b.GetDimensions(count, stride);
+            return uint4(count, stride, 0, 1);
+        }
+#endif
+        0x43425844, 0x313f910c, 0x2f60c646, 0x2d87455c, 0xb9988c2c, 0x00000001, 0x000000fc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000084, 0x00000050, 0x00000021,
+        0x0100086a, 0x040000a2, 0x00107000, 0x00000000, 0x00000004, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x87000079, 0x80002302, 0x00199983, 0x00100012, 0x00000000, 0x00107e46,
+        0x00000000, 0x05000036, 0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x08000036, 0x001020e2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000004, 0x00000000, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_srv_structured = {ps_srv_structured_code, sizeof(ps_srv_structured_code)};
+    static const DWORD ps_srv_typed_code[] =
+    {
+#if 0
+        Buffer<float> b;
+
+        uint4 main(void) : SV_Target
+        {
+            uint width;
+            b.GetDimensions(width);
+            return width;
+        }
+#endif
+        0x43425844, 0x6ae6dbb0, 0x6289d227, 0xaf4e708e, 0x111efed1, 0x00000001, 0x000000dc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000064, 0x00000050, 0x00000019,
+        0x0100086a, 0x04000858, 0x00107000, 0x00000000, 0x00005555, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x87000079, 0x80000042, 0x00155543, 0x00100012, 0x00000000, 0x00107e46,
+        0x00000000, 0x05000036, 0x001020f2, 0x00000000, 0x00100006, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_srv_typed = {ps_srv_typed_code, sizeof(ps_srv_typed_code)};
+    static const DWORD ps_uav_raw_code[] =
+    {
+#if 0
+        RWByteAddressBuffer b;
+
+        uint4 main(void) : SV_Target
+        {
+            uint width;
+            b.GetDimensions(width);
+            return width;
+        }
+#endif
+        0x43425844, 0xb06e9715, 0x99733b00, 0xaa536550, 0x703a01c5, 0x00000001, 0x000000d8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000060, 0x00000050, 0x00000018,
+        0x0100086a, 0x0300009d, 0x0011e000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x02000068,
+        0x00000001, 0x87000079, 0x800002c2, 0x00199983, 0x00100012, 0x00000000, 0x0011ee46, 0x00000001,
+        0x05000036, 0x001020f2, 0x00000000, 0x00100006, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_uav_raw = {ps_uav_raw_code, sizeof(ps_uav_raw_code)};
+    static const DWORD ps_uav_structured_code[] =
+    {
+#if 0
+        struct s
+        {
+            uint4 u;
+            bool b;
+        };
+
+        RWStructuredBuffer<s> b;
+
+        uint4 main(void) : SV_Target
+        {
+            uint count, stride;
+            b.GetDimensions(count, stride);
+            return uint4(count, stride, 0, 1);
+        }
+#endif
+        0x43425844, 0xe1900f85, 0x13c1f338, 0xbb19865e, 0x366df28f, 0x00000001, 0x000000fc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000084, 0x00000050, 0x00000021,
+        0x0100086a, 0x0400009e, 0x0011e000, 0x00000001, 0x00000014, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x87000079, 0x8000a302, 0x00199983, 0x00100012, 0x00000000, 0x0011ee46,
+        0x00000001, 0x05000036, 0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x08000036, 0x001020e2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000014, 0x00000000, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_uav_structured = {ps_uav_structured_code, sizeof(ps_uav_structured_code)};
+    static const DWORD ps_uav_structured32_code[] =
+    {
+#if 0
+        struct s
+        {
+            uint4 u;
+            bool4 b;
+        };
+
+        RWStructuredBuffer<s> b;
+
+        uint4 main(void) : SV_Target
+        {
+            uint count, stride;
+            b.GetDimensions(count, stride);
+            return uint4(count, stride, 0, 1);
+        }
+#endif
+        0x43425844, 0xdd87a805, 0x28090470, 0xe4fa7c4d, 0x57963f52, 0x00000001, 0x000000fc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000084, 0x00000050, 0x00000021,
+        0x0100086a, 0x0400009e, 0x0011e000, 0x00000001, 0x00000020, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x87000079, 0x80010302, 0x00199983, 0x00100012, 0x00000000, 0x0011ee46,
+        0x00000001, 0x05000036, 0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x08000036, 0x001020e2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000020, 0x00000000, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_uav_structured32 = {ps_uav_structured32_code, sizeof(ps_uav_structured32_code)};
+    static const DWORD ps_uav_typed_code[] =
+    {
+#if 0
+        RWBuffer<float> b;
+
+        uint4 main(void) : SV_Target
+        {
+            uint width;
+            b.GetDimensions(width);
+            return width;
+        }
+#endif
+        0x43425844, 0x96b39f5f, 0x5fef24c7, 0xed404a41, 0x01c9d4fe, 0x00000001, 0x000000dc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000064, 0x00000050, 0x00000019,
+        0x0100086a, 0x0400089c, 0x0011e000, 0x00000001, 0x00005555, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x87000079, 0x80000042, 0x00155543, 0x00100012, 0x00000000, 0x0011ee46,
+        0x00000001, 0x05000036, 0x001020f2, 0x00000000, 0x00100006, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_uav_typed = {ps_uav_typed_code, sizeof(ps_uav_typed_code)};
+    static const struct test
+    {
+        const D3D12_SHADER_BYTECODE *ps;
+        BOOL uav;
+        BOOL raw;
+        unsigned int buffer_size;
+        unsigned int buffer_structure_byte_stride;
+        DXGI_FORMAT view_format;
+        unsigned int view_element_idx;
+        unsigned int view_element_count;
+        struct uvec4 expected_result;
+    }
+    tests[] =
+    {
+        {&ps_srv_raw,          false, true,  100,  0, DXGI_FORMAT_R32_TYPELESS,  0, 25, {100, 100, 100, 100}},
+        {&ps_srv_raw,          false, true,  500,  0, DXGI_FORMAT_R32_TYPELESS, 64,  4, { 16,  16,  16,  16}},
+        {&ps_srv_structured,   false, false, 100,  4, DXGI_FORMAT_UNKNOWN,       0,  5, {  5,   4,   0,   1}},
+        {&ps_srv_structured,   false, false, 100,  4, DXGI_FORMAT_UNKNOWN,       0,  2, {  2,   4,   0,   1}},
+        {&ps_srv_structured,   false, false, 400,  4, DXGI_FORMAT_UNKNOWN,      64,  2, {  2,   4,   0,   1}},
+        {&ps_srv_typed,        false, false, 200,  0, DXGI_FORMAT_R32_FLOAT,     0, 50, { 50,  50,  50,  50}},
+        {&ps_srv_typed,        false, false, 400,  0, DXGI_FORMAT_R32_FLOAT,    64,  1, {  1,   1,   1,   1}},
+        {&ps_srv_typed,        false, false, 100,  0, DXGI_FORMAT_R16_FLOAT,     0, 50, { 50,  50,  50,  50}},
+        {&ps_srv_typed,        false, false, 400,  0, DXGI_FORMAT_R16_FLOAT,   128,  2, {  2,   2,   2,   2}},
+        {&ps_uav_raw,          true,  true,  100,  0, DXGI_FORMAT_R32_TYPELESS,  0, 25, {100, 100, 100, 100}},
+        {&ps_uav_raw,          true,  true,  512,  0, DXGI_FORMAT_R32_TYPELESS, 64, 64, {256, 256, 256, 256}},
+        {&ps_uav_structured,   true,  false, 100, 20, DXGI_FORMAT_UNKNOWN,       0,  5, {  5,  20,   0,   1}},
+        {&ps_uav_structured,   true,  false, 100, 20, DXGI_FORMAT_UNKNOWN,       0,  2, {  2,  20,   0,   1}},
+        {&ps_uav_structured32, true,  false, 320, 32, DXGI_FORMAT_UNKNOWN,       8,  2, {  2,  32,   0,   1}},
+        {&ps_uav_typed,        true,  false, 200,  0, DXGI_FORMAT_R32_FLOAT,     0, 50, { 50,  50,  50,  50}},
+        {&ps_uav_typed,        true,  false, 400,  0, DXGI_FORMAT_R32_FLOAT,    64,  1, {  1,   1,   1,   1}},
+        {&ps_uav_typed,        true,  false, 100,  0, DXGI_FORMAT_R16_FLOAT,     0, 50, { 50,  50,  50,  50}},
+        {&ps_uav_typed,        true,  false, 400,  0, DXGI_FORMAT_R16_FLOAT,   128,  1, {  1,   1,   1,   1}},
+    };
+    static const struct vec4 quad[] =
+    {
+        {-1.0f, -1.0f, 0.0f, 1.0f},
+        {-1.0f,  1.0f, 0.0f, 1.0f},
+        { 1.0f, -1.0f, 0.0f, 1.0f},
+        { 1.0f,  1.0f, 0.0f, 1.0f},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = desc.rt_height = 64;
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.no_root_signature = true;
+    desc.no_pipeline = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
+
+    vb = create_upload_buffer(device, sizeof(quad), quad);
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
+    vbv.StrideInBytes = sizeof(*quad);
+    vbv.SizeInBytes = sizeof(quad);
+
+    current_shader = NULL;
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        const struct test *test = &tests[i];
+
+        vkd3d_test_set_context("Test %u", i);
+
+        if (!context.root_signature || test->uav != tests[i - 1].uav)
+        {
+            if (context.root_signature)
+                ID3D12RootSignature_Release(context.root_signature);
+
+            descriptor_range.RangeType = test->uav
+                    ? D3D12_DESCRIPTOR_RANGE_TYPE_UAV : D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+            descriptor_range.NumDescriptors = 1;
+            descriptor_range.BaseShaderRegister = test->uav ? 1 : 0;
+            descriptor_range.RegisterSpace = 0;
+            descriptor_range.OffsetInDescriptorsFromTableStart = 0;
+            root_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+            root_parameter.DescriptorTable.NumDescriptorRanges = 1;
+            root_parameter.DescriptorTable.pDescriptorRanges = &descriptor_range;
+            root_parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+            memset(&root_signature_desc, 0, sizeof(root_signature_desc));
+            root_signature_desc.NumParameters = 1;
+            root_signature_desc.pParameters = &root_parameter;
+            root_signature_desc.NumStaticSamplers = 0;
+            root_signature_desc.pStaticSamplers = NULL;
+            root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+            hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+            ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+        }
+
+        if (current_shader != test->ps)
+        {
+            if (context.pipeline_state)
+                ID3D12PipelineState_Release(context.pipeline_state);
+
+            input_layout.pInputElementDescs = layout_desc;
+            input_layout.NumElements = ARRAY_SIZE(layout_desc);
+            current_shader = test->ps;
+            init_pipeline_state_desc(&pso_desc, context.root_signature,
+                    context.render_target_desc.Format, &vs, current_shader, &input_layout);
+            hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+                    &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+            ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+        }
+
+        if (test->uav)
+        {
+            buffer = create_default_buffer(device, test->buffer_size,
+                    D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            memset(&uav_desc, 0, sizeof(uav_desc));
+            uav_desc.Format = test->view_format;
+            uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+            uav_desc.Buffer.Flags = test->raw ? D3D12_BUFFER_UAV_FLAG_RAW : 0;
+            uav_desc.Buffer.FirstElement = test->view_element_idx;
+            uav_desc.Buffer.NumElements = test->view_element_count;
+            uav_desc.Buffer.StructureByteStride = test->buffer_structure_byte_stride;;
+            ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc, cpu_handle);
+        }
+        else
+        {
+            buffer = create_default_buffer(device, test->buffer_size,
+                    D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+            memset(&srv_desc, 0, sizeof(srv_desc));
+            srv_desc.Format = test->view_format;
+            srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+            srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            srv_desc.Buffer.Flags = test->raw ? D3D12_BUFFER_SRV_FLAG_RAW : 0;
+            srv_desc.Buffer.FirstElement = test->view_element_idx;
+            srv_desc.Buffer.NumElements = test->view_element_count;
+            srv_desc.Buffer.StructureByteStride = test->buffer_structure_byte_stride;
+            ID3D12Device_CreateShaderResourceView(device, buffer, &srv_desc, cpu_handle);
+        }
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+        ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 0, 0);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uvec4(context.render_target, 0, queue, command_list, &test->expected_result);
+        reset_command_list(command_list, context.allocator);
+
+        ID3D12Resource_Release(buffer);
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12Resource_Release(vb);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
 
 START_TEST(d3d12)
 {
@@ -31903,4 +32268,5 @@ START_TEST(d3d12)
     run_test(test_graphics_compute_queue_synchronization);
     run_test(test_early_depth_stencil_tests);
     run_test(test_conditional_rendering);
+    run_test(test_bufinfo_instruction);
 }
