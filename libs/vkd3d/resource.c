@@ -292,12 +292,17 @@ static ULONG STDMETHODCALLTYPE d3d12_heap_AddRef(ID3D12Heap *iface)
     return refcount;
 }
 
+static ULONG d3d12_resource_decref(struct d3d12_resource *resource);
+
 static void d3d12_heap_destroy(struct d3d12_heap *heap)
 {
     struct d3d12_device *device = heap->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
     TRACE("Destroying heap %p.\n", heap);
+
+    if (heap->buffer_resource)
+        d3d12_resource_decref(heap->buffer_resource);
 
     vkd3d_private_store_destroy(&heap->private_store);
 
@@ -539,6 +544,12 @@ static HRESULT validate_heap_desc(const D3D12_HEAP_DESC *desc, const struct d3d1
     return S_OK;
 }
 
+static HRESULT d3d12_resource_create(struct d3d12_device *device,
+                                     const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+                                     const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
+                                     const D3D12_CLEAR_VALUE *optimized_clear_value, bool placed,
+                                     struct d3d12_resource **resource);
+
 static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
         struct d3d12_device *device, const D3D12_HEAP_DESC *desc, const struct d3d12_resource *resource)
 {
@@ -546,6 +557,10 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     VkDeviceSize vk_memory_size;
     HRESULT hr;
     int rc;
+    bool buffers_allowed;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_RESOURCE_STATES initial_resource_state;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
     heap->ID3D12Heap_iface.lpVtbl = &d3d12_heap_vtbl;
     heap->refcount = 1;
@@ -556,6 +571,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
 
     heap->map_ptr = NULL;
     heap->map_count = 0;
+    heap->buffer_resource = NULL;
 
     if (!heap->desc.Properties.CreationNodeMask)
         heap->desc.Properties.CreationNodeMask = 1;
@@ -583,6 +599,53 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
         return hr;
     }
 
+    buffers_allowed = !(heap->desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS);
+    if (buffers_allowed && !resource)
+    {
+        /* Create a single omnipotent buffer which fills the entire heap.
+         * Whenever we place buffer resources on this heap, we'll just offset this VkBuffer.
+         * This allows us to keep VA space somewhat sane, and keeps number of (limited) VA allocations down.
+         * One possible downside is that the buffer might be slightly slower to access,
+         * but D3D12 has very lenient usage flags for buffers. */
+
+        memset(&resource_desc, 0, sizeof(resource_desc));
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        resource_desc.Width = desc->SizeInBytes;
+        resource_desc.Height = 1;
+        resource_desc.DepthOrArraySize = 1;
+        resource_desc.MipLevels = 1;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+        switch (desc->Properties.Type)
+        {
+        case D3D12_HEAP_TYPE_UPLOAD:
+            initial_resource_state = D3D12_RESOURCE_STATE_GENERIC_READ;
+            break;
+
+        case D3D12_HEAP_TYPE_READBACK:
+            initial_resource_state = D3D12_RESOURCE_STATE_COPY_DEST;
+            break;
+
+        default:
+            /* Upload and readback heaps do not allow UAV access, only enable this flag for other heaps. */
+            resource_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+            initial_resource_state = D3D12_RESOURCE_STATE_COMMON;
+            break;
+        }
+
+        if (FAILED(hr = d3d12_resource_create(device, &desc->Properties, desc->Flags,
+                                              &resource_desc, initial_resource_state,
+                                              NULL, false, &heap->buffer_resource)))
+        {
+            heap->buffer_resource = NULL;
+            return hr;
+        }
+        /* This internal resource should not own a reference on the device.
+         * d3d12_resource_create takes a reference on the device. */
+        d3d12_device_release(device);
+    }
+
     if (resource)
     {
         if (d3d12_resource_is_buffer(resource))
@@ -600,12 +663,19 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
 
         heap->desc.SizeInBytes = vk_memory_size;
     }
+    else if (heap->buffer_resource)
+    {
+        hr = vkd3d_allocate_buffer_memory(device, heap->buffer_resource->u.vk_buffer,
+                                          &heap->desc.Properties, heap->desc.Flags,
+                                          &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
+    }
     else
     {
+        /* Allocate generic memory which should hopefully match up with whatever resources
+         * we want to place here. */
         memory_requirements.size = heap->desc.SizeInBytes;
         memory_requirements.alignment = heap->desc.Alignment;
         memory_requirements.memoryTypeBits = ~(uint32_t)0;
-
         hr = vkd3d_allocate_device_memory(device, &heap->desc.Properties,
                 heap->desc.Flags, &memory_requirements, NULL,
                 &heap->vk_memory, &heap->vk_memory_type);
@@ -614,6 +684,11 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     {
         vkd3d_private_store_destroy(&heap->private_store);
         pthread_mutex_destroy(&heap->mutex);
+        if (heap->buffer_resource)
+        {
+            d3d12_resource_decref(heap->buffer_resource);
+            heap->buffer_resource = NULL;
+        }
         return hr;
     }
 
@@ -1003,13 +1078,16 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
     if (resource->flags & VKD3D_RESOURCE_EXTERNAL)
         return;
 
-    if (resource->gpu_address)
-        vkd3d_gpu_va_allocator_free(&device->gpu_va_allocator, resource->gpu_address);
+    if (!(resource->flags & VKD3D_RESOURCE_PLACED_BUFFER))
+    {
+        if (resource->gpu_address)
+            vkd3d_gpu_va_allocator_free(&device->gpu_va_allocator, resource->gpu_address);
 
-    if (d3d12_resource_is_buffer(resource))
-        VK_CALL(vkDestroyBuffer(device->vk_device, resource->u.vk_buffer, NULL));
-    else
-        VK_CALL(vkDestroyImage(device->vk_device, resource->u.vk_image, NULL));
+        if (d3d12_resource_is_buffer(resource))
+            VK_CALL(vkDestroyBuffer(device->vk_device, resource->u.vk_buffer, NULL));
+        else
+            VK_CALL(vkDestroyImage(device->vk_device, resource->u.vk_image, NULL));
+    }
 
     if (resource->flags & VKD3D_RESOURCE_DEDICATED_HEAP)
         d3d12_heap_destroy(resource->heap);
@@ -1669,7 +1747,7 @@ static bool d3d12_resource_validate_heap_properties(const struct d3d12_resource 
 static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value)
+        const D3D12_CLEAR_VALUE *optimized_clear_value, bool placed)
 {
     HRESULT hr;
 
@@ -1699,6 +1777,8 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
 
     resource->gpu_address = 0;
     resource->flags = 0;
+    if (placed && desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        resource->flags |= VKD3D_RESOURCE_PLACED_BUFFER;
 
     if (FAILED(hr = d3d12_resource_validate_desc(&resource->desc)))
         return hr;
@@ -1706,6 +1786,13 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     switch (desc->Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
+            /* We'll inherit a VkBuffer reference from the heap with an implied offset. */
+            if (placed)
+            {
+                resource->u.vk_buffer = VK_NULL_HANDLE;
+                break;
+            }
+
             if (FAILED(hr = vkd3d_create_buffer(device, heap_properties, heap_flags,
                     &resource->desc, &resource->u.vk_buffer)))
                 return hr;
@@ -1755,7 +1842,7 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
 static HRESULT d3d12_resource_create(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
+        const D3D12_CLEAR_VALUE *optimized_clear_value, bool placed, struct d3d12_resource **resource)
 {
     struct d3d12_resource *object;
     HRESULT hr;
@@ -1764,7 +1851,7 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device,
         return E_OUTOFMEMORY;
 
     if (FAILED(hr = d3d12_resource_init(object, device, heap_properties, heap_flags,
-            desc, initial_state, optimized_clear_value)))
+            desc, initial_state, optimized_clear_value, placed)))
     {
         vkd3d_free(object);
         return hr;
@@ -1806,7 +1893,7 @@ HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
     }
 
     if (FAILED(hr = d3d12_resource_create(device, heap_properties, heap_flags,
-            desc, initial_state, optimized_clear_value, &object)))
+            desc, initial_state, optimized_clear_value, false, &object)))
         return hr;
 
     if (FAILED(hr = vkd3d_allocate_resource_memory(device, object, heap_properties, heap_flags)))
@@ -1829,6 +1916,16 @@ static HRESULT vkd3d_bind_heap_memory(struct d3d12_device *device,
     VkDevice vk_device = device->vk_device;
     VkMemoryRequirements requirements;
     VkResult vr;
+
+    if (resource->flags & VKD3D_RESOURCE_PLACED_BUFFER)
+    {
+        /* Just inherit the buffer from the heap. */
+        resource->u.vk_buffer = heap->buffer_resource->u.vk_buffer;
+        resource->heap = heap;
+        resource->heap_offset = heap_offset;
+        resource->gpu_address = heap->buffer_resource->gpu_address + heap_offset;
+        return S_OK;
+    }
 
     if (d3d12_resource_is_buffer(resource))
         VK_CALL(vkGetBufferMemoryRequirements(vk_device, resource->u.vk_buffer, &requirements));
@@ -1879,7 +1976,7 @@ HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_h
     HRESULT hr;
 
     if (FAILED(hr = d3d12_resource_create(device, &heap->desc.Properties, heap->desc.Flags,
-            desc, initial_state, optimized_clear_value, &object)))
+            desc, initial_state, optimized_clear_value, true, &object)))
         return hr;
 
     if (FAILED(hr = vkd3d_bind_heap_memory(device, object, heap, heap_offset)))
@@ -1903,7 +2000,7 @@ HRESULT d3d12_reserved_resource_create(struct d3d12_device *device,
     HRESULT hr;
 
     if (FAILED(hr = d3d12_resource_create(device, NULL, 0,
-            desc, initial_state, optimized_clear_value, &object)))
+            desc, initial_state, optimized_clear_value, false, &object)))
         return hr;
 
     TRACE("Created reserved resource %p.\n", object);
@@ -2205,7 +2302,7 @@ static bool vkd3d_create_buffer_view_for_resource(struct d3d12_device *device,
     assert(d3d12_resource_is_buffer(resource));
 
     return vkd3d_create_buffer_view(device, resource->u.vk_buffer,
-            format, offset * element_size, size * element_size, view);
+            format, resource->heap_offset + offset * element_size, size * element_size, view);
 }
 
 static void vkd3d_set_view_swizzle_for_format(VkComponentMapping *components,
@@ -2807,7 +2904,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
 
         format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
         if (!vkd3d_create_vk_buffer_view(device, counter_resource->u.vk_buffer, format,
-                desc->u.Buffer.CounterOffsetInBytes, sizeof(uint32_t), &view->vk_counter_view))
+                desc->u.Buffer.CounterOffsetInBytes + resource->heap_offset, sizeof(uint32_t), &view->vk_counter_view))
         {
             WARN("Failed to create counter buffer view.\n");
             view->vk_counter_view = VK_NULL_HANDLE;
@@ -2913,12 +3010,18 @@ bool vkd3d_create_raw_buffer_view(struct d3d12_device *device,
 {
     const struct vkd3d_format *format;
     struct d3d12_resource *resource;
+    uint64_t range;
+    uint64_t offset;
 
     format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
     resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, gpu_address);
     assert(d3d12_resource_is_buffer(resource));
+
+    offset = gpu_address - resource->gpu_address;
+    range = min(resource->desc.Width - offset, device->vk_info.device_limits.maxStorageBufferRange);
+
     return vkd3d_create_vk_buffer_view(device, resource->u.vk_buffer, format,
-            gpu_address - resource->gpu_address, VK_WHOLE_SIZE, vk_buffer_view);
+            offset, range, vk_buffer_view);
 }
 
 /* samplers */

@@ -1334,6 +1334,8 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     device->feature_options.CrossAdapterRowMajorTextureSupported = FALSE;
     /* SPV_EXT_shader_viewport_index_layer */
     device->feature_options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation = FALSE;
+
+    /* FIXME: Does this actually work on NV which has 64k bufferImage alignment quirks with VkDeviceMemory? */
     device->feature_options.ResourceHeapTier = D3D12_RESOURCE_HEAP_TIER_2;
 
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL, &count, NULL))) < 0)
