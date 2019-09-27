@@ -380,6 +380,7 @@ struct d3d12_heap
     unsigned int map_count;
     uint32_t vk_memory_type;
 
+    struct d3d12_resource *buffer_resource;
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
@@ -394,6 +395,7 @@ struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface) DECLSPEC_HIDDE
 #define VKD3D_RESOURCE_EXTERNAL       0x00000004
 #define VKD3D_RESOURCE_DEDICATED_HEAP 0x00000008
 #define VKD3D_RESOURCE_LINEAR_TILING  0x00000010
+#define VKD3D_RESOURCE_PLACED_BUFFER  0x00000020
 
 /* ID3D12Resource */
 struct d3d12_resource
