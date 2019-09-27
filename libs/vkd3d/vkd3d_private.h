@@ -243,6 +243,7 @@ struct vkd3d_gpu_va_allocation
 struct vkd3d_gpu_va_slab_entry
 {
     void *ptr;
+    SIZE_T size;
 };
 
 struct vkd3d_gpu_va_allocator
@@ -411,6 +412,7 @@ struct d3d12_heap
     unsigned int map_count;
     uint32_t vk_memory_type;
 
+    struct d3d12_resource *buffer_resource;
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
@@ -447,6 +449,7 @@ struct d3d12_resource
 
     struct d3d12_heap *heap;
     uint64_t heap_offset;
+    bool placed_buffer;
 
     D3D12_RESOURCE_STATES initial_state;
     D3D12_RESOURCE_STATES present_state;

@@ -4076,8 +4076,17 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
 
     resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, gpu_address);
     buffer_info.buffer = resource->u.vk_buffer;
-    buffer_info.offset = gpu_address - resource->gpu_address;
-    buffer_info.range = resource->desc.Width - buffer_info.offset;
+
+    if (resource->placed_buffer)
+    {
+        buffer_info.offset = gpu_address - resource->gpu_address + resource->heap_offset;
+        buffer_info.range = resource->heap->buffer_resource->desc.Width - buffer_info.offset;
+    }
+    else
+    {
+        buffer_info.offset = gpu_address - resource->gpu_address;
+        buffer_info.range = resource->desc.Width - buffer_info.offset;
+    }
     buffer_info.range = min(buffer_info.range, vk_info->device_limits.maxUniformBufferRange);
 
     if (vk_info->KHR_push_descriptor)
@@ -4257,7 +4266,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(ID3D12Graphics
 
     resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, view->BufferLocation);
     VK_CALL(vkCmdBindIndexBuffer(list->vk_command_buffer, resource->u.vk_buffer,
-            view->BufferLocation - resource->gpu_address, index_type));
+            view->BufferLocation - resource->gpu_address + resource->heap_offset, index_type));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12GraphicsCommandList1 *iface,
@@ -4291,7 +4300,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
         {
             resource = vkd3d_gpu_va_allocator_dereference(gpu_va_allocator, views[i].BufferLocation);
             buffers[i] = resource->u.vk_buffer;
-            offsets[i] = views[i].BufferLocation - resource->gpu_address;
+            offsets[i] = views[i].BufferLocation - resource->gpu_address + resource->heap_offset;
             stride = views[i].StrideInBytes;
         }
         else
@@ -4351,12 +4360,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(ID3D12GraphicsComm
         {
             resource = vkd3d_gpu_va_allocator_dereference(gpu_va_allocator, views[i].BufferLocation);
             buffers[count] = resource->u.vk_buffer;
-            offsets[count] = views[i].BufferLocation - resource->gpu_address;
+            offsets[count] = views[i].BufferLocation - resource->gpu_address + resource->heap_offset;
             sizes[count] = views[i].SizeInBytes;
 
             resource = vkd3d_gpu_va_allocator_dereference(gpu_va_allocator, views[i].BufferFilledSizeLocation);
             list->so_counter_buffers[start_slot + i] = resource->u.vk_buffer;
-            list->so_counter_buffer_offsets[start_slot + i] = views[i].BufferFilledSizeLocation - resource->gpu_address;
+            list->so_counter_buffer_offsets[start_slot + i] =
+                    views[i].BufferFilledSizeLocation - resource->gpu_address + resource->heap_offset;
             ++count;
         }
         else

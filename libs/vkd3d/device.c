@@ -1335,7 +1335,9 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     device->feature_options.CrossAdapterRowMajorTextureSupported = FALSE;
     /* SPV_EXT_shader_viewport_index_layer */
     device->feature_options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation = FALSE;
-    device->feature_options.ResourceHeapTier = D3D12_RESOURCE_HEAP_TIER_2;
+
+    /* Need to make sure buffers are contained in their own heaps. */
+    device->feature_options.ResourceHeapTier = D3D12_RESOURCE_HEAP_TIER_1;
 
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL, &count, NULL))) < 0)
     {
@@ -1909,6 +1911,7 @@ static D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate_slab(struct vkd
                     (unsigned long long)virtual_address, vacant_index, vkd3d_va_size_class_tag[size_class]);
             assert(!allocator->slab_mem_allocations[size_class][vacant_index].ptr);
             allocator->slab_mem_allocations[size_class][vacant_index].ptr = ptr;
+            allocator->slab_mem_allocations[size_class][vacant_index].size = size;
         }
 
         /* Try higher size class. Very large allocations should be rare enough that we can use the higher size areas
@@ -1991,6 +1994,12 @@ static void *vkd3d_gpu_va_allocator_dereference_slab(struct vkd3d_gpu_va_allocat
     }
 
     slab = &allocator->slab_mem_allocations[size_class][base_index];
+    base_offset -= base_index * vkd3d_va_size_class_size[size_class];
+    if (base_offset >= slab->size)
+    {
+        ERR("Accessed slab out of range.\n");
+        return NULL;
+    }
     return slab->ptr;
 }
 
