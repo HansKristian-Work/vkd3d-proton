@@ -3031,8 +3031,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(ID3D12Graphics
 
     d3d12_command_list_end_current_render_pass(list);
 
-    buffer_copy.srcOffset = src_offset;
-    buffer_copy.dstOffset = dst_offset;
+    buffer_copy.srcOffset = src_offset + src_resource->heap_offset;
+    buffer_copy.dstOffset = dst_offset + dst_resource->heap_offset;
     buffer_copy.size = byte_count;
 
     VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
@@ -3450,8 +3450,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(ID3D12GraphicsComm
         assert(d3d12_resource_is_buffer(src_resource));
         assert(src_resource->desc.Width == dst_resource->desc.Width);
 
-        vk_buffer_copy.srcOffset = 0;
-        vk_buffer_copy.dstOffset = 0;
+        vk_buffer_copy.srcOffset = src_resource->heap_offset;
+        vk_buffer_copy.dstOffset = dst_resource->heap_offset;
         vk_buffer_copy.size = dst_resource->desc.Width;
         VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
                 src_resource->u.vk_buffer, dst_resource->u.vk_buffer, 1, &vk_buffer_copy));
@@ -4076,6 +4076,7 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
 
     resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, gpu_address);
     buffer_info.buffer = resource->u.vk_buffer;
+
     buffer_info.offset = gpu_address - resource->gpu_address;
     buffer_info.range = resource->desc.Width - buffer_info.offset;
     buffer_info.range = min(buffer_info.range, vk_info->device_limits.maxUniformBufferRange);
