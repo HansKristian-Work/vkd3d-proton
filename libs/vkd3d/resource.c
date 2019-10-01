@@ -1388,7 +1388,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(ID3D12Resour
     size = (box.right - box.left) / format->block_width * format->byte_count * format->block_byte_count;
     for (z = box.front; z < box.back; ++z)
     {
-        dst = dst_data + (z - box.front) * dst_slice_pitch;
+        dst = (uint8_t *)dst_data + (z - box.front) * dst_slice_pitch;
         src = src_data + z * vk_layout.depthPitch + box.top / format->block_height * vk_layout.rowPitch;
         for (y = box.top; y < box.bottom; y += format->block_height)
         {
