@@ -164,6 +164,9 @@ static inline LONG InterlockedDecrement(LONG volatile *x)
 
 #if HAVE_SYNC_ADD_AND_FETCH
 # define atomic_add_fetch(ptr, val) __sync_add_and_fetch(ptr, val)
+#elif defined(_MSC_VER)
+/* InterlockedAdd returns value after increment, like add_and_fetch. */
+# define atomic_add_fetch(ptr, val) InterlockedAdd(ptr, val)
 #else
 # error "atomic_add_fetch() not implemented for this platform"
 #endif  /* HAVE_SYNC_ADD_AND_FETCH */
