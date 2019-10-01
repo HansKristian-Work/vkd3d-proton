@@ -84,7 +84,13 @@ static inline bool vkd3d_bitmask_is_contiguous(unsigned int mask)
 /* Undefined for x == 0. */
 static inline unsigned int vkd3d_log2i(unsigned int x)
 {
-#ifdef HAVE_BUILTIN_CLZ
+#ifdef _MSC_VER
+    /* _BitScanReverse returns the index of the highest set bit,
+     * unlike clz which is 31 - index. */
+    unsigned long result;
+    _BitScanReverse(&result, x);
+    return (unsigned int)result;
+#elif defined(HAVE_BUILTIN_CLZ)
     return __builtin_clz(x) ^ 0x1f;
 #else
     static const unsigned int l[] =
