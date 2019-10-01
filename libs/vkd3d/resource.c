@@ -423,7 +423,8 @@ static HRESULT d3d12_heap_map(struct d3d12_heap *heap, uint64_t offset,
     if ((rc = pthread_mutex_lock(&heap->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
-        *data = NULL;
+        if (data)
+            *data = NULL;
         return hresult_from_errno(rc);
     }
 
@@ -456,13 +457,15 @@ static HRESULT d3d12_heap_map(struct d3d12_heap *heap, uint64_t offset,
     if (hr == S_OK)
     {
         assert(heap->map_ptr);
-        *data = (BYTE *)heap->map_ptr + offset;
+        if (data)
+            *data = (BYTE *)heap->map_ptr + offset;
         ++resource->map_count;
     }
     else
     {
         assert(!heap->map_ptr);
-        *data = NULL;
+        if (data)
+            *data = NULL;
     }
 
     pthread_mutex_unlock(&heap->mutex);
@@ -1235,7 +1238,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
     if (FAILED(hr = d3d12_heap_map(resource->heap, resource->heap_offset, resource, data)))
         WARN("Failed to map resource %p, hr %#x.\n", resource, hr);
 
-    TRACE("Returning pointer %p.\n", *data);
+    if (data)
+        TRACE("Returning pointer %p.\n", *data);
 
     return hr;
 }
