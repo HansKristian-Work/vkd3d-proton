@@ -16,6 +16,11 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#ifdef _MSC_VER
+/* Used for M_PI */
+#define _USE_MATH_DEFINES
+#endif
+
 #include "d3d12_crosstest.h"
 
 static PFN_D3D12_CREATE_VERSIONED_ROOT_SIGNATURE_DESERIALIZER pfn_D3D12CreateVersionedRootSignatureDeserializer;
@@ -585,7 +590,7 @@ static void check_sub_resource_vec4_(unsigned int line, ID3D12Resource *texture,
     struct resource_readback rb;
     unsigned int x = 0, y;
     bool all_match = true;
-    struct vec4 got = {};
+    struct vec4 got = {0};
 
     get_texture_readback_with_command_list(texture, sub_resource_idx, &rb, queue, command_list);
     for (y = 0; y < rb.height; ++y)
@@ -614,7 +619,7 @@ static void check_sub_resource_uvec4_(unsigned int line, ID3D12Resource *texture
         const struct uvec4 *expected_value)
 {
     struct resource_readback rb;
-    struct uvec4 value = {};
+    struct uvec4 value = {0};
     unsigned int x = 0, y;
     bool all_match = true;
 
@@ -6365,7 +6370,7 @@ static void test_draw_uav_only(void)
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00004001, 0x00000001, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
-    static const float zero[4] = {};
+    static const float zero[4] = {0};
 
     memset(&desc, 0, sizeof(desc));
     desc.no_render_target = true;
@@ -8728,11 +8733,11 @@ static void test_shader_instructions(void)
         {&ps_loop_ret, {{2.0f, 1.0f}}, {{1.0f, 1.0f, 1.0f, 1.0f}}},
         {&ps_loop_ret, {{8.0f, 7.0f}}, {{1.0f, 1.0f, 1.0f, 1.0f}}},
 
-        {&ps_breakc_nz, {}, {{0.0f, 1.0f, 0.0f, 1.0f}}},
-        {&ps_breakc_z,  {}, {{0.0f, 1.0f, 0.0f, 1.0f}}},
+        {&ps_breakc_nz, {{0}}, {{0.0f, 1.0f, 0.0f, 1.0f}}},
+        {&ps_breakc_z,  {{0}}, {{0.0f, 1.0f, 0.0f, 1.0f}}},
 
-        {&ps_continue,     {}, {{254.0f}}, true},
-        {&ps_continuec_nz, {}, {{509.0f}}},
+        {&ps_continue,     {{0}}, {{254.0f}}, true},
+        {&ps_continuec_nz, {{0}}, {{509.0f}}},
 
         {&ps_retc_nz, {{  0.0f}}, {{1.0f}}},
         {&ps_retc_nz, {{ 10.0f}}, {{1.0f}}},
@@ -9608,9 +9613,9 @@ static void test_compute_shader_instructions(void)
         {&cs_atomic_iadd_tgsm_raw, {0xffffffff}, {-1}, {1, 1}, {0, 0}},
         {&cs_atomic_iadd_tgsm_raw, {0xffffffff}, {-1}, {4, 4}, {3, 3}},
 
-        {&cs_atomic_iadd_const, {}, {}, {0x00000000, 0x00000000}, {0xffffffff, 0xffffffff}},
-        {&cs_atomic_iadd_const, {}, {}, {0x00000001, 0x00000001}, {0x00000000, 0x00000000}},
-        {&cs_atomic_iadd_const, {}, {}, {0xffffffff, 0xffffffff}, {0xfffffffe, 0xfffffffe}},
+        {&cs_atomic_iadd_const, {0}, {0}, {0x00000000, 0x00000000}, {0xffffffff, 0xffffffff}},
+        {&cs_atomic_iadd_const, {0}, {0}, {0x00000001, 0x00000001}, {0x00000000, 0x00000000}},
+        {&cs_atomic_iadd_const, {0}, {0}, {0xffffffff, 0xffffffff}, {0xfffffffe, 0xfffffffe}},
     };
 
     if (!init_compute_test_context(&context))
@@ -11692,7 +11697,7 @@ static void test_immediate_constant_buffer(void)
     ID3D12GraphicsCommandList *command_list;
     struct test_context_desc desc;
     struct test_context context;
-    unsigned int index[4] = {};
+    unsigned int index[4] = {0};
     ID3D12CommandQueue *queue;
     ID3D12Resource *cb;
     unsigned int i;
@@ -20914,7 +20919,7 @@ static void test_cs_uav_store(void)
         0x00000001, 0x00000001, 0x00000000, 0x00000000, 0x01000016, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE cs_group_index = {cs_group_index_code, sizeof(cs_group_index_code)};
-    static const float zero[4] = {};
+    static const float zero[4] = {0};
     static const struct
     {
         const D3D12_SHADER_BYTECODE *shader;
