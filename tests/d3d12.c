@@ -6708,6 +6708,11 @@ static void test_map_resource(void)
     ID3D12Resource_Unmap(resource, 1, NULL);
     ID3D12Resource_Unmap(resource, 0, NULL);
 
+    /* Passing NULL to Map should map, but not disclose the CPU VA to caller. */
+    hr = ID3D12Resource_Map(resource, 0, NULL, NULL);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ID3D12Resource_Unmap(resource, 0, NULL);
+
     ID3D12Resource_Release(resource);
 
     refcount = ID3D12Device_Release(device);
