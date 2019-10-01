@@ -861,7 +861,7 @@ HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
 
 #if HAVE_DECL_PROGRAM_INVOCATION_NAME
 
-bool vkd3d_get_program_name(char program_name[PATH_MAX])
+bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX])
 {
     char *name, *p, *real_path = NULL;
 
@@ -887,15 +887,15 @@ bool vkd3d_get_program_name(char program_name[PATH_MAX])
         name = program_invocation_name;
     }
 
-    strncpy(program_name, name, PATH_MAX);
-    program_name[PATH_MAX - 1] = '\0';
+    strncpy(program_name, name, VKD3D_PATH_MAX);
+    program_name[VKD3D_PATH_MAX - 1] = '\0';
     free(real_path);
     return true;
 }
 
 #else
 
-bool vkd3d_get_program_name(char program_name[PATH_MAX])
+bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX])
 {
     *program_name = '\0';
     return false;
