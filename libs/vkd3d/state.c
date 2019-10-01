@@ -1342,7 +1342,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkShaderModuleCreateInfo shader_desc;
-    struct vkd3d_shader_code spirv = {};
+    struct vkd3d_shader_code spirv = {0};
     VkResult vr;
     int ret;
 
