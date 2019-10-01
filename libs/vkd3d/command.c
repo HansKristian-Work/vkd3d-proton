@@ -1723,7 +1723,10 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
 
     command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     command_pool_info.pNext = NULL;
-    command_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    /* Do not use RESET_COMMAND_BUFFER_BIT. This allows the CommandPool to be a D3D12-style command pool.
+     * Memory is owned by the pool and CommandBuffers become lightweight handles,
+     * assuming a half-decent driver implementation. */
+    command_pool_info.flags = 0;
     command_pool_info.queueFamilyIndex = queue->vk_family_index;
 
     if ((vr = VK_CALL(vkCreateCommandPool(device->vk_device, &command_pool_info, NULL,
