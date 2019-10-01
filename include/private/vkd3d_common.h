@@ -164,8 +164,9 @@ static inline LONG InterlockedDecrement(LONG volatile *x)
 
 #if HAVE_SYNC_ADD_AND_FETCH
 # define atomic_add_fetch(ptr, val) __sync_add_and_fetch(ptr, val)
-#else
-# error "atomic_add_fetch() not implemented for this platform"
+#elif defined(_MSC_VER)
+/* InterlockedAdd returns value after increment, like add_and_fetch. */
+# define atomic_add_fetch(ptr, val) InterlockedAdd(ptr, val)
 #endif  /* HAVE_SYNC_ADD_AND_FETCH */
 
 static inline void vkd3d_parse_version(const char *version, int *major, int *minor)
