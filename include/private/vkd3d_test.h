@@ -57,40 +57,40 @@ static void vkd3d_test_end_todo(void);
         unsigned int vkd3d_line = line; \
         VKD3D_TEST_ASSERT_THAT
 
-#define VKD3D_TEST_ASSERT_THAT(args...) \
-        vkd3d_test_assert_that(vkd3d_line, args); } while (0)
+#define VKD3D_TEST_ASSERT_THAT(...) \
+        vkd3d_test_assert_that(vkd3d_line, __VA_ARGS__); } while (0)
 
 #define ok_(line) \
         do { \
         unsigned int vkd3d_line = line; \
         VKD3D_TEST_OK
 
-#define VKD3D_TEST_OK(args...) \
-        vkd3d_test_ok(vkd3d_line, args); } while (0)
+#define VKD3D_TEST_OK(...) \
+        vkd3d_test_ok(vkd3d_line, __VA_ARGS__); } while (0)
 
 #define todo_(line) \
         do { \
         unsigned int vkd3d_line = line; \
         VKD3D_TEST_TODO
 
-#define VKD3D_TEST_TODO(args...) \
-        vkd3d_test_todo(vkd3d_line, args); } while (0)
+#define VKD3D_TEST_TODO(...) \
+        vkd3d_test_todo(vkd3d_line, __VA_ARGS__); } while (0)
 
 #define skip_(line) \
         do { \
         unsigned int vkd3d_line = line; \
         VKD3D_TEST_SKIP
 
-#define VKD3D_TEST_SKIP(args...) \
-        vkd3d_test_skip(vkd3d_line, args); } while (0)
+#define VKD3D_TEST_SKIP(...) \
+        vkd3d_test_skip(vkd3d_line, __VA_ARGS__); } while (0)
 
 #define trace_(line) \
         do { \
         unsigned int vkd3d_line = line; \
         VKD3D_TEST_TRACE
 
-#define VKD3D_TEST_TRACE(args...) \
-        vkd3d_test_trace(vkd3d_line, args); } while (0)
+#define VKD3D_TEST_TRACE(...) \
+        vkd3d_test_trace(vkd3d_line, __VA_ARGS__); } while (0)
 
 #define todo_if(is_todo) \
     for (vkd3d_test_start_todo(is_todo); vkd3d_test_loop_todo(); vkd3d_test_end_todo())
