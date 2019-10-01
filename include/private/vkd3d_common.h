@@ -26,6 +26,10 @@
 #include <limits.h>
 #include <stdbool.h>
 
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
+
 #ifndef ARRAY_SIZE
 # define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
 #endif
@@ -51,7 +55,9 @@ static inline size_t align(size_t addr, size_t alignment)
 
 static inline unsigned int vkd3d_popcount(unsigned int v)
 {
-#ifdef HAVE_BUILTIN_POPCOUNT
+#ifdef _MSC_VER
+    return __popcnt(v);
+#elif defined(HAVE_BUILTIN_POPCOUNT)
     return __builtin_popcount(v);
 #else
     v -= (v >> 1) & 0x55555555;
