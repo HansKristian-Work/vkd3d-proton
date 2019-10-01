@@ -31,11 +31,11 @@
 
 #include "vkd3d.h"
 #include "vkd3d_shader.h"
+#include "vkd3d_threads.h"
 
 #include <assert.h>
 #include <inttypes.h>
 #include <limits.h>
-#include <pthread.h>
 #include <stdbool.h>
 
 #define VK_CALL(f) (vk_procs->f)
