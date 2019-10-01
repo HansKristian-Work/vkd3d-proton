@@ -804,7 +804,7 @@ HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
     return S_OK;
 }
 
-#ifdef _GNU_SOURCE
+#if defined(_GNU_SOURCE) && !defined(_WIN32)
 
 bool vkd3d_get_program_name(char program_name[PATH_MAX])
 {
@@ -840,7 +840,7 @@ bool vkd3d_get_program_name(char program_name[PATH_MAX])
 
 #else
 
-bool vkd3d_get_program_name(char program_name[PATH_MAX])
+bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX])
 {
     *program_name = '\0';
     return false;
