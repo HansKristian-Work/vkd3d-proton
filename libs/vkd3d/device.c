@@ -453,7 +453,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     bool *user_extension_supported = NULL;
     VkApplicationInfo application_info;
     VkInstanceCreateInfo instance_info;
-    char application_name[PATH_MAX];
+    char application_name[VKD3D_PATH_MAX];
     uint32_t extension_count;
     const char **extensions;
     VkInstance vk_instance;
