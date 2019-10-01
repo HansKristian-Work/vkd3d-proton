@@ -48,6 +48,7 @@ AS_IF([test "x${GCC}" = "xyes"],
       VKD3D_CHECK_CFLAGS([-Wmissing-prototypes])
       VKD3D_CHECK_CFLAGS([-Wunused-but-set-parameter])
       VKD3D_CHECK_CFLAGS([-Wvla])
+      VKD3D_CHECK_CFLAGS([-Wpointer-arith])
       VKD3D_CHECK_CFLAGS([-Wl,--no-undefined])])
 
 dnl Check for cross compilers
