@@ -268,6 +268,7 @@ struct vkd3d_spirv_builder
     uint64_t capability_draw_parameters : 1;
     uint64_t capability_demote_to_helper_invocation : 1;
     uint32_t ext_instr_set_glsl_450;
+    uint32_t invocation_count;
     SpvExecutionModel execution_model;
 
     uint32_t current_id;
@@ -1731,6 +1732,9 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
             "main", builder->iface, builder->iface_element_count);
 
     /* execution mode declarations */
+    if (builder->invocation_count)
+        vkd3d_spirv_build_op_execution_mode(&builder->execution_mode_stream,
+                builder->main_function_id, SpvExecutionModeInvocations, &builder->invocation_count, 1);
     vkd3d_spirv_stream_append(&stream, &builder->execution_mode_stream);
 
     vkd3d_spirv_stream_append(&stream, &builder->debug_stream);
@@ -4643,6 +4647,7 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
             break;
         case VKD3D_SHADER_TYPE_GEOMETRY:
             vkd3d_spirv_set_execution_model(builder, SpvExecutionModelGeometry);
+            builder->invocation_count = 1;
             break;
         case VKD3D_SHADER_TYPE_PIXEL:
             vkd3d_spirv_set_execution_model(builder, SpvExecutionModelFragment);
@@ -5421,8 +5426,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_output_topology(struct vkd3d_dxbc_compi
 static void vkd3d_dxbc_compiler_emit_dcl_gs_instances(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    vkd3d_dxbc_compiler_emit_execution_mode1(compiler,
-            SpvExecutionModeInvocations, instruction->declaration.count);
+    compiler->spirv_builder.invocation_count = instruction->declaration.count;
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_tessellator_domain(struct vkd3d_dxbc_compiler *compiler,
