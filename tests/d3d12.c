@@ -30507,7 +30507,7 @@ static void test_read_write_subresource(void)
 
     set_box(&box, 0, 0, 0, 1, 1, 1);
     hr = ID3D12Resource_WriteToSubresource(rb_buffer, 0, &box, dst_buffer, row_pitch, slice_pitch);
-    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12Resource_ReadFromSubresource(rb_buffer, dst_buffer, row_pitch, slice_pitch, 0, &box);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
@@ -30554,7 +30554,7 @@ static void test_read_write_subresource(void)
 
     /* NULL box */
     hr = ID3D12Resource_WriteToSubresource(src_texture, 0, NULL, dst_buffer, row_pitch, slice_pitch);
-    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, NULL);
     todo_if(is_nvidia_device(device))
@@ -30567,7 +30567,7 @@ static void test_read_write_subresource(void)
 
     set_box(&box, 0, 0, 0, 0, 0, 0);
     hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, dst_buffer, row_pitch, slice_pitch);
-    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
@@ -30596,18 +30596,18 @@ static void test_read_write_subresource(void)
         if (i)
         {
             hr = ID3D12Resource_WriteToSubresource(src_texture, 0, NULL, zero_buffer, row_pitch, slice_pitch);
-            todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
             /* Write region 1 */
             set_box(&box, 0, 0, 0, 2, 2, 2);
             hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, dst_buffer, row_pitch, slice_pitch);
-            todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
             /* Write region 2 */
             set_box(&box, 2, 2, 2, 11, 13, 17);
             hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, &dst_buffer[2 * 128 * 100 + 2 * 128 + 2],
                     row_pitch, slice_pitch);
-            todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
         }
         else
         {
@@ -30711,7 +30711,7 @@ static void test_read_write_subresource(void)
         if (got != expected)
             break;
     }
-    todo ok(got == expected, "Got unexpected value 0x%08x at (%u, %u, %u), expected 0x%08x.\n", got, x, y, z, expected);
+    ok(got == expected, "Got unexpected value 0x%08x at (%u, %u, %u), expected 0x%08x.\n", got, x, y, z, expected);
     release_resource_readback(&rb);
 
     ID3D12Resource_Release(src_texture);
