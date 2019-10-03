@@ -206,6 +206,15 @@ VK_DEVICE_EXT_PFN(vkCmdBindTransformFeedbackBuffersEXT)
 VK_DEVICE_EXT_PFN(vkCmdEndQueryIndexedEXT)
 VK_DEVICE_EXT_PFN(vkCmdEndTransformFeedbackEXT)
 
+#ifdef VK_HACK_d3d12_dynamic_state
+VK_DEVICE_EXT_PFN(vkCmdSetViewportCountHACK)
+VK_DEVICE_EXT_PFN(vkCmdSetScissorCountHACK)
+VK_DEVICE_EXT_PFN(vkCmdBindVertexBuffersWithStrideHACK)
+VK_DEVICE_EXT_PFN(vkCmdSetPrimitiveTopologyHACK)
+#else
+#warning "Header does not have VK_HACK_d3d12_dynamic_state entrypoints."
+#endif
+
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN

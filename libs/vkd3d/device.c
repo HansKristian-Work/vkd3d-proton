@@ -136,6 +136,10 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_TEXEL_BUFFER_ALIGNMENT, EXT_texel_buffer_alignment),
     VK_EXTENSION(EXT_TRANSFORM_FEEDBACK, EXT_transform_feedback),
     VK_EXTENSION(EXT_VERTEX_ATTRIBUTE_DIVISOR, EXT_vertex_attribute_divisor),
+    /* HACKs */
+#ifdef VK_HACK_d3d12_dynamic_state
+    VK_EXTENSION(HACK_D3D12_DYNAMIC_STATE, HACK_d3d12_dynamic_state),
+#endif
 };
 
 static unsigned int get_spec_version(const VkExtensionProperties *extensions,

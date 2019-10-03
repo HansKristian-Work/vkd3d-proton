@@ -109,6 +109,9 @@ struct vkd3d_vulkan_info
     bool EXT_texel_buffer_alignment;
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
+#ifdef VK_HACK_d3d12_dynamic_state
+    bool HACK_d3d12_dynamic_state;
+#endif
 
     bool rasterization_stream;
     bool transform_feedback_queries;
@@ -712,7 +715,9 @@ int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
 
 struct d3d12_graphics_pipeline_state
 {
-    VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
+	VkPipeline static_pipeline;
+
+	VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
     size_t stage_count;
 
     VkVertexInputAttributeDescription attributes[D3D12_VS_INPUT_REGISTER_COUNT];
@@ -732,6 +737,8 @@ struct d3d12_graphics_pipeline_state
     VkPipelineRasterizationStateCreateInfo rs_desc;
     VkPipelineMultisampleStateCreateInfo ms_desc;
     VkPipelineDepthStencilStateCreateInfo ds_desc;
+
+    D3D12_PRIMITIVE_TOPOLOGY_TYPE topology_type;
 
     VkSampleMask sample_mask[2];
     VkPipelineRasterizationDepthClipStateCreateInfoEXT rs_depth_clip_info;
