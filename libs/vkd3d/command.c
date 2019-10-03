@@ -2480,7 +2480,17 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
         return false;
     }
 
-    if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
+    if (list->state->u.graphics.static_pipeline && list->dsv_format == list->state->u.graphics.dsv_format)
+    {
+        /* If we have the correct DSV format from the render pass, we can use the statically compiled
+         * pipeline. All valid applications should hit this path.
+         * SOTTR uses depth testing with DXGI_FORMAT_UNKNOWN, which means we do not know the correct
+         * depth-stencil format here, and we need to fall back. */
+        vk_pipeline = list->state->u.graphics.static_pipeline;
+        vk_render_pass = list->state->u.graphics.static_render_pass;
+        assert(vk_render_pass);
+    }
+    else if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
             list->primitive_topology, list->strides, list->dsv_format, &vk_render_pass)))
         return false;
 
@@ -3581,6 +3591,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(ID3D12Gr
         D3D12_PRIMITIVE_TOPOLOGY topology)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList1(iface);
+    struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
     TRACE("iface %p, topology %#x.\n", iface, topology);
 
@@ -3590,11 +3601,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(ID3D12Gr
         return;
     }
 
-    if (list->primitive_topology == topology)
-        return;
+    if (list->device->vk_info.HACK_d3d12_dynamic_state)
+    {
+        VK_CALL(vkCmdSetPrimitiveTopologyHACK(list->vk_command_buffer, vk_topology_from_d3d12_topology(topology)));
+        list->primitive_topology = topology;
+    }
+    else
+    {
+        if (list->primitive_topology == topology)
+            return;
 
-    list->primitive_topology = topology;
-    d3d12_command_list_invalidate_current_pipeline(list);
+        list->primitive_topology = topology;
+        d3d12_command_list_invalidate_current_pipeline(list);
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(ID3D12GraphicsCommandList1 *iface,
@@ -3630,6 +3649,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(ID3D12GraphicsCo
     }
 
     vk_procs = &list->device->vk_procs;
+    if (list->device->vk_info.HACK_d3d12_dynamic_state)
+        VK_CALL(vkCmdSetViewportCountHACK(list->vk_command_buffer, viewport_count));
     VK_CALL(vkCmdSetViewport(list->vk_command_buffer, 0, viewport_count, vk_viewports));
 }
 
@@ -3658,6 +3679,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(ID3D12Graphic
     }
 
     vk_procs = &list->device->vk_procs;
+    if (list->device->vk_info.HACK_d3d12_dynamic_state)
+        VK_CALL(vkCmdSetScissorCountHACK(list->vk_command_buffer, rect_count));
     VK_CALL(vkCmdSetScissor(list->vk_command_buffer, 0, rect_count, vk_rects));
 }
 
@@ -3707,6 +3730,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(ID3D12Graphics
     }
     else
     {
+        /* There might be DSV format mismatches, so as a workaround, we defer binding the pipeline
+         * until we know for sure. */
         d3d12_command_list_invalidate_current_pipeline(list);
     }
 
@@ -4302,15 +4327,26 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
             stride = 0;
         }
 
-        invalidate |= list->strides[start_slot + i] != stride;
+        if (!list->device->vk_info.HACK_d3d12_dynamic_state)
+            invalidate |= list->strides[start_slot + i] != stride;
         list->strides[start_slot + i] = stride;
     }
 
     if (view_count)
-        VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer, start_slot, view_count, buffers, offsets));
-
-    if (invalidate)
-        d3d12_command_list_invalidate_current_pipeline(list);
+    {
+        if (list->device->vk_info.HACK_d3d12_dynamic_state)
+        {
+            VK_CALL(vkCmdBindVertexBuffersWithStrideHACK(list->vk_command_buffer,
+                                                         start_slot, view_count, buffers, offsets,
+                                                         list->strides + start_slot));
+        }
+        else
+        {
+            VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer, start_slot, view_count, buffers, offsets));
+            if (invalidate)
+                d3d12_command_list_invalidate_current_pipeline(list);
+        }
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(ID3D12GraphicsCommandList1 *iface,

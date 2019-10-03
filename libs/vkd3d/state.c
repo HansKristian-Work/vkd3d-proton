@@ -2141,9 +2141,12 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         else if ((format = vkd3d_get_format(device, desc->DSVFormat, true)))
         {
             if (!(format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
+            {
                 FIXME("Format %#x is not depth/stencil format.\n", format->dxgi_format);
-
-            graphics->dsv_format = format->vk_format;
+                graphics->dsv_format = VK_FORMAT_UNDEFINED;
+            }
+            else
+                graphics->dsv_format = format->vk_format;
         }
         else
         {
@@ -2468,9 +2471,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
     graphics->topology_type = desc->PrimitiveTopologyType;
 
-    graphics->static_pipeline = d3d12_pipeline_state_create_static_pipeline(state);
-
     d3d12_device_add_ref(state->device = device);
+
+    graphics->static_pipeline = d3d12_pipeline_state_create_static_pipeline(state);
 
     return S_OK;
 
@@ -2522,59 +2525,6 @@ static enum VkPrimitiveTopologyTypeHACK vk_topology_type_from_d3d12_topology_typ
     default:
         FIXME("Unhandled primitive topology type %#x.\n", topology_type);
         assert(0);
-    }
-}
-
-static enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_TOPOLOGY topology)
-{
-    switch (topology)
-    {
-        case D3D_PRIMITIVE_TOPOLOGY_POINTLIST:
-            return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-        case D3D_PRIMITIVE_TOPOLOGY_LINELIST:
-            return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-        case D3D_PRIMITIVE_TOPOLOGY_LINESTRIP:
-            return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
-        case D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST:
-            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        case D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP:
-            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
-        case D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_2_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_5_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_6_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_7_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_8_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_9_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_10_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_11_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_12_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_13_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_14_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_15_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_16_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_17_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_18_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_19_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_20_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_21_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_22_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_23_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_24_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_25_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_26_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_27_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_28_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_29_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_30_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_31_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_32_CONTROL_POINT_PATCHLIST:
-            return VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
-        default:
-            FIXME("Unhandled primitive topology %#x.\n", topology);
-            return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
     }
 }
 
@@ -2667,6 +2617,7 @@ static VkPipeline d3d12_pipeline_state_create_static_pipeline(struct d3d12_pipel
     VkPipeline vk_pipeline;
     unsigned int i;
     VkResult vr;
+    HRESULT hr;
 
     static const VkDynamicState dynamic_states[] = {
         VK_DYNAMIC_STATE_VIEWPORT,
@@ -2776,6 +2727,16 @@ static VkPipeline d3d12_pipeline_state_create_static_pipeline(struct d3d12_pipel
     pipeline_desc.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_desc.basePipelineIndex = -1;
 
+    /* Create a render pass for pipelines with static DSV format.
+     * Assume the app is sane and actually doesn't use a depth buffer.
+     * If app is not sane, fallback to late bind. */
+    if (!(pipeline_desc.renderPass = graphics->render_pass))
+    {
+        if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device, graphics->dsv_format,
+                                                                         &pipeline_desc.renderPass)))
+            return VK_NULL_HANDLE;
+    }
+
     if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device, device->vk_pipeline_cache,
                                                 1, &pipeline_desc, NULL, &vk_pipeline))) < 0)
     {
@@ -2783,6 +2744,7 @@ static VkPipeline d3d12_pipeline_state_create_static_pipeline(struct d3d12_pipel
         return VK_NULL_HANDLE;
     }
 
+    graphics->static_render_pass = pipeline_desc.renderPass;
     return vk_pipeline;
 
 #else
@@ -2823,21 +2785,28 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         .scissorCount = 1,
         .pScissors = NULL,
     };
-    static const VkDynamicState dynamic_states[] =
+
+    VkDynamicState dynamic_states[6] =
     {
         VK_DYNAMIC_STATE_VIEWPORT,
         VK_DYNAMIC_STATE_SCISSOR,
         VK_DYNAMIC_STATE_BLEND_CONSTANTS,
         VK_DYNAMIC_STATE_STENCIL_REFERENCE,
     };
-    static const VkPipelineDynamicStateCreateInfo dynamic_desc =
-    {
+
+    VkPipelineDynamicStateCreateInfo dynamic_desc = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
         .pNext = NULL,
         .flags = 0,
-        .dynamicStateCount = ARRAY_SIZE(dynamic_states),
         .pDynamicStates = dynamic_states,
+        .dynamicStateCount = 4,
     };
+
+    if (device->vk_info.HACK_d3d12_dynamic_state)
+    {
+        dynamic_states[dynamic_desc.dynamicStateCount++] = VK_DYNAMIC_STATE_VIEWPORT_COUNT_HACK;
+        dynamic_states[dynamic_desc.dynamicStateCount++] = VK_DYNAMIC_STATE_SCISSOR_COUNT_HACK;
+    }
 
     assert(d3d12_pipeline_state_is_graphics(state));
 
