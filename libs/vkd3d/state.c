@@ -2473,6 +2473,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     d3d12_device_add_ref(state->device = device);
 
+    graphics->input_slot_mask = mask;
     graphics->static_pipeline = d3d12_pipeline_state_create_static_pipeline(state);
 
     return S_OK;
@@ -2619,13 +2620,25 @@ static VkPipeline d3d12_pipeline_state_create_static_pipeline(struct d3d12_pipel
     VkResult vr;
     HRESULT hr;
 
+    static const VkPipelineViewportStateCreateInfo vp_desc = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .viewportCount = 1,
+        .pViewports = NULL,
+        .scissorCount = 1,
+        .pScissors = NULL,
+    };
+
     static const VkDynamicState dynamic_states[] = {
         VK_DYNAMIC_STATE_VIEWPORT,
         VK_DYNAMIC_STATE_SCISSOR,
         VK_DYNAMIC_STATE_BLEND_CONSTANTS,
         VK_DYNAMIC_STATE_STENCIL_REFERENCE,
+        /* TODO: Make use of these
         VK_DYNAMIC_STATE_VIEWPORT_COUNT_HACK,
         VK_DYNAMIC_STATE_SCISSOR_COUNT_HACK,
+         */
         VK_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE_HACK,
         VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY_HACK,
     };
@@ -2716,7 +2729,7 @@ static VkPipeline d3d12_pipeline_state_create_static_pipeline(struct d3d12_pipel
     pipeline_desc.pVertexInputState = &input_desc;
     pipeline_desc.pInputAssemblyState = &ia_desc;
     pipeline_desc.pTessellationState = &tessellation_info;
-    pipeline_desc.pViewportState = NULL; /* Dynamic. */
+    pipeline_desc.pViewportState = &vp_desc; /* TODO: Dynamic count. */
     pipeline_desc.pRasterizationState = &graphics->rs_desc;
     pipeline_desc.pMultisampleState = &graphics->ms_desc;
     pipeline_desc.pDepthStencilState = &graphics->ds_desc;
@@ -2802,11 +2815,14 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         .dynamicStateCount = 4,
     };
 
+#if 0
+    /* TODO: make use of this. */
     if (device->vk_info.HACK_d3d12_dynamic_state)
     {
         dynamic_states[dynamic_desc.dynamicStateCount++] = VK_DYNAMIC_STATE_VIEWPORT_COUNT_HACK;
         dynamic_states[dynamic_desc.dynamicStateCount++] = VK_DYNAMIC_STATE_SCISSOR_COUNT_HACK;
     }
+#endif
 
     assert(d3d12_pipeline_state_is_graphics(state));
 

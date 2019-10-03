@@ -717,6 +717,7 @@ struct d3d12_graphics_pipeline_state
 {
 	VkPipeline static_pipeline;
 	VkRenderPass static_render_pass;
+	uint32_t input_slot_mask;
 
 	VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
     size_t stage_count;
@@ -924,7 +925,6 @@ struct d3d12_command_list
     bool is_valid;
     VkCommandBuffer vk_command_buffer;
 
-    uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     D3D12_PRIMITIVE_TOPOLOGY primitive_topology;
 
     DXGI_FORMAT index_buffer_format;
@@ -937,8 +937,8 @@ struct d3d12_command_list
     VkFormat dsv_format;
 
     bool xfb_enabled;
-
     bool is_predicated;
+    bool pipeline_is_d3d12_dynamic;
 
     VkFramebuffer current_framebuffer;
     VkPipeline current_pipeline;
@@ -953,6 +953,10 @@ struct d3d12_command_list
 
     VkBuffer so_counter_buffers[D3D12_SO_BUFFER_SLOT_COUNT];
     VkDeviceSize so_counter_buffer_offsets[D3D12_SO_BUFFER_SLOT_COUNT];
+
+    VkBuffer vbo_buffers[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    VkDeviceSize vbo_offsets[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    uint32_t vbo_strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
 
     struct vkd3d_private_store private_store;
 };
