@@ -2490,9 +2490,14 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
         vk_render_pass = list->state->u.graphics.static_render_pass;
         assert(vk_render_pass);
     }
-    else if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
-            list->primitive_topology, list->strides, list->dsv_format, &vk_render_pass)))
-        return false;
+    else
+    {
+        WARN("DSV format 0x%x does not match PipelineState DSV format 0x%x. Looking up pipeline late.\n",
+             (unsigned)list->dsv_format, (unsigned)list->state->u.graphics.dsv_format);
+        if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
+                list->primitive_topology, list->strides, list->dsv_format, &vk_render_pass)))
+            return false;
+    }
 
     /* The render pass cache ensures that we use the same Vulkan render pass
      * object for compatible render passes. */
