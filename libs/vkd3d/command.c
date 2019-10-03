@@ -1820,7 +1820,6 @@ static void d3d12_command_list_invalidate_current_framebuffer(struct d3d12_comma
 static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_list *list)
 {
     list->current_pipeline = VK_NULL_HANDLE;
-    list->pipeline_is_d3d12_dynamic = false;
 }
 
 static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list)
@@ -2311,7 +2310,6 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 
     list->xfb_enabled = false;
     list->is_predicated = false;
-    list->pipeline_is_d3d12_dynamic = false;
 
     list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;
@@ -2493,7 +2491,6 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
         vk_pipeline = list->state->u.graphics.static_pipeline;
         vk_render_pass = list->state->u.graphics.static_render_pass;
         assert(vk_render_pass);
-        list->pipeline_is_d3d12_dynamic = true;
     }
     else
     {
@@ -2508,7 +2505,6 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
         if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
                 list->primitive_topology, list->vbo_strides, list->dsv_format, &vk_render_pass)))
             return false;
-        list->pipeline_is_d3d12_dynamic = false;
     }
 
     /* The render pass cache ensures that we use the same Vulkan render pass
@@ -2524,18 +2520,10 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
     list->current_pipeline = vk_pipeline;
 
 #ifdef VK_HACK_d3d12_dynamic_state
-    if (list->pipeline_is_d3d12_dynamic)
+    if (list->device->vk_info.HACK_d3d12_dynamic_state)
     {
         VK_CALL(vkCmdSetPrimitiveTopologyHACK(list->vk_command_buffer,
                                               vk_topology_from_d3d12_topology(list->primitive_topology)));
-        for (i = 0; i < 32; i++)
-        {
-            if (list->state->u.graphics.input_slot_mask & (1u << i))
-            {
-                VK_CALL(vkCmdBindVertexBuffersWithStrideHACK(list->vk_command_buffer,
-                        i, 1, list->vbo_buffers + i, list->vbo_offsets + i, list->vbo_strides + i));
-            }
-        }
     }
 #endif
 
@@ -3635,7 +3623,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(ID3D12Gr
     }
 
 #ifdef VK_HACK_d3d12_dynamic_state
-    if (list->device->vk_info.HACK_d3d12_dynamic_state && list->pipeline_is_d3d12_dynamic)
+    if (list->device->vk_info.HACK_d3d12_dynamic_state)
     {
         VK_CALL(vkCmdSetPrimitiveTopologyHACK(list->vk_command_buffer, vk_topology_from_d3d12_topology(topology)));
         list->primitive_topology = topology;
@@ -4356,7 +4344,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
             stride = 0;
         }
 
-        if (!list->device->vk_info.HACK_d3d12_dynamic_state || !list->pipeline_is_d3d12_dynamic)
+        if (!list->device->vk_info.HACK_d3d12_dynamic_state)
             invalidate |= list->vbo_strides[start_slot + i] != stride;
         list->vbo_strides[start_slot + i] = stride;
     }
@@ -4364,7 +4352,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
     if (view_count)
     {
 #ifdef VK_HACK_d3d12_dynamic_state
-        if (list->device->vk_info.HACK_d3d12_dynamic_state && list->pipeline_is_d3d12_dynamic)
+        if (list->device->vk_info.HACK_d3d12_dynamic_state)
         {
             VK_CALL(vkCmdBindVertexBuffersWithStrideHACK(list->vk_command_buffer,
                                                          start_slot, view_count, list->vbo_buffers, list->vbo_offsets,

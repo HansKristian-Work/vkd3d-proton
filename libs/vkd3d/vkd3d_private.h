@@ -717,7 +717,6 @@ struct d3d12_graphics_pipeline_state
 {
 	VkPipeline static_pipeline;
 	VkRenderPass static_render_pass;
-	uint32_t input_slot_mask;
 
 	VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
     size_t stage_count;
@@ -938,7 +937,6 @@ struct d3d12_command_list
 
     bool xfb_enabled;
     bool is_predicated;
-    bool pipeline_is_d3d12_dynamic;
 
     VkFramebuffer current_framebuffer;
     VkPipeline current_pipeline;
