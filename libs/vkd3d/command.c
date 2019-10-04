@@ -4333,14 +4333,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
         if (views[i].BufferLocation)
         {
             resource = vkd3d_gpu_va_allocator_dereference(gpu_va_allocator, views[i].BufferLocation);
-            list->vbo_buffers[i] = resource->u.vk_buffer;
-            list->vbo_offsets[i] = views[i].BufferLocation - resource->gpu_address;
+            list->vbo_buffers[start_slot + i] = resource->u.vk_buffer;
+            list->vbo_offsets[start_slot + i] = views[i].BufferLocation - resource->gpu_address;
             stride = views[i].StrideInBytes;
         }
         else
         {
-            list->vbo_buffers[i] = null_resources->vk_buffer;
-            list->vbo_offsets[i] = 0;
+            list->vbo_buffers[start_slot + i] = null_resources->vk_buffer;
+            list->vbo_offsets[start_slot + i] = 0;
             stride = 0;
         }
 
@@ -4355,7 +4355,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(ID3D12Graphi
         if (list->device->vk_info.HACK_d3d12_dynamic_state)
         {
             VK_CALL(vkCmdBindVertexBuffersWithStrideHACK(list->vk_command_buffer,
-                                                         start_slot, view_count, list->vbo_buffers, list->vbo_offsets,
+                                                         start_slot, view_count, list->vbo_buffers + start_slot, list->vbo_offsets + start_slot,
                                                          list->vbo_strides + start_slot));
         }
         else
