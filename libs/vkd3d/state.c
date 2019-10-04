@@ -2012,6 +2012,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     uint32_t mask;
     HRESULT hr;
     int ret;
+    bool has_tessellation;
 
     static const DWORD default_ps_code[] =
     {
@@ -2246,6 +2247,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     shader_interface.uav_counters = NULL;
     shader_interface.uav_counter_count = 0;
 
+    has_tessellation = false;
+
     for (i = 0; i < ARRAY_SIZE(shader_stages); ++i)
     {
         const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
@@ -2284,6 +2287,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                     hr = E_INVALIDARG;
                     goto fail;
                 }
+                has_tessellation = true;
                 break;
 
             case VK_SHADER_STAGE_GEOMETRY_BIT:
@@ -2473,7 +2477,11 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     d3d12_device_add_ref(state->device = device);
 
-    graphics->static_pipeline = d3d12_pipeline_state_create_static_pipeline(state);
+    /* FIXME: The tessellation codegen is broken, so never try to actually create pipelines with it. */
+    if (!has_tessellation)
+        graphics->static_pipeline = d3d12_pipeline_state_create_static_pipeline(state);
+    else
+        graphics->static_pipeline = VK_NULL_HANDLE;
 
     return S_OK;
 
