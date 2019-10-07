@@ -2491,7 +2491,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->ms_desc.alphaToOneEnable = VK_FALSE;
 
     if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics,
-            device, 0, &graphics->render_pass)))
+            device, graphics->dsv_format, &graphics->render_pass)))
         goto fail;
 
     graphics->root_signature = root_signature;
