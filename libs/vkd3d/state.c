@@ -951,6 +951,38 @@ struct vkd3d_render_pass_entry
 
 STATIC_ASSERT(sizeof(struct vkd3d_render_pass_key) == 48);
 
+static bool d3d12_format_has_depth_aspect(VkFormat format)
+{
+    switch (format)
+    {
+    case VK_FORMAT_D32_SFLOAT_S8_UINT:
+    case VK_FORMAT_D32_SFLOAT:
+    case VK_FORMAT_D16_UNORM:
+    case VK_FORMAT_D16_UNORM_S8_UINT:
+    case VK_FORMAT_D24_UNORM_S8_UINT:
+    case VK_FORMAT_X8_D24_UNORM_PACK32:
+        return true;
+
+    default:
+        return false;
+    }
+}
+
+static bool d3d12_format_has_stencil_aspect(VkFormat format)
+{
+    switch (format)
+    {
+    case VK_FORMAT_D24_UNORM_S8_UINT:
+    case VK_FORMAT_D16_UNORM_S8_UINT:
+    case VK_FORMAT_D32_SFLOAT_S8_UINT:
+    case VK_FORMAT_S8_UINT:
+        return true;
+
+    default:
+        return false;
+    }
+}
+
 static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pass_cache *cache,
         struct d3d12_device *device, const struct vkd3d_render_pass_key *key, VkRenderPass *vk_render_pass)
 {
@@ -961,7 +993,6 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
     unsigned int index, attachment_index;
     VkSubpassDescription sub_pass_desc;
     VkRenderPassCreateInfo pass_info;
-    bool have_depth_stencil;
     unsigned int rt_count;
     VkResult vr;
 
@@ -976,8 +1007,7 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
 
     entry->key = *key;
 
-    have_depth_stencil = key->depth_enable || key->stencil_enable;
-    rt_count = have_depth_stencil ? key->attachment_count - 1 : key->attachment_count;
+    rt_count = key->have_depth_stencil ? key->attachment_count - 1 : key->attachment_count;
     assert(rt_count <= D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT);
 
     for (index = 0, attachment_index = 0; index < rt_count; ++index)
@@ -1005,7 +1035,7 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
         ++attachment_index;
     }
 
-    if (have_depth_stencil)
+    if (key->have_depth_stencil)
     {
         VkImageLayout depth_layout = key->depth_stencil_write
                 ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
@@ -1015,7 +1045,7 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
         attachments[attachment_index].format = key->vk_formats[index];
         attachments[attachment_index].samples = key->sample_count;
 
-        if (key->depth_enable)
+        if (d3d12_format_has_depth_aspect(key->vk_formats[index]))
         {
             attachments[attachment_index].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
             attachments[attachment_index].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1025,7 +1055,8 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
             attachments[attachment_index].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
             attachments[attachment_index].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         }
-        if (key->stencil_enable)
+
+        if (d3d12_format_has_stencil_aspect(key->vk_formats[index]))
         {
             attachments[attachment_index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
             attachments[attachment_index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1035,6 +1066,7 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
             attachments[attachment_index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
             attachments[attachment_index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         }
+
         attachments[attachment_index].initialLayout = depth_layout;
         attachments[attachment_index].finalLayout = depth_layout;
 
@@ -1051,7 +1083,7 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
     sub_pass_desc.colorAttachmentCount = rt_count;
     sub_pass_desc.pColorAttachments = attachment_references;
     sub_pass_desc.pResolveAttachments = NULL;
-    if (have_depth_stencil)
+    if (key->have_depth_stencil)
         sub_pass_desc.pDepthStencilAttachment = &attachment_references[rt_count];
     else
         sub_pass_desc.pDepthStencilAttachment = NULL;
@@ -1202,6 +1234,10 @@ static void d3d12_pipeline_state_destroy_graphics(struct d3d12_pipeline_state *s
 
     if (graphics->static_pipeline)
         VK_CALL(vkDestroyPipeline(device->vk_device, graphics->static_pipeline, NULL));
+
+    for (i = 0; i < VKD3D_MAX_DEPTH_FORMATS; i++)
+        if (graphics->static_pipeline_dsv_workaround[i])
+            VK_CALL(vkDestroyPipeline(device->vk_device, graphics->static_pipeline_dsv_workaround[i], NULL));
 
     for (i = 0; i < graphics->stage_count; ++i)
     {
@@ -1942,31 +1978,26 @@ STATIC_ASSERT(sizeof(struct vkd3d_shader_transform_feedback_element) == sizeof(D
 
 static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
         struct d3d12_graphics_pipeline_state *graphics, struct d3d12_device *device,
-        VkFormat dynamic_dsv_format, VkRenderPass *vk_render_pass)
+        VkFormat dsv_format, VkRenderPass *vk_render_pass)
 {
     struct vkd3d_render_pass_key key;
-    VkFormat dsv_format;
     unsigned int i;
 
     memcpy(key.vk_formats, graphics->rtv_formats, sizeof(graphics->rtv_formats));
     key.attachment_count = graphics->rt_count;
 
-    if (!(dsv_format = graphics->dsv_format) && (graphics->null_attachment_mask & dsv_attachment_mask(graphics)))
-        dsv_format = dynamic_dsv_format;
-
     if (dsv_format)
     {
         assert(graphics->ds_desc.front.writeMask == graphics->ds_desc.back.writeMask);
-        key.depth_enable = graphics->ds_desc.depthTestEnable;
-        key.stencil_enable = graphics->ds_desc.stencilTestEnable;
-        key.depth_stencil_write = graphics->ds_desc.depthWriteEnable
-                || graphics->ds_desc.front.writeMask;
+        key.depth_stencil_write =
+                (graphics->ds_desc.depthTestEnable && graphics->ds_desc.depthWriteEnable) ||
+                (graphics->ds_desc.stencilTestEnable && graphics->ds_desc.front.writeMask);
         key.vk_formats[key.attachment_count++] = dsv_format;
+        key.have_depth_stencil = true;
     }
     else
     {
-        key.depth_enable = false;
-        key.stencil_enable = false;
+        key.have_depth_stencil = false;
         key.depth_stencil_write = false;
     }
 
@@ -1975,7 +2006,6 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
     for (i = key.attachment_count; i < ARRAY_SIZE(key.vk_formats); ++i)
         assert(key.vk_formats[i] == VK_FORMAT_UNDEFINED);
 
-    key.padding = 0;
     key.sample_count = graphics->ms_desc.rasterizationSamples;
 
     return vkd3d_render_pass_cache_find(&device->render_pass_cache, device, &key, vk_render_pass);
@@ -2049,6 +2079,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     state->uav_counter_mask = 0;
     graphics->stage_count = 0;
 
+    memset(graphics->static_pipeline_dsv_workaround, 0, sizeof(graphics->static_pipeline_dsv_workaround));
+    memset(graphics->static_render_pass_dsv_workaround, 0, sizeof(graphics->static_render_pass_dsv_workaround));
     memset(&input_signature, 0, sizeof(input_signature));
 
     for (i = desc->NumRenderTargets; i < ARRAY_SIZE(desc->RTVFormats); ++i)
@@ -2145,6 +2177,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             {
                 FIXME("Format %#x is not depth/stencil format.\n", format->dxgi_format);
                 graphics->dsv_format = VK_FORMAT_UNDEFINED;
+                graphics->null_attachment_mask |= dsv_attachment_mask(graphics);
             }
             else
                 graphics->dsv_format = format->vk_format;
@@ -2457,11 +2490,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->ms_desc.alphaToCoverageEnable = desc->BlendState.AlphaToCoverageEnable;
     graphics->ms_desc.alphaToOneEnable = VK_FALSE;
 
-    /* We defer creating the render pass for pipelines wth DSVFormat equal to
-     * DXGI_FORMAT_UNKNOWN. We take the actual DSV format from the bound DSV. */
-    if (is_dsv_format_unknown)
-        graphics->render_pass = VK_NULL_HANDLE;
-    else if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics,
+    if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics,
             device, 0, &graphics->render_pass)))
         goto fail;
 
@@ -2747,16 +2776,43 @@ static VkPipeline d3d12_pipeline_state_create_static_pipeline(struct d3d12_pipel
     pipeline_desc.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_desc.basePipelineIndex = -1;
 
-    /* Create a render pass for pipelines with static DSV format.
-     * Assume the app is sane and actually doesn't use a depth buffer.
-     * If app is not sane, fallback to late bind. */
-    if (!(pipeline_desc.renderPass = graphics->render_pass))
+    /* Create a set of pipelines which supports other DSV formats as a workaround.
+     * TODO: Only apply this workaround for known broken games (SOTTR). */
+    for (i = 0; i < VKD3D_MAX_DEPTH_FORMATS; i++)
     {
-        if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device, graphics->dsv_format,
-                                                                         &pipeline_desc.renderPass)))
-            return VK_NULL_HANDLE;
+        static const VkFormat vkd3d_depth_stencil_formats_lut[VKD3D_MAX_DEPTH_FORMATS] = {
+            VK_FORMAT_UNDEFINED,
+            VK_FORMAT_D16_UNORM,
+            VK_FORMAT_D16_UNORM_S8_UINT,
+            VK_FORMAT_X8_D24_UNORM_PACK32,
+            VK_FORMAT_D24_UNORM_S8_UINT,
+            VK_FORMAT_D32_SFLOAT,
+            VK_FORMAT_D32_SFLOAT_S8_UINT
+        };
+
+        VkFormat dsv_format = vkd3d_depth_stencil_formats_lut[i];
+        VkImageFormatProperties props;
+        if (dsv_format == VK_FORMAT_UNDEFINED ||
+            VK_CALL(vkGetPhysicalDeviceImageFormatProperties(device->vk_physical_device,
+                                                             dsv_format, VK_IMAGE_TYPE_2D,
+                                                             VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 0,
+                                                             &props)) == VK_SUCCESS)
+        {
+            if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device, dsv_format,
+                                                                             &graphics->static_render_pass_dsv_workaround[i])))
+                return VK_NULL_HANDLE;
+
+            pipeline_desc.renderPass = graphics->static_render_pass_dsv_workaround[i];
+            if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device, device->vk_pipeline_cache,
+                                                        1, &pipeline_desc, NULL, &graphics->static_pipeline_dsv_workaround[i]))) < 0)
+            {
+                ERR("Failed to create Vulkan graphics DSV workaround pipeline, vr %d.\n", vr);
+                return VK_NULL_HANDLE;
+            }
+        }
     }
 
+    pipeline_desc.renderPass = graphics->render_pass;
     if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device, device->vk_pipeline_cache,
                                                 1, &pipeline_desc, NULL, &vk_pipeline))) < 0)
     {
@@ -2764,7 +2820,6 @@ static VkPipeline d3d12_pipeline_state_create_static_pipeline(struct d3d12_pipel
         return VK_NULL_HANDLE;
     }
 
-    graphics->static_render_pass = pipeline_desc.renderPass;
     return vk_pipeline;
 
 #else
@@ -2934,12 +2989,13 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     pipeline_desc.subpass = 0;
     pipeline_desc.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_desc.basePipelineIndex = -1;
+    pipeline_desc.renderPass = graphics->render_pass;
 
-    /* Create a render pass for pipelines with DXGI_FORMAT_UNKNOWN. */
-    if (!(pipeline_desc.renderPass = graphics->render_pass))
+    /* Create a render pass for pipelines whose DSV format do not match the bound DSV.
+     * This works around SOTTR behavior. */
+    if (graphics->dsv_format != dsv_format)
     {
-        if (graphics->null_attachment_mask & dsv_attachment_mask(graphics))
-            TRACE("Compiling %p with DSV format %#x.\n", state, dsv_format);
+        TRACE("Compiling %p late with DSV format %#x.\n", state, dsv_format);
 
         if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device, dsv_format,
                 &pipeline_desc.renderPass)))

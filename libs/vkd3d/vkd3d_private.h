@@ -54,6 +54,8 @@
 #define VKD3D_MAX_SHADER_STAGES           5u
 #define VKD3D_MAX_VK_SYNC_OBJECTS         4u
 
+#define VKD3D_MAX_DEPTH_FORMATS 7u
+
 struct d3d12_command_list;
 struct d3d12_device;
 struct d3d12_resource;
@@ -242,12 +244,10 @@ void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator,
 struct vkd3d_render_pass_key
 {
     unsigned int attachment_count;
-    bool depth_enable;
-    bool stencil_enable;
-    bool depth_stencil_write;
-    bool padding;
     unsigned int sample_count;
     VkFormat vk_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+    bool have_depth_stencil;
+    bool depth_stencil_write;
 };
 
 struct vkd3d_render_pass_entry;
@@ -716,7 +716,8 @@ int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
 struct d3d12_graphics_pipeline_state
 {
 	VkPipeline static_pipeline;
-	VkRenderPass static_render_pass;
+	VkPipeline static_pipeline_dsv_workaround[VKD3D_MAX_DEPTH_FORMATS];
+	VkRenderPass static_render_pass_dsv_workaround[VKD3D_MAX_DEPTH_FORMATS];
 
 	VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
     size_t stage_count;
@@ -797,6 +798,7 @@ static inline bool d3d12_pipeline_state_is_graphics(const struct d3d12_pipeline_
     return state && state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS;
 }
 
+#if 0
 static inline bool d3d12_pipeline_state_has_unknown_dsv_format(struct d3d12_pipeline_state *state)
 {
     if (d3d12_pipeline_state_is_graphics(state))
@@ -808,6 +810,7 @@ static inline bool d3d12_pipeline_state_has_unknown_dsv_format(struct d3d12_pipe
 
     return false;
 }
+#endif
 
 HRESULT d3d12_pipeline_state_create_compute(struct d3d12_device *device,
         const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;

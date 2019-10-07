@@ -2367,12 +2367,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_ClearState(ID3D12GraphicsCom
 
 static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list *list)
 {
+#if 0
     struct d3d12_graphics_pipeline_state *graphics;
 
     assert(d3d12_pipeline_state_is_graphics(list->state));
     graphics = &list->state->u.graphics;
 
-    return graphics->dsv_format || (d3d12_pipeline_state_has_unknown_dsv_format(list->state) && list->dsv_format);
+    //return graphics->dsv_format || (d3d12_pipeline_state_has_unknown_dsv_format(list->state) && list->dsv_format);
+#endif
+    return list->dsv_format != VK_FORMAT_UNDEFINED;
 }
 
 static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
@@ -2466,12 +2469,36 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
     return true;
 }
 
+static int d3d12_dsv_format_to_workaround_index(VkFormat format)
+{
+    switch (format)
+    {
+    case VK_FORMAT_UNDEFINED:
+        return 0;
+    case VK_FORMAT_D16_UNORM:
+        return 1;
+    case VK_FORMAT_D16_UNORM_S8_UINT:
+        return 2;
+    case VK_FORMAT_X8_D24_UNORM_PACK32:
+        return 3;
+    case VK_FORMAT_D24_UNORM_S8_UINT:
+        return 4;
+    case VK_FORMAT_D32_SFLOAT:
+        return 5;
+    case VK_FORMAT_D32_SFLOAT_S8_UINT:
+        return 6;
+    default:
+        return -1;
+    }
+}
+
 static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkRenderPass vk_render_pass;
     VkPipeline vk_pipeline;
     uint32_t i;
+    int format_index;
 
     if (list->current_pipeline != VK_NULL_HANDLE)
         return true;
@@ -2482,17 +2509,43 @@ static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list
         return false;
     }
 
-    if (list->state->u.graphics.static_pipeline && list->dsv_format == list->state->u.graphics.dsv_format)
+    vk_pipeline = VK_NULL_HANDLE;
+    vk_render_pass = VK_NULL_HANDLE;
+
+    if (list->state->u.graphics.static_pipeline != VK_NULL_HANDLE)
     {
-        /* If we have the correct DSV format from the render pass, we can use the statically compiled
-         * pipeline. All valid applications should hit this path.
-         * SOTTR uses depth testing with DXGI_FORMAT_UNKNOWN, which means we do not know the correct
-         * depth-stencil format here, and we need to fall back. */
-        vk_pipeline = list->state->u.graphics.static_pipeline;
-        vk_render_pass = list->state->u.graphics.static_render_pass;
-        assert(vk_render_pass);
+        if (list->dsv_format == list->state->u.graphics.dsv_format)
+        {
+            /* If we have the correct DSV format from the render pass, we can use the statically compiled
+             * pipeline. All valid applications should hit this path.
+             * SOTTR uses depth testing with DXGI_FORMAT_UNKNOWN, which means we do not know the correct
+             * depth-stencil format here, and we need to fall back. */
+            vk_pipeline = list->state->u.graphics.static_pipeline;
+            vk_render_pass = list->state->u.graphics.render_pass;
+            assert(vk_render_pass);
+        }
+        else
+        {
+            /* Try fallback pipelines. */
+            format_index = d3d12_dsv_format_to_workaround_index(list->dsv_format);
+            if (format_index >= 0)
+            {
+                vk_pipeline = list->state->u.graphics.static_pipeline_dsv_workaround[format_index];
+                vk_render_pass = list->state->u.graphics.static_render_pass_dsv_workaround[format_index];
+            }
+        }
     }
-    else
+
+#if 1
+    if (vk_pipeline == VK_NULL_HANDLE && list->dsv_format != list->state->u.graphics.dsv_format)
+    {
+        ERR("Did not find statically compiled pipeline (state VkFormat = %u, list VkFormat = %u).\n",
+            (unsigned)list->state->u.graphics.dsv_format, (unsigned)list->dsv_format);
+        abort();
+    }
+#endif
+
+    if (vk_pipeline == VK_NULL_HANDLE)
     {
         if (list->dsv_format != list->state->u.graphics.dsv_format)
         {
@@ -4523,7 +4576,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
         }
     }
 
-    if (prev_dsv_format != list->dsv_format && d3d12_pipeline_state_has_unknown_dsv_format(list->state))
+    if (prev_dsv_format != list->dsv_format)
         d3d12_command_list_invalidate_current_pipeline(list);
 
     d3d12_command_list_invalidate_current_framebuffer(list);
