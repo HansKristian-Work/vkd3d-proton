@@ -737,21 +737,43 @@ static HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
         VkDescriptorSetLayoutCreateFlags flags, unsigned int binding_count,
         const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout)
 {
+    unsigned int i;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDescriptorSetLayoutCreateInfo set_desc;
     VkResult vr;
+    VkDescriptorSetLayoutBindingFlagsCreateInfoEXT flags_info;
+    VkDescriptorBindingFlagsEXT *binding_flags = NULL;
 
     set_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     set_desc.pNext = NULL;
     set_desc.flags = flags;
     set_desc.bindingCount = binding_count;
     set_desc.pBindings = bindings;
+
+    if (!(flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) && device->vk_info.EXT_descriptor_indexing)
+    {
+        set_desc.flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT_EXT;
+        flags_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT;
+        flags_info.pNext = NULL;
+        flags_info.bindingCount = binding_count;
+        binding_flags = vkd3d_malloc(sizeof(*binding_flags) * binding_count);
+        for (i = 0; i < binding_count; i++)
+        {
+            binding_flags[i] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT |
+                               VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT_EXT;
+        }
+        flags_info.pBindingFlags = binding_flags;
+        set_desc.pNext = &flags_info;
+    }
+
     if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device, &set_desc, NULL, set_layout))) < 0)
     {
         WARN("Failed to create Vulkan descriptor set layout, vr %d.\n", vr);
+        vkd3d_free(binding_flags);
         return hresult_from_vk_result(vr);
     }
 
+    vkd3d_free(binding_flags);
     return S_OK;
 }
 

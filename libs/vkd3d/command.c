@@ -1341,7 +1341,7 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
     {
         pool_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         pool_desc.pNext = NULL;
-        pool_desc.flags = 0;
+        pool_desc.flags = device->vk_info.EXT_descriptor_indexing ? VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT : 0;
         pool_desc.maxSets = 512;
         pool_desc.poolSizeCount = ARRAY_SIZE(pool_sizes);
         pool_desc.pPoolSizes = pool_sizes;
@@ -1865,6 +1865,10 @@ static void d3d12_command_list_invalidate_bindings(struct d3d12_command_list *li
     if (!state)
         return;
 
+    /* Each pipeline state has its own set layout for UAV counters
+     * based on their implicit usage in the shader.
+     * Binding a different pipeline state means having to re-remit
+     * UAV counters in a new descriptor set (and layout). */
     if (state->uav_counter_mask)
     {
         struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[state->vk_bind_point];
@@ -2196,6 +2200,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(ID3D12GraphicsCommandL
         if (list->allocator)
             d3d12_command_allocator_free_command_buffer(list->allocator, list);
 
+        vkd3d_free(list->descriptor_updates);
         vkd3d_free(list);
 
         d3d12_device_release(device);
@@ -2333,6 +2338,9 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
 
     list->state = NULL;
+
+    /* Recycle deferred descriptor update memory if possible. */
+    list->descriptor_updates_count = 0;
 
     memset(list->so_counter_buffers, 0, sizeof(list->so_counter_buffers));
     memset(list->so_counter_buffer_offsets, 0, sizeof(list->so_counter_buffer_offsets));
@@ -2534,13 +2542,52 @@ static void d3d12_command_list_prepare_descriptors(struct d3d12_command_list *li
      *   time in between. Thus, the contents must not be altered (overwritten
      *   by an update command, or freed) between when the command is recorded
      *   and when the command completes executing on the queue."
+     *
+     * Even if we have descriptor indexing and UPDATE_AFTER_BIND,
+     * we need at the very least a new descriptor set.
      */
     bindings->descriptor_set = d3d12_command_allocator_allocate_descriptor_set(list->allocator,
             root_signature->vk_set_layout);
+
     bindings->in_use = false;
 
     bindings->descriptor_table_dirty_mask |= bindings->descriptor_table_active_mask;
     bindings->push_descriptor_dirty_mask |= bindings->push_descriptor_active_mask;
+}
+
+static void d3d12_command_list_prepare_uav_counter_descriptors(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point)
+{
+    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+
+    if (bindings->uav_counter_descriptor_set && !bindings->uav_counter_in_use)
+        return;
+
+    /* We cannot modify bound descriptor sets. We need a new descriptor set if
+     * we are about to update resource bindings.
+     *
+     * The Vulkan spec says:
+     *
+     *   "The descriptor set contents bound by a call to
+     *   vkCmdBindDescriptorSets may be consumed during host execution of the
+     *   command, or during shader execution of the resulting draws, or any
+     *   time in between. Thus, the contents must not be altered (overwritten
+     *   by an update command, or freed) between when the command is recorded
+     *   and when the command completes executing on the queue."
+     *
+     * Even if we have descriptor indexing and UPDATE_AFTER_BIND,
+     * we need at the very least a new descriptor set.
+     */
+
+    if (list->state->uav_counter_mask)
+    {
+        bindings->uav_counter_descriptor_set = d3d12_command_allocator_allocate_descriptor_set(list->allocator,
+                list->state->vk_set_layout);
+    }
+    else
+        bindings->uav_counter_descriptor_set = VK_NULL_HANDLE;
+
+    bindings->uav_counter_in_use = false;
 }
 
 static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_descriptor_write,
@@ -2611,23 +2658,125 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
     return true;
 }
 
-static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list *list,
-        VkPipelineBindPoint bind_point, unsigned int index, struct d3d12_desc *base_descriptor)
+static void d3d12_command_list_defer_update_descriptor_table(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point, uint64_t table_mask, bool uav)
 {
+    const struct d3d12_desc *base_descriptor;
+    unsigned i;
+    struct d3d12_deferred_descriptor_set_update *update;
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
-    struct VkWriteDescriptorSet descriptor_writes[24], *current_descriptor_write;
-    const struct d3d12_root_signature *root_signature = bindings->root_signature;
+
+    for (i = 0; i < ARRAY_SIZE(bindings->descriptor_tables); ++i)
+    {
+        if (table_mask & ((uint64_t)1 << i))
+        {
+            if ((base_descriptor = d3d12_desc_from_gpu_handle(bindings->descriptor_tables[i])))
+            {
+                vkd3d_array_reserve((void **)&list->descriptor_updates, &list->descriptor_updates_size,
+                                    list->descriptor_updates_count + 1, sizeof(*list->descriptor_updates));
+                update = &list->descriptor_updates[list->descriptor_updates_count];
+
+                update->base_descriptor = base_descriptor;
+                update->index = i;
+                update->root_signature = bindings->root_signature;
+                update->descriptor_set = uav ? bindings->uav_counter_descriptor_set : bindings->descriptor_set;
+                update->uav = uav;
+                list->descriptor_updates_count++;
+            }
+            else
+                WARN("Descriptor table %u is not set.\n", i);
+        }
+    }
+}
+
+static void d3d12_command_list_resolve_descriptor_table_uav(struct d3d12_command_list *list,
+                                                            const struct d3d12_deferred_descriptor_set_update *update)
+{
+    const struct d3d12_root_signature *root_signature = update->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    struct VkDescriptorImageInfo image_infos[24], *current_image_info;
     const struct d3d12_root_descriptor_table *descriptor_table;
     const struct d3d12_root_descriptor_table_range *range;
     VkDevice vk_device = list->device->vk_device;
-    unsigned int i, j, descriptor_count;
-    struct d3d12_desc *descriptor;
+    unsigned int i, j;
+    unsigned int uav_counter_count;
+    const struct d3d12_desc *descriptor;
+    VkWriteDescriptorSet vk_descriptor_writes[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS];
+    VkBufferView vk_uav_counter_views[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS];
+    VkDescriptorSet vk_descriptor_set;
+    const struct d3d12_desc *base_descriptor = update->base_descriptor;
 
-    descriptor_table = root_signature_get_descriptor_table(root_signature, index);
-
+    descriptor_table = root_signature_get_descriptor_table(root_signature, update->index);
     descriptor = base_descriptor;
+
+    vk_descriptor_set = update->descriptor_set;
+    if (!vk_descriptor_set)
+        return;
+
+    /* FIXME: There should be a smarter way than scanning through all the descriptor table ranges for this. */
+    for (i = 0; i < descriptor_table->range_count; ++i)
+    {
+        range = &descriptor_table->ranges[i];
+
+        if (range->offset != D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND)
+        {
+            descriptor = base_descriptor + range->offset;
+        }
+
+        for (j = 0; j < range->descriptor_count; ++j, ++descriptor)
+        {
+            unsigned int register_idx = range->base_register_idx + j;
+
+            /* Fish out UAV counters. */
+            if (range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_UAV
+                && register_idx < ARRAY_SIZE(vk_uav_counter_views))
+            {
+                VkBufferView vk_counter_view = descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
+                                               ? descriptor->u.view->vk_counter_view : VK_NULL_HANDLE;
+                vk_uav_counter_views[register_idx] = vk_counter_view;
+            }
+        }
+    }
+
+    uav_counter_count = vkd3d_popcount(list->state->uav_counter_mask);
+    assert(uav_counter_count <= ARRAY_SIZE(vk_descriptor_writes));
+
+    for (i = 0; i < uav_counter_count; ++i)
+    {
+        const struct vkd3d_shader_uav_counter_binding *uav_counter = &list->state->uav_counters[i];
+        assert(vk_uav_counter_views[uav_counter->register_index]);
+
+        vk_descriptor_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        vk_descriptor_writes[i].pNext = NULL;
+        vk_descriptor_writes[i].dstSet = vk_descriptor_set;
+        vk_descriptor_writes[i].dstBinding = uav_counter->binding.binding;
+        vk_descriptor_writes[i].dstArrayElement = 0;
+        vk_descriptor_writes[i].descriptorCount = 1;
+        vk_descriptor_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+        vk_descriptor_writes[i].pImageInfo = NULL;
+        vk_descriptor_writes[i].pBufferInfo = NULL;
+        vk_descriptor_writes[i].pTexelBufferView = &vk_uav_counter_views[uav_counter->register_index];
+    }
+
+    VK_CALL(vkUpdateDescriptorSets(vk_device, uav_counter_count, vk_descriptor_writes, 0, NULL));
+}
+
+static void d3d12_command_list_resolve_descriptor_table_normal(struct d3d12_command_list *list,
+        const struct d3d12_deferred_descriptor_set_update *update)
+{
+    const struct d3d12_root_descriptor_table *descriptor_table;
+    struct VkWriteDescriptorSet descriptor_writes[24], *current_descriptor_write;
+    struct VkDescriptorImageInfo image_infos[24], *current_image_info;
+    const struct d3d12_root_signature *root_signature = update->root_signature;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct d3d12_root_descriptor_table_range *range;
+    VkDevice vk_device = list->device->vk_device;
+    unsigned int i, j, descriptor_count;
+    const struct d3d12_desc *descriptor;
+    const struct d3d12_desc *base_descriptor = update->base_descriptor;
+
+    descriptor_table = root_signature_get_descriptor_table(root_signature, update->index);
+
+    descriptor = update->base_descriptor;
     descriptor_count = 0;
     current_descriptor_write = descriptor_writes;
     current_image_info = image_infos;
@@ -2642,22 +2791,9 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
 
         for (j = 0; j < range->descriptor_count; ++j, ++descriptor)
         {
-            unsigned int register_idx = range->base_register_idx + j;
-
-            /* Track UAV counters. */
-            if (range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_UAV
-                    && register_idx < ARRAY_SIZE(bindings->vk_uav_counter_views))
-            {
-                VkBufferView vk_counter_view = descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
-                        ? descriptor->u.view->vk_counter_view : VK_NULL_HANDLE;
-                if (bindings->vk_uav_counter_views[register_idx] != vk_counter_view)
-                    bindings->uav_counter_dirty_mask |= 1u << register_idx;
-                bindings->vk_uav_counter_views[register_idx] = vk_counter_view;
-            }
-
             if (!vk_write_descriptor_set_from_d3d12_desc(current_descriptor_write,
-                    current_image_info, descriptor, range->descriptor_magic,
-                    bindings->descriptor_set, range->binding, j))
+                                                         current_image_info, descriptor, range->descriptor_magic,
+                                                         update->descriptor_set, range->binding, j))
                 continue;
 
             ++descriptor_count;
@@ -2675,6 +2811,52 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
     }
 
     VK_CALL(vkUpdateDescriptorSets(vk_device, descriptor_count, descriptor_writes, 0, NULL));
+}
+
+static void d3d12_command_list_resolve_descriptor_table(struct d3d12_command_list *list,
+                                                        const struct d3d12_deferred_descriptor_set_update *update)
+{
+    if (update->uav)
+        d3d12_command_list_resolve_descriptor_table_uav(list, update);
+    else
+        d3d12_command_list_resolve_descriptor_table_normal(list, update);
+}
+
+static void d3d12_command_list_resolve_descriptor_tables(struct d3d12_command_list *list)
+{
+    unsigned i;
+    for (i = 0; i < list->descriptor_updates_count; i++)
+        d3d12_command_list_resolve_descriptor_table(list, &list->descriptor_updates[i]);
+}
+
+static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point, unsigned int index, struct d3d12_desc *base_descriptor)
+{
+    struct d3d12_deferred_descriptor_set_update update;
+    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
+
+    update.descriptor_set = bindings->descriptor_set;
+    update.index = index;
+    update.root_signature = root_signature;
+    update.base_descriptor = base_descriptor;
+    update.uav = false;
+    d3d12_command_list_resolve_descriptor_table_normal(list, &update);
+}
+
+static void d3d12_command_list_update_uav_counter_descriptor_table(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point, unsigned int index, struct d3d12_desc *base_descriptor)
+{
+    struct d3d12_deferred_descriptor_set_update update;
+    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
+
+    update.descriptor_set = bindings->uav_counter_descriptor_set;
+    update.index = index;
+    update.root_signature = root_signature;
+    update.base_descriptor = base_descriptor;
+    update.uav = true;
+    d3d12_command_list_resolve_descriptor_table_uav(list, &update);
 }
 
 static bool vk_write_descriptor_set_from_root_descriptor(VkWriteDescriptorSet *vk_descriptor_write,
@@ -2781,55 +2963,6 @@ done:
     vkd3d_free(buffer_infos);
 }
 
-static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_command_list *list,
-        VkPipelineBindPoint bind_point)
-{
-    VkWriteDescriptorSet vk_descriptor_writes[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS];
-    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    const struct d3d12_pipeline_state *state = list->state;
-    VkDevice vk_device = list->device->vk_device;
-    VkDescriptorSet vk_descriptor_set;
-    unsigned int uav_counter_count;
-    unsigned int i;
-
-    if (!state || !(state->uav_counter_mask & bindings->uav_counter_dirty_mask))
-        return;
-
-    uav_counter_count = vkd3d_popcount(state->uav_counter_mask);
-    assert(uav_counter_count <= ARRAY_SIZE(vk_descriptor_writes));
-
-    vk_descriptor_set = d3d12_command_allocator_allocate_descriptor_set(list->allocator, state->vk_set_layout);
-    if (!vk_descriptor_set)
-        return;
-
-    for (i = 0; i < uav_counter_count; ++i)
-    {
-        const struct vkd3d_shader_uav_counter_binding *uav_counter = &state->uav_counters[i];
-        const VkBufferView *vk_uav_counter_views = bindings->vk_uav_counter_views;
-
-        assert(vk_uav_counter_views[uav_counter->register_index]);
-
-        vk_descriptor_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        vk_descriptor_writes[i].pNext = NULL;
-        vk_descriptor_writes[i].dstSet = vk_descriptor_set;
-        vk_descriptor_writes[i].dstBinding = uav_counter->binding.binding;
-        vk_descriptor_writes[i].dstArrayElement = 0;
-        vk_descriptor_writes[i].descriptorCount = 1;
-        vk_descriptor_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-        vk_descriptor_writes[i].pImageInfo = NULL;
-        vk_descriptor_writes[i].pBufferInfo = NULL;
-        vk_descriptor_writes[i].pTexelBufferView = &vk_uav_counter_views[uav_counter->register_index];
-    }
-
-    VK_CALL(vkUpdateDescriptorSets(vk_device, uav_counter_count, vk_descriptor_writes, 0, NULL));
-
-    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
-            state->vk_pipeline_layout, state->set_index, 1, &vk_descriptor_set, 0, NULL));
-
-    bindings->uav_counter_dirty_mask = 0;
-}
-
 static void d3d12_command_list_update_descriptors(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point)
 {
@@ -2842,31 +2975,86 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     if (!rs || !rs->vk_set_layout)
         return;
 
+    if ((bindings->descriptor_table_active_mask | bindings->push_descriptor_dirty_mask |
+         (list->state->uav_counter_mask & bindings->uav_counter_dirty_mask)) == 0)
+    {
+        /* Nothing is dirty, so just return early. */
+        return;
+    }
+
     if (bindings->descriptor_table_dirty_mask || bindings->push_descriptor_dirty_mask)
         d3d12_command_list_prepare_descriptors(list, bind_point);
+    if (list->state->uav_counter_mask & bindings->uav_counter_dirty_mask)
+        d3d12_command_list_prepare_uav_counter_descriptors(list, bind_point);
 
-    for (i = 0; i < ARRAY_SIZE(bindings->descriptor_tables); ++i)
+    if (list->device->vk_info.EXT_descriptor_indexing)
     {
-        if (bindings->descriptor_table_dirty_mask & ((uint64_t)1 << i))
+        d3d12_command_list_defer_update_descriptor_table(list, bind_point, bindings->descriptor_table_dirty_mask,
+                                                         false);
+    }
+    else
+    {
+        /* FIXME: FOR_EACH_BIT */
+        for (i = 0; i < ARRAY_SIZE(bindings->descriptor_tables); ++i)
         {
-            if ((base_descriptor = d3d12_desc_from_gpu_handle(bindings->descriptor_tables[i])))
-                d3d12_command_list_update_descriptor_table(list, bind_point, i, base_descriptor);
-            else
-                WARN("Descriptor table %u is not set.\n", i);
+            if (bindings->descriptor_table_dirty_mask & ((uint64_t) 1 << i))
+            {
+                if ((base_descriptor = d3d12_desc_from_gpu_handle(bindings->descriptor_tables[i])))
+                    d3d12_command_list_update_descriptor_table(list, bind_point, i, base_descriptor);
+                else
+                    WARN("Descriptor table %u is not set.\n", i);
+            }
         }
     }
     bindings->descriptor_table_dirty_mask = 0;
 
+    /* Need to go through all descriptor tables here in the root signature,
+     * not just descriptor_table_dirty_mask. Binding a different shader may not invalidate descriptor tables,
+     * but it may invalidate the UAV counter set. */
+    if (bindings->uav_counter_dirty_mask)
+    {
+        if (list->device->vk_info.EXT_descriptor_indexing)
+        {
+            d3d12_command_list_defer_update_descriptor_table(list, bind_point, bindings->descriptor_table_active_mask,
+                                                             true);
+        }
+        else
+        {
+            /* FIXME: FOR_EACH_BIT */
+            for (i = 0; i < ARRAY_SIZE(bindings->descriptor_tables); i++)
+            {
+                if (bindings->descriptor_table_active_mask & ((uint64_t) 1 << i))
+                {
+                    if ((base_descriptor = d3d12_desc_from_gpu_handle(bindings->descriptor_tables[i])))
+                        d3d12_command_list_update_uav_counter_descriptor_table(list, bind_point, i, base_descriptor);
+                    else
+                        WARN("Descriptor table %u is not set.\n", i);
+                }
+            }
+        }
+    }
+    bindings->uav_counter_dirty_mask = 0;
+
     d3d12_command_list_update_push_descriptors(list, bind_point);
 
-    if (bindings->descriptor_set)
+    /* Don't rebind the same descriptor set as long as we're in same pipeline layout. */
+    if (bindings->descriptor_set && bindings->descriptor_set != bindings->descriptor_set_bound)
     {
         VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
                 rs->vk_pipeline_layout, rs->main_set, 1, &bindings->descriptor_set, 0, NULL));
         bindings->in_use = true;
+        bindings->descriptor_set_bound = bindings->descriptor_set;
     }
 
-    d3d12_command_list_update_uav_counter_descriptors(list, bind_point);
+    /* Don't rebind the same descriptor set as long as we're in same pipeline layout. */
+    if (bindings->uav_counter_descriptor_set &&
+        bindings->uav_counter_descriptor_set != bindings->uav_counter_descriptor_set_bound)
+    {
+        VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
+                list->state->vk_pipeline_layout, list->state->set_index, 1, &bindings->uav_counter_descriptor_set, 0, NULL));
+        bindings->uav_counter_in_use = true;
+        bindings->uav_counter_descriptor_set_bound = bindings->uav_counter_descriptor_set;
+    }
 }
 
 static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list)
@@ -4032,6 +4220,9 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
 
     bindings->root_signature = root_signature;
     bindings->descriptor_set = VK_NULL_HANDLE;
+    bindings->uav_counter_descriptor_set = VK_NULL_HANDLE;
+    bindings->descriptor_set_bound = VK_NULL_HANDLE;
+    bindings->uav_counter_descriptor_set_bound = VK_NULL_HANDLE;
     bindings->descriptor_table_dirty_mask = 0;
     bindings->descriptor_table_active_mask = 0;
     bindings->push_descriptor_dirty_mask = 0;
@@ -5410,6 +5601,9 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     d3d12_device_add_ref(list->device = device);
 
     list->allocator = allocator;
+    list->descriptor_updates = NULL;
+    list->descriptor_updates_count = 0;
+    list->descriptor_updates_size = 0;
 
     if (SUCCEEDED(hr = d3d12_command_allocator_allocate_command_buffer(allocator, list)))
     {
@@ -5646,6 +5840,13 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             vkd3d_free(buffers);
             return;
         }
+
+        /* Descriptors in root signature in 1.0 are VOLATILE by default, so
+         * the descriptor heap only need to be valid right before we submit them to the GPU.
+         * If we have EXT_descriptor_indexing enabled with UpdateAfterBind, we update
+         * descriptor sets here rather than while we're recording the command buffer.
+         * For each submission of the command buffer, we can modify the descriptor heap as we please. */
+        d3d12_command_list_resolve_descriptor_tables(cmd_list);
 
         buffers[i] = cmd_list->vk_command_buffer;
     }

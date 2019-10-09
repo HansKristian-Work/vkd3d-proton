@@ -887,19 +887,32 @@ struct vkd3d_pipeline_bindings
     const struct d3d12_root_signature *root_signature;
 
     VkDescriptorSet descriptor_set;
+    VkDescriptorSet uav_counter_descriptor_set;
+    VkDescriptorSet descriptor_set_bound;
+    VkDescriptorSet uav_counter_descriptor_set_bound;
     bool in_use;
+    bool uav_counter_in_use;
 
     D3D12_GPU_DESCRIPTOR_HANDLE descriptor_tables[D3D12_MAX_ROOT_COST];
     uint64_t descriptor_table_dirty_mask;
     uint64_t descriptor_table_active_mask;
 
-    VkBufferView vk_uav_counter_views[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS];
     uint8_t uav_counter_dirty_mask;
 
     /* Needed when VK_KHR_push_descriptor is not available. */
     struct vkd3d_push_descriptor push_descriptors[D3D12_MAX_ROOT_COST / 2];
     uint32_t push_descriptor_dirty_mask;
     uint32_t push_descriptor_active_mask;
+};
+
+struct d3d12_deferred_descriptor_set_update
+{
+    const struct d3d12_desc *base_descriptor;
+    unsigned int index;
+
+    const struct d3d12_root_signature *root_signature;
+    VkDescriptorSet descriptor_set;
+    bool uav;
 };
 
 /* ID3D12CommandList */
@@ -944,6 +957,10 @@ struct d3d12_command_list
 
     VkBuffer so_counter_buffers[D3D12_SO_BUFFER_SLOT_COUNT];
     VkDeviceSize so_counter_buffer_offsets[D3D12_SO_BUFFER_SLOT_COUNT];
+
+    struct d3d12_deferred_descriptor_set_update *descriptor_updates;
+    size_t descriptor_updates_size;
+    size_t descriptor_updates_count;
 
     struct vkd3d_private_store private_store;
 };
