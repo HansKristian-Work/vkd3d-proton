@@ -15708,7 +15708,7 @@ static void test_update_descriptor_heap_after_closing_command_list(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
     value = get_readback_uint(&rb, 0, 0, 0);
-    todo ok(value == 0xff00ff00, "Got unexpected value %#x.\n", value);
+    ok(value == 0xff00ff00, "Got unexpected value %#x.\n", value);
     release_resource_readback(&rb);
 
     ID3D12DescriptorHeap_Release(cpu_heap);

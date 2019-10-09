@@ -1438,11 +1438,25 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     }
 
     if (vulkan_info->EXT_descriptor_indexing && descriptor_indexing
-            && (descriptor_indexing->descriptorBindingUniformBufferUpdateAfterBind
-            || descriptor_indexing->descriptorBindingStorageBufferUpdateAfterBind
+        && descriptor_indexing->descriptorBindingUniformBufferUpdateAfterBind
+        && descriptor_indexing->descriptorBindingSampledImageUpdateAfterBind
+        && descriptor_indexing->descriptorBindingStorageImageUpdateAfterBind
+        && descriptor_indexing->descriptorBindingUniformTexelBufferUpdateAfterBind)
+    {
+        TRACE("Enabling VK_EXT_descriptor_indexing for volatile descriptor updates.\n");
+    }
+    else
+    {
+        WARN("VK_EXT_descriptor indexing not supported in sufficient capacity. Volatile descriptor updates will not work.\n");
+        vulkan_info->EXT_descriptor_indexing = false;
+    }
+
+    if (vulkan_info->EXT_descriptor_indexing && descriptor_indexing
+        && (descriptor_indexing->descriptorBindingUniformBufferUpdateAfterBind
             || descriptor_indexing->descriptorBindingUniformTexelBufferUpdateAfterBind
+            || descriptor_indexing->descriptorBindingStorageBufferUpdateAfterBind
             || descriptor_indexing->descriptorBindingStorageTexelBufferUpdateAfterBind)
-            && !physical_device_info->descriptor_indexing_properties.robustBufferAccessUpdateAfterBind)
+        && !physical_device_info->descriptor_indexing_properties.robustBufferAccessUpdateAfterBind)
     {
         WARN("Disabling robust buffer access for the update after bind feature.\n");
         features->robustBufferAccess = VK_FALSE;
