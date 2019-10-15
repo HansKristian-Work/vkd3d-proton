@@ -16,6 +16,7 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "vkd3d_common.h"
 #include "vkd3d_utils_private.h"
 
 VKD3D_DEBUG_ENV_NAME("VKD3D_DEBUG");
