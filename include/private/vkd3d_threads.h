@@ -122,9 +122,10 @@ static inline int pthread_cond_init(pthread_cond_t *cond, void *attr)
     return 0;
 }
 
-static inline void pthread_cond_destroy(pthread_cond_t *cond)
+static inline int pthread_cond_destroy(pthread_cond_t *cond)
 {
     (void)cond;
+    return 0;
 }
 
 static inline int pthread_cond_signal(pthread_cond_t *cond)
@@ -141,7 +142,7 @@ static inline int pthread_cond_broadcast(pthread_cond_t *cond)
 
 static inline int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *lock)
 {
-    bool ret = SleepConditionVariableCS(&cond->cond, &lock->lock, INFINITE);
+    int ret = SleepConditionVariableCS(&cond->cond, &lock->lock, INFINITE);
     return ret ? 0 : -1;
 }
 
