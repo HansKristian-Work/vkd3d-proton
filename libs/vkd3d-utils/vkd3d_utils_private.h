@@ -23,7 +23,7 @@
 #define NONAMELESSUNION
 #define VK_NO_PROTOTYPES
 
-#include <pthread.h>
+#include "vkd3d_threads.h"
 #include <vkd3d.h>
 
 #include "vkd3d_memory.h"
