@@ -40,6 +40,28 @@ static const char *vkd3d_dlerror(void)
 {
     return dlerror();
 }
+#elif defined(_WIN32)
+#include <windows.h>
+static void *vkd3d_dlopen(const char *name)
+{
+    return LoadLibraryA(name);
+}
+
+static void *vkd3d_dlsym(void *handle, const char *symbol)
+{
+    return GetProcAddress(handle, symbol);
+}
+
+static int vkd3d_dlclose(void *handle)
+{
+    FreeLibrary(handle);
+    return 0;
+}
+
+static const char *vkd3d_dlerror(void)
+{
+    return "Not implemented for this platform.\n";
+}
 #else
 static void *vkd3d_dlopen(const char *name)
 {
