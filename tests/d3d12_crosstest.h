@@ -52,17 +52,17 @@ typedef int HRESULT;
 #include <math.h>
 #include <time.h>
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(VKD3D_FORCE_UTILS_WRAPPER)
 # include "vkd3d_dxgi1_4.h"
 #else
-# include <pthread.h>
+# include "vkd3d_threads.h"
 # include "vkd3d.h"
 # include "vkd3d_utils.h"
 #endif
 
 #include "d3d12_test_utils.h"
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(VKD3D_FORCE_UTILS_WRAPPER)
 static inline HANDLE create_event(void)
 {
     return CreateEventA(NULL, FALSE, FALSE, NULL);
@@ -124,7 +124,7 @@ struct test_thread_data
     void *user_data;
 };
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(VKD3D_FORCE_UTILS_WRAPPER)
 static inline DWORD WINAPI test_thread_main(void *untyped_data)
 {
     struct test_thread_data *data = untyped_data;
@@ -242,7 +242,7 @@ static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12Comm
 static bool use_warp_device;
 static unsigned int use_adapter_idx;
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(VKD3D_FORCE_UTILS_WRAPPER)
 static IUnknown *create_warp_adapter(IDXGIFactory4 *factory)
 {
     IUnknown *adapter;
