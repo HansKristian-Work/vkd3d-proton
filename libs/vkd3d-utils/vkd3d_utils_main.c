@@ -17,7 +17,6 @@
  */
 
 #include "vkd3d_common.h"
-#include "vkd3d_memory.h"
 #include "vkd3d_utils_private.h"
 
 VKD3D_DEBUG_ENV_NAME("VKD3D_DEBUG");
