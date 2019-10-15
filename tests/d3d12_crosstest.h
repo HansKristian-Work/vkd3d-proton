@@ -60,6 +60,10 @@ typedef int HRESULT;
 # include "vkd3d_utils.h"
 #endif
 
+#if !defined(_WIN32)
+#include <dlfcn.h>
+#endif
+
 #include "d3d12_test_utils.h"
 
 #if defined(_WIN32) && !defined(VKD3D_FORCE_UTILS_WRAPPER)
@@ -401,7 +405,39 @@ static inline bool is_depth_clip_enable_supported(ID3D12Device *device)
 
 #else
 
-static bool check_device_extension(VkPhysicalDevice vk_physical_device, const char *name)
+static PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
+static bool init_vulkan_loader(void)
+{
+    if (pfn_vkGetInstanceProcAddr)
+        return true;
+
+#ifdef _WIN32
+    HMODULE mod = LoadLibrary(SONAME_LIBVULKAN);
+    if (!mod)
+        return false;
+
+    pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)GetProcAddress(mod, "vkGetInstanceProcAddr");
+#else
+    void *mod = dlopen(SONAME_LIBVULKAN, RTLD_LAZY);
+    if (!mod)
+        return false;
+
+    pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(mod, "vkGetInstanceProcAddr");
+#endif
+
+    return pfn_vkGetInstanceProcAddr != NULL;
+}
+
+#define get_vk_instance_proc(instance, sym) (PFN_##sym)get_vk_instance_proc_(instance, #sym)
+static PFN_vkVoidFunction get_vk_instance_proc_(VkInstance instance, const char *sym)
+{
+    if (!init_vulkan_loader())
+        return NULL;
+
+    return pfn_vkGetInstanceProcAddr(instance, sym);
+}
+
+static bool check_device_extension(VkInstance instance, VkPhysicalDevice vk_physical_device, const char *name)
 {
     VkExtensionProperties *properties;
     bool ret = false;
@@ -409,7 +445,12 @@ static bool check_device_extension(VkPhysicalDevice vk_physical_device, const ch
     uint32_t count;
     VkResult vr;
 
-    vr = vkEnumerateDeviceExtensionProperties(vk_physical_device, NULL, &count, NULL);
+    PFN_vkEnumerateDeviceExtensionProperties pfn_vkEnumerateDeviceExtensionProperties;
+    pfn_vkEnumerateDeviceExtensionProperties = get_vk_instance_proc(instance, vkEnumerateDeviceExtensionProperties);
+    if (!pfn_vkEnumerateDeviceExtensionProperties)
+        return false;
+
+    vr = pfn_vkEnumerateDeviceExtensionProperties(vk_physical_device, NULL, &count, NULL);
     ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
     if (!count)
         return false;
@@ -417,7 +458,7 @@ static bool check_device_extension(VkPhysicalDevice vk_physical_device, const ch
     properties = calloc(count, sizeof(*properties));
     ok(properties, "Failed to allocate memory.\n");
 
-    vr = vkEnumerateDeviceExtensionProperties(vk_physical_device, NULL, &count, properties);
+    vr = pfn_vkEnumerateDeviceExtensionProperties(vk_physical_device, NULL, &count, properties);
     ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
     for (i = 0; i < count; ++i)
     {
@@ -463,10 +504,14 @@ static VkPhysicalDevice select_physical_device(struct vkd3d_instance *instance)
     VkInstance vk_instance;
     uint32_t count;
     VkResult vr;
-
+    PFN_vkEnumeratePhysicalDevices pfn_vkEnumeratePhysicalDevices;
     vk_instance = vkd3d_instance_get_vk_instance(instance);
 
-    vr = vkEnumeratePhysicalDevices(vk_instance, &count, NULL);
+    pfn_vkEnumeratePhysicalDevices = get_vk_instance_proc(vk_instance, vkEnumeratePhysicalDevices);
+    if (!pfn_vkEnumeratePhysicalDevices)
+        return VK_NULL_HANDLE;
+
+    vr = pfn_vkEnumeratePhysicalDevices(vk_instance, &count, NULL);
     ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
 
     if (use_adapter_idx >= count)
@@ -477,7 +522,7 @@ static VkPhysicalDevice select_physical_device(struct vkd3d_instance *instance)
 
     vk_physical_devices = calloc(count, sizeof(*vk_physical_devices));
     ok(vk_physical_devices, "Failed to allocate memory.\n");
-    vr = vkEnumeratePhysicalDevices(vk_instance, &count, vk_physical_devices);
+    vr = pfn_vkEnumeratePhysicalDevices(vk_instance, &count, vk_physical_devices);
     ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
 
     vk_physical_device = vk_physical_devices[use_adapter_idx];
@@ -537,19 +582,24 @@ static bool get_driver_properties(ID3D12Device *device, VkPhysicalDeviceDriverPr
     PFN_vkGetPhysicalDeviceProperties2KHR pfn_vkGetPhysicalDeviceProperties2KHR;
     VkPhysicalDeviceProperties2 device_properties2;
     VkPhysicalDevice vk_physical_device;
+    VkInstance vk_instance;
 
     memset(driver_properties, 0, sizeof(*driver_properties));
     driver_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR;
 
     vk_physical_device = vkd3d_get_vk_physical_device(device);
+    vk_instance = vkd3d_instance_get_vk_instance(vkd3d_instance_from_device(device));
 
-    if (check_device_extension(vk_physical_device, VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME))
+    if (!init_vulkan_loader())
+        return false;
+
+    if (check_device_extension(vk_instance, vk_physical_device, VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME))
     {
         struct vkd3d_instance *instance = vkd3d_instance_from_device(device);
         VkInstance vk_instance = vkd3d_instance_get_vk_instance(instance);
 
         pfn_vkGetPhysicalDeviceProperties2KHR
-                = (void *)vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceProperties2KHR");
+                = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceProperties2KHR");
         ok(pfn_vkGetPhysicalDeviceProperties2KHR, "vkGetPhysicalDeviceProperties2KHR is NULL.\n");
 
         memset(&device_properties2, 0, sizeof(device_properties2));
@@ -628,8 +678,10 @@ static inline bool is_radv_device(ID3D12Device *device)
 
 static inline bool is_depth_clip_enable_supported(ID3D12Device *device)
 {
+    struct vkd3d_instance *instance = vkd3d_instance_from_device(device);
+    VkInstance vk_instance = vkd3d_instance_get_vk_instance(instance);
     VkPhysicalDevice vk_physical_device = vkd3d_get_vk_physical_device(device);
-    return check_device_extension(vk_physical_device, VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME);
+    return check_device_extension(vk_instance, vk_physical_device, VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME);
 }
 #endif
 
