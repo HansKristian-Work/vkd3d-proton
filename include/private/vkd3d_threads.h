@@ -29,6 +29,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include "vkd3d_memory.h"
+
 /* pthread_t is passed by value in some functions,
  * which implies we need pthread_t to be a pointer type here. */
 struct pthread
