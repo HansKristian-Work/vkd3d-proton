@@ -594,6 +594,25 @@ static HRESULT create_root_signature(ID3D12Device *device, const D3D12_ROOT_SIGN
     return hr;
 }
 
+static HRESULT create_root_signature1(ID3D12Device *device, const D3D12_ROOT_SIGNATURE_DESC1 *desc,
+        ID3D12RootSignature **root_signature)
+{
+    ID3DBlob *blob;
+    HRESULT hr;
+    D3D12_VERSIONED_ROOT_SIGNATURE_DESC versioned;
+
+    versioned.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
+    versioned.Desc_1_1 = *desc;
+
+    if (FAILED(hr = D3D12SerializeVersionedRootSignature(&versioned, &blob, NULL)))
+        return hr;
+
+    hr = ID3D12Device_CreateRootSignature(device, 0, ID3D10Blob_GetBufferPointer(blob),
+                                          ID3D10Blob_GetBufferSize(blob), &IID_ID3D12RootSignature, (void **)root_signature);
+    ID3D10Blob_Release(blob);
+    return hr;
+}
+
 #define create_empty_root_signature(device, flags) create_empty_root_signature_(__LINE__, device, flags)
 static ID3D12RootSignature *create_empty_root_signature_(unsigned int line,
         ID3D12Device *device, D3D12_ROOT_SIGNATURE_FLAGS flags)
