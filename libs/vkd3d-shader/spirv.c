@@ -4536,7 +4536,7 @@ static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compi
                 ptr_type_id, output_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, index));
         object_id = vkd3d_dxbc_compiler_emit_swizzle(compiler, val_id,
                 write_mask, output_info->component_type, VKD3D_NO_SWIZZLE, VKD3DSP_WRITEMASK_0 << i);
-        vkd3d_dxbc_compiler_emit_store(compiler, chain_id, VKD3DSP_WRITEMASK_0 << index,
+        vkd3d_dxbc_compiler_emit_store(compiler, chain_id, VKD3DSP_WRITEMASK_0,
                 output_info->component_type, SpvStorageClassOutput, VKD3DSP_WRITEMASK_0 << i, object_id);
         ++index;
     }
