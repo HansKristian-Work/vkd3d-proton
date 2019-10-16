@@ -594,9 +594,13 @@ static HRESULT create_root_signature(ID3D12Device *device, const D3D12_ROOT_SIGN
     return hr;
 }
 
-static HRESULT create_root_signature1(ID3D12Device *device, const D3D12_ROOT_SIGNATURE_DESC1 *desc,
+static HRESULT create_root_signature1(PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE pfn_D3D12SerializeVersionedRootSignature,
+        ID3D12Device *device, const D3D12_ROOT_SIGNATURE_DESC1 *desc,
         ID3D12RootSignature **root_signature)
 {
+    if (!pfn_D3D12SerializeVersionedRootSignature)
+        return E_FAIL;
+
     ID3DBlob *blob;
     HRESULT hr;
     D3D12_VERSIONED_ROOT_SIGNATURE_DESC versioned;
@@ -604,7 +608,7 @@ static HRESULT create_root_signature1(ID3D12Device *device, const D3D12_ROOT_SIG
     versioned.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
     versioned.Desc_1_1 = *desc;
 
-    if (FAILED(hr = D3D12SerializeVersionedRootSignature(&versioned, &blob, NULL)))
+    if (FAILED(hr = pfn_D3D12SerializeVersionedRootSignature(&versioned, &blob, NULL)))
         return hr;
 
     hr = ID3D12Device_CreateRootSignature(device, 0, ID3D10Blob_GetBufferPointer(blob),
