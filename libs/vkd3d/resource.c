@@ -1072,6 +1072,17 @@ static bool d3d12_resource_validate_box(const struct d3d12_resource *resource,
             && !(box->bottom & height_mask);
 }
 
+static void d3d12_resource_get_level_box(const struct d3d12_resource *resource,
+        unsigned int level, D3D12_BOX *box)
+{
+    box->left = 0;
+    box->top = 0;
+    box->front = 0;
+    box->right = d3d12_resource_desc_get_width(&resource->desc, level);
+    box->bottom = d3d12_resource_desc_get_height(&resource->desc, level);
+    box->back = d3d12_resource_desc_get_depth(&resource->desc, level);
+}
+
 /* ID3D12Resource */
 static inline struct d3d12_resource *impl_from_ID3D12Resource(ID3D12Resource *iface)
 {
@@ -1330,26 +1341,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(ID3D12Resourc
     vk_sub_resource.mipLevel = dst_sub_resource % resource->desc.MipLevels;
     vk_sub_resource.aspectMask = format->vk_aspect_mask;
 
-    if (dst_box)
+    if (!dst_box)
     {
-        if (!d3d12_resource_validate_box(resource, dst_sub_resource, dst_box))
-        {
-            WARN("Invalid box %s.\n", debug_d3d12_box(dst_box));
-            return E_INVALIDARG;
-        }
+        d3d12_resource_get_level_box(resource, vk_sub_resource.mipLevel, &box);
+        dst_box = &box;
+    }
+    else if (!d3d12_resource_validate_box(resource, dst_sub_resource, dst_box))
+    {
+        WARN("Invalid box %s.\n", debug_d3d12_box(dst_box));
+        return E_INVALIDARG;
+    }
 
-        box = *dst_box;
-    }
-    else
-    {
-        box.left = 0;
-        box.top = 0;
-        box.front = 0;
-        box.right = d3d12_resource_desc_get_width(&resource->desc, vk_sub_resource.mipLevel);
-        box.bottom = d3d12_resource_desc_get_height(&resource->desc, vk_sub_resource.mipLevel);
-        box.back = d3d12_resource_desc_get_depth(&resource->desc, vk_sub_resource.mipLevel);
-    }
-    if (box.right <= box.left || box.bottom <= box.top || box.back <= box.front)
+    if (dst_box->right <= dst_box->left || dst_box->bottom <= dst_box->top || dst_box->back <= dst_box->front)
     {
         WARN("Empty box %s.\n", debug_d3d12_box(dst_box));
         return S_OK;
@@ -1377,13 +1380,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(ID3D12Resourc
     }
 
     dst_data += vk_layout.offset;
-    dst_data += box.left / format->block_width * format->byte_count * format->block_byte_count;
-    size = (box.right - box.left) / format->block_width * format->byte_count * format->block_byte_count;
-    for (z = box.front; z < box.back; ++z)
+    dst_data += dst_box->left / format->block_width * format->byte_count * format->block_byte_count;
+    size = (dst_box->right - dst_box->left) / format->block_width * format->byte_count * format->block_byte_count;
+    for (z = dst_box->front; z < dst_box->back; ++z)
     {
-        src = (uint8_t *)src_data + (z - box.front) * src_slice_pitch;
-        dst = dst_data + z * vk_layout.depthPitch + box.top / format->block_height * vk_layout.rowPitch;
-        for (y = box.top; y < box.bottom; y += format->block_height)
+        src = (uint8_t *)src_data + (z - dst_box->front) * src_slice_pitch;
+        dst = dst_data + z * vk_layout.depthPitch + dst_box->top / format->block_height * vk_layout.rowPitch;
+        for (y = dst_box->top; y < dst_box->bottom; y += format->block_height)
         {
             memcpy(dst, src, size);
             src += src_row_pitch;
@@ -1440,26 +1443,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(ID3D12Resour
     vk_sub_resource.mipLevel = src_sub_resource % resource->desc.MipLevels;
     vk_sub_resource.aspectMask = format->vk_aspect_mask;
 
-    if (src_box)
+    if (!src_box)
     {
-        if (!d3d12_resource_validate_box(resource, src_sub_resource, src_box))
-        {
-            WARN("Invalid box %s.\n", debug_d3d12_box(src_box));
-            return E_INVALIDARG;
-        }
+        d3d12_resource_get_level_box(resource, vk_sub_resource.mipLevel, &box);
+        src_box = &box;
+    }
+    else if (!d3d12_resource_validate_box(resource, src_sub_resource, src_box))
+    {
+        WARN("Invalid box %s.\n", debug_d3d12_box(src_box));
+        return E_INVALIDARG;
+    }
 
-        box = *src_box;
-    }
-    else
-    {
-        box.left = 0;
-        box.top = 0;
-        box.front = 0;
-        box.right = d3d12_resource_desc_get_width(&resource->desc, vk_sub_resource.mipLevel);
-        box.bottom = d3d12_resource_desc_get_height(&resource->desc, vk_sub_resource.mipLevel);
-        box.back = d3d12_resource_desc_get_depth(&resource->desc, vk_sub_resource.mipLevel);
-    }
-    if (box.right <= box.left || box.bottom <= box.top || box.back <= box.front)
+    if (src_box->right <= src_box->left || src_box->bottom <= src_box->top || src_box->back <= src_box->front)
     {
         WARN("Empty box %s.\n", debug_d3d12_box(src_box));
         return S_OK;
@@ -1487,13 +1482,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(ID3D12Resour
     }
 
     src_data += vk_layout.offset;
-    src_data += box.left / format->block_width * format->byte_count * format->block_byte_count;
-    size = (box.right - box.left) / format->block_width * format->byte_count * format->block_byte_count;
-    for (z = box.front; z < box.back; ++z)
+    src_data += src_box->left / format->block_width * format->byte_count * format->block_byte_count;
+    size = (src_box->right - src_box->left) / format->block_width * format->byte_count * format->block_byte_count;
+    for (z = src_box->front; z < src_box->back; ++z)
     {
-        dst = (uint8_t *)dst_data + (z - box.front) * dst_slice_pitch;
-        src = src_data + z * vk_layout.depthPitch + box.top / format->block_height * vk_layout.rowPitch;
-        for (y = box.top; y < box.bottom; y += format->block_height)
+        dst = (uint8_t *)dst_data + (z - src_box->front) * dst_slice_pitch;
+        src = src_data + z * vk_layout.depthPitch + src_box->top / format->block_height * vk_layout.rowPitch;
+        for (y = src_box->top; y < src_box->bottom; y += format->block_height)
         {
             memcpy(dst, src, size);
             dst += dst_row_pitch;
