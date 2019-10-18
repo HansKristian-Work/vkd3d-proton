@@ -451,6 +451,30 @@ const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
     return NULL;
 }
 
+void vkd3d_format_copy_data(const struct vkd3d_format *format, const uint8_t *src,
+        unsigned int src_row_pitch, unsigned int src_slice_pitch, uint8_t *dst, unsigned int dst_row_pitch,
+        unsigned int dst_slice_pitch, unsigned int w, unsigned int h, unsigned int d)
+{
+    unsigned int row_block_count, row_count, row_size, slice, row;
+    unsigned int slice_count = d;
+    const uint8_t *src_row;
+    uint8_t *dst_row;
+
+    row_block_count = (w + format->block_width - 1) / format->block_width;
+    row_count = (h + format->block_height - 1) / format->block_height;
+    row_size = row_block_count * format->byte_count * format->block_byte_count;
+
+    for (slice = 0; slice < slice_count; ++slice)
+    {
+        for (row = 0; row < row_count; ++row)
+        {
+            src_row = &src[slice * src_slice_pitch + row * src_row_pitch];
+            dst_row = &dst[slice * dst_slice_pitch + row * dst_row_pitch];
+            memcpy(dst_row, src_row, row_size);
+        }
+    }
+}
+
 VkFormat vkd3d_get_vk_format(DXGI_FORMAT format)
 {
     const struct vkd3d_format *vkd3d_format;

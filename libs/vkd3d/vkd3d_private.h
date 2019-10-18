@@ -1155,6 +1155,10 @@ static inline bool vkd3d_format_is_compressed(const struct vkd3d_format *format)
     return format->block_byte_count != 1;
 }
 
+void vkd3d_format_copy_data(const struct vkd3d_format *format, const uint8_t *src,
+        unsigned int src_row_pitch, unsigned int src_slice_pitch, uint8_t *dst, unsigned int dst_row_pitch,
+        unsigned int dst_slice_pitch, unsigned int w, unsigned int h, unsigned int d) DECLSPEC_HIDDEN;
+
 const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
         DXGI_FORMAT dxgi_format, bool depth_stencil) DECLSPEC_HIDDEN;
 

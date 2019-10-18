@@ -1306,11 +1306,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(ID3D12Resourc
     const struct vkd3d_format *format;
     VkSubresourceLayout vk_layout;
     struct d3d12_device *device;
-    BYTE *dst_data, *dst;
-    BYTE const *src;
-    unsigned int y, z;
+    uint8_t *dst_data;
     D3D12_BOX box;
-    size_t size;
     HRESULT hr;
 
     TRACE("iface %p, src_data %p, src_row_pitch %u, src_slice_pitch %u, "
@@ -1381,18 +1378,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(ID3D12Resourc
 
     dst_data += vk_layout.offset;
     dst_data += dst_box->left / format->block_width * format->byte_count * format->block_byte_count;
-    size = (dst_box->right - dst_box->left) / format->block_width * format->byte_count * format->block_byte_count;
-    for (z = dst_box->front; z < dst_box->back; ++z)
-    {
-        src = (uint8_t *)src_data + (z - dst_box->front) * src_slice_pitch;
-        dst = dst_data + z * vk_layout.depthPitch + dst_box->top / format->block_height * vk_layout.rowPitch;
-        for (y = dst_box->top; y < dst_box->bottom; y += format->block_height)
-        {
-            memcpy(dst, src, size);
-            src += src_row_pitch;
-            dst += vk_layout.rowPitch;
-        }
-    }
+    dst_data += dst_box->top / format->block_height * vk_layout.rowPitch;
+    dst_data += dst_box->front * vk_layout.depthPitch;
+
+    vkd3d_format_copy_data(format, src_data, src_row_pitch, src_slice_pitch,
+            dst_data, vk_layout.rowPitch, vk_layout.depthPitch, dst_box->right - dst_box->left,
+            dst_box->bottom - dst_box->top, dst_box->back - dst_box->front);
 
     d3d12_heap_unmap(resource->heap, resource);
 
@@ -1409,10 +1400,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(ID3D12Resour
     const struct vkd3d_format *format;
     VkSubresourceLayout vk_layout;
     struct d3d12_device *device;
-    BYTE *src_data, *src, *dst;
-    unsigned int y, z;
+    uint8_t *src_data;
     D3D12_BOX box;
-    size_t size;
     HRESULT hr;
 
     TRACE("iface %p, dst_data %p, dst_row_pitch %u, dst_slice_pitch %u, "
@@ -1483,18 +1472,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(ID3D12Resour
 
     src_data += vk_layout.offset;
     src_data += src_box->left / format->block_width * format->byte_count * format->block_byte_count;
-    size = (src_box->right - src_box->left) / format->block_width * format->byte_count * format->block_byte_count;
-    for (z = src_box->front; z < src_box->back; ++z)
-    {
-        dst = (uint8_t *)dst_data + (z - src_box->front) * dst_slice_pitch;
-        src = src_data + z * vk_layout.depthPitch + src_box->top / format->block_height * vk_layout.rowPitch;
-        for (y = src_box->top; y < src_box->bottom; y += format->block_height)
-        {
-            memcpy(dst, src, size);
-            dst += dst_row_pitch;
-            src += vk_layout.rowPitch;
-        }
-    }
+    src_data += src_box->top / format->block_height * vk_layout.rowPitch;
+    src_data += src_box->front * vk_layout.depthPitch;
+
+    vkd3d_format_copy_data(format, src_data, vk_layout.rowPitch, vk_layout.depthPitch,
+            dst_data, dst_row_pitch, dst_slice_pitch, src_box->right - src_box->left,
+            src_box->bottom - src_box->top, src_box->back - src_box->front);
 
     d3d12_heap_unmap(resource->heap, resource);
 
