@@ -1352,7 +1352,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(ID3D12Resourc
         return E_INVALIDARG;
     }
 
-    if (dst_box->right <= dst_box->left || dst_box->bottom <= dst_box->top || dst_box->back <= dst_box->front)
+    if (d3d12_box_is_empty(dst_box))
     {
         WARN("Empty box %s.\n", debug_d3d12_box(dst_box));
         return S_OK;
@@ -1454,7 +1454,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(ID3D12Resour
         return E_INVALIDARG;
     }
 
-    if (src_box->right <= src_box->left || src_box->bottom <= src_box->top || src_box->back <= src_box->front)
+    if (d3d12_box_is_empty(src_box))
     {
         WARN("Empty box %s.\n", debug_d3d12_box(src_box));
         return S_OK;

@@ -1168,6 +1168,11 @@ static inline const struct vkd3d_format *vkd3d_format_from_d3d12_resource_desc(
             desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
 }
 
+static inline bool d3d12_box_is_empty(const D3D12_BOX *box)
+{
+    return box->right <= box->left || box->bottom <= box->top || box->back <= box->front;
+}
+
 static inline unsigned int d3d12_resource_desc_get_width(const D3D12_RESOURCE_DESC *desc,
         unsigned int miplevel_idx)
 {
