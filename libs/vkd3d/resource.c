@@ -1376,10 +1376,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(ID3D12Resourc
         return hr;
     }
 
-    dst_data += vk_layout.offset;
-    dst_data += dst_box->left / format->block_width * format->byte_count * format->block_byte_count;
-    dst_data += dst_box->top / format->block_height * vk_layout.rowPitch;
-    dst_data += dst_box->front * vk_layout.depthPitch;
+    dst_data += vk_layout.offset + vkd3d_format_get_data_offset(format, vk_layout.rowPitch,
+            vk_layout.depthPitch, dst_box->left, dst_box->top, dst_box->front);
 
     vkd3d_format_copy_data(format, src_data, src_row_pitch, src_slice_pitch,
             dst_data, vk_layout.rowPitch, vk_layout.depthPitch, dst_box->right - dst_box->left,
@@ -1470,10 +1468,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(ID3D12Resour
         return hr;
     }
 
-    src_data += vk_layout.offset;
-    src_data += src_box->left / format->block_width * format->byte_count * format->block_byte_count;
-    src_data += src_box->top / format->block_height * vk_layout.rowPitch;
-    src_data += src_box->front * vk_layout.depthPitch;
+    src_data += vk_layout.offset + vkd3d_format_get_data_offset(format, vk_layout.rowPitch,
+            vk_layout.depthPitch, src_box->left, src_box->top, src_box->front);
 
     vkd3d_format_copy_data(format, src_data, vk_layout.rowPitch, vk_layout.depthPitch,
             dst_data, dst_row_pitch, dst_slice_pitch, src_box->right - src_box->left,

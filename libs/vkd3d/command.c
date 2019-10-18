@@ -3065,9 +3065,8 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy *copy,
     if (src_box)
     {
         VkDeviceSize row_count = footprint->Footprint.Height / format->block_height;
-        copy->bufferOffset += src_box->left / format->block_width * format->byte_count * format->block_byte_count;
-        copy->bufferOffset += src_box->top / format->block_height * footprint->Footprint.RowPitch;
-        copy->bufferOffset += src_box->front * footprint->Footprint.RowPitch * row_count;
+        copy->bufferOffset += vkd3d_format_get_data_offset(format, footprint->Footprint.RowPitch,
+                row_count * footprint->Footprint.RowPitch, src_box->left, src_box->top, src_box->front);
     }
     copy->bufferRowLength = footprint->Footprint.RowPitch /
             (format->byte_count * format->block_byte_count) * format->block_width;
@@ -3098,10 +3097,8 @@ static void vk_image_buffer_copy_from_d3d12(VkBufferImageCopy *copy,
 {
     VkDeviceSize row_count = footprint->Footprint.Height / format->block_height;
 
-    copy->bufferOffset = footprint->Offset;
-    copy->bufferOffset += dst_x / format->block_width * format->byte_count * format->block_byte_count;
-    copy->bufferOffset += dst_y / format->block_height * footprint->Footprint.RowPitch;
-    copy->bufferOffset += dst_z * footprint->Footprint.RowPitch * row_count;
+    copy->bufferOffset = footprint->Offset + vkd3d_format_get_data_offset(format,
+            footprint->Footprint.RowPitch, row_count * footprint->Footprint.RowPitch, dst_x, dst_y, dst_z);
     copy->bufferRowLength = footprint->Footprint.RowPitch /
             (format->byte_count * format->block_byte_count) * format->block_width;
     copy->bufferImageHeight = footprint->Footprint.Height;
