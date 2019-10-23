@@ -4693,6 +4693,10 @@ static void test_clear_unordered_access_view(void)
     UINT clear_value[4];
     unsigned int i, j;
     D3D12_BOX box;
+    HRESULT hr;
+    D3D12_HEAP_DESC heap_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Heap *heap;
 
 #define BUFFER_SIZE (1024 * 1024)
     static const struct
@@ -4749,12 +4753,34 @@ static void test_clear_unordered_access_view(void)
     cpu_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
     gpu_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
 
+    heap_desc.SizeInBytes = 2 * BUFFER_SIZE;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    memset(&heap_desc.Properties, 0, sizeof(heap_desc.Properties));
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
         vkd3d_test_set_context("Test %u", i);
 
-        buffer = create_default_buffer(device, BUFFER_SIZE,
-                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        resource_desc.Alignment = 0;
+        resource_desc.Width = BUFFER_SIZE;
+        resource_desc.Height = 1;
+        resource_desc.DepthOrArraySize = 1;
+        resource_desc.MipLevels = 1;
+        resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.SampleDesc.Quality = 0;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+        hr = ID3D12Device_CreatePlacedResource(device, heap, BUFFER_SIZE,
+                &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL,
+                &IID_ID3D12Resource, (void **)&buffer);
+        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
 
         for (j = 0; j < ARRAY_SIZE(clear_value); ++j)
             clear_value[j] = tests[i].values[j] ? 0 : ~0u;
@@ -4810,6 +4836,7 @@ static void test_clear_unordered_access_view(void)
 
     ID3D12DescriptorHeap_Release(cpu_heap);
     ID3D12DescriptorHeap_Release(gpu_heap);
+    ID3D12Heap_Release(heap);
     destroy_test_context(&context);
 #undef BUFFER_SIZE
 }
