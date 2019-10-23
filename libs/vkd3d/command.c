@@ -3046,8 +3046,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(ID3D12Graphics
 
     d3d12_command_list_end_current_render_pass(list);
 
-    buffer_copy.srcOffset = src_offset;
-    buffer_copy.dstOffset = dst_offset;
+    buffer_copy.srcOffset = src_offset + src_resource->heap_offset;
+    buffer_copy.dstOffset = dst_offset + dst_resource->heap_offset;
     buffer_copy.size = byte_count;
 
     VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
@@ -3360,6 +3360,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
 
         vk_image_buffer_copy_from_d3d12(&buffer_image_copy, &dst->u.PlacedFootprint,
                 src->u.SubresourceIndex, &src_resource->desc, dst_format, src_box, dst_x, dst_y, dst_z);
+        buffer_image_copy.bufferOffset += dst_resource->heap_offset;
         VK_CALL(vkCmdCopyImageToBuffer(list->vk_command_buffer,
                 src_resource->u.vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 dst_resource->u.vk_buffer, 1, &buffer_image_copy));
@@ -3389,6 +3390,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(ID3D12Graphic
 
         vk_buffer_image_copy_from_d3d12(&buffer_image_copy, &src->u.PlacedFootprint,
                 dst->u.SubresourceIndex, &dst_resource->desc, src_format, src_box, dst_x, dst_y, dst_z);
+        buffer_image_copy.bufferOffset += src_resource->heap_offset;
         VK_CALL(vkCmdCopyBufferToImage(list->vk_command_buffer,
                 src_resource->u.vk_buffer, dst_resource->u.vk_image,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &buffer_image_copy));
@@ -3469,8 +3471,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(ID3D12GraphicsComm
         assert(d3d12_resource_is_buffer(src_resource));
         assert(src_resource->desc.Width == dst_resource->desc.Width);
 
-        vk_buffer_copy.srcOffset = 0;
-        vk_buffer_copy.dstOffset = 0;
+        vk_buffer_copy.srcOffset = src_resource->heap_offset;
+        vk_buffer_copy.dstOffset = dst_resource->heap_offset;
         vk_buffer_copy.size = dst_resource->desc.Width;
         VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
                 src_resource->u.vk_buffer, dst_resource->u.vk_buffer, 1, &vk_buffer_copy));
@@ -3938,8 +3940,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(ID3D12GraphicsC
             vk_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             vk_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             vk_barrier.buffer = resource->u.vk_buffer;
-            vk_barrier.offset = 0;
-            vk_barrier.size = VK_WHOLE_SIZE;
+            vk_barrier.offset = resource->heap_offset;
+            vk_barrier.size = resource->desc.Width;
 
             VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer, src_stage_mask, dst_stage_mask, 0,
                     0, NULL, 1, &vk_barrier, 0, NULL));
@@ -4826,6 +4828,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
             return;
         }
 
+        /* Offset from heap with placed buffers is already applied in CPU descriptor. */
         VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, resource_impl->u.vk_buffer,
                 cpu_descriptor->uav.buffer.offset, cpu_descriptor->uav.buffer.size, values[0]));
 
