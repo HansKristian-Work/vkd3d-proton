@@ -4320,7 +4320,7 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
     storage_class = SpvStorageClassOutput;
 
     if ((use_private_variable = builtin && builtin->spirv_array_size))
-        write_mask = dst->write_mask;
+        write_mask = VKD3DSP_WRITEMASK_ALL;
     else if (get_shader_output_swizzle(compiler, signature_element->register_index) != VKD3D_NO_SWIZZLE
             || needs_private_io_variable(shader_signature, signature_element->register_index,
                     builtin, &output_component_count, &write_mask)
