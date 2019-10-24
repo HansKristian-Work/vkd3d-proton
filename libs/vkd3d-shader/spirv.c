@@ -4268,11 +4268,13 @@ static void vkd3d_dxbc_compiler_emit_shader_signature_outputs(struct vkd3d_dxbc_
         {
             case VKD3D_SV_CLIP_DISTANCE:
                 compiler->output_info[i].id = clip_distance_id;
+                compiler->output_info[i].component_type = VKD3D_TYPE_FLOAT;
                 compiler->output_info[i].array_element_mask = clip_distance_mask;
                 break;
 
             case VKD3D_SV_CULL_DISTANCE:
                 compiler->output_info[i].id = cull_distance_id;
+                compiler->output_info[i].component_type = VKD3D_TYPE_FLOAT;
                 compiler->output_info[i].array_element_mask = cull_distance_mask;
                 break;
 
@@ -4463,10 +4465,10 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
             vkd3d_spirv_build_op_decorate(builder, id, SpvDecorationPatch, NULL, 0);
 
         vkd3d_dxbc_compiler_decorate_xfb_output(compiler, id, output_component_count, signature_element);
-    }
 
-    compiler->output_info[signature_idx].id = id;
-    compiler->output_info[signature_idx].component_type = component_type;
+        compiler->output_info[signature_idx].id = id;
+        compiler->output_info[signature_idx].component_type = component_type;
+    }
 
     if (use_private_variable)
         storage_class = SpvStorageClassPrivate;
