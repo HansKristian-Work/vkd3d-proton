@@ -202,20 +202,30 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
 HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
 
+struct vkd3d_gpu_va_allocation
+{
+    D3D12_GPU_VIRTUAL_ADDRESS base;
+    SIZE_T size;
+    void *ptr;
+};
+
+struct vkd3d_gpu_va_slab
+{
+    SIZE_T size;
+    void *ptr;
+};
+
 struct vkd3d_gpu_va_allocator
 {
     pthread_mutex_t mutex;
 
-    D3D12_GPU_VIRTUAL_ADDRESS floor;
+    D3D12_GPU_VIRTUAL_ADDRESS fallback_floor;
+    struct vkd3d_gpu_va_allocation *fallback_allocations;
+    size_t fallback_allocations_size;
+    size_t fallback_allocation_count;
 
-    struct vkd3d_gpu_va_allocation
-    {
-        D3D12_GPU_VIRTUAL_ADDRESS base;
-        SIZE_T size;
-        void *ptr;
-    } *allocations;
-    size_t allocations_size;
-    size_t allocation_count;
+    struct vkd3d_gpu_va_slab *slabs;
+    struct vkd3d_gpu_va_slab *free_slab;
 };
 
 D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_allocator *allocator,
