@@ -3091,17 +3091,24 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy *copy,
     copy->imageOffset.x = dst_x;
     copy->imageOffset.y = dst_y;
     copy->imageOffset.z = dst_z;
+
+    vk_extent_3d_from_d3d12_miplevel(&copy->imageExtent, image_desc,
+            copy->imageSubresource.mipLevel);
+    copy->imageExtent.width -= copy->imageOffset.x;
+    copy->imageExtent.height -= copy->imageOffset.y;
+    copy->imageExtent.depth -= copy->imageOffset.z;
+
     if (src_box)
     {
-        copy->imageExtent.width = src_box->right - src_box->left;
-        copy->imageExtent.height = src_box->bottom - src_box->top;
-        copy->imageExtent.depth = src_box->back - src_box->front;
+        copy->imageExtent.width = min(copy->imageExtent.width, src_box->right - src_box->left);
+        copy->imageExtent.height = min(copy->imageExtent.height, src_box->bottom - src_box->top);
+        copy->imageExtent.depth = min(copy->imageExtent.depth, src_box->back - src_box->front);
     }
     else
     {
-        copy->imageExtent.width = footprint->Footprint.Width;
-        copy->imageExtent.height = footprint->Footprint.Height;
-        copy->imageExtent.depth = footprint->Footprint.Depth;
+        copy->imageExtent.width = min(copy->imageExtent.width, footprint->Footprint.Width);
+        copy->imageExtent.height = min(copy->imageExtent.height, footprint->Footprint.Height);
+        copy->imageExtent.depth = min(copy->imageExtent.depth, footprint->Footprint.Depth);
     }
 }
 
