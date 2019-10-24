@@ -219,7 +219,7 @@ struct vkd3d_gpu_va_allocator
 };
 
 D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_allocator *allocator,
-        size_t size, void *ptr) DECLSPEC_HIDDEN;
+        size_t alignment, size_t size, void *ptr) DECLSPEC_HIDDEN;
 void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocator,
         D3D12_GPU_VIRTUAL_ADDRESS address) DECLSPEC_HIDDEN;
 void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator,

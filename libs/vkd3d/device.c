@@ -1823,17 +1823,32 @@ static void d3d12_device_destroy_pipeline_cache(struct d3d12_device *device)
 }
 
 D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_allocator *allocator,
-        size_t size, void *ptr)
+        size_t alignment, size_t size, void *ptr)
 {
-    D3D12_GPU_VIRTUAL_ADDRESS ceiling = ~(D3D12_GPU_VIRTUAL_ADDRESS)0;
     struct vkd3d_gpu_va_allocation *allocation;
+    D3D12_GPU_VIRTUAL_ADDRESS base, ceiling;
     int rc;
+
+    if (size > ~(size_t)0 - (alignment - 1))
+        return 0;
+    size = align(size, alignment);
 
     if ((rc = pthread_mutex_lock(&allocator->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
         return 0;
     }
+
+    base = allocator->floor;
+    ceiling = ~(D3D12_GPU_VIRTUAL_ADDRESS)0;
+    ceiling -= alignment - 1;
+    if (size > ceiling || ceiling - size < base)
+    {
+        pthread_mutex_unlock(&allocator->mutex);
+        return 0;
+    }
+
+    base = (base + (alignment - 1)) & ~((D3D12_GPU_VIRTUAL_ADDRESS)alignment - 1);
 
     if (!vkd3d_array_reserve((void **)&allocator->allocations, &allocator->allocations_size,
             allocator->allocation_count + 1, sizeof(*allocator->allocations)))
@@ -1842,18 +1857,12 @@ D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_al
         return 0;
     }
 
-    if (size > ceiling || ceiling - size < allocator->floor)
-    {
-        pthread_mutex_unlock(&allocator->mutex);
-        return 0;
-    }
-
     allocation = &allocator->allocations[allocator->allocation_count++];
-    allocation->base = allocator->floor;
+    allocation->base = base;
     allocation->size = size;
     allocation->ptr = ptr;
 
-    allocator->floor += size;
+    allocator->floor = base + size;
 
     pthread_mutex_unlock(&allocator->mutex);
 

@@ -1684,6 +1684,7 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
                     &resource->desc, &resource->u.vk_buffer)))
                 return hr;
             if (!(resource->gpu_address = vkd3d_gpu_va_allocator_allocate(&device->gpu_va_allocator,
+                    desc->Alignment ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
                     desc->Width, resource)))
             {
                 ERR("Failed to allocate GPU VA.\n");
