@@ -636,6 +636,7 @@ struct d3d12_root_descriptor_table_range
 
     uint32_t descriptor_magic;
     unsigned int base_register_idx;
+    unsigned int register_space;
 };
 
 struct d3d12_root_descriptor_table

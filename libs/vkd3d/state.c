@@ -308,12 +308,6 @@ static bool vk_binding_from_d3d12_descriptor_range(struct VkDescriptorSetLayoutB
             = vk_descriptor_type_from_d3d12_range_type(descriptor_range->RangeType, is_buffer);
     binding_desc->descriptorCount = 1;
 
-    if (descriptor_range->RegisterSpace)
-    {
-        FIXME("Unhandled register space %u.\n", descriptor_range->RegisterSpace);
-        return false;
-    }
-
     binding_desc->stageFlags = stage_flags_from_visibility(shader_visibility);
     binding_desc->pImmutableSamplers = NULL;
 
@@ -509,6 +503,7 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
                 ? push_constants[0].stageFlags : stage_flags_from_visibility(p->ShaderVisibility);
         root_constant->offset = offset;
 
+        root_signature->root_constants[j].register_space = p->u.Constants.RegisterSpace;
         root_signature->root_constants[j].register_index = p->u.Constants.ShaderRegister;
         root_signature->root_constants[j].shader_visibility
                 = vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility);
@@ -532,7 +527,7 @@ struct vkd3d_descriptor_set_context
 };
 
 static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *root_signature,
-        enum vkd3d_shader_descriptor_type descriptor_type, unsigned int register_idx,
+        enum vkd3d_shader_descriptor_type descriptor_type, unsigned int register_space, unsigned int register_idx,
         bool buffer_descriptor, enum vkd3d_shader_visibility shader_visibility,
         struct vkd3d_descriptor_set_context *context)
 {
@@ -540,6 +535,7 @@ static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *
             = &root_signature->descriptor_mapping[context->descriptor_index++];
 
     mapping->type = descriptor_type;
+    mapping->register_space = register_space;
     mapping->register_index = register_idx;
     mapping->shader_visibility = shader_visibility;
     mapping->flags = buffer_descriptor ? VKD3D_SHADER_BINDING_FLAG_BUFFER : VKD3D_SHADER_BINDING_FLAG_IMAGE;
@@ -548,7 +544,7 @@ static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *
 }
 
 static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signature *root_signature,
-        enum vkd3d_shader_descriptor_type descriptor_type, unsigned int base_register_idx,
+        enum vkd3d_shader_descriptor_type descriptor_type, unsigned int register_space, unsigned int base_register_idx,
         unsigned int binding_count, bool is_buffer_descriptor, bool duplicate_descriptors,
         enum vkd3d_shader_visibility shader_visibility, struct vkd3d_descriptor_set_context *context)
 {
@@ -565,10 +561,10 @@ static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signat
     {
         if (duplicate_descriptors)
             d3d12_root_signature_append_vk_binding(root_signature, descriptor_type,
-                    base_register_idx + i, true, shader_visibility, context);
+                    register_space, base_register_idx + i, true, shader_visibility, context);
 
         d3d12_root_signature_append_vk_binding(root_signature, descriptor_type,
-                base_register_idx + i, is_buffer_descriptor, shader_visibility, context);
+                register_space, base_register_idx + i, is_buffer_descriptor, shader_visibility, context);
     }
     return first_binding;
 }
@@ -620,7 +616,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 
             vk_binding = d3d12_root_signature_assign_vk_bindings(root_signature,
                     vkd3d_descriptor_type_from_d3d12_range_type(range->RangeType),
-                    range->BaseShaderRegister, range->NumDescriptors, false, true,
+                    range->RegisterSpace, range->BaseShaderRegister, range->NumDescriptors, false, true,
                     vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility), context);
 
             /* Unroll descriptor range. */
@@ -653,6 +649,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
             table->ranges[j].binding = vk_binding;
             table->ranges[j].descriptor_magic = vkd3d_descriptor_magic_from_d3d12(range->RangeType);
             table->ranges[j].base_register_idx = range->BaseShaderRegister;
+            table->ranges[j].register_space = range->RegisterSpace;
         }
     }
 
@@ -682,7 +679,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
 
         cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
                 vkd3d_descriptor_type_from_d3d12_root_parameter_type(p->ParameterType),
-                p->u.Descriptor.ShaderRegister, 1, true, false,
+                p->u.Descriptor.RegisterSpace, p->u.Descriptor.ShaderRegister, 1, true, false,
                 vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility), context);
         cur_binding->descriptorType = vk_descriptor_type_from_d3d12_root_parameter(p->ParameterType);
         cur_binding->descriptorCount = 1;
@@ -719,7 +716,7 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
             return hr;
 
         cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
-                VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, s->ShaderRegister, 1, false, false,
+                VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, s->RegisterSpace, s->ShaderRegister, 1, false, false,
                 vkd3d_shader_visibility_from_d3d12(s->ShaderVisibility), context);
         cur_binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
         cur_binding->descriptorCount = 1;
@@ -1433,6 +1430,7 @@ static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipel
         if (!(shader_info->uav_counter_mask & (1u << i)))
             continue;
 
+        state->uav_counters[j].register_space = 0;
         state->uav_counters[j].register_index = i;
         state->uav_counters[j].shader_visibility = VKD3D_SHADER_VISIBILITY_COMPUTE;
         state->uav_counters[j].binding.set = context.set_index;
