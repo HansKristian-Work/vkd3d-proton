@@ -678,6 +678,9 @@ struct d3d12_root_signature
     unsigned int parameter_count;
     uint32_t main_set;
 
+    uint64_t descriptor_table_mask;
+    uint32_t push_descriptor_mask;
+
     D3D12_ROOT_SIGNATURE_FLAGS flags;
 
     unsigned int descriptor_count;

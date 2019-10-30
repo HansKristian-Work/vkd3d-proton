@@ -2539,8 +2539,8 @@ static void d3d12_command_list_prepare_descriptors(struct d3d12_command_list *li
             root_signature->vk_set_layout);
     bindings->in_use = false;
 
-    bindings->descriptor_table_dirty_mask |= bindings->descriptor_table_active_mask;
-    bindings->push_descriptor_dirty_mask |= bindings->push_descriptor_active_mask;
+    bindings->descriptor_table_dirty_mask |= bindings->descriptor_table_active_mask & root_signature->descriptor_table_mask;
+    bindings->push_descriptor_dirty_mask |= bindings->push_descriptor_active_mask & root_signature->push_descriptor_mask;
 }
 
 static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_descriptor_write,
@@ -4030,10 +4030,8 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
 
     bindings->root_signature = root_signature;
     bindings->descriptor_set = VK_NULL_HANDLE;
-    bindings->descriptor_table_dirty_mask = 0;
-    bindings->descriptor_table_active_mask = 0;
-    bindings->push_descriptor_dirty_mask = 0;
-    bindings->push_descriptor_active_mask = 0;
+    bindings->descriptor_table_dirty_mask = bindings->descriptor_table_active_mask & root_signature->descriptor_table_mask;
+    bindings->push_descriptor_dirty_mask = bindings->push_descriptor_active_mask & root_signature->push_descriptor_mask;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootSignature(ID3D12GraphicsCommandList1 *iface,

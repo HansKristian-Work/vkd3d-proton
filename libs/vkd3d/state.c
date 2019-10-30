@@ -600,11 +600,15 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
     unsigned int i, j, k, range_count;
     uint32_t vk_binding;
 
+    root_signature->descriptor_table_mask = 0;
+
     for (i = 0; i < desc->NumParameters; ++i)
     {
         const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
         if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
             continue;
+
+        root_signature->descriptor_table_mask |= 1ull << i;
 
         table = &root_signature->parameters[i].u.descriptor_table;
         range_count = p->u.DescriptorTable.NumDescriptorRanges;
@@ -666,6 +670,8 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     VkDescriptorSetLayoutBinding *cur_binding = context->current_binding;
     unsigned int i;
 
+    root_signature->push_descriptor_mask = 0;
+
     for (i = 0; i < desc->NumParameters; ++i)
     {
         const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
@@ -673,6 +679,8 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
                 && p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_SRV
                 && p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_UAV)
             continue;
+
+        root_signature->push_descriptor_mask |= 1u << i;
 
         if (p->u.Descriptor.RegisterSpace)
         {
