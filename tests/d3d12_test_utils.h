@@ -111,6 +111,33 @@ static inline void queue_wait_(unsigned int line, ID3D12CommandQueue *queue, ID3
     ok_(line)(hr == S_OK, "Failed to submit wait operation to queue, hr %#x.\n", hr);
 }
 
+#define create_placed_buffer(a, b, c, d, e, f) create_placed_buffer_(__LINE__, a, b, c, d, e, f)
+static inline ID3D12Resource *create_placed_buffer_(unsigned int line, ID3D12Device *device,
+        ID3D12Heap *heap, size_t offset, size_t size, D3D12_RESOURCE_FLAGS resource_flags,
+        D3D12_RESOURCE_STATES initial_resource_state)
+{
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *buffer;
+    HRESULT hr;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = size;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = resource_flags;
+
+    hr = ID3D12Device_CreatePlacedResource(device, heap, offset, &resource_desc,
+            initial_resource_state, NULL, &IID_ID3D12Resource, (void **)&buffer);
+    assert_that_(line)(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    return buffer;
+}
+
 #define create_buffer(a, b, c, d, e) create_buffer_(__LINE__, a, b, c, d, e)
 static ID3D12Resource *create_buffer_(unsigned int line, ID3D12Device *device,
         D3D12_HEAP_TYPE heap_type, size_t size, D3D12_RESOURCE_FLAGS resource_flags,
