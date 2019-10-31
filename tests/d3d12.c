@@ -1039,6 +1039,7 @@ static void test_check_feature_support(void)
 {
     D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT gpu_virtual_address;
     D3D12_FEATURE_DATA_FEATURE_LEVELS feature_levels;
+    D3D12_FEATURE_DATA_ROOT_SIGNATURE root_signature;
     D3D_FEATURE_LEVEL max_supported_feature_level;
     D3D12_FEATURE_DATA_ARCHITECTURE architecture;
     D3D12_FEATURE_DATA_FORMAT_INFO format_info;
@@ -1228,6 +1229,21 @@ static void test_check_feature_support(void)
             gpu_virtual_address.MaxGPUVirtualAddressBitsPerResource);
     trace("GPU virtual address bits per process: %u.\n",
             gpu_virtual_address.MaxGPUVirtualAddressBitsPerProcess);
+
+    root_signature.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ROOT_SIGNATURE,
+            &root_signature, sizeof(root_signature));
+    ok(hr == S_OK, "Failed to get root signature feature support, hr %#x.\n", hr);
+    ok(root_signature.HighestVersion == D3D_ROOT_SIGNATURE_VERSION_1_0,
+            "Got unexpected root signature feature version %#x.\n", root_signature.HighestVersion);
+
+    root_signature.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ROOT_SIGNATURE,
+            &root_signature, sizeof(root_signature));
+    ok(hr == S_OK, "Failed to get root signature feature support, hr %#x.\n", hr);
+    ok(root_signature.HighestVersion == D3D_ROOT_SIGNATURE_VERSION_1_0
+            || root_signature.HighestVersion == D3D_ROOT_SIGNATURE_VERSION_1_1,
+            "Got unexpected root signature feature version %#x.\n", root_signature.HighestVersion);
 
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
