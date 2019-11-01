@@ -314,23 +314,6 @@ static bool vk_binding_from_d3d12_descriptor_range(struct VkDescriptorSetLayoutB
     return true;
 }
 
-struct d3d12_root_signature_info
-{
-    size_t cbv_count;
-    size_t buffer_uav_count;
-    size_t uav_count;
-    size_t buffer_srv_count;
-    size_t srv_count;
-    size_t sampler_count;
-
-    size_t descriptor_count;
-
-    size_t root_constant_count;
-    size_t root_descriptor_count;
-
-    size_t cost;
-};
-
 static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_signature_info *info,
         const D3D12_DESCRIPTOR_RANGE *range)
 {
@@ -910,6 +893,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
     if (FAILED(hr = vkd3d_private_store_init(&root_signature->private_store)))
         goto fail;
+
+    root_signature->info = info;
 
     d3d12_device_add_ref(root_signature->device = device);
 

@@ -668,6 +668,23 @@ struct d3d12_root_parameter
 };
 
 /* ID3D12RootSignature */
+struct d3d12_root_signature_info
+{
+    size_t cbv_count;
+    size_t buffer_uav_count;
+    size_t uav_count;
+    size_t buffer_srv_count;
+    size_t srv_count;
+    size_t sampler_count;
+
+    size_t descriptor_count;
+
+    size_t root_constant_count;
+    size_t root_descriptor_count;
+
+    size_t cost;
+};
+
 struct d3d12_root_signature
 {
     ID3D12RootSignature ID3D12RootSignature_iface;
@@ -697,6 +714,8 @@ struct d3d12_root_signature
 
     unsigned int static_sampler_count;
     VkSampler *static_samplers;
+
+    struct d3d12_root_signature_info info;
 
     struct d3d12_device *device;
 
@@ -844,6 +863,10 @@ struct d3d12_command_allocator
     VkDescriptorPool *descriptor_pools;
     size_t descriptor_pools_size;
     size_t descriptor_pool_count;
+
+    VkDescriptorPool *descriptor_pools_huge;
+    size_t descriptor_pools_huge_size;
+    size_t descriptor_pool_huge_count;
 
     struct vkd3d_view **views;
     size_t views_size;

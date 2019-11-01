@@ -1264,13 +1264,24 @@ static bool d3d12_command_allocator_add_framebuffer(struct d3d12_command_allocat
 }
 
 static bool d3d12_command_allocator_add_descriptor_pool(struct d3d12_command_allocator *allocator,
-        VkDescriptorPool pool)
+        VkDescriptorPool pool, bool recycle)
 {
-    if (!vkd3d_array_reserve((void **)&allocator->descriptor_pools, &allocator->descriptor_pools_size,
+    if (recycle)
+    {
+        if (!vkd3d_array_reserve((void **)&allocator->descriptor_pools, &allocator->descriptor_pools_size,
             allocator->descriptor_pool_count + 1, sizeof(*allocator->descriptor_pools)))
-        return false;
+            return false;
 
-    allocator->descriptor_pools[allocator->descriptor_pool_count++] = pool;
+        allocator->descriptor_pools[allocator->descriptor_pool_count++] = pool;
+    }
+    else
+    {
+        if (!vkd3d_array_reserve((void **)&allocator->descriptor_pools_huge, &allocator->descriptor_pools_huge_size,
+            allocator->descriptor_pool_huge_count + 1, sizeof(*allocator->descriptor_pools_huge)))
+            return false;
+
+        allocator->descriptor_pools_huge[allocator->descriptor_pool_huge_count++] = pool;
+    }
 
     return true;
 }
@@ -1313,9 +1324,10 @@ static bool d3d12_command_allocator_add_transfer_buffer(struct d3d12_command_all
 }
 
 static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
-        struct d3d12_command_allocator *allocator)
+        struct d3d12_command_allocator *allocator, const struct d3d12_root_signature_info *root_signature)
 {
-    static const VkDescriptorPoolSize pool_sizes[] =
+    bool huge_root_signature = false;
+    VkDescriptorPoolSize pool_sizes[] =
     {
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1024},
         {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1024},
@@ -1324,6 +1336,22 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1024},
         {VK_DESCRIPTOR_TYPE_SAMPLER, 1024},
     };
+
+    if (root_signature && (
+        root_signature->cbv_count > 1024 ||
+        root_signature->srv_count > 1024 ||
+        root_signature->uav_count + root_signature->buffer_uav_count > 1024 ||
+        root_signature->sampler_count > 1024))
+    {
+        huge_root_signature = true;
+        pool_sizes[0].descriptorCount = root_signature->cbv_count;
+        pool_sizes[1].descriptorCount = root_signature->srv_count;
+        pool_sizes[2].descriptorCount = root_signature->srv_count;
+        pool_sizes[3].descriptorCount = root_signature->uav_count + root_signature->buffer_uav_count;
+        pool_sizes[4].descriptorCount = root_signature->uav_count;
+        pool_sizes[5].descriptorCount = root_signature->sampler_count;
+    }
+
     struct d3d12_device *device = allocator->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkDescriptorPoolCreateInfo pool_desc;
@@ -1331,7 +1359,7 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
     VkDescriptorPool vk_pool;
     VkResult vr;
 
-    if (allocator->free_descriptor_pool_count > 0)
+    if (!huge_root_signature && allocator->free_descriptor_pool_count > 0)
     {
         vk_pool = allocator->free_descriptor_pools[allocator->free_descriptor_pool_count - 1];
         allocator->free_descriptor_pools[allocator->free_descriptor_pool_count - 1] = VK_NULL_HANDLE;
@@ -1342,7 +1370,7 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
         pool_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         pool_desc.pNext = NULL;
         pool_desc.flags = device->vk_info.EXT_descriptor_indexing ? VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT : 0;
-        pool_desc.maxSets = 512;
+        pool_desc.maxSets = huge_root_signature ? 1 : 512;
         pool_desc.poolSizeCount = ARRAY_SIZE(pool_sizes);
         pool_desc.pPoolSizes = pool_sizes;
         if ((vr = VK_CALL(vkCreateDescriptorPool(vk_device, &pool_desc, NULL, &vk_pool))) < 0)
@@ -1352,7 +1380,7 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
         }
     }
 
-    if (!(d3d12_command_allocator_add_descriptor_pool(allocator, vk_pool)))
+    if (!(d3d12_command_allocator_add_descriptor_pool(allocator, vk_pool, !huge_root_signature)))
     {
         ERR("Failed to add descriptor pool.\n");
         VK_CALL(vkDestroyDescriptorPool(vk_device, vk_pool, NULL));
@@ -1363,7 +1391,8 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
 }
 
 static VkDescriptorSet d3d12_command_allocator_allocate_descriptor_set(
-        struct d3d12_command_allocator *allocator, VkDescriptorSetLayout vk_set_layout)
+        struct d3d12_command_allocator *allocator, VkDescriptorSetLayout vk_set_layout,
+        const struct d3d12_root_signature_info *root_signature)
 {
     struct d3d12_device *device = allocator->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -1373,7 +1402,7 @@ static VkDescriptorSet d3d12_command_allocator_allocate_descriptor_set(
     VkResult vr;
 
     if (!allocator->vk_descriptor_pool)
-        allocator->vk_descriptor_pool = d3d12_command_allocator_allocate_descriptor_pool(allocator);
+        allocator->vk_descriptor_pool = d3d12_command_allocator_allocate_descriptor_pool(allocator, root_signature);
     if (!allocator->vk_descriptor_pool)
         return VK_NULL_HANDLE;
 
@@ -1387,7 +1416,7 @@ static VkDescriptorSet d3d12_command_allocator_allocate_descriptor_set(
 
     allocator->vk_descriptor_pool = VK_NULL_HANDLE;
     if (vr == VK_ERROR_FRAGMENTED_POOL || vr == VK_ERROR_OUT_OF_POOL_MEMORY_KHR)
-        allocator->vk_descriptor_pool = d3d12_command_allocator_allocate_descriptor_pool(allocator);
+        allocator->vk_descriptor_pool = d3d12_command_allocator_allocate_descriptor_pool(allocator, root_signature);
     if (!allocator->vk_descriptor_pool)
     {
         ERR("Failed to allocate descriptor set, vr %d.\n", vr);
@@ -1477,6 +1506,12 @@ static void d3d12_command_allocator_free_resources(struct d3d12_command_allocato
         VK_CALL(vkDestroyDescriptorPool(device->vk_device, allocator->descriptor_pools[i], NULL));
     }
     allocator->descriptor_pool_count = 0;
+
+    for (i = 0; i < allocator->descriptor_pool_huge_count; ++i)
+    {
+        VK_CALL(vkDestroyDescriptorPool(device->vk_device, allocator->descriptor_pools_huge[i], NULL));
+    }
+    allocator->descriptor_pool_huge_count = 0;
 
     for (i = 0; i < allocator->framebuffer_count; ++i)
     {
@@ -1754,6 +1789,10 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     allocator->descriptor_pools = NULL;
     allocator->descriptor_pools_size = 0;
     allocator->descriptor_pool_count = 0;
+
+    allocator->descriptor_pools_huge = NULL;
+    allocator->descriptor_pools_huge_size = 0;
+    allocator->descriptor_pool_huge_count = 0;
 
     allocator->views = NULL;
     allocator->views_size = 0;
@@ -2547,7 +2586,7 @@ static void d3d12_command_list_prepare_descriptors(struct d3d12_command_list *li
      * we need at the very least a new descriptor set.
      */
     bindings->descriptor_set = d3d12_command_allocator_allocate_descriptor_set(list->allocator,
-            root_signature->vk_set_layout);
+            root_signature->vk_set_layout, &root_signature->info);
 
     bindings->in_use = false;
 
@@ -2582,7 +2621,7 @@ static void d3d12_command_list_prepare_uav_counter_descriptors(struct d3d12_comm
     if (list->state->uav_counter_mask)
     {
         bindings->uav_counter_descriptor_set = d3d12_command_allocator_allocate_descriptor_set(list->allocator,
-                list->state->vk_set_layout);
+                list->state->vk_set_layout, NULL);
     }
     else
         bindings->uav_counter_descriptor_set = VK_NULL_HANDLE;
