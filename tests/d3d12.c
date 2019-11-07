@@ -1991,6 +1991,7 @@ static void test_create_committed_resource(void)
 
 static void test_create_heap(void)
 {
+    D3D12_FEATURE_DATA_ARCHITECTURE architecture;
     D3D12_FEATURE_DATA_D3D12_OPTIONS options;
     D3D12_HEAP_DESC desc, result_desc;
     ID3D12Device *device, *tmp_device;
@@ -2136,6 +2137,53 @@ static void test_create_heap(void)
     check_heap_desc(&result_desc, &desc);
     refcount = ID3D12Heap_Release(heap);
     ok(!refcount, "ID3D12Heap has %u references left.\n", (unsigned int)refcount);
+
+    memset(&architecture, 0, sizeof(architecture));
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ARCHITECTURE, &architecture, sizeof(architecture));
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    for (i = D3D12_HEAP_TYPE_DEFAULT; i < D3D12_HEAP_TYPE_CUSTOM; ++i)
+    {
+        vkd3d_test_set_context("Test %u\n", i);
+        desc.Properties = ID3D12Device_GetCustomHeapProperties(device, 1, i);
+        ok(desc.Properties.Type == D3D12_HEAP_TYPE_CUSTOM, "Got unexpected heap type %#x.\n", desc.Properties.Type);
+
+        switch (i)
+        {
+            case D3D12_HEAP_TYPE_DEFAULT:
+                ok(desc.Properties.CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE,
+                        "Got unexpected CPUPageProperty %#x.\n", desc.Properties.CPUPageProperty);
+                ok(desc.Properties.MemoryPoolPreference == (architecture.UMA
+                        ? D3D12_MEMORY_POOL_L0 : D3D12_MEMORY_POOL_L1),
+                        "Got unexpected MemoryPoolPreference %#x.\n", desc.Properties.MemoryPoolPreference);
+                break;
+
+            case D3D12_HEAP_TYPE_UPLOAD:
+                ok(desc.Properties.CPUPageProperty == (architecture.CacheCoherentUMA
+                        ? D3D12_CPU_PAGE_PROPERTY_WRITE_BACK : D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE),
+                        "Got unexpected CPUPageProperty %#x.\n", desc.Properties.CPUPageProperty);
+                ok(desc.Properties.MemoryPoolPreference == D3D12_MEMORY_POOL_L0,
+                        "Got unexpected MemoryPoolPreference %#x.\n", desc.Properties.MemoryPoolPreference);
+                break;
+
+            case D3D12_HEAP_TYPE_READBACK:
+                ok(desc.Properties.CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK,
+                        "Got unexpected CPUPageProperty %#x.\n", desc.Properties.CPUPageProperty);
+                ok(desc.Properties.MemoryPoolPreference == D3D12_MEMORY_POOL_L0,
+                        "Got unexpected MemoryPoolPreference %#x.\n", desc.Properties.MemoryPoolPreference);
+                break;
+
+            default:
+              ok(0, "Invalid heap type %#x.\n", i);
+              continue;
+        }
+
+        hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        result_desc = ID3D12Heap_GetDesc(heap);
+        check_heap_desc(&result_desc, &desc);
+        ID3D12Heap_Release(heap);
+    }
+    vkd3d_test_set_context(NULL);
 
     is_pool_L1_supported = is_memory_pool_L1_supported(device);
     desc.Properties.Type = D3D12_HEAP_TYPE_CUSTOM;

@@ -2398,11 +2398,29 @@ done:
     return S_OK;
 }
 
+bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent)
+{
+    unsigned int i;
+
+    if (coherent)
+        *coherent = true;
+
+    for (i = 0; i < device->memory_properties.memoryTypeCount; ++i)
+    {
+        if (!(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+            return false;
+        if (coherent && !(device->memory_properties.memoryTypes[i].propertyFlags
+                & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+            *coherent = false;
+    }
+
+    return true;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *iface,
         D3D12_FEATURE feature, void *feature_data, UINT feature_data_size)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    unsigned int i;
 
     TRACE("iface %p, feature %#x, feature_data %p, feature_data_size %u.\n",
             iface, feature, feature_data, feature_data_size);
@@ -2443,6 +2461,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
         case D3D12_FEATURE_ARCHITECTURE:
         {
             D3D12_FEATURE_DATA_ARCHITECTURE *data = feature_data;
+            bool coherent;
 
             if (feature_data_size != sizeof(*data))
             {
@@ -2459,15 +2478,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             WARN("Assuming device does not support tile based rendering.\n");
             data->TileBasedRenderer = FALSE;
 
-            data->UMA = TRUE;
-            data->CacheCoherentUMA = TRUE;
-            for (i = 0; i < device->memory_properties.memoryTypeCount; ++i)
-            {
-                if (!(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
-                    data->UMA = FALSE;
-                if (!(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
-                    data->CacheCoherentUMA = FALSE;
-            }
+            data->UMA = d3d12_device_is_uma(device, &coherent);
+            data->CacheCoherentUMA = data->UMA ? coherent : FALSE;
 
             TRACE("Tile based renderer %#x, UMA %#x, cache coherent UMA %#x.\n",
                     data->TileBasedRenderer, data->UMA, data->CacheCoherentUMA);
@@ -2975,10 +2987,42 @@ invalid:
 static D3D12_HEAP_PROPERTIES * STDMETHODCALLTYPE d3d12_device_GetCustomHeapProperties(ID3D12Device *iface,
         D3D12_HEAP_PROPERTIES *heap_properties, UINT node_mask, D3D12_HEAP_TYPE heap_type)
 {
-    FIXME("iface %p, heap_properties %p, node_mask 0x%08x, heap_type %#x stub!\n",
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    bool coherent;
+
+    TRACE("iface %p, heap_properties %p, node_mask 0x%08x, heap_type %#x.\n",
             iface, heap_properties, node_mask, heap_type);
 
     debug_ignored_node_mask(node_mask);
+
+    heap_properties->Type = D3D12_HEAP_TYPE_CUSTOM;
+
+    switch (heap_type)
+    {
+        case D3D12_HEAP_TYPE_DEFAULT:
+            heap_properties->CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE;
+            heap_properties->MemoryPoolPreference = d3d12_device_is_uma(device, NULL)
+                    ?  D3D12_MEMORY_POOL_L0 : D3D12_MEMORY_POOL_L1;
+            break;
+
+        case D3D12_HEAP_TYPE_UPLOAD:
+            heap_properties->CPUPageProperty = d3d12_device_is_uma(device, &coherent) && coherent
+                    ? D3D12_CPU_PAGE_PROPERTY_WRITE_BACK : D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE;
+            heap_properties->MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+            break;
+
+        case D3D12_HEAP_TYPE_READBACK:
+            heap_properties->CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+            heap_properties->MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+            break;
+
+        default:
+            FIXME("Unhandled heap type %#x.\n", heap_type);
+            break;
+    };
+
+    heap_properties->CreationNodeMask = 1;
+    heap_properties->VisibleNodeMask = 1;
 
     return heap_properties;
 }

@@ -34,15 +34,6 @@ static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *propertie
     return true;
 }
 
-static bool is_numa_device(struct d3d12_device *device)
-{
-    unsigned int i;
-    for (i = 0; i < device->memory_properties.memoryTypeCount; ++i)
-        if (!(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
-            return true;
-    return false;
-}
-
 static HRESULT vkd3d_select_memory_type(struct d3d12_device *device, uint32_t memory_type_mask,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, unsigned int *type_index)
 {
@@ -69,7 +60,7 @@ static HRESULT vkd3d_select_memory_type(struct d3d12_device *device, uint32_t me
         case D3D12_HEAP_TYPE_CUSTOM:
             if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN
                     || (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1
-                    && (is_cpu_accessible_heap(heap_properties) || !is_numa_device(device))))
+                    && (is_cpu_accessible_heap(heap_properties) || d3d12_device_is_uma(device, NULL))))
             {
                 WARN("Invalid memory pool preference.\n");
                 return E_INVALIDARG;

@@ -1102,6 +1102,7 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         const struct vkd3d_device_create_info *create_info, struct d3d12_device **device) DECLSPEC_HIDDEN;
 struct vkd3d_queue *d3d12_device_get_vkd3d_queue(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type) DECLSPEC_HIDDEN;
+bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent) DECLSPEC_HIDDEN;
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
         const char *message, ...) VKD3D_PRINTF_FUNC(3, 4) DECLSPEC_HIDDEN;
 struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface) DECLSPEC_HIDDEN;
