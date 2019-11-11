@@ -1872,6 +1872,19 @@ static void d3d12_command_list_invalidate_bindings(struct d3d12_command_list *li
     }
 }
 
+static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point)
+{
+    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+
+    if (!bindings->root_signature)
+        return;
+
+    bindings->descriptor_set = VK_NULL_HANDLE;
+    bindings->descriptor_table_dirty_mask = bindings->descriptor_table_active_mask & bindings->root_signature->descriptor_table_mask;
+    bindings->push_descriptor_dirty_mask = bindings->push_descriptor_active_mask & bindings->root_signature->push_descriptor_mask;
+}
+
 static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state, unsigned int stencil_state,
         const struct d3d12_resource *resource, VkQueueFlags vk_queue_flags, const struct vkd3d_vulkan_info *vk_info,
         VkAccessFlags *access_mask, VkPipelineStageFlags *stage_flags, VkImageLayout *image_layout)
@@ -4039,9 +4052,8 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
         return;
 
     bindings->root_signature = root_signature;
-    bindings->descriptor_set = VK_NULL_HANDLE;
-    bindings->descriptor_table_dirty_mask = bindings->descriptor_table_active_mask & root_signature->descriptor_table_mask;
-    bindings->push_descriptor_dirty_mask = bindings->push_descriptor_active_mask & root_signature->push_descriptor_mask;
+
+    d3d12_command_list_invalidate_root_parameters(list, bind_point);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootSignature(ID3D12GraphicsCommandList1 *iface,
