@@ -1976,13 +1976,14 @@ ULONG vkd3d_resource_decref(ID3D12Resource *resource)
 }
 
 /* CBVs, SRVs, UAVs */
-static struct vkd3d_view *vkd3d_view_create(void)
+static struct vkd3d_view *vkd3d_view_create(enum vkd3d_view_type type)
 {
     struct vkd3d_view *view;
 
     if ((view = vkd3d_malloc(sizeof(*view))))
     {
         view->refcount = 1;
+        view->type = type;
         view->vk_counter_view = VK_NULL_HANDLE;
     }
     return view;
@@ -1993,32 +1994,29 @@ void vkd3d_view_incref(struct vkd3d_view *view)
     InterlockedIncrement(&view->refcount);
 }
 
-static void vkd3d_view_destroy_descriptor(struct vkd3d_view *view,
-        const struct d3d12_desc *descriptor, struct d3d12_device *device)
+static void vkd3d_view_destroy(struct vkd3d_view *view, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
     TRACE("Destroying view %p.\n", view);
 
-    if (!descriptor)
+    switch (view->type)
     {
-        VK_CALL(vkDestroyImageView(device->vk_device, view->u.vk_image_view, NULL));
-    }
-    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
-    {
-        if (descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
-                || descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
+        case VKD3D_VIEW_TYPE_BUFFER:
             VK_CALL(vkDestroyBufferView(device->vk_device, view->u.vk_buffer_view, NULL));
-        else
+            break;
+        case VKD3D_VIEW_TYPE_IMAGE:
             VK_CALL(vkDestroyImageView(device->vk_device, view->u.vk_image_view, NULL));
+            break;
+        case VKD3D_VIEW_TYPE_SAMPLER:
+            VK_CALL(vkDestroySampler(device->vk_device, view->u.vk_sampler, NULL));
+            break;
+        default:
+            WARN("Unhandled view type %d.\n", view->type);
+    }
 
-        if (view->vk_counter_view)
-            VK_CALL(vkDestroyBufferView(device->vk_device, view->vk_counter_view, NULL));
-    }
-    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
-    {
-        VK_CALL(vkDestroySampler(device->vk_device, view->u.vk_sampler, NULL));
-    }
+    if (view->vk_counter_view)
+        VK_CALL(vkDestroyBufferView(device->vk_device, view->vk_counter_view, NULL));
 
     vkd3d_free(view);
 }
@@ -2026,7 +2024,7 @@ static void vkd3d_view_destroy_descriptor(struct vkd3d_view *view,
 void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device)
 {
     if (!InterlockedDecrement(&view->refcount))
-        vkd3d_view_destroy_descriptor(view, NULL, device);
+        vkd3d_view_destroy(view, device);
 }
 
 void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *src,
@@ -2053,7 +2051,7 @@ void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *sr
 
     /* Destroy the view after unlocking to reduce wait time. */
     if (destroy_desc.u.view)
-        vkd3d_view_destroy_descriptor(destroy_desc.u.view, &destroy_desc, device);
+        vkd3d_view_destroy(destroy_desc.u.view, device);
 }
 
 static void d3d12_desc_destroy(struct d3d12_desc *descriptor, struct d3d12_device *device)
@@ -2159,7 +2157,7 @@ static bool vkd3d_create_buffer_view(struct d3d12_device *device,
     if (!vkd3d_create_vk_buffer_view(device, vk_buffer, format, offset, size, &vk_view))
         return false;
 
-    if (!(object = vkd3d_view_create()))
+    if (!(object = vkd3d_view_create(VKD3D_VIEW_TYPE_BUFFER)))
     {
         VK_CALL(vkDestroyBufferView(device->vk_device, vk_view, NULL));
         return false;
@@ -2438,7 +2436,7 @@ static bool vkd3d_create_texture_view(struct d3d12_device *device,
         return false;
     }
 
-    if (!(object = vkd3d_view_create()))
+    if (!(object = vkd3d_view_create(VKD3D_VIEW_TYPE_IMAGE)))
     {
         VK_CALL(vkDestroyImageView(device->vk_device, vk_view, NULL));
         return false;
@@ -3017,7 +3015,7 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         FIXME("Ignoring border color {%.8e, %.8e, %.8e, %.8e}.\n",
                 desc->BorderColor[0], desc->BorderColor[1], desc->BorderColor[2], desc->BorderColor[3]);
 
-    if (!(view = vkd3d_view_create()))
+    if (!(view = vkd3d_view_create(VKD3D_VIEW_TYPE_SAMPLER)))
         return;
 
     if (d3d12_create_sampler(device, desc->Filter, desc->AddressU,

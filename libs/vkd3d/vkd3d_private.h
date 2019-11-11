@@ -458,9 +458,17 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
 HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_ALLOCATION_INFO *allocation_info) DECLSPEC_HIDDEN;
 
+enum vkd3d_view_type
+{
+    VKD3D_VIEW_TYPE_BUFFER,
+    VKD3D_VIEW_TYPE_IMAGE,
+    VKD3D_VIEW_TYPE_SAMPLER,
+};
+
 struct vkd3d_view
 {
     LONG refcount;
+    enum vkd3d_view_type type;
     union
     {
         VkBufferView vk_buffer_view;
