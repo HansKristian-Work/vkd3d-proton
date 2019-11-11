@@ -4818,14 +4818,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
 
     if (d3d12_resource_is_buffer(resource_impl))
     {
-        if (!cpu_descriptor->uav.buffer.size)
+        if (cpu_descriptor->u.view->format->vk_format != VK_FORMAT_R32_UINT)
         {
             FIXME("Not supported for UAV descriptor %p.\n", cpu_descriptor);
             return;
         }
 
         VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, resource_impl->u.vk_buffer,
-                cpu_descriptor->uav.buffer.offset, cpu_descriptor->uav.buffer.size, values[0]));
+                cpu_descriptor->u.view->info.buffer.offset, cpu_descriptor->u.view->info.buffer.size, values[0]));
 
         buffer_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
         buffer_barrier.pNext = NULL;
@@ -4833,8 +4833,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
         buffer_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         buffer_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         buffer_barrier.buffer = resource_impl->u.vk_buffer;
-        buffer_barrier.offset = cpu_descriptor->uav.buffer.offset;
-        buffer_barrier.size = cpu_descriptor->uav.buffer.size;
+        buffer_barrier.offset = cpu_descriptor->u.view->info.buffer.offset;
+        buffer_barrier.size = cpu_descriptor->u.view->info.buffer.size;
 
         vk_barrier_parameters_from_d3d12_resource_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS, 0,
                 resource_impl, list->vk_queue_flags, vk_info, &buffer_barrier.dstAccessMask, &stage_mask, NULL);
@@ -4850,11 +4850,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
         color.uint32[2] = values[2];
         color.uint32[3] = values[3];
 
-        range.aspectMask = cpu_descriptor->uav.texture.vk_aspect_mask;
-        range.baseMipLevel = cpu_descriptor->uav.texture.miplevel_idx;
+        range.aspectMask = cpu_descriptor->u.view->format->vk_aspect_mask;
+        range.baseMipLevel = cpu_descriptor->u.view->info.texture.miplevel_idx;
         range.levelCount = 1;
-        range.baseArrayLayer = cpu_descriptor->uav.texture.layer_idx;
-        range.layerCount = cpu_descriptor->uav.texture.layer_count;
+        range.baseArrayLayer = cpu_descriptor->u.view->info.texture.layer_idx;
+        range.layerCount = cpu_descriptor->u.view->info.texture.layer_count;
 
         VK_CALL(vkCmdClearColorImage(list->vk_command_buffer,
                 resource_impl->u.vk_image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range));

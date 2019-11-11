@@ -468,6 +468,22 @@ struct vkd3d_view
         VkSampler vk_sampler;
     } u;
     VkBufferView vk_counter_view;
+    const struct vkd3d_format *format;
+    union
+    {
+        struct
+        {
+            VkDeviceSize offset;
+            VkDeviceSize size;
+        } buffer;
+        struct
+        {
+            VkImageViewType vk_view_type;
+            unsigned int miplevel_idx;
+            unsigned int layer_idx;
+            unsigned int layer_count;
+        } texture;
+    } info;
 };
 
 void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device) DECLSPEC_HIDDEN;
@@ -482,22 +498,6 @@ struct d3d12_desc
         VkDescriptorBufferInfo vk_cbv_info;
         struct vkd3d_view *view;
     } u;
-
-    union
-    {
-        struct
-        {
-            VkDeviceSize offset;
-            VkDeviceSize size;
-        } buffer;
-        struct
-        {
-            VkImageAspectFlags vk_aspect_mask;
-            unsigned int miplevel_idx;
-            unsigned int layer_idx;
-            unsigned int layer_count;
-        } texture;
-    } uav;
 };
 
 static inline struct d3d12_desc *d3d12_desc_from_cpu_handle(D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle)

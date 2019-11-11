@@ -2166,6 +2166,9 @@ static bool vkd3d_create_buffer_view(struct d3d12_device *device,
     }
 
     object->u.vk_buffer_view = vk_view;
+    object->format = format;
+    object->info.buffer.offset = offset;
+    object->info.buffer.size = size;
     *view = object;
     return true;
 }
@@ -2442,6 +2445,11 @@ static bool vkd3d_create_texture_view(struct d3d12_device *device,
     }
 
     object->u.vk_image_view = vk_view;
+    object->format = format;
+    object->info.texture.vk_view_type = desc->view_type;
+    object->info.texture.miplevel_idx = desc->miplevel_idx;
+    object->info.texture.layer_idx = desc->layer_idx;
+    object->info.texture.layer_count = desc->layer_count;
     *view = object;
     return true;
 }
@@ -2812,16 +2820,6 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
             d3d12_desc_destroy(descriptor, device);
         }
     }
-
-    /* FIXME: Clears are implemented only for R32_UINT buffer UAVs. */
-    if ((desc->Format == DXGI_FORMAT_R32_TYPELESS && (desc->u.Buffer.Flags & VKD3D_VIEW_RAW_BUFFER))
-            || desc->Format == DXGI_FORMAT_R32_UINT)
-    {
-        const struct vkd3d_format *format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
-
-        descriptor->uav.buffer.offset = desc->u.Buffer.FirstElement * format->byte_count;
-        descriptor->uav.buffer.size = desc->u.Buffer.NumElements * format->byte_count;
-    }
 }
 
 static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
@@ -2875,11 +2873,6 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     descriptor->u.view = view;
-
-    descriptor->uav.texture.vk_aspect_mask = vkd3d_desc.format->vk_aspect_mask;
-    descriptor->uav.texture.miplevel_idx = vkd3d_desc.miplevel_idx;
-    descriptor->uav.texture.layer_idx = vkd3d_desc.layer_idx;
-    descriptor->uav.texture.layer_count = vkd3d_desc.layer_count;
 }
 
 void d3d12_desc_create_uav(struct d3d12_desc *descriptor, struct d3d12_device *device,
