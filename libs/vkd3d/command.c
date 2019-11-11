@@ -2480,7 +2480,26 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
     return true;
 }
 
-static bool d3d12_command_list_update_current_pipeline(struct d3d12_command_list *list)
+static bool d3d12_command_list_update_compute_pipeline(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+
+    if (list->current_pipeline != VK_NULL_HANDLE)
+        return true;
+
+    if (!d3d12_pipeline_state_is_compute(list->state))
+    {
+        WARN("Pipeline state %p is not a compute pipeline.\n", list->state);
+        return false;
+    }
+
+    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, list->state->u.compute.vk_pipeline));
+    list->current_pipeline = list->state->u.compute.vk_pipeline;
+
+    return true;
+}
+
+static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkRenderPass vk_render_pass;
@@ -2869,6 +2888,18 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     d3d12_command_list_update_uav_counter_descriptors(list, bind_point);
 }
 
+static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *list)
+{
+    d3d12_command_list_end_current_render_pass(list);
+
+    if (!d3d12_command_list_update_compute_pipeline(list))
+        return false;
+
+    d3d12_command_list_update_descriptors(list, VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    return true;
+}
+
 static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -2876,13 +2907,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     struct VkRenderPassBeginInfo begin_desc;
     VkRenderPass vk_render_pass;
 
-    if (!list->state)
-    {
-        WARN("Pipeline state is NULL.\n");
-        return false;
-    }
-
-    if (!d3d12_command_list_update_current_pipeline(list))
+    if (!d3d12_command_list_update_graphics_pipeline(list))
         return false;
     if (!d3d12_command_list_update_current_framebuffer(list))
         return false;
@@ -3007,17 +3032,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(ID3D12GraphicsCommandL
 
     TRACE("iface %p, x %u, y %u, z %u.\n", iface, x, y, z);
 
-    if (list->state->vk_bind_point != VK_PIPELINE_BIND_POINT_COMPUTE)
+    if (!d3d12_command_list_update_compute_state(list))
     {
-        WARN("Pipeline state %p has bind point %#x.\n", list->state, list->state->vk_bind_point);
+        WARN("Failed to update compute state, ignoring dispatch.\n");
         return;
     }
 
     vk_procs = &list->device->vk_procs;
-
-    d3d12_command_list_end_current_render_pass(list);
-
-    d3d12_command_list_update_descriptors(list, VK_PIPELINE_BIND_POINT_COMPUTE);
 
     VK_CALL(vkCmdDispatch(list->vk_command_buffer, x, y, z));
 }
@@ -3709,25 +3730,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(ID3D12Graphics
 {
     struct d3d12_pipeline_state *state = unsafe_impl_from_ID3D12PipelineState(pipeline_state);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList1(iface);
-    const struct vkd3d_vk_device_procs *vk_procs;
 
     TRACE("iface %p, pipeline_state %p.\n", iface, pipeline_state);
 
     if (list->state == state)
         return;
 
-    vk_procs = &list->device->vk_procs;
-
     d3d12_command_list_invalidate_bindings(list, state);
-
-    if (d3d12_pipeline_state_is_compute(state))
-    {
-        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, state->vk_bind_point, state->u.compute.vk_pipeline));
-    }
-    else
-    {
-        d3d12_command_list_invalidate_current_pipeline(list);
-    }
+    d3d12_command_list_invalidate_current_pipeline(list);
 
     list->state = state;
 }
@@ -5232,16 +5242,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(ID3D12GraphicsC
                     break;
                 }
 
-                if (list->state->vk_bind_point != VK_PIPELINE_BIND_POINT_COMPUTE)
+                if (!d3d12_command_list_update_compute_state(list))
                 {
-                    WARN("Pipeline state %p has bind point %#x, ignoring dispatch.\n",
-                            list->state, list->state->vk_bind_point);
-                    break;
+                    WARN("Failed to update compute state, ignoring dispatch.\n");
+                    return;
                 }
-
-                d3d12_command_list_end_current_render_pass(list);
-
-                d3d12_command_list_update_descriptors(list, VK_PIPELINE_BIND_POINT_COMPUTE);
 
                 VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer,
                         arg_impl->u.vk_buffer, arg_buffer_offset));
