@@ -828,7 +828,7 @@ HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
     return S_OK;
 }
 
-#ifdef _GNU_SOURCE
+#if HAVE_DECL_PROGRAM_INVOCATION_NAME
 
 bool vkd3d_get_program_name(char program_name[PATH_MAX])
 {
@@ -870,7 +870,7 @@ bool vkd3d_get_program_name(char program_name[PATH_MAX])
     return false;
 }
 
-#endif  /* _GNU_SOURCE */
+#endif  /* HAVE_DECL_PROGRAM_INVOCATION_NAME */
 
 static struct vkd3d_private_data *vkd3d_private_store_get_private_data(
         const struct vkd3d_private_store *store, const GUID *tag)

@@ -78,6 +78,8 @@ AC_CHECK_DECL([SpvCapabilityDemoteToHelperInvocationEXT],, [AC_MSG_ERROR([SPIR-V
 # include "vulkan/spirv.h"
 #endif])
 
+AC_CHECK_DECLS([program_invocation_name],,,[#include <errno.h>])
+
 dnl Check for libraries
 m4_ifdef([PKG_PROG_PKG_CONFIG], [PKG_PROG_PKG_CONFIG], [m4_fatal([pkg-config autoconf macros not found.])])
 
