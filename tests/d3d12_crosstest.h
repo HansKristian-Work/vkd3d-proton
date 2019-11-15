@@ -66,6 +66,9 @@ typedef int HRESULT;
 
 #include "d3d12_test_utils.h"
 
+extern PFN_D3D12_CREATE_DEVICE pfn_D3D12CreateDevice;
+extern PFN_D3D12_GET_DEBUG_INTERFACE pfn_D3D12GetDebugInterface;
+
 #if defined(_WIN32) && !defined(VKD3D_FORCE_UTILS_WRAPPER)
 static inline HANDLE create_event(void)
 {
@@ -90,7 +93,10 @@ static inline void destroy_event(HANDLE event)
 #define get_d3d12_pfn(name) get_d3d12_pfn_(#name)
 static inline void *get_d3d12_pfn_(const char *name)
 {
-    return GetProcAddress(GetModuleHandleA("d3d12.dll"), name);
+    static HMODULE d3d12_module;
+    if (!d3d12_module)
+        d3d12_module = LoadLibraryA("d3d12.dll");
+    return GetProcAddress(d3d12_module, name);
 }
 #else
 #define INFINITE VKD3D_INFINITE
@@ -293,7 +299,7 @@ static ID3D12Device *create_device(void)
         return NULL;
     }
 
-    hr = D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device);
+    hr = pfn_D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device);
     if (adapter)
         IUnknown_Release(adapter);
 
@@ -715,7 +721,7 @@ static void enable_d3d12_debug_layer(int argc, char **argv)
 
     if (enable_gpu_based_validation)
     {
-        if (SUCCEEDED(D3D12GetDebugInterface(&IID_ID3D12Debug1, (void **)&debug1)))
+        if (SUCCEEDED(pfn_D3D12GetDebugInterface(&IID_ID3D12Debug1, (void **)&debug1)))
         {
             ID3D12Debug1_SetEnableGPUBasedValidation(debug1, true);
             ID3D12Debug1_Release(debug1);
@@ -727,7 +733,7 @@ static void enable_d3d12_debug_layer(int argc, char **argv)
         }
     }
 
-    if (enable_debug_layer && SUCCEEDED(D3D12GetDebugInterface(&IID_ID3D12Debug, (void **)&debug)))
+    if (enable_debug_layer && SUCCEEDED(pfn_D3D12GetDebugInterface(&IID_ID3D12Debug, (void **)&debug)))
     {
         ID3D12Debug_EnableDebugLayer(debug);
         ID3D12Debug_Release(debug);
