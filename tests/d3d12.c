@@ -25,6 +25,8 @@
 
 static PFN_D3D12_CREATE_VERSIONED_ROOT_SIGNATURE_DESERIALIZER pfn_D3D12CreateVersionedRootSignatureDeserializer;
 static PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE pfn_D3D12SerializeVersionedRootSignature;
+PFN_D3D12_CREATE_DEVICE pfn_D3D12CreateDevice;
+PFN_D3D12_GET_DEBUG_INTERFACE pfn_D3D12GetDebugInterface;
 
 struct vec2
 {
@@ -32813,6 +32815,9 @@ static void test_write_buffer_immediate(void)
 
 START_TEST(d3d12)
 {
+    pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
+    pfn_D3D12GetDebugInterface = get_d3d12_pfn(D3D12GetDebugInterface);
+
     parse_args(argc, argv);
     enable_d3d12_debug_layer(argc, argv);
     init_adapter_info();
