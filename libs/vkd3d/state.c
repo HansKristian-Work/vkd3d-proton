@@ -308,12 +308,6 @@ static bool vk_binding_from_d3d12_descriptor_range(struct VkDescriptorSetLayoutB
             = vk_descriptor_type_from_d3d12_range_type(descriptor_range->RangeType, is_buffer);
     binding_desc->descriptorCount = 1;
 
-    if (descriptor_range->RegisterSpace)
-    {
-        FIXME("Unhandled register space %u.\n", descriptor_range->RegisterSpace);
-        return false;
-    }
-
     binding_desc->stageFlags = stage_flags_from_visibility(shader_visibility);
     binding_desc->pImmutableSamplers = NULL;
 
@@ -509,6 +503,7 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
                 ? push_constants[0].stageFlags : stage_flags_from_visibility(p->ShaderVisibility);
         root_constant->offset = offset;
 
+        root_signature->root_constants[j].register_space = p->u.Constants.RegisterSpace;
         root_signature->root_constants[j].register_index = p->u.Constants.ShaderRegister;
         root_signature->root_constants[j].shader_visibility
                 = vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility);
@@ -532,7 +527,7 @@ struct vkd3d_descriptor_set_context
 };
 
 static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *root_signature,
-        enum vkd3d_shader_descriptor_type descriptor_type, unsigned int register_idx,
+        enum vkd3d_shader_descriptor_type descriptor_type, unsigned int register_space, unsigned int register_idx,
         bool buffer_descriptor, enum vkd3d_shader_visibility shader_visibility,
         struct vkd3d_descriptor_set_context *context)
 {
@@ -540,6 +535,7 @@ static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *
             = &root_signature->descriptor_mapping[context->descriptor_index++];
 
     mapping->type = descriptor_type;
+    mapping->register_space = register_space;
     mapping->register_index = register_idx;
     mapping->shader_visibility = shader_visibility;
     mapping->flags = buffer_descriptor ? VKD3D_SHADER_BINDING_FLAG_BUFFER : VKD3D_SHADER_BINDING_FLAG_IMAGE;
@@ -548,7 +544,7 @@ static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *
 }
 
 static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signature *root_signature,
-        enum vkd3d_shader_descriptor_type descriptor_type, unsigned int base_register_idx,
+        enum vkd3d_shader_descriptor_type descriptor_type, unsigned int register_space, unsigned int base_register_idx,
         unsigned int binding_count, bool is_buffer_descriptor, bool duplicate_descriptors,
         enum vkd3d_shader_visibility shader_visibility, struct vkd3d_descriptor_set_context *context)
 {
@@ -565,10 +561,10 @@ static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signat
     {
         if (duplicate_descriptors)
             d3d12_root_signature_append_vk_binding(root_signature, descriptor_type,
-                    base_register_idx + i, true, shader_visibility, context);
+                    register_space, base_register_idx + i, true, shader_visibility, context);
 
         d3d12_root_signature_append_vk_binding(root_signature, descriptor_type,
-                base_register_idx + i, is_buffer_descriptor, shader_visibility, context);
+                register_space, base_register_idx + i, is_buffer_descriptor, shader_visibility, context);
     }
     return first_binding;
 }
@@ -624,7 +620,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 
             vk_binding = d3d12_root_signature_assign_vk_bindings(root_signature,
                     vkd3d_descriptor_type_from_d3d12_range_type(range->RangeType),
-                    range->BaseShaderRegister, range->NumDescriptors, false, true,
+                    range->RegisterSpace, range->BaseShaderRegister, range->NumDescriptors, false, true,
                     vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility), context);
 
             /* Unroll descriptor range. */
@@ -657,6 +653,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
             table->ranges[j].binding = vk_binding;
             table->ranges[j].descriptor_magic = vkd3d_descriptor_magic_from_d3d12(range->RangeType);
             table->ranges[j].base_register_idx = range->BaseShaderRegister;
+            table->ranges[j].register_space = range->RegisterSpace;
         }
     }
 
@@ -690,7 +687,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
 
         cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
                 vkd3d_descriptor_type_from_d3d12_root_parameter_type(p->ParameterType),
-                p->u.Descriptor.ShaderRegister, 1, true, false,
+                p->u.Descriptor.RegisterSpace, p->u.Descriptor.ShaderRegister, 1, true, false,
                 vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility), context);
         cur_binding->descriptorType = vk_descriptor_type_from_d3d12_root_parameter(p->ParameterType);
         cur_binding->descriptorCount = 1;
@@ -727,7 +724,7 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
             return hr;
 
         cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
-                VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, s->ShaderRegister, 1, false, false,
+                VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, s->RegisterSpace, s->ShaderRegister, 1, false, false,
                 vkd3d_shader_visibility_from_d3d12(s->ShaderVisibility), context);
         cur_binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
         cur_binding->descriptorCount = 1;
@@ -1419,7 +1416,14 @@ static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipel
         if (!(shader_info->uav_counter_mask & (1u << i)))
             continue;
 
+        /* UAV counters will lookup Vulkan bindings based on the mask index directly.
+         * We currently don't know the actual space/binding for this UAV,
+         * but register_space/register_index are fixed up later after compilation is finished. */
+        state->uav_counters[j].register_space = 0;
         state->uav_counters[j].register_index = i;
+
+        state->uav_counters[j].counter_index = i;
+
         state->uav_counters[j].shader_visibility = VKD3D_SHADER_VISIBILITY_COMPUTE;
         state->uav_counters[j].binding.set = context.set_index;
         state->uav_counters[j].binding.binding = context.descriptor_binding;
@@ -1476,6 +1480,10 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     VkResult vr;
     HRESULT hr;
     int ret;
+    unsigned int i, j;
+    unsigned int uav_counter_spaces[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS] = { 0 };
+    unsigned int uav_counter_bindings[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS] = { 0 };
+    struct vkd3d_shader_effective_uav_counter_binding_info uav_binding_info = { VKD3D_SHADER_STRUCTURE_TYPE_EFFECTIVE_UAV_COUNTER_BINDING_INFO };
 
     state->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
     state->refcount = 1;
@@ -1519,6 +1527,11 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.uav_counters = state->uav_counters;
     shader_interface.uav_counter_count = vkd3d_popcount(state->uav_counter_mask);
 
+    shader_interface.next = &uav_binding_info;
+    uav_binding_info.uav_register_spaces = uav_counter_spaces;
+    uav_binding_info.uav_register_bindings = uav_counter_bindings;
+    uav_binding_info.uav_counter_count = VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS;
+
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = NULL;
     pipeline_info.flags = 0;
@@ -1560,6 +1573,17 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
             VK_CALL(vkDestroyPipelineLayout(device->vk_device, state->vk_pipeline_layout, NULL));
         vkd3d_free(state->uav_counters);
         return hr;
+    }
+
+    /* Map back to actual space/bindings for the UAV counter now that we know. */
+    for (i = 0, j = 0; i < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS; i++)
+    {
+        if (state->uav_counter_mask & (1u << i))
+        {
+            state->uav_counters[j].register_space = uav_counter_spaces[i];
+            state->uav_counters[j].register_index = uav_counter_bindings[i];
+            j++;
+        }
     }
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;

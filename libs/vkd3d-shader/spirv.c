@@ -1890,6 +1890,20 @@ struct vkd3d_symbol
     } info;
 };
 
+struct vkd3d_sm51_symbol_key
+{
+    enum vkd3d_shader_descriptor_type descriptor_type;
+    unsigned int idx;
+};
+
+struct vkd3d_sm51_symbol
+{
+    struct rb_entry entry;
+    struct vkd3d_sm51_symbol_key key;
+    unsigned int register_space;
+    unsigned int resource_idx;
+};
+
 static int vkd3d_symbol_compare(const void *key, const struct rb_entry *entry)
 {
     const struct vkd3d_symbol *a = key;
@@ -1900,9 +1914,23 @@ static int vkd3d_symbol_compare(const void *key, const struct rb_entry *entry)
     return memcmp(&a->key, &b->key, sizeof(a->key));
 }
 
+static int vkd3d_sm51_symbol_compare(const void *key, const struct rb_entry *entry)
+{
+    const struct vkd3d_sm51_symbol_key *a = key;
+    const struct vkd3d_sm51_symbol *b = RB_ENTRY_VALUE(entry, const struct vkd3d_sm51_symbol, entry);
+    return memcmp(a, &b->key, sizeof(*a));
+}
+
 static void vkd3d_symbol_free(struct rb_entry *entry, void *context)
 {
     struct vkd3d_symbol *s = RB_ENTRY_VALUE(entry, struct vkd3d_symbol, entry);
+
+    vkd3d_free(s);
+}
+
+static void vkd3d_sm51_symbol_free(struct rb_entry *entry, void *context)
+{
+    struct vkd3d_sm51_symbol *s = RB_ENTRY_VALUE(entry, struct vkd3d_sm51_symbol, entry);
 
     vkd3d_free(s);
 }
@@ -2052,6 +2080,7 @@ struct vkd3d_hull_shader_variables
 
 struct vkd3d_dxbc_compiler
 {
+    struct vkd3d_shader_version shader_version;
     struct vkd3d_spirv_builder spirv_builder;
 
     uint32_t options;
@@ -2061,6 +2090,8 @@ struct vkd3d_dxbc_compiler
     unsigned int temp_count;
     struct vkd3d_hull_shader_variables hs;
     uint32_t sample_positions_id;
+
+    struct rb_tree sm51_resource_table;
 
     enum vkd3d_shader_type shader_type;
 
@@ -2107,6 +2138,11 @@ struct vkd3d_dxbc_compiler
     size_t spec_constants_size;
 };
 
+static bool shader_is_sm_5_1(const struct vkd3d_dxbc_compiler *compiler)
+{
+    return (compiler->shader_version.major * 100 + compiler->shader_version.minor) >= 501;
+}
+
 static bool is_control_point_phase(const struct vkd3d_shader_phase *phase)
 {
     return phase && phase->type == VKD3DSIH_HS_CONTROL_POINT_PHASE;
@@ -2131,6 +2167,8 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
 
     memset(compiler, 0, sizeof(*compiler));
 
+    compiler->shader_version = *shader_version;
+
     max_element_count = max(output_signature->element_count, patch_constant_signature->element_count);
     if (!(compiler->output_info = vkd3d_calloc(max_element_count, sizeof(*compiler->output_info))))
     {
@@ -2142,6 +2180,7 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
     compiler->options = compiler_options;
 
     rb_init(&compiler->symbol_table, vkd3d_symbol_compare);
+    rb_init(&compiler->sm51_resource_table, vkd3d_sm51_symbol_compare);
 
     compiler->shader_type = shader_version->type;
 
@@ -2227,9 +2266,10 @@ static bool vkd3d_dxbc_compiler_check_shader_visibility(const struct vkd3d_dxbc_
 }
 
 static struct vkd3d_push_constant_buffer_binding *vkd3d_dxbc_compiler_find_push_constant_buffer(
-        const struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg)
+        const struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_constant_buffer *cb)
 {
-    unsigned int reg_idx = reg->idx[0].offset;
+    unsigned int reg_idx = cb->register_index;
+    unsigned int reg_space = cb->register_space;
     unsigned int i;
 
     for (i = 0; i < compiler->shader_interface.push_constant_buffer_count; ++i)
@@ -2239,7 +2279,7 @@ static struct vkd3d_push_constant_buffer_binding *vkd3d_dxbc_compiler_find_push_
         if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->pc.shader_visibility))
             continue;
 
-        if (current->pc.register_index == reg_idx)
+        if (current->pc.register_index == reg_idx && current->pc.register_space == reg_space)
             return current;
     }
 
@@ -2274,6 +2314,49 @@ static bool vkd3d_dxbc_compiler_has_combined_sampler(const struct vkd3d_dxbc_com
     return false;
 }
 
+static bool vkd3d_get_binding_info_for_register(
+        struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg,
+        unsigned int *reg_space, unsigned int *reg_binding)
+{
+    const struct vkd3d_sm51_symbol *symbol;
+    struct vkd3d_sm51_symbol_key key;
+    const struct rb_entry *entry;
+
+    if (shader_is_sm_5_1(compiler))
+    {
+        key.descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN;
+        if (reg->type == VKD3DSPR_CONSTBUFFER)
+            key.descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_CBV;
+        else if (reg->type == VKD3DSPR_RESOURCE)
+            key.descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
+        else if (reg->type == VKD3DSPR_UAV)
+            key.descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
+        else if (reg->type == VKD3DSPR_SAMPLER)
+            key.descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER;
+        else
+            FIXME("Unhandled register type %#x.\n", reg->type);
+
+        key.idx = reg->idx[0].offset;
+        entry = rb_get(&compiler->sm51_resource_table, &key);
+        if (entry)
+        {
+            symbol = RB_ENTRY_VALUE(entry, const struct vkd3d_sm51_symbol, entry);
+            *reg_space = symbol->register_space;
+            *reg_binding = symbol->resource_idx;
+            return true;
+        }
+        else
+            return false;
+    }
+    else
+    {
+        *reg_space = 0;
+        *reg_binding = reg->idx[0].offset;
+        return true;
+    }
+}
+
 static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor_binding(
         struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg,
         enum vkd3d_shader_resource_type resource_type, bool is_uav_counter)
@@ -2282,8 +2365,9 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
     enum vkd3d_shader_descriptor_type descriptor_type;
     enum vkd3d_shader_binding_flag resource_type_flag;
     struct vkd3d_shader_descriptor_binding binding;
-    unsigned int reg_idx = reg->idx[0].offset;
     unsigned int i;
+    unsigned int reg_space;
+    unsigned int reg_idx;
 
     descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN;
     if (reg->type == VKD3DSPR_CONSTBUFFER)
@@ -2300,6 +2384,11 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
     resource_type_flag = resource_type == VKD3D_SHADER_RESOURCE_BUFFER
             ? VKD3D_SHADER_BINDING_FLAG_BUFFER : VKD3D_SHADER_BINDING_FLAG_IMAGE;
 
+    if (!vkd3d_get_binding_info_for_register(compiler, reg, &reg_space, &reg_idx))
+    {
+        ERR("Failed to find binding for resource type %#x.\n", reg->type);
+    }
+
     if (is_uav_counter)
     {
         assert(descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV);
@@ -2313,8 +2402,19 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
             if (current->offset)
                 FIXME("Atomic counter offsets are not supported yet.\n");
 
-            if (current->register_index == reg_idx)
+            /* Do not use space/binding, but just the plain index here, since that's how the UAV counter mask is exposed. */
+            if (current->register_index == reg->idx[0].offset)
+            {
+                /* Let pipeline know what the actual space/bindings for the counter are. */
+                const struct vkd3d_shader_effective_uav_counter_binding_info *binding_info =
+                        vkd3d_find_struct(shader_interface->next, EFFECTIVE_UAV_COUNTER_BINDING_INFO);
+                if (binding_info && current->register_index < binding_info->uav_counter_count)
+                {
+                    binding_info->uav_register_spaces[current->register_index] = reg_space;
+                    binding_info->uav_register_bindings[current->register_index] = reg_idx;
+                }
                 return current->binding;
+            }
         }
         if (shader_interface->uav_counter_count)
             FIXME("Could not find descriptor binding for UAV counter %u.\n", reg_idx);
@@ -2331,7 +2431,7 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
             if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
                 continue;
 
-            if (current->type == descriptor_type && current->register_index == reg_idx)
+            if (current->type == descriptor_type && current->register_index == reg_idx && current->register_space == reg_space)
                 return current->binding;
         }
         if (shader_interface->binding_count)
@@ -2825,7 +2925,8 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
     {
         assert(!reg->idx[0].rel_addr);
         indexes[index_count++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, register_info->member_idx);
-        indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[1]);
+        indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler,
+                &reg->idx[shader_is_sm_5_1(compiler) ? 2 : 1]);
     }
     else if (reg->type == VKD3DSPR_IMMCONSTBUFFER)
     {
@@ -2834,6 +2935,11 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
     else if (reg->type == VKD3DSPR_IDXTEMP)
     {
         indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[1]);
+    }
+    else if (reg->type == VKD3DSPR_SAMPLER)
+    {
+        /* SM 5.1 will have an index here referring to something which we throw away. */
+        index_count = 0;
     }
     else if (register_info->is_aggregate)
     {
@@ -4957,10 +5063,19 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
 
     assert(!(instruction->flags & ~VKD3DSI_INDEXED_DYNAMIC));
 
-    if (cb->register_space)
-        FIXME("Unhandled register space %u.\n", cb->register_space);
+    if (shader_is_sm_5_1(compiler))
+    {
+        struct vkd3d_sm51_symbol *sym;
+        sym = vkd3d_calloc(1, sizeof(*sym));
+        sym->key.idx = reg->idx[0].offset;
+        sym->key.descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_CBV;
+        sym->register_space = instruction->declaration.sampler.register_space;
+        sym->resource_idx = instruction->declaration.sampler.register_index;
+        if (rb_put(&compiler->sm51_resource_table, &sym->key, &sym->entry) == -1)
+            vkd3d_free(sym);
+    }
 
-    if ((push_cb = vkd3d_dxbc_compiler_find_push_constant_buffer(compiler, reg)))
+    if ((push_cb = vkd3d_dxbc_compiler_find_push_constant_buffer(compiler, cb)))
     {
         /* Push constant buffers are handled in
          * vkd3d_dxbc_compiler_emit_push_constant_buffers().
@@ -5042,8 +5157,17 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
     uint32_t type_id, ptr_type_id, var_id;
     struct vkd3d_symbol reg_symbol;
 
-    if (instruction->declaration.sampler.register_space)
-        FIXME("Unhandled register space %u.\n", instruction->declaration.sampler.register_space);
+    if (shader_is_sm_5_1(compiler))
+    {
+        struct vkd3d_sm51_symbol *sym;
+        sym = vkd3d_calloc(1, sizeof(*sym));
+        sym->key.idx = reg->idx[0].offset;
+        sym->key.descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER;
+        sym->register_space = instruction->declaration.sampler.register_space;
+        sym->resource_idx = instruction->declaration.sampler.register_index;
+        if (rb_put(&compiler->sm51_resource_table, &sym->key, &sym->entry) == -1)
+            vkd3d_free(sym);
+    }
 
     if (vkd3d_dxbc_compiler_has_combined_sampler(compiler, NULL, reg))
         return;
@@ -5054,7 +5178,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
             ptr_type_id, storage_class, 0);
 
     vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
-            var_id, reg, VKD3D_SHADER_RESOURCE_NONE, false);
+            var_id, reg,VKD3D_SHADER_RESOURCE_NONE, false);
 
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
@@ -5264,8 +5388,18 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *co
 {
     const struct vkd3d_shader_semantic *semantic = &instruction->declaration.semantic;
 
-    if (semantic->register_space)
-        FIXME("Unhandled register space %u.\n", semantic->register_space);
+    if (shader_is_sm_5_1(compiler))
+    {
+        struct vkd3d_sm51_symbol *sym;
+        sym = vkd3d_calloc(1, sizeof(*sym));
+        sym->key.idx = semantic->reg.reg.idx[0].offset;
+        sym->key.descriptor_type = semantic->reg.reg.type == VKD3DSPR_UAV ? VKD3D_SHADER_DESCRIPTOR_TYPE_UAV : VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
+        sym->register_space = semantic->register_space;
+        sym->resource_idx = semantic->register_index;
+        if (rb_put(&compiler->sm51_resource_table, &sym->key, &sym->entry) == -1)
+            vkd3d_free(sym);
+    }
+
     if (instruction->flags)
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
@@ -5278,8 +5412,18 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource_raw(struct vkd3d_dxbc_compiler
 {
     const struct vkd3d_shader_raw_resource *resource = &instruction->declaration.raw_resource;
 
-    if (resource->register_space)
-        FIXME("Unhandled register space %u.\n", resource->register_space);
+    if (shader_is_sm_5_1(compiler))
+    {
+        struct vkd3d_sm51_symbol *sym;
+        sym = vkd3d_calloc(1, sizeof(*sym));
+        sym->key.idx = resource->dst.reg.idx[0].offset;
+        sym->key.descriptor_type = resource->dst.reg.type == VKD3DSPR_UAV ? VKD3D_SHADER_DESCRIPTOR_TYPE_UAV : VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
+        sym->register_space = resource->register_space;
+        sym->resource_idx = resource->register_index;
+        if (rb_put(&compiler->sm51_resource_table, &sym->key, &sym->entry) == -1)
+            vkd3d_free(sym);
+    }
+
     if (instruction->flags)
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
@@ -5294,8 +5438,18 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource_structured(struct vkd3d_dxbc_c
     const struct vkd3d_shader_register *reg = &resource->reg.reg;
     unsigned int stride = resource->byte_stride;
 
-    if (resource->register_space)
-        FIXME("Unhandled register space %u.\n", resource->register_space);
+    if (shader_is_sm_5_1(compiler))
+    {
+        struct vkd3d_sm51_symbol *sym;
+        sym = vkd3d_calloc(1, sizeof(*sym));
+        sym->key.idx = resource->reg.reg.idx[0].offset;
+        sym->key.descriptor_type = resource->reg.reg.type == VKD3DSPR_UAV ? VKD3D_SHADER_DESCRIPTOR_TYPE_UAV : VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
+        sym->register_space = resource->register_space;
+        sym->resource_idx = resource->register_index;
+        if (rb_put(&compiler->sm51_resource_table, &sym->key, &sym->entry) == -1)
+            vkd3d_free(sym);
+    }
+
     if (instruction->flags)
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
@@ -8709,6 +8863,7 @@ void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler)
     vkd3d_spirv_builder_free(&compiler->spirv_builder);
 
     rb_destroy(&compiler->symbol_table, vkd3d_symbol_free, NULL);
+    rb_destroy(&compiler->sm51_resource_table, vkd3d_sm51_symbol_free, NULL);
 
     vkd3d_free(compiler->shader_phases);
     vkd3d_free(compiler->spec_constants);
