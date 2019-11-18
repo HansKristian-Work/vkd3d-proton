@@ -2655,7 +2655,7 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
     const struct d3d12_root_descriptor_table *descriptor_table;
     const struct d3d12_root_descriptor_table_range *range;
     VkDevice vk_device = list->device->vk_device;
-    unsigned int i, j, descriptor_count;
+    unsigned int i, j, k, descriptor_count;
     struct d3d12_desc *descriptor;
 
     descriptor_table = root_signature_get_descriptor_table(root_signature, index);
@@ -2678,14 +2678,26 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
             unsigned int register_idx = range->base_register_idx + j;
 
             /* Track UAV counters. */
-            if (range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_UAV
-                    && register_idx < ARRAY_SIZE(bindings->vk_uav_counter_views))
+            if (list->state->uav_counter_mask != 0 && range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
             {
-                VkBufferView vk_counter_view = descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
-                        ? descriptor->u.view->vk_counter_view : VK_NULL_HANDLE;
-                if (bindings->vk_uav_counter_views[register_idx] != vk_counter_view)
-                    bindings->uav_counter_dirty_mask |= 1u << register_idx;
-                bindings->vk_uav_counter_views[register_idx] = vk_counter_view;
+                const struct vkd3d_shader_uav_counter_binding *counter_bindings = list->state->uav_counters;
+                for (k = 0; k < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS; k++)
+                {
+                    if (list->state->uav_counter_mask & (1u << k))
+                    {
+                        if (counter_bindings->register_space == range->register_space &&
+                            counter_bindings->register_index == register_idx)
+                        {
+                            VkBufferView vk_counter_view = descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
+                                                           ? descriptor->u.view->vk_counter_view : VK_NULL_HANDLE;
+                            if (bindings->vk_uav_counter_views[k] != vk_counter_view)
+                                bindings->uav_counter_dirty_mask |= 1u << k;
+                            bindings->vk_uav_counter_views[k] = vk_counter_view;
+                            break;
+                        }
+                        counter_bindings++;
+                    }
+                }
             }
 
             if (!vk_write_descriptor_set_from_d3d12_desc(current_descriptor_write,
@@ -2841,7 +2853,7 @@ static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_comma
         const struct vkd3d_shader_uav_counter_binding *uav_counter = &state->uav_counters[i];
         const VkBufferView *vk_uav_counter_views = bindings->vk_uav_counter_views;
 
-        assert(vk_uav_counter_views[uav_counter->register_index]);
+        assert(vk_uav_counter_views[uav_counter->counter_index]);
 
         vk_descriptor_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         vk_descriptor_writes[i].pNext = NULL;
@@ -2852,7 +2864,7 @@ static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_comma
         vk_descriptor_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
         vk_descriptor_writes[i].pImageInfo = NULL;
         vk_descriptor_writes[i].pBufferInfo = NULL;
-        vk_descriptor_writes[i].pTexelBufferView = &vk_uav_counter_views[uav_counter->register_index];
+        vk_descriptor_writes[i].pTexelBufferView = &vk_uav_counter_views[uav_counter->counter_index];
     }
 
     VK_CALL(vkUpdateDescriptorSets(vk_device, uav_counter_count, vk_descriptor_writes, 0, NULL));
