@@ -35,6 +35,7 @@ enum vkd3d_shader_structure_type
     VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_TRANSFORM_FEEDBACK_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_DOMAIN_SHADER_COMPILE_ARGUMENTS,
+    VKD3D_SHADER_STRUCTURE_TYPE_EFFECTIVE_UAV_COUNTER_BINDING_INFO,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_STRUCTURE_TYPE),
 };
@@ -138,6 +139,7 @@ struct vkd3d_shader_parameter
 struct vkd3d_shader_resource_binding
 {
     enum vkd3d_shader_descriptor_type type;
+    unsigned int register_space;
     unsigned int register_index;
     enum vkd3d_shader_visibility shader_visibility;
     unsigned int flags; /* vkd3d_shader_binding_flags */
@@ -159,8 +161,10 @@ struct vkd3d_shader_combined_resource_sampler
 
 struct vkd3d_shader_uav_counter_binding
 {
+    unsigned int register_space;
     unsigned int register_index; /* u# */
     enum vkd3d_shader_visibility shader_visibility;
+    unsigned int counter_index;
 
     struct vkd3d_shader_descriptor_binding binding;
     unsigned int offset;
@@ -168,6 +172,7 @@ struct vkd3d_shader_uav_counter_binding
 
 struct vkd3d_shader_push_constant_buffer
 {
+    unsigned int register_space;
     unsigned int register_index;
     enum vkd3d_shader_visibility shader_visibility;
 
@@ -213,6 +218,17 @@ struct vkd3d_shader_transform_feedback_info
     unsigned int element_count;
     const unsigned int *buffer_strides;
     unsigned int buffer_stride_count;
+};
+
+/* Extends vkd3d_shader_interface_info. */
+struct vkd3d_shader_effective_uav_counter_binding_info
+{
+    enum vkd3d_shader_structure_type type;
+    const void *next;
+
+    unsigned int *uav_register_spaces;
+    unsigned int *uav_register_bindings;
+    unsigned int uav_counter_count;
 };
 
 enum vkd3d_shader_target
