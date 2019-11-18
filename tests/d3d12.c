@@ -33266,6 +33266,397 @@ static void test_write_buffer_immediate(void)
     destroy_test_context(&context);
 }
 
+static void test_register_space_sm51(void)
+{
+    ID3D12DescriptorHeap *heap, *sampler_heap, *heaps[2];
+
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+
+    ID3D12Resource *input_buffers[8];
+    ID3D12Resource* input_buffer_counter;
+    ID3D12Resource *textures[2];
+
+    struct resource_readback rb;
+
+    D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    unsigned int i, descriptor_size;
+    D3D12_SAMPLER_DESC sampler_desc;
+    D3D12_SUBRESOURCE_DATA data;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    HRESULT hr;
+    unsigned int counter_value;
+
+    static const DWORD cs_code[] =
+    {
+#if 0
+        cbuffer CBuf : register(b1, space1)
+        {
+            float4 cbuffer_data;
+        };
+
+        Buffer<float4> Buf : register(t1, space2);
+        ByteAddressBuffer AddrBuf : register(t1, space3);
+        StructuredBuffer<float4> StructuredBuf : register(t1, space4);
+        RWBuffer<float4> RWBuf : register(u1, space5);
+        RWByteAddressBuffer RWAddrBuf : register(u1, space6);
+        RWStructuredBuffer<float4> RWStructuredBuf : register(u1, space7);
+        RWStructuredBuffer<float4> RWStructuredBufResult : register(u1, space8);
+
+        Texture2D<float4> Tex : register(t1, space9);
+        RWTexture2D<float> RWTex : register(u1, space10);
+        SamplerState Samp : register(s1, space11);
+
+        [numthreads(1, 1, 1)]
+        void main()
+        {
+            float4 res = 1.0.xxxx;
+
+            res *= cbuffer_data;
+            res *= Buf[0];
+            res *= asfloat(AddrBuf.Load4(0));
+            res *= StructuredBuf[0];
+            res *= RWBuf[0];
+            res *= asfloat(RWAddrBuf.Load4(0));
+            res *= RWStructuredBuf[0];
+
+            res *= Tex.SampleLevel(Samp, float2(0.5, 0.5), 0.0).xxxx;
+            res *= RWTex[int2(0, 0)].xxxx;
+
+            RWStructuredBuf.IncrementCounter();
+            RWStructuredBufResult[0] = res;
+        }
+#endif
+        0x43425844, 0x70f33bd3, 0x11527a3b, 0x08c5298b, 0x28a1f88e, 0x00000001, 0x00000434, 0x00000004,
+        0x00000030, 0x00000040, 0x00000050, 0x00000424, 0x4e475349, 0x00000008, 0x00000000, 0x00000008,
+        0x4e47534f, 0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000003cc, 0x00050051, 0x000000f3,
+        0x0100086a, 0x07000059, 0x00308e46, 0x00000000, 0x00000001, 0x00000001, 0x00000001, 0x00000001,
+        0x0600005a, 0x00306e46, 0x00000000, 0x00000001, 0x00000001, 0x0000000b, 0x07000858, 0x00307e46,
+        0x00000000, 0x00000001, 0x00000001, 0x00005555, 0x00000002, 0x060000a1, 0x00307e46, 0x00000001,
+        0x00000001, 0x00000001, 0x00000003, 0x070000a2, 0x00307e46, 0x00000002, 0x00000001, 0x00000001,
+        0x00000010, 0x00000004, 0x07001858, 0x00307e46, 0x00000003, 0x00000001, 0x00000001, 0x00005555,
+        0x00000009, 0x0700089c, 0x0031ee46, 0x00000000, 0x00000001, 0x00000001, 0x00005555, 0x00000005,
+        0x0600009d, 0x0031ee46, 0x00000001, 0x00000001, 0x00000001, 0x00000006, 0x0780009e, 0x0031ee46,
+        0x00000002, 0x00000001, 0x00000001, 0x00000010, 0x00000007, 0x0700009e, 0x0031ee46, 0x00000003,
+        0x00000001, 0x00000001, 0x00000010, 0x00000008, 0x0700189c, 0x0031ee46, 0x00000004, 0x00000001,
+        0x00000001, 0x00005555, 0x0000000a, 0x02000068, 0x00000002, 0x0400009b, 0x00000001, 0x00000001,
+        0x00000001, 0x0b00002d, 0x001000f2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x00207e46, 0x00000000, 0x00000001, 0x09000038, 0x001000f2, 0x00000000, 0x00100e46,
+        0x00000000, 0x00308e46, 0x00000000, 0x00000001, 0x00000000, 0x080000a5, 0x001000f2, 0x00000001,
+        0x00004001, 0x00000000, 0x00207e46, 0x00000001, 0x00000001, 0x07000038, 0x001000f2, 0x00000000,
+        0x00100e46, 0x00000000, 0x00100e46, 0x00000001, 0x0a0000a7, 0x001000f2, 0x00000001, 0x00004001,
+        0x00000000, 0x00004001, 0x00000000, 0x00207e46, 0x00000002, 0x00000001, 0x07000038, 0x001000f2,
+        0x00000000, 0x00100e46, 0x00000000, 0x00100e46, 0x00000001, 0x0b0000a3, 0x001000f2, 0x00000001,
+        0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0021ee46, 0x00000000, 0x00000001,
+        0x07000038, 0x001000f2, 0x00000000, 0x00100e46, 0x00000000, 0x00100e46, 0x00000001, 0x080000a5,
+        0x001000f2, 0x00000001, 0x00004001, 0x00000000, 0x0021ee46, 0x00000001, 0x00000001, 0x07000038,
+        0x001000f2, 0x00000000, 0x00100e46, 0x00000000, 0x00100e46, 0x00000001, 0x0a0000a7, 0x001000f2,
+        0x00000001, 0x00004001, 0x00000000, 0x00004001, 0x00000000, 0x0021ee46, 0x00000002, 0x00000001,
+        0x07000038, 0x001000f2, 0x00000000, 0x00100e46, 0x00000000, 0x00100e46, 0x00000001, 0x10000048,
+        0x00100012, 0x00000001, 0x00004002, 0x3f000000, 0x3f000000, 0x00000000, 0x00000000, 0x00207e46,
+        0x00000003, 0x00000001, 0x00206000, 0x00000000, 0x00000001, 0x00004001, 0x00000000, 0x07000038,
+        0x001000f2, 0x00000000, 0x00100e46, 0x00000000, 0x00100006, 0x00000001, 0x0b0000a3, 0x00100012,
+        0x00000001, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0021ee46, 0x00000004,
+        0x00000001, 0x07000038, 0x001000f2, 0x00000000, 0x00100e46, 0x00000000, 0x00100006, 0x00000001,
+        0x060000b2, 0x00100012, 0x00000001, 0x0021e000, 0x00000002, 0x00000001, 0x0a0000a8, 0x0021e0f2,
+        0x00000003, 0x00000001, 0x00004001, 0x00000000, 0x00004001, 0x00000000, 0x00100e46, 0x00000000,
+        0x0100003e, 0x30494653, 0x00000008, 0x00000800, 0x00000000,
+    };
+
+    static const D3D12_DESCRIPTOR_RANGE_TYPE range_types[] = {
+            /* CBV<> */
+            D3D12_DESCRIPTOR_RANGE_TYPE_CBV,
+            /* Buffer<> */
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+            /* ByteAddressBuffer<> */
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+            /* StructuredBuffer<> */
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+            /* RWBuffer<> */
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
+            /* RWByteAddressBuffer<> */
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
+            /* RWStructuredBuffer<> with atomic counter */
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
+            /* RWStructuredBuffer<> */
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
+            /* Texture<> */
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+            /* RWTexture<> */
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
+            /* SamplerState */
+            D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
+    };
+
+    static const float buffer_data[ARRAY_SIZE(range_types) - 1][D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT / sizeof(float)] = {
+        { 2.0f, 2.0f, 2.0f, 2.0f },
+        { 3.0f, 3.0f, 3.0f, 3.0f },
+        { 4.0f, 4.0f, 4.0f, 4.0f },
+        { 5.0f, 5.0f, 5.0f, 5.0f },
+        { 6.0f, 6.0f, 6.0f, 6.0f },
+        { 7.0f, 7.0f, 7.0f, 7.0f },
+        { 8.0f, 8.0f, 8.0f, 8.0f },
+        { 9.0f, 9.0f, 9.0f, 9.0f },
+        { 10.0f, 10.0f, 10.0f, 10.0f },
+        { 11.0f, 11.0f, 11.0f, 11.0f },
+    };
+
+    static const uint8_t zero_data[D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT] = { 0 };
+
+    D3D12_DESCRIPTOR_RANGE descriptor_range[ARRAY_SIZE(range_types)];
+
+    if (!init_compute_test_context(&context))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    root_signature_desc.NumParameters = 2;
+    root_signature_desc.Flags = 0;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.pParameters = root_parameters;
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(range_types) - 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = &descriptor_range[0];
+
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[1].DescriptorTable.pDescriptorRanges = &descriptor_range[ARRAY_SIZE(range_types) - 1];
+
+    memset(descriptor_range, 0, sizeof(descriptor_range));
+
+    for (i = 0; i < ARRAY_SIZE(range_types); i++)
+    {
+        descriptor_range[i].NumDescriptors = 1;
+        descriptor_range[i].BaseShaderRegister = 1;
+        descriptor_range[i].RegisterSpace = i + 1;
+        descriptor_range[i].OffsetInDescriptorsFromTableStart = (i != ARRAY_SIZE(range_types) - 1) ? i : 0;
+        descriptor_range[i].RangeType = range_types[i];
+    }
+
+    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    context.pipeline_state = create_compute_pipeline_state(context.device,
+                                                           context.root_signature, shader_bytecode(cs_code, sizeof(cs_code)));
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, ARRAY_SIZE(range_types) - 1);
+    sampler_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 1);
+
+    memset(&sampler_desc, 0, sizeof(sampler_desc));
+    sampler_desc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(sampler_heap);
+    ID3D12Device_CreateSampler(context.device, &sampler_desc, cpu_handle);
+
+    descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(context.device,
+                                                                    D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    /* CBV<> */
+    input_buffers[0] = create_default_buffer(context.device, sizeof(buffer_data[0]),
+                                             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    /* Buffer<> */
+    input_buffers[1] = create_default_buffer(context.device, sizeof(buffer_data[1]),
+                                             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    /* ByteAddressBuffer<> */
+    input_buffers[2] = create_default_buffer(context.device, sizeof(buffer_data[2]),
+                                             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    /* StructuredBuffer<> */
+    input_buffers[3] = create_default_buffer(context.device, sizeof(buffer_data[3]),
+                                             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    /* RWBuffer<> */
+    input_buffers[4] = create_default_buffer(context.device, sizeof(buffer_data[4]),
+                                             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+    /* RWByteAddressBuffer<> */
+    input_buffers[5] = create_default_buffer(context.device, sizeof(buffer_data[5]),
+                                             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+    /* RWStructuredBuffer<> with counter */
+    input_buffers[6] = create_default_buffer(context.device, sizeof(buffer_data[6]),
+                                             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    input_buffer_counter = create_default_buffer(context.device, sizeof(buffer_data[6]),
+                                                 D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    /* RWStructuredBuffer<> without counter */
+    input_buffers[7] = create_default_buffer(context.device, sizeof(buffer_data[7]),
+                                             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    textures[0] = create_default_texture2d(context.device, 1, 1, 1, 1, DXGI_FORMAT_R32_FLOAT, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    textures[1] = create_default_texture2d(context.device, 1, 1, 1, 1, DXGI_FORMAT_R32_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+
+    /* CBV<> */
+    cbv_desc.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(input_buffers[0]);
+    cbv_desc.SizeInBytes = sizeof(buffer_data[0]);
+    ID3D12Device_CreateConstantBufferView(context.device, &cbv_desc, cpu_handle);
+    cpu_handle.ptr += descriptor_size;
+
+    /* Buffer<> */
+    srv_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+    srv_desc.Buffer.FirstElement = 0;
+    srv_desc.Buffer.NumElements = 1;
+    srv_desc.Buffer.StructureByteStride = 0;
+    ID3D12Device_CreateShaderResourceView(context.device, input_buffers[1], &srv_desc, cpu_handle);
+    cpu_handle.ptr += descriptor_size;
+
+    /* ByteAddressBuffer<> */
+    srv_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+    srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+    srv_desc.Buffer.FirstElement = 0;
+    srv_desc.Buffer.NumElements = 4;
+    srv_desc.Buffer.StructureByteStride = 0;
+    ID3D12Device_CreateShaderResourceView(context.device, input_buffers[2], &srv_desc, cpu_handle);
+    cpu_handle.ptr += descriptor_size;
+
+    /* StructuredBuffer<> */
+    srv_desc.Format = DXGI_FORMAT_UNKNOWN;
+    srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+    srv_desc.Buffer.FirstElement = 0;
+    srv_desc.Buffer.NumElements = 1;
+    srv_desc.Buffer.StructureByteStride = 16;
+    ID3D12Device_CreateShaderResourceView(context.device, input_buffers[3], &srv_desc, cpu_handle);
+    cpu_handle.ptr += descriptor_size;
+
+    /* RWBuffer<> */
+    uav_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+    uav_desc.Buffer.FirstElement = 0;
+    uav_desc.Buffer.NumElements = 1;
+    uav_desc.Buffer.StructureByteStride = 0;
+    uav_desc.Buffer.CounterOffsetInBytes = 0;
+    ID3D12Device_CreateUnorderedAccessView(context.device, input_buffers[4], NULL, &uav_desc, cpu_handle);
+    cpu_handle.ptr += descriptor_size;
+
+    /* RWByteAddressBuffer<> */
+    uav_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+    uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+    uav_desc.Buffer.StructureByteStride = 0;
+    uav_desc.Buffer.NumElements = 4;
+    ID3D12Device_CreateUnorderedAccessView(context.device, input_buffers[5], NULL, &uav_desc, cpu_handle);
+    cpu_handle.ptr += descriptor_size;
+
+    /* RWStructuredBuffer<> with counter */
+    uav_desc.Format = DXGI_FORMAT_UNKNOWN;
+    uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+    uav_desc.Buffer.StructureByteStride = 16;
+    uav_desc.Buffer.NumElements = 1;
+    uav_desc.Buffer.CounterOffsetInBytes = 0;
+    ID3D12Device_CreateUnorderedAccessView(context.device, input_buffers[6], input_buffer_counter, &uav_desc, cpu_handle);
+    cpu_handle.ptr += descriptor_size;
+
+    /* RWStructuredBuffer<> without counter */
+    uav_desc.Format = DXGI_FORMAT_UNKNOWN;
+    uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+    uav_desc.Buffer.StructureByteStride = 16;
+    uav_desc.Buffer.NumElements = 1;
+    uav_desc.Buffer.CounterOffsetInBytes = 0;
+    ID3D12Device_CreateUnorderedAccessView(context.device, input_buffers[7], NULL, &uav_desc, cpu_handle);
+    cpu_handle.ptr += descriptor_size;
+
+    /* Texture */
+    srv_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv_desc.Texture2D.MipLevels = 1;
+    srv_desc.Texture2D.MostDetailedMip = 0;
+    srv_desc.Texture2D.PlaneSlice = 0;
+    srv_desc.Texture2D.ResourceMinLODClamp = 0;
+    ID3D12Device_CreateShaderResourceView(context.device, textures[0], &srv_desc, cpu_handle);
+    cpu_handle.ptr += descriptor_size;
+
+    /* RWTexture */
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    uav_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    uav_desc.Texture2D.MipSlice = 0;
+    uav_desc.Texture2D.PlaneSlice = 0;
+    ID3D12Device_CreateUnorderedAccessView(context.device, textures[1], NULL, &uav_desc, cpu_handle);
+
+    for (i = 0; i < 8; i++)
+    {
+        upload_buffer_data(input_buffers[i], 0, sizeof(buffer_data[i]), buffer_data[i], queue, command_list);
+        reset_command_list(command_list, context.allocator);
+
+        if (i != 0)
+        {
+            transition_resource_state(command_list, input_buffers[i], D3D12_RESOURCE_STATE_COPY_DEST,
+                                      i < 4 ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
+                                            : D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        }
+        else
+        {
+            transition_resource_state(command_list, input_buffers[i], D3D12_RESOURCE_STATE_COPY_DEST,
+                                      D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+        }
+    }
+
+    for (i = 0; i < 2; i++)
+    {
+        D3D12_SUBRESOURCE_DATA sub;
+        sub.pData = buffer_data[8 + i];
+        sub.RowPitch = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT / 4;
+        sub.SlicePitch = 0;
+        upload_texture_data(textures[i], &sub, 1, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, textures[i], D3D12_RESOURCE_STATE_COPY_DEST,
+                                  i == 0 ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE : D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
+
+    upload_buffer_data(input_buffer_counter, 0, sizeof(zero_data), zero_data, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, input_buffer_counter, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                              D3D12_RESOURCE_STATE_COPY_DEST);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    heaps[0] = heap; heaps[1] = sampler_heap;
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, ARRAY_SIZE(heaps), heaps);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0,
+                                                            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 1,
+                                                            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(sampler_heap));
+    ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
+
+    transition_resource_state(command_list, input_buffers[7], D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                              D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(input_buffers[7], DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
+    for (i = 0; i < 4; i++)
+    {
+        /* Start value of 9 is for the StructuredBuffer we write to. */
+        float reference = 2 * 3 * 4 * 5 * 6 * 7 * 8 * 10 * 11;
+        ok(get_readback_float(&rb, i, 0) == reference, "Readback value is: %f\n", get_readback_float(&rb, i, 0));
+    }
+    release_resource_readback(&rb);
+    reset_command_list(command_list, context.allocator);
+    counter_value = read_uav_counter(&context, input_buffer_counter, 0);
+    ok(counter_value == 1, "Atomic counter is %u.\n", counter_value);
+
+    for (i = 0; i < 8; i++)
+        ID3D12Resource_Release(input_buffers[i]);
+    for (i = 0; i < 2; i++)
+        ID3D12Resource_Release(textures[i]);
+    ID3D12Resource_Release(input_buffer_counter);
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12DescriptorHeap_Release(sampler_heap);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -33435,4 +33826,5 @@ START_TEST(d3d12)
     run_test(test_conditional_rendering);
     run_test(test_bufinfo_instruction);
     run_test(test_write_buffer_immediate);
+    run_test(test_register_space_sm51);
 }
