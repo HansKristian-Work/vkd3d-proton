@@ -615,6 +615,7 @@ struct vkd3d_shader_semantic
     enum vkd3d_data_type resource_data_type;
     struct vkd3d_shader_dst_param reg;
     unsigned int register_space;
+    unsigned int register_index;
 };
 
 enum vkd3d_shader_input_sysval_semantic
@@ -662,6 +663,7 @@ struct vkd3d_shader_register_semantic
 struct vkd3d_shader_sampler
 {
     struct vkd3d_shader_src_param src;
+    unsigned int register_index;
     unsigned int register_space;
 };
 
@@ -669,6 +671,7 @@ struct vkd3d_shader_constant_buffer
 {
     struct vkd3d_shader_src_param src;
     unsigned int size;
+    unsigned int register_index;
     unsigned int register_space;
 };
 
@@ -676,12 +679,14 @@ struct vkd3d_shader_structured_resource
 {
     struct vkd3d_shader_dst_param reg;
     unsigned int byte_stride;
+    unsigned int register_index;
     unsigned int register_space;
 };
 
 struct vkd3d_shader_raw_resource
 {
     struct vkd3d_shader_dst_param dst;
+    unsigned int register_index;
     unsigned int register_space;
 };
 

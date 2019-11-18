@@ -624,6 +624,10 @@ static void shader_sm4_read_dcl_resource(struct vkd3d_shader_instruction *ins,
         ins->flags = (opcode_token & VKD3D_SM5_UAV_FLAGS_MASK) >> VKD3D_SM5_UAV_FLAGS_SHIFT;
 
     shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.semantic.register_space);
+    if (shader_is_sm_5_1(priv))
+        ins->declaration.semantic.register_index = ins->declaration.semantic.reg.reg.idx[1].offset;
+    else
+        ins->declaration.semantic.register_index = ins->declaration.semantic.reg.reg.idx[0].offset;
 }
 
 static void shader_sm4_read_dcl_constant_buffer(struct vkd3d_shader_instruction *ins,
@@ -647,9 +651,12 @@ static void shader_sm4_read_dcl_constant_buffer(struct vkd3d_shader_instruction 
             return;
         }
 
+        ins->declaration.cb.register_index = ins->declaration.cb.src.reg.idx[1].offset;
         ins->declaration.cb.size = *tokens++;
         shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.cb.register_space);
     }
+    else
+        ins->declaration.cb.register_index = ins->declaration.cb.src.reg.idx[0].offset;
 }
 
 static void shader_sm4_read_dcl_sampler(struct vkd3d_shader_instruction *ins,
@@ -663,6 +670,10 @@ static void shader_sm4_read_dcl_sampler(struct vkd3d_shader_instruction *ins,
         FIXME("Unhandled sampler mode %#x.\n", ins->flags);
     shader_sm4_read_src_param(priv, &tokens, end, VKD3D_DATA_SAMPLER, &ins->declaration.sampler.src);
     shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.sampler.register_space);
+    if (shader_is_sm_5_1(priv))
+        ins->declaration.sampler.register_index = ins->declaration.sampler.src.reg.idx[1].offset;
+    else
+        ins->declaration.sampler.register_index = ins->declaration.sampler.src.reg.idx[0].offset;
 }
 
 static void shader_sm4_read_dcl_index_range(struct vkd3d_shader_instruction *ins,
@@ -863,6 +874,10 @@ static void shader_sm5_read_dcl_uav_raw(struct vkd3d_shader_instruction *ins,
     shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_UAV, &ins->declaration.raw_resource.dst);
     ins->flags = (opcode_token & VKD3D_SM5_UAV_FLAGS_MASK) >> VKD3D_SM5_UAV_FLAGS_SHIFT;
     shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.raw_resource.register_space);
+    if (shader_is_sm_5_1(priv))
+        ins->declaration.raw_resource.register_index = ins->declaration.raw_resource.dst.reg.idx[1].offset;
+    else
+        ins->declaration.raw_resource.register_index = ins->declaration.raw_resource.dst.reg.idx[0].offset;
 }
 
 static void shader_sm5_read_dcl_uav_structured(struct vkd3d_shader_instruction *ins,
@@ -874,9 +889,14 @@ static void shader_sm5_read_dcl_uav_structured(struct vkd3d_shader_instruction *
     shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_UAV, &ins->declaration.structured_resource.reg);
     ins->flags = (opcode_token & VKD3D_SM5_UAV_FLAGS_MASK) >> VKD3D_SM5_UAV_FLAGS_SHIFT;
     ins->declaration.structured_resource.byte_stride = *tokens;
+    tokens++;
     if (ins->declaration.structured_resource.byte_stride % 4)
         FIXME("Byte stride %u is not multiple of 4.\n", ins->declaration.structured_resource.byte_stride);
     shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.structured_resource.register_space);
+    if (shader_is_sm_5_1(priv))
+        ins->declaration.structured_resource.register_index = ins->declaration.structured_resource.reg.reg.idx[1].offset;
+    else
+        ins->declaration.structured_resource.register_index = ins->declaration.structured_resource.reg.reg.idx[0].offset;
 }
 
 static void shader_sm5_read_dcl_tgsm_raw(struct vkd3d_shader_instruction *ins,
@@ -909,9 +929,14 @@ static void shader_sm5_read_dcl_resource_structured(struct vkd3d_shader_instruct
 
     shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_RESOURCE, &ins->declaration.structured_resource.reg);
     ins->declaration.structured_resource.byte_stride = *tokens;
+    tokens++;
     if (ins->declaration.structured_resource.byte_stride % 4)
         FIXME("Byte stride %u is not multiple of 4.\n", ins->declaration.structured_resource.byte_stride);
     shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.structured_resource.register_space);
+    if (shader_is_sm_5_1(priv))
+        ins->declaration.structured_resource.register_index = ins->declaration.structured_resource.reg.reg.idx[1].offset;
+    else
+        ins->declaration.structured_resource.register_index = ins->declaration.structured_resource.reg.reg.idx[0].offset;
 }
 
 static void shader_sm5_read_dcl_resource_raw(struct vkd3d_shader_instruction *ins,
@@ -922,6 +947,10 @@ static void shader_sm5_read_dcl_resource_raw(struct vkd3d_shader_instruction *in
 
     shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_RESOURCE, &ins->declaration.dst);
     shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.raw_resource.register_space);
+    if (shader_is_sm_5_1(priv))
+        ins->declaration.raw_resource.register_index = ins->declaration.dst.reg.idx[1].offset;
+    else
+        ins->declaration.raw_resource.register_index = ins->declaration.dst.reg.idx[0].offset;
 }
 
 static void shader_sm5_read_sync(struct vkd3d_shader_instruction *ins,
