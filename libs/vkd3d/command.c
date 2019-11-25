@@ -4979,6 +4979,22 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     }
 }
 
+static const struct vkd3d_format *vkd3d_fixup_clear_uav_uint_colour(struct d3d12_device *device,
+        DXGI_FORMAT dxgi_format, VkClearColorValue *colour)
+{
+    switch (dxgi_format)
+    {
+        case DXGI_FORMAT_R11G11B10_FLOAT:
+            colour->uint32[0] = (colour->uint32[0] & 0x7ff)
+                    | ((colour->uint32[1] & 0x7ff) << 11)
+                    | ((colour->uint32[2] & 0x3ff) << 22);
+            return vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
+
+        default:
+            return NULL;
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID3D12GraphicsCommandList1 *iface,
         D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, ID3D12Resource *resource,
         const UINT values[4], UINT rect_count, const D3D12_RECT *rects)
@@ -5000,7 +5016,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID
 
     if (view->format->type != VKD3D_FORMAT_TYPE_UINT)
     {
-        if (!(uint_format = vkd3d_find_uint_format(device, view->format->dxgi_format)))
+        if (!(uint_format = vkd3d_find_uint_format(device, view->format->dxgi_format))
+                && !(uint_format = vkd3d_fixup_clear_uav_uint_colour(device, view->format->dxgi_format, &colour)))
         {
             ERR("Unhandled format %#x.\n", view->format->dxgi_format);
             return;

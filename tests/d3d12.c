@@ -4839,11 +4839,11 @@ static void test_clear_unordered_access_view_buffer(void)
                 {0x100, 0, 0, 0}, 0, false, true},
 
         {DXGI_FORMAT_R11G11B10_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
-                {0, 0, 0, 0}, 0, false, true},
+                {0, 0, 0, 0}, 0},
         {DXGI_FORMAT_R11G11B10_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
-                {0x7ff, 0x7ff, 0x3ff, 0}, 0xffffffff, false, true},
+                {0x7ff, 0x7ff, 0x3ff, 0}, 0xffffffff},
         {DXGI_FORMAT_R11G11B10_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
-                {0x7ff, 0, 0x3ff, 0}, 0xffc007ff, false, true},
+                {0x7ff, 0, 0x3ff, 0}, 0xffc007ff},
         {DXGI_FORMAT_R11G11B10_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
                 {0x3f000000 /* 0.5f */, 0x3f800000 /* 1.0f */, 0x40000000 /* 2.0f */, 0}, 0x801e0380, true},
         {DXGI_FORMAT_R11G11B10_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
@@ -5011,7 +5011,7 @@ static void test_clear_unordered_access_view_image(void)
         {DXGI_FORMAT_R8G8B8A8_UINT,   1, 1, 0, 0, 1, 0, {}, {1,       2, 3, 4}, 0x04030201},
         {DXGI_FORMAT_R8G8B8A8_UINT,   1, 1, 0, 0, 1, 0, {}, {0x123,   0, 0, 0}, 0x00000023, false, true},
         {DXGI_FORMAT_R8G8B8A8_UNORM,  1, 1, 0, 0, 1, 0, {}, {1,       2, 3, 4}, 0x04030201},
-        {DXGI_FORMAT_R11G11B10_FLOAT, 1, 1, 0, 0, 1, 0, {}, {1,       2, 3, 4}, 0x00c01001, false, true},
+        {DXGI_FORMAT_R11G11B10_FLOAT, 1, 1, 0, 0, 1, 0, {}, {1,       2, 3, 4}, 0x00c01001},
         /* Test float clears with formats. */
         {DXGI_FORMAT_R16G16_UNORM,    1, 1, 0, 0, 1, 0, {},
                 {0x3f000000 /* 0.5f */, 0x3f800000 /* 1.0f */, 0, 0}, 0xffff8000, true},
