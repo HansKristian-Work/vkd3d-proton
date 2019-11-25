@@ -497,6 +497,23 @@ struct vkd3d_view
 void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_view_incref(struct vkd3d_view *view) DECLSPEC_HIDDEN;
 
+struct vkd3d_texture_view_desc
+{
+    VkImageViewType view_type;
+    const struct vkd3d_format *format;
+    unsigned int miplevel_idx;
+    unsigned int miplevel_count;
+    unsigned int layer_idx;
+    unsigned int layer_count;
+    VkComponentMapping components;
+    bool allowed_swizzle;
+};
+
+bool vkd3d_create_buffer_view(struct d3d12_device *device, VkBuffer vk_buffer, const struct vkd3d_format *format,
+        VkDeviceSize offset, VkDeviceSize size, struct vkd3d_view **view) DECLSPEC_HIDDEN;
+bool vkd3d_create_texture_view(struct d3d12_device *device, VkImage vk_image,
+        const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view) DECLSPEC_HIDDEN;
+
 struct d3d12_desc
 {
     uint32_t magic;
@@ -1225,6 +1242,8 @@ void vkd3d_format_copy_data(const struct vkd3d_format *format, const uint8_t *sr
 
 const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
         DXGI_FORMAT dxgi_format, bool depth_stencil) DECLSPEC_HIDDEN;
+const struct vkd3d_format *vkd3d_find_uint_format(const struct d3d12_device *device,
+        DXGI_FORMAT dxgi_format) DECLSPEC_HIDDEN;
 
 HRESULT vkd3d_init_format_info(struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_cleanup_format_info(struct d3d12_device *device) DECLSPEC_HIDDEN;

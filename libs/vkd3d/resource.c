@@ -2150,8 +2150,7 @@ static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
     return vr == VK_SUCCESS;
 }
 
-static bool vkd3d_create_buffer_view(struct d3d12_device *device,
-        VkBuffer vk_buffer, const struct vkd3d_format *format,
+bool vkd3d_create_buffer_view(struct d3d12_device *device, VkBuffer vk_buffer, const struct vkd3d_format *format,
         VkDeviceSize offset, VkDeviceSize size, struct vkd3d_view **view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -2350,18 +2349,6 @@ static void vk_component_mapping_compose(VkComponentMapping *dst, const VkCompon
     dst->a = swizzle_vk_component(&a, a.a, b->a);
 }
 
-struct vkd3d_texture_view_desc
-{
-    VkImageViewType view_type;
-    const struct vkd3d_format *format;
-    unsigned int miplevel_idx;
-    unsigned int miplevel_count;
-    unsigned int layer_idx;
-    unsigned int layer_count;
-    VkComponentMapping components;
-    bool allowed_swizzle;
-};
-
 static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
         struct d3d12_resource *resource, DXGI_FORMAT view_format)
 {
@@ -2409,9 +2396,8 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
     return true;
 }
 
-static bool vkd3d_create_texture_view(struct d3d12_device *device,
-        VkImage vk_image, const struct vkd3d_texture_view_desc *desc,
-        struct vkd3d_view **view)
+bool vkd3d_create_texture_view(struct d3d12_device *device, VkImage vk_image,
+        const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_format *format = desc->format;
