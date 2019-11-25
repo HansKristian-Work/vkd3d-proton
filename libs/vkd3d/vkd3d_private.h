@@ -205,13 +205,13 @@ HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
 struct vkd3d_gpu_va_allocation
 {
     D3D12_GPU_VIRTUAL_ADDRESS base;
-    SIZE_T size;
+    size_t size;
     void *ptr;
 };
 
 struct vkd3d_gpu_va_slab
 {
-    SIZE_T size;
+    size_t size;
     void *ptr;
 };
 
