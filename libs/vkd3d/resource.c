@@ -1522,6 +1522,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_GetHeapProperties(ID3D12Resource
         {
             memset(heap_properties, 0, sizeof(*heap_properties));
             heap_properties->Type = D3D12_HEAP_TYPE_DEFAULT;
+            heap_properties->CreationNodeMask = 1;
+            heap_properties->VisibleNodeMask = 1;
         }
         if (flags)
             *flags = D3D12_HEAP_FLAG_NONE;

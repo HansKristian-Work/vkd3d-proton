@@ -907,8 +907,8 @@ static void test_external_resource_map(void)
             "Got unexpected CPU page property %#x.\n", heap_properties.CPUPageProperty);
     ok(heap_properties.MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN,
             "Got unexpected memory pool preference %#x.\n", heap_properties.MemoryPoolPreference);
-    todo ok(!!heap_properties.CreationNodeMask, "Got unexpected node mask %#x.\n", heap_properties.CreationNodeMask);
-    todo ok(!!heap_properties.VisibleNodeMask, "Got unexpected node mask %#x.\n", heap_properties.VisibleNodeMask);
+    ok(!!heap_properties.CreationNodeMask, "Got unexpected node mask %#x.\n", heap_properties.CreationNodeMask);
+    ok(!!heap_properties.VisibleNodeMask, "Got unexpected node mask %#x.\n", heap_properties.VisibleNodeMask);
 
     ID3D12Resource_Release(vk_resource);
     vk_device = vkd3d_get_vk_device(device);
