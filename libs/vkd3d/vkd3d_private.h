@@ -1059,6 +1059,38 @@ struct vkd3d_format_compatibility_list
     VkFormat vk_formats[VKD3D_MAX_COMPATIBLE_FORMAT_COUNT];
 };
 
+struct vkd3d_uav_clear_args
+{
+    VkClearColorValue colour;
+    VkOffset2D offset;
+    VkExtent2D extent;
+};
+
+struct vkd3d_uav_clear_pipelines
+{
+    VkPipeline buffer;
+    VkPipeline image_1d;
+    VkPipeline image_1d_array;
+    VkPipeline image_2d;
+    VkPipeline image_2d_array;
+    VkPipeline image_3d;
+};
+
+struct vkd3d_uav_clear_state
+{
+    VkDescriptorSetLayout vk_set_layout_buffer;
+    VkDescriptorSetLayout vk_set_layout_image;
+
+    VkPipelineLayout vk_pipeline_layout_buffer;
+    VkPipelineLayout vk_pipeline_layout_image;
+
+    struct vkd3d_uav_clear_pipelines pipelines_float;
+    struct vkd3d_uav_clear_pipelines pipelines_uint;
+};
+
+HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d3d12_device *device) DECLSPEC_HIDDEN;
+void vkd3d_uav_clear_state_cleanup(struct vkd3d_uav_clear_state *state, struct d3d12_device *device) DECLSPEC_HIDDEN;
+
 /* ID3D12Device */
 struct d3d12_device
 {
@@ -1104,6 +1136,7 @@ struct d3d12_device
     unsigned int format_compatibility_list_count;
     const struct vkd3d_format_compatibility_list *format_compatibility_lists;
     struct vkd3d_null_resources null_resources;
+    struct vkd3d_uav_clear_state uav_clear_state;
 };
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
@@ -1235,6 +1268,11 @@ static inline unsigned int d3d12_resource_desc_get_layer_count(const D3D12_RESOU
 static inline unsigned int d3d12_resource_desc_get_sub_resource_count(const D3D12_RESOURCE_DESC *desc)
 {
     return d3d12_resource_desc_get_layer_count(desc) * desc->MipLevels;
+}
+
+static inline unsigned int vkd3d_compute_workgroup_count(unsigned int thread_count, unsigned int workgroup_size)
+{
+    return (thread_count + workgroup_size - 1) / workgroup_size;
 }
 
 VkCompareOp vk_compare_op_from_d3d12(D3D12_COMPARISON_FUNC op) DECLSPEC_HIDDEN;

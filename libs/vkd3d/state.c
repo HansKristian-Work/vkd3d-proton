@@ -18,6 +18,7 @@
  */
 
 #include "vkd3d_private.h"
+#include "vkd3d_shaders.h"
 
 /* ID3D12RootSignature */
 static inline struct d3d12_root_signature *impl_from_ID3D12RootSignature(ID3D12RootSignature *iface)
@@ -1384,6 +1385,37 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     return S_OK;
 }
 
+static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
+        const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface_info *shader_interface,
+        VkPipelineLayout vk_pipeline_layout, VkPipeline *vk_pipeline)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkComputePipelineCreateInfo pipeline_info;
+    VkResult vr;
+    HRESULT hr;
+
+    pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipeline_info.pNext = NULL;
+    pipeline_info.flags = 0;
+    if (FAILED(hr = create_shader_stage(device, &pipeline_info.stage,
+            VK_SHADER_STAGE_COMPUTE_BIT, code, shader_interface, NULL)))
+        return hr;
+    pipeline_info.layout = vk_pipeline_layout;
+    pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
+    pipeline_info.basePipelineIndex = -1;
+
+    vr = VK_CALL(vkCreateComputePipelines(device->vk_device,
+            VK_NULL_HANDLE, 1, &pipeline_info, NULL, vk_pipeline));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, pipeline_info.stage.module, NULL));
+    if (vr < 0)
+    {
+        WARN("Failed to create Vulkan compute pipeline, hr %#x.", hr);
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const struct d3d12_root_signature *root_signature,
         const struct vkd3d_shader_scan_info *shader_info)
@@ -1470,10 +1502,9 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
-    VkComputePipelineCreateInfo pipeline_info;
     struct vkd3d_shader_scan_info shader_info;
+    VkPipelineLayout vk_pipeline_layout;
     struct vkd3d_shader_code dxbc;
-    VkResult vr;
     HRESULT hr;
     int ret;
 
@@ -1519,36 +1550,18 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.uav_counters = state->uav_counters;
     shader_interface.uav_counter_count = vkd3d_popcount(state->uav_counter_mask);
 
-    pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    pipeline_info.pNext = NULL;
-    pipeline_info.flags = 0;
-    if (FAILED(hr = create_shader_stage(device, &pipeline_info.stage,
-            VK_SHADER_STAGE_COMPUTE_BIT, &desc->CS, &shader_interface, NULL)))
+    vk_pipeline_layout = state->vk_pipeline_layout
+            ? state->vk_pipeline_layout : root_signature->vk_pipeline_layout;
+    if (FAILED(hr = vkd3d_create_compute_pipeline(device, &desc->CS, &shader_interface,
+            vk_pipeline_layout, &state->u.compute.vk_pipeline)))
     {
+        WARN("Failed to create Vulkan compute pipeline, hr %#x.\n", hr);
         if (state->vk_set_layout)
             VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout, NULL));
         if (state->vk_pipeline_layout)
             VK_CALL(vkDestroyPipelineLayout(device->vk_device, state->vk_pipeline_layout, NULL));
         vkd3d_free(state->uav_counters);
         return hr;
-    }
-    pipeline_info.layout = state->vk_pipeline_layout
-            ? state->vk_pipeline_layout : root_signature->vk_pipeline_layout;
-    pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
-    pipeline_info.basePipelineIndex = -1;
-
-    vr = VK_CALL(vkCreateComputePipelines(device->vk_device, VK_NULL_HANDLE,
-            1, &pipeline_info, NULL, &state->u.compute.vk_pipeline));
-    VK_CALL(vkDestroyShaderModule(device->vk_device, pipeline_info.stage.module, NULL));
-    if (vr)
-    {
-        WARN("Failed to create Vulkan compute pipeline, vr %d.\n", vr);
-        if (state->vk_set_layout)
-            VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout, NULL));
-        if (state->vk_pipeline_layout)
-            VK_CALL(vkDestroyPipelineLayout(device->vk_device, state->vk_pipeline_layout, NULL));
-        vkd3d_free(state->uav_counters);
-        return hresult_from_vk_result(vr);
     }
 
     if (FAILED(hr = vkd3d_private_store_init(&state->private_store)))
@@ -2801,4 +2814,163 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     if (!vk_pipeline)
         ERR("Could not get the pipeline compiled by other thread from the cache.\n");
     return vk_pipeline;
+}
+
+static void vkd3d_uav_clear_pipelines_cleanup(struct vkd3d_uav_clear_pipelines *pipelines,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    VK_CALL(vkDestroyPipeline(device->vk_device, pipelines->image_3d, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, pipelines->image_2d_array, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, pipelines->image_2d, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, pipelines->image_1d_array, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, pipelines->image_1d, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, pipelines->buffer, NULL));
+}
+
+void vkd3d_uav_clear_state_cleanup(struct vkd3d_uav_clear_state *state, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    vkd3d_uav_clear_pipelines_cleanup(&state->pipelines_uint, device);
+    vkd3d_uav_clear_pipelines_cleanup(&state->pipelines_float, device);
+
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, state->vk_pipeline_layout_image, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, state->vk_pipeline_layout_buffer, NULL));
+
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout_image, NULL));
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout_buffer, NULL));
+}
+
+HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d3d12_device *device)
+{
+    struct vkd3d_shader_push_constant_buffer push_constant;
+    struct vkd3d_shader_interface_info shader_interface;
+    struct vkd3d_shader_resource_binding binding;
+    VkDescriptorSetLayoutBinding set_binding;
+    VkPushConstantRange push_constant_range;
+    unsigned int i;
+    HRESULT hr;
+
+    const struct
+    {
+        VkDescriptorSetLayout *set_layout;
+        VkPipelineLayout *pipeline_layout;
+        VkDescriptorType descriptor_type;
+    }
+    set_layouts[] =
+    {
+        {&state->vk_set_layout_buffer, &state->vk_pipeline_layout_buffer, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER},
+        {&state->vk_set_layout_image,  &state->vk_pipeline_layout_image, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+    };
+
+    const struct
+    {
+        VkPipeline *pipeline;
+        VkPipelineLayout *pipeline_layout;
+        D3D12_SHADER_BYTECODE code;
+    }
+    pipelines[] =
+    {
+#define SHADER_CODE(name) {name, sizeof(name)}
+        {&state->pipelines_float.buffer, &state->vk_pipeline_layout_buffer,
+                SHADER_CODE(cs_uav_clear_buffer_float_code)},
+        {&state->pipelines_float.image_1d, &state->vk_pipeline_layout_image,
+                SHADER_CODE(cs_uav_clear_1d_float_code)},
+        {&state->pipelines_float.image_1d_array, &state->vk_pipeline_layout_image,
+                SHADER_CODE(cs_uav_clear_1d_array_float_code)},
+        {&state->pipelines_float.image_2d, &state->vk_pipeline_layout_image,
+                SHADER_CODE(cs_uav_clear_2d_float_code)},
+        {&state->pipelines_float.image_2d_array, &state->vk_pipeline_layout_image,
+                SHADER_CODE(cs_uav_clear_2d_array_float_code)},
+        {&state->pipelines_float.image_3d, &state->vk_pipeline_layout_image,
+                SHADER_CODE(cs_uav_clear_3d_float_code)},
+
+        {&state->pipelines_uint.buffer, &state->vk_pipeline_layout_buffer,
+                SHADER_CODE(cs_uav_clear_buffer_uint_code)},
+        {&state->pipelines_uint.image_1d, &state->vk_pipeline_layout_image,
+                SHADER_CODE(cs_uav_clear_1d_uint_code)},
+        {&state->pipelines_uint.image_1d_array, &state->vk_pipeline_layout_image,
+                SHADER_CODE(cs_uav_clear_1d_array_uint_code)},
+        {&state->pipelines_uint.image_2d, &state->vk_pipeline_layout_image,
+                SHADER_CODE(cs_uav_clear_2d_uint_code)},
+        {&state->pipelines_uint.image_2d_array, &state->vk_pipeline_layout_image,
+                SHADER_CODE(cs_uav_clear_2d_array_uint_code)},
+        {&state->pipelines_uint.image_3d, &state->vk_pipeline_layout_image,
+                SHADER_CODE(cs_uav_clear_3d_uint_code)},
+#undef SHADER_CODE
+    };
+
+    memset(state, 0, sizeof(*state));
+
+    set_binding.binding = 0;
+    set_binding.descriptorCount = 1;
+    set_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    set_binding.pImmutableSamplers = NULL;
+
+    binding.type = VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
+    binding.register_index = 0;
+    binding.shader_visibility = VKD3D_SHADER_VISIBILITY_COMPUTE;
+    binding.binding.set = 0;
+    binding.binding.binding = 0;
+
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    push_constant_range.offset = 0;
+    push_constant_range.size = sizeof(struct vkd3d_uav_clear_args);
+
+    push_constant.register_index = 0;
+    push_constant.shader_visibility = VKD3D_SHADER_VISIBILITY_COMPUTE;
+    push_constant.offset = 0;
+    push_constant.size = sizeof(struct vkd3d_uav_clear_args);
+
+    for (i = 0; i < ARRAY_SIZE(set_layouts); ++i)
+    {
+        set_binding.descriptorType = set_layouts[i].descriptor_type;
+
+        if (FAILED(hr = vkd3d_create_descriptor_set_layout(device, 0, 1, &set_binding, set_layouts[i].set_layout)))
+        {
+            ERR("Failed to create descriptor set layout %u, hr %#x.", i, hr);
+            goto fail;
+        }
+
+        if (FAILED(hr = vkd3d_create_pipeline_layout(device, 1, set_layouts[i].set_layout,
+                1, &push_constant_range, set_layouts[i].pipeline_layout)))
+        {
+            ERR("Failed to create pipeline layout %u, hr %#x.", i, hr);
+            goto fail;
+        }
+    }
+
+    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
+    shader_interface.next = NULL;
+    shader_interface.bindings = &binding;
+    shader_interface.binding_count = 1;
+    shader_interface.push_constant_buffers = &push_constant;
+    shader_interface.push_constant_buffer_count = 1;
+    shader_interface.combined_samplers = NULL;
+    shader_interface.combined_sampler_count = 0;
+    shader_interface.uav_counters = NULL;
+    shader_interface.uav_counter_count = 0;
+
+    for (i = 0; i < ARRAY_SIZE(pipelines); ++i)
+    {
+        if (pipelines[i].pipeline_layout == &state->vk_pipeline_layout_buffer)
+            binding.flags = VKD3D_SHADER_BINDING_FLAG_BUFFER;
+        else
+            binding.flags = VKD3D_SHADER_BINDING_FLAG_IMAGE;
+
+        if (FAILED(hr = vkd3d_create_compute_pipeline(device, &pipelines[i].code, &shader_interface,
+                *pipelines[i].pipeline_layout, pipelines[i].pipeline)))
+        {
+            ERR("Failed to create compute pipeline %u, hr %#x.", i, hr);
+            goto fail;
+        }
+    }
+
+    return S_OK;
+
+fail:
+    vkd3d_uav_clear_state_cleanup(state, device);
+    return hr;
 }

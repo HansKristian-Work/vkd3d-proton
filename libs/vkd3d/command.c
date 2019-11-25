@@ -4803,6 +4803,182 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(ID3D12Gra
             &clear_value, rect_count, rects);
 }
 
+struct vkd3d_uav_clear_pipeline
+{
+    VkDescriptorSetLayout vk_set_layout;
+    VkPipelineLayout vk_pipeline_layout;
+    VkPipeline vk_pipeline;
+    VkExtent3D group_size;
+};
+
+static void vkd3d_uav_clear_state_get_buffer_pipeline(const struct vkd3d_uav_clear_state *state,
+        enum vkd3d_format_type format_type, struct vkd3d_uav_clear_pipeline *info)
+{
+    const struct vkd3d_uav_clear_pipelines *pipelines;
+
+    pipelines = format_type == VKD3D_FORMAT_TYPE_UINT ? &state->pipelines_uint : &state->pipelines_float;
+    info->vk_set_layout = state->vk_set_layout_buffer;
+    info->vk_pipeline_layout = state->vk_pipeline_layout_buffer;
+    info->vk_pipeline = pipelines->buffer;
+    info->group_size = (VkExtent3D){128, 1, 1};
+}
+
+static void vkd3d_uav_clear_state_get_image_pipeline(const struct vkd3d_uav_clear_state *state,
+        VkImageViewType image_view_type, enum vkd3d_format_type format_type, struct vkd3d_uav_clear_pipeline *info)
+{
+    const struct vkd3d_uav_clear_pipelines *pipelines;
+
+    pipelines = format_type == VKD3D_FORMAT_TYPE_UINT ? &state->pipelines_uint : &state->pipelines_float;
+    info->vk_set_layout = state->vk_set_layout_image;
+    info->vk_pipeline_layout = state->vk_pipeline_layout_image;
+
+    switch (image_view_type)
+    {
+        case VK_IMAGE_VIEW_TYPE_1D:
+            info->vk_pipeline = pipelines->image_1d;
+            info->group_size = (VkExtent3D){64, 1, 1};
+            break;
+
+        case VK_IMAGE_VIEW_TYPE_1D_ARRAY:
+            info->vk_pipeline = pipelines->image_1d_array;
+            info->group_size = (VkExtent3D){64, 1, 1};
+            break;
+
+        case VK_IMAGE_VIEW_TYPE_2D:
+            info->vk_pipeline = pipelines->image_2d;
+            info->group_size = (VkExtent3D){8, 8, 1};
+            break;
+
+        case VK_IMAGE_VIEW_TYPE_2D_ARRAY:
+            info->vk_pipeline = pipelines->image_2d_array;
+            info->group_size = (VkExtent3D){8, 8, 1};
+            break;
+
+        case VK_IMAGE_VIEW_TYPE_3D:
+            info->vk_pipeline = pipelines->image_3d;
+            info->group_size = (VkExtent3D){8, 8, 1};
+            break;
+
+        default:
+            ERR("Unhandled view type %#x.\n", image_view_type);
+            info->vk_pipeline = VK_NULL_HANDLE;
+            info->group_size = (VkExtent3D){0, 0, 0};
+            break;
+    }
+}
+
+static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, struct vkd3d_view *view, const VkClearColorValue *clear_colour,
+        unsigned int rect_count, const D3D12_RECT *rects)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    unsigned int i, miplevel_idx, layer_count;
+    struct vkd3d_uav_clear_pipeline pipeline;
+    struct vkd3d_uav_clear_args clear_args;
+    VkDescriptorImageInfo image_info;
+    D3D12_RECT full_rect, curr_rect;
+    VkWriteDescriptorSet write_set;
+
+    d3d12_command_list_track_resource_usage(list, resource);
+    d3d12_command_list_end_current_render_pass(list);
+
+    d3d12_command_list_invalidate_current_pipeline(list);
+    d3d12_command_list_invalidate_bindings(list, list->state);
+    d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    if (!d3d12_command_allocator_add_view(list->allocator, view))
+        WARN("Failed to add view.\n");
+
+    clear_args.colour = *clear_colour;
+
+    write_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write_set.pNext = NULL;
+    write_set.dstBinding = 0;
+    write_set.dstArrayElement = 0;
+    write_set.descriptorCount = 1;
+
+    if (d3d12_resource_is_buffer(resource))
+    {
+        write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+        write_set.pImageInfo = NULL;
+        write_set.pBufferInfo = NULL;
+        write_set.pTexelBufferView = &view->u.vk_buffer_view;
+
+        miplevel_idx = 0;
+        layer_count = 1;
+        vkd3d_uav_clear_state_get_buffer_pipeline(&list->device->uav_clear_state,
+                view->format->type, &pipeline);
+    }
+    else
+    {
+        image_info.sampler = VK_NULL_HANDLE;
+        image_info.imageView = view->u.vk_image_view;
+        image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        write_set.pImageInfo = &image_info;
+        write_set.pBufferInfo = NULL;
+        write_set.pTexelBufferView = NULL;
+
+        miplevel_idx = view->info.texture.miplevel_idx;
+        layer_count = view->info.texture.vk_view_type == VK_IMAGE_VIEW_TYPE_3D
+                ? d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx)
+                : view->info.texture.layer_count;
+        vkd3d_uav_clear_state_get_image_pipeline(&list->device->uav_clear_state,
+                view->info.texture.vk_view_type, view->format->type, &pipeline);
+    }
+
+    if (!(write_set.dstSet = d3d12_command_allocator_allocate_descriptor_set(
+            list->allocator, pipeline.vk_set_layout)))
+    {
+        ERR("Failed to allocate descriptor set.\n");
+        return;
+    }
+
+    VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &write_set, 0, NULL));
+
+    full_rect.left = 0;
+    full_rect.right = d3d12_resource_desc_get_width(&resource->desc, miplevel_idx);
+    full_rect.top = 0;
+    full_rect.bottom = d3d12_resource_desc_get_height(&resource->desc, miplevel_idx);
+
+    if (!rect_count)
+    {
+        rects = &full_rect;
+        rect_count = 1;
+    }
+
+    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.vk_pipeline));
+
+    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            pipeline.vk_pipeline_layout, 0, 1, &write_set.dstSet, 0, NULL));
+
+    for (i = 0; i < rect_count; ++i)
+    {
+        /* Clamp to the actual resource region and skip empty rectangles. */
+        curr_rect.left = max(rects[i].left, full_rect.left);
+        curr_rect.top = max(rects[i].top, full_rect.top);
+        curr_rect.right = min(rects[i].right, full_rect.right);
+        curr_rect.bottom = min(rects[i].bottom, full_rect.bottom);
+
+        if (curr_rect.left >= curr_rect.right || curr_rect.top >= curr_rect.bottom)
+            continue;
+
+        clear_args.offset.x = curr_rect.left;
+        clear_args.offset.y = curr_rect.top;
+        clear_args.extent.width = curr_rect.right - curr_rect.left;
+        clear_args.extent.height = curr_rect.bottom - curr_rect.top;
+
+        VK_CALL(vkCmdPushConstants(list->vk_command_buffer, pipeline.vk_pipeline_layout,
+                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(clear_args), &clear_args));
+
+        VK_CALL(vkCmdDispatch(list->vk_command_buffer,
+                vkd3d_compute_workgroup_count(clear_args.extent.width, pipeline.group_size.width),
+                vkd3d_compute_workgroup_count(clear_args.extent.height, pipeline.group_size.height),
+                vkd3d_compute_workgroup_count(layer_count, pipeline.group_size.depth)));
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(ID3D12GraphicsCommandList1 *iface,
         D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, ID3D12Resource *resource,
         const UINT values[4], UINT rect_count, const D3D12_RECT *rects)
@@ -4906,13 +5082,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(I
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList1(iface);
     struct d3d12_resource *resource_impl;
+    VkClearColorValue colour;
+    struct vkd3d_view *view;
 
-    FIXME("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p stub!\n",
+    TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
     resource_impl = unsafe_impl_from_ID3D12Resource(resource);
+    view = d3d12_desc_from_cpu_handle(cpu_handle)->u.view;
+    memcpy(colour.float32, values, sizeof(colour.float32));
 
-    d3d12_command_list_track_resource_usage(list, resource_impl);
+    d3d12_command_list_clear_uav(list, resource_impl, view, &colour, rect_count, rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(ID3D12GraphicsCommandList1 *iface,

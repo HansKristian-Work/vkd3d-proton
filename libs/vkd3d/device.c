@@ -2154,6 +2154,7 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
         vkd3d_private_store_destroy(&device->private_store);
 
         vkd3d_cleanup_format_info(device);
+        vkd3d_uav_clear_state_cleanup(&device->uav_clear_state, device);
         vkd3d_destroy_null_resources(&device->null_resources, device);
         vkd3d_gpu_va_allocator_cleanup(&device->gpu_va_allocator);
         vkd3d_render_pass_cache_cleanup(&device->render_pass_cache, device);
@@ -3447,6 +3448,9 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_init_null_resources(&device->null_resources, device)))
         goto out_cleanup_format_info;
 
+    if (FAILED(hr = vkd3d_uav_clear_state_init(&device->uav_clear_state, device)))
+        goto out_destroy_null_resources;
+
     vkd3d_render_pass_cache_init(&device->render_pass_cache);
     vkd3d_gpu_va_allocator_init(&device->gpu_va_allocator);
 
@@ -3458,6 +3462,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     return S_OK;
 
+out_destroy_null_resources:
+    vkd3d_destroy_null_resources(&device->null_resources, device);
 out_cleanup_format_info:
     vkd3d_cleanup_format_info(device);
 out_stop_fence_worker:
