@@ -854,7 +854,9 @@ static VkDeviceMemory allocate_vulkan_image_memory(ID3D12Device *device,
 static void test_external_resource_map(void)
 {
     struct vkd3d_image_resource_create_info resource_create_info;
+    D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
+    D3D12_HEAP_FLAGS heap_flags;
     ID3D12Resource *vk_resource;
     VkDeviceMemory vk_memory;
     ID3D12Device *device;
@@ -897,6 +899,16 @@ static void test_external_resource_map(void)
 
     gpu_address = ID3D12Resource_GetGPUVirtualAddress(vk_resource);
     ok(!gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
+
+    hr = ID3D12Resource_GetHeapProperties(vk_resource, &heap_properties, &heap_flags);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(heap_properties.Type == D3D12_HEAP_TYPE_DEFAULT, "Got unexpected heap type %#x.\n", heap_properties.Type);
+    ok(heap_properties.CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+            "Got unexpected CPU page property %#x.\n", heap_properties.CPUPageProperty);
+    ok(heap_properties.MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN,
+            "Got unexpected memory pool preference %#x.\n", heap_properties.MemoryPoolPreference);
+    todo ok(!!heap_properties.CreationNodeMask, "Got unexpected node mask %#x.\n", heap_properties.CreationNodeMask);
+    todo ok(!!heap_properties.VisibleNodeMask, "Got unexpected node mask %#x.\n", heap_properties.VisibleNodeMask);
 
     ID3D12Resource_Release(vk_resource);
     vk_device = vkd3d_get_vk_device(device);
