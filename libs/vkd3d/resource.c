@@ -1591,6 +1591,29 @@ static void d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
         FIXME("Ignoring D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER.\n");
 }
 
+static bool d3d12_resource_validate_texture_format(const D3D12_RESOURCE_DESC *desc,
+        const struct vkd3d_format *format)
+{
+    if (!vkd3d_format_is_compressed(format))
+        return true;
+
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D && format->block_height > 1)
+    {
+        WARN("1D texture with a format block height > 1.\n");
+        return false;
+    }
+
+    if (align(desc->Width, format->block_width) != desc->Width
+            || align(desc->Height, format->block_height) != desc->Height)
+    {
+        WARN("Invalid size %"PRIu64"x%u for block compressed format %#x.\n",
+                desc->Width, desc->Height, desc->Format);
+        return false;
+    }
+
+    return true;
+}
+
 static bool d3d12_resource_validate_texture_alignment(const D3D12_RESOURCE_DESC *desc,
         const struct vkd3d_format *format)
 {
@@ -1664,7 +1687,8 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc, struct d3d
                 return E_INVALIDARG;
             }
 
-            if (!d3d12_resource_validate_texture_alignment(desc, format))
+            if (!d3d12_resource_validate_texture_format(desc, format)
+                    || !d3d12_resource_validate_texture_alignment(desc, format))
                 return E_INVALIDARG;
             break;
 
