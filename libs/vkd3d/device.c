@@ -2899,10 +2899,8 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
         UINT count, const D3D12_RESOURCE_DESC *resource_descs)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    const struct vkd3d_format *format;
     const D3D12_RESOURCE_DESC *desc;
     uint64_t requested_alignment;
-    uint64_t estimated_size;
 
     TRACE("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p.\n",
             iface, info, visible_mask, count, resource_descs);
@@ -2926,9 +2924,6 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
         goto invalid;
     }
 
-    requested_alignment = desc->Alignment
-            ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
         info->SizeInBytes = desc->Width;
@@ -2942,27 +2937,9 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
             goto invalid;
         }
 
+        requested_alignment = desc->Alignment
+                ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
         info->Alignment = max(info->Alignment, requested_alignment);
-
-        if (info->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
-        {
-            if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
-            {
-                WARN("Invalid format %#x.\n", desc->Format);
-                goto invalid;
-            }
-
-            estimated_size = desc->Width * desc->Height * desc->DepthOrArraySize * format->byte_count;
-            if (estimated_size > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
-                info->Alignment = max(info->Alignment, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
-        }
-    }
-
-    if (desc->Alignment % info->Alignment)
-    {
-        WARN("Invalid resource alignment %#"PRIx64" (required %#"PRIx64").\n",
-                desc->Alignment, info->Alignment);
-        goto invalid;
     }
 
     info->SizeInBytes = align(info->SizeInBytes, info->Alignment);
