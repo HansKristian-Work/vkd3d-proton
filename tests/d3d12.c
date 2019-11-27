@@ -29437,7 +29437,6 @@ static void test_resource_allocation_info(void)
     ID3D12Device *device;
     unsigned int i, j;
     ULONG refcount;
-    uint64_t size;
 
     static const unsigned int alignments[] =
     {
@@ -29472,12 +29471,15 @@ static void test_resource_allocation_info(void)
         { 4,  4, 1, 1, DXGI_FORMAT_R8_UINT},
         { 8,  8, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
         {16, 16, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
-        {16, 16, 6, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
+        {16, 16, 1024, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
+        {256, 512, 1, 10, DXGI_FORMAT_BC1_UNORM},
+        {256, 512, 64, 1, DXGI_FORMAT_BC1_UNORM},
 
         {1024, 1024, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
         {1024, 1024, 1, 2, DXGI_FORMAT_R8G8B8A8_UNORM},
         {1024, 1024, 1, 3, DXGI_FORMAT_R8G8B8A8_UNORM},
         {1024, 1024, 1, 0, DXGI_FORMAT_R8G8B8A8_UNORM},
+        {260, 512, 1, 1, DXGI_FORMAT_BC1_UNORM},
     };
 
     if (!(device = create_device()))
@@ -29549,8 +29551,7 @@ static void test_resource_allocation_info(void)
         info = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &desc);
         ok(info.Alignment >= D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT,
                 "Got unexpected alignment %"PRIu64".\n", info.Alignment);
-        size = desc.Width * desc.Height * desc.DepthOrArraySize * format_size(desc.Format);
-        if (size <= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+        if (i < 6)
         {
             check_alignment(info.SizeInBytes, info.Alignment);
         }
