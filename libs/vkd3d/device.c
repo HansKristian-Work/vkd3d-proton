@@ -2920,7 +2920,7 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
 
     desc = &resource_descs[0];
 
-    if (FAILED(d3d12_resource_validate_desc(desc)))
+    if (FAILED(d3d12_resource_validate_desc(desc, device)))
     {
         WARN("Invalid resource desc.\n");
         goto invalid;
@@ -3226,7 +3226,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         return;
     }
 
-    if (FAILED(d3d12_resource_validate_desc(desc)))
+    if (FAILED(d3d12_resource_validate_desc(desc, device)))
     {
         WARN("Invalid resource desc.\n");
         return;

@@ -1001,7 +1001,7 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     HRESULT hr;
 
     assert(desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER);
-    assert(d3d12_resource_validate_desc(desc) == S_OK);
+    assert(d3d12_resource_validate_desc(desc, device) == S_OK);
 
     if (!desc->MipLevels)
     {
@@ -1591,8 +1591,45 @@ static void d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
         FIXME("Ignoring D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER.\n");
 }
 
-HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc)
+static bool d3d12_resource_validate_texture_alignment(const D3D12_RESOURCE_DESC *desc,
+        const struct vkd3d_format *format)
 {
+    uint64_t estimated_size;
+
+    if (!desc->Alignment)
+        return true;
+
+    if (desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT
+            && desc->Alignment != D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT
+            && (desc->SampleDesc.Count == 1 || desc->Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT))
+    {
+        WARN("Invalid resource alignment %#"PRIx64".\n", desc->Alignment);
+        return false;
+    }
+
+    if (desc->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+    {
+        /* Windows uses the slice size to determine small alignment eligibility. DepthOrArraySize is ignored. */
+        estimated_size = desc->Width * desc->Height * format->byte_count * format->block_byte_count
+                / (format->block_width * format->block_height);
+        if (estimated_size > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+        {
+            WARN("Invalid resource alignment %#"PRIx64" (required %#x).\n",
+                    desc->Alignment, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
+            return false;
+        }
+    }
+
+    /* The size check for MSAA textures with D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT is probably
+     * not important. The 4MB requirement is no longer universal and Vulkan has no such requirement. */
+
+    return true;
+}
+
+HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc, struct d3d12_device *device)
+{
+    const struct vkd3d_format *format;
+
     switch (desc->Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
@@ -1618,10 +1655,17 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc)
                 WARN("1D texture with a height of %u.\n", desc->Height);
                 return E_INVALIDARG;
             }
-            break;
-
+            /* Fall through. */
         case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
         case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
+            if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
+            {
+                WARN("Invalid format %#x.\n", desc->Format);
+                return E_INVALIDARG;
+            }
+
+            if (!d3d12_resource_validate_texture_alignment(desc, format))
+                return E_INVALIDARG;
             break;
 
         default:
@@ -1630,8 +1674,6 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc)
     }
 
     d3d12_validate_resource_flags(desc->Flags);
-
-    /* FIXME: Validate alignment for textures. */
 
     return S_OK;
 }
@@ -1703,7 +1745,7 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     resource->gpu_address = 0;
     resource->flags = 0;
 
-    if (FAILED(hr = d3d12_resource_validate_desc(&resource->desc)))
+    if (FAILED(hr = d3d12_resource_validate_desc(&resource->desc, device)))
         return hr;
 
     switch (desc->Dimension)
