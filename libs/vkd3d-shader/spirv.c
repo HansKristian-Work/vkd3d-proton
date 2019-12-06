@@ -2500,6 +2500,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_JOININSTID:
             snprintf(buffer, buffer_size, "vJoinInstanceId");
             break;
+        case VKD3DSPR_GSINSTID:
+            snprintf(buffer, buffer_size, "vGSInstanceID");
+            break;
         case VKD3DSPR_PATCHCONST:
             snprintf(buffer, buffer_size, "vpc%u", idx);
             break;
