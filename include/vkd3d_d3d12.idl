@@ -2000,6 +2000,8 @@ interface ID3D12GraphicsCommandList1 : ID3D12GraphicsCommandList
             UINT dst_sub_resource_idx, UINT dst_x, UINT dst_y,
             ID3D12Resource *src_resource, UINT src_sub_resource_idx,
             D3D12_RECT *src_rect, DXGI_FORMAT format, D3D12_RESOLVE_MODE mode);
+
+    void SetViewInstanceMask(UINT mask);
 }
 
 typedef enum D3D12_TILE_RANGE_FLAGS

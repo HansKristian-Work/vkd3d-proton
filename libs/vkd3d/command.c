@@ -5483,6 +5483,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(ID3D12
             src_resource, src_sub_resource_idx, src_rect, format, mode);
 }
 
+static void STDMETHODCALLTYPE d3d12_command_list_SetViewInstanceMask(ID3D12GraphicsCommandList1 *iface, UINT mask)
+{
+    FIXME("iface %p, mask %#x stub!\n", iface, mask);
+}
+
 static const struct ID3D12GraphicsCommandList1Vtbl d3d12_command_list_vtbl =
 {
     /* IUnknown methods */
@@ -5556,6 +5561,7 @@ static const struct ID3D12GraphicsCommandList1Vtbl d3d12_command_list_vtbl =
     d3d12_command_list_OMSetDepthBounds,
     d3d12_command_list_SetSamplePositions,
     d3d12_command_list_ResolveSubresourceRegion,
+    d3d12_command_list_SetViewInstanceMask,
 };
 
 static struct d3d12_command_list *unsafe_impl_from_ID3D12CommandList(ID3D12CommandList *iface)
