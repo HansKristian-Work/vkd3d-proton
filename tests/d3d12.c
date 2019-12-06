@@ -32728,6 +32728,89 @@ static void test_bufinfo_instruction(void)
     destroy_test_context(&context);
 }
 
+static void test_write_buffer_immediate(void)
+{
+    D3D12_WRITEBUFFERIMMEDIATE_PARAMETER parameters[2];
+    ID3D12GraphicsCommandList2 *command_list2;
+    D3D12_WRITEBUFFERIMMEDIATE_MODE modes[2];
+    ID3D12GraphicsCommandList *command_list;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *buffer;
+    ID3D12Device *device;
+    unsigned int value;
+    HRESULT hr;
+
+    static const unsigned int data_values[] = {0xdeadbeef, 0xf00baa};
+
+    if (!init_test_context(&context, NULL))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    if (FAILED(hr = ID3D12GraphicsCommandList_QueryInterface(command_list,
+            &IID_ID3D12GraphicsCommandList2, (void **)&command_list2)))
+    {
+        skip("ID3D12GraphicsCommandList2 not implemented.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    buffer = create_default_buffer(device, sizeof(data_values),
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    upload_buffer_data(buffer, 0, sizeof(data_values), data_values, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+
+    parameters[0].Dest = ID3D12Resource_GetGPUVirtualAddress(buffer);
+    parameters[0].Value = 0x1020304;
+    parameters[1].Dest = parameters[0].Dest + sizeof(data_values[0]);
+    parameters[1].Value = 0xc0d0e0f;
+    ID3D12GraphicsCommandList2_WriteBufferImmediate(command_list2, ARRAY_SIZE(parameters), parameters, NULL);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+    reset_command_list(command_list, context.allocator);
+
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    value = get_readback_uint(&rb, 0, 0, 0);
+    ok(value == parameters[0].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[0].Value);
+    value = get_readback_uint(&rb, 1, 0, 0);
+    ok(value == parameters[1].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[1].Value);
+    release_resource_readback(&rb);
+    reset_command_list(command_list, context.allocator);
+
+    parameters[0].Value = 0x2030405;
+    parameters[1].Value = 0xb0c0d0e;
+    modes[0] = D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_IN;
+    modes[1] = D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_OUT;
+    ID3D12GraphicsCommandList2_WriteBufferImmediate(command_list2, ARRAY_SIZE(parameters), parameters, modes);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+    reset_command_list(command_list, context.allocator);
+
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    value = get_readback_uint(&rb, 0, 0, 0);
+    ok(value == parameters[0].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[0].Value);
+    value = get_readback_uint(&rb, 1, 0, 0);
+    ok(value == parameters[1].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[1].Value);
+    release_resource_readback(&rb);
+    reset_command_list(command_list, context.allocator);
+
+    modes[0] = 0x7fffffff;
+    ID3D12GraphicsCommandList2_WriteBufferImmediate(command_list2, ARRAY_SIZE(parameters), parameters, modes);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    ID3D12Resource_Release(buffer);
+    ID3D12GraphicsCommandList2_Release(command_list2);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     parse_args(argc, argv);
@@ -32891,4 +32974,5 @@ START_TEST(d3d12)
     run_test(test_early_depth_stencil_tests);
     run_test(test_conditional_rendering);
     run_test(test_bufinfo_instruction);
+    run_test(test_write_buffer_immediate);
 }
