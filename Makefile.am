@@ -108,6 +108,7 @@ libvkd3d_la_SOURCES = \
 	libs/vkd3d/vkd3d.map \
 	libs/vkd3d/vkd3d_main.c \
 	libs/vkd3d/vkd3d_private.h \
+	libs/vkd3d/vkd3d_shaders.h \
 	libs/vkd3d/vulkan_procs.h \
 	libs/vkd3d_version.c
 libvkd3d_la_LDFLAGS = $(AM_LDFLAGS) -version-info 2:0:1

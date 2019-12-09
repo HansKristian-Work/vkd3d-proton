@@ -34,15 +34,6 @@ static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *propertie
     return true;
 }
 
-static bool is_numa_device(struct d3d12_device *device)
-{
-    unsigned int i;
-    for (i = 0; i < device->memory_properties.memoryTypeCount; ++i)
-        if (!(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
-            return true;
-    return false;
-}
-
 static HRESULT vkd3d_select_memory_type(struct d3d12_device *device, uint32_t memory_type_mask,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, unsigned int *type_index)
 {
@@ -69,7 +60,7 @@ static HRESULT vkd3d_select_memory_type(struct d3d12_device *device, uint32_t me
         case D3D12_HEAP_TYPE_CUSTOM:
             if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN
                     || (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1
-                    && (is_cpu_accessible_heap(heap_properties) || !is_numa_device(device))))
+                    && (is_cpu_accessible_heap(heap_properties) || d3d12_device_is_uma(device, NULL))))
             {
                 WARN("Invalid memory pool preference.\n");
                 return E_INVALIDARG;
@@ -873,13 +864,17 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.pNext = NULL;
     image_info.flags = 0;
-    if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) && format->type == VKD3D_FORMAT_TYPE_TYPELESS)
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
+    {
+        /* Format compatibility rules are more relaxed for UAVs. */
+        if (format->type != VKD3D_FORMAT_TYPE_UINT)
+            image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+    }
+    else if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) && format->type == VKD3D_FORMAT_TYPE_TYPELESS)
     {
         image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
 
-        /* Format compatibility rules are more relaxed for UAVs. */
-        if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
-                && (compat_list = vkd3d_get_format_compatibility_list(device, desc->Format)))
+        if ((compat_list = vkd3d_get_format_compatibility_list(device, desc->Format)))
         {
             format_list.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR;
             format_list.pNext = NULL;
@@ -1006,7 +1001,7 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     HRESULT hr;
 
     assert(desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER);
-    assert(d3d12_resource_validate_desc(desc) == S_OK);
+    assert(d3d12_resource_validate_desc(desc, device) == S_OK);
 
     if (!desc->MipLevels)
     {
@@ -1527,6 +1522,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_GetHeapProperties(ID3D12Resource
         {
             memset(heap_properties, 0, sizeof(*heap_properties));
             heap_properties->Type = D3D12_HEAP_TYPE_DEFAULT;
+            heap_properties->CreationNodeMask = 1;
+            heap_properties->VisibleNodeMask = 1;
         }
         if (flags)
             *flags = D3D12_HEAP_FLAG_NONE;
@@ -1594,8 +1591,68 @@ static void d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
         FIXME("Ignoring D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER.\n");
 }
 
-HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc)
+static bool d3d12_resource_validate_texture_format(const D3D12_RESOURCE_DESC *desc,
+        const struct vkd3d_format *format)
 {
+    if (!vkd3d_format_is_compressed(format))
+        return true;
+
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D && format->block_height > 1)
+    {
+        WARN("1D texture with a format block height > 1.\n");
+        return false;
+    }
+
+    if (align(desc->Width, format->block_width) != desc->Width
+            || align(desc->Height, format->block_height) != desc->Height)
+    {
+        WARN("Invalid size %"PRIu64"x%u for block compressed format %#x.\n",
+                desc->Width, desc->Height, desc->Format);
+        return false;
+    }
+
+    return true;
+}
+
+static bool d3d12_resource_validate_texture_alignment(const D3D12_RESOURCE_DESC *desc,
+        const struct vkd3d_format *format)
+{
+    uint64_t estimated_size;
+
+    if (!desc->Alignment)
+        return true;
+
+    if (desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT
+            && desc->Alignment != D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT
+            && (desc->SampleDesc.Count == 1 || desc->Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT))
+    {
+        WARN("Invalid resource alignment %#"PRIx64".\n", desc->Alignment);
+        return false;
+    }
+
+    if (desc->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+    {
+        /* Windows uses the slice size to determine small alignment eligibility. DepthOrArraySize is ignored. */
+        estimated_size = desc->Width * desc->Height * format->byte_count * format->block_byte_count
+                / (format->block_width * format->block_height);
+        if (estimated_size > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+        {
+            WARN("Invalid resource alignment %#"PRIx64" (required %#x).\n",
+                    desc->Alignment, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
+            return false;
+        }
+    }
+
+    /* The size check for MSAA textures with D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT is probably
+     * not important. The 4MB requirement is no longer universal and Vulkan has no such requirement. */
+
+    return true;
+}
+
+HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc, struct d3d12_device *device)
+{
+    const struct vkd3d_format *format;
+
     switch (desc->Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
@@ -1621,10 +1678,18 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc)
                 WARN("1D texture with a height of %u.\n", desc->Height);
                 return E_INVALIDARG;
             }
-            break;
-
+            /* Fall through. */
         case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
         case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
+            if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
+            {
+                WARN("Invalid format %#x.\n", desc->Format);
+                return E_INVALIDARG;
+            }
+
+            if (!d3d12_resource_validate_texture_format(desc, format)
+                    || !d3d12_resource_validate_texture_alignment(desc, format))
+                return E_INVALIDARG;
             break;
 
         default:
@@ -1633,8 +1698,6 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc)
     }
 
     d3d12_validate_resource_flags(desc->Flags);
-
-    /* FIXME: Validate alignment for textures. */
 
     return S_OK;
 }
@@ -1706,7 +1769,7 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     resource->gpu_address = 0;
     resource->flags = 0;
 
-    if (FAILED(hr = d3d12_resource_validate_desc(&resource->desc)))
+    if (FAILED(hr = d3d12_resource_validate_desc(&resource->desc, device)))
         return hr;
 
     switch (desc->Dimension)
@@ -1985,13 +2048,14 @@ ULONG vkd3d_resource_decref(ID3D12Resource *resource)
 }
 
 /* CBVs, SRVs, UAVs */
-static struct vkd3d_view *vkd3d_view_create(void)
+static struct vkd3d_view *vkd3d_view_create(enum vkd3d_view_type type)
 {
     struct vkd3d_view *view;
 
     if ((view = vkd3d_malloc(sizeof(*view))))
     {
         view->refcount = 1;
+        view->type = type;
         view->vk_counter_view = VK_NULL_HANDLE;
     }
     return view;
@@ -2002,32 +2066,29 @@ void vkd3d_view_incref(struct vkd3d_view *view)
     InterlockedIncrement(&view->refcount);
 }
 
-static void vkd3d_view_destroy_descriptor(struct vkd3d_view *view,
-        const struct d3d12_desc *descriptor, struct d3d12_device *device)
+static void vkd3d_view_destroy(struct vkd3d_view *view, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
     TRACE("Destroying view %p.\n", view);
 
-    if (!descriptor)
+    switch (view->type)
     {
-        VK_CALL(vkDestroyImageView(device->vk_device, view->u.vk_image_view, NULL));
-    }
-    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SRV || descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
-    {
-        if (descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
-                || descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
+        case VKD3D_VIEW_TYPE_BUFFER:
             VK_CALL(vkDestroyBufferView(device->vk_device, view->u.vk_buffer_view, NULL));
-        else
+            break;
+        case VKD3D_VIEW_TYPE_IMAGE:
             VK_CALL(vkDestroyImageView(device->vk_device, view->u.vk_image_view, NULL));
+            break;
+        case VKD3D_VIEW_TYPE_SAMPLER:
+            VK_CALL(vkDestroySampler(device->vk_device, view->u.vk_sampler, NULL));
+            break;
+        default:
+            WARN("Unhandled view type %d.\n", view->type);
+    }
 
-        if (view->vk_counter_view)
-            VK_CALL(vkDestroyBufferView(device->vk_device, view->vk_counter_view, NULL));
-    }
-    else if (descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
-    {
-        VK_CALL(vkDestroySampler(device->vk_device, view->u.vk_sampler, NULL));
-    }
+    if (view->vk_counter_view)
+        VK_CALL(vkDestroyBufferView(device->vk_device, view->vk_counter_view, NULL));
 
     vkd3d_free(view);
 }
@@ -2035,7 +2096,7 @@ static void vkd3d_view_destroy_descriptor(struct vkd3d_view *view,
 void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device)
 {
     if (!InterlockedDecrement(&view->refcount))
-        vkd3d_view_destroy_descriptor(view, NULL, device);
+        vkd3d_view_destroy(view, device);
 }
 
 void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *src,
@@ -2062,7 +2123,7 @@ void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *sr
 
     /* Destroy the view after unlocking to reduce wait time. */
     if (destroy_desc.u.view)
-        vkd3d_view_destroy_descriptor(destroy_desc.u.view, &destroy_desc, device);
+        vkd3d_view_destroy(destroy_desc.u.view, device);
 }
 
 static void d3d12_desc_destroy(struct d3d12_desc *descriptor, struct d3d12_device *device)
@@ -2157,8 +2218,7 @@ static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
     return vr == VK_SUCCESS;
 }
 
-static bool vkd3d_create_buffer_view(struct d3d12_device *device,
-        VkBuffer vk_buffer, const struct vkd3d_format *format,
+bool vkd3d_create_buffer_view(struct d3d12_device *device, VkBuffer vk_buffer, const struct vkd3d_format *format,
         VkDeviceSize offset, VkDeviceSize size, struct vkd3d_view **view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -2168,13 +2228,16 @@ static bool vkd3d_create_buffer_view(struct d3d12_device *device,
     if (!vkd3d_create_vk_buffer_view(device, vk_buffer, format, offset, size, &vk_view))
         return false;
 
-    if (!(object = vkd3d_view_create()))
+    if (!(object = vkd3d_view_create(VKD3D_VIEW_TYPE_BUFFER)))
     {
         VK_CALL(vkDestroyBufferView(device->vk_device, vk_view, NULL));
         return false;
     }
 
     object->u.vk_buffer_view = vk_view;
+    object->format = format;
+    object->info.buffer.offset = offset;
+    object->info.buffer.size = size;
     *view = object;
     return true;
 }
@@ -2354,18 +2417,6 @@ static void vk_component_mapping_compose(VkComponentMapping *dst, const VkCompon
     dst->a = swizzle_vk_component(&a, a.a, b->a);
 }
 
-struct vkd3d_texture_view_desc
-{
-    VkImageViewType view_type;
-    const struct vkd3d_format *format;
-    unsigned int miplevel_idx;
-    unsigned int miplevel_count;
-    unsigned int layer_idx;
-    unsigned int layer_count;
-    VkComponentMapping components;
-    bool allowed_swizzle;
-};
-
 static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
         struct d3d12_resource *resource, DXGI_FORMAT view_format)
 {
@@ -2413,9 +2464,8 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
     return true;
 }
 
-static bool vkd3d_create_texture_view(struct d3d12_device *device,
-        VkImage vk_image, const struct vkd3d_texture_view_desc *desc,
-        struct vkd3d_view **view)
+bool vkd3d_create_texture_view(struct d3d12_device *device, VkImage vk_image,
+        const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_format *format = desc->format;
@@ -2444,13 +2494,18 @@ static bool vkd3d_create_texture_view(struct d3d12_device *device,
         return false;
     }
 
-    if (!(object = vkd3d_view_create()))
+    if (!(object = vkd3d_view_create(VKD3D_VIEW_TYPE_IMAGE)))
     {
         VK_CALL(vkDestroyImageView(device->vk_device, vk_view, NULL));
         return false;
     }
 
     object->u.vk_image_view = vk_view;
+    object->format = format;
+    object->info.texture.vk_view_type = desc->view_type;
+    object->info.texture.miplevel_idx = desc->miplevel_idx;
+    object->info.texture.layer_idx = desc->layer_idx;
+    object->info.texture.layer_count = desc->layer_count;
     *view = object;
     return true;
 }
@@ -2821,16 +2876,6 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
             d3d12_desc_destroy(descriptor, device);
         }
     }
-
-    /* FIXME: Clears are implemented only for R32_UINT buffer UAVs. */
-    if ((desc->Format == DXGI_FORMAT_R32_TYPELESS && (desc->u.Buffer.Flags & VKD3D_VIEW_RAW_BUFFER))
-            || desc->Format == DXGI_FORMAT_R32_UINT)
-    {
-        const struct vkd3d_format *format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
-
-        descriptor->uav.buffer.offset = desc->u.Buffer.FirstElement * format->byte_count;
-        descriptor->uav.buffer.size = desc->u.Buffer.NumElements * format->byte_count;
-    }
 }
 
 static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
@@ -2884,11 +2929,6 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     descriptor->u.view = view;
-
-    descriptor->uav.texture.vk_aspect_mask = vkd3d_desc.format->vk_aspect_mask;
-    descriptor->uav.texture.miplevel_idx = vkd3d_desc.miplevel_idx;
-    descriptor->uav.texture.layer_idx = vkd3d_desc.layer_idx;
-    descriptor->uav.texture.layer_count = vkd3d_desc.layer_count;
 }
 
 void d3d12_desc_create_uav(struct d3d12_desc *descriptor, struct d3d12_device *device,
@@ -3033,7 +3073,7 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         FIXME("Ignoring border color {%.8e, %.8e, %.8e, %.8e}.\n",
                 desc->BorderColor[0], desc->BorderColor[1], desc->BorderColor[2], desc->BorderColor[3]);
 
-    if (!(view = vkd3d_view_create()))
+    if (!(view = vkd3d_view_create(VKD3D_VIEW_TYPE_SAMPLER)))
         return;
 
     if (d3d12_create_sampler(device, desc->Filter, desc->AddressU,

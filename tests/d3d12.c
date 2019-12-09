@@ -1878,6 +1878,49 @@ static void test_create_committed_resource(void)
             &IID_ID3D12Resource, (void **)&resource);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Format = DXGI_FORMAT_BC1_UNORM;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+    ID3D12Resource_Release(resource);
+
+    resource_desc.Height = 31;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    resource_desc.Width = 31;
+    resource_desc.Height = 32;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    resource_desc.Width = 30;
+    resource_desc.Height = 30;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    resource_desc.Width = 2;
+    resource_desc.Height = 2;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+    resource_desc.Width = 32;
+    resource_desc.Height = 1;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
     heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
 
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -1991,6 +2034,7 @@ static void test_create_committed_resource(void)
 
 static void test_create_heap(void)
 {
+    D3D12_FEATURE_DATA_ARCHITECTURE architecture;
     D3D12_FEATURE_DATA_D3D12_OPTIONS options;
     D3D12_HEAP_DESC desc, result_desc;
     ID3D12Device *device, *tmp_device;
@@ -2136,6 +2180,53 @@ static void test_create_heap(void)
     check_heap_desc(&result_desc, &desc);
     refcount = ID3D12Heap_Release(heap);
     ok(!refcount, "ID3D12Heap has %u references left.\n", (unsigned int)refcount);
+
+    memset(&architecture, 0, sizeof(architecture));
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ARCHITECTURE, &architecture, sizeof(architecture));
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    for (i = D3D12_HEAP_TYPE_DEFAULT; i < D3D12_HEAP_TYPE_CUSTOM; ++i)
+    {
+        vkd3d_test_set_context("Test %u\n", i);
+        desc.Properties = ID3D12Device_GetCustomHeapProperties(device, 1, i);
+        ok(desc.Properties.Type == D3D12_HEAP_TYPE_CUSTOM, "Got unexpected heap type %#x.\n", desc.Properties.Type);
+
+        switch (i)
+        {
+            case D3D12_HEAP_TYPE_DEFAULT:
+                ok(desc.Properties.CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE,
+                        "Got unexpected CPUPageProperty %#x.\n", desc.Properties.CPUPageProperty);
+                ok(desc.Properties.MemoryPoolPreference == (architecture.UMA
+                        ? D3D12_MEMORY_POOL_L0 : D3D12_MEMORY_POOL_L1),
+                        "Got unexpected MemoryPoolPreference %#x.\n", desc.Properties.MemoryPoolPreference);
+                break;
+
+            case D3D12_HEAP_TYPE_UPLOAD:
+                ok(desc.Properties.CPUPageProperty == (architecture.CacheCoherentUMA
+                        ? D3D12_CPU_PAGE_PROPERTY_WRITE_BACK : D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE),
+                        "Got unexpected CPUPageProperty %#x.\n", desc.Properties.CPUPageProperty);
+                ok(desc.Properties.MemoryPoolPreference == D3D12_MEMORY_POOL_L0,
+                        "Got unexpected MemoryPoolPreference %#x.\n", desc.Properties.MemoryPoolPreference);
+                break;
+
+            case D3D12_HEAP_TYPE_READBACK:
+                ok(desc.Properties.CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK,
+                        "Got unexpected CPUPageProperty %#x.\n", desc.Properties.CPUPageProperty);
+                ok(desc.Properties.MemoryPoolPreference == D3D12_MEMORY_POOL_L0,
+                        "Got unexpected MemoryPoolPreference %#x.\n", desc.Properties.MemoryPoolPreference);
+                break;
+
+            default:
+              ok(0, "Invalid heap type %#x.\n", i);
+              continue;
+        }
+
+        hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        result_desc = ID3D12Heap_GetDesc(heap);
+        check_heap_desc(&result_desc, &desc);
+        ID3D12Heap_Release(heap);
+    }
+    vkd3d_test_set_context(NULL);
 
     is_pool_L1_supported = is_memory_pool_L1_supported(device);
     desc.Properties.Type = D3D12_HEAP_TYPE_CUSTOM;
@@ -4695,7 +4786,7 @@ static void test_clear_render_target_view(void)
     destroy_test_context(&context);
 }
 
-static void test_clear_unordered_access_view(void)
+static void test_clear_unordered_access_view_buffer(void)
 {
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     ID3D12DescriptorHeap *cpu_heap, *gpu_heap;
@@ -4719,42 +4810,88 @@ static void test_clear_unordered_access_view(void)
         DXGI_FORMAT format;
         D3D12_BUFFER_UAV buffer_uav;
         unsigned int values[4];
+        unsigned int expected;
+        bool is_float;
+        bool is_todo;
     }
     tests[] =
     {
         {DXGI_FORMAT_R32_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t),      0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
-                {0, 0, 0, 0}},
+                {0, 0, 0, 0}, 0},
         {DXGI_FORMAT_R32_UINT, {64, BUFFER_SIZE / sizeof(uint32_t) - 64, 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
-                {0, 0, 0, 0}},
+                {0, 0, 0, 0}, 0},
         {DXGI_FORMAT_R32_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t),      0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
-                {1, 0, 0, 0}},
+                {1, 0, 0, 0}, 1},
         {DXGI_FORMAT_R32_UINT, {64, BUFFER_SIZE / sizeof(uint32_t) - 64, 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
-                {2, 0, 0, 0}},
+                {2, 0, 0, 0}, 2},
         {DXGI_FORMAT_R32_UINT, {64, BUFFER_SIZE / sizeof(uint32_t) - 64, 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
-                {3, 0, 0, 0}},
+                {3, 0, 0, 0}, 3},
         {DXGI_FORMAT_R32_UINT, {64, BUFFER_SIZE / sizeof(uint32_t) - 64, 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
-                {4, 2, 3, 4}},
+                {4, 2, 3, 4}, 4},
         {DXGI_FORMAT_R32_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t) - 10, 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
-                {5, 0, 0, 0}},
+                {5, 0, 0, 0}, 5},
 
         {DXGI_FORMAT_R32_TYPELESS, { 0, BUFFER_SIZE / sizeof(uint32_t),      0, 0, D3D12_BUFFER_UAV_FLAG_RAW},
-                {0, 0, 0, 0}},
+                {0, 0, 0, 0}, 0},
         {DXGI_FORMAT_R32_TYPELESS, {64, BUFFER_SIZE / sizeof(uint32_t) - 64, 0, 0, D3D12_BUFFER_UAV_FLAG_RAW},
-                {0, 0, 0, 0}},
+                {0, 0, 0, 0}, 0},
         {DXGI_FORMAT_R32_TYPELESS, { 0, BUFFER_SIZE / sizeof(uint32_t),      0, 0, D3D12_BUFFER_UAV_FLAG_RAW},
-                {6, 0, 0, 0}},
+                {6, 0, 0, 0}, 6},
         {DXGI_FORMAT_R32_TYPELESS, {64, BUFFER_SIZE / sizeof(uint32_t) - 64, 0, 0, D3D12_BUFFER_UAV_FLAG_RAW},
-                {7, 0, 0, 0}},
+                {7, 0, 0, 0}, 7},
         {DXGI_FORMAT_R32_TYPELESS, {64, BUFFER_SIZE / sizeof(uint32_t) - 64, 0, 0, D3D12_BUFFER_UAV_FLAG_RAW},
-                {8, 0, 0, 0}},
+                {8, 0, 0, 0}, 8},
         {DXGI_FORMAT_R32_TYPELESS, {64, BUFFER_SIZE / sizeof(uint32_t) - 64, 0, 0, D3D12_BUFFER_UAV_FLAG_RAW},
-                {9, 1, 1, 1}},
+                {9, 1, 1, 1}, 9},
         {DXGI_FORMAT_R32_TYPELESS, {64, BUFFER_SIZE / sizeof(uint32_t) - 64, 0, 0, D3D12_BUFFER_UAV_FLAG_RAW},
-                {~0u, 0, 0, 0}},
+                {~0u, 0, 0, 0}, ~0u},
         {DXGI_FORMAT_R32_TYPELESS, { 0, BUFFER_SIZE / sizeof(uint32_t) - 10, 0, 0, D3D12_BUFFER_UAV_FLAG_RAW},
-                {10, 0, 0, 0}},
+                {10, 0, 0, 0}, 10},
         {DXGI_FORMAT_R32_TYPELESS, { 0, BUFFER_SIZE / sizeof(uint32_t) - 9,  0, 0, D3D12_BUFFER_UAV_FLAG_RAW},
-                {11, 0, 0, 0}},
+                {11, 0, 0, 0}, 11},
+
+        {DXGI_FORMAT_R32_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0, 0, 0, 0}, 0},
+        {DXGI_FORMAT_R32_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {1, 0, 0, 0}, 1},
+        {DXGI_FORMAT_R32_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x3f800000 /* 1.0f */, 0, 0, 0}, 0x3f800000 /* 1.0f */, true},
+
+        {DXGI_FORMAT_R16G16_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x1234, 0xabcd, 0, 0}, 0xabcd1234},
+        {DXGI_FORMAT_R16G16_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x10000, 0, 0, 0}, 0, false, true},
+
+        {DXGI_FORMAT_R16G16_UNORM, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x1234, 0xabcd, 0, 0}, 0xabcd1234},
+        {DXGI_FORMAT_R16G16_UNORM, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x3f000000 /* 0.5f */, 0x3f800000 /* 1.0f */, 0, 0}, 0xffff8000, true},
+        {DXGI_FORMAT_R16G16_UNORM, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x40000000 /* 2.0f */, 0 /* 0.0f */, 0, 0}, 0x0000ffff, true},
+        {DXGI_FORMAT_R16G16_UNORM, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0xbf800000 /* -1.0f */, 0 /* 0.0f */, 0x3f000000 /* 1.0f */, 0x3f000000 /* 1.0f */}, 0, true},
+
+        {DXGI_FORMAT_R16G16_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x1234, 0xabcd, 0, 0}, 0xabcd1234},
+        {DXGI_FORMAT_R16G16_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x3f000000 /* 0.5f */, 0x3f800000 /* 1.0f */, 0, 0}, 0x3c003800, true},
+
+        {DXGI_FORMAT_R8G8B8A8_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x11, 0x22, 0x33, 0x44}, 0x44332211},
+        {DXGI_FORMAT_R8G8B8A8_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x100, 0, 0, 0}, 0, false, true},
+
+        {DXGI_FORMAT_R11G11B10_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0, 0, 0, 0}, 0},
+        {DXGI_FORMAT_R11G11B10_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x7ff, 0x7ff, 0x3ff, 0}, 0xffffffff},
+        {DXGI_FORMAT_R11G11B10_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x7ff, 0, 0x3ff, 0}, 0xffc007ff},
+        {DXGI_FORMAT_R11G11B10_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x3f000000 /* 0.5f */, 0x3f800000 /* 1.0f */, 0x40000000 /* 2.0f */, 0}, 0x801e0380, true},
+        {DXGI_FORMAT_R11G11B10_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x3f000000 /* 1.0f */, 0 /* 0.0f */, 0xbf800000 /* -1.0f */, 0x3f000000 /* 1.0f */},
+                0x00000380, true},
     };
 
     memset(&desc, 0, sizeof(desc));
@@ -4784,7 +4921,7 @@ static void test_clear_unordered_access_view(void)
                 D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
         for (j = 0; j < ARRAY_SIZE(clear_value); ++j)
-            clear_value[j] = tests[i].values[j] ? 0 : ~0u;
+            clear_value[j] = tests[i].expected ? 0 : ~0u;
 
         memset(&uav_desc, 0, sizeof(uav_desc));
         uav_desc.Format = DXGI_FORMAT_R32_UINT;
@@ -4810,10 +4947,16 @@ static void test_clear_unordered_access_view(void)
 
         uav_barrier(command_list, buffer);
 
-        ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list,
-                get_gpu_descriptor_handle(&context, gpu_heap, 0),
-                get_cpu_descriptor_handle(&context, cpu_heap, 0),
-                buffer, tests[i].values, 0, NULL);
+        if (tests[i].is_float)
+            ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(command_list,
+                    get_gpu_descriptor_handle(&context, gpu_heap, 0),
+                    get_cpu_descriptor_handle(&context, cpu_heap, 0),
+                    buffer, (const float *)tests[i].values, 0, NULL);
+        else
+            ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list,
+                    get_gpu_descriptor_handle(&context, gpu_heap, 0),
+                    get_cpu_descriptor_handle(&context, cpu_heap, 0),
+                    buffer, tests[i].values, 0, NULL);
 
         set_box(&box, 0, 0, 0, 1, 1, 1);
         transition_resource_state(command_list, buffer,
@@ -4824,7 +4967,8 @@ static void test_clear_unordered_access_view(void)
         check_readback_data_uint(&rb, &box, clear_value[0], 0);
         box.left = uav_desc.Buffer.FirstElement;
         box.right = uav_desc.Buffer.FirstElement + uav_desc.Buffer.NumElements;
-        check_readback_data_uint(&rb, &box, tests[i].values[0], 0);
+        todo_if(tests[i].is_todo)
+        check_readback_data_uint(&rb, &box, tests[i].expected, tests[i].is_float ? 1 : 0);
         box.left = uav_desc.Buffer.FirstElement + uav_desc.Buffer.NumElements;
         box.right = BUFFER_SIZE / format_size(uav_desc.Format);
         check_readback_data_uint(&rb, &box, clear_value[0], 0);
@@ -4840,6 +4984,283 @@ static void test_clear_unordered_access_view(void)
     ID3D12Heap_Release(heap);
     destroy_test_context(&context);
 #undef BUFFER_SIZE
+}
+
+static void test_clear_unordered_access_view_image(void)
+{
+    unsigned int expected_colour, actual_colour;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    ID3D12DescriptorHeap *cpu_heap, *gpu_heap;
+    ID3D12GraphicsCommandList *command_list;
+    unsigned int i, j, d, p, x, y, z, layer;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    unsigned int image_size, image_depth;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12CommandQueue *queue;
+    bool is_inside, success;
+    ID3D12Resource *texture;
+    ID3D12Device *device;
+    UINT clear_value[4];
+    HRESULT hr;
+
+#define IMAGE_SIZE 16
+    static const struct
+    {
+        DXGI_FORMAT format;
+        unsigned int image_mips;
+        unsigned int image_layers;
+        unsigned int mip_level;
+        unsigned int first_layer;
+        unsigned int layer_count;
+        unsigned int rect_count;
+        RECT clear_rects[2];
+        unsigned int values[4];
+        unsigned int expected;
+        bool is_float;
+        bool is_todo;
+    }
+    tests[] =
+    {
+        /* Test clearing a specific mip level. */
+        {DXGI_FORMAT_R32_FLOAT,       2, 1, 0, 0, 1, 0, {}, {1,          0, 0, 0}, 1},
+        {DXGI_FORMAT_R32_FLOAT,       2, 1, 1, 0, 1, 0, {}, {1,          0, 0, 0}, 1},
+        {DXGI_FORMAT_R32_FLOAT,       2, 1, 0, 0, 1, 0, {}, {0x3f000000, 0, 0, 0}, 0x3f000000, true},
+        {DXGI_FORMAT_R32_FLOAT,       2, 1, 1, 0, 1, 0, {}, {0x3f000000, 0, 0, 0}, 0x3f000000, true},
+        /* Test clearing specific array layers. */
+        {DXGI_FORMAT_R32_FLOAT,       1, IMAGE_SIZE, 0, 0, IMAGE_SIZE, 0, {}, {1, 0, 0, 0}, 1},
+        {DXGI_FORMAT_R32_FLOAT,       1, IMAGE_SIZE, 0, 3, 2,          0, {}, {1, 0, 0, 0}, 1},
+        {DXGI_FORMAT_R32_FLOAT,       1, IMAGE_SIZE, 0, 0, IMAGE_SIZE, 0, {},
+                {0x3f000000, 0, 0, 0}, 0x3f000000, true},
+        {DXGI_FORMAT_R32_FLOAT,       1, IMAGE_SIZE, 0, 3, 2,          0, {},
+                {0x3f000000, 0, 0, 0}, 0x3f000000, true},
+        /* Test a single clear rect. */
+        {DXGI_FORMAT_R32_FLOAT,       1, 1, 0, 0, 1, 1, {{1, 2, IMAGE_SIZE - 4, IMAGE_SIZE - 2}},
+                {1,          0, 0, 0}, 1},
+        {DXGI_FORMAT_R32_FLOAT,       1, 1, 0, 0, 1, 1, {{1, 2, IMAGE_SIZE - 4, IMAGE_SIZE - 2}},
+                {0x3f000000, 0, 0, 0}, 0x3f000000, true},
+        /* Test multiple clear rects. */
+        {DXGI_FORMAT_R32_FLOAT,       1, 1, 0, 0, 1, 2, {{1, 2, 3, 4}, {5, 6, 7, 8}},
+                {1,          0, 0, 0}, 1},
+        {DXGI_FORMAT_R32_FLOAT,       1, 1, 0, 0, 1, 2, {{1, 2, 3, 4}, {5, 6, 7, 8}},
+                {0x3f000000, 0, 0, 0}, 0x3f000000, true},
+        /* Test uint clears with formats. */
+        {DXGI_FORMAT_R16G16_UINT,     1, 1, 0, 0, 1, 0, {}, {1,       2, 3, 4}, 0x00020001},
+        {DXGI_FORMAT_R16G16_UINT,     1, 1, 0, 0, 1, 0, {}, {0x12345, 0, 0, 0}, 0x00002345, false, true},
+        {DXGI_FORMAT_R16G16_UNORM,    1, 1, 0, 0, 1, 0, {}, {1,       2, 3, 4}, 0x00020001},
+        {DXGI_FORMAT_R16G16_FLOAT,    1, 1, 0, 0, 1, 0, {}, {1,       2, 3, 4}, 0x00020001},
+        {DXGI_FORMAT_R8G8B8A8_UINT,   1, 1, 0, 0, 1, 0, {}, {1,       2, 3, 4}, 0x04030201},
+        {DXGI_FORMAT_R8G8B8A8_UINT,   1, 1, 0, 0, 1, 0, {}, {0x123,   0, 0, 0}, 0x00000023, false, true},
+        {DXGI_FORMAT_R8G8B8A8_UNORM,  1, 1, 0, 0, 1, 0, {}, {1,       2, 3, 4}, 0x04030201},
+        {DXGI_FORMAT_R11G11B10_FLOAT, 1, 1, 0, 0, 1, 0, {}, {1,       2, 3, 4}, 0x00c01001},
+        /* Test float clears with formats. */
+        {DXGI_FORMAT_R16G16_UNORM,    1, 1, 0, 0, 1, 0, {},
+                {0x3f000000 /* 0.5f */, 0x3f800000 /* 1.0f */, 0, 0}, 0xffff8000, true},
+        {DXGI_FORMAT_R16G16_FLOAT,    1, 1, 0, 0, 1, 0, {},
+                {0x3f000000 /* 0.5f */, 0x3f800000 /* 1.0f */, 0, 0}, 0x3c003800, true},
+        {DXGI_FORMAT_R8G8B8A8_UNORM,  1, 1, 0, 0, 1, 0, {},
+                {0x3f000000 /* 0.5f */, 0x3f800000 /* 1.0f */, 0, 0}, 0x0000ff80, true},
+        {DXGI_FORMAT_R8G8B8A8_UNORM,  1, 1, 0, 0, 1, 0, {},
+                {0, 0, 0x3f000000 /* 0.5f */, 0x3f800000 /* 1.0f */}, 0xff800000, true},
+        {DXGI_FORMAT_R11G11B10_FLOAT, 1, 1, 0, 0, 1, 0, {},
+                {0x3f000000 /* 1.0f */, 0 /* 0.0f */, 0xbf800000 /* -1.0f */, 0x3f000000 /* 1.0f */},
+                0x00000380, true},
+    };
+
+    static const struct
+    {
+        D3D12_RESOURCE_DIMENSION resource_dim;
+        D3D12_UAV_DIMENSION view_dim;
+        bool is_layered;
+    }
+    uav_dimensions[] =
+    {
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, D3D12_UAV_DIMENSION_TEXTURE2D,      false},
+        {D3D12_RESOURCE_DIMENSION_TEXTURE2D, D3D12_UAV_DIMENSION_TEXTURE2DARRAY, true },
+        /* Expected behaviour with partial layer coverage is unclear. */
+        {D3D12_RESOURCE_DIMENSION_TEXTURE3D, D3D12_UAV_DIMENSION_TEXTURE3D,      false},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    cpu_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
+    gpu_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    for (d = 0; d < ARRAY_SIZE(uav_dimensions); ++d)
+    {
+        for (i = 0; i < ARRAY_SIZE(tests); ++i)
+        {
+            vkd3d_test_set_context("Dim %u, Test %u", d, i);
+
+            if (tests[i].image_layers > 1 && !uav_dimensions[d].is_layered)
+                continue;
+
+            resource_desc.Dimension = uav_dimensions[d].resource_dim;
+            resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+            resource_desc.Width = IMAGE_SIZE;
+            resource_desc.Height = IMAGE_SIZE;
+            if (uav_dimensions[d].resource_dim == D3D12_RESOURCE_DIMENSION_TEXTURE1D)
+                resource_desc.Height = 1;
+            resource_desc.DepthOrArraySize = tests[i].image_layers;
+            resource_desc.MipLevels = tests[i].image_mips;
+            resource_desc.Format = tests[i].format;
+            resource_desc.SampleDesc.Count = 1;
+            resource_desc.SampleDesc.Quality = 0;
+            resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+            resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+            if (FAILED(hr = ID3D12Device_CreateCommittedResource(device, &heap_properties,
+                    D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                    NULL, &IID_ID3D12Resource, (void **)&texture)))
+            {
+                skip("Failed to create texture, hr %#x.\n", hr);
+                continue;
+            }
+
+            uav_desc.Format = tests[i].format;
+            uav_desc.ViewDimension = uav_dimensions[d].view_dim;
+
+            for (j = 0; j < 2; ++j)
+            {
+                unsigned int first_layer = j ? 0 : tests[i].first_layer;
+                unsigned int layer_count = j ? tests[i].image_layers : tests[i].layer_count;
+
+                switch (uav_desc.ViewDimension)
+                {
+                    case D3D12_UAV_DIMENSION_TEXTURE1D:
+                        uav_desc.Texture1D.MipSlice = tests[i].mip_level;
+                        break;
+
+                    case D3D12_UAV_DIMENSION_TEXTURE1DARRAY:
+                        uav_desc.Texture1DArray.MipSlice = tests[i].mip_level;
+                        uav_desc.Texture1DArray.FirstArraySlice = first_layer;
+                        uav_desc.Texture1DArray.ArraySize = layer_count;
+                        break;
+
+                    case D3D12_UAV_DIMENSION_TEXTURE2D:
+                        uav_desc.Texture2D.MipSlice = tests[i].mip_level;
+                        uav_desc.Texture2D.PlaneSlice = 0;
+                        break;
+
+                    case D3D12_UAV_DIMENSION_TEXTURE2DARRAY:
+                        uav_desc.Texture2DArray.MipSlice = tests[i].mip_level;
+                        uav_desc.Texture2DArray.FirstArraySlice = first_layer;
+                        uav_desc.Texture2DArray.ArraySize = layer_count;
+                        uav_desc.Texture2DArray.PlaneSlice = 0;
+                        break;
+
+                    case D3D12_UAV_DIMENSION_TEXTURE3D:
+                        uav_desc.Texture3D.MipSlice = tests[i].mip_level;
+                        uav_desc.Texture3D.FirstWSlice = first_layer;
+                        uav_desc.Texture3D.WSize = layer_count;
+                        break;
+
+                    default:
+                        continue;
+                }
+
+                ID3D12Device_CreateUnorderedAccessView(device, texture, NULL,
+                        &uav_desc, get_cpu_descriptor_handle(&context, cpu_heap, j));
+                ID3D12Device_CreateUnorderedAccessView(device, texture, NULL,
+                        &uav_desc, get_cpu_descriptor_handle(&context, gpu_heap, j));
+            }
+
+            for (j = 0; j < 4; ++j)
+            {
+                clear_value[j] = tests[i].expected ? 0u : ~0u;
+            }
+
+            ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list,
+                    get_gpu_descriptor_handle(&context, gpu_heap, 1),
+                    get_cpu_descriptor_handle(&context, cpu_heap, 1),
+                    texture, clear_value, 0, NULL);
+
+            uav_barrier(command_list, texture);
+
+            if (tests[i].is_float)
+                ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(command_list,
+                        get_gpu_descriptor_handle(&context, gpu_heap, 0),
+                        get_cpu_descriptor_handle(&context, cpu_heap, 0),
+                        texture, (const float *)tests[i].values, tests[i].rect_count, tests[i].clear_rects);
+            else
+                ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list,
+                        get_gpu_descriptor_handle(&context, gpu_heap, 0),
+                        get_cpu_descriptor_handle(&context, cpu_heap, 0),
+                        texture, tests[i].values, tests[i].rect_count, tests[i].clear_rects);
+
+            transition_resource_state(command_list, texture,
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+            image_depth = uav_dimensions[d].resource_dim == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                    ? max(tests[i].image_layers >> tests[i].mip_level, 1u) : 1;
+            image_size = max(IMAGE_SIZE >> tests[i].mip_level, 1u);
+
+            for (layer = 0; layer < tests[i].image_layers / image_depth; ++layer)
+            {
+                get_texture_readback_with_command_list(texture,
+                        tests[i].mip_level + (layer * tests[i].image_mips),
+                        &rb, queue, command_list);
+
+                for (p = 0; p < image_depth * image_size * image_size; ++p)
+                {
+                    x = p % image_size;
+                    y = (p / image_size) % image_size;
+                    z = p / (image_size * image_size);
+
+                    is_inside = tests[i].rect_count == 0;
+
+                    for (j = 0; j < tests[i].rect_count; ++j)
+                    {
+                        if (y >= tests[i].clear_rects[j].top && y < tests[i].clear_rects[j].bottom
+                                && x >= tests[i].clear_rects[j].left && x < tests[i].clear_rects[j].right)
+                        {
+                            is_inside = true;
+                            break;
+                        }
+                    }
+
+                    if (uav_dimensions[d].resource_dim == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+                        is_inside = is_inside && z >= tests[i].first_layer
+                                && z < tests[i].first_layer + tests[i].layer_count;
+                    else
+                        is_inside = is_inside && layer >= tests[i].first_layer
+                                && layer < tests[i].first_layer + tests[i].layer_count;
+
+                    expected_colour = is_inside ? tests[i].expected : clear_value[0];
+                    actual_colour = get_readback_uint(&rb, x, y, z);
+                    success = compare_color(actual_colour, expected_colour, tests[i].is_float ? 1 : 0);
+
+                    todo_if(tests[i].is_todo && expected_colour)
+                    ok(success, "At layer %u, (%u,%u,%u), expected %#x, got %#x.\n",
+                            layer, x, y, z, expected_colour, actual_colour);
+
+                    if (!success)
+                        break;
+                }
+
+                release_resource_readback(&rb);
+                reset_command_list(command_list, context.allocator);
+            }
+
+            ID3D12Resource_Release(texture);
+        }
+    }
+
+    ID3D12DescriptorHeap_Release(cpu_heap);
+    ID3D12DescriptorHeap_Release(gpu_heap);
+    destroy_test_context(&context);
+#undef IMAGE_SIZE
 }
 
 static void test_set_render_targets(void)
@@ -29016,7 +29437,6 @@ static void test_resource_allocation_info(void)
     ID3D12Device *device;
     unsigned int i, j;
     ULONG refcount;
-    uint64_t size;
 
     static const unsigned int alignments[] =
     {
@@ -29051,12 +29471,15 @@ static void test_resource_allocation_info(void)
         { 4,  4, 1, 1, DXGI_FORMAT_R8_UINT},
         { 8,  8, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
         {16, 16, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
-        {16, 16, 6, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
+        {16, 16, 1024, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
+        {256, 512, 1, 10, DXGI_FORMAT_BC1_UNORM},
+        {256, 512, 64, 1, DXGI_FORMAT_BC1_UNORM},
 
         {1024, 1024, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM},
         {1024, 1024, 1, 2, DXGI_FORMAT_R8G8B8A8_UNORM},
         {1024, 1024, 1, 3, DXGI_FORMAT_R8G8B8A8_UNORM},
         {1024, 1024, 1, 0, DXGI_FORMAT_R8G8B8A8_UNORM},
+        {260, 512, 1, 1, DXGI_FORMAT_BC1_UNORM},
     };
 
     if (!(device = create_device()))
@@ -29128,8 +29551,7 @@ static void test_resource_allocation_info(void)
         info = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &desc);
         ok(info.Alignment >= D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT,
                 "Got unexpected alignment %"PRIu64".\n", info.Alignment);
-        size = desc.Width * desc.Height * desc.DepthOrArraySize * format_size(desc.Format);
-        if (size <= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+        if (i < 6)
         {
             check_alignment(info.SizeInBytes, info.Alignment);
         }
@@ -32306,6 +32728,89 @@ static void test_bufinfo_instruction(void)
     destroy_test_context(&context);
 }
 
+static void test_write_buffer_immediate(void)
+{
+    D3D12_WRITEBUFFERIMMEDIATE_PARAMETER parameters[2];
+    ID3D12GraphicsCommandList2 *command_list2;
+    D3D12_WRITEBUFFERIMMEDIATE_MODE modes[2];
+    ID3D12GraphicsCommandList *command_list;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *buffer;
+    ID3D12Device *device;
+    unsigned int value;
+    HRESULT hr;
+
+    static const unsigned int data_values[] = {0xdeadbeef, 0xf00baa};
+
+    if (!init_test_context(&context, NULL))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    if (FAILED(hr = ID3D12GraphicsCommandList_QueryInterface(command_list,
+            &IID_ID3D12GraphicsCommandList2, (void **)&command_list2)))
+    {
+        skip("ID3D12GraphicsCommandList2 not implemented.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    buffer = create_default_buffer(device, sizeof(data_values),
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    upload_buffer_data(buffer, 0, sizeof(data_values), data_values, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+
+    parameters[0].Dest = ID3D12Resource_GetGPUVirtualAddress(buffer);
+    parameters[0].Value = 0x1020304;
+    parameters[1].Dest = parameters[0].Dest + sizeof(data_values[0]);
+    parameters[1].Value = 0xc0d0e0f;
+    ID3D12GraphicsCommandList2_WriteBufferImmediate(command_list2, ARRAY_SIZE(parameters), parameters, NULL);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+    reset_command_list(command_list, context.allocator);
+
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    value = get_readback_uint(&rb, 0, 0, 0);
+    todo ok(value == parameters[0].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[0].Value);
+    value = get_readback_uint(&rb, 1, 0, 0);
+    todo ok(value == parameters[1].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[1].Value);
+    release_resource_readback(&rb);
+    reset_command_list(command_list, context.allocator);
+
+    parameters[0].Value = 0x2030405;
+    parameters[1].Value = 0xb0c0d0e;
+    modes[0] = D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_IN;
+    modes[1] = D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_OUT;
+    ID3D12GraphicsCommandList2_WriteBufferImmediate(command_list2, ARRAY_SIZE(parameters), parameters, modes);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    exec_command_list(queue, command_list);
+    wait_queue_idle(device, queue);
+    reset_command_list(command_list, context.allocator);
+
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    value = get_readback_uint(&rb, 0, 0, 0);
+    todo ok(value == parameters[0].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[0].Value);
+    value = get_readback_uint(&rb, 1, 0, 0);
+    todo ok(value == parameters[1].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[1].Value);
+    release_resource_readback(&rb);
+    reset_command_list(command_list, context.allocator);
+
+    modes[0] = 0x7fffffff;
+    ID3D12GraphicsCommandList2_WriteBufferImmediate(command_list2, ARRAY_SIZE(parameters), parameters, modes);
+    hr = ID3D12GraphicsCommandList_Close(command_list);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    ID3D12Resource_Release(buffer);
+    ID3D12GraphicsCommandList2_Release(command_list2);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     parse_args(argc, argv);
@@ -32345,7 +32850,8 @@ START_TEST(d3d12)
     run_test(test_fence_values);
     run_test(test_clear_depth_stencil_view);
     run_test(test_clear_render_target_view);
-    run_test(test_clear_unordered_access_view);
+    run_test(test_clear_unordered_access_view_buffer);
+    run_test(test_clear_unordered_access_view_image);
     run_test(test_set_render_targets);
     run_test(test_draw_instanced);
     run_test(test_draw_indexed_instanced);
@@ -32468,4 +32974,5 @@ START_TEST(d3d12)
     run_test(test_early_depth_stencil_tests);
     run_test(test_conditional_rendering);
     run_test(test_bufinfo_instruction);
+    run_test(test_write_buffer_immediate);
 }

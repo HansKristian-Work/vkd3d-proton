@@ -838,6 +838,8 @@ static inline enum vkd3d_component_type vkd3d_component_type_from_data_type(
     switch (data_type)
     {
         case VKD3D_DATA_FLOAT:
+        case VKD3D_DATA_UNORM:
+        case VKD3D_DATA_SNORM:
             return VKD3D_TYPE_FLOAT;
         case VKD3D_DATA_UINT:
             return VKD3D_TYPE_UINT;

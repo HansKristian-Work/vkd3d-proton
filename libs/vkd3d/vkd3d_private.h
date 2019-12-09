@@ -205,13 +205,13 @@ HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
 struct vkd3d_gpu_va_allocation
 {
     D3D12_GPU_VIRTUAL_ADDRESS base;
-    SIZE_T size;
+    size_t size;
     void *ptr;
 };
 
 struct vkd3d_gpu_va_slab
 {
-    SIZE_T size;
+    size_t size;
     void *ptr;
 };
 
@@ -435,7 +435,7 @@ static inline bool d3d12_resource_is_texture(const struct d3d12_resource *resour
 }
 
 bool d3d12_resource_is_cpu_accessible(const struct d3d12_resource *resource) DECLSPEC_HIDDEN;
-HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc) DECLSPEC_HIDDEN;
+HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc, struct d3d12_device *device) DECLSPEC_HIDDEN;
 
 HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
@@ -458,9 +458,17 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
 HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_ALLOCATION_INFO *allocation_info) DECLSPEC_HIDDEN;
 
+enum vkd3d_view_type
+{
+    VKD3D_VIEW_TYPE_BUFFER,
+    VKD3D_VIEW_TYPE_IMAGE,
+    VKD3D_VIEW_TYPE_SAMPLER,
+};
+
 struct vkd3d_view
 {
     LONG refcount;
+    enum vkd3d_view_type type;
     union
     {
         VkBufferView vk_buffer_view;
@@ -468,10 +476,43 @@ struct vkd3d_view
         VkSampler vk_sampler;
     } u;
     VkBufferView vk_counter_view;
+    const struct vkd3d_format *format;
+    union
+    {
+        struct
+        {
+            VkDeviceSize offset;
+            VkDeviceSize size;
+        } buffer;
+        struct
+        {
+            VkImageViewType vk_view_type;
+            unsigned int miplevel_idx;
+            unsigned int layer_idx;
+            unsigned int layer_count;
+        } texture;
+    } info;
 };
 
 void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_view_incref(struct vkd3d_view *view) DECLSPEC_HIDDEN;
+
+struct vkd3d_texture_view_desc
+{
+    VkImageViewType view_type;
+    const struct vkd3d_format *format;
+    unsigned int miplevel_idx;
+    unsigned int miplevel_count;
+    unsigned int layer_idx;
+    unsigned int layer_count;
+    VkComponentMapping components;
+    bool allowed_swizzle;
+};
+
+bool vkd3d_create_buffer_view(struct d3d12_device *device, VkBuffer vk_buffer, const struct vkd3d_format *format,
+        VkDeviceSize offset, VkDeviceSize size, struct vkd3d_view **view) DECLSPEC_HIDDEN;
+bool vkd3d_create_texture_view(struct d3d12_device *device, VkImage vk_image,
+        const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view) DECLSPEC_HIDDEN;
 
 struct d3d12_desc
 {
@@ -482,22 +523,6 @@ struct d3d12_desc
         VkDescriptorBufferInfo vk_cbv_info;
         struct vkd3d_view *view;
     } u;
-
-    union
-    {
-        struct
-        {
-            VkDeviceSize offset;
-            VkDeviceSize size;
-        } buffer;
-        struct
-        {
-            VkImageAspectFlags vk_aspect_mask;
-            unsigned int miplevel_idx;
-            unsigned int layer_idx;
-            unsigned int layer_count;
-        } texture;
-    } uav;
 };
 
 static inline struct d3d12_desc *d3d12_desc_from_cpu_handle(D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle)
@@ -906,7 +931,7 @@ struct vkd3d_pipeline_bindings
 /* ID3D12CommandList */
 struct d3d12_command_list
 {
-    ID3D12GraphicsCommandList1 ID3D12GraphicsCommandList1_iface;
+    ID3D12GraphicsCommandList2 ID3D12GraphicsCommandList2_iface;
     LONG refcount;
 
     D3D12_COMMAND_LIST_TYPE type;
@@ -1051,6 +1076,38 @@ struct vkd3d_format_compatibility_list
     VkFormat vk_formats[VKD3D_MAX_COMPATIBLE_FORMAT_COUNT];
 };
 
+struct vkd3d_uav_clear_args
+{
+    VkClearColorValue colour;
+    VkOffset2D offset;
+    VkExtent2D extent;
+};
+
+struct vkd3d_uav_clear_pipelines
+{
+    VkPipeline buffer;
+    VkPipeline image_1d;
+    VkPipeline image_1d_array;
+    VkPipeline image_2d;
+    VkPipeline image_2d_array;
+    VkPipeline image_3d;
+};
+
+struct vkd3d_uav_clear_state
+{
+    VkDescriptorSetLayout vk_set_layout_buffer;
+    VkDescriptorSetLayout vk_set_layout_image;
+
+    VkPipelineLayout vk_pipeline_layout_buffer;
+    VkPipelineLayout vk_pipeline_layout_image;
+
+    struct vkd3d_uav_clear_pipelines pipelines_float;
+    struct vkd3d_uav_clear_pipelines pipelines_uint;
+};
+
+HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d3d12_device *device) DECLSPEC_HIDDEN;
+void vkd3d_uav_clear_state_cleanup(struct vkd3d_uav_clear_state *state, struct d3d12_device *device) DECLSPEC_HIDDEN;
+
 /* ID3D12Device */
 struct d3d12_device
 {
@@ -1096,12 +1153,14 @@ struct d3d12_device
     unsigned int format_compatibility_list_count;
     const struct vkd3d_format_compatibility_list *format_compatibility_lists;
     struct vkd3d_null_resources null_resources;
+    struct vkd3d_uav_clear_state uav_clear_state;
 };
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         const struct vkd3d_device_create_info *create_info, struct d3d12_device **device) DECLSPEC_HIDDEN;
 struct vkd3d_queue *d3d12_device_get_vkd3d_queue(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type) DECLSPEC_HIDDEN;
+bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent) DECLSPEC_HIDDEN;
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
         const char *message, ...) VKD3D_PRINTF_FUNC(3, 4) DECLSPEC_HIDDEN;
 struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface) DECLSPEC_HIDDEN;
@@ -1183,6 +1242,8 @@ void vkd3d_format_copy_data(const struct vkd3d_format *format, const uint8_t *sr
 
 const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
         DXGI_FORMAT dxgi_format, bool depth_stencil) DECLSPEC_HIDDEN;
+const struct vkd3d_format *vkd3d_find_uint_format(const struct d3d12_device *device,
+        DXGI_FORMAT dxgi_format) DECLSPEC_HIDDEN;
 
 HRESULT vkd3d_init_format_info(struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_cleanup_format_info(struct d3d12_device *device) DECLSPEC_HIDDEN;
@@ -1226,6 +1287,11 @@ static inline unsigned int d3d12_resource_desc_get_layer_count(const D3D12_RESOU
 static inline unsigned int d3d12_resource_desc_get_sub_resource_count(const D3D12_RESOURCE_DESC *desc)
 {
     return d3d12_resource_desc_get_layer_count(desc) * desc->MipLevels;
+}
+
+static inline unsigned int vkd3d_compute_workgroup_count(unsigned int thread_count, unsigned int workgroup_size)
+{
+    return (thread_count + workgroup_size - 1) / workgroup_size;
 }
 
 VkCompareOp vk_compare_op_from_d3d12(D3D12_COMPARISON_FUNC op) DECLSPEC_HIDDEN;

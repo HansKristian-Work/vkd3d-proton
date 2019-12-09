@@ -2154,6 +2154,7 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
         vkd3d_private_store_destroy(&device->private_store);
 
         vkd3d_cleanup_format_info(device);
+        vkd3d_uav_clear_state_cleanup(&device->uav_clear_state, device);
         vkd3d_destroy_null_resources(&device->null_resources, device);
         vkd3d_gpu_va_allocator_cleanup(&device->gpu_va_allocator);
         vkd3d_render_pass_cache_cleanup(&device->render_pass_cache, device);
@@ -2307,8 +2308,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandList(ID3D12Device *if
             initial_pipeline_state, &object)))
         return hr;
 
-    return return_interface(&object->ID3D12GraphicsCommandList1_iface,
-            &IID_ID3D12GraphicsCommandList1, riid, command_list);
+    return return_interface(&object->ID3D12GraphicsCommandList2_iface,
+            &IID_ID3D12GraphicsCommandList2, riid, command_list);
 }
 
 /* Direct3D feature levels restrict which formats can be optionally supported. */
@@ -2398,11 +2399,29 @@ done:
     return S_OK;
 }
 
+bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent)
+{
+    unsigned int i;
+
+    if (coherent)
+        *coherent = true;
+
+    for (i = 0; i < device->memory_properties.memoryTypeCount; ++i)
+    {
+        if (!(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+            return false;
+        if (coherent && !(device->memory_properties.memoryTypes[i].propertyFlags
+                & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+            *coherent = false;
+    }
+
+    return true;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *iface,
         D3D12_FEATURE feature, void *feature_data, UINT feature_data_size)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    unsigned int i;
 
     TRACE("iface %p, feature %#x, feature_data %p, feature_data_size %u.\n",
             iface, feature, feature_data, feature_data_size);
@@ -2443,6 +2462,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
         case D3D12_FEATURE_ARCHITECTURE:
         {
             D3D12_FEATURE_DATA_ARCHITECTURE *data = feature_data;
+            bool coherent;
 
             if (feature_data_size != sizeof(*data))
             {
@@ -2459,15 +2479,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             WARN("Assuming device does not support tile based rendering.\n");
             data->TileBasedRenderer = FALSE;
 
-            data->UMA = TRUE;
-            data->CacheCoherentUMA = TRUE;
-            for (i = 0; i < device->memory_properties.memoryTypeCount; ++i)
-            {
-                if (!(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
-                    data->UMA = FALSE;
-                if (!(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
-                    data->CacheCoherentUMA = FALSE;
-            }
+            data->UMA = d3d12_device_is_uma(device, &coherent);
+            data->CacheCoherentUMA = data->UMA ? coherent : FALSE;
 
             TRACE("Tile based renderer %#x, UMA %#x, cache coherent UMA %#x.\n",
                     data->TileBasedRenderer, data->UMA, data->CacheCoherentUMA);
@@ -2886,10 +2899,8 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
         UINT count, const D3D12_RESOURCE_DESC *resource_descs)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    const struct vkd3d_format *format;
     const D3D12_RESOURCE_DESC *desc;
     uint64_t requested_alignment;
-    uint64_t estimated_size;
 
     TRACE("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p.\n",
             iface, info, visible_mask, count, resource_descs);
@@ -2907,14 +2918,11 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
 
     desc = &resource_descs[0];
 
-    if (FAILED(d3d12_resource_validate_desc(desc)))
+    if (FAILED(d3d12_resource_validate_desc(desc, device)))
     {
         WARN("Invalid resource desc.\n");
         goto invalid;
     }
-
-    requested_alignment = desc->Alignment
-            ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
@@ -2929,27 +2937,9 @@ static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResour
             goto invalid;
         }
 
+        requested_alignment = desc->Alignment
+                ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
         info->Alignment = max(info->Alignment, requested_alignment);
-
-        if (info->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
-        {
-            if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
-            {
-                WARN("Invalid format %#x.\n", desc->Format);
-                goto invalid;
-            }
-
-            estimated_size = desc->Width * desc->Height * desc->DepthOrArraySize * format->byte_count;
-            if (estimated_size > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
-                info->Alignment = max(info->Alignment, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
-        }
-    }
-
-    if (desc->Alignment % info->Alignment)
-    {
-        WARN("Invalid resource alignment %#"PRIx64" (required %#"PRIx64").\n",
-                desc->Alignment, info->Alignment);
-        goto invalid;
     }
 
     info->SizeInBytes = align(info->SizeInBytes, info->Alignment);
@@ -2975,10 +2965,42 @@ invalid:
 static D3D12_HEAP_PROPERTIES * STDMETHODCALLTYPE d3d12_device_GetCustomHeapProperties(ID3D12Device *iface,
         D3D12_HEAP_PROPERTIES *heap_properties, UINT node_mask, D3D12_HEAP_TYPE heap_type)
 {
-    FIXME("iface %p, heap_properties %p, node_mask 0x%08x, heap_type %#x stub!\n",
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    bool coherent;
+
+    TRACE("iface %p, heap_properties %p, node_mask 0x%08x, heap_type %#x.\n",
             iface, heap_properties, node_mask, heap_type);
 
     debug_ignored_node_mask(node_mask);
+
+    heap_properties->Type = D3D12_HEAP_TYPE_CUSTOM;
+
+    switch (heap_type)
+    {
+        case D3D12_HEAP_TYPE_DEFAULT:
+            heap_properties->CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE;
+            heap_properties->MemoryPoolPreference = d3d12_device_is_uma(device, NULL)
+                    ?  D3D12_MEMORY_POOL_L0 : D3D12_MEMORY_POOL_L1;
+            break;
+
+        case D3D12_HEAP_TYPE_UPLOAD:
+            heap_properties->CPUPageProperty = d3d12_device_is_uma(device, &coherent) && coherent
+                    ? D3D12_CPU_PAGE_PROPERTY_WRITE_BACK : D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE;
+            heap_properties->MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+            break;
+
+        case D3D12_HEAP_TYPE_READBACK:
+            heap_properties->CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+            heap_properties->MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+            break;
+
+        default:
+            FIXME("Unhandled heap type %#x.\n", heap_type);
+            break;
+    };
+
+    heap_properties->CreationNodeMask = 1;
+    heap_properties->VisibleNodeMask = 1;
 
     return heap_properties;
 }
@@ -3181,7 +3203,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
         return;
     }
 
-    if (FAILED(d3d12_resource_validate_desc(desc)))
+    if (FAILED(d3d12_resource_validate_desc(desc, device)))
     {
         WARN("Invalid resource desc.\n");
         return;
@@ -3193,13 +3215,6 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(ID3D12Device *i
             || sub_resource_count > desc->MipLevels * array_size - first_sub_resource)
     {
         WARN("Invalid sub-resource range %u-%u for resource.\n", first_sub_resource, sub_resource_count);
-        return;
-    }
-
-    if (align(desc->Width, format->block_width) != desc->Width
-            || align(desc->Height, format->block_height) != desc->Height)
-    {
-        WARN("Resource size (%"PRIu64"x%u) not aligned to format block size.\n", desc->Width, desc->Height);
         return;
     }
 
@@ -3403,6 +3418,9 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_init_null_resources(&device->null_resources, device)))
         goto out_cleanup_format_info;
 
+    if (FAILED(hr = vkd3d_uav_clear_state_init(&device->uav_clear_state, device)))
+        goto out_destroy_null_resources;
+
     vkd3d_render_pass_cache_init(&device->render_pass_cache);
     vkd3d_gpu_va_allocator_init(&device->gpu_va_allocator);
 
@@ -3414,6 +3432,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     return S_OK;
 
+out_destroy_null_resources:
+    vkd3d_destroy_null_resources(&device->null_resources, device);
 out_cleanup_format_info:
     vkd3d_cleanup_format_info(device);
 out_stop_fence_worker:

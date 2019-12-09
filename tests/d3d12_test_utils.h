@@ -288,11 +288,6 @@ static unsigned int format_size(DXGI_FORMAT format)
 {
     switch (format)
     {
-        case DXGI_FORMAT_UNKNOWN:
-        case DXGI_FORMAT_A8_UNORM:
-        case DXGI_FORMAT_R8_UINT:
-        case DXGI_FORMAT_R8_UNORM:
-            return 1;
         case DXGI_FORMAT_R32G32B32A32_FLOAT:
         case DXGI_FORMAT_R32G32B32A32_UINT:
         case DXGI_FORMAT_R8G8_UNORM:
@@ -304,20 +299,26 @@ static unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_R32_FLOAT:
         case DXGI_FORMAT_R32_UINT:
         case DXGI_FORMAT_R32_SINT:
+        case DXGI_FORMAT_R16G16_FLOAT:
+        case DXGI_FORMAT_R16G16_UNORM:
+        case DXGI_FORMAT_R16G16_UINT:
+        case DXGI_FORMAT_R11G11B10_FLOAT:
         case DXGI_FORMAT_R8G8B8A8_TYPELESS:
         case DXGI_FORMAT_R8G8B8A8_UNORM:
         case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+        case DXGI_FORMAT_R8G8B8A8_UINT:
         case DXGI_FORMAT_B8G8R8A8_UNORM:
             return 4;
         case DXGI_FORMAT_R16_FLOAT:
         case DXGI_FORMAT_R16_UNORM:
         case DXGI_FORMAT_R16_UINT:
             return 2;
-        case DXGI_FORMAT_BC1_UNORM:
-        case DXGI_FORMAT_BC1_UNORM_SRGB:
-        case DXGI_FORMAT_BC4_UNORM:
-        case DXGI_FORMAT_BC4_SNORM:
-            return 8;
+        case DXGI_FORMAT_UNKNOWN:
+        case DXGI_FORMAT_A8_UNORM:
+        case DXGI_FORMAT_R8_UINT:
+        case DXGI_FORMAT_R8_UNORM:
+            return 1;
+
         case DXGI_FORMAT_BC2_UNORM:
         case DXGI_FORMAT_BC2_UNORM_SRGB:
         case DXGI_FORMAT_BC3_UNORM:
@@ -329,6 +330,12 @@ static unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_BC7_UNORM:
         case DXGI_FORMAT_BC7_UNORM_SRGB:
             return 16;
+        case DXGI_FORMAT_BC1_UNORM:
+        case DXGI_FORMAT_BC1_UNORM_SRGB:
+        case DXGI_FORMAT_BC4_UNORM:
+        case DXGI_FORMAT_BC4_SNORM:
+            return 8;
+
         default:
             trace("Unhandled format %#x.\n", format);
             return 1;

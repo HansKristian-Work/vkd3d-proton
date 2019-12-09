@@ -451,6 +451,37 @@ const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
     return NULL;
 }
 
+const struct vkd3d_format *vkd3d_find_uint_format(const struct d3d12_device *device, DXGI_FORMAT dxgi_format)
+{
+    DXGI_FORMAT typeless_format = DXGI_FORMAT_UNKNOWN;
+    const struct vkd3d_format *vkd3d_format;
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(vkd3d_format_compatibility_info); ++i)
+    {
+        if (vkd3d_format_compatibility_info[i].format == dxgi_format)
+        {
+            typeless_format = vkd3d_format_compatibility_info[i].typeless_format;
+            break;
+        }
+    }
+
+    if (!typeless_format)
+        return NULL;
+
+    for (i = 0; i < ARRAY_SIZE(vkd3d_format_compatibility_info); ++i)
+    {
+        if (vkd3d_format_compatibility_info[i].typeless_format != typeless_format)
+            continue;
+
+        vkd3d_format = vkd3d_get_format(device, vkd3d_format_compatibility_info[i].format, false);
+        if (vkd3d_format->type == VKD3D_FORMAT_TYPE_UINT)
+            return vkd3d_format;
+    }
+
+    return NULL;
+}
+
 void vkd3d_format_copy_data(const struct vkd3d_format *format, const uint8_t *src,
         unsigned int src_row_pitch, unsigned int src_slice_pitch, uint8_t *dst, unsigned int dst_row_pitch,
         unsigned int dst_slice_pitch, unsigned int w, unsigned int h, unsigned int d)
@@ -828,7 +859,7 @@ HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
     return S_OK;
 }
 
-#ifdef _GNU_SOURCE
+#if HAVE_DECL_PROGRAM_INVOCATION_NAME
 
 bool vkd3d_get_program_name(char program_name[PATH_MAX])
 {
@@ -870,7 +901,7 @@ bool vkd3d_get_program_name(char program_name[PATH_MAX])
     return false;
 }
 
-#endif  /* _GNU_SOURCE */
+#endif  /* HAVE_DECL_PROGRAM_INVOCATION_NAME */
 
 static struct vkd3d_private_data *vkd3d_private_store_get_private_data(
         const struct vkd3d_private_store *store, const GUID *tag)

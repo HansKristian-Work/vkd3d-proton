@@ -2500,6 +2500,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_JOININSTID:
             snprintf(buffer, buffer_size, "vJoinInstanceId");
             break;
+        case VKD3DSPR_GSINSTID:
+            snprintf(buffer, buffer_size, "vGSInstanceID");
+            break;
         case VKD3DSPR_PATCHCONST:
             snprintf(buffer, buffer_size, "vpc%u", idx);
             break;
@@ -4438,7 +4441,12 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         {
             use_private_variable = true;
             write_mask = VKD3DSP_WRITEMASK_ALL;
+            entry = rb_get(&compiler->symbol_table, &reg_symbol);
         }
+    }
+    else if (!use_private_variable && (entry = rb_get(&compiler->symbol_table, &reg_symbol)))
+    {
+        id = RB_ENTRY_VALUE(entry, const struct vkd3d_symbol, entry)->id;
     }
     else
     {
@@ -4487,15 +4495,15 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
             vkd3d_spirv_build_op_decorate(builder, id, SpvDecorationPatch, NULL, 0);
 
         vkd3d_dxbc_compiler_decorate_xfb_output(compiler, id, output_component_count, signature_element);
-
-        compiler->output_info[signature_idx].id = id;
-        compiler->output_info[signature_idx].component_type = component_type;
     }
+
+    compiler->output_info[signature_idx].id = id;
+    compiler->output_info[signature_idx].component_type = component_type;
 
     if (use_private_variable)
         storage_class = SpvStorageClassPrivate;
 
-    if ((entry = rb_get(&compiler->symbol_table, &reg_symbol)))
+    if (entry)
         var_id = RB_ENTRY_VALUE(entry, const struct vkd3d_symbol, entry)->id;
     else if (!use_private_variable)
         var_id = id;

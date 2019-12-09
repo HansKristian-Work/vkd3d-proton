@@ -177,6 +177,13 @@ typedef enum D3D12_FORMAT_SUPPORT2
     D3D12_FORMAT_SUPPORT2_MULTIPLANE_OVERLAY = 0x00004000,
 } D3D12_FORMAT_SUPPORT2;
 
+typedef enum D3D12_WRITEBUFFERIMMEDIATE_MODE
+{
+    D3D12_WRITEBUFFERIMMEDIATE_MODE_DEFAULT = 0x0,
+    D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_IN = 0x1,
+    D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_OUT = 0x2,
+} D3D12_WRITEBUFFERIMMEDIATE_MODE;
+
 interface ID3D12Fence;
 interface ID3D12RootSignature;
 interface ID3D12Heap;
@@ -1657,6 +1664,12 @@ typedef enum D3D12_RESIDENCY_PRIORITY
     D3D12_RESIDENCY_PRIORITY_MAXIMUM = 0xc8000000,
 } D3D12_RESIDENCY_PRIORITY;
 
+typedef struct D3D12_WRITEBUFFERIMMEDIATE_PARAMETER
+{
+    D3D12_GPU_VIRTUAL_ADDRESS Dest;
+    UINT32 Value;
+} D3D12_WRITEBUFFERIMMEDIATE_PARAMETER;
+
 [
     uuid(c4fec28f-7966-4e95-9f94-f431cb56c3b8),
     object,
@@ -2000,6 +2013,21 @@ interface ID3D12GraphicsCommandList1 : ID3D12GraphicsCommandList
             UINT dst_sub_resource_idx, UINT dst_x, UINT dst_y,
             ID3D12Resource *src_resource, UINT src_sub_resource_idx,
             D3D12_RECT *src_rect, DXGI_FORMAT format, D3D12_RESOLVE_MODE mode);
+
+    void SetViewInstanceMask(UINT mask);
+}
+
+[
+    uuid(38c3e585-ff17-412c-9150-4fc6f9d72a28),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12GraphicsCommandList2 : ID3D12GraphicsCommandList1
+{
+    void WriteBufferImmediate(UINT count,
+            const D3D12_WRITEBUFFERIMMEDIATE_PARAMETER *parameters,
+            const D3D12_WRITEBUFFERIMMEDIATE_MODE *modes);
 }
 
 typedef enum D3D12_TILE_RANGE_FLAGS
