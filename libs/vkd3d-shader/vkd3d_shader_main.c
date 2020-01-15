@@ -25,16 +25,13 @@ VKD3D_DEBUG_ENV_NAME("VKD3D_SHADER_DEBUG");
 STATIC_ASSERT(MEMBER_SIZE(struct vkd3d_shader_scan_info, uav_counter_mask) * CHAR_BIT >= VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
 STATIC_ASSERT(MEMBER_SIZE(struct vkd3d_shader_scan_info, uav_read_mask) * CHAR_BIT >= VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
 
-static void vkd3d_shader_dump_blob(const char *path, const char *prefix, const void *data, size_t size)
+static void vkd3d_shader_dump_blob(const char *path, const char *prefix, const void *data, size_t size,
+        unsigned int id, const char *ext)
 {
-    static int shader_id = 0;
     char filename[1024];
-    unsigned int id;
     FILE *f;
 
-    id = InterlockedIncrement(&shader_id) - 1;
-
-    snprintf(filename, ARRAY_SIZE(filename), "%s/vkd3d-shader-%s-%u.dxbc", path, prefix, id);
+    snprintf(filename, ARRAY_SIZE(filename), "%s/vkd3d-shader-%s-%u.%s", path, prefix, id, ext);
     if ((f = fopen(filename, "wb")))
     {
         if (fwrite(data, 1, size, f) != size)
@@ -50,6 +47,7 @@ static void vkd3d_shader_dump_blob(const char *path, const char *prefix, const v
 
 static void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader)
 {
+    static int shader_id = 0;
     static bool enabled = true;
     const char *path;
 
@@ -62,7 +60,27 @@ static void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct v
         return;
     }
 
-    vkd3d_shader_dump_blob(path, shader_get_type_prefix(type), shader->code, shader->size);
+    vkd3d_shader_dump_blob(path, shader_get_type_prefix(type), shader->code, shader->size,
+                           InterlockedIncrement(&shader_id) - 1, "dxbc");
+}
+
+static void vkd3d_shader_dump_spirv_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader)
+{
+    static int shader_id = 0;
+    static bool enabled = true;
+    const char *path;
+
+    if (!enabled)
+        return;
+
+    if (!(path = getenv("VKD3D_SHADER_DUMP_PATH")))
+    {
+        enabled = false;
+        return;
+    }
+
+    vkd3d_shader_dump_blob(path, shader_get_type_prefix(type), shader->code, shader->size,
+                           InterlockedIncrement(&shader_id) - 1, "spv");
 }
 
 struct vkd3d_shader_parser
@@ -188,6 +206,9 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
 
     if (ret >= 0)
         ret = vkd3d_dxbc_compiler_generate_spirv(spirv_compiler, spirv);
+
+    if (ret == 0)
+        vkd3d_shader_dump_spirv_shader(parser.shader_version.type, spirv);
 
     vkd3d_dxbc_compiler_destroy(spirv_compiler);
     vkd3d_shader_parser_destroy(&parser);
