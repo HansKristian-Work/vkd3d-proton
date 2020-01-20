@@ -2097,7 +2097,7 @@ static int isgn_handler(const char *data, DWORD data_size, DWORD tag, void *ctx)
 {
     struct vkd3d_shader_signature *is = ctx;
 
-    if (tag != TAG_ISGN)
+    if (tag != TAG_ISGN && tag != TAG_ISG1)
         return VKD3D_OK;
 
     if (is->elements)
