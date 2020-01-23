@@ -923,6 +923,27 @@ static inline unsigned int vkd3d_compact_swizzle(unsigned int swizzle, unsigned 
     return compacted_swizzle;
 }
 
+struct vkd3d_struct
+{
+    enum vkd3d_shader_structure_type type;
+    const void *next;
+};
+
+#define vkd3d_find_struct(c, t) vkd3d_find_struct_(c, VKD3D_SHADER_STRUCTURE_TYPE_##t)
+static inline const void *vkd3d_find_struct_(const struct vkd3d_struct *chain,
+        enum vkd3d_shader_structure_type type)
+{
+    while (chain)
+    {
+        if (chain->type == type)
+            return chain;
+
+        chain = chain->next;
+    }
+
+    return NULL;
+}
+
 #define VKD3D_DXBC_MAX_SOURCE_COUNT 6
 #define VKD3D_DXBC_HEADER_SIZE (8 * sizeof(uint32_t))
 
