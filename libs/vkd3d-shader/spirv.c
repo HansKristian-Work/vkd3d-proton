@@ -108,27 +108,6 @@ static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv, enum vkd
 
 #endif  /* HAVE_SPIRV_TOOLS */
 
-struct vkd3d_struct
-{
-    enum vkd3d_shader_structure_type type;
-    const void *next;
-};
-
-#define vkd3d_find_struct(c, t) vkd3d_find_struct_(c, VKD3D_SHADER_STRUCTURE_TYPE_##t)
-static const void *vkd3d_find_struct_(const struct vkd3d_struct *chain,
-        enum vkd3d_shader_structure_type type)
-{
-    while (chain)
-    {
-        if (chain->type == type)
-            return chain;
-
-        chain = chain->next;
-    }
-
-    return NULL;
-}
-
 static enum vkd3d_shader_input_sysval_semantic vkd3d_siv_from_sysval_indexed(enum vkd3d_sysval_semantic sysval,
         unsigned int index)
 {
