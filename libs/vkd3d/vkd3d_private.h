@@ -132,6 +132,7 @@ struct vkd3d_vulkan_info
     enum vkd3d_shader_target_extension shader_extensions[VKD3D_MAX_SHADER_EXTENSIONS];
 
     D3D_FEATURE_LEVEL max_feature_level;
+    D3D_SHADER_MODEL max_shader_model;
     bool supports_volatile_packed_descriptors;
 };
 
@@ -1239,6 +1240,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT xfb_properties;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
+    VkPhysicalDeviceSubgroupProperties subgroup_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
