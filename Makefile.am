@@ -90,6 +90,10 @@ if HAVE_LD_VERSION_SCRIPT
 libvkd3d_shader_la_LDFLAGS += -Wl,--version-script=$(srcdir)/libs/vkd3d-shader/vkd3d_shader.map
 EXTRA_libvkd3d_shader_la_DEPENDENCIES = $(srcdir)/libs/vkd3d-shader/vkd3d_shader.map
 endif
+if HAVE_DXIL_SPV
+libvkd3d_shader_la_SOURCES += \
+	libs/vkd3d-shader/dxil.c
+endif
 
 libvkd3d_la_SOURCES = \
 	include/private/vkd3d_common.h \
