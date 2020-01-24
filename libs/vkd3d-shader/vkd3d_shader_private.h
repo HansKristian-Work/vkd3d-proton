@@ -958,4 +958,10 @@ static inline const void *vkd3d_find_struct_(const struct vkd3d_struct *chain,
 #define VKD3D_DXBC_MAX_SOURCE_COUNT 6
 #define VKD3D_DXBC_HEADER_SIZE (8 * sizeof(uint32_t))
 
+/* DXIL support */
+int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_shader_code *spirv,
+        const struct vkd3d_shader_interface_info *shader_interface_info,
+        const struct vkd3d_shader_compile_arguments *compiler_args);
+
 #endif  /* __VKD3D_SHADER_PRIVATE_H */
