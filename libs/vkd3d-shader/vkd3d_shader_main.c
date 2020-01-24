@@ -437,3 +437,12 @@ void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature
     vkd3d_free(signature->elements);
     signature->elements = NULL;
 }
+
+int vkd3d_shader_supports_dxil(void)
+{
+#ifdef HAVE_DXIL_SPV
+    return 1;
+#else
+    return 0;
+#endif
+}

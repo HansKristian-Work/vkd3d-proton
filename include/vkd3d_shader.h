@@ -658,6 +658,8 @@ struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
         unsigned int semantic_index, unsigned int stream_index);
 void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature);
 
+int vkd3d_shader_supports_dxil(void);
+
 #endif  /* VKD3D_SHADER_NO_PROTOTYPES */
 
 /*
