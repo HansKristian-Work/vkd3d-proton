@@ -164,6 +164,17 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     if ((ret = vkd3d_shader_validate_compile_args(compile_args)) < 0)
         return ret;
 
+    /* DXIL is handled externally through dxil-spirv. */
+    if (shader_is_dxil(dxbc->code, dxbc->size))
+    {
+#ifdef HAVE_DXIL_SPV
+        return vkd3d_shader_compile_dxil(dxbc, spirv, shader_interface_info, compile_args);
+#else
+        ERR("DXIL shader found, but DXIL support is not enabled in vkd3d.\n");
+        return VKD3D_ERROR_INVALID_SHADER;
+#endif
+    }
+
     scan_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
     scan_info.next = NULL;
     if ((ret = vkd3d_shader_scan_dxbc(dxbc, &scan_info)) < 0)
@@ -313,27 +324,35 @@ int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
-    if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
-        return ret;
-
-    memset(scan_info, 0, sizeof(*scan_info));
-
-    while (!shader_sm4_is_end(parser.data, &parser.ptr))
+    if (shader_is_dxil(dxbc->code, dxbc->size))
     {
-        shader_sm4_read_instruction(parser.data, &parser.ptr, &instruction);
+        /* There is nothing interesting to scan. DXIL does this internally. */
+        return VKD3D_OK;
+    }
+    else
+    {
+        if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
+            return ret;
 
-        if (instruction.handler_idx == VKD3DSIH_INVALID)
+        memset(scan_info, 0, sizeof(*scan_info));
+
+        while (!shader_sm4_is_end(parser.data, &parser.ptr))
         {
-            WARN("Encountered unrecognized or invalid instruction.\n");
-            vkd3d_shader_parser_destroy(&parser);
-            return VKD3D_ERROR_INVALID_ARGUMENT;
+            shader_sm4_read_instruction(parser.data, &parser.ptr, &instruction);
+
+            if (instruction.handler_idx == VKD3DSIH_INVALID)
+            {
+                WARN("Encountered unrecognized or invalid instruction.\n");
+                vkd3d_shader_parser_destroy(&parser);
+                return VKD3D_ERROR_INVALID_ARGUMENT;
+            }
+
+            vkd3d_shader_scan_instruction(scan_info, &instruction);
         }
 
-        vkd3d_shader_scan_instruction(scan_info, &instruction);
+        vkd3d_shader_parser_destroy(&parser);
+        return VKD3D_OK;
     }
-
-    vkd3d_shader_parser_destroy(&parser);
-    return VKD3D_OK;
 }
 
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *shader_code)
