@@ -911,6 +911,27 @@ static bool init_compute_test_context_(unsigned int line, struct test_context *c
     return true;
 }
 
+#define context_supports_dxil(context) context_supports_dxil_(__LINE__, context)
+static bool context_supports_dxil_(unsigned int line, struct test_context *context)
+{
+    D3D12_FEATURE_DATA_SHADER_MODEL model;
+    HRESULT hr;
+    model.HighestShaderModel = D3D_SHADER_MODEL_6_0;
+    hr = ID3D12Device_CheckFeatureSupport(context->device, D3D12_FEATURE_SHADER_MODEL, &model, sizeof(model));
+    ok_(line)(hr == S_OK, "Failed to query shader model support, hr %#x.\n", hr);
+
+    if (hr != S_OK)
+        return false;
+
+    if (model.HighestShaderModel < D3D_SHADER_MODEL_6_0)
+    {
+        skip_(line)("Device does not support shader model 6.0, skipping DXIL tests.\n");
+        return false;
+    }
+    else
+        return true;
+}
+
 struct depth_stencil_resource
 {
     ID3D12Resource *texture;
