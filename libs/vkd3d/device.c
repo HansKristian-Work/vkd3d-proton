@@ -710,6 +710,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceTransformFeedbackPropertiesEXT *xfb_properties;
     VkPhysicalDevice physical_device = device->vk_physical_device;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT *xfb_features;
+    VkPhysicalDeviceSubgroupProperties *subgroup_properties;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
 
     memset(info, 0, sizeof(*info));
@@ -727,6 +728,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     vertex_divisor_properties = &info->vertex_divisor_properties;
     xfb_features = &info->xfb_features;
     xfb_properties = &info->xfb_properties;
+    subgroup_properties = &info->subgroup_properties;
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 
@@ -766,6 +768,8 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     vk_prepend_struct(&info->properties2, vertex_divisor_properties);
     inline_uniform_block_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_PROPERTIES_EXT;
     vk_prepend_struct(&info->properties2, inline_uniform_block_properties);
+    subgroup_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+    vk_prepend_struct(&info->properties2, subgroup_properties);
 
     if (vulkan_info->KHR_get_physical_device_properties2)
         VK_CALL(vkGetPhysicalDeviceProperties2KHR(physical_device, &info->properties2));
@@ -1279,6 +1283,42 @@ static void vkd3d_init_feature_level(struct vkd3d_vulkan_info *vk_info,
     TRACE("Max feature level: %#x.\n", vk_info->max_feature_level);
 }
 
+static void vkd3d_init_shader_model(uint32_t api_version,
+        struct vkd3d_vulkan_info *vulkan_info,
+        struct vkd3d_physical_device_info *physical_device_info)
+{
+    /* SHUFFLE is required to implement WaveReadLaneAt with dynamically uniform index before SPIR-V 1.5 / Vulkan 1.2. */
+    static const VkSubgroupFeatureFlags required =
+            VK_SUBGROUP_FEATURE_ARITHMETIC_BIT |
+            VK_SUBGROUP_FEATURE_BASIC_BIT |
+            VK_SUBGROUP_FEATURE_BALLOT_BIT |
+            VK_SUBGROUP_FEATURE_SHUFFLE_BIT |
+            VK_SUBGROUP_FEATURE_QUAD_BIT |
+            VK_SUBGROUP_FEATURE_VOTE_BIT;
+
+    static const VkSubgroupFeatureFlags required_stages =
+            VK_SHADER_STAGE_COMPUTE_BIT |
+            VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    if (api_version >= VK_API_VERSION_1_1 &&
+        vkd3d_shader_supports_dxil() &&
+        physical_device_info->subgroup_properties.subgroupSize >= 4 &&
+        (physical_device_info->subgroup_properties.supportedOperations & required) == required &&
+        (physical_device_info->subgroup_properties.supportedStages & required_stages) == required_stages)
+    {
+        /* TODO: Add checks for all the other features which are required to implement SM 6.0.
+         * - 16-bit arithmetic / storage. Supporting FP16/INT16 properly might require improved SSBO alignment features.
+         */
+        vulkan_info->max_shader_model = D3D_SHADER_MODEL_6_0;
+        TRACE("Enabling support for SM 6.0.\n");
+    }
+    else
+    {
+        vulkan_info->max_shader_model = D3D_SHADER_MODEL_5_1;
+        TRACE("Enabling support for SM 5.1.\n");
+    }
+}
+
 static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         const struct vkd3d_device_create_info *create_info,
         struct vkd3d_physical_device_info *physical_device_info,
@@ -1489,6 +1529,8 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
             WARN("Disabling support for Root Signature 1.0 VOLATILE descriptor semantics.\n");
         }
     }
+
+    vkd3d_init_shader_model(device->api_version, vulkan_info, physical_device_info);
 
     return S_OK;
 }
@@ -2723,9 +2765,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             }
 
             TRACE("Request shader model %#x.\n", data->HighestShaderModel);
-
-            data->HighestShaderModel = D3D_SHADER_MODEL_5_1;
-
+            data->HighestShaderModel = min(data->HighestShaderModel, device->vk_info.max_shader_model);
             TRACE("Shader model %#x.\n", data->HighestShaderModel);
             return S_OK;
         }
