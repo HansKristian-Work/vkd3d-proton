@@ -11,6 +11,8 @@ AC_ARG_VAR([CROSSCC64], [64-bit Windows cross compiler])
 AC_ARG_WITH([xcb], AS_HELP_STRING([--with-xcb], [Build with XCB library (default: test)]))
 AC_ARG_WITH([spirv-tools], AS_HELP_STRING([--with-spirv-tools],
                                           [Build with SPIRV-Tools library (default: disabled)]))
+AC_ARG_WITH([dxil-spirv], AS_HELP_STRING([--with-dxil-spirv],
+                                         [Build with dxil-spirv library for DXIL support (default: enabled)]))
 AC_ARG_ENABLE([demos],
               AS_HELP_STRING([--enable-demos], [Build demo programs (default: disabled)]),,
               [enable_demos=no])
@@ -113,6 +115,13 @@ AS_IF([test "x$with_xcb" != "xno"],
                                 HAVE_XCB=yes],
                                 [HAVE_XCB=no])])
 
+HAVE_DXIL_SPV=no
+AS_IF([test "x$with_dxil_spirv" != "xno"],
+      [PKG_CHECK_MODULES([dxil_spirv_c_shared], [dxil-spirv-c-shared],
+                         [AC_DEFINE([HAVE_DXIL_SPV], [1], [Define to 1 if you have dxil-spirv.])
+                         HAVE_DXIL_SPV=yes], [HAVE_DXIL_SPV=no])],
+                         [HAVE_DXIL_SPV=no])
+
 dnl Check for functions
 VKD3D_CHECK_FUNC([HAVE_BUILTIN_CLZ], [__builtin_clz], [__builtin_clz(0)])
 VKD3D_CHECK_FUNC([HAVE_BUILTIN_POPCOUNT], [__builtin_popcount], [__builtin_popcount(0)])
@@ -129,6 +138,7 @@ AM_CONDITIONAL([BUILD_TESTS], [test "x$enable_tests" != "xno"])
 AM_CONDITIONAL([HAVE_WIDL], [test "x$WIDL" != "xno"])
 AM_CONDITIONAL([HAVE_CROSSTARGET32], [test "x$CROSSTARGET32" != "xno"])
 AM_CONDITIONAL([HAVE_CROSSTARGET64], [test "x$CROSSTARGET64" != "xno"])
+AM_CONDITIONAL([HAVE_DXIL_SPV], [test "x$HAVE_DXIL_SPV" = "xyes"])
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
@@ -144,6 +154,7 @@ AS_ECHO(["
 
   Have XCB: ${HAVE_XCB}
   Have SPIRV-Tools: ${with_spirv_tools}
+  Have dxil-spirv: ${HAVE_DXIL_SPV}
 
   Building demos: ${enable_demos}
   Building tests: ${enable_tests}
