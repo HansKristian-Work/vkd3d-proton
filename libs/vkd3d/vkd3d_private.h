@@ -126,6 +126,7 @@ struct vkd3d_vulkan_info
     enum vkd3d_shader_target_extension shader_extensions[VKD3D_MAX_SHADER_EXTENSIONS];
 
     D3D_FEATURE_LEVEL max_feature_level;
+    D3D_SHADER_MODEL max_shader_model;
 };
 
 enum vkd3d_config_flags
