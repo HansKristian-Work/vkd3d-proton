@@ -61,6 +61,7 @@ struct d3d12_resource;
 struct vkd3d_vk_global_procs
 {
     PFN_vkCreateInstance vkCreateInstance;
+    PFN_vkEnumerateInstanceVersion vkEnumerateInstanceVersion;
     PFN_vkEnumerateInstanceExtensionProperties vkEnumerateInstanceExtensionProperties;
     PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
 };
@@ -135,6 +136,7 @@ enum vkd3d_config_flags
 struct vkd3d_instance
 {
     VkInstance vk_instance;
+    uint32_t instance_version;
     struct vkd3d_vk_instance_procs vk_procs;
 
     PFN_vkd3d_signal_event signal_event;
@@ -1116,6 +1118,7 @@ struct d3d12_device
     LONG refcount;
 
     VkDevice vk_device;
+    uint32_t api_version;
     VkPhysicalDevice vk_physical_device;
     struct vkd3d_vk_device_procs vk_procs;
     PFN_vkd3d_signal_event signal_event;

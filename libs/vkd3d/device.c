@@ -459,6 +459,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     VkInstance vk_instance;
     VkResult vr;
     HRESULT hr;
+    uint32_t loader_version = VK_API_VERSION_1_0;
 
     TRACE("Build: %s.\n", vkd3d_build);
 
@@ -499,13 +500,20 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         return hr;
     }
 
+    if (vk_global_procs->vkEnumerateInstanceVersion)
+        vk_global_procs->vkEnumerateInstanceVersion(&loader_version);
+
+    /* Do not opt-in to versions we don't need yet. */
+    if (loader_version > VK_API_VERSION_1_1)
+        loader_version = VK_API_VERSION_1_1;
+
     application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     application_info.pNext = NULL;
     application_info.pApplicationName = NULL;
     application_info.applicationVersion = 0;
     application_info.pEngineName = PACKAGE_NAME;
     application_info.engineVersion = vkd3d_get_vk_version();
-    application_info.apiVersion = VK_API_VERSION_1_0;
+    application_info.apiVersion = loader_version;
 
     if ((vkd3d_application_info = vkd3d_find_struct(create_info->next, APPLICATION_INFO)))
     {
@@ -570,8 +578,13 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     }
 
     instance->vk_instance = vk_instance;
+    instance->instance_version = loader_version;
 
     TRACE("Created Vulkan instance %p.\n", vk_instance);
+    if (loader_version == VK_API_VERSION_1_1)
+        TRACE("Created Vulkan 1.1 instance.\n");
+    else
+        TRACE("Created Vulkan 1.0 instance.\n");
 
     instance->refcount = 1;
 
@@ -1698,6 +1711,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     VkDevice vk_device;
     VkResult vr;
     HRESULT hr;
+    VkPhysicalDeviceProperties device_properties;
+    bool use_vulkan_11;
 
     TRACE("device %p, create_info %p.\n", device, create_info);
 
@@ -1708,6 +1723,11 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         return hr;
 
     device->vk_physical_device = physical_device;
+
+    VK_CALL(vkGetPhysicalDeviceProperties(device->vk_physical_device, &device_properties));
+    use_vulkan_11 = device_properties.apiVersion >= VK_API_VERSION_1_1 &&
+                    device->vkd3d_instance->instance_version >= VK_API_VERSION_1_1;
+    device->api_version = use_vulkan_11 ? VK_API_VERSION_1_1 : VK_API_VERSION_1_0;
 
     if (FAILED(hr = vkd3d_select_queues(device->vkd3d_instance, physical_device, &device_queue_info)))
         return hr;
