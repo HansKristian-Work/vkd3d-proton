@@ -33159,7 +33159,7 @@ static void test_primitive_restart(void)
     destroy_test_context(&context);
 }
 
-static void test_vertex_shader_stream_output(void)
+static void test_vertex_shader_stream_output(bool use_dxil)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12Resource *counter_buffer, *so_buffer;
@@ -33192,11 +33192,21 @@ static void test_vertex_shader_stream_output(void)
     desc.no_pipeline = true;
     if (!init_test_context(&context, &desc))
         return;
+
+    if (use_dxil && !context_supports_dxil(&context))
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
     device = context.device;
     command_list = context.list;
     queue = context.queue;
 
-    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, NULL, NULL);
+    if (use_dxil)
+        init_pipeline_state_desc_dxil(&pso_desc, context.root_signature, 0, NULL, NULL, NULL);
+    else
+        init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, NULL, NULL);
     pso_desc.StreamOutput.NumEntries = ARRAY_SIZE(so_declaration);
     pso_desc.StreamOutput.pSODeclaration = so_declaration;
     pso_desc.StreamOutput.pBufferStrides = strides;
@@ -33262,6 +33272,16 @@ static void test_vertex_shader_stream_output(void)
     ID3D12Resource_Release(upload_buffer);
     ID3D12Resource_Release(so_buffer);
     destroy_test_context(&context);
+}
+
+static void test_vertex_shader_stream_output_dxbc(void)
+{
+    test_vertex_shader_stream_output(false);
+}
+
+static void test_vertex_shader_stream_output_dxil(void)
+{
+    test_vertex_shader_stream_output(true);
 }
 
 static void test_read_write_subresource(void)
@@ -35816,7 +35836,8 @@ START_TEST(d3d12)
     run_test(test_shader_sample_position);
     run_test(test_shader_eval_attribute);
     run_test(test_primitive_restart);
-    run_test(test_vertex_shader_stream_output);
+    run_test(test_vertex_shader_stream_output_dxbc);
+    run_test(test_vertex_shader_stream_output_dxil);
     run_test(test_read_write_subresource);
     run_test(test_queue_wait);
     run_test(test_graphics_compute_queue_synchronization);
