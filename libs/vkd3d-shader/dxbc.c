@@ -1891,6 +1891,7 @@ bool shader_sm4_is_end(void *data, const DWORD **ptr)
 #define TAG_SHEX MAKE_TAG('S', 'H', 'E', 'X')
 #define TAG_AON9 MAKE_TAG('A', 'o', 'n', '9')
 #define TAG_RTS0 MAKE_TAG('R', 'T', 'S', '0')
+#define TAG_DXIL MAKE_TAG('D', 'X', 'I', 'L')
 
 static bool require_space(size_t offset, size_t count, size_t size, size_t data_size)
 {
@@ -2118,6 +2119,20 @@ int shader_parse_input_signature(const void *dxbc, size_t dxbc_length,
     return ret;
 }
 
+static int dxil_handler(const char *data, DWORD data_size, DWORD tag, void *context)
+{
+    switch (tag)
+    {
+        case TAG_DXIL:
+            *(bool *)context = true;
+            break;
+        default:
+            break;
+    }
+
+    return VKD3D_OK;
+}
+
 static int shdr_handler(const char *data, DWORD data_size, DWORD tag, void *context)
 {
     struct vkd3d_shader_desc *desc = context;
@@ -2208,6 +2223,18 @@ int shader_extract_from_dxbc(const void *dxbc, size_t dxbc_length,
     }
 
     return ret;
+}
+
+bool shader_is_dxil(const void *dxbc, size_t dxbc_length)
+{
+    bool dxil = false;
+    int ret = parse_dxbc(dxbc, dxbc_length, dxil_handler, &dxil);
+    if (ret < 0)
+    {
+        FIXME("Failed to parse shader, vkd3d result %d.\n", ret);
+        return false;
+    }
+    return dxil;
 }
 
 /* root signatures */
