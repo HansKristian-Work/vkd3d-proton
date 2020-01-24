@@ -11,6 +11,7 @@ global:
     vkd3d_shader_parse_root_signature;
     vkd3d_shader_scan_dxbc;
     vkd3d_shader_serialize_root_signature;
+    vkd3d_shader_supports_dxil;
 
 local: *;
 };
