@@ -45,7 +45,7 @@ static void vkd3d_shader_dump_blob(const char *path, const char *prefix, const v
     }
 }
 
-static void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader)
+void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader)
 {
     static int shader_id = 0;
     static bool enabled = true;
@@ -64,7 +64,7 @@ static void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct v
                            InterlockedIncrement(&shader_id) - 1, "dxbc");
 }
 
-static void vkd3d_shader_dump_spirv_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader)
+void vkd3d_shader_dump_spirv_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader)
 {
     static int shader_id = 0;
     static bool enabled = true;
