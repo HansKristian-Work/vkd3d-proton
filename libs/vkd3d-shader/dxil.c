@@ -394,6 +394,18 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
                 goto end;
             }
         }
+
+        if (compiler_args->output_swizzle_count != 0)
+        {
+            const dxil_spv_option_output_swizzle helper =
+                    { { DXIL_SPV_OPTION_OUTPUT_SWIZZLE }, compiler_args->output_swizzles, compiler_args->output_swizzle_count };
+            if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+            {
+                ERR("dxil-spirv does not support OUTPUT_SWIZZLE.\n");
+                ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                goto end;
+            }
+        }
     }
 
     dxil_spv_converter_set_root_constant_word_count(converter, root_constant_words);
