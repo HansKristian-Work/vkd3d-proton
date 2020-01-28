@@ -865,6 +865,24 @@ static ID3D12PipelineState *create_pipeline_state_(unsigned int line, ID3D12Devi
     return pipeline_state;
 }
 
+#define create_pipeline_state_dxil(a, b, c, d, e, f) create_pipeline_state_dxil_(__LINE__, a, b, c, d, e, f)
+static ID3D12PipelineState *create_pipeline_state_dxil_(unsigned int line, ID3D12Device *device,
+                                                        ID3D12RootSignature *root_signature, DXGI_FORMAT rt_format,
+                                                        const D3D12_SHADER_BYTECODE *vs, const D3D12_SHADER_BYTECODE *ps,
+                                                        const D3D12_INPUT_LAYOUT_DESC *input_layout)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline_state_desc;
+    ID3D12PipelineState *pipeline_state;
+    HRESULT hr;
+
+    init_pipeline_state_desc_dxil(&pipeline_state_desc, root_signature, rt_format, vs, ps, input_layout);
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pipeline_state_desc,
+                                                  &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok_(line)(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+
+    return pipeline_state;
+}
+
 struct test_context_desc
 {
     unsigned int rt_width, rt_height, rt_array_size;
