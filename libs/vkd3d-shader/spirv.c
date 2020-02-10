@@ -4160,6 +4160,14 @@ static void vkd3d_dxbc_compiler_emit_shader_phase_input(struct vkd3d_dxbc_compil
         case VKD3DSPR_JOININSTID:
             val_id = phase->instance_id;
             break;
+        case VKD3DSPR_PATCHCONST:
+            vkd3d_symbol_make_register(&reg_symbol, reg);
+            vkd3d_symbol_set_register_info(&reg_symbol, compiler->hs.patch_constants_id,
+                    SpvStorageClassPrivate, VKD3D_TYPE_FLOAT, VKD3DSP_WRITEMASK_ALL);
+            reg_symbol.info.reg.is_aggregate = true;
+            reg_symbol.info.reg.member_idx = reg_symbol.key.reg.idx;
+            vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
+            return;
         case VKD3DSPR_OUTPOINTID: /* Emitted in vkd3d_dxbc_compiler_emit_initial_declarations(). */
         case VKD3DSPR_OUTCONTROLPOINT: /* See vkd3d_dxbc_compiler_leave_shader_phase(). */
             return;
