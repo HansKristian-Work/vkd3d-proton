@@ -4145,7 +4145,6 @@ static void vkd3d_dxbc_compiler_emit_shader_phase_input(struct vkd3d_dxbc_compil
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_register *reg = &dst->reg;
     struct vkd3d_symbol reg_symbol;
-    uint32_t val_id;
 
     switch (reg->type)
     {
@@ -4158,8 +4157,13 @@ static void vkd3d_dxbc_compiler_emit_shader_phase_input(struct vkd3d_dxbc_compil
             return;
         case VKD3DSPR_FORKINSTID:
         case VKD3DSPR_JOININSTID:
-            val_id = phase->instance_id;
-            break;
+            vkd3d_symbol_make_register(&reg_symbol, reg);
+            vkd3d_symbol_set_register_info(&reg_symbol, phase->instance_id,
+                    SpvStorageClassMax /* Intermediate value */,
+                    VKD3D_TYPE_UINT, VKD3DSP_WRITEMASK_0);
+            vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
+            vkd3d_dxbc_compiler_emit_register_debug_name(builder, phase->instance_id, reg);
+            return;
         case VKD3DSPR_PATCHCONST:
             vkd3d_symbol_make_register(&reg_symbol, reg);
             vkd3d_symbol_set_register_info(&reg_symbol, compiler->hs.patch_constants_id,
@@ -4175,13 +4179,6 @@ static void vkd3d_dxbc_compiler_emit_shader_phase_input(struct vkd3d_dxbc_compil
             FIXME("Unhandled shader phase input register %#x.\n", reg->type);
             return;
     }
-
-    vkd3d_symbol_make_register(&reg_symbol, reg);
-    vkd3d_symbol_set_register_info(&reg_symbol, val_id,
-            SpvStorageClassMax /* Intermediate value */,
-            VKD3D_TYPE_UINT, VKD3DSP_WRITEMASK_0);
-    vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
-    vkd3d_dxbc_compiler_emit_register_debug_name(builder, val_id, reg);
 }
 
 static unsigned int vkd3d_dxbc_compiler_get_output_variable_index(
