@@ -17,6 +17,7 @@
  */
 
 #include "vkd3d_shader_private.h"
+#include "vkd3d_d3d12.h"
 #include "rbtree.h"
 
 #include <stdarg.h>
@@ -3794,13 +3795,15 @@ static void vkd3d_dxbc_compiler_decorate_xfb_output(struct vkd3d_dxbc_compiler *
     const struct vkd3d_shader_transform_feedback_info *xfb_info = compiler->xfb_info;
     const struct vkd3d_shader_transform_feedback_element *xfb_element;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    unsigned int offset, stride, i;
+    unsigned int buffer_offsets[D3D12_SO_BUFFER_SLOT_COUNT];
+    unsigned int stride, i;
 
     if (!xfb_info)
         return;
 
-    offset = 0;
+    memset(buffer_offsets, 0, sizeof(buffer_offsets));
     xfb_element = NULL;
+
     for (i = 0; i < xfb_info->element_count; ++i)
     {
         const struct vkd3d_shader_transform_feedback_element *e = &xfb_info->elements[i];
@@ -3813,7 +3816,7 @@ static void vkd3d_dxbc_compiler_decorate_xfb_output(struct vkd3d_dxbc_compiler *
             break;
         }
 
-        offset += 4 * e->component_count;
+        buffer_offsets[e->output_slot] += 4 * e->component_count;
     }
 
     if (!xfb_element)
@@ -3843,7 +3846,7 @@ static void vkd3d_dxbc_compiler_decorate_xfb_output(struct vkd3d_dxbc_compiler *
 
     vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationXfbBuffer, xfb_element->output_slot);
     vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationXfbStride, stride);
-    vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationOffset, offset);
+    vkd3d_spirv_build_op_decorate1(builder, id, SpvDecorationOffset, buffer_offsets[xfb_element->output_slot]);
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_builtin_variable(struct vkd3d_dxbc_compiler *compiler,
