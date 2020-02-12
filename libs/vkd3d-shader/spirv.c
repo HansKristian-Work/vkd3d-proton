@@ -4103,7 +4103,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
                 ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassInput, type_id);
                 index = vkd3d_dxbc_compiler_get_constant_uint(compiler, i);
                 val_id = vkd3d_spirv_build_op_in_bounds_access_chain1(builder, ptr_type_id, input_id, index);
-                dst_reg.idx[0].offset = i; /* FIXME: Needed reg_idx + i in branch below. Bug here as well? */
+                dst_reg.idx[0].offset = reg_idx + i;
             }
             else if (builtin && builtin->spirv_array_size >= 1)
             {
