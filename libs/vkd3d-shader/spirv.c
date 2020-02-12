@@ -4009,6 +4009,25 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     else if ((entry = rb_get(&compiler->symbol_table, &reg_symbol)))
     {
         input_id = RB_ENTRY_VALUE(entry, const struct vkd3d_symbol, entry)->id;
+
+        if (use_private_var)
+        {
+            /* We still need to declare an input I/O variable.
+             * This input will be swizzled into the existing private variable. */
+            unsigned int location = reg_idx;
+
+            if (reg->type == VKD3DSPR_PATCHCONST)
+                location += compiler->input_signature->element_count;
+
+            input_id = vkd3d_dxbc_compiler_emit_array_variable(compiler, &builder->global_stream,
+                                                               storage_class, component_type, input_component_count, array_size);
+            vkd3d_spirv_add_iface_variable(builder, input_id);
+            vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationLocation, location);
+            if (component_idx)
+                vkd3d_spirv_build_op_decorate1(builder, input_id, SpvDecorationComponent, component_idx);
+
+            vkd3d_dxbc_compiler_emit_interpolation_decorations(compiler, input_id, interpolation_mode);
+        }
     }
     else
     {
@@ -4084,8 +4103,19 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
                 ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassInput, type_id);
                 index = vkd3d_dxbc_compiler_get_constant_uint(compiler, i);
                 val_id = vkd3d_spirv_build_op_in_bounds_access_chain1(builder, ptr_type_id, input_id, index);
-                dst_reg.idx[0].offset = i;
+                dst_reg.idx[0].offset = i; /* FIXME: Needed reg_idx + i in branch below. Bug here as well? */
             }
+            else if (builtin && builtin->spirv_array_size >= 1)
+            {
+                /* The DXBC builtin is not an array, but the SPIR-V builtin is an array, so
+                 * we'll need to index into the builtin when we try to load it.
+                 * This happens when we try to read TessLevel in domain shader. */
+                ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassInput, type_id);
+                index = vkd3d_dxbc_compiler_get_constant_uint(compiler, builtin->member_idx);
+                val_id = vkd3d_spirv_build_op_in_bounds_access_chain1(builder, ptr_type_id, input_id, index);
+                dst_reg.idx[0].offset = reg_idx + i;
+            }
+
             val_id = vkd3d_spirv_build_op_load(builder, type_id, val_id, SpvMemoryAccessMaskNone);
 
             if (builtin && builtin->fixup_pfn)
@@ -4098,8 +4128,8 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
             }
 
             val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler, val_id,
-                    vkd3d_write_mask_from_component_count(input_component_count) << component_idx,
-                    VKD3D_TYPE_FLOAT, VKD3D_NO_SWIZZLE, dst->write_mask);
+                    vkd3d_write_mask_from_component_count(input_component_count),
+                    VKD3D_TYPE_FLOAT, VKD3D_NO_SWIZZLE, dst->write_mask >> component_idx);
 
             vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst_reg, dst->write_mask, val_id);
         }
