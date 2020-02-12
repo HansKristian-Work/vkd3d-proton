@@ -3561,8 +3561,8 @@ vkd3d_system_value_builtins[] =
     {VKD3D_SIV_TRIANGLE_W_TESS_FACTOR,     {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelOuter, NULL, 4, 2}},
     {VKD3D_SIV_TRIANGLE_INNER_TESS_FACTOR, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelInner, NULL, 2, 0}},
 
-    {VKD3D_SIV_LINE_DETAIL_TESS_FACTOR,  {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelOuter, NULL, 4, 0}},
-    {VKD3D_SIV_LINE_DENSITY_TESS_FACTOR, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelOuter, NULL, 4, 1}},
+    {VKD3D_SIV_LINE_DENSITY_TESS_FACTOR, {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelOuter, NULL, 4, 0}},
+    {VKD3D_SIV_LINE_DETAIL_TESS_FACTOR,  {VKD3D_TYPE_FLOAT, 1, SpvBuiltInTessLevelOuter, NULL, 4, 1}},
 };
 static const struct vkd3d_spirv_builtin vkd3d_pixel_shader_position_builtin =
 {
