@@ -1659,13 +1659,21 @@ static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
         return E_FAIL;
     }
 
+#define VKD3D_FORCE_SINGLE_QUEUE 1
+    /* Works around https://gitlab.freedesktop.org/mesa/mesa/issues/2529.
+     * The other viable workaround was to disable VK_EXT_descriptor_indexing for the time being,
+     * but that did not work out as we relied on global_bo_list to deal with games like RE2 which appear
+     * to potentially access descriptors which reference freed memory. This is fine in D3D12, but we need
+     * PARTIALLY_BOUND_BIT semantics to make that work well.
+     * Just disabling async compute works around the issue as well. */
+
     /* No compute-only queue family, reuse the direct queue family with graphics and compute. */
-    if (info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] == ~0u)
+    if (VKD3D_FORCE_SINGLE_QUEUE || info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] == ~0u)
     {
         info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_DIRECT];
         info->vk_properties[VKD3D_QUEUE_FAMILY_COMPUTE] = info->vk_properties[VKD3D_QUEUE_FAMILY_DIRECT];
     }
-    if (info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] == ~0u)
+    if (VKD3D_FORCE_SINGLE_QUEUE || info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] == ~0u)
     {
         info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_DIRECT];
         info->vk_properties[VKD3D_QUEUE_FAMILY_TRANSFER] = info->vk_properties[VKD3D_QUEUE_FAMILY_DIRECT];
@@ -1673,11 +1681,14 @@ static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
 
     /* Compact the array. */
     info->vk_family_count = 1;
+
+#if !VKD3D_FORCE_SINGLE_QUEUE
     for (i = info->vk_family_count; i < ARRAY_SIZE(info->vk_queue_create_info); ++i)
     {
         if (info->vk_queue_create_info[i].queueCount)
             info->vk_queue_create_info[info->vk_family_count++] = info->vk_queue_create_info[i];
     }
+#endif
 
     return S_OK;
 }
