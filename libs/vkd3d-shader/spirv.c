@@ -2319,6 +2319,25 @@ static bool vkd3d_dxbc_compiler_has_combined_sampler(const struct vkd3d_dxbc_com
     return false;
 }
 
+static enum vkd3d_shader_descriptor_type vkd3d_shader_descriptor_type_from_register_type(
+        enum vkd3d_shader_register_type reg_type)
+{
+    switch (reg_type)
+    {
+        case VKD3DSPR_CONSTBUFFER:
+            return VKD3D_SHADER_DESCRIPTOR_TYPE_CBV;
+        case VKD3DSPR_RESOURCE:
+            return VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
+        case VKD3DSPR_UAV:
+            return VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
+        case VKD3DSPR_SAMPLER:
+            return VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER;
+        default:
+            FIXME("Unhandled register type %#x.\n", reg_type);
+            return VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN;
+    }
+}
+
 static bool vkd3d_get_binding_info_for_register(
         struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg,
@@ -2330,18 +2349,7 @@ static bool vkd3d_get_binding_info_for_register(
 
     if (shader_is_sm_5_1(compiler))
     {
-        key.descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN;
-        if (reg->type == VKD3DSPR_CONSTBUFFER)
-            key.descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_CBV;
-        else if (reg->type == VKD3DSPR_RESOURCE)
-            key.descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
-        else if (reg->type == VKD3DSPR_UAV)
-            key.descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
-        else if (reg->type == VKD3DSPR_SAMPLER)
-            key.descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER;
-        else
-            FIXME("Unhandled register type %#x.\n", reg->type);
-
+        key.descriptor_type = vkd3d_shader_descriptor_type_from_register_type(reg->type);
         key.idx = reg->idx[0].offset;
         entry = rb_get(&compiler->sm51_resource_table, &key);
         if (entry)
@@ -2374,17 +2382,7 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
     unsigned int reg_space = 0;
     unsigned int reg_idx = 0;
 
-    descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN;
-    if (reg->type == VKD3DSPR_CONSTBUFFER)
-        descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_CBV;
-    else if (reg->type == VKD3DSPR_RESOURCE)
-        descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
-    else if (reg->type == VKD3DSPR_UAV)
-        descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
-    else if (reg->type == VKD3DSPR_SAMPLER)
-        descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER;
-    else
-        FIXME("Unhandled register type %#x.\n", reg->type);
+    descriptor_type = vkd3d_shader_descriptor_type_from_register_type(reg->type);
 
     resource_type_flag = resource_type == VKD3D_SHADER_RESOURCE_BUFFER
             ? VKD3D_SHADER_BINDING_FLAG_BUFFER : VKD3D_SHADER_BINDING_FLAG_IMAGE;
