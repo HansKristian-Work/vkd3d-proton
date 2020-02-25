@@ -2440,8 +2440,8 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
                 return current->binding;
         }
         if (shader_interface->binding_count)
-            FIXME("Could not find binding for type %#x, register %u, shader type %#x.\n",
-                    descriptor_type, reg_idx, compiler->shader_type);
+            FIXME("Could not find binding for type %#x, register %u, space %u, shader type %#x.\n",
+                    descriptor_type, reg_idx, reg_space, compiler->shader_type);
     }
 
     binding.set = 0;
