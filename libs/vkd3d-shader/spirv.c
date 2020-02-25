@@ -970,6 +970,20 @@ static uint32_t vkd3d_spirv_get_op_type_array(struct vkd3d_spirv_builder *builde
             vkd3d_spirv_build_op_type_array);
 }
 
+static uint32_t vkd3d_spirv_build_op_type_runtime_array(struct vkd3d_spirv_builder *builder,
+        uint32_t element_type)
+{
+    return vkd3d_spirv_build_op_r1(builder, &builder->global_stream,
+            SpvOpTypeRuntimeArray, element_type);
+}
+
+static uint32_t vkd3d_spirv_get_op_type_runtime_array(struct vkd3d_spirv_builder *builder,
+        uint32_t element_type)
+{
+    return vkd3d_spirv_build_once1(builder, SpvOpTypeRuntimeArray, element_type,
+            vkd3d_spirv_build_op_type_runtime_array);
+}
+
 static uint32_t vkd3d_spirv_build_op_type_struct(struct vkd3d_spirv_builder *builder,
         uint32_t *members, unsigned int member_count)
 {
