@@ -38025,6 +38025,176 @@ static void test_constant_buffer_dxil(void)
     test_constant_buffers(true);
 }
 
+static void test_bindless_buffer_srv_sm51(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_ROOT_PARAMETER root_parameters[3];
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
+    ID3D12DescriptorHeap* heap;
+
+    ID3D12Resource *input_buffers[1024];
+    ID3D12Resource *output_buffer;
+    struct resource_readback rb;
+
+    ID3D12GraphicsCommandList* command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    unsigned int i, descriptor_size;
+    struct test_context context;
+    ID3D12CommandQueue* queue;
+    HRESULT hr;
+
+    if (!init_compute_test_context(&context))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    root_signature_desc.NumParameters = 3;
+    root_signature_desc.Flags = 0;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.pParameters = root_parameters;
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = &descriptor_ranges[0];
+
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[1].DescriptorTable.pDescriptorRanges = &descriptor_ranges[1];
+
+    root_parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[2].Descriptor.RegisterSpace = 0;
+    root_parameters[2].Descriptor.ShaderRegister = 0;
+
+    descriptor_ranges[0].RegisterSpace = 1;
+    descriptor_ranges[0].BaseShaderRegister = 4;
+    descriptor_ranges[0].OffsetInDescriptorsFromTableStart = 0;
+    descriptor_ranges[0].NumDescriptors = 64 * 1024;
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+
+    descriptor_ranges[1].RegisterSpace = 2;
+    descriptor_ranges[1].BaseShaderRegister = 4;
+    descriptor_ranges[1].OffsetInDescriptorsFromTableStart = 1;
+    descriptor_ranges[1].NumDescriptors = 64 * 1024;
+    descriptor_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+
+    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    static const DWORD cs_code[] = {
+#if 0
+        StructuredBuffer<uint> Buffers[] : register(t4, space1);
+        StructuredBuffer<uint> AliasBuffers[64] : register(t4, space2);
+        StructuredBuffer<uint> StandaloneBuffer1 : register(t100, space2);
+        StructuredBuffer<uint> StandaloneBuffer2 : register(t200, space2);
+
+        RWByteAddressBuffer OBuffer : register(u0);
+
+        [numthreads(64, 1, 1)]
+        void main(uint idx : SV_DispatchThreadID)
+        {
+            uint result = 0;
+            result += Buffers[NonUniformResourceIndex(idx)].Load(0);
+            result += AliasBuffers[NonUniformResourceIndex(idx)].Load(0) << 8;
+            result *= StandaloneBuffer1.Load(0);
+            result *= StandaloneBuffer2.Load(0);
+            OBuffer.Store(4 * idx, result);
+        }
+#endif
+        0x43425844, 0x946ec07d, 0x7256d074, 0x5a56970a, 0x41467758, 0x00000001, 0x00000284, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000230, 0x00050051, 0x0000008c, 0x0100086a,
+        0x070000a2, 0x00307e46, 0x00000000, 0x00000004, 0xffffffff, 0x00000004, 0x00000001, 0x070000a2,
+        0x00307e46, 0x00000001, 0x00000004, 0x00000043, 0x00000004, 0x00000002, 0x070000a2, 0x00307e46,
+        0x00000002, 0x00000064, 0x00000064, 0x00000004, 0x00000002, 0x070000a2, 0x00307e46, 0x00000003,
+        0x000000c8, 0x000000c8, 0x00000004, 0x00000002, 0x0600009d, 0x0031ee46, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x0200005f, 0x00020012, 0x02000068, 0x00000001, 0x0400009b, 0x00000040,
+        0x00000001, 0x00000001, 0x04000036, 0x00100012, 0x00000000, 0x0002000a, 0x0d0000a7, 0x00100022,
+        0x00000000, 0x00004001, 0x00000000, 0x00004001, 0x00000000, 0x86207006, 0x00020001, 0x00000000,
+        0x00000004, 0x0010000a, 0x00000000, 0x0d0000a7, 0x00100012, 0x00000000, 0x00004001, 0x00000000,
+        0x00004001, 0x00000000, 0x86207006, 0x00020001, 0x00000001, 0x00000004, 0x0010000a, 0x00000000,
+        0x07000029, 0x00100012, 0x00000000, 0x0010000a, 0x00000000, 0x00004001, 0x00000008, 0x0700001e,
+        0x00100012, 0x00000000, 0x0010000a, 0x00000000, 0x0010001a, 0x00000000, 0x0a0000a7, 0x00100022,
+        0x00000000, 0x00004001, 0x00000000, 0x00004001, 0x00000000, 0x00207006, 0x00000002, 0x00000064,
+        0x08000026, 0x0000d000, 0x00100012, 0x00000000, 0x0010001a, 0x00000000, 0x0010000a, 0x00000000,
+        0x0a0000a7, 0x00100022, 0x00000000, 0x00004001, 0x00000000, 0x00004001, 0x00000000, 0x00207006,
+        0x00000003, 0x000000c8, 0x08000026, 0x0000d000, 0x00100012, 0x00000000, 0x0010001a, 0x00000000,
+        0x0010000a, 0x00000000, 0x06000029, 0x00100022, 0x00000000, 0x0002000a, 0x00004001, 0x00000002,
+        0x080000a6, 0x0021e012, 0x00000000, 0x00000000, 0x0010001a, 0x00000000, 0x0010000a, 0x00000000,
+        0x0100003e,
+    };
+
+    for (i = 0; i < 1024; i++)
+    {
+        const UINT buffer_data[] = { i, i, i, i };
+        input_buffers[i] = create_default_buffer(context.device, sizeof(buffer_data), D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+        upload_buffer_data(input_buffers[i], 0, sizeof(buffer_data), buffer_data, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, input_buffers[i], D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    }
+    output_buffer = create_default_buffer(context.device, 4 * 64, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    context.pipeline_state = create_compute_pipeline_state(context.device,
+        context.root_signature,
+        shader_bytecode(cs_code, sizeof(cs_code)));
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128 * 1024);
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
+    descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    for (i = 0; i < 1024; i++)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE h = cpu_handle;
+        h.ptr += (1024 + i) * descriptor_size;
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC view;
+        view.Format = DXGI_FORMAT_UNKNOWN;
+        view.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        view.Buffer.FirstElement = 0;
+        view.Buffer.NumElements = 4;
+        view.Buffer.StructureByteStride = 4;
+        view.Buffer.Flags = 0;
+        ID3D12Device_CreateShaderResourceView(context.device, input_buffers[i], &view, h);
+    }
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+    {
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu = gpu_handle;
+        gpu.ptr += 1024 * descriptor_size;
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu);
+        gpu.ptr += descriptor_size;
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 1, gpu);
+    }
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list, 2, ID3D12Resource_GetGPUVirtualAddress(output_buffer));
+    ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
+
+    transition_resource_state(command_list, output_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output_buffer, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
+
+    for (i = 0; i < 64; i++)
+    {
+        UINT value = get_readback_uint(&rb, i, 0, 0);
+        UINT reference = (i + (i + 2) * 256) * 98 * 198;
+        ok(value == reference, "Readback value is: %u\n", value);
+    }
+
+    release_resource_readback(&rb);
+    reset_command_list(command_list, context.allocator);
+
+    for (i = 0; i < 1024; i++)
+        ID3D12Resource_Release(input_buffers[i]);
+    ID3D12Resource_Release(output_buffer);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -38219,4 +38389,5 @@ START_TEST(d3d12)
     run_test(test_register_space_dxil);
     run_test(test_constant_buffer_sm51);
     run_test(test_constant_buffer_dxil);
+    run_test(test_bindless_buffer_srv_sm51);
 }
