@@ -531,6 +531,9 @@ static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *
     mapping->type = descriptor_type;
     mapping->register_space = register_space;
     mapping->register_index = register_idx;
+    mapping->register_count = 1;
+    mapping->descriptor_table = 0;
+    mapping->descriptor_offset = 0;
     mapping->shader_visibility = shader_visibility;
     mapping->flags = flags;
     mapping->binding.set = context->set_index;
@@ -2764,6 +2767,9 @@ HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d
     binding.type = VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
     binding.register_index = 0;
     binding.register_space = 0;
+    binding.register_count = 1;
+    binding.descriptor_table = 0;
+    binding.descriptor_offset = 0;
     binding.shader_visibility = VKD3D_SHADER_VISIBILITY_COMPUTE;
     binding.binding.set = 0;
     binding.binding.binding = 0;

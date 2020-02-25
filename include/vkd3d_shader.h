@@ -85,9 +85,10 @@ struct vkd3d_shader_descriptor_binding
 
 enum vkd3d_shader_binding_flag
 {
-    VKD3D_SHADER_BINDING_FLAG_BUFFER  = 0x00000001,
-    VKD3D_SHADER_BINDING_FLAG_IMAGE   = 0x00000002,
-    VKD3D_SHADER_BINDING_FLAG_COUNTER = 0x00000004,
+    VKD3D_SHADER_BINDING_FLAG_BUFFER    = 0x00000001,
+    VKD3D_SHADER_BINDING_FLAG_IMAGE     = 0x00000002,
+    VKD3D_SHADER_BINDING_FLAG_COUNTER   = 0x00000004,
+    VKD3D_SHADER_BINDING_FLAG_BINDLESS  = 0x00000008,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_BINDING_FLAG),
 };
@@ -141,6 +142,9 @@ struct vkd3d_shader_resource_binding
     enum vkd3d_shader_descriptor_type type;
     unsigned int register_space;
     unsigned int register_index;
+    unsigned int register_count;
+    unsigned int descriptor_table;
+    unsigned int descriptor_offset;
     enum vkd3d_shader_visibility shader_visibility;
     unsigned int flags; /* vkd3d_shader_binding_flags */
 
