@@ -2370,17 +2370,14 @@ static bool vkd3d_get_binding_info_for_register(
     }
 }
 
-static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor_binding(
+static const struct vkd3d_shader_resource_binding *vkd3d_dxbc_compiler_get_resource_binding(
         struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg,
-        enum vkd3d_shader_resource_type resource_type, bool is_uav_counter)
+        enum vkd3d_shader_resource_type resource_type)
 {
     const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
     enum vkd3d_shader_descriptor_type descriptor_type;
     enum vkd3d_shader_binding_flag resource_type_flag;
-    struct vkd3d_shader_descriptor_binding binding;
-    unsigned int i;
-    unsigned int reg_space = 0;
-    unsigned int reg_idx = 0;
+    unsigned int i, reg_space = 0, reg_idx = 0;
 
     descriptor_type = vkd3d_shader_descriptor_type_from_register_type(reg->type);
 
@@ -2388,58 +2385,91 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
             ? VKD3D_SHADER_BINDING_FLAG_BUFFER : VKD3D_SHADER_BINDING_FLAG_IMAGE;
 
     if (!vkd3d_get_binding_info_for_register(compiler, reg, &reg_space, &reg_idx))
-    {
         ERR("Failed to find binding for resource type %#x.\n", reg->type);
+
+    for (i = 0; i < shader_interface->binding_count; ++i)
+    {
+        const struct vkd3d_shader_resource_binding *current = &shader_interface->bindings[i];
+
+        if (!(current->flags & resource_type_flag))
+            continue;
+
+        if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
+            continue;
+
+        if (current->type == descriptor_type && current->register_index == reg_idx && current->register_space == reg_space)
+            return current;
     }
+
+    if (shader_interface->binding_count)
+        FIXME("Could not find binding for type %#x, register %u, space %u, shader type %#x.\n",
+                descriptor_type, reg_idx, reg_space, compiler->shader_type);
+
+    return NULL;
+}
+
+static const struct vkd3d_shader_uav_counter_binding *vkd3d_dxbc_compiler_get_uav_counter_binding(
+       struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg)
+{
+    const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
+    unsigned int i, reg_space = 0, reg_idx = 0;
+
+    for (i = 0; i < shader_interface->uav_counter_count; ++i)
+    {
+        const struct vkd3d_shader_uav_counter_binding *current = &shader_interface->uav_counters[i];
+
+        if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
+            continue;
+
+        if (current->offset)
+            FIXME("Atomic counter offsets are not supported yet.\n");
+
+        /* Do not use space/binding, but just the plain index here, since that's how the UAV counter mask is exposed. */
+        if (current->counter_index == reg->idx[0].offset)
+        {
+            /* Let pipeline know what the actual space/bindings for the counter are. */
+            const struct vkd3d_shader_effective_uav_counter_binding_info *binding_info =
+                    vkd3d_find_struct(shader_interface->next, EFFECTIVE_UAV_COUNTER_BINDING_INFO);
+            if (binding_info && current->counter_index < binding_info->uav_counter_count)
+            {
+                binding_info->uav_register_spaces[current->counter_index] = reg_space;
+                binding_info->uav_register_bindings[current->counter_index] = reg_idx;
+            }
+            return current;
+        }
+    }
+
+    if (shader_interface->uav_counter_count)
+        FIXME("Could not find descriptor binding for UAV counter %u.\n", reg_idx);
+
+    return NULL;
+}
+
+static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor_binding(
+        struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg,
+        enum vkd3d_shader_resource_type resource_type, bool is_uav_counter)
+{
+    const struct vkd3d_shader_uav_counter_binding *uav_ctr;
+    const struct vkd3d_shader_resource_binding *resource;
+    enum vkd3d_shader_descriptor_type descriptor_type;
+    struct vkd3d_shader_descriptor_binding binding;
+
+    descriptor_type = vkd3d_shader_descriptor_type_from_register_type(reg->type);
 
     if (is_uav_counter)
     {
         assert(descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV);
-        for (i = 0; i < shader_interface->uav_counter_count; ++i)
-        {
-            const struct vkd3d_shader_uav_counter_binding *current = &shader_interface->uav_counters[i];
+        uav_ctr = vkd3d_dxbc_compiler_get_uav_counter_binding(compiler, reg);
 
-            if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
-                continue;
-
-            if (current->offset)
-                FIXME("Atomic counter offsets are not supported yet.\n");
-
-            /* Do not use space/binding, but just the plain index here, since that's how the UAV counter mask is exposed. */
-            if (current->counter_index == reg->idx[0].offset)
-            {
-                /* Let pipeline know what the actual space/bindings for the counter are. */
-                const struct vkd3d_shader_effective_uav_counter_binding_info *binding_info =
-                        vkd3d_find_struct(shader_interface->next, EFFECTIVE_UAV_COUNTER_BINDING_INFO);
-                if (binding_info && current->counter_index < binding_info->uav_counter_count)
-                {
-                    binding_info->uav_register_spaces[current->counter_index] = reg_space;
-                    binding_info->uav_register_bindings[current->counter_index] = reg_idx;
-                }
-                return current->binding;
-            }
-        }
-        if (shader_interface->uav_counter_count)
-            FIXME("Could not find descriptor binding for UAV counter %u.\n", reg_idx);
+        if (uav_ctr)
+            return uav_ctr->binding;
     }
     else if (descriptor_type != VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN)
     {
-        for (i = 0; i < shader_interface->binding_count; ++i)
-        {
-            const struct vkd3d_shader_resource_binding *current = &shader_interface->bindings[i];
+        resource = vkd3d_dxbc_compiler_get_resource_binding(compiler, reg, resource_type);
 
-            if (!(current->flags & resource_type_flag))
-                continue;
-
-            if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
-                continue;
-
-            if (current->type == descriptor_type && current->register_index == reg_idx && current->register_space == reg_space)
-                return current->binding;
-        }
-        if (shader_interface->binding_count)
-            FIXME("Could not find binding for type %#x, register %u, space %u, shader type %#x.\n",
-                    descriptor_type, reg_idx, reg_space, compiler->shader_type);
+        if (resource)
+            return resource->binding;
     }
 
     binding.set = 0;
