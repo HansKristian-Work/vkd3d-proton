@@ -1709,6 +1709,7 @@ enum vkd3d_spirv_extension
 {
     VKD3D_SPV_KHR_SHADER_DRAW_PARAMETERS        = 0x00000001,
     VKD3D_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION   = 0x00000002,
+    VKD3D_SPV_EXT_DESCRIPTOR_INDEXING           = 0x00000004,
 };
 
 struct vkd3d_spirv_extension_info
@@ -1720,6 +1721,7 @@ static const vkd3d_spirv_extensions[] =
 {
     {VKD3D_SPV_KHR_SHADER_DRAW_PARAMETERS,      "SPV_KHR_shader_draw_parameters"},
     {VKD3D_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION, "SPV_EXT_demote_to_helper_invocation"},
+    {VKD3D_SPV_EXT_DESCRIPTOR_INDEXING,         "SPV_EXT_descriptor_indexing"},
 };
 
 struct vkd3d_spirv_capability_extension_mapping
@@ -1731,6 +1733,8 @@ static const vkd3d_spirv_capability_extensions[] =
 {
     {SpvCapabilityDrawParameters,                         VKD3D_SPV_KHR_SHADER_DRAW_PARAMETERS},
     {SpvCapabilityDemoteToHelperInvocationEXT,            VKD3D_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION},
+    {SpvCapabilityRuntimeDescriptorArrayEXT,              VKD3D_SPV_EXT_DESCRIPTOR_INDEXING},
+    {SpvCapabilityShaderNonUniformEXT,                    VKD3D_SPV_EXT_DESCRIPTOR_INDEXING},
 };
 
 static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
@@ -1885,6 +1889,8 @@ struct vkd3d_symbol_resource_data
 {
     enum vkd3d_component_type sampled_type;
     uint32_t type_id;
+    SpvStorageClass storage_class;
+    const struct vkd3d_shader_resource_binding *resource_binding;
     const struct vkd3d_spirv_resource_type *resource_type_info;
     unsigned int structure_stride;
     bool raw;
@@ -2094,6 +2100,17 @@ struct vkd3d_hull_shader_variables
     uint32_t patch_constants_id;
 };
 
+struct vkd3d_shader_global_binding
+{
+    enum vkd3d_data_type data_type;
+    enum vkd3d_shader_resource_type resource_type;
+    enum vkd3d_component_type component_type;
+    struct vkd3d_shader_descriptor_binding binding;
+
+    uint32_t type_id;
+    uint32_t var_id;
+};
+
 struct vkd3d_dxbc_compiler
 {
     struct vkd3d_shader_version shader_version;
@@ -2155,6 +2172,10 @@ struct vkd3d_dxbc_compiler
 
     uint32_t descriptor_table_var_id;
     uint32_t descriptor_table_member;
+
+    struct vkd3d_shader_global_binding *global_bindings;
+    size_t global_bindings_size;
+    size_t global_binding_count;
 };
 
 static bool shader_is_sm_5_1(const struct vkd3d_dxbc_compiler *compiler)
@@ -4896,6 +4917,76 @@ static void vkd3d_dxbc_compiler_emit_hull_shader_patch_constants(struct vkd3d_dx
     vkd3d_spirv_build_op_name(builder, compiler->hs.patch_constants_id, "opc");
 }
 
+static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_binding(struct vkd3d_dxbc_compiler *compiler,
+        enum vkd3d_data_type data_type, enum vkd3d_shader_resource_type resource_type, enum vkd3d_component_type component_type,
+        SpvStorageClass storage_class, const struct vkd3d_shader_descriptor_binding* binding_info)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    struct vkd3d_shader_global_binding *current;
+    uint32_t array_type_id, type_id, var_id;
+    unsigned int i;
+
+    for (i = 0; i < compiler->global_binding_count; i++)
+    {
+        current = &compiler->global_bindings[i];
+
+        if (current->data_type == data_type && current->resource_type == resource_type && current->component_type == component_type
+                && current->binding.set == binding_info->set && current->binding.binding == binding_info->binding)
+            return current;
+    }
+
+    vkd3d_spirv_enable_capability(builder, SpvCapabilityRuntimeDescriptorArrayEXT);
+    vkd3d_spirv_enable_capability(builder, SpvCapabilityShaderNonUniformEXT);
+
+    if (data_type == VKD3D_DATA_RESOURCE)
+    {
+        const struct vkd3d_spirv_resource_type *type_info = vkd3d_get_spirv_resource_type(resource_type);
+        uint32_t sampled_type_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
+
+        type_id = vkd3d_spirv_get_op_type_image(builder, sampled_type_id, type_info->dim,
+                0, type_info->arrayed, type_info->ms, 1, SpvImageFormatUnknown);
+
+        if (resource_type == VKD3D_SHADER_RESOURCE_BUFFER)
+        {
+            vkd3d_spirv_enable_capability(builder, SpvCapabilityUniformTexelBufferArrayDynamicIndexingEXT);
+            vkd3d_spirv_enable_capability(builder, SpvCapabilityUniformTexelBufferArrayNonUniformIndexingEXT);
+        }
+        else
+        {
+            vkd3d_spirv_enable_capability(builder, SpvCapabilitySampledImageArrayDynamicIndexing);
+            vkd3d_spirv_enable_capability(builder, SpvCapabilitySampledImageArrayNonUniformIndexingEXT);
+        }
+    }
+    else
+    {
+        ERR("Unhandled data type %d.\n", data_type);
+        return NULL;
+    }
+
+    array_type_id = vkd3d_spirv_get_op_type_runtime_array(builder, type_id);
+    var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
+            vkd3d_spirv_get_op_type_pointer(builder, storage_class, array_type_id),
+            storage_class, 0);
+
+    vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, binding_info);
+
+    if (!vkd3d_array_reserve((void **)&compiler->global_bindings, &compiler->global_bindings_size,
+            compiler->global_binding_count + 1, sizeof(*compiler->global_bindings)))
+    {
+        ERR("Failed to add global binding.\n");
+        return NULL;
+    }
+
+    current = &compiler->global_bindings[compiler->global_binding_count++];
+    current->data_type = data_type;
+    current->resource_type = resource_type;
+    current->component_type = component_type;
+    current->binding = *binding_info;
+    current->type_id = type_id;
+    current->var_id = var_id;
+    return current;
+}
+
 static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler)
 {
     const struct vkd3d_shader_transform_feedback_info *xfb_info = compiler->xfb_info;
@@ -5325,6 +5416,8 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     const struct vkd3d_spirv_resource_type *resource_type_info;
+    const struct vkd3d_shader_global_binding *global_binding;
+    const struct vkd3d_shader_resource_binding *binding;
     enum vkd3d_component_type sampled_type;
     struct vkd3d_symbol resource_symbol;
     unsigned int uav_flags;
@@ -5338,27 +5431,42 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
         return;
     }
 
+    binding = vkd3d_dxbc_compiler_get_resource_binding(compiler, reg, resource_type);
     sampled_type = vkd3d_component_type_from_data_type(resource_data_type);
-
-    type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler,
-            reg, resource_type_info, sampled_type, structure_stride || raw, 0);
-    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id);
-    var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
-            ptr_type_id, storage_class, 0);
-
-    vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler, var_id, reg, resource_type, false);
-
-    vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
     if (is_uav)
     {
         assert(reg->idx[0].offset < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
         uav_flags = scan_info->uav_flags[reg->idx[0].offset];
+    }
 
-        if (!(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
+    if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
+    {
+        if (is_uav && (uav_flags & VKD3D_SHADER_UAV_FLAG_ATOMIC_COUNTER))
+            FIXME("Bindless UAV counters currently not supported.\n");
+
+        global_binding = vkd3d_dxbc_compiler_get_global_binding(compiler,
+                is_uav ? VKD3D_DATA_UAV : VKD3D_DATA_RESOURCE, resource_type,
+                sampled_type, storage_class, &binding->binding);
+
+        type_id = global_binding->type_id;
+        var_id = global_binding->var_id;
+    }
+    else
+    {
+        type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler,
+                reg, resource_type_info, sampled_type, structure_stride || raw, 0);
+        ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id);
+        var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
+                ptr_type_id, storage_class, 0);
+
+        vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, &binding->binding);
+        vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
+
+        if (is_uav && !(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
             vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
 
-        if (uav_flags & VKD3D_SHADER_UAV_FLAG_ATOMIC_COUNTER)
+        if (is_uav && (uav_flags & VKD3D_SHADER_UAV_FLAG_ATOMIC_COUNTER))
         {
             assert(structure_stride); /* counters are valid only for structured buffers */
 
@@ -5376,6 +5484,8 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     resource_symbol.id = var_id;
     resource_symbol.info.resource.sampled_type = sampled_type;
     resource_symbol.info.resource.type_id = type_id;
+    resource_symbol.info.resource.storage_class = storage_class;
+    resource_symbol.info.resource.resource_binding = binding;
     resource_symbol.info.resource.resource_type_info = resource_type_info;
     resource_symbol.info.resource.structure_stride = structure_stride;
     resource_symbol.info.resource.raw = raw;
@@ -8830,6 +8940,7 @@ void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler)
 
     vkd3d_free(compiler->shader_phases);
     vkd3d_free(compiler->spec_constants);
+    vkd3d_free(compiler->global_bindings);
 
     vkd3d_free(compiler);
 }
