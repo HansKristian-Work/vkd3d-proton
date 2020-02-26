@@ -37921,6 +37921,13 @@ static void test_constant_buffers(bool use_dxil)
 
     if (!init_compute_test_context(&context))
         return;
+
+    if (use_dxil && !context_supports_dxil(&context))
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
     command_list = context.list;
     queue = context.queue;
 
