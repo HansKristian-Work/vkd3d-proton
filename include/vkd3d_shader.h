@@ -163,11 +163,18 @@ struct vkd3d_shader_push_constant_buffer
     unsigned int size;   /* in bytes */
 };
 
+struct vkd3d_shader_descriptor_table_buffer
+{
+    unsigned int offset; /* in bytes */
+    unsigned int count;  /* number of tables */
+};
+
 struct vkd3d_shader_interface_info
 {
     enum vkd3d_shader_structure_type type;
     const void *next;
 
+    struct vkd3d_shader_descriptor_table_buffer descriptor_tables;
     const struct vkd3d_shader_resource_binding *bindings;
     unsigned int binding_count;
 
