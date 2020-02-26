@@ -116,7 +116,6 @@ static int vkd3d_shader_validate_compile_args(const struct vkd3d_shader_compile_
 
     switch (compile_args->target)
     {
-        case VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5:
         case VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0:
             break;
         default:

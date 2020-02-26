@@ -221,7 +221,6 @@ struct vkd3d_shader_effective_uav_counter_binding_info
 enum vkd3d_shader_target
 {
     VKD3D_SHADER_TARGET_NONE,
-    VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5,
     VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0, /* default target */
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_TARGET),
