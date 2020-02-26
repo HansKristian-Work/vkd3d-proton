@@ -2399,7 +2399,9 @@ static const struct vkd3d_shader_resource_binding *vkd3d_dxbc_compiler_get_resou
         if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
             continue;
 
-        if (current->type == descriptor_type && current->register_index == reg_idx && current->register_space == reg_space)
+        if (descriptor_type == current->type && reg_space == current->register_space && reg_idx >= current->register_index
+                && (current->register_count == VKD3D_SHADER_DESCRIPTOR_RANGE_UNBOUNDED
+                        || reg_idx < current->register_index + current->register_count))
             return current;
     }
 
