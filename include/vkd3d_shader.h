@@ -149,16 +149,6 @@ struct vkd3d_shader_resource_binding
 
 #define VKD3D_DUMMY_SAMPLER_INDEX ~0u
 
-struct vkd3d_shader_combined_resource_sampler
-{
-    unsigned int resource_index;
-    unsigned int sampler_index;
-    enum vkd3d_shader_visibility shader_visibility;
-    unsigned int flags; /* vkd3d_shader_binding_flags */
-
-    struct vkd3d_shader_descriptor_binding binding;
-};
-
 struct vkd3d_shader_uav_counter_binding
 {
     unsigned int register_space;
@@ -190,9 +180,6 @@ struct vkd3d_shader_interface_info
 
     const struct vkd3d_shader_push_constant_buffer *push_constant_buffers;
     unsigned int push_constant_buffer_count;
-
-    const struct vkd3d_shader_combined_resource_sampler *combined_samplers;
-    unsigned int combined_sampler_count;
 
     const struct vkd3d_shader_uav_counter_binding *uav_counters;
     unsigned int uav_counter_count;
