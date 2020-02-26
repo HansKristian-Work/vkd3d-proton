@@ -41,8 +41,6 @@ static spv_target_env spv_target_env_from_vkd3d(enum vkd3d_shader_target target)
 {
     switch (target)
     {
-        case VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5:
-            return SPV_ENV_OPENGL_4_5;
         case VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0:
             return SPV_ENV_VULKAN_1_0;
         default:
@@ -2201,11 +2199,6 @@ static enum vkd3d_shader_target vkd3d_dxbc_compiler_get_target(const struct vkd3
     return args ? args->target : VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
 }
 
-static bool vkd3d_dxbc_compiler_is_opengl_target(const struct vkd3d_dxbc_compiler *compiler)
-{
-    return vkd3d_dxbc_compiler_get_target(compiler) == VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5;
-}
-
 static bool vkd3d_dxbc_compiler_is_target_extension_supported(const struct vkd3d_dxbc_compiler *compiler,
         enum vkd3d_shader_target_extension extension)
 {
@@ -3613,9 +3606,6 @@ static const struct
 }
 vkd3d_system_value_builtins[] =
 {
-    {VKD3D_SIV_VERTEX_ID,   {VKD3D_TYPE_INT,   1, SpvBuiltInVertexId},   VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5},
-    {VKD3D_SIV_INSTANCE_ID, {VKD3D_TYPE_INT,   1, SpvBuiltInInstanceId}, VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5},
-
     {VKD3D_SIV_POSITION,    {VKD3D_TYPE_FLOAT, 4, SpvBuiltInPosition}},
     {VKD3D_SIV_VERTEX_ID,   {VKD3D_TYPE_INT,   1, SpvBuiltInVertexIndex, sv_vertex_id_fixup}},
     {VKD3D_SIV_INSTANCE_ID, {VKD3D_TYPE_INT,   1, SpvBuiltInInstanceIndex, sv_instance_id_fixup}},
@@ -5274,7 +5264,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
         const struct vkd3d_shader_register *reg, enum vkd3d_shader_resource_type resource_type,
         enum vkd3d_data_type resource_data_type, unsigned int structure_stride, bool raw)
 {
-    uint32_t counter_type_id, type_id, ptr_type_id, var_id, counter_var_id = 0;
+    uint32_t type_id, ptr_type_id, var_id, counter_var_id = 0;
     const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     SpvStorageClass storage_class = SpvStorageClassUniformConstant;
@@ -5309,14 +5299,6 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     if (is_uav && (scan_info->uav_counter_mask & (1u << reg->idx[0].offset)))
     {
         assert(structure_stride); /* counters are valid only for structured buffers */
-
-        if (vkd3d_dxbc_compiler_is_opengl_target(compiler))
-        {
-            vkd3d_spirv_enable_capability(builder, SpvCapabilityAtomicStorage);
-            storage_class = SpvStorageClassAtomicCounter;
-            counter_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-            ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, counter_type_id);
-        }
 
         counter_var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
                 ptr_type_id, storage_class, 0);
@@ -5654,9 +5636,6 @@ static void vkd3d_dxbc_compiler_emit_dcl_tessellator_domain(struct vkd3d_dxbc_co
     enum vkd3d_tessellator_domain domain = instruction->declaration.tessellator_domain;
     SpvExecutionMode mode;
 
-    if (compiler->shader_type == VKD3D_SHADER_TYPE_HULL && vkd3d_dxbc_compiler_is_opengl_target(compiler))
-        return;
-
     switch (domain)
     {
         case VKD3D_TESSELLATOR_DOMAIN_LINE:
@@ -5680,9 +5659,6 @@ static void vkd3d_dxbc_compiler_emit_tessellator_output_primitive(struct vkd3d_d
         enum vkd3d_tessellator_output_primitive primitive)
 {
     SpvExecutionMode mode;
-
-    if (compiler->shader_type == VKD3D_SHADER_TYPE_HULL && vkd3d_dxbc_compiler_is_opengl_target(compiler))
-        return;
 
     switch (primitive)
     {
@@ -5709,9 +5685,6 @@ static void vkd3d_dxbc_compiler_emit_tessellator_partitioning(struct vkd3d_dxbc_
         enum vkd3d_tessellator_partitioning partitioning)
 {
     SpvExecutionMode mode;
-
-    if (compiler->shader_type == VKD3D_SHADER_TYPE_HULL && vkd3d_dxbc_compiler_is_opengl_target(compiler))
-        return;
 
     switch (partitioning)
     {
@@ -7834,18 +7807,10 @@ static void vkd3d_dxbc_compiler_emit_uav_counter_instruction(struct vkd3d_dxbc_c
     assert(counter_id);
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-    if (vkd3d_dxbc_compiler_is_opengl_target(compiler))
-    {
-        pointer_id = counter_id;
-        memory_semantics |= SpvMemorySemanticsAtomicCounterMemoryMask;
-    }
-    else
-    {
-        ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassImage, type_id);
-        coordinate_id = sample_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
-        pointer_id = vkd3d_spirv_build_op_image_texel_pointer(builder,
-                ptr_type_id, counter_id, coordinate_id, sample_id);
-    }
+    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassImage, type_id);
+    coordinate_id = sample_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
+    pointer_id = vkd3d_spirv_build_op_image_texel_pointer(builder,
+            ptr_type_id, counter_id, coordinate_id, sample_id);
 
     operands[0] = pointer_id;
     operands[1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvScopeDevice);
@@ -8762,11 +8727,6 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         {
             vkd3d_dxbc_compiler_emit_tessellator_output_primitive(compiler, ds_args->output_primitive);
             vkd3d_dxbc_compiler_emit_tessellator_partitioning(compiler, ds_args->partitioning);
-        }
-        else if (vkd3d_dxbc_compiler_is_opengl_target(compiler))
-        {
-            ERR("vkd3d_shader_domain_shader_compile_arguments are required for "
-                    "OpenGL tessellation evaluation shader.\n");
         }
     }
 
