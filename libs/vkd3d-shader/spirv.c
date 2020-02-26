@@ -7413,6 +7413,15 @@ static uint32_t vkd3d_dxbc_compiler_load_descriptor_table_offset(struct vkd3d_dx
     return vkd3d_spirv_build_op_load(builder, uint_type_id, ptr_id, SpvMemoryAccessMaskNone);
 }
 
+static void vkd3d_dxbc_compiler_decorate_nonuniform(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t expression_id)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+
+    vkd3d_spirv_enable_capability(builder, SpvCapabilityShaderNonUniformEXT);
+    vkd3d_spirv_build_op_decorate(builder, expression_id, SpvDecorationNonUniformEXT, NULL, 0);
+}
+
 static uint32_t vkd3d_dxbc_compiler_get_resource_pointer(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg)
 {
@@ -7452,6 +7461,10 @@ static uint32_t vkd3d_dxbc_compiler_get_resource_pointer(struct vkd3d_dxbc_compi
 
         ptr_id = vkd3d_spirv_build_op_access_chain(builder,
                 ptr_type_id, ptr_id, &index_id, 1);
+
+        /* AMD drivers rely on the index being marked as nonuniform */
+        if (reg->modifier == VKD3DSPRM_NONUNIFORM)
+            vkd3d_dxbc_compiler_decorate_nonuniform(compiler, index_id);
     }
 
     return ptr_id;
@@ -7486,6 +7499,9 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
             resource_reg, image->resource_type_info, image->sampled_type,
             image->structure_stride || image->raw, depth_comparison);
 
+    if (image->image_id && resource_reg->modifier == VKD3DSPRM_NONUNIFORM)
+        vkd3d_dxbc_compiler_decorate_nonuniform(compiler, image->image_id);
+
     if (sampled)
     {
         assert(image->image_id);
@@ -7498,6 +7514,9 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
         sampled_image_type_id = vkd3d_spirv_get_op_type_sampled_image(builder, image->image_type_id);
         image->sampled_image_id = vkd3d_spirv_build_op_sampled_image(builder,
                 sampled_image_type_id, image->image_id, sampler_id);
+
+        if (sampler_reg->modifier == VKD3DSPRM_NONUNIFORM)
+            vkd3d_dxbc_compiler_decorate_nonuniform(compiler, sampler_id);
     }
     else
     {
