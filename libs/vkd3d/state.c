@@ -706,9 +706,6 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
     {
         const D3D12_STATIC_SAMPLER_DESC *s = &desc->pStaticSamplers[i];
 
-        if (s->RegisterSpace)
-            FIXME("Unhandled register space %u for static sampler %u.\n", s->RegisterSpace, i);
-
         if (FAILED(hr = vkd3d_create_static_sampler(device, s, &root_signature->static_samplers[i])))
             return hr;
 
