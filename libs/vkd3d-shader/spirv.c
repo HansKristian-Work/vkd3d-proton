@@ -285,9 +285,10 @@ static bool vkd3d_spirv_stream_append(struct vkd3d_spirv_stream *dst_stream,
 
 struct vkd3d_spirv_builder
 {
-    uint64_t capability_mask;
-    uint64_t capability_draw_parameters : 1;
-    uint64_t capability_demote_to_helper_invocation : 1;
+    SpvCapability *capabilities;
+    size_t capabilities_size;
+    size_t capability_count;
+
     uint32_t ext_instr_set_glsl_450;
     uint32_t invocation_count;
     SpvExecutionModel execution_model;
@@ -323,25 +324,33 @@ static uint32_t vkd3d_spirv_alloc_id(struct vkd3d_spirv_builder *builder)
     return builder->current_id++;
 }
 
+static bool vkd3d_spirv_has_capability(const struct vkd3d_spirv_builder *builder, SpvCapability cap)
+{
+    unsigned int i;
+
+    for (i = 0; i < builder->capability_count; i++)
+    {
+        if (builder->capabilities[i] == cap)
+            return true;
+    }
+
+    return false;
+}
+
 static void vkd3d_spirv_enable_capability(struct vkd3d_spirv_builder *builder,
         SpvCapability cap)
 {
-    if (cap < sizeof(builder->capability_mask) * CHAR_BIT)
+    if (vkd3d_spirv_has_capability(builder, cap))
+        return;
+
+    if (!vkd3d_array_reserve((void **)&builder->capabilities, &builder->capabilities_size,
+            builder->capability_count + 1, sizeof(*builder->capabilities)))
     {
-        builder->capability_mask |= 1ull << cap;
+        ERR("Failed to enable capability %#x.\n", cap);
+        return;
     }
-    else if (cap == SpvCapabilityDrawParameters)
-    {
-        builder->capability_draw_parameters = 1;
-    }
-    else if (cap == SpvCapabilityDemoteToHelperInvocationEXT)
-    {
-        builder->capability_demote_to_helper_invocation = 1;
-    }
-    else
-    {
-        FIXME("Unhandled capability %#x.\n", cap);
-    }
+
+    builder->capabilities[builder->capability_count++] = cap;
 }
 
 static uint32_t vkd3d_spirv_get_glsl_std450_instr_set(struct vkd3d_spirv_builder *builder)
@@ -1699,13 +1708,13 @@ static void vkd3d_spirv_builder_free(struct vkd3d_spirv_builder *builder)
 
     rb_destroy(&builder->declarations, vkd3d_spirv_declaration_free, NULL);
 
+    vkd3d_free(builder->capabilities);
     vkd3d_free(builder->iface);
 }
 
 static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
         struct vkd3d_shader_code *spirv)
 {
-    uint64_t capability_mask = builder->capability_mask;
     struct vkd3d_spirv_stream stream;
     uint32_t *code;
     unsigned int i;
@@ -1720,21 +1729,13 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
     vkd3d_spirv_build_word(&stream, 0); /* schema, reserved */
 
     /* capabilities */
-    for (i = 0; capability_mask; ++i)
-    {
-        if (capability_mask & 1)
-            vkd3d_spirv_build_op_capability(&stream, i);
-        capability_mask >>= 1;
-    }
-    if (builder->capability_draw_parameters)
-        vkd3d_spirv_build_op_capability(&stream, SpvCapabilityDrawParameters);
-    if (builder->capability_demote_to_helper_invocation)
-        vkd3d_spirv_build_op_capability(&stream, SpvCapabilityDemoteToHelperInvocationEXT);
+    for (i = 0; i < builder->capability_count; ++i)
+        vkd3d_spirv_build_op_capability(&stream, builder->capabilities[i]);
 
     /* extensions */
-    if (builder->capability_draw_parameters)
+    if (vkd3d_spirv_has_capability(builder, SpvCapabilityDrawParameters))
         vkd3d_spirv_build_op_extension(&stream, "SPV_KHR_shader_draw_parameters");
-    if (builder->capability_demote_to_helper_invocation)
+    if (vkd3d_spirv_has_capability(builder, SpvCapabilityDemoteToHelperInvocationEXT))
         vkd3d_spirv_build_op_extension(&stream, "SPV_EXT_demote_to_helper_invocation");
 
     if (builder->ext_instr_set_glsl_450)
