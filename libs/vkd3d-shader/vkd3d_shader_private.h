@@ -395,6 +395,12 @@ enum vkd3d_immconst_type
     VKD3D_IMMCONST_VEC4,
 };
 
+enum vkd3d_shader_register_modifier
+{
+    VKD3DSPRM_NONE = 0,
+    VKD3DSPRM_NONUNIFORM = 1,
+};
+
 enum vkd3d_shader_src_modifier
 {
     VKD3DSPSM_NONE = 0,
@@ -557,6 +563,7 @@ struct vkd3d_shader_register_index
 struct vkd3d_shader_register
 {
     enum vkd3d_shader_register_type type;
+    enum vkd3d_shader_register_modifier modifier;
     enum vkd3d_data_type data_type;
     struct vkd3d_shader_register_index idx[3];
     enum vkd3d_immconst_type immconst_type;

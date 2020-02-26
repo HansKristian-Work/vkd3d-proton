@@ -1489,6 +1489,7 @@ static bool shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
     {
         param->type = register_type_table[register_type];
     }
+    param->modifier = VKD3DSPRM_NONE;
     param->data_type = data_type;
 
     if (token & VKD3D_SM4_REGISTER_MODIFIER)
@@ -1514,6 +1515,10 @@ static bool shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
 
             case 0xc1:
                 *modifier = VKD3DSPSM_ABSNEG;
+                break;
+
+            case 0x20001:
+                param->modifier = VKD3DSPRM_NONUNIFORM;
                 break;
 
             default:
