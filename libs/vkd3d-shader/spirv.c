@@ -2355,6 +2355,9 @@ static const struct vkd3d_shader_uav_counter_binding *vkd3d_dxbc_compiler_get_ua
     const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
     unsigned int i, reg_space = 0, reg_idx = 0;
 
+    if (!vkd3d_get_binding_info_for_register(compiler, reg, &reg_space, &reg_idx))
+        ERR("Failed to find binding for UAV counter.\n");
+
     for (i = 0; i < shader_interface->uav_counter_count; ++i)
     {
         const struct vkd3d_shader_uav_counter_binding *current = &shader_interface->uav_counters[i];
