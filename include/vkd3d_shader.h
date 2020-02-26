@@ -137,6 +137,8 @@ struct vkd3d_shader_parameter
     } u;
 };
 
+#define VKD3D_SHADER_DESCRIPTOR_RANGE_UNBOUNDED (~0u)
+
 struct vkd3d_shader_resource_binding
 {
     enum vkd3d_shader_descriptor_type type;
