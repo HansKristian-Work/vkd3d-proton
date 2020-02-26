@@ -1712,12 +1712,41 @@ static void vkd3d_spirv_builder_free(struct vkd3d_spirv_builder *builder)
     vkd3d_free(builder->iface);
 }
 
+enum vkd3d_spirv_extension
+{
+    VKD3D_SPV_KHR_SHADER_DRAW_PARAMETERS        = 0x00000001,
+    VKD3D_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION   = 0x00000002,
+};
+
+struct vkd3d_spirv_extension_info
+{
+    enum vkd3d_spirv_extension extension;
+    const char* name;
+}
+static const vkd3d_spirv_extensions[] =
+{
+    {VKD3D_SPV_KHR_SHADER_DRAW_PARAMETERS,      "SPV_KHR_shader_draw_parameters"},
+    {VKD3D_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION, "SPV_EXT_demote_to_helper_invocation"},
+};
+
+struct vkd3d_spirv_capability_extension_mapping
+{
+    SpvCapability capability;
+    enum vkd3d_spirv_extension extension;
+}
+static const vkd3d_spirv_capability_extensions[] =
+{
+    {SpvCapabilityDrawParameters,                         VKD3D_SPV_KHR_SHADER_DRAW_PARAMETERS},
+    {SpvCapabilityDemoteToHelperInvocationEXT,            VKD3D_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION},
+};
+
 static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
         struct vkd3d_shader_code *spirv)
 {
     struct vkd3d_spirv_stream stream;
+    uint32_t extension_mask = 0;
+    unsigned int i, j;
     uint32_t *code;
-    unsigned int i;
     size_t size;
 
     vkd3d_spirv_stream_init(&stream);
@@ -1733,10 +1762,24 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
         vkd3d_spirv_build_op_capability(&stream, builder->capabilities[i]);
 
     /* extensions */
-    if (vkd3d_spirv_has_capability(builder, SpvCapabilityDrawParameters))
-        vkd3d_spirv_build_op_extension(&stream, "SPV_KHR_shader_draw_parameters");
-    if (vkd3d_spirv_has_capability(builder, SpvCapabilityDemoteToHelperInvocationEXT))
-        vkd3d_spirv_build_op_extension(&stream, "SPV_EXT_demote_to_helper_invocation");
+    for (i = 0; i < ARRAY_SIZE(vkd3d_spirv_capability_extensions); ++i)
+    {
+        if (vkd3d_spirv_has_capability(builder, vkd3d_spirv_capability_extensions[i].capability))
+        {
+            uint32_t extension = vkd3d_spirv_capability_extensions[i].extension;
+
+            if (extension_mask & extension)
+                continue;
+
+            extension_mask |= extension;
+
+            for (j = 0; j < ARRAY_SIZE(vkd3d_spirv_extensions); ++j)
+            {
+                if (vkd3d_spirv_extensions[j].extension == extension)
+                    vkd3d_spirv_build_op_extension(&stream, vkd3d_spirv_extensions[j].name);
+            }
+        }
+    }
 
     if (builder->ext_instr_set_glsl_450)
         vkd3d_spirv_build_op_ext_inst_import(&stream, builder->ext_instr_set_glsl_450, "GLSL.std.450");
