@@ -7365,6 +7365,68 @@ static const struct vkd3d_symbol *vkd3d_dxbc_compiler_find_resource(struct vkd3d
     return RB_ENTRY_VALUE(entry, struct vkd3d_symbol, entry);
 }
 
+static uint32_t vkd3d_dxbc_compiler_load_descriptor_table_offset(struct vkd3d_dxbc_compiler *compiler,
+        unsigned int descriptor_table)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t uint_type_id, ptr_type_id, ptr_id, indices[2];
+
+    uint_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassPushConstant, uint_type_id);
+
+    indices[0] = vkd3d_dxbc_compiler_get_constant_uint(compiler, compiler->descriptor_table_member);
+    indices[1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, descriptor_table);
+
+    ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
+            compiler->descriptor_table_var_id, indices, ARRAY_SIZE(indices));
+
+    return vkd3d_spirv_build_op_load(builder, uint_type_id, ptr_id, SpvMemoryAccessMaskNone);
+}
+
+static uint32_t vkd3d_dxbc_compiler_get_resource_pointer(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t ptr_id, ptr_type_id, index_id;
+    const struct vkd3d_symbol *symbol;
+
+    symbol = vkd3d_dxbc_compiler_find_resource(compiler, reg);
+    ptr_id = symbol->id;
+
+    if (symbol->info.resource.resource_binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
+    {
+        unsigned int descriptor_table = symbol->info.resource.resource_binding->descriptor_table;
+        unsigned int descriptor_index = symbol->info.resource.resource_binding->descriptor_offset
+                    - symbol->info.resource.resource_binding->register_index;
+
+        if (shader_is_sm_5_1(compiler))
+        {
+            struct vkd3d_shader_register_index index = reg->idx[1];
+            index.offset += descriptor_index;
+            index_id = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &index);
+        }
+        else
+        {
+            index_id = vkd3d_dxbc_compiler_get_constant_uint(compiler,
+                    descriptor_index + reg->idx[0].offset);
+        }
+
+        index_id = vkd3d_spirv_build_op_iadd(builder,
+                vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1),
+                vkd3d_dxbc_compiler_load_descriptor_table_offset(compiler, descriptor_table),
+                index_id);
+
+        ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder,
+                symbol->info.resource.storage_class,
+                symbol->info.resource.type_id);
+
+        ptr_id = vkd3d_spirv_build_op_access_chain(builder,
+                ptr_type_id, ptr_id, &index_id, 1);
+    }
+
+    return ptr_id;
+}
+
 static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_image *image, const struct vkd3d_shader_register *resource_reg,
         const struct vkd3d_shader_register *sampler_reg, unsigned int flags)
@@ -7380,7 +7442,7 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
 
     symbol = vkd3d_dxbc_compiler_find_resource(compiler, resource_reg);
 
-    image->id = symbol->id;
+    image->id = vkd3d_dxbc_compiler_get_resource_pointer(compiler, resource_reg);
     image->sampled_type = symbol->info.resource.sampled_type;
     image->image_type_id = symbol->info.resource.type_id;
     image->resource_type_info = symbol->info.resource.resource_type_info;
