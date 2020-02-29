@@ -1414,8 +1414,6 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.binding_count = root_signature->descriptor_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
-    shader_interface.uav_counters = NULL;
-    shader_interface.uav_counter_count = 0;
 
     if (FAILED(hr = vkd3d_create_compute_pipeline(device, &desc->CS, &shader_interface,
             root_signature->vk_pipeline_layout, &state->u.compute.vk_pipeline)))
@@ -2104,8 +2102,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     shader_interface.binding_count = root_signature->descriptor_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
-    shader_interface.uav_counters = NULL;
-    shader_interface.uav_counter_count = 0;
 
     for (i = 0; i < ARRAY_SIZE(shader_stages); ++i)
     {
@@ -2788,8 +2784,6 @@ HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d
     shader_interface.binding_count = 1;
     shader_interface.push_constant_buffers = &push_constant;
     shader_interface.push_constant_buffer_count = 1;
-    shader_interface.uav_counters = NULL;
-    shader_interface.uav_counter_count = 0;
 
     for (i = 0; i < ARRAY_SIZE(pipelines); ++i)
     {
