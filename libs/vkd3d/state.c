@@ -1222,13 +1222,6 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState 
         else if (d3d12_pipeline_state_is_compute(state))
             VK_CALL(vkDestroyPipeline(device->vk_device, state->u.compute.vk_pipeline, NULL));
 
-        if (state->vk_set_layout)
-            VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout, NULL));
-        if (state->vk_pipeline_layout)
-            VK_CALL(vkDestroyPipelineLayout(device->vk_device, state->vk_pipeline_layout, NULL));
-
-        vkd3d_free(state->uav_counters);
-
         vkd3d_free(state);
 
         d3d12_device_release(device);
@@ -1398,138 +1391,21 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
     return S_OK;
 }
 
-static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipeline_state *state,
-        struct d3d12_device *device, const struct d3d12_root_signature *root_signature,
-        const struct vkd3d_shader_scan_info *shader_info)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct vkd3d_descriptor_set_context context;
-    VkDescriptorSetLayoutBinding *binding_desc;
-    VkDescriptorSetLayout set_layouts[3];
-    unsigned int uav_counter_count;
-    unsigned int i, j;
-    HRESULT hr;
-
-    if (!(uav_counter_count = vkd3d_popcount(shader_info->uav_counter_mask)))
-        return S_OK;
-
-    if (!(binding_desc = vkd3d_calloc(uav_counter_count, sizeof(*binding_desc))))
-        return E_OUTOFMEMORY;
-    if (!(state->uav_counters = vkd3d_calloc(uav_counter_count, sizeof(*state->uav_counters))))
-    {
-        vkd3d_free(binding_desc);
-        return E_OUTOFMEMORY;
-    }
-    state->uav_counter_mask = shader_info->uav_counter_mask;
-
-    memset(&context, 0, sizeof(context));
-    if (root_signature->vk_push_set_layout)
-        set_layouts[context.set_index++] = root_signature->vk_push_set_layout;
-    if (root_signature->vk_set_layout)
-        set_layouts[context.set_index++] = root_signature->vk_set_layout;
-
-    for (i = 0, j = 0; i < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS; ++i)
-    {
-        if (!(shader_info->uav_counter_mask & (1u << i)))
-            continue;
-
-        /* UAV counters will lookup Vulkan bindings based on the mask index directly.
-         * We currently don't know the actual space/binding for this UAV,
-         * but register_space/register_index are fixed up later after compilation is finished. */
-        state->uav_counters[j].register_space = 0;
-        state->uav_counters[j].register_index = i;
-
-        state->uav_counters[j].counter_index = i;
-
-        state->uav_counters[j].shader_visibility = VKD3D_SHADER_VISIBILITY_COMPUTE;
-        state->uav_counters[j].binding.set = context.set_index;
-        state->uav_counters[j].binding.binding = context.descriptor_binding;
-
-        /* FIXME: For graphics pipeline we have to take the shader visibility
-         * into account.
-         */
-        binding_desc[j].binding = context.descriptor_binding;
-        binding_desc[j].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-        binding_desc[j].descriptorCount = 1;
-        binding_desc[j].stageFlags = VK_SHADER_STAGE_ALL;
-        binding_desc[j].pImmutableSamplers = NULL;
-
-        ++context.descriptor_binding;
-        ++j;
-    }
-
-    /* Create a descriptor set layout for UAV counters. */
-    hr = vkd3d_create_descriptor_set_layout(device,
-            0, context.descriptor_binding, binding_desc, &state->vk_set_layout);
-    vkd3d_free(binding_desc);
-    if (FAILED(hr))
-    {
-        vkd3d_free(state->uav_counters);
-        return hr;
-    }
-
-    /* Create a pipeline layout which is compatible for all other descriptor
-     * sets with the root signature's pipeline layout.
-     */
-    state->set_index = context.set_index;
-    set_layouts[context.set_index++] = state->vk_set_layout;
-    if (FAILED(hr = vkd3d_create_pipeline_layout(device, context.set_index, set_layouts,
-            root_signature->push_constant_range_count, root_signature->push_constant_ranges,
-            &state->vk_pipeline_layout)))
-    {
-        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout, NULL));
-        vkd3d_free(state->uav_counters);
-        return hr;
-    }
-
-    return S_OK;
-}
-
 static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
-    struct vkd3d_shader_scan_info shader_info;
-    VkPipelineLayout vk_pipeline_layout;
-    struct vkd3d_shader_code dxbc;
     HRESULT hr;
-    int ret;
-    unsigned int i, j;
-    unsigned int uav_counter_spaces[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS] = { 0 };
-    unsigned int uav_counter_bindings[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS] = { 0 };
-    struct vkd3d_shader_effective_uav_counter_binding_info uav_binding_info = { VKD3D_SHADER_STRUCTURE_TYPE_EFFECTIVE_UAV_COUNTER_BINDING_INFO };
 
     state->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
     state->refcount = 1;
-
-    state->vk_pipeline_layout = VK_NULL_HANDLE;
-    state->vk_set_layout = VK_NULL_HANDLE;
-    state->uav_counters = NULL;
-    state->uav_counter_mask = 0;
 
     if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->pRootSignature)))
     {
         WARN("Root signature is NULL.\n");
         return E_INVALIDARG;
-    }
-
-    dxbc.code = desc->CS.pShaderBytecode;
-    dxbc.size = desc->CS.BytecodeLength;
-    shader_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
-    shader_info.next = NULL;
-    if ((ret = vkd3d_shader_scan_dxbc(&dxbc, &shader_info)) < 0)
-    {
-        WARN("Failed to scan shader bytecode, vkd3d result %d.\n", ret);
-        return hresult_from_vkd3d_result(ret);
-    }
-
-    if (FAILED(hr = d3d12_pipeline_state_init_compute_uav_counters(state,
-            device, root_signature, &shader_info)))
-    {
-        WARN("Failed to create descriptor set layout for UAV counters, hr %#x.\n", hr);
-        return hr;
     }
 
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
@@ -1538,49 +1414,20 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.binding_count = root_signature->descriptor_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
-    shader_interface.uav_counters = state->uav_counters;
-    shader_interface.uav_counter_count = vkd3d_popcount(state->uav_counter_mask);
-
-    shader_interface.next = &uav_binding_info;
-    uav_binding_info.uav_register_spaces = uav_counter_spaces;
-    uav_binding_info.uav_register_bindings = uav_counter_bindings;
-    uav_binding_info.uav_counter_count = VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS;
-
-    vk_pipeline_layout = state->vk_pipeline_layout
-            ? state->vk_pipeline_layout : root_signature->vk_pipeline_layout;
+    shader_interface.uav_counters = NULL;
+    shader_interface.uav_counter_count = 0;
 
     if (FAILED(hr = vkd3d_create_compute_pipeline(device, &desc->CS, &shader_interface,
-            vk_pipeline_layout, &state->u.compute.vk_pipeline)))
+            root_signature->vk_pipeline_layout, &state->u.compute.vk_pipeline)))
     {
         WARN("Failed to create Vulkan compute pipeline, hr %#x.\n", hr);
-        if (state->vk_set_layout)
-            VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout, NULL));
-        if (state->vk_pipeline_layout)
-            VK_CALL(vkDestroyPipelineLayout(device->vk_device, state->vk_pipeline_layout, NULL));
-        vkd3d_free(state->uav_counters);
         return hr;
     }
 
     if (FAILED(hr = vkd3d_private_store_init(&state->private_store)))
     {
         VK_CALL(vkDestroyPipeline(device->vk_device, state->u.compute.vk_pipeline, NULL));
-        if (state->vk_set_layout)
-            VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->vk_set_layout, NULL));
-        if (state->vk_pipeline_layout)
-            VK_CALL(vkDestroyPipelineLayout(device->vk_device, state->vk_pipeline_layout, NULL));
-        vkd3d_free(state->uav_counters);
         return hr;
-    }
-
-    /* Map back to actual space/bindings for the UAV counter now that we know. */
-    for (i = 0, j = 0; i < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS; i++)
-    {
-        if (state->uav_counter_mask & (1u << i))
-        {
-            state->uav_counters[j].register_space = uav_counter_spaces[i];
-            state->uav_counters[j].register_index = uav_counter_bindings[i];
-            j++;
-        }
     }
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
@@ -2065,10 +1912,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     state->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
     state->refcount = 1;
 
-    state->vk_pipeline_layout = VK_NULL_HANDLE;
-    state->vk_set_layout = VK_NULL_HANDLE;
-    state->uav_counters = NULL;
-    state->uav_counter_mask = 0;
     graphics->stage_count = 0;
 
     memset(&input_signature, 0, sizeof(input_signature));
@@ -2267,21 +2110,10 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     for (i = 0; i < ARRAY_SIZE(shader_stages); ++i)
     {
         const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
-        struct vkd3d_shader_scan_info shader_info = {VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO};
         const struct vkd3d_shader_code dxbc = {b->pShaderBytecode, b->BytecodeLength};
 
         if (!b->pShaderBytecode)
             continue;
-
-        if ((ret = vkd3d_shader_scan_dxbc(&dxbc, &shader_info)) < 0)
-        {
-            WARN("Failed to scan shader bytecode, stage %#x, vkd3d result %d.\n",
-                    shader_stages[i].stage, ret);
-            hr = hresult_from_vkd3d_result(ret);
-            goto fail;
-        }
-        if (shader_info.uav_counter_mask)
-            FIXME("UAV counters not implemented for graphics pipelines.\n");
 
         compile_args = NULL;
         switch (shader_stages[i].stage)
