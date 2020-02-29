@@ -5273,17 +5273,23 @@ static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler
     const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t sampled_type_id;
+    unsigned int uav_flags;
     SpvImageFormat format;
+    bool is_uav;
 
     format = SpvImageFormatUnknown;
-    if (reg->type == VKD3DSPR_UAV
-            && (raw_structured || (scan_info->uav_read_mask & (1u << reg->idx[0].offset))))
-        format = image_format_for_image_read(data_type);
+    if ((is_uav = (reg->type == VKD3DSPR_UAV)))
+    {
+        assert(reg->idx[0].offset < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
+        uav_flags = scan_info->uav_flags[reg->idx[0].offset];
+
+        if (raw_structured || (uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
+            format = image_format_for_image_read(data_type);
+    }
 
     sampled_type_id = vkd3d_spirv_get_type_id(builder, data_type, 1);
     return vkd3d_spirv_get_op_type_image(builder, sampled_type_id, resource_type_info->dim,
-            depth, resource_type_info->arrayed, resource_type_info->ms,
-            reg->type == VKD3DSPR_UAV ? 2 : 1, format);
+            depth, resource_type_info->arrayed, resource_type_info->ms, is_uav ? 2 : 1, format);
 }
 
 static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_compiler *compiler,
@@ -5297,6 +5303,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     const struct vkd3d_spirv_resource_type *resource_type_info;
     enum vkd3d_component_type sampled_type;
     struct vkd3d_symbol resource_symbol;
+    unsigned int uav_flags;
     bool is_uav;
 
     is_uav = reg->type == VKD3DSPR_UAV;
@@ -5319,20 +5326,26 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
 
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
-    if (is_uav && !(scan_info->uav_read_mask & (1u << reg->idx[0].offset)))
-        vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
-
-    if (is_uav && (scan_info->uav_counter_mask & (1u << reg->idx[0].offset)))
+    if (is_uav)
     {
-        assert(structure_stride); /* counters are valid only for structured buffers */
+        assert(reg->idx[0].offset < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
+        uav_flags = scan_info->uav_flags[reg->idx[0].offset];
 
-        counter_var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
-                ptr_type_id, storage_class, 0);
+        if (!(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
+            vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
 
-        vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
-                counter_var_id, reg, resource_type, true);
+        if (uav_flags & VKD3D_SHADER_UAV_FLAG_ATOMIC_COUNTER)
+        {
+            assert(structure_stride); /* counters are valid only for structured buffers */
 
-        vkd3d_spirv_build_op_name(builder, counter_var_id, "u%u_counter", reg->idx[0].offset);
+            counter_var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
+                    ptr_type_id, storage_class, 0);
+
+            vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
+                    counter_var_id, reg, resource_type, true);
+
+            vkd3d_spirv_build_op_name(builder, counter_var_id, "u%u_counter", reg->idx[0].offset);
+        }
     }
 
     vkd3d_symbol_make_resource(&resource_symbol, reg);
