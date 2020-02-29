@@ -616,6 +616,7 @@ struct d3d12_descriptor_heap
 
 HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc, struct d3d12_descriptor_heap **descriptor_heap) DECLSPEC_HIDDEN;
+struct d3d12_descriptor_heap *unsafe_impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface) DECLSPEC_HIDDEN;
 
 /* ID3D12QueryHeap */
 struct d3d12_query_heap
