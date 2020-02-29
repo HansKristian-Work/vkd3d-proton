@@ -795,13 +795,6 @@ struct d3d12_pipeline_state
     } u;
     VkPipelineBindPoint vk_bind_point;
 
-    VkPipelineLayout vk_pipeline_layout;
-    VkDescriptorSetLayout vk_set_layout;
-    uint32_t set_index;
-
-    struct vkd3d_shader_uav_counter_binding *uav_counters;
-    uint8_t uav_counter_mask;
-
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
@@ -921,9 +914,6 @@ struct vkd3d_pipeline_bindings
     D3D12_GPU_DESCRIPTOR_HANDLE descriptor_tables[D3D12_MAX_ROOT_COST];
     uint64_t descriptor_table_dirty_mask;
     uint64_t descriptor_table_active_mask;
-
-    VkBufferView vk_uav_counter_views[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS];
-    uint8_t uav_counter_dirty_mask;
 
     /* Needed when VK_KHR_push_descriptor is not available. */
     struct vkd3d_push_descriptor push_descriptors[D3D12_MAX_ROOT_COST / 2];
