@@ -2573,11 +2573,12 @@ static void d3d12_command_list_prepare_descriptors(struct d3d12_command_list *li
 static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_descriptor_write,
         VkDescriptorImageInfo *vk_image_info, const struct d3d12_desc *descriptor,
         uint32_t descriptor_range_magic, VkDescriptorSet vk_descriptor_set,
-        uint32_t vk_binding, unsigned int index)
+        uint32_t vk_binding, unsigned int index, bool uav_counter)
 {
     const struct vkd3d_view *view = descriptor->u.view;
+    bool is_uav = descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV;
 
-    if (descriptor->magic != descriptor_range_magic)
+    if (descriptor->magic != descriptor_range_magic || (uav_counter && !is_uav))
         return false;
 
     vk_descriptor_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2601,7 +2602,7 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
         case VKD3D_DESCRIPTOR_MAGIC_UAV:
             /* We use separate bindings for buffer and texture SRVs/UAVs.
              * See d3d12_root_signature_init(). */
-            vk_descriptor_write->dstBinding = vk_binding + 2 * index;
+            vk_descriptor_write->dstBinding = vk_binding + (is_uav ? 3 : 2) * index;
             if (descriptor->vk_descriptor_type != VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
                     && descriptor->vk_descriptor_type != VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
                 ++vk_descriptor_write->dstBinding;
@@ -2609,7 +2610,18 @@ static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_des
             if (descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
                     || descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
             {
-                vk_descriptor_write->pTexelBufferView = &view->u.vk_buffer_view;
+                if (uav_counter)
+                {
+                    vk_descriptor_write->dstBinding += 2;
+                    vk_descriptor_write->pTexelBufferView = &view->vk_counter_view;
+
+                    if (!view->vk_counter_view)
+                        return false;
+                }
+                else
+                {
+                    vk_descriptor_write->pTexelBufferView = &view->u.vk_buffer_view;
+                }
             }
             else
             {
@@ -2671,14 +2683,25 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
         {
             if (!vk_write_descriptor_set_from_d3d12_desc(current_descriptor_write,
                     current_image_info, descriptor, range->descriptor_magic,
-                    bindings->descriptor_set, range->binding, j))
+                    bindings->descriptor_set, range->binding, j, false))
                 continue;
 
             ++descriptor_count;
             ++current_descriptor_write;
             ++current_image_info;
 
-            if (descriptor_count == ARRAY_SIZE(descriptor_writes))
+            if (vk_write_descriptor_set_from_d3d12_desc(current_descriptor_write,
+                    current_image_info, descriptor, range->descriptor_magic,
+                    bindings->descriptor_set, range->binding, j, true))
+            {
+                ++descriptor_count;
+                ++current_descriptor_write;
+                ++current_image_info;
+            }
+
+            /* We may write up to two descriptors per iteration, so
+             * make sure there's enough space left in the array. */
+            if (descriptor_count >= ARRAY_SIZE(descriptor_writes) - 1)
             {
                 VK_CALL(vkUpdateDescriptorSets(vk_device, descriptor_count, descriptor_writes, 0, NULL));
                 descriptor_count = 0;

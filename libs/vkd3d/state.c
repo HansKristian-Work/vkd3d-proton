@@ -523,8 +523,7 @@ struct vkd3d_descriptor_set_context
 
 static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *root_signature,
         enum vkd3d_shader_descriptor_type descriptor_type, unsigned int register_space, unsigned int register_idx,
-        bool buffer_descriptor, enum vkd3d_shader_visibility shader_visibility,
-        struct vkd3d_descriptor_set_context *context)
+        unsigned int flags, enum vkd3d_shader_visibility shader_visibility, struct vkd3d_descriptor_set_context *context)
 {
     struct vkd3d_shader_resource_binding *mapping
             = &root_signature->descriptor_mapping[context->descriptor_index++];
@@ -533,18 +532,18 @@ static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *
     mapping->register_space = register_space;
     mapping->register_index = register_idx;
     mapping->shader_visibility = shader_visibility;
-    mapping->flags = buffer_descriptor ? VKD3D_SHADER_BINDING_FLAG_BUFFER : VKD3D_SHADER_BINDING_FLAG_IMAGE;
+    mapping->flags = flags;
     mapping->binding.set = context->set_index;
     mapping->binding.binding = context->descriptor_binding++;
 }
 
 static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signature *root_signature,
         enum vkd3d_shader_descriptor_type descriptor_type, unsigned int register_space, unsigned int base_register_idx,
-        unsigned int binding_count, bool is_buffer_descriptor, bool duplicate_descriptors,
+        unsigned int binding_count, bool is_buffer_descriptor, bool uav_counter, bool duplicate_descriptors,
         enum vkd3d_shader_visibility shader_visibility, struct vkd3d_descriptor_set_context *context)
 {
     uint32_t first_binding;
-    unsigned int i;
+    unsigned int i, flags;
 
     is_buffer_descriptor |= descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_CBV;
     duplicate_descriptors = (descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_SRV
@@ -556,10 +555,16 @@ static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signat
     {
         if (duplicate_descriptors)
             d3d12_root_signature_append_vk_binding(root_signature, descriptor_type,
-                    register_space, base_register_idx + i, true, shader_visibility, context);
+                    register_space, base_register_idx + i, VKD3D_SHADER_BINDING_FLAG_BUFFER, shader_visibility, context);
 
+        flags = is_buffer_descriptor ? VKD3D_SHADER_BINDING_FLAG_BUFFER : VKD3D_SHADER_BINDING_FLAG_IMAGE;
         d3d12_root_signature_append_vk_binding(root_signature, descriptor_type,
-                register_space, base_register_idx + i, is_buffer_descriptor, shader_visibility, context);
+                register_space, base_register_idx + i, flags, shader_visibility, context);
+
+        if (uav_counter)
+            d3d12_root_signature_append_vk_binding(root_signature, descriptor_type,
+                    register_space, base_register_idx + i, VKD3D_SHADER_BINDING_FLAG_COUNTER, shader_visibility, context);
+
     }
     return first_binding;
 }
@@ -587,7 +592,6 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 {
     VkDescriptorSetLayoutBinding *cur_binding = context->current_binding;
     struct d3d12_root_descriptor_table *table;
-    const D3D12_DESCRIPTOR_RANGE *range;
     unsigned int i, j, k, range_count;
     uint32_t vk_binding;
 
@@ -611,11 +615,14 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 
         for (j = 0; j < range_count; ++j)
         {
-            range = &p->u.DescriptorTable.pDescriptorRanges[j];
+            const D3D12_DESCRIPTOR_RANGE *range = &p->u.DescriptorTable.pDescriptorRanges[j];
+
+            bool is_srv = range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+            bool is_uav = range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
 
             vk_binding = d3d12_root_signature_assign_vk_bindings(root_signature,
                     vkd3d_descriptor_type_from_d3d12_range_type(range->RangeType),
-                    range->RegisterSpace, range->BaseShaderRegister, range->NumDescriptors, false, true,
+                    range->RegisterSpace, range->BaseShaderRegister, range->NumDescriptors, false, is_uav, true,
                     vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility), context);
 
             /* Unroll descriptor range. */
@@ -623,10 +630,21 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
             {
                 uint32_t vk_current_binding = vk_binding + k;
 
-                if (range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SRV
-                        || range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
+                if (is_srv || is_uav)
                 {
                     vk_current_binding = vk_binding + 2 * k;
+
+                    if (is_uav)
+                    {
+                        vk_current_binding = vk_binding + 3 * k;
+
+                        /* Assign binding for UAV counter. */
+                        if (!vk_binding_from_d3d12_descriptor_range(cur_binding,
+                                range, p->ShaderVisibility, true, vk_current_binding + 2))
+                            return E_NOTIMPL;
+
+                        ++cur_binding;
+                    }
 
                     /* Assign binding for image view. */
                     if (!vk_binding_from_d3d12_descriptor_range(cur_binding,
@@ -676,7 +694,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
 
         cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
                 vkd3d_descriptor_type_from_d3d12_root_parameter_type(p->ParameterType),
-                p->u.Descriptor.RegisterSpace, p->u.Descriptor.ShaderRegister, 1, true, false,
+                p->u.Descriptor.RegisterSpace, p->u.Descriptor.ShaderRegister, 1, true, false, false,
                 vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility), context);
         cur_binding->descriptorType = vk_descriptor_type_from_d3d12_root_parameter(p->ParameterType);
         cur_binding->descriptorCount = 1;
@@ -710,7 +728,7 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
             return hr;
 
         cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
-                VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, s->RegisterSpace, s->ShaderRegister, 1, false, false,
+                VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, s->RegisterSpace, s->ShaderRegister, 1, false, false, false,
                 vkd3d_shader_visibility_from_d3d12(s->ShaderVisibility), context);
         cur_binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
         cur_binding->descriptorCount = 1;
@@ -812,8 +830,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     /* XXX: Vulkan buffer and image descriptors have different types. In order
      * to preserve compatibility between Vulkan resource bindings for the same
      * root signature, we create descriptor set layouts with two bindings for
-     * each SRV and UAV. */
-    info.descriptor_count += info.srv_count + info.uav_count;
+     * each SRV and UAV. For UAVs we additionally have one UAV counter. */
+    info.descriptor_count += info.srv_count + 2 * info.uav_count;
 
     root_signature->descriptor_count = info.descriptor_count;
     root_signature->static_sampler_count = desc->NumStaticSamplers;
