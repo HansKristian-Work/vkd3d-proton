@@ -1859,13 +1859,6 @@ static void d3d12_command_list_invalidate_current_render_pass(struct d3d12_comma
     d3d12_command_list_end_current_render_pass(list);
 }
 
-static void d3d12_command_list_invalidate_bindings(struct d3d12_command_list *list,
-        struct d3d12_pipeline_state *state)
-{
-    if (!state)
-        return;
-}
-
 static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point)
 {
@@ -3705,7 +3698,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(ID3D12Graphics
     if (list->state == state)
         return;
 
-    d3d12_command_list_invalidate_bindings(list, state);
     d3d12_command_list_invalidate_current_pipeline(list);
 
     list->state = state;
@@ -4839,7 +4831,6 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     d3d12_command_list_end_current_render_pass(list);
 
     d3d12_command_list_invalidate_current_pipeline(list);
-    d3d12_command_list_invalidate_bindings(list, list->state);
     d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE);
 
     if (!d3d12_command_allocator_add_view(list->allocator, view))
