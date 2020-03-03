@@ -703,12 +703,14 @@ struct d3d12_root_signature
     LONG refcount;
 
     VkPipelineLayout vk_pipeline_layout;
+    VkDescriptorSetLayout vk_sampler_descriptor_layout;
     VkDescriptorSetLayout vk_packed_descriptor_layout;
     VkDescriptorSetLayout vk_root_descriptor_layout;
 
     struct d3d12_root_parameter *parameters;
     unsigned int parameter_count;
 
+    uint32_t sampler_descriptor_set;
     uint32_t packed_descriptor_set;
     uint32_t root_descriptor_set;
 
@@ -908,7 +910,9 @@ struct vkd3d_pipeline_bindings
 {
     const struct d3d12_root_signature *root_signature;
 
+    VkDescriptorSet static_sampler_set;
     VkDescriptorSet descriptor_set;
+    bool static_sampler_set_dirty;
     bool in_use;
 
     D3D12_GPU_DESCRIPTOR_HANDLE descriptor_tables[D3D12_MAX_ROOT_COST];

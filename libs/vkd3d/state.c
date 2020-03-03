@@ -64,6 +64,7 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
     unsigned int i;
 
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->vk_pipeline_layout, NULL));
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_sampler_descriptor_layout, NULL));
     VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_packed_descriptor_layout, NULL));
     VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_root_descriptor_layout, NULL));
 
@@ -712,34 +713,56 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
 }
 
 static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signature *root_signature,
-        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc,
-        struct vkd3d_descriptor_set_context *context)
+        const D3D12_ROOT_SIGNATURE_DESC *desc, struct vkd3d_descriptor_set_context *context,
+        VkDescriptorSetLayout *vk_set_layout)
 {
-    VkDescriptorSetLayoutBinding *cur_binding = context->current_binding;
+    VkDescriptorSetLayoutBinding *vk_binding_info, *vk_binding;
+    struct vkd3d_shader_resource_binding *binding;
     unsigned int i;
     HRESULT hr;
 
-    assert(root_signature->static_sampler_count == desc->NumStaticSamplers);
+    if (!desc->NumStaticSamplers)
+        return S_OK;
+
+    if (!(vk_binding_info = malloc(desc->NumStaticSamplers * sizeof(*vk_binding_info))))
+        return E_OUTOFMEMORY;
+
     for (i = 0; i < desc->NumStaticSamplers; ++i)
     {
         const D3D12_STATIC_SAMPLER_DESC *s = &desc->pStaticSamplers[i];
 
-        if (FAILED(hr = vkd3d_create_static_sampler(device, s, &root_signature->static_samplers[i])))
-            return hr;
+        if (FAILED(hr = vkd3d_create_static_sampler(root_signature->device, s, &root_signature->static_samplers[i])))
+            goto cleanup;
 
-        cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
-                VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, s->RegisterSpace, s->ShaderRegister, 1, false, false, false,
-                vkd3d_shader_visibility_from_d3d12(s->ShaderVisibility), context);
-        cur_binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-        cur_binding->descriptorCount = 1;
-        cur_binding->stageFlags = stage_flags_from_visibility(s->ShaderVisibility);
-        cur_binding->pImmutableSamplers = &root_signature->static_samplers[i];
+        vk_binding = &vk_binding_info[i];
+        vk_binding->binding = context->vk_binding;
+        vk_binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+        vk_binding->descriptorCount = 1;
+        vk_binding->stageFlags = stage_flags_from_visibility(s->ShaderVisibility);
+        vk_binding->pImmutableSamplers = &root_signature->static_samplers[i];
 
-        ++cur_binding;
+        binding = &root_signature->bindings[context->binding_index];
+        binding->type = VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER;
+        binding->register_space = s->RegisterSpace;
+        binding->register_index = s->ShaderRegister;
+        binding->register_count = 1;
+        binding->descriptor_table = 0;  /* ignored */
+        binding->descriptor_offset = 0; /* ignored */
+        binding->shader_visibility = vkd3d_shader_visibility_from_d3d12(s->ShaderVisibility);
+        binding->flags = VKD3D_SHADER_BINDING_FLAG_IMAGE;
+        binding->binding.binding = context->vk_binding;
+        binding->binding.set = context->vk_set;
+
+        context->binding_index += 1;
+        context->vk_binding += 1;
     }
 
-    context->current_binding = cur_binding;
-    return S_OK;
+    hr = vkd3d_create_descriptor_set_layout(root_signature->device, 0,
+            desc->NumStaticSamplers, vk_binding_info, vk_set_layout);
+
+cleanup:
+    vkd3d_free(vk_binding_info);
+    return hr;
 }
 
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
@@ -748,7 +771,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     struct vkd3d_descriptor_set_context context;
     VkDescriptorSetLayoutBinding *binding_desc;
     struct d3d12_root_signature_info info;
-    VkDescriptorSetLayout set_layouts[2];
+    VkDescriptorSetLayout set_layouts[3];
     HRESULT hr;
 
     memset(&context, 0, sizeof(context));
@@ -799,6 +822,21 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         goto fail;
     context.current_binding = binding_desc;
 
+    if (FAILED(hr = d3d12_root_signature_init_static_samplers(root_signature, desc,
+                &context, &root_signature->vk_sampler_descriptor_layout)))
+        goto fail;
+
+    if (root_signature->vk_sampler_descriptor_layout)
+    {
+        set_layouts[context.vk_set] = root_signature->vk_sampler_descriptor_layout;
+        root_signature->sampler_descriptor_set = context.vk_set;
+
+        context.current_binding = binding_desc;
+        context.packed_descriptor_index = 0;
+        context.vk_binding = 0;
+        context.vk_set += 1;
+    }
+
     if (FAILED(hr = d3d12_root_signature_init_root_descriptors(root_signature, desc,
                 &info, &context, &root_signature->vk_root_descriptor_layout)))
         goto fail;
@@ -818,8 +856,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             &root_signature->push_constant_range)))
         goto fail;
     if (FAILED(hr = d3d12_root_signature_init_root_descriptor_tables(root_signature, desc, &context)))
-        goto fail;
-    if (FAILED(hr = d3d12_root_signature_init_static_samplers(root_signature, device, desc, &context)))
         goto fail;
 
     if (context.vk_binding)

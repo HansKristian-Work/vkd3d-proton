@@ -1873,6 +1873,7 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
     bindings->root_descriptor_dirty_mask = bindings->root_signature->root_descriptor_mask;
     bindings->root_constant_dirty_mask = bindings->root_signature->root_constant_mask;
 
+    bindings->static_sampler_set_dirty = bindings->static_sampler_set != VK_NULL_HANDLE;
 }
 
 static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state, unsigned int stencil_state,
@@ -2745,6 +2746,21 @@ static bool vk_write_descriptor_set_from_root_descriptor(VkWriteDescriptorSet *v
     return true;
 }
 
+static void d3d12_command_list_update_static_samplers(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point)
+{
+    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+
+    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
+            root_signature->vk_pipeline_layout,
+            root_signature->sampler_descriptor_set,
+            1, &bindings->static_sampler_set, 0, NULL));
+
+    bindings->static_sampler_set_dirty = false;
+}
+
 static void d3d12_command_list_update_root_constants(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point)
 {
@@ -2834,6 +2850,9 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
 
     if (!rs)
         return;
+
+    if (bindings->static_sampler_set_dirty)
+        d3d12_command_list_update_static_samplers(list, bind_point);
 
     if (bindings->descriptor_table_dirty_mask)
         d3d12_command_list_prepare_descriptors(list, bind_point);
@@ -4016,6 +4035,14 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
         return;
 
     bindings->root_signature = root_signature;
+    bindings->static_sampler_set = VK_NULL_HANDLE;
+
+    if (root_signature && root_signature->vk_sampler_descriptor_layout)
+    {
+        /* FIXME allocate static sampler sets globally */
+        bindings->static_sampler_set = d3d12_command_allocator_allocate_descriptor_set(
+                list->allocator, root_signature->vk_sampler_descriptor_layout);
+    }
 
     d3d12_command_list_invalidate_root_parameters(list, bind_point);
 }
