@@ -701,8 +701,8 @@ struct d3d12_root_signature
     LONG refcount;
 
     VkPipelineLayout vk_pipeline_layout;
-    VkDescriptorSetLayout vk_push_set_layout;
-    VkDescriptorSetLayout vk_set_layout;
+    VkDescriptorSetLayout vk_packed_descriptor_layout;
+    VkDescriptorSetLayout vk_root_descriptor_layout;
 
     struct d3d12_root_parameter *parameters;
     unsigned int parameter_count;

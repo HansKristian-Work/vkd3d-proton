@@ -64,8 +64,8 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
     unsigned int i;
 
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->vk_pipeline_layout, NULL));
-    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
-    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_push_set_layout, NULL));
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_packed_descriptor_layout, NULL));
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_root_descriptor_layout, NULL));
 
     for (i = 0; i < root_signature->static_sampler_count; ++i)
         VK_CALL(vkDestroySampler(device->vk_device, root_signature->static_samplers[i], NULL));
@@ -776,10 +776,10 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     {
         if (FAILED(hr = vkd3d_create_descriptor_set_layout(device,
                 VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
-                context.descriptor_binding, binding_desc, &root_signature->vk_push_set_layout)))
+                context.descriptor_binding, binding_desc, &root_signature->vk_root_descriptor_layout)))
             goto fail;
 
-        set_layouts[context.set_index++] = root_signature->vk_push_set_layout;
+        set_layouts[context.set_index++] = root_signature->vk_root_descriptor_layout;
         context.current_binding = binding_desc;
         context.descriptor_binding = 0;
     }
@@ -796,10 +796,10 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (context.descriptor_binding)
     {
         if (FAILED(hr = vkd3d_create_descriptor_set_layout(device,
-                0, context.descriptor_binding, binding_desc, &root_signature->vk_set_layout)))
+                0, context.descriptor_binding, binding_desc, &root_signature->vk_packed_descriptor_layout)))
             goto fail;
 
-        set_layouts[context.set_index++] = root_signature->vk_set_layout;
+        set_layouts[context.set_index++] = root_signature->vk_packed_descriptor_layout;
     }
     vkd3d_free(binding_desc);
     binding_desc = NULL;
