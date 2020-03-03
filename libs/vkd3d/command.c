@@ -4183,16 +4183,7 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
     }
     else
     {
-        d3d12_command_list_prepare_descriptors(list, bind_point);
-        vk_write_descriptor_set_from_root_descriptor(&descriptor_write,
-                root_parameter, bindings->descriptor_set, NULL, &buffer_info);
-        VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &descriptor_write, 0, NULL));
-
-        assert(index < ARRAY_SIZE(bindings->push_descriptors));
-        bindings->push_descriptors[index].u.cbv.vk_buffer = buffer_info.buffer;
-        bindings->push_descriptors[index].u.cbv.offset = buffer_info.offset;
-        bindings->push_descriptor_dirty_mask |= 1u << index;
-        bindings->push_descriptor_active_mask |= 1u << index;
+        ERR("VK_KHR_push_descriptor not supported.\n");
     }
 }
 
@@ -4256,15 +4247,7 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
     }
     else
     {
-        d3d12_command_list_prepare_descriptors(list, bind_point);
-        vk_write_descriptor_set_from_root_descriptor(&descriptor_write,
-                root_parameter, bindings->descriptor_set, &vk_buffer_view,  NULL);
-        VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &descriptor_write, 0, NULL));
-
-        assert(index < ARRAY_SIZE(bindings->push_descriptors));
-        bindings->push_descriptors[index].u.vk_buffer_view = vk_buffer_view;
-        bindings->push_descriptor_dirty_mask |= 1u << index;
-        bindings->push_descriptor_active_mask |= 1u << index;
+        ERR("VK_KHR_push_descriptor not supported.\n");
     }
 }
 

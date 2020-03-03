@@ -715,7 +715,6 @@ static HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc)
 {
-    const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
     struct vkd3d_descriptor_set_context context;
     VkDescriptorSetLayoutBinding *binding_desc;
     struct d3d12_root_signature_info info;
@@ -771,8 +770,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (FAILED(hr = d3d12_root_signature_init_root_descriptors(root_signature, desc, &context)))
         goto fail;
 
-    /* We use KHR_push_descriptor for root descriptor parameters. */
-    if (vk_info->KHR_push_descriptor && context.descriptor_binding)
+    if (context.descriptor_binding)
     {
         if (FAILED(hr = vkd3d_create_descriptor_set_layout(device,
                 VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
