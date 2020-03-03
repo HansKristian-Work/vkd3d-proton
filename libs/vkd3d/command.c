@@ -4074,7 +4074,7 @@ static void d3d12_command_list_set_root_constants(struct d3d12_command_list *lis
 
     c = root_signature_get_32bit_constants(root_signature, index);
     VK_CALL(vkCmdPushConstants(list->vk_command_buffer, root_signature->vk_pipeline_layout,
-            c->stage_flags, c->offset + offset * sizeof(uint32_t), count * sizeof(uint32_t), data));
+            VK_SHADER_STAGE_ALL, c->offset + offset * sizeof(uint32_t), count * sizeof(uint32_t), data));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRoot32BitConstant(ID3D12GraphicsCommandList2 *iface,
