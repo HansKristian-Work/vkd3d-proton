@@ -674,7 +674,6 @@ struct d3d12_root_descriptor_table
 
 struct d3d12_root_constant
 {
-    VkShaderStageFlags stage_flags;
     uint32_t offset;
 };
 
@@ -721,9 +720,8 @@ struct d3d12_root_signature
 
     unsigned int root_descriptor_count;
 
-    unsigned int push_constant_range_count;
-    /* Only a single push constant range may include the same stage in Vulkan. */
-    VkPushConstantRange push_constant_ranges[D3D12_SHADER_VISIBILITY_PIXEL + 1];
+    /* Use one global push constant range */
+    VkPushConstantRange push_constant_range;
 
     unsigned int static_sampler_count;
     VkSampler *static_samplers;
