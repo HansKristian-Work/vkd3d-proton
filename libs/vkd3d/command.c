@@ -1869,7 +1869,7 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
 
     bindings->descriptor_set = VK_NULL_HANDLE;
     bindings->descriptor_table_dirty_mask = bindings->descriptor_table_active_mask & bindings->root_signature->descriptor_table_mask;
-    bindings->push_descriptor_dirty_mask = bindings->push_descriptor_active_mask & bindings->root_signature->push_descriptor_mask;
+    bindings->push_descriptor_dirty_mask = bindings->push_descriptor_active_mask & bindings->root_signature->root_descriptor_mask;
 
     bindings->root_constant_dirty_mask = bindings->root_signature->root_constant_mask;
 }
@@ -2562,7 +2562,7 @@ static void d3d12_command_list_prepare_descriptors(struct d3d12_command_list *li
     bindings->in_use = false;
 
     bindings->descriptor_table_dirty_mask |= bindings->descriptor_table_active_mask & root_signature->descriptor_table_mask;
-    bindings->push_descriptor_dirty_mask |= bindings->push_descriptor_active_mask & root_signature->push_descriptor_mask;
+    bindings->push_descriptor_dirty_mask |= bindings->push_descriptor_active_mask & root_signature->root_descriptor_mask;
 }
 
 static bool vk_write_descriptor_set_from_d3d12_desc(VkWriteDescriptorSet *vk_descriptor_write,
@@ -2713,8 +2713,6 @@ static bool vk_write_descriptor_set_from_root_descriptor(VkWriteDescriptorSet *v
         const struct d3d12_root_parameter *root_parameter, VkDescriptorSet vk_descriptor_set,
         VkBufferView *vk_buffer_view, const VkDescriptorBufferInfo *vk_buffer_info)
 {
-    const struct d3d12_root_descriptor *root_descriptor;
-
     switch (root_parameter->parameter_type)
     {
         case D3D12_ROOT_PARAMETER_TYPE_CBV:
@@ -2731,12 +2729,10 @@ static bool vk_write_descriptor_set_from_root_descriptor(VkWriteDescriptorSet *v
             return false;
     }
 
-    root_descriptor = &root_parameter->u.descriptor;
-
     vk_descriptor_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     vk_descriptor_write->pNext = NULL;
     vk_descriptor_write->dstSet = vk_descriptor_set;
-    vk_descriptor_write->dstBinding = root_descriptor->binding;
+    vk_descriptor_write->dstBinding = root_parameter->u.descriptor.binding->binding.binding;
     vk_descriptor_write->dstArrayElement = 0;
     vk_descriptor_write->descriptorCount = 1;
     vk_descriptor_write->pImageInfo = NULL;
