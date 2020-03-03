@@ -63,35 +63,23 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     unsigned int i;
 
-    if (root_signature->vk_pipeline_layout)
-        VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->vk_pipeline_layout, NULL));
-    if (root_signature->vk_set_layout)
-        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
-    if (root_signature->vk_push_set_layout)
-        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_push_set_layout, NULL));
-
-    if (root_signature->parameters)
-    {
-        for (i = 0; i < root_signature->parameter_count; ++i)
-        {
-            if (root_signature->parameters[i].parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
-                vkd3d_free(root_signature->parameters[i].u.descriptor_table.ranges);
-        }
-        vkd3d_free(root_signature->parameters);
-    }
-
-    if (root_signature->bindings)
-        vkd3d_free(root_signature->bindings);
-    if (root_signature->root_constants)
-        vkd3d_free(root_signature->root_constants);
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->vk_pipeline_layout, NULL));
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_set_layout, NULL));
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_push_set_layout, NULL));
 
     for (i = 0; i < root_signature->static_sampler_count; ++i)
+        VK_CALL(vkDestroySampler(device->vk_device, root_signature->static_samplers[i], NULL));
+
+    for (i = 0; i < root_signature->parameter_count; ++i)
     {
-        if (root_signature->static_samplers[i])
-            VK_CALL(vkDestroySampler(device->vk_device, root_signature->static_samplers[i], NULL));
+        if (root_signature->parameters[i].parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+            vkd3d_free(root_signature->parameters[i].u.descriptor_table.ranges);
     }
-    if (root_signature->static_samplers)
-        vkd3d_free(root_signature->static_samplers);
+
+    vkd3d_free(root_signature->parameters);
+    vkd3d_free(root_signature->bindings);
+    vkd3d_free(root_signature->root_constants);
+    vkd3d_free(root_signature->static_samplers);
 }
 
 static ULONG STDMETHODCALLTYPE d3d12_root_signature_Release(ID3D12RootSignature *iface)
