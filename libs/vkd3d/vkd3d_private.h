@@ -674,7 +674,8 @@ struct d3d12_root_descriptor_table
 
 struct d3d12_root_constant
 {
-    uint32_t offset;
+    uint32_t constant_index;
+    uint32_t constant_count;
 };
 
 struct d3d12_root_descriptor
@@ -709,6 +710,7 @@ struct d3d12_root_signature
 
     uint64_t descriptor_table_mask;
     uint32_t push_descriptor_mask;
+    uint64_t root_constant_mask;
 
     D3D12_ROOT_SIGNATURE_FLAGS flags;
 
@@ -919,6 +921,9 @@ struct vkd3d_pipeline_bindings
     struct vkd3d_push_descriptor push_descriptors[D3D12_MAX_ROOT_COST / 2];
     uint32_t push_descriptor_dirty_mask;
     uint32_t push_descriptor_active_mask;
+
+    uint32_t root_constants[D3D12_MAX_ROOT_COST];
+    uint64_t root_constant_dirty_mask;
 };
 
 /* ID3D12CommandList */
