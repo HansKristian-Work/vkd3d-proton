@@ -897,17 +897,11 @@ struct d3d12_command_allocator
 HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_allocator **allocator) DECLSPEC_HIDDEN;
 
-struct vkd3d_push_descriptor
+union vkd3d_descriptor_info
 {
-    union
-    {
-        VkBufferView vk_buffer_view;
-        struct
-        {
-            VkBuffer vk_buffer;
-            VkDeviceSize offset;
-        } cbv;
-    } u;
+    VkBufferView buffer_view;
+    VkDescriptorBufferInfo buffer;
+    VkDescriptorImageInfo image;
 };
 
 struct vkd3d_pipeline_bindings
@@ -922,9 +916,9 @@ struct vkd3d_pipeline_bindings
     uint64_t descriptor_table_active_mask;
 
     /* Needed when VK_KHR_push_descriptor is not available. */
-    struct vkd3d_push_descriptor push_descriptors[D3D12_MAX_ROOT_COST / 2];
-    uint64_t push_descriptor_dirty_mask;
-    uint64_t push_descriptor_active_mask;
+    union vkd3d_descriptor_info root_descriptors[D3D12_MAX_ROOT_COST / 2];
+    uint64_t root_descriptor_dirty_mask;
+    uint64_t root_descriptor_active_mask;
 
     uint32_t root_constants[D3D12_MAX_ROOT_COST];
     uint64_t root_constant_dirty_mask;
