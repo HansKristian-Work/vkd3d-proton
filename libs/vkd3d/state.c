@@ -441,8 +441,11 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
             continue;
 
         assert(p->ShaderVisibility <= D3D12_SHADER_VISIBILITY_PIXEL);
+        root_signature->root_constant_mask |= 1ull << i;
+
         root_signature->parameters[i].parameter_type = p->ParameterType;
-        root_signature->parameters[i].u.constant.offset = push_constant_range->size;
+        root_signature->parameters[i].u.constant.constant_index = push_constant_range->size / sizeof(uint32_t);
+        root_signature->parameters[i].u.constant.constant_count = p->u.Constants.Num32BitValues;
 
         root_signature->root_constants[j].register_space = p->u.Constants.RegisterSpace;
         root_signature->root_constants[j].register_index = p->u.Constants.ShaderRegister;

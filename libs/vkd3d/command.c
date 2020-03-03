@@ -1870,6 +1870,8 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
     bindings->descriptor_set = VK_NULL_HANDLE;
     bindings->descriptor_table_dirty_mask = bindings->descriptor_table_active_mask & bindings->root_signature->descriptor_table_mask;
     bindings->push_descriptor_dirty_mask = bindings->push_descriptor_active_mask & bindings->root_signature->push_descriptor_mask;
+
+    bindings->root_constant_dirty_mask = bindings->root_signature->root_constant_mask;
 }
 
 static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state, unsigned int stencil_state,
@@ -2744,6 +2746,28 @@ static bool vk_write_descriptor_set_from_root_descriptor(VkWriteDescriptorSet *v
     return true;
 }
 
+static void d3d12_command_list_update_root_constants(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point)
+{
+    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct d3d12_root_constant *root_constant;
+    unsigned int root_parameter_index;
+
+    while (bindings->root_constant_dirty_mask)
+    {
+        root_parameter_index = vkd3d_bitmask_iter64(&bindings->root_constant_dirty_mask);
+        root_constant = root_signature_get_32bit_constants(root_signature, root_parameter_index);
+
+        VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+                root_signature->vk_pipeline_layout, VK_SHADER_STAGE_ALL,
+                root_constant->constant_index * sizeof(uint32_t),
+                root_constant->constant_count * sizeof(uint32_t),
+                &bindings->root_constants[root_constant->constant_index]));
+    }
+}
+
 static void d3d12_command_list_update_push_descriptors(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point)
 {
@@ -2846,6 +2870,9 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
                 rs->vk_pipeline_layout, rs->main_set, 1, &bindings->descriptor_set, 0, NULL));
         bindings->in_use = true;
     }
+
+    if (bindings->root_constant_dirty_mask)
+        d3d12_command_list_update_root_constants(list, bind_point);
 }
 
 static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *list)
@@ -4068,13 +4095,14 @@ static void d3d12_command_list_set_root_constants(struct d3d12_command_list *lis
         VkPipelineBindPoint bind_point, unsigned int index, unsigned int offset,
         unsigned int count, const void *data)
 {
-    const struct d3d12_root_signature *root_signature = list->pipeline_bindings[bind_point].root_signature;
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct d3d12_root_constant *c;
 
     c = root_signature_get_32bit_constants(root_signature, index);
-    VK_CALL(vkCmdPushConstants(list->vk_command_buffer, root_signature->vk_pipeline_layout,
-            VK_SHADER_STAGE_ALL, c->offset + offset * sizeof(uint32_t), count * sizeof(uint32_t), data));
+    memcpy(&bindings->root_constants[c->constant_index + offset], data, count * sizeof(uint32_t));
+
+    bindings->root_constant_dirty_mask |= 1ull << index;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRoot32BitConstant(ID3D12GraphicsCommandList2 *iface,
