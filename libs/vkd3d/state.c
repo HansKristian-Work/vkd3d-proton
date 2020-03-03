@@ -777,9 +777,12 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
                 context.descriptor_binding, binding_desc, &root_signature->vk_root_descriptor_layout)))
             goto fail;
 
-        set_layouts[context.set_index++] = root_signature->vk_root_descriptor_layout;
+        set_layouts[context.set_index] = root_signature->vk_root_descriptor_layout;
+        root_signature->root_descriptor_set = context.set_index;
+
         context.current_binding = binding_desc;
         context.descriptor_binding = 0;
+        context.set_index += 1;
     }
 
     if (FAILED(hr = d3d12_root_signature_init_push_constants(root_signature, desc, &info,
@@ -790,14 +793,15 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (FAILED(hr = d3d12_root_signature_init_static_samplers(root_signature, device, desc, &context)))
         goto fail;
 
-    root_signature->main_set = context.set_index;
     if (context.descriptor_binding)
     {
         if (FAILED(hr = vkd3d_create_descriptor_set_layout(device,
                 0, context.descriptor_binding, binding_desc, &root_signature->vk_packed_descriptor_layout)))
             goto fail;
 
-        set_layouts[context.set_index++] = root_signature->vk_packed_descriptor_layout;
+        root_signature->packed_descriptor_set = context.set_index;
+        set_layouts[context.set_index] = root_signature->vk_packed_descriptor_layout;
+        context.set_index += 1;
     }
     vkd3d_free(binding_desc);
     binding_desc = NULL;
