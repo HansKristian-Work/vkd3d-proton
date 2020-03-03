@@ -303,6 +303,54 @@ static bool vk_binding_from_d3d12_descriptor_range(struct VkDescriptorSetLayoutB
     return true;
 }
 
+static HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
+        VkDescriptorSetLayoutCreateFlags flags, unsigned int binding_count,
+        const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkDescriptorSetLayoutCreateInfo set_desc;
+    VkResult vr;
+
+    set_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    set_desc.pNext = NULL;
+    set_desc.flags = flags;
+    set_desc.bindingCount = binding_count;
+    set_desc.pBindings = bindings;
+    if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device, &set_desc, NULL, set_layout))) < 0)
+    {
+        WARN("Failed to create Vulkan descriptor set layout, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
+static HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
+        unsigned int set_layout_count, const VkDescriptorSetLayout *set_layouts,
+        unsigned int push_constant_count, const VkPushConstantRange *push_constants,
+        VkPipelineLayout *pipeline_layout)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct VkPipelineLayoutCreateInfo pipeline_layout_info;
+    VkResult vr;
+
+    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_info.pNext = NULL;
+    pipeline_layout_info.flags = 0;
+    pipeline_layout_info.setLayoutCount = set_layout_count;
+    pipeline_layout_info.pSetLayouts = set_layouts;
+    pipeline_layout_info.pushConstantRangeCount = push_constant_count;
+    pipeline_layout_info.pPushConstantRanges = push_constants;
+    if ((vr = VK_CALL(vkCreatePipelineLayout(device->vk_device,
+            &pipeline_layout_info, NULL, pipeline_layout))) < 0)
+    {
+        WARN("Failed to create Vulkan pipeline layout, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
 struct d3d12_root_signature_info
 {
     uint32_t binding_count;
@@ -600,14 +648,23 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 }
 
 static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_signature *root_signature,
-        const D3D12_ROOT_SIGNATURE_DESC *desc, struct vkd3d_descriptor_set_context *context)
+        const D3D12_ROOT_SIGNATURE_DESC *desc, const struct d3d12_root_signature_info *info,
+        struct vkd3d_descriptor_set_context *context, VkDescriptorSetLayout *vk_set_layout)
 {
-    VkDescriptorSetLayoutBinding *cur_binding = context->current_binding;
-    unsigned int i;
+    const struct vkd3d_vulkan_info *vk_info = &root_signature->device->vk_info;
+    VkDescriptorSetLayoutBinding *vk_binding_info, *vk_binding;
+    struct vkd3d_shader_resource_binding *binding;
+    struct d3d12_root_parameter *param;
+    unsigned int i, j;
+    HRESULT hr;
 
-    root_signature->push_descriptor_mask = 0;
+    if (!info->root_descriptor_count)
+        return S_OK;
 
-    for (i = 0; i < desc->NumParameters; ++i)
+    if (!(vk_binding_info = vkd3d_malloc(sizeof(*vk_binding_info) * info->root_descriptor_count)))
+        return E_OUTOFMEMORY;
+
+    for (i = 0, j = 0; i < desc->NumParameters; ++i)
     {
         const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
         if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_CBV
@@ -615,25 +672,43 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
                 && p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_UAV)
             continue;
 
-        root_signature->push_descriptor_mask |= 1u << i;
+        root_signature->root_descriptor_mask |= 1ull << i;
 
-        cur_binding->binding = d3d12_root_signature_assign_vk_bindings(root_signature,
-                vkd3d_descriptor_type_from_d3d12_root_parameter_type(p->ParameterType),
-                p->u.Descriptor.RegisterSpace, p->u.Descriptor.ShaderRegister, 1, true, false, false,
-                vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility), context);
-        cur_binding->descriptorType = vk_descriptor_type_from_d3d12_root_parameter(p->ParameterType);
-        cur_binding->descriptorCount = 1;
-        cur_binding->stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
-        cur_binding->pImmutableSamplers = NULL;
+        vk_binding = &vk_binding_info[j++];
+        vk_binding->binding = context->vk_binding;
+        vk_binding->descriptorType = vk_descriptor_type_from_d3d12_root_parameter(p->ParameterType);
+        vk_binding->descriptorCount = 1;
+        vk_binding->stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
+        vk_binding->pImmutableSamplers = NULL;
 
-        root_signature->parameters[i].parameter_type = p->ParameterType;
-        root_signature->parameters[i].u.descriptor.binding = cur_binding->binding;
+        binding = &root_signature->bindings[context->binding_index];
+        binding->type = vkd3d_descriptor_type_from_d3d12_root_parameter_type(p->ParameterType);
+        binding->register_space = p->u.Descriptor.RegisterSpace;
+        binding->register_index = p->u.Descriptor.ShaderRegister;
+        binding->register_count = 1;
+        binding->descriptor_table = 0;  /* ignored */
+        binding->descriptor_offset = 0; /* ignored */
+        binding->shader_visibility = vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility);
+        binding->flags = VKD3D_SHADER_BINDING_FLAG_BUFFER;
+        binding->binding.binding = context->vk_binding;
+        binding->binding.set = context->vk_set;
 
-        ++cur_binding;
+        param = &root_signature->parameters[i];
+        param->parameter_type = p->ParameterType;
+        param->u.descriptor.binding = binding;
+        param->u.descriptor.packed_descriptor = context->packed_descriptor_index;
+
+        context->packed_descriptor_index += 1;
+        context->binding_index += 1;
+        context->vk_binding += 1;
     }
 
-    context->current_binding = cur_binding;
-    return S_OK;
+    hr = vkd3d_create_descriptor_set_layout(root_signature->device,
+            vk_info->KHR_push_descriptor ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0,
+            info->root_descriptor_count, vk_binding_info, vk_set_layout);
+
+    vkd3d_free(vk_binding_info);
+    return hr;
 }
 
 static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signature *root_signature,
@@ -664,54 +739,6 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
     }
 
     context->current_binding = cur_binding;
-    return S_OK;
-}
-
-static HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
-        VkDescriptorSetLayoutCreateFlags flags, unsigned int binding_count,
-        const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkDescriptorSetLayoutCreateInfo set_desc;
-    VkResult vr;
-
-    set_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    set_desc.pNext = NULL;
-    set_desc.flags = flags;
-    set_desc.bindingCount = binding_count;
-    set_desc.pBindings = bindings;
-    if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device, &set_desc, NULL, set_layout))) < 0)
-    {
-        WARN("Failed to create Vulkan descriptor set layout, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
-    }
-
-    return S_OK;
-}
-
-static HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
-        unsigned int set_layout_count, const VkDescriptorSetLayout *set_layouts,
-        unsigned int push_constant_count, const VkPushConstantRange *push_constants,
-        VkPipelineLayout *pipeline_layout)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct VkPipelineLayoutCreateInfo pipeline_layout_info;
-    VkResult vr;
-
-    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipeline_layout_info.pNext = NULL;
-    pipeline_layout_info.flags = 0;
-    pipeline_layout_info.setLayoutCount = set_layout_count;
-    pipeline_layout_info.pSetLayouts = set_layouts;
-    pipeline_layout_info.pushConstantRangeCount = push_constant_count;
-    pipeline_layout_info.pPushConstantRanges = push_constants;
-    if ((vr = VK_CALL(vkCreatePipelineLayout(device->vk_device,
-            &pipeline_layout_info, NULL, pipeline_layout))) < 0)
-    {
-        WARN("Failed to create Vulkan pipeline layout, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
-    }
-
     return S_OK;
 }
 
@@ -746,6 +773,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         return E_INVALIDARG;
     }
 
+    /* needed by some methods, increment ref count later */
+    root_signature->device = device;
     root_signature->binding_count = info.binding_count;
     root_signature->static_sampler_count = desc->NumStaticSamplers;
     root_signature->root_descriptor_count = info.root_descriptor_count;
@@ -770,16 +799,12 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         goto fail;
     context.current_binding = binding_desc;
 
-    if (FAILED(hr = d3d12_root_signature_init_root_descriptors(root_signature, desc, &context)))
+    if (FAILED(hr = d3d12_root_signature_init_root_descriptors(root_signature, desc,
+                &info, &context, &root_signature->vk_root_descriptor_layout)))
         goto fail;
 
-    if (context.vk_binding)
+    if (root_signature->vk_root_descriptor_layout)
     {
-        if (FAILED(hr = vkd3d_create_descriptor_set_layout(device,
-                VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
-                context.vk_binding, binding_desc, &root_signature->vk_root_descriptor_layout)))
-            goto fail;
-
         set_layouts[context.vk_set] = root_signature->vk_root_descriptor_layout;
         root_signature->root_descriptor_set = context.vk_set;
 
@@ -818,8 +843,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (FAILED(hr = vkd3d_private_store_init(&root_signature->private_store)))
         goto fail;
 
-    d3d12_device_add_ref(root_signature->device = device);
-
+    d3d12_device_add_ref(root_signature->device);
     return S_OK;
 
 fail:
