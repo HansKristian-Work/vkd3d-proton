@@ -706,7 +706,9 @@ struct d3d12_root_signature
 
     struct d3d12_root_parameter *parameters;
     unsigned int parameter_count;
-    uint32_t main_set;
+
+    uint32_t packed_descriptor_set;
+    uint32_t root_descriptor_set;
 
     uint64_t descriptor_table_mask;
     uint32_t push_descriptor_mask;

@@ -2867,7 +2867,7 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     if (bindings->descriptor_set)
     {
         VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
-                rs->vk_pipeline_layout, rs->main_set, 1, &bindings->descriptor_set, 0, NULL));
+                rs->vk_pipeline_layout, rs->packed_descriptor_set, 1, &bindings->descriptor_set, 0, NULL));
         bindings->in_use = true;
     }
 
@@ -4179,7 +4179,8 @@ static void d3d12_command_list_set_root_cbv(struct d3d12_command_list *list,
         vk_write_descriptor_set_from_root_descriptor(&descriptor_write,
                 root_parameter, VK_NULL_HANDLE, NULL, &buffer_info);
         VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, bind_point,
-                root_signature->vk_pipeline_layout, 0, 1, &descriptor_write));
+                root_signature->vk_pipeline_layout, root_signature->root_descriptor_set,
+                1, &descriptor_write));
     }
     else
     {
@@ -4243,7 +4244,8 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
         vk_write_descriptor_set_from_root_descriptor(&descriptor_write,
                 root_parameter, VK_NULL_HANDLE, &vk_buffer_view, NULL);
         VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, bind_point,
-                root_signature->vk_pipeline_layout, 0, 1, &descriptor_write));
+                root_signature->vk_pipeline_layout, root_signature->root_descriptor_set,
+                1, &descriptor_write));
     }
     else
     {
