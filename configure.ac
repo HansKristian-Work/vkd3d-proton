@@ -124,6 +124,7 @@ AS_IF([test "x$with_dxil_spirv" != "xno"],
 
 dnl Check for functions
 VKD3D_CHECK_FUNC([HAVE_BUILTIN_CLZ], [__builtin_clz], [__builtin_clz(0)])
+VKD3D_CHECK_FUNC([HAVE_BUILTIN_CTZLL], [__builtin_ctzll], [__builtin_ctzll(0)])
 VKD3D_CHECK_FUNC([HAVE_BUILTIN_POPCOUNT], [__builtin_popcount], [__builtin_popcount(0)])
 VKD3D_CHECK_FUNC([HAVE_SYNC_ADD_AND_FETCH], [__sync_add_and_fetch], [__sync_add_and_fetch((int *)0, 0)])
 VKD3D_CHECK_FUNC([HAVE_SYNC_SUB_AND_FETCH], [__sync_sub_and_fetch], [__sync_sub_and_fetch((int *)0, 0)])

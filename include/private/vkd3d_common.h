@@ -23,6 +23,7 @@
 #include "vkd3d_windows.h"
 
 #include <ctype.h>
+#include <stdint.h>
 #include <limits.h>
 #include <stdbool.h>
 
@@ -79,6 +80,36 @@ static inline bool vkd3d_bitmask_is_contiguous(unsigned int mask)
     }
 
     return vkd3d_popcount(mask) == j;
+}
+
+/* Returns 64 for mask == 0 */
+static inline unsigned int vkd3d_bitmask_tzcnt64(uint64_t mask)
+{
+#ifdef _MSC_VER
+    unsigned long result;
+    _BitScanForward64(&result, mask) ? result : 64;
+    return result;
+#elif defined (HAVE_BUILTIN_CTZLL)
+    return mask ? __builtin_ctzll(mask) : 64;
+#else
+    uint64_t r = 63;
+    mask &= -mask; /* extract lowest set bit */
+    r -= (mask & 0x00000000FFFFFFFFull) ? 32 : 0;
+    r -= (mask & 0x0000FFFF0000FFFFull) ? 16 : 0;
+    r -= (mask & 0x00FF00FF00FF00FFull) ?  8 : 0;
+    r -= (mask & 0x0F0F0F0F0F0F0F0Full) ?  4 : 0;
+    r -= (mask & 0x3333333333333333ull) ?  2 : 0;
+    r -= (mask & 0x5555555555555555ull) ?  1 : 0;
+    return mask ? r : 64;
+#endif
+}
+
+/* find least significant bit, then remove that bit from mask */
+static inline unsigned int vkd3d_bitmask_iter64(uint64_t* mask)
+{
+    uint64_t cur_mask = *mask;
+    *mask = cur_mask & (cur_mask - 1);
+    return vkd3d_bitmask_tzcnt64(cur_mask);
 }
 
 /* Undefined for x == 0. */
