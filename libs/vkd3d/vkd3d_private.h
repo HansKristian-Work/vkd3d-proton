@@ -671,6 +671,11 @@ struct d3d12_root_descriptor_table
 {
     unsigned int range_count;
     struct d3d12_root_descriptor_table_range *ranges;
+
+    uint32_t table_index;
+    uint32_t binding_count;
+    uint32_t first_packed_descriptor;
+    struct vkd3d_shader_resource_binding *first_binding;
 };
 
 struct d3d12_root_constant
@@ -730,6 +735,9 @@ struct d3d12_root_signature
 
     /* Use one global push constant range */
     VkPushConstantRange push_constant_range;
+
+    uint32_t descriptor_table_offset;
+    uint32_t descriptor_table_count;
 
     unsigned int static_sampler_count;
     VkSampler *static_samplers;
