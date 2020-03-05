@@ -656,22 +656,8 @@ static inline void d3d12_query_heap_mark_result_as_available(struct d3d12_query_
     heap->availability_mask[index] |= (uint64_t)1 << shift;
 }
 
-struct d3d12_root_descriptor_table_range
-{
-    unsigned int offset;
-    unsigned int descriptor_count;
-    uint32_t binding;
-
-    uint32_t descriptor_magic;
-    unsigned int base_register_idx;
-    unsigned int register_space;
-};
-
 struct d3d12_root_descriptor_table
 {
-    unsigned int range_count;
-    struct d3d12_root_descriptor_table_range *ranges;
-
     uint32_t table_index;
     uint32_t binding_count;
     uint32_t first_packed_descriptor;
@@ -731,6 +717,7 @@ struct d3d12_root_signature
     unsigned int root_constant_count;
     struct vkd3d_shader_push_constant_buffer *root_constants;
 
+    unsigned int packed_descriptor_count;
     unsigned int root_descriptor_count;
 
     /* Use one global push constant range */
@@ -914,14 +901,21 @@ union vkd3d_descriptor_info
     VkDescriptorImageInfo image;
 };
 
+struct vkd3d_descriptor_updates
+{
+    VkWriteDescriptorSet *descriptor_writes;
+    size_t descriptor_writes_size;
+
+    union vkd3d_descriptor_info *descriptors;
+    size_t descriptors_size;
+};
+
 struct vkd3d_pipeline_bindings
 {
     const struct d3d12_root_signature *root_signature;
 
     VkDescriptorSet static_sampler_set;
-    VkDescriptorSet descriptor_set;
     bool static_sampler_set_dirty;
-    bool in_use;
 
     D3D12_GPU_DESCRIPTOR_HANDLE descriptor_tables[D3D12_MAX_ROOT_COST];
     uint64_t descriptor_table_dirty_mask;
@@ -970,6 +964,7 @@ struct d3d12_command_list
     VkRenderPass pso_render_pass;
     VkRenderPass current_render_pass;
     struct vkd3d_pipeline_bindings pipeline_bindings[VK_PIPELINE_BIND_POINT_RANGE_SIZE];
+    struct vkd3d_descriptor_updates packed_descriptors[VK_PIPELINE_BIND_POINT_RANGE_SIZE];
 
     struct d3d12_pipeline_state *state;
 

@@ -71,12 +71,6 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
     for (i = 0; i < root_signature->static_sampler_count; ++i)
         VK_CALL(vkDestroySampler(device->vk_device, root_signature->static_samplers[i], NULL));
 
-    for (i = 0; i < root_signature->parameter_count; ++i)
-    {
-        if (root_signature->parameters[i].parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
-            vkd3d_free(root_signature->parameters[i].u.descriptor_table.ranges);
-    }
-
     vkd3d_free(root_signature->parameters);
     vkd3d_free(root_signature->bindings);
     vkd3d_free(root_signature->root_constants);
@@ -474,24 +468,6 @@ struct vkd3d_descriptor_set_context
     uint32_t vk_binding;
 };
 
-static uint32_t vkd3d_descriptor_magic_from_d3d12(D3D12_DESCRIPTOR_RANGE_TYPE type)
-{
-    switch (type)
-    {
-        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
-            return VKD3D_DESCRIPTOR_MAGIC_SRV;
-        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-            return VKD3D_DESCRIPTOR_MAGIC_UAV;
-        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
-            return VKD3D_DESCRIPTOR_MAGIC_CBV;
-        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
-            return VKD3D_DESCRIPTOR_MAGIC_SAMPLER;
-        default:
-            ERR("Invalid range type %#x.\n", type);
-            return VKD3D_DESCRIPTOR_MAGIC_FREE;
-    }
-}
-
 static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_root_signature *root_signature,
         const D3D12_ROOT_SIGNATURE_DESC *desc, const struct d3d12_root_signature_info *info,
         struct vkd3d_descriptor_set_context *context, VkDescriptorSetLayout *vk_set_layout)
@@ -519,14 +495,11 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
         range_descriptor_offset = 0;
 
         root_signature->parameters[i].parameter_type = p->ParameterType;
-        table->range_count = range_count;
+
         table->table_index = t++;
         table->binding_count = 0;
         table->first_binding = &root_signature->bindings[context->binding_index];
         table->first_packed_descriptor = context->packed_descriptor_index;
-
-        if (!(table->ranges = vkd3d_calloc(table->range_count, sizeof(*table->ranges))))
-            return E_OUTOFMEMORY;
 
         for (j = 0; j < range_count; ++j)
         {
@@ -534,13 +507,6 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 
             bool is_srv = range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
             bool is_uav = range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-
-            table->ranges[j].offset = range->OffsetInDescriptorsFromTableStart;
-            table->ranges[j].descriptor_count = range->NumDescriptors;
-            table->ranges[j].binding = context->vk_binding;
-            table->ranges[j].descriptor_magic = vkd3d_descriptor_magic_from_d3d12(range->RangeType);
-            table->ranges[j].base_register_idx = range->BaseShaderRegister;
-            table->ranges[j].register_space = range->RegisterSpace;
 
             if (range->OffsetInDescriptorsFromTableStart != D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND)
                 range_descriptor_offset = range->OffsetInDescriptorsFromTableStart;
@@ -764,6 +730,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     root_signature->device = device;
     root_signature->binding_count = info.binding_count;
     root_signature->static_sampler_count = desc->NumStaticSamplers;
+    root_signature->packed_descriptor_count = info.descriptor_count;
     root_signature->root_descriptor_count = info.root_descriptor_count;
 
     hr = E_OUTOFMEMORY;
