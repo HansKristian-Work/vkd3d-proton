@@ -551,12 +551,23 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
                     table->first_binding[table->binding_count++] = binding;
                     vk_binding_info[d++] = vk_binding;
                 }
+            }
 
-                /* Add UAV counter binding */
-                if (is_uav)
+            /* Add UAV counter bindings */
+            if (is_uav)
+            {
+                for (k = 0; k < range->NumDescriptors; ++k)
                 {
+                    VkDescriptorSetLayoutBinding vk_binding;
                     vk_binding.binding = binding.binding.binding = context->vk_binding++;
                     vk_binding.descriptorType = vk_descriptor_type_from_d3d12_range_type(range->RangeType, true);
+                    vk_binding.descriptorCount = 1;
+                    vk_binding.stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
+                    vk_binding.pImmutableSamplers = NULL;
+
+                    binding.register_index = range->BaseShaderRegister + k;
+                    binding.register_count = 1;
+                    binding.descriptor_offset = range_descriptor_offset + k;
                     binding.flags = VKD3D_SHADER_BINDING_FLAG_COUNTER;
 
                     table->first_binding[table->binding_count++] = binding;
