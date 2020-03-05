@@ -2316,6 +2316,38 @@ static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
     return vr == VK_SUCCESS;
 }
 
+static bool vkd3d_create_vk_image_view(struct d3d12_device *device,
+        VkImage vk_image, const struct vkd3d_format *format, VkImageViewType type,
+        VkImageAspectFlags aspect_mask, uint32_t base_mip, uint32_t mip_count,
+        uint32_t base_layer, uint32_t layer_count, VkImageView *vk_view)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkImageViewCreateInfo view_desc;
+    VkResult vr;
+
+    view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_desc.pNext = NULL;
+    view_desc.flags = 0;
+    view_desc.image = vk_image;
+    view_desc.viewType = type;
+    view_desc.format = format->vk_format;
+
+    view_desc.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    view_desc.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+    view_desc.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+    view_desc.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+
+    view_desc.subresourceRange.aspectMask = aspect_mask;
+    view_desc.subresourceRange.baseMipLevel = base_mip;
+    view_desc.subresourceRange.levelCount = mip_count;
+    view_desc.subresourceRange.baseArrayLayer = base_layer;
+    view_desc.subresourceRange.layerCount = layer_count;
+
+    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, vk_view))) < 0)
+        WARN("Failed to create Vulkan image view, vr %d.\n", vr);
+    return vr == VK_SUCCESS;
+}
+
 bool vkd3d_create_buffer_view(struct d3d12_device *device, VkBuffer vk_buffer, const struct vkd3d_format *format,
         VkDeviceSize offset, VkDeviceSize size, struct vkd3d_view **view)
 {
@@ -4094,6 +4126,10 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     if (FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_buffer,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_buffer_memory, NULL, NULL)))
         goto fail;
+    if (!vkd3d_create_vk_buffer_view(device, null_resources->vk_buffer,
+            vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
+            0, VK_WHOLE_SIZE, &null_resources->vk_buffer_view))
+        goto fail;
 
     /* buffer UAV */
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -4103,6 +4139,10 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
         goto fail;
     if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_storage_buffer,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_storage_buffer_memory, NULL, NULL)))
+        goto fail;
+    if (!vkd3d_create_vk_buffer_view(device, null_resources->vk_storage_buffer,
+            vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
+            0, VK_WHOLE_SIZE, &null_resources->vk_storage_buffer_view))
         goto fail;
 
     /* 2D SRV */
@@ -4123,6 +4163,11 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
         goto fail;
     if (FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_image,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_2d_image_memory, NULL, NULL)))
+        goto fail;
+    if (!vkd3d_create_vk_image_view(device, null_resources->vk_2d_image,
+            vkd3d_get_format(device, resource_desc.Format, false), VK_IMAGE_VIEW_TYPE_2D,
+            VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS,
+            &null_resources->vk_2d_image_view))
         goto fail;
 
     /* 2D UAV */
@@ -4145,20 +4190,33 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_storage_image,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_2d_storage_image_memory, NULL, NULL)))
         goto fail;
+    if (!vkd3d_create_vk_image_view(device, null_resources->vk_2d_storage_image,
+            vkd3d_get_format(device, resource_desc.Format, false), VK_IMAGE_VIEW_TYPE_2D,
+            VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS,
+            &null_resources->vk_2d_storage_image_view))
+        goto fail;
 
     /* set Vulkan object names */
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_buffer,
             VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, "NULL buffer");
+    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_buffer_view,
+            VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_VIEW_EXT, "NULL buffer view");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_buffer_memory,
             VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, "NULL memory");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_storage_buffer,
             VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, "NULL UAV buffer");
+    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_storage_buffer_view,
+            VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_VIEW_EXT, "NULL UAV buffer view");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_image,
             VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, "NULL 2D SRV image");
+    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_image_view,
+            VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_VIEW_EXT, "NULL 2D SRV image view");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_image_memory,
             VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, "NULL 2D SRV memory");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_storage_image,
             VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, "NULL 2D UAV image");
+    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_storage_image_view,
+            VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_VIEW_EXT, "NULL 2D UAV image view");
     if (!use_sparse_resources)
     {
         vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_storage_buffer_memory,
@@ -4180,15 +4238,19 @@ void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+    VK_CALL(vkDestroyBufferView(device->vk_device, null_resources->vk_buffer_view, NULL));
     VK_CALL(vkDestroyBuffer(device->vk_device, null_resources->vk_buffer, NULL));
     VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_buffer_memory, NULL));
 
+    VK_CALL(vkDestroyBufferView(device->vk_device, null_resources->vk_storage_buffer_view, NULL));
     VK_CALL(vkDestroyBuffer(device->vk_device, null_resources->vk_storage_buffer, NULL));
     VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_storage_buffer_memory, NULL));
 
+    VK_CALL(vkDestroyImageView(device->vk_device, null_resources->vk_2d_image_view, NULL));
     VK_CALL(vkDestroyImage(device->vk_device, null_resources->vk_2d_image, NULL));
     VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_2d_image_memory, NULL));
 
+    VK_CALL(vkDestroyImageView(device->vk_device, null_resources->vk_2d_storage_image_view, NULL));
     VK_CALL(vkDestroyImage(device->vk_device, null_resources->vk_2d_storage_image, NULL));
     VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_2d_storage_image_memory, NULL));
 

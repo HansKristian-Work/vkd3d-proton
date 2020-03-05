@@ -1047,15 +1047,19 @@ struct d3d12_command_signature *unsafe_impl_from_ID3D12CommandSignature(ID3D12Co
 struct vkd3d_null_resources
 {
     VkBuffer vk_buffer;
+    VkBufferView vk_buffer_view;
     VkDeviceMemory vk_buffer_memory;
 
     VkBuffer vk_storage_buffer;
+    VkBufferView vk_storage_buffer_view;
     VkDeviceMemory vk_storage_buffer_memory;
 
     VkImage vk_2d_image;
+    VkImageView vk_2d_image_view;
     VkDeviceMemory vk_2d_image_memory;
 
     VkImage vk_2d_storage_image;
+    VkImageView vk_2d_storage_image_view;
     VkDeviceMemory vk_2d_storage_image_memory;
 };
 
