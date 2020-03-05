@@ -33736,6 +33736,13 @@ static void test_coverage(bool use_dxil)
     desc.no_root_signature = true;
     if (!init_test_context(&context, &desc))
         return;
+
+    if (use_dxil && !context_supports_dxil(&context))
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
     command_list = context.list;
     queue = context.queue;
 
