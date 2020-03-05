@@ -20,7 +20,8 @@
 #include "vkd3d_private.h"
 
 #define VKD3D_NULL_BUFFER_SIZE 16
-#define VKD3D_NULL_VIEW_FORMAT DXGI_FORMAT_R8G8B8A8_UNORM
+#define VKD3D_NULL_SRV_FORMAT DXGI_FORMAT_R8G8B8A8_UNORM
+#define VKD3D_NULL_UAV_FORMAT DXGI_FORMAT_R32_UINT
 
 static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *properties)
 {
@@ -2699,7 +2700,7 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
 
     WARN("Creating NULL SRV %#x.\n", desc->ViewDimension);
 
-    vkd3d_desc.format = vkd3d_get_format(device, VKD3D_NULL_VIEW_FORMAT, false);
+    vkd3d_desc.format = vkd3d_get_format(device, VKD3D_NULL_SRV_FORMAT, false);
     vkd3d_desc.miplevel_idx = 0;
     vkd3d_desc.miplevel_count = 1;
     vkd3d_desc.layer_idx = 0;
@@ -2906,7 +2907,7 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
 
     WARN("Creating NULL UAV %#x.\n", desc->ViewDimension);
 
-    vkd3d_desc.format = vkd3d_get_format(device, VKD3D_NULL_VIEW_FORMAT, false);
+    vkd3d_desc.format = vkd3d_get_format(device, VKD3D_NULL_UAV_FORMAT, false);
     vkd3d_desc.miplevel_idx = 0;
     vkd3d_desc.miplevel_count = 1;
     vkd3d_desc.layer_idx = 0;
@@ -4111,7 +4112,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     resource_desc.Height = 1;
     resource_desc.DepthOrArraySize = 1;
     resource_desc.MipLevels = 1;
-    resource_desc.Format = VKD3D_NULL_VIEW_FORMAT;
+    resource_desc.Format = VKD3D_NULL_SRV_FORMAT;
     resource_desc.SampleDesc.Count = 1;
     resource_desc.SampleDesc.Quality = 0;
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -4131,7 +4132,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     resource_desc.Height = 1;
     resource_desc.DepthOrArraySize = 1;
     resource_desc.MipLevels = 1;
-    resource_desc.Format = VKD3D_NULL_VIEW_FORMAT;
+    resource_desc.Format = VKD3D_NULL_UAV_FORMAT;
     resource_desc.SampleDesc.Count = 1;
     resource_desc.SampleDesc.Quality = 0;
     resource_desc.Layout = use_sparse_resources
