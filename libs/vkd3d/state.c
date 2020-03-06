@@ -2728,6 +2728,12 @@ void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
         VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, bindless_state->set_info[i].vk_set_layout, NULL));
 }
 
+VkDescriptorType vk_descriptor_type_from_bindless_set_info(const struct vkd3d_bindless_set_info *set_info)
+{
+    return vk_descriptor_type_from_d3d12_range_type(set_info->range_type,
+            set_info->binding_flag == VKD3D_SHADER_BINDING_FLAG_BUFFER);
+}
+
 static void vkd3d_uav_clear_pipelines_cleanup(struct vkd3d_uav_clear_pipelines *pipelines,
         struct d3d12_device *device)
 {

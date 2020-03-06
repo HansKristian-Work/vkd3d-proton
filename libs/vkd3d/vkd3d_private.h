@@ -60,6 +60,8 @@ struct d3d12_command_list;
 struct d3d12_device;
 struct d3d12_resource;
 
+struct vkd3d_bindless_set_info;
+
 struct vkd3d_vk_global_procs
 {
     PFN_vkCreateInstance vkCreateInstance;
@@ -609,6 +611,9 @@ struct d3d12_descriptor_heap
 
     D3D12_DESCRIPTOR_HEAP_DESC desc;
 
+    VkDescriptorPool vk_descriptor_pool;
+    VkDescriptorSet vk_descriptor_sets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
@@ -618,7 +623,31 @@ struct d3d12_descriptor_heap
 
 HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc, struct d3d12_descriptor_heap **descriptor_heap) DECLSPEC_HIDDEN;
+void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap) DECLSPEC_HIDDEN;
 struct d3d12_descriptor_heap *unsafe_impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface) DECLSPEC_HIDDEN;
+
+static inline unsigned int d3d12_descriptor_heap_sampler_set_index()
+{
+    return 0;
+}
+
+static inline unsigned int d3d12_descriptor_heap_cbv_set_index()
+{
+    return 0;
+}
+
+static inline unsigned int d3d12_descriptor_heap_srv_set_index(bool is_buffer)
+{
+    return 1 + (is_buffer ? 0 : 1);
+}
+
+static inline unsigned int d3d12_descriptor_heap_uav_set_index(bool is_buffer)
+{
+    return 3 + (is_buffer ? 0 : 1);
+}
+
+unsigned int d3d12_descriptor_heap_set_index_from_binding(const struct vkd3d_bindless_set_info *set) DECLSPEC_HIDDEN;
+unsigned int d3d12_descriptor_heap_set_index_from_magic(uint32_t magic, bool is_buffer) DECLSPEC_HIDDEN;
 
 /* ID3D12QueryHeap */
 struct d3d12_query_heap
@@ -1110,6 +1139,8 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
+
+VkDescriptorType vk_descriptor_type_from_bindless_set_info(const struct vkd3d_bindless_set_info *set_info) DECLSPEC_HIDDEN;
 
 struct vkd3d_format_compatibility_list
 {

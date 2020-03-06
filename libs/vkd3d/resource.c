@@ -3466,6 +3466,7 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
         struct d3d12_device *device = heap->device;
         unsigned int i;
 
+        d3d12_descriptor_heap_cleanup(heap);
         vkd3d_private_store_destroy(&heap->private_store);
 
         switch (heap->desc.Type)
@@ -3626,22 +3627,120 @@ struct d3d12_descriptor_heap *unsafe_impl_from_ID3D12DescriptorHeap(ID3D12Descri
     return impl_from_ID3D12DescriptorHeap(iface);
 }
 
+static HRESULT d3d12_descriptor_heap_create_descriptor_pool(struct d3d12_descriptor_heap *descriptor_heap,
+        VkDescriptorPool *vk_descriptor_pool)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
+    VkDescriptorPoolSize vk_pool_sizes[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+    const struct d3d12_device *device = descriptor_heap->device;
+    VkDescriptorPoolCreateInfo vk_pool_info;
+    unsigned int i, pool_count = 0;
+    VkResult vr;
+
+    for (i = 0; i < device->bindless_state.set_count; i++)
+    {
+        const struct vkd3d_bindless_set_info *set_info = &device->bindless_state.set_info[i];
+
+        if (set_info->heap_type == descriptor_heap->desc.Type)
+        {
+            VkDescriptorPoolSize *vk_pool_size = &vk_pool_sizes[pool_count++];
+            vk_pool_size->type = vk_descriptor_type_from_bindless_set_info(set_info);
+            vk_pool_size->descriptorCount = descriptor_heap->desc.NumDescriptors;
+        }
+    }
+
+    if (!pool_count)
+        return S_OK;
+
+    vk_pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    vk_pool_info.pNext = NULL;
+    vk_pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT;
+    vk_pool_info.maxSets = pool_count;
+    vk_pool_info.poolSizeCount = pool_count;
+    vk_pool_info.pPoolSizes = vk_pool_sizes;
+
+    if ((vr = VK_CALL(vkCreateDescriptorPool(device->vk_device,
+            &vk_pool_info, NULL, vk_descriptor_pool))) < 0)
+    {
+        ERR("Failed to create descriptor pool, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
+static HRESULT d3d12_descriptor_heap_create_descriptor_set(struct d3d12_descriptor_heap *descriptor_heap,
+        const struct vkd3d_bindless_set_info *binding, VkDescriptorSet *vk_descriptor_set)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
+    VkDescriptorSetVariableDescriptorCountAllocateInfoEXT vk_variable_count_info;
+    uint32_t descriptor_count = descriptor_heap->desc.NumDescriptors;
+    const struct d3d12_device *device = descriptor_heap->device;
+    VkDescriptorSetAllocateInfo vk_set_info;
+    VkResult vr;
+
+    vk_variable_count_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT;
+    vk_variable_count_info.pNext = NULL;
+    vk_variable_count_info.descriptorSetCount = 1;
+    vk_variable_count_info.pDescriptorCounts = &descriptor_count;
+
+    vk_set_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    vk_set_info.pNext = &vk_variable_count_info;
+    vk_set_info.descriptorPool = descriptor_heap->vk_descriptor_pool;
+    vk_set_info.descriptorSetCount = 1;
+    vk_set_info.pSetLayouts = &binding->vk_set_layout;
+
+    if ((vr = VK_CALL(vkAllocateDescriptorSets(device->vk_device, &vk_set_info, vk_descriptor_set))) < 0)
+    {
+        ERR("Failed to allocate descriptor set, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descriptor_heap,
         struct d3d12_device *device, const D3D12_DESCRIPTOR_HEAP_DESC *desc)
 {
+    unsigned int i;
     HRESULT hr;
 
+    memset(descriptor_heap, 0, sizeof(*descriptor_heap));
     descriptor_heap->ID3D12DescriptorHeap_iface.lpVtbl = &d3d12_descriptor_heap_vtbl;
     descriptor_heap->refcount = 1;
-
+    descriptor_heap->device = device;
     descriptor_heap->desc = *desc;
 
+    if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
+    {
+        if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_pool(descriptor_heap,
+                &descriptor_heap->vk_descriptor_pool)))
+            goto fail;
+
+        for (i = 0; i < device->bindless_state.set_count; i++)
+        {
+            const struct vkd3d_bindless_set_info *set_info = &device->bindless_state.set_info[i];
+
+            if (set_info->heap_type == desc->Type)
+            {
+                unsigned int set_index = d3d12_descriptor_heap_set_index_from_binding(set_info);
+
+                if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_set(descriptor_heap,
+                        set_info, &descriptor_heap->vk_descriptor_sets[set_index])))
+                    goto fail;
+            }
+        }
+    }
+
     if (FAILED(hr = vkd3d_private_store_init(&descriptor_heap->private_store)))
-        return hr;
+        goto fail;
 
-    d3d12_device_add_ref(descriptor_heap->device = device);
-
+    d3d12_device_add_ref(descriptor_heap->device);
     return S_OK;
+
+fail:
+    d3d12_descriptor_heap_cleanup(descriptor_heap);
+    return hr;
 }
 
 HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
@@ -3688,6 +3787,61 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
     *descriptor_heap = object;
 
     return S_OK;
+}
+
+void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
+    const struct d3d12_device *device = descriptor_heap->device;
+
+    VK_CALL(vkDestroyDescriptorPool(device->vk_device,
+            descriptor_heap->vk_descriptor_pool, NULL));
+}
+
+unsigned int d3d12_descriptor_heap_set_index_from_binding(const struct vkd3d_bindless_set_info *set)
+{
+    switch (set->range_type)
+    {
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+            return d3d12_descriptor_heap_sampler_set_index();
+
+        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+            return d3d12_descriptor_heap_cbv_set_index();
+
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
+            return d3d12_descriptor_heap_srv_set_index(
+                    set->binding_flag & VKD3D_SHADER_BINDING_FLAG_BUFFER);
+
+        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+            return d3d12_descriptor_heap_uav_set_index(
+                    set->binding_flag & VKD3D_SHADER_BINDING_FLAG_BUFFER);
+
+        default:
+            WARN("Unhandled descriptor range type %d.\n", set->range_type);
+            return 0;
+    }
+}
+
+unsigned int d3d12_descriptor_heap_set_index_from_magic(uint32_t magic, bool is_buffer)
+{
+    switch (magic)
+    {
+        case VKD3D_DESCRIPTOR_MAGIC_SAMPLER:
+            return d3d12_descriptor_heap_sampler_set_index();
+
+        case VKD3D_DESCRIPTOR_MAGIC_CBV:
+            return d3d12_descriptor_heap_cbv_set_index();
+
+        case VKD3D_DESCRIPTOR_MAGIC_SRV:
+            return d3d12_descriptor_heap_srv_set_index(is_buffer);
+
+        case VKD3D_DESCRIPTOR_MAGIC_UAV:
+            return d3d12_descriptor_heap_uav_set_index(is_buffer);
+
+        default:
+            WARN("Unhandled descriptor magic %#x.\n", magic);
+            return 0;
+    }
 }
 
 /* ID3D12QueryHeap */
