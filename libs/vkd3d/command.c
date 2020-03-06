@@ -2342,6 +2342,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->current_render_pass = VK_NULL_HANDLE;
 
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
+    memset(list->descriptor_heaps, 0, sizeof(list->descriptor_heaps));
 
     list->state = NULL;
 
@@ -2762,6 +2763,26 @@ static bool vk_write_descriptor_set_from_root_descriptor(VkWriteDescriptorSet *v
     return true;
 }
 
+static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point)
+{
+    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+
+    while (bindings->descriptor_heap_dirty_mask)
+    {
+        unsigned int heap_index = vkd3d_bitmask_iter64(&bindings->descriptor_heap_dirty_mask);
+
+        if (list->descriptor_heaps[heap_index])
+        {
+            VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
+                root_signature->vk_pipeline_layout, heap_index, 1,
+                &list->descriptor_heaps[heap_index], 0, NULL));
+        }
+    }
+}
+
 static void d3d12_command_list_update_static_samplers(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point)
 {
@@ -2863,6 +2884,9 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
 
     if (!rs)
         return;
+
+    if (bindings->descriptor_heap_dirty_mask)
+        d3d12_command_list_update_descriptor_heaps(list, bind_point);
 
     if (bindings->static_sampler_set_dirty)
         d3d12_command_list_update_static_samplers(list, bind_point);
@@ -4012,12 +4036,33 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteBundle(ID3D12GraphicsCom
 static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(ID3D12GraphicsCommandList2 *iface,
         UINT heap_count, ID3D12DescriptorHeap *const *heaps)
 {
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList2(iface);
+    struct vkd3d_bindless_state *bindless_state = &list->device->bindless_state;
+    unsigned int i, j, set_index;
+    uint64_t dirty_mask = 0;
+
     TRACE("iface %p, heap_count %u, heaps %p.\n", iface, heap_count, heaps);
 
-    /* Our current implementation does not need this method.
-     *
-     * It could be used to validate descriptor tables but we do not have an
-     * equivalent of the D3D12 Debug Layer. */
+    for (i = 0; i < heap_count; i++)
+    {
+        struct d3d12_descriptor_heap *heap = unsafe_impl_from_ID3D12DescriptorHeap(heaps[i]);
+
+        if (!heap)
+            continue;
+
+        for (j = 0; j < bindless_state->set_count; j++)
+        {
+            if (bindless_state->set_info[j].heap_type != heap->desc.Type)
+                continue;
+
+            set_index = d3d12_descriptor_heap_set_index_from_binding(&bindless_state->set_info[j]);
+            list->descriptor_heaps[j] = heap->vk_descriptor_sets[set_index];
+            dirty_mask |= 1ull << j;
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(list->pipeline_bindings); i++)
+        list->pipeline_bindings[i].descriptor_heap_dirty_mask = dirty_mask;
 }
 
 static void d3d12_command_list_set_root_signature(struct d3d12_command_list *list,

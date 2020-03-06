@@ -959,6 +959,7 @@ struct vkd3d_pipeline_bindings
     D3D12_GPU_DESCRIPTOR_HANDLE descriptor_tables[D3D12_MAX_ROOT_COST];
     uint64_t descriptor_table_dirty_mask;
     uint64_t descriptor_table_active_mask;
+    uint64_t descriptor_heap_dirty_mask;
 
     /* Needed when VK_KHR_push_descriptor is not available. */
     union vkd3d_descriptor_info root_descriptors[D3D12_MAX_ROOT_COST / 2];
@@ -1004,6 +1005,8 @@ struct d3d12_command_list
     VkRenderPass current_render_pass;
     struct vkd3d_pipeline_bindings pipeline_bindings[VK_PIPELINE_BIND_POINT_RANGE_SIZE];
     struct vkd3d_descriptor_updates packed_descriptors[VK_PIPELINE_BIND_POINT_RANGE_SIZE];
+
+    VkDescriptorSet descriptor_heaps[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
 
     struct d3d12_pipeline_state *state;
 
