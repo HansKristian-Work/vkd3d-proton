@@ -648,6 +648,11 @@ static inline unsigned int d3d12_descriptor_heap_uav_set_index(bool is_buffer)
     return 3 + (is_buffer ? 0 : 1);
 }
 
+static inline uint32_t d3d12_desc_heap_offset(const struct d3d12_desc *dst)
+{
+    return dst->heap_offset;
+}
+
 unsigned int d3d12_descriptor_heap_set_index_from_binding(const struct vkd3d_bindless_set_info *set) DECLSPEC_HIDDEN;
 unsigned int d3d12_descriptor_heap_set_index_from_magic(uint32_t magic, bool is_buffer) DECLSPEC_HIDDEN;
 
