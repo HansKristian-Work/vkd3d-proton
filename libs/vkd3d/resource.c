@@ -2199,6 +2199,54 @@ void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device)
         vkd3d_view_destroy(view, device);
 }
 
+static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &dst->heap->device->vk_procs;
+    union vkd3d_descriptor_info descriptor_info;
+    VkDescriptorSet vk_descriptor_set;
+    VkWriteDescriptorSet vk_write;
+    unsigned int set_index;
+    bool is_buffer;
+
+    is_buffer = dst->magic == VKD3D_DESCRIPTOR_MAGIC_CBV ||
+            dst->u.view->type == VKD3D_VIEW_TYPE_BUFFER;
+
+    set_index = d3d12_descriptor_heap_set_index_from_magic(dst->magic, is_buffer);
+
+    if (!(vk_descriptor_set = dst->heap->vk_descriptor_sets[set_index]))
+        return;
+
+    if (dst->magic == VKD3D_DESCRIPTOR_MAGIC_CBV)
+    {
+        descriptor_info.buffer = dst->u.vk_cbv_info;
+    }
+    else if (is_buffer)
+    {
+        descriptor_info.buffer_view = dst->u.view->u.vk_buffer_view;
+    }
+    else
+    {
+        descriptor_info.image.sampler = dst->u.view->u.vk_sampler;
+        descriptor_info.image.imageView = dst->u.view->u.vk_image_view;
+        descriptor_info.image.imageLayout = dst->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
+                ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                : VK_IMAGE_LAYOUT_GENERAL;
+    }
+
+    vk_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    vk_write.pNext = NULL;
+    vk_write.dstSet = vk_descriptor_set;
+    vk_write.dstBinding = 0;
+    vk_write.dstArrayElement = d3d12_desc_heap_offset(dst);
+    vk_write.descriptorCount = 1;
+    vk_write.descriptorType = dst->vk_descriptor_type;
+    vk_write.pImageInfo = &descriptor_info.image;
+    vk_write.pBufferInfo = &descriptor_info.buffer;
+    vk_write.pTexelBufferView = &descriptor_info.buffer_view;
+
+    VK_CALL(vkUpdateDescriptorSets(dst->heap->device->vk_device, 1, &vk_write, 0, NULL));
+}
+
 void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *src,
         struct d3d12_device *device)
 {
@@ -2220,6 +2268,9 @@ void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *sr
     dst->magic = src->magic;
     dst->vk_descriptor_type = src->vk_descriptor_type;
     dst->u = src->u;
+
+    if (dst->magic != VKD3D_DESCRIPTOR_MAGIC_FREE)
+        d3d12_desc_update_bindless_descriptor(dst);
 
     pthread_mutex_unlock(mutex);
 
