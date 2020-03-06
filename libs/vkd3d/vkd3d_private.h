@@ -54,6 +54,8 @@
 #define VKD3D_MAX_SHADER_STAGES           5u
 #define VKD3D_MAX_VK_SYNC_OBJECTS         4u
 
+#define VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS 6u
+
 struct d3d12_command_list;
 struct d3d12_device;
 struct d3d12_resource;
@@ -1078,6 +1080,37 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
 void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
 
+/* Bindless */
+enum vkd3d_bindless_flags
+{
+    VKD3D_BINDLESS_SAMPLER      = (1u << 0),
+    VKD3D_BINDLESS_CBV          = (1u << 1),
+    VKD3D_BINDLESS_SRV          = (1u << 2),
+    VKD3D_BINDLESS_UAV          = (1u << 3),
+};
+
+struct vkd3d_bindless_set_info
+{
+    D3D12_DESCRIPTOR_HEAP_TYPE heap_type;
+    D3D12_DESCRIPTOR_RANGE_TYPE range_type;
+    enum vkd3d_shader_binding_flag binding_flag;
+
+    VkDescriptorSetLayout vk_set_layout;
+};
+
+struct vkd3d_bindless_state
+{
+    uint32_t flags; /* vkd3d_bindless_flags */
+
+    struct vkd3d_bindless_set_info set_info[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+    unsigned int set_count;
+};
+
+HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
+void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
+
 struct vkd3d_format_compatibility_list
 {
     DXGI_FORMAT typeless_format;
@@ -1163,6 +1196,7 @@ struct d3d12_device
     unsigned int format_compatibility_list_count;
     const struct vkd3d_format_compatibility_list *format_compatibility_lists;
     struct vkd3d_null_resources null_resources;
+    struct vkd3d_bindless_state bindless_state;
     struct vkd3d_uav_clear_state uav_clear_state;
 };
 
