@@ -2661,6 +2661,7 @@ static void d3d12_command_list_update_packed_descriptors(struct d3d12_command_li
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
     union vkd3d_descriptor_info *vk_descriptor;
     const struct d3d12_desc *base_descriptor;
+    uint32_t table_offsets[D3D12_MAX_ROOT_COST];
     unsigned int root_parameter_index, i, j;
     unsigned int write_count = 0;
 
@@ -2687,6 +2688,8 @@ static void d3d12_command_list_update_packed_descriptors(struct d3d12_command_li
 
         table = root_signature_get_descriptor_table(root_signature, root_parameter_index);
         vk_descriptor = &updates->descriptors[table->first_packed_descriptor];
+
+        table_offsets[table->table_index] = d3d12_desc_heap_offset(base_descriptor);
 
         for (i = 0; i < table->binding_count; i++)
         {
@@ -2724,6 +2727,19 @@ static void d3d12_command_list_update_packed_descriptors(struct d3d12_command_li
                 root_signature->vk_pipeline_layout,
                 root_signature->packed_descriptor_set,
                 1, &descriptor_set, 0, NULL));
+    }
+
+    /* Set descriptor offsets */
+
+    /* TODO decouple this from updating the packed descriptor set and
+     * don't update the set if the table has no packed descriptors. */
+    if (root_signature->descriptor_table_count)
+    {
+        VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+            root_signature->vk_pipeline_layout, VK_SHADER_STAGE_ALL,
+            root_signature->descriptor_table_offset,
+            root_signature->descriptor_table_count * sizeof(uint32_t),
+            table_offsets));
     }
 }
 
