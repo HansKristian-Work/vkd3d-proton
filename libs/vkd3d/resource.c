@@ -2217,7 +2217,9 @@ void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *sr
             && !InterlockedDecrement(&dst->u.view->refcount))
         destroy_desc = *dst;
 
-    *dst = *src;
+    dst->magic = src->magic;
+    dst->vk_descriptor_type = src->vk_descriptor_type;
+    dst->u = src->u;
 
     pthread_mutex_unlock(mutex);
 
@@ -3743,6 +3745,36 @@ fail:
     return hr;
 }
 
+static void d3d12_descriptor_heap_init_descriptors(struct d3d12_descriptor_heap *descriptor_heap,
+        size_t descriptor_size)
+{
+    struct d3d12_desc *desc;
+    unsigned int i;
+
+    memset(descriptor_heap->descriptors, 0, descriptor_size * descriptor_heap->desc.NumDescriptors);
+
+    switch (descriptor_heap->desc.Type)
+    {
+        case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
+        case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
+            desc = (struct d3d12_desc *)descriptor_heap->descriptors;
+
+            for (i = 0; i < descriptor_heap->desc.NumDescriptors; i++)
+            {
+                desc[i].heap = descriptor_heap;
+                desc[i].heap_offset = i;
+            }
+            break;
+
+        case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
+        case D3D12_DESCRIPTOR_HEAP_TYPE_DSV:
+            break;
+
+        default:
+            WARN("Unhandled descriptor heap type: %d.\n", descriptor_heap->desc.Type);
+    }
+}
+
 HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc, struct d3d12_descriptor_heap **descriptor_heap)
 {
@@ -3780,7 +3812,7 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         return hr;
     }
 
-    memset(object->descriptors, 0, descriptor_size * desc->NumDescriptors);
+    d3d12_descriptor_heap_init_descriptors(object, descriptor_size);
 
     TRACE("Created descriptor heap %p.\n", object);
 
