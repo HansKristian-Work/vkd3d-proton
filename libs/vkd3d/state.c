@@ -2580,6 +2580,154 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     return vk_pipeline;
 }
 
+static D3D12_DESCRIPTOR_HEAP_TYPE d3d12_descriptor_heap_type_from_range_type(D3D12_DESCRIPTOR_RANGE_TYPE range_type)
+{
+    switch (range_type)
+    {
+        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
+        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+            return D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+            return D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+
+        default:
+            ERR("Invalid descriptor range type %d.\n", range_type);
+            return D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    }
+}
+
+static uint32_t d3d12_max_descriptor_count_from_range_type(D3D12_DESCRIPTOR_RANGE_TYPE range_type)
+{
+    switch (range_type)
+    {
+        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
+        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+            return 1000000;
+
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+            return 2048;
+
+        default:
+            ERR("Invalid descriptor range type %d.\n", range_type);
+            return 0;
+    }
+}
+
+static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bindless_state,
+        struct d3d12_device *device, D3D12_DESCRIPTOR_RANGE_TYPE range_type,
+        enum vkd3d_shader_binding_flag binding_flag)
+{
+    struct vkd3d_bindless_set_info *set_info = &bindless_state->set_info[bindless_state->set_count++];
+    VkDescriptorSetLayoutBindingFlagsCreateInfoEXT vk_binding_flags_info;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkDescriptorSetLayoutCreateInfo vk_set_layout_info;
+    VkDescriptorSetLayoutBinding vk_binding_info;
+    VkDescriptorBindingFlagsEXT vk_binding_flags;
+    VkResult vr;
+
+    set_info->heap_type = d3d12_descriptor_heap_type_from_range_type(range_type);
+    set_info->range_type = range_type;
+    set_info->binding_flag = binding_flag;
+
+    vk_binding_flags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT |
+            VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT_EXT |
+            VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT |
+            VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT_EXT;
+
+    vk_binding_flags_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT;
+    vk_binding_flags_info.pNext = NULL;
+    vk_binding_flags_info.bindingCount = 1;
+    vk_binding_flags_info.pBindingFlags = &vk_binding_flags;
+
+    vk_binding_info.binding = 0;
+    vk_binding_info.descriptorType = vk_descriptor_type_from_d3d12_range_type(range_type,
+            binding_flag & VKD3D_SHADER_BINDING_FLAG_BUFFER);
+    vk_binding_info.descriptorCount = d3d12_max_descriptor_count_from_range_type(range_type);
+    vk_binding_info.stageFlags = VK_SHADER_STAGE_ALL;
+    vk_binding_info.pImmutableSamplers = NULL;
+
+    vk_set_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    vk_set_layout_info.pNext = &vk_binding_flags_info;
+    vk_set_layout_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT_EXT;
+    vk_set_layout_info.bindingCount = 1;
+    vk_set_layout_info.pBindings = &vk_binding_info;
+
+    if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device,
+            &vk_set_layout_info, NULL, &set_info->vk_set_layout))) < 0)
+        ERR("Failed to create descriptor set layout, vr %d.\n", vr);
+
+    return hresult_from_vk_result(vr);
+}
+
+static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *device)
+{
+    /* FIXME implement proper feature check */
+    return 0;
+}
+
+HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
+        struct d3d12_device *device)
+{
+    HRESULT hr;
+
+    memset(bindless_state, 0, sizeof(*bindless_state));
+    bindless_state->flags = vkd3d_bindless_state_get_bindless_flags(device);
+
+    if (!bindless_state->flags)
+        return S_OK;
+
+    if (bindless_state->flags & VKD3D_BINDLESS_SAMPLER)
+    {
+        if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+                D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
+            goto fail;
+    }
+
+    if (bindless_state->flags & VKD3D_BINDLESS_CBV)
+    {
+        if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+                D3D12_DESCRIPTOR_RANGE_TYPE_CBV, VKD3D_SHADER_BINDING_FLAG_BUFFER)))
+            goto fail;
+    }
+
+    if (bindless_state->flags & VKD3D_BINDLESS_SRV)
+    {
+        if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+                D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_BUFFER)) ||
+            FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+                D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
+            goto fail;
+    }
+
+    if (bindless_state->flags & VKD3D_BINDLESS_UAV)
+    {
+        if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+                D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_BUFFER)) ||
+            FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+                D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
+            goto fail;
+    }
+
+    return S_OK;
+
+fail:
+    vkd3d_bindless_state_cleanup(bindless_state, device);
+    return hr;
+}
+
+void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    unsigned int i;
+
+    for (i = 0; i < bindless_state->set_count; i++)
+        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, bindless_state->set_info[i].vk_set_layout, NULL));
+}
+
 static void vkd3d_uav_clear_pipelines_cleanup(struct vkd3d_uav_clear_pipelines *pipelines,
         struct d3d12_device *device)
 {
