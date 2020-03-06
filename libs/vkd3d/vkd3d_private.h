@@ -524,6 +524,8 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, VkImage vk_image,
 
 struct d3d12_desc
 {
+    struct d3d12_descriptor_heap *heap;
+    uint32_t heap_offset;
     uint32_t magic;
     VkDescriptorType vk_descriptor_type;
     union
