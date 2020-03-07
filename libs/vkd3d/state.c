@@ -510,6 +510,23 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
         ++j;
     }
 
+    /* Append one 32-bit push constant for each descriptor table offset */
+    if (root_signature->device->bindless_state.flags)
+    {
+        root_signature->descriptor_table_offset = push_constant_range->size;
+
+        for (i = 0; i < desc->NumParameters; ++i)
+        {
+            const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
+
+            if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+                continue;
+
+            root_signature->descriptor_table_count += 1;
+            push_constant_range->size += sizeof(uint32_t);
+        }
+    }
+
     return S_OK;
 }
 
@@ -1414,8 +1431,8 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
 
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
     shader_interface.next = NULL;
-    shader_interface.descriptor_tables.offset = 0;
-    shader_interface.descriptor_tables.count = 0;
+    shader_interface.descriptor_tables.offset = root_signature->descriptor_table_offset;
+    shader_interface.descriptor_tables.count = root_signature->descriptor_table_count;
     shader_interface.bindings = root_signature->bindings;
     shader_interface.binding_count = root_signature->binding_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
@@ -2104,8 +2121,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
     shader_interface.next = NULL;
-    shader_interface.descriptor_tables.offset = 0;
-    shader_interface.descriptor_tables.count = 0;
+    shader_interface.descriptor_tables.offset = root_signature->descriptor_table_offset;
+    shader_interface.descriptor_tables.count = root_signature->descriptor_table_count;
     shader_interface.bindings = root_signature->bindings;
     shader_interface.binding_count = root_signature->binding_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
