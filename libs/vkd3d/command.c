@@ -1860,7 +1860,7 @@ static void d3d12_command_list_invalidate_current_render_pass(struct d3d12_comma
 }
 
 static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
-        VkPipelineBindPoint bind_point)
+        VkPipelineBindPoint bind_point, bool invalidate_descriptor_heaps)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
 
@@ -1873,6 +1873,12 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
     bindings->root_constant_dirty_mask = bindings->root_signature->root_constant_mask;
 
     bindings->static_sampler_set_dirty = bindings->static_sampler_set != VK_NULL_HANDLE;
+
+    if (invalidate_descriptor_heaps)
+    {
+        struct d3d12_device *device = bindings->root_signature->device;
+        bindings->descriptor_heap_dirty_mask = (1ull << device->bindless_state.set_count) - 1;
+    }
 }
 
 static bool vk_barrier_parameters_from_d3d12_resource_state(unsigned int state, unsigned int stencil_state,
@@ -4099,7 +4105,7 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
                 list->allocator, root_signature->vk_sampler_descriptor_layout);
     }
 
-    d3d12_command_list_invalidate_root_parameters(list, bind_point);
+    d3d12_command_list_invalidate_root_parameters(list, bind_point, false);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootSignature(ID3D12GraphicsCommandList2 *iface,
@@ -4885,7 +4891,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     d3d12_command_list_end_current_render_pass(list);
 
     d3d12_command_list_invalidate_current_pipeline(list);
-    d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE);
+    d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
 
     if (!d3d12_command_allocator_add_view(list->allocator, view))
         WARN("Failed to add view.\n");
