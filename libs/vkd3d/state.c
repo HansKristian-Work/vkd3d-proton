@@ -807,9 +807,11 @@ cleanup:
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc)
 {
+    const struct vkd3d_bindless_state *bindless_state = &device->bindless_state;
+    VkDescriptorSetLayout set_layouts[VKD3D_MAX_DESCRIPTOR_SETS];
     struct vkd3d_descriptor_set_context context;
     struct d3d12_root_signature_info info;
-    VkDescriptorSetLayout set_layouts[3];
+    unsigned int i;
     HRESULT hr;
 
     memset(&context, 0, sizeof(context));
@@ -854,6 +856,9 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (!(root_signature->static_samplers = vkd3d_calloc(root_signature->static_sampler_count,
             sizeof(*root_signature->static_samplers))))
         goto fail;
+
+    for (i = 0; i < bindless_state->set_count; i++)
+        set_layouts[context.vk_set++] = bindless_state->set_info[i].vk_set_layout;
 
     if (FAILED(hr = d3d12_root_signature_init_static_samplers(root_signature, desc,
                 &context, &root_signature->vk_sampler_descriptor_layout)))
