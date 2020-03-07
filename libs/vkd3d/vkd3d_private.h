@@ -1146,6 +1146,9 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
+bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindless_state,
+        D3D12_DESCRIPTOR_RANGE_TYPE range_type, enum vkd3d_shader_binding_flag binding_flag,
+        struct vkd3d_shader_descriptor_binding *binding) DECLSPEC_HIDDEN;
 
 VkDescriptorType vk_descriptor_type_from_bindless_set_info(const struct vkd3d_bindless_set_info *set_info) DECLSPEC_HIDDEN;
 
