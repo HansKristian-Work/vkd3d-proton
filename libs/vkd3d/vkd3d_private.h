@@ -54,6 +54,7 @@
 #define VKD3D_MAX_SHADER_STAGES           5u
 #define VKD3D_MAX_VK_SYNC_OBJECTS         4u
 
+#define VKD3D_MAX_DESCRIPTOR_SETS 8u
 #define VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS 6u
 
 struct d3d12_command_list;
