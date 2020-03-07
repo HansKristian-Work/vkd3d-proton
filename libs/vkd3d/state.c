@@ -331,6 +331,33 @@ static HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
     return S_OK;
 }
 
+static bool d3d12_root_signature_descriptor_range_is_bindless(struct d3d12_device *device,
+        D3D12_DESCRIPTOR_RANGE_TYPE range_type)
+{
+    uint32_t bindless_flags = 0;
+
+    switch (range_type)
+    {
+        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+            bindless_flags = VKD3D_BINDLESS_CBV;
+            break;
+
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
+            bindless_flags = VKD3D_BINDLESS_SRV;
+            break;
+
+        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+            bindless_flags = VKD3D_BINDLESS_UAV;
+            break;
+
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+            bindless_flags = VKD3D_BINDLESS_SAMPLER;
+            break;
+    }
+
+    return !!(device->bindless_state.flags & bindless_flags);
+}
+
 struct d3d12_root_signature_info
 {
     uint32_t binding_count;
@@ -343,42 +370,68 @@ struct d3d12_root_signature_info
 };
 
 static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_signature_info *info,
-        const D3D12_DESCRIPTOR_RANGE *range)
+        struct d3d12_device *device, const D3D12_DESCRIPTOR_RANGE *range)
 {
     size_t descriptor_count;
 
-    if (range->NumDescriptors == 0xffffffff)
+    if (d3d12_root_signature_descriptor_range_is_bindless(device, range->RangeType))
     {
-        FIXME("Unhandled unbound descriptor range.\n");
-        return E_NOTIMPL;
+        switch (range->RangeType)
+        {
+            case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
+                /* separate image + buffer descriptors */
+                info->binding_count += 2;
+                break;
+            case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+                /* separate image + buffer, packed uav counter descriptors */
+                info->binding_count += 2;
+                info->descriptor_count += range->NumDescriptors;
+                break;
+            case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+            case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+                info->binding_count += 1;
+                break;
+            default:
+                FIXME("Unhandled descriptor type %#x.\n", range->RangeType);
+                return E_NOTIMPL;
+        }
     }
-
-    switch (range->RangeType)
+    else
     {
-        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
-            /* separate image + buffer descriptors */
-            descriptor_count = range->NumDescriptors * 2;
-            break;
-        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-            /* separate image + buffer + uav counter descriptors */
-            descriptor_count = range->NumDescriptors * 3;
-            break;
-        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
-        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
-            descriptor_count = range->NumDescriptors;
-            break;
-        default:
-            FIXME("Unhandled descriptor type %#x.\n", range->RangeType);
+        if (range->NumDescriptors == 0xffffffff)
+        {
+            FIXME("Unhandled unbound descriptor range.\n");
             return E_NOTIMPL;
+        }
+
+        switch (range->RangeType)
+        {
+            case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
+                /* separate image + buffer descriptors */
+                descriptor_count = range->NumDescriptors * 2;
+                break;
+            case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+                /* separate image + buffer + uav counter descriptors */
+                descriptor_count = range->NumDescriptors * 3;
+                break;
+            case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+            case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+                descriptor_count = range->NumDescriptors;
+                break;
+            default:
+                FIXME("Unhandled descriptor type %#x.\n", range->RangeType);
+                return E_NOTIMPL;
+        }
+
+        info->binding_count += descriptor_count;
+        info->descriptor_count += descriptor_count;
     }
 
-    info->binding_count += descriptor_count;
-    info->descriptor_count += descriptor_count;
     return S_OK;
 }
 
 static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_info *info,
-        const D3D12_ROOT_SIGNATURE_DESC *desc)
+        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc)
 {
     unsigned int i, j;
     HRESULT hr;
@@ -394,7 +447,7 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
             case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
                 for (j = 0; j < p->u.DescriptorTable.NumDescriptorRanges; ++j)
                     if (FAILED(hr = d3d12_root_signature_info_count_descriptors(info,
-                            &p->u.DescriptorTable.pDescriptorRanges[j])))
+                            device, &p->u.DescriptorTable.pDescriptorRanges[j])))
                         return hr;
                 info->cost += 1;
                 break;
@@ -728,7 +781,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             | D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT))
         FIXME("Ignoring root signature flags %#x.\n", desc->Flags);
 
-    if (FAILED(hr = d3d12_root_signature_info_from_desc(&info, desc)))
+    if (FAILED(hr = d3d12_root_signature_info_from_desc(&info, device, desc)))
         return hr;
 
     if (info.cost > D3D12_MAX_ROOT_COST)
