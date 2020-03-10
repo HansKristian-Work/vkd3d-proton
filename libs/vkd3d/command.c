@@ -1867,12 +1867,18 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
     if (!bindings->root_signature)
         return;
 
-    bindings->descriptor_table_dirty_mask = bindings->root_signature->descriptor_table_mask;
+    /* Previously dirty states may no longer be dirty
+     * if the new root signature does not use them */
+    bindings->dirty_flags = 0;
+
+    if (bindings->static_sampler_set)
+        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET;
+
+    if (bindings->root_signature->vk_packed_descriptor_layout)
+        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_PACKED_DESCRIPTOR_SET;
 
     bindings->root_descriptor_dirty_mask = bindings->root_signature->root_descriptor_mask;
     bindings->root_constant_dirty_mask = bindings->root_signature->root_constant_mask;
-
-    bindings->static_sampler_set_dirty = bindings->static_sampler_set != VK_NULL_HANDLE;
 
     if (invalidate_descriptor_heaps)
     {
@@ -2670,6 +2676,7 @@ static void d3d12_command_list_update_packed_descriptors(struct d3d12_command_li
     uint32_t table_offsets[D3D12_MAX_ROOT_COST];
     unsigned int root_parameter_index, i, j;
     unsigned int write_count = 0;
+    uint64_t descriptor_table_mask;
 
     if (!vkd3d_descriptor_updates_resize_arrays(updates, root_signature->packed_descriptor_count))
     {
@@ -2678,8 +2685,7 @@ static void d3d12_command_list_update_packed_descriptors(struct d3d12_command_li
     }
 
     /* Update packed descriptor set for all active descriptor tables */
-    bindings->descriptor_table_dirty_mask |= root_signature->descriptor_table_mask;
-    bindings->descriptor_table_dirty_mask &= bindings->descriptor_table_active_mask;
+    descriptor_table_mask = root_signature->descriptor_table_mask & bindings->descriptor_table_active_mask;
 
     if (root_signature->vk_packed_descriptor_layout)
     {
@@ -2687,9 +2693,9 @@ static void d3d12_command_list_update_packed_descriptors(struct d3d12_command_li
                 list->allocator, root_signature->vk_packed_descriptor_layout);
     }
 
-    while (bindings->descriptor_table_dirty_mask)
+    while (descriptor_table_mask)
     {
-        root_parameter_index = vkd3d_bitmask_iter64(&bindings->descriptor_table_dirty_mask);
+        root_parameter_index = vkd3d_bitmask_iter64(&descriptor_table_mask);
         base_descriptor = d3d12_desc_from_gpu_handle(bindings->descriptor_tables[root_parameter_index]);
 
         table = root_signature_get_descriptor_table(root_signature, root_parameter_index);
@@ -2747,6 +2753,8 @@ static void d3d12_command_list_update_packed_descriptors(struct d3d12_command_li
             root_signature->descriptor_table_count * sizeof(uint32_t),
             table_offsets));
     }
+
+    bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_PACKED_DESCRIPTOR_SET;
 }
 
 static bool vk_write_descriptor_set_from_root_descriptor(VkWriteDescriptorSet *vk_descriptor_write,
@@ -2817,7 +2825,7 @@ static void d3d12_command_list_update_static_samplers(struct d3d12_command_list 
             root_signature->sampler_descriptor_set,
             1, &bindings->static_sampler_set, 0, NULL));
 
-    bindings->static_sampler_set_dirty = false;
+    bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET;
 }
 
 static void d3d12_command_list_update_root_constants(struct d3d12_command_list *list,
@@ -2910,10 +2918,10 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     if (bindings->descriptor_heap_dirty_mask)
         d3d12_command_list_update_descriptor_heaps(list, bind_point);
 
-    if (bindings->static_sampler_set_dirty)
+    if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET)
         d3d12_command_list_update_static_samplers(list, bind_point);
 
-    if (bindings->descriptor_table_dirty_mask)
+    if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_PACKED_DESCRIPTOR_SET)
         d3d12_command_list_update_packed_descriptors(list, bind_point);
 
     if (bindings->root_descriptor_dirty_mask)
@@ -4140,8 +4148,8 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
 
     assert(index < ARRAY_SIZE(bindings->descriptor_tables));
     bindings->descriptor_tables[index] = base_descriptor;
-    bindings->descriptor_table_dirty_mask |= (uint64_t)1 << index;
     bindings->descriptor_table_active_mask |= (uint64_t)1 << index;
+    bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_PACKED_DESCRIPTOR_SET;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable(ID3D12GraphicsCommandList2 *iface,

@@ -933,6 +933,12 @@ struct d3d12_command_allocator
 HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_allocator **allocator) DECLSPEC_HIDDEN;
 
+enum vkd3d_pipeline_dirty_flag
+{
+    VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET       = 0x00000001u,
+    VKD3D_PIPELINE_DIRTY_PACKED_DESCRIPTOR_SET    = 0x00000002u,
+};
+
 union vkd3d_descriptor_info
 {
     VkBufferView buffer_view;
@@ -954,10 +960,9 @@ struct vkd3d_pipeline_bindings
     const struct d3d12_root_signature *root_signature;
 
     VkDescriptorSet static_sampler_set;
-    bool static_sampler_set_dirty;
+    uint32_t dirty_flags; /* vkd3d_pipeline_dirty_flags */
 
     D3D12_GPU_DESCRIPTOR_HANDLE descriptor_tables[D3D12_MAX_ROOT_COST];
-    uint64_t descriptor_table_dirty_mask;
     uint64_t descriptor_table_active_mask;
     uint64_t descriptor_heap_dirty_mask;
 
