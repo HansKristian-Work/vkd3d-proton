@@ -1341,7 +1341,11 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
     {
         pool_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         pool_desc.pNext = NULL;
-        pool_desc.flags = 0;
+        /* For a correct implementation of RS 1.0 we need to update packed descriptor sets late rather than on draw.
+         * If device does not support descriptor indexing, we must update on draw and pray applications don't rely on RS 1.0
+         * guarantees. */
+        pool_desc.flags = allocator->device->vk_info.supports_volatile_packed_descriptors ?
+                          VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT : 0;
         pool_desc.maxSets = 512;
         pool_desc.poolSizeCount = ARRAY_SIZE(pool_sizes);
         pool_desc.pPoolSizes = pool_sizes;
@@ -2361,6 +2365,8 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 
     list->state = NULL;
 
+    list->descriptor_updates_count = 0;
+
     memset(list->so_counter_buffers, 0, sizeof(list->so_counter_buffers));
     memset(list->so_counter_buffer_offsets, 0, sizeof(list->so_counter_buffer_offsets));
 
@@ -2635,7 +2641,7 @@ static bool vkd3d_descriptor_info_from_d3d12_desc(struct d3d12_device *device,
     return false;
 }
 
-static bool vkd3d_descriptor_updates_resize_arrays(struct vkd3d_descriptor_updates *updates,
+static bool vkd3d_descriptor_updates_reserve_arrays(struct vkd3d_descriptor_updates *updates,
         unsigned int descriptor_count)
 {
     /* This should grow over time to the point where no further allocations are necessary */
@@ -2665,22 +2671,102 @@ static void vk_write_descriptor_set_for_descriptor_info(VkDescriptorSet vk_descr
     vk_write->pTexelBufferView = &vk_descriptor->buffer_view;
 }
 
+static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list *list,
+        VkDescriptorSet descriptor_set,
+        struct vkd3d_descriptor_updates *updates,
+        const struct d3d12_root_signature *root_signature,
+        const struct d3d12_desc *base_descriptor,
+        unsigned int root_parameter_index)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct d3d12_root_descriptor_table *table;
+    union vkd3d_descriptor_info *vk_descriptor;
+    unsigned int write_count = 0;
+    unsigned int i, j;
+
+    table = root_signature_get_descriptor_table(root_signature, root_parameter_index);
+    vk_descriptor = &updates->descriptors[table->first_packed_descriptor];
+
+    for (i = 0; i < table->binding_count; i++)
+    {
+        const struct vkd3d_shader_resource_binding *binding = &table->first_binding[i];
+
+        if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
+            continue;
+
+        for (j = 0; j < binding->register_count; j++)
+        {
+            const struct d3d12_desc *desc = &base_descriptor[binding->descriptor_offset + j];
+
+            /* Skip invalid descriptors */
+            if (vkd3d_descriptor_info_from_d3d12_desc(list->device, desc, binding, vk_descriptor))
+            {
+                vk_write_descriptor_set_for_descriptor_info(descriptor_set, binding->binding.binding,
+                                                            desc->vk_descriptor_type, vk_descriptor,
+                                                            &updates->descriptor_writes[write_count++]);
+            }
+
+            vk_descriptor++;
+        }
+    }
+
+    if (write_count)
+    {
+        VK_CALL(vkUpdateDescriptorSets(list->device->vk_device,
+                write_count, updates->descriptor_writes, 0, NULL));
+    }
+}
+
+static void d3d12_deferred_descriptor_set_update_resolve(struct d3d12_command_list *list,
+        const struct d3d12_deferred_descriptor_set_update *update)
+{
+    d3d12_command_list_update_descriptor_table(list,
+            update->descriptor_set,
+            update->updates,
+            update->root_signature,
+            update->base_descriptor,
+            update->root_parameter_index);
+}
+
+static void d3d12_command_list_defer_update_descriptor_table(struct d3d12_command_list *list,
+                                                             VkDescriptorSet descriptor_set,
+                                                             struct vkd3d_descriptor_updates *updates,
+                                                             const struct d3d12_root_signature *root_signature,
+                                                             const struct d3d12_desc *base_descriptor,
+                                                             unsigned int root_parameter_index)
+{
+    struct d3d12_deferred_descriptor_set_update *update;
+
+    if (!vkd3d_array_reserve((void **)&list->descriptor_updates, &list->descriptor_updates_size,
+                             list->descriptor_updates_count + 1, sizeof(*list->descriptor_updates)))
+    {
+        ERR("Failed to allocate space for deferred descriptor set update!\n");
+        return;
+    }
+
+    update = &list->descriptor_updates[list->descriptor_updates_count++];
+    update->descriptor_set = descriptor_set;
+    update->root_signature = root_signature;
+    update->root_parameter_index = root_parameter_index;
+    update->base_descriptor = base_descriptor;
+    update->updates = updates;
+}
+
 static void d3d12_command_list_update_packed_descriptors(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point)
 {
+    bool deferred_update = list->device->vk_info.supports_volatile_packed_descriptors;
     struct vkd3d_descriptor_updates *updates = &list->packed_descriptors[bind_point];
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    const struct d3d12_root_descriptor_table *table;
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
-    union vkd3d_descriptor_info *vk_descriptor;
     const struct d3d12_desc *base_descriptor;
-    unsigned int root_parameter_index, i, j;
-    unsigned int write_count = 0;
+    unsigned int root_parameter_index;
     uint64_t descriptor_table_mask;
 
-    if (!vkd3d_descriptor_updates_resize_arrays(updates, root_signature->packed_descriptor_count))
+    /* Reserves the array for worst case. */
+    if (!vkd3d_descriptor_updates_reserve_arrays(updates, root_signature->packed_descriptor_count))
     {
         ERR("Failed to resize descriptor update arrays.\n");
         return;
@@ -2698,37 +2784,25 @@ static void d3d12_command_list_update_packed_descriptors(struct d3d12_command_li
         root_parameter_index = vkd3d_bitmask_iter64(&descriptor_table_mask);
         base_descriptor = d3d12_desc_from_gpu_handle(bindings->descriptor_tables[root_parameter_index]);
 
-        table = root_signature_get_descriptor_table(root_signature, root_parameter_index);
-        vk_descriptor = &updates->descriptors[table->first_packed_descriptor];
-
-        for (i = 0; i < table->binding_count; i++)
+        if (deferred_update)
         {
-            const struct vkd3d_shader_resource_binding *binding = &table->first_binding[i];
-
-            if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
-                continue;
-
-            for (j = 0; j < binding->register_count; j++)
-            {
-                const struct d3d12_desc *desc = &base_descriptor[binding->descriptor_offset + j];
-
-                /* Skip invalid descriptors */
-                if (vkd3d_descriptor_info_from_d3d12_desc(list->device, desc, binding, vk_descriptor))
-                {
-                    vk_write_descriptor_set_for_descriptor_info(descriptor_set, binding->binding.binding,
-                            desc->vk_descriptor_type, vk_descriptor, &updates->descriptor_writes[write_count++]);
-                }
-
-                vk_descriptor++;
-            }
+            /* If we have EXT_descriptor_indexing we implement RS 1.0 correctly by deferring the descriptor
+             * set update until submit time. */
+            d3d12_command_list_defer_update_descriptor_table(list,
+                    descriptor_set, updates,
+                    root_signature, base_descriptor,
+                    root_parameter_index);
         }
-    }
-
-    /* Populate and bind descriptor set */
-    if (write_count)
-    {
-        VK_CALL(vkUpdateDescriptorSets(list->device->vk_device,
-                write_count, updates->descriptor_writes, 0, NULL));
+        else
+        {
+            /* Fallback, we update the descriptor set here.
+             * Will work in most cases, but it's not a correct implementation of RS 1.0.
+             * TODO: Use this path if application uses RS 1.1 STATIC descriptors for all entries in a table. */
+            d3d12_command_list_update_descriptor_table(list,
+                    descriptor_set, updates,
+                    root_signature, base_descriptor,
+                    root_parameter_index);
+        }
     }
 
     VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
@@ -5860,8 +5934,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     struct d3d12_command_list *cmd_list;
     struct VkSubmitInfo submit_desc;
     VkCommandBuffer *buffers;
+    unsigned int i, j;
     VkQueue vk_queue;
-    unsigned int i;
     VkResult vr;
 
     TRACE("iface %p, command_list_count %u, command_lists %p.\n",
@@ -5887,6 +5961,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             return;
         }
 
+        for (j = 0; j < cmd_list->descriptor_updates_count; j++)
+            d3d12_deferred_descriptor_set_update_resolve(cmd_list, &cmd_list->descriptor_updates[j]);
         buffers[i] = cmd_list->vk_command_buffer;
     }
 
