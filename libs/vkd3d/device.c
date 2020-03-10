@@ -691,29 +691,6 @@ VkInstance vkd3d_instance_get_vk_instance(struct vkd3d_instance *instance)
     return instance->vk_instance;
 }
 
-struct vkd3d_physical_device_info
-{
-    /* properties */
-    VkPhysicalDeviceDescriptorIndexingPropertiesEXT descriptor_indexing_properties;
-    VkPhysicalDeviceMaintenance3Properties maintenance3_properties;
-    VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
-    VkPhysicalDeviceTransformFeedbackPropertiesEXT xfb_properties;
-    VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
-
-    VkPhysicalDeviceProperties2KHR properties2;
-
-    /* features */
-    VkPhysicalDeviceConditionalRenderingFeaturesEXT conditional_rendering_features;
-    VkPhysicalDeviceDepthClipEnableFeaturesEXT depth_clip_features;
-    VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features;
-    VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT demote_features;
-    VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT texel_buffer_alignment_features;
-    VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
-    VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
-
-    VkPhysicalDeviceFeatures2 features2;
-};
-
 static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
@@ -1733,7 +1710,6 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     const struct vkd3d_optional_device_extensions_info *optional_extensions;
-    struct vkd3d_physical_device_info physical_device_info;
     struct vkd3d_device_queue_info device_queue_info;
     bool *user_extension_supported = NULL;
     VkPhysicalDevice physical_device;
@@ -1774,9 +1750,9 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 
-    vkd3d_physical_device_info_init(&physical_device_info, device);
+    vkd3d_physical_device_info_init(&device->device_info, device);
 
-    if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &physical_device_info,
+    if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &device->device_info,
             &extension_count, &user_extension_supported)))
         return hr;
 
@@ -1790,7 +1766,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     /* Create device */
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_info.pNext = physical_device_info.features2.pNext;
+    device_info.pNext = device->device_info.features2.pNext;
     device_info.flags = 0;
     device_info.queueCreateInfoCount = device_queue_info.vk_family_count;
     device_info.pQueueCreateInfos = device_queue_info.vk_queue_create_info;
@@ -1804,7 +1780,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
             optional_extensions ? optional_extensions->extension_count : 0,
             user_extension_supported, &device->vk_info);
     device_info.ppEnabledExtensionNames = extensions;
-    device_info.pEnabledFeatures = &physical_device_info.features2.features;
+    device_info.pEnabledFeatures = &device->device_info.features2.features;
     vkd3d_free(user_extension_supported);
 
     vr = VK_CALL(vkCreateDevice(physical_device, &device_info, NULL, &vk_device));

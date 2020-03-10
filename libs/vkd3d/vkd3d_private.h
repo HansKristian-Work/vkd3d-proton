@@ -1195,6 +1195,29 @@ struct vkd3d_uav_clear_state
 HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_uav_clear_state_cleanup(struct vkd3d_uav_clear_state *state, struct d3d12_device *device) DECLSPEC_HIDDEN;
 
+struct vkd3d_physical_device_info
+{
+    /* properties */
+    VkPhysicalDeviceDescriptorIndexingPropertiesEXT descriptor_indexing_properties;
+    VkPhysicalDeviceMaintenance3Properties maintenance3_properties;
+    VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
+    VkPhysicalDeviceTransformFeedbackPropertiesEXT xfb_properties;
+    VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
+
+    VkPhysicalDeviceProperties2KHR properties2;
+
+    /* features */
+    VkPhysicalDeviceConditionalRenderingFeaturesEXT conditional_rendering_features;
+    VkPhysicalDeviceDepthClipEnableFeaturesEXT depth_clip_features;
+    VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features;
+    VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT demote_features;
+    VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT texel_buffer_alignment_features;
+    VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
+    VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
+
+    VkPhysicalDeviceFeatures2 features2;
+};
+
 /* ID3D12Device */
 struct d3d12_device
 {
@@ -1221,6 +1244,7 @@ struct d3d12_device
     D3D12_FEATURE_DATA_D3D12_OPTIONS feature_options;
 
     struct vkd3d_vulkan_info vk_info;
+    struct vkd3d_physical_device_info device_info;
 
     struct vkd3d_queue *direct_queue;
     struct vkd3d_queue *compute_queue;
