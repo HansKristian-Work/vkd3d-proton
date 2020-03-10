@@ -5342,7 +5342,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
     binding = vkd3d_dxbc_compiler_get_resource_binding(compiler, reg, VKD3D_SHADER_RESOURCE_NONE);
     type_id = vkd3d_spirv_get_op_type_sampler(builder);
 
-    if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
+    if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
     {
         global_binding = vkd3d_dxbc_compiler_get_global_binding(compiler, VKD3D_DATA_SAMPLER,
                 VKD3D_SHADER_RESOURCE_NONE, VKD3D_TYPE_VOID, storage_class, &binding->binding);
@@ -5469,8 +5469,10 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
         assert(reg->idx[0].offset < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
         uav_flags = scan_info->uav_flags[reg->idx[0].offset];
     }
+    else
+        uav_flags = 0;
 
-    if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
+    if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
     {
         if (is_uav && (uav_flags & VKD3D_SHADER_UAV_FLAG_ATOMIC_COUNTER))
             FIXME("Bindless UAV counters currently not supported.\n");
@@ -5490,7 +5492,8 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
         var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
                 ptr_type_id, storage_class, 0);
 
-        vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, &binding->binding);
+        vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
+                var_id, reg, resource_type, false);
         vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
         if (is_uav && !(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
@@ -7426,17 +7429,19 @@ static uint32_t vkd3d_dxbc_compiler_get_resource_pointer(struct vkd3d_dxbc_compi
         const struct vkd3d_shader_register *reg)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_resource_binding *binding;
     uint32_t ptr_id, ptr_type_id, index_id;
     const struct vkd3d_symbol *symbol;
 
     symbol = vkd3d_dxbc_compiler_find_resource(compiler, reg);
+    binding = symbol->info.resource.resource_binding;
     ptr_id = symbol->id;
 
-    if (symbol->info.resource.resource_binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
+    /* binding should never be NULL, but some apps can be buggy (e.g. WoW) */
+    if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
     {
-        unsigned int descriptor_table = symbol->info.resource.resource_binding->descriptor_table;
-        unsigned int descriptor_index = symbol->info.resource.resource_binding->descriptor_offset
-                    - symbol->info.resource.resource_binding->register_index;
+        unsigned int descriptor_table = binding->descriptor_table;
+        unsigned int descriptor_index = binding->descriptor_offset - binding->register_index;
 
         if (shader_is_sm_5_1(compiler))
         {
