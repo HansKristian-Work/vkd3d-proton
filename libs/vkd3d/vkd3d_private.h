@@ -695,11 +695,17 @@ static inline void d3d12_query_heap_mark_result_as_available(struct d3d12_query_
     heap->availability_mask[index] |= (uint64_t)1 << shift;
 }
 
+enum vkd3d_root_descriptor_table_flag
+{
+    VKD3D_ROOT_DESCRIPTOR_TABLE_HAS_PACKED_DESCRIPTORS = 0x00000001u,
+};
+
 struct d3d12_root_descriptor_table
 {
     uint32_t table_index;
     uint32_t binding_count;
     uint32_t first_packed_descriptor;
+    uint32_t flags; /* vkd3d_root_descriptor_table_flag */
     struct vkd3d_shader_resource_binding *first_binding;
 };
 

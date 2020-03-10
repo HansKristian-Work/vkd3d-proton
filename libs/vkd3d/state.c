@@ -570,6 +570,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
         table->binding_count = 0;
         table->first_binding = &root_signature->bindings[context->binding_index];
         table->first_packed_descriptor = context->packed_descriptor_index;
+        table->flags = 0;
 
         for (j = 0; j < range_count; ++j)
         {
@@ -607,6 +608,8 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
             }
             else
             {
+                table->flags |= VKD3D_ROOT_DESCRIPTOR_TABLE_HAS_PACKED_DESCRIPTORS;
+
                 binding.binding.set = context->vk_set;
                 binding.binding.binding = context->vk_binding;
 
@@ -646,6 +649,8 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
             /* Add UAV counter bindings */
             if (is_uav)
             {
+                table->flags |= VKD3D_ROOT_DESCRIPTOR_TABLE_HAS_PACKED_DESCRIPTORS;
+
                 for (k = 0; k < range->NumDescriptors; ++k)
                 {
                     VkDescriptorSetLayoutBinding vk_binding;
