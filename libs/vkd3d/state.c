@@ -2764,8 +2764,22 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
 
 static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *device)
 {
-    /* FIXME implement proper feature check */
-    return 0;
+    const struct vkd3d_physical_device_info *device_info = &device->device_info;
+    const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
+    uint32_t flags = 0;
+
+    if (!vk_info->EXT_descriptor_indexing ||
+            !device_info->descriptor_indexing_features.runtimeDescriptorArray ||
+            !device_info->descriptor_indexing_features.descriptorBindingPartiallyBound ||
+            !device_info->descriptor_indexing_features.descriptorBindingVariableDescriptorCount)
+        return 0;
+
+    if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindSampledImages >= 1000000 &&
+            device_info->descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing &&
+            device_info->descriptor_indexing_features.shaderUniformTexelBufferArrayNonUniformIndexing)
+        flags |= VKD3D_BINDLESS_SAMPLER | VKD3D_BINDLESS_SRV;
+
+    return flags;
 }
 
 HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
