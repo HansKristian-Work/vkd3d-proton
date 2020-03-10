@@ -131,6 +131,7 @@ struct vkd3d_vulkan_info
     enum vkd3d_shader_target_extension shader_extensions[VKD3D_MAX_SHADER_EXTENSIONS];
 
     D3D_FEATURE_LEVEL max_feature_level;
+    bool supports_volatile_packed_descriptors;
 };
 
 enum vkd3d_config_flags
@@ -982,6 +983,15 @@ struct vkd3d_pipeline_bindings
     uint64_t root_constant_dirty_mask;
 };
 
+struct d3d12_deferred_descriptor_set_update
+{
+    VkDescriptorSet descriptor_set;
+    const struct d3d12_root_signature *root_signature;
+    const struct d3d12_desc *base_descriptor;
+    struct vkd3d_descriptor_updates *updates;
+    unsigned int root_parameter_index;
+};
+
 /* ID3D12CommandList */
 struct d3d12_command_list
 {
@@ -1027,6 +1037,10 @@ struct d3d12_command_list
 
     VkBuffer so_counter_buffers[D3D12_SO_BUFFER_SLOT_COUNT];
     VkDeviceSize so_counter_buffer_offsets[D3D12_SO_BUFFER_SLOT_COUNT];
+
+    struct d3d12_deferred_descriptor_set_update *descriptor_updates;
+    size_t descriptor_updates_size;
+    size_t descriptor_updates_count;
 
     struct vkd3d_private_store private_store;
 };
