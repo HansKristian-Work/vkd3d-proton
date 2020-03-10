@@ -1327,6 +1327,8 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         device->feature_options.TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
     }
 
+    /* FIXME We only support bindless for TIER_2 at the moment, but WoW
+     * requires TIER_3 support to offer D3D12 as an option at all */
     if (device->vk_info.device_limits.maxPerStageDescriptorSamplers <= 16)
         device->feature_options.ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_1;
     else if (device->vk_info.device_limits.maxPerStageDescriptorUniformBuffers <= 14)
