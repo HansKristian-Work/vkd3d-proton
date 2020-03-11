@@ -1883,6 +1883,7 @@ struct vkd3d_symbol_register_data
     unsigned int structure_stride;
     bool is_aggregate; /* An aggregate, i.e. a structure or an array. */
     bool is_dynamically_indexed; /* If member_idx is a variable ID instead of a constant. */
+    const struct vkd3d_shader_resource_binding *cbv_binding;
 };
 
 struct vkd3d_symbol_resource_data
@@ -1990,6 +1991,7 @@ static void vkd3d_symbol_set_register_info(struct vkd3d_symbol *symbol,
     symbol->info.reg.structure_stride = 0;
     symbol->info.reg.is_aggregate = false;
     symbol->info.reg.is_dynamically_indexed = false;
+    symbol->info.reg.cbv_binding = NULL;
 }
 
 static void vkd3d_symbol_make_resource(struct vkd3d_symbol *symbol,
@@ -2900,6 +2902,7 @@ struct vkd3d_shader_register_info
     unsigned int structure_stride;
     bool is_aggregate;
     bool is_dynamically_indexed;
+    const struct vkd3d_shader_resource_binding *cbv_binding;
 };
 
 static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compiler *compiler,
@@ -2921,6 +2924,7 @@ static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compil
         register_info->structure_stride = 0;
         register_info->is_aggregate = false;
         register_info->is_dynamically_indexed = false;
+        register_info->cbv_binding = NULL;
         return true;
     }
 
@@ -2941,6 +2945,7 @@ static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compil
     register_info->structure_stride = symbol->info.reg.structure_stride;
     register_info->is_aggregate = symbol->info.reg.is_aggregate;
     register_info->is_dynamically_indexed = symbol->info.reg.is_dynamically_indexed;
+    register_info->cbv_binding = symbol->info.reg.cbv_binding;
 
     return true;
 }
@@ -4940,7 +4945,24 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
     vkd3d_spirv_enable_capability(builder, SpvCapabilityRuntimeDescriptorArrayEXT);
     vkd3d_spirv_enable_capability(builder, SpvCapabilityShaderNonUniformEXT);
 
-    if (data_type == VKD3D_DATA_RESOURCE)
+    if (data_type == VKD3D_DATA_FLOAT)
+    {
+        uint32_t array_type_id;
+
+        /* Constant buffer. Use max size of 4096 vectors (64 kiB). */
+        array_type_id = vkd3d_spirv_build_op_type_array(builder,
+                vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE),
+                vkd3d_dxbc_compiler_get_constant_uint(compiler, 4096));
+        vkd3d_spirv_build_op_decorate1(builder, array_type_id, SpvDecorationArrayStride, 16);
+
+        type_id = vkd3d_spirv_build_op_type_struct(builder, &array_type_id, 1);
+        vkd3d_spirv_build_op_decorate(builder, type_id, SpvDecorationBlock, NULL, 0);
+        vkd3d_spirv_build_op_member_decorate1(builder, type_id, 0, SpvDecorationOffset, 0);
+
+        vkd3d_spirv_enable_capability(builder, SpvCapabilityUniformBufferArrayDynamicIndexing);
+        vkd3d_spirv_enable_capability(builder, SpvCapabilityUniformBufferArrayNonUniformIndexingEXT);
+    }
+    else if (data_type == VKD3D_DATA_RESOURCE)
     {
         const struct vkd3d_spirv_resource_type *type_info = vkd3d_get_spirv_resource_type(resource_type);
         uint32_t sampled_type_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
@@ -5225,7 +5247,9 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
     const struct vkd3d_shader_constant_buffer *cb = &instruction->declaration.cb;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const SpvStorageClass storage_class = SpvStorageClassUniform;
+    const struct vkd3d_shader_global_binding *global_binding;
     const struct vkd3d_shader_register *reg = &cb->src.reg;
+    const struct vkd3d_shader_resource_binding *binding;
     struct vkd3d_push_constant_buffer_binding *push_cb;
     struct vkd3d_symbol reg_symbol;
 
@@ -5258,28 +5282,42 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
         return;
     }
 
-    vec4_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
-    length_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, cb->size);
-    array_type_id = vkd3d_spirv_build_op_type_array(builder, vec4_id, length_id);
-    vkd3d_spirv_build_op_decorate1(builder, array_type_id, SpvDecorationArrayStride, 16);
+    binding = vkd3d_dxbc_compiler_get_resource_binding(compiler, reg, VKD3D_SHADER_RESOURCE_BUFFER);
 
-    struct_id = vkd3d_spirv_build_op_type_struct(builder, &array_type_id, 1);
-    vkd3d_spirv_build_op_decorate(builder, struct_id, SpvDecorationBlock, NULL, 0);
-    vkd3d_spirv_build_op_member_decorate1(builder, struct_id, 0, SpvDecorationOffset, 0);
-    vkd3d_spirv_build_op_name(builder, struct_id, "cb%u_struct", cb->size);
+    if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
+    {
+        global_binding = vkd3d_dxbc_compiler_get_global_binding(compiler,
+                VKD3D_DATA_FLOAT, VKD3D_SHADER_RESOURCE_BUFFER,
+                VKD3D_TYPE_FLOAT, storage_class, &binding->binding);
 
-    pointer_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, struct_id);
-    var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
-            pointer_type_id, storage_class, 0);
+        var_id = global_binding->var_id;
+    }
+    else
+    {
+        vec4_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
+        length_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, cb->size);
+        array_type_id = vkd3d_spirv_build_op_type_array(builder, vec4_id, length_id);
+        vkd3d_spirv_build_op_decorate1(builder, array_type_id, SpvDecorationArrayStride, 16);
 
-    vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
-            var_id, reg, VKD3D_SHADER_RESOURCE_BUFFER, false);
+        struct_id = vkd3d_spirv_build_op_type_struct(builder, &array_type_id, 1);
+        vkd3d_spirv_build_op_decorate(builder, struct_id, SpvDecorationBlock, NULL, 0);
+        vkd3d_spirv_build_op_member_decorate1(builder, struct_id, 0, SpvDecorationOffset, 0);
+        vkd3d_spirv_build_op_name(builder, struct_id, "cb%u_struct", cb->size);
 
-    vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
+        pointer_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, struct_id);
+        var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
+                pointer_type_id, storage_class, 0);
+
+        vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
+                var_id, reg, VKD3D_SHADER_RESOURCE_BUFFER, false);
+
+        vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
+    }
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
     vkd3d_symbol_set_register_info(&reg_symbol, var_id,
             storage_class, VKD3D_TYPE_FLOAT, VKD3DSP_WRITEMASK_ALL);
+    reg_symbol.info.reg.cbv_binding = binding;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
