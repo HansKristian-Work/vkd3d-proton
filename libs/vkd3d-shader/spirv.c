@@ -7425,6 +7425,40 @@ static void vkd3d_dxbc_compiler_decorate_nonuniform(struct vkd3d_dxbc_compiler *
     vkd3d_spirv_build_op_decorate(builder, expression_id, SpvDecorationNonUniformEXT, NULL, 0);
 }
 
+static uint32_t vkd3d_dxbc_compiler_get_resource_index(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg, const struct vkd3d_shader_resource_binding *binding)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    unsigned int descriptor_table, descriptor_index;
+    uint32_t index_id;
+
+    descriptor_table = binding->descriptor_table;
+    descriptor_index = binding->descriptor_offset - binding->register_index;
+
+    if (shader_is_sm_5_1(compiler))
+    {
+        struct vkd3d_shader_register_index index = reg->idx[1];
+        index.offset += descriptor_index;
+        index_id = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &index);
+    }
+    else
+    {
+        index_id = vkd3d_dxbc_compiler_get_constant_uint(compiler,
+                descriptor_index + reg->idx[0].offset);
+    }
+
+    index_id = vkd3d_spirv_build_op_iadd(builder,
+            vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1),
+            vkd3d_dxbc_compiler_load_descriptor_table_offset(compiler, descriptor_table),
+            index_id);
+
+    /* AMD drivers rely on the index being marked as nonuniform */
+    if (reg->modifier == VKD3DSPRM_NONUNIFORM)
+        vkd3d_dxbc_compiler_decorate_nonuniform(compiler, index_id);
+
+    return index_id;
+}
+
 static uint32_t vkd3d_dxbc_compiler_get_resource_pointer(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg)
 {
@@ -7440,25 +7474,7 @@ static uint32_t vkd3d_dxbc_compiler_get_resource_pointer(struct vkd3d_dxbc_compi
     /* binding should never be NULL, but some apps can be buggy (e.g. WoW) */
     if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
     {
-        unsigned int descriptor_table = binding->descriptor_table;
-        unsigned int descriptor_index = binding->descriptor_offset - binding->register_index;
-
-        if (shader_is_sm_5_1(compiler))
-        {
-            struct vkd3d_shader_register_index index = reg->idx[1];
-            index.offset += descriptor_index;
-            index_id = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &index);
-        }
-        else
-        {
-            index_id = vkd3d_dxbc_compiler_get_constant_uint(compiler,
-                    descriptor_index + reg->idx[0].offset);
-        }
-
-        index_id = vkd3d_spirv_build_op_iadd(builder,
-                vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1),
-                vkd3d_dxbc_compiler_load_descriptor_table_offset(compiler, descriptor_table),
-                index_id);
+        index_id = vkd3d_dxbc_compiler_get_resource_index(compiler, reg, binding);
 
         ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder,
                 symbol->info.resource.storage_class,
@@ -7466,10 +7482,6 @@ static uint32_t vkd3d_dxbc_compiler_get_resource_pointer(struct vkd3d_dxbc_compi
 
         ptr_id = vkd3d_spirv_build_op_access_chain(builder,
                 ptr_type_id, ptr_id, &index_id, 1);
-
-        /* AMD drivers rely on the index being marked as nonuniform */
-        if (reg->modifier == VKD3DSPRM_NONUNIFORM)
-            vkd3d_dxbc_compiler_decorate_nonuniform(compiler, index_id);
     }
 
     return ptr_id;
