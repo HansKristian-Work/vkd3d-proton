@@ -2950,17 +2950,27 @@ static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compil
     return true;
 }
 
+static uint32_t vkd3d_dxbc_compiler_get_resource_index(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg, const struct vkd3d_shader_resource_binding *binding);
+
+static void vkd3d_dxbc_compiler_decorate_nonuniform(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t expression_id);
+
 static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, struct vkd3d_shader_register_info *register_info)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     unsigned int component_count, index_count = 0;
     uint32_t type_id, ptr_type_id;
-    uint32_t indexes[2];
+    uint32_t indexes[3];
 
     if (reg->type == VKD3DSPR_CONSTBUFFER)
     {
         assert(!reg->idx[0].rel_addr);
+
+        if (register_info->cbv_binding && (register_info->cbv_binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
+            indexes[index_count++] = vkd3d_dxbc_compiler_get_resource_index(compiler, reg, register_info->cbv_binding);
+
         indexes[index_count++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, register_info->member_idx);
         indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler,
                 &reg->idx[shader_is_sm_5_1(compiler) ? 2 : 1]);
@@ -3015,6 +3025,9 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
         ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, register_info->storage_class, type_id);
         register_info->id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
                 register_info->id, indexes, index_count);
+
+        if (reg->modifier == VKD3DSPRM_NONUNIFORM)
+            vkd3d_dxbc_compiler_decorate_nonuniform(compiler, register_info->id);
     }
 }
 
