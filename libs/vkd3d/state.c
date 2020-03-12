@@ -858,12 +858,13 @@ cleanup:
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc)
 {
+    const VkPhysicalDeviceProperties *vk_device_properties = &device->device_info.properties2.properties;
     const struct vkd3d_bindless_state *bindless_state = &device->bindless_state;
     VkDescriptorSetLayout set_layouts[VKD3D_MAX_DESCRIPTOR_SETS];
     const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
     struct vkd3d_descriptor_set_context context;
+    unsigned int i, push_constant_range_count;
     struct d3d12_root_signature_info info;
-    unsigned int i;
     HRESULT hr;
 
     memset(&context, 0, sizeof(context));
@@ -930,8 +931,23 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
             &root_signature->push_constant_range)))
         goto fail;
 
-    if (vk_info->KHR_push_descriptor)
-        root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS;
+    if (root_signature->push_constant_range.size <= vk_device_properties->limits.maxPushConstantsSize)
+    {
+        if (vk_info->KHR_push_descriptor)
+            root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS;
+    }
+    else if (device->device_info.inline_uniform_block_features.inlineUniformBlock)
+    {
+        /* Stores push constant data with the root descriptor set,
+         * so we can't use push descriptors in this case. */
+        root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK;
+    }
+    else
+    {
+        ERR("Root signature requires %d bytes of push constant space, but device only supports %d bytes.\n",
+                root_signature->push_constant_range.size, vk_device_properties->limits.maxPushConstantsSize);
+        goto fail;
+    }
 
     if (FAILED(hr = d3d12_root_signature_init_root_descriptors(root_signature, desc,
                 &info, &root_signature->push_constant_range, &context,
@@ -959,8 +975,14 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         context.vk_set += 1;
     }
 
+    push_constant_range_count = 0;
+
+    if (root_signature->push_constant_range.size &&
+            !(root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK))
+        push_constant_range_count = 1;
+
     if (FAILED(hr = vkd3d_create_pipeline_layout(device, context.vk_set, set_layouts,
-            root_signature->push_constant_range.size ? 1 : 0, &root_signature->push_constant_range,
+            push_constant_range_count, &root_signature->push_constant_range,
             &root_signature->vk_pipeline_layout)))
         goto fail;
 
@@ -1013,6 +1035,16 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
     *root_signature = object;
 
     return S_OK;
+}
+
+static unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_root_signature *root_signature)
+{
+    unsigned int flags = 0;
+
+    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
+        flags |= VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER;
+
+    return flags;
 }
 
 /* vkd3d_render_pass_cache */
@@ -1492,14 +1524,14 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
 
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
     shader_interface.next = NULL;
-    shader_interface.flags = 0;
+    shader_interface.flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
     shader_interface.descriptor_tables.offset = root_signature->descriptor_table_offset;
     shader_interface.descriptor_tables.count = root_signature->descriptor_table_count;
     shader_interface.bindings = root_signature->bindings;
     shader_interface.binding_count = root_signature->binding_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
-    shader_interface.push_constant_ubo_binding = NULL;
+    shader_interface.push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
 
     if (FAILED(hr = vkd3d_create_compute_pipeline(device, &desc->CS, &shader_interface,
             root_signature->vk_pipeline_layout, &state->u.compute.vk_pipeline)))
@@ -2184,14 +2216,14 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
     shader_interface.next = NULL;
-    shader_interface.flags = 0;
+    shader_interface.flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
     shader_interface.descriptor_tables.offset = root_signature->descriptor_table_offset;
     shader_interface.descriptor_tables.count = root_signature->descriptor_table_count;
     shader_interface.bindings = root_signature->bindings;
     shader_interface.binding_count = root_signature->binding_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
-    shader_interface.push_constant_ubo_binding = NULL;
+    shader_interface.push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
 
     for (i = 0; i < ARRAY_SIZE(shader_stages); ++i)
     {
