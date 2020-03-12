@@ -2884,6 +2884,29 @@ static bool vk_write_descriptor_set_from_root_descriptor(VkWriteDescriptorSet *v
     return true;
 }
 
+static bool vk_write_descriptor_set_and_inline_uniform_block(VkWriteDescriptorSet *vk_descriptor_write,
+        VkWriteDescriptorSetInlineUniformBlockEXT *vk_inline_uniform_block_write,
+        VkDescriptorSet vk_descriptor_set, const struct d3d12_root_signature *root_signature,
+        const void* data)
+{
+    vk_inline_uniform_block_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK_EXT;
+    vk_inline_uniform_block_write->pNext = NULL;
+    vk_inline_uniform_block_write->dataSize = root_signature->push_constant_range.size;
+    vk_inline_uniform_block_write->pData = data;
+
+    vk_descriptor_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    vk_descriptor_write->pNext = vk_inline_uniform_block_write;
+    vk_descriptor_write->dstSet = vk_descriptor_set;
+    vk_descriptor_write->dstBinding = root_signature->push_constant_ubo_binding.binding;
+    vk_descriptor_write->dstArrayElement = 0;
+    vk_descriptor_write->descriptorCount = root_signature->push_constant_range.size;
+    vk_descriptor_write->descriptorType = VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT;
+    vk_descriptor_write->pImageInfo = NULL;
+    vk_descriptor_write->pBufferInfo = NULL;
+    vk_descriptor_write->pTexelBufferView = NULL;
+    return true;
+}
+
 static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point)
 {
@@ -2941,13 +2964,56 @@ static void d3d12_command_list_update_root_constants(struct d3d12_command_list *
     }
 }
 
+static void d3d12_command_list_fetch_inline_uniform_block_data(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point, uint32_t *dst_data)
+{
+    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
+    uint64_t descriptor_table_mask = bindings->descriptor_table_active_mask;
+    uint64_t root_constant_mask = root_signature->root_constant_mask;
+    const uint32_t *src_data = bindings->root_constants;
+    const struct d3d12_root_descriptor_table *table;
+    const struct d3d12_root_constant *root_constant;
+    const struct d3d12_desc *base_descriptor;
+    unsigned int root_parameter_index;
+    uint32_t first_table_offset;
+
+    while (root_constant_mask)
+    {
+        root_parameter_index = vkd3d_bitmask_iter64(&root_constant_mask);
+        root_constant = root_signature_get_32bit_constants(root_signature, root_parameter_index);
+
+        memcpy(&dst_data[root_constant->constant_index],
+                &src_data[root_constant->constant_index],
+                root_constant->constant_count * sizeof(uint32_t));
+    }
+
+    first_table_offset = root_signature->descriptor_table_offset / sizeof(uint32_t);
+
+    while (descriptor_table_mask)
+    {
+        root_parameter_index = vkd3d_bitmask_iter64(&descriptor_table_mask);
+        base_descriptor = d3d12_desc_from_gpu_handle(bindings->descriptor_tables[root_parameter_index]);
+
+        table = root_signature_get_descriptor_table(root_signature, root_parameter_index);
+
+        dst_data[first_table_offset + table->table_index] = d3d12_desc_heap_offset(base_descriptor);
+    }
+
+    /* Reset dirty flags to avoid redundant updates in the future */
+    bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
+    bindings->root_constant_dirty_mask = 0;
+}
+
 static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkWriteDescriptorSet descriptor_writes[D3D12_MAX_ROOT_COST / 2];
+    VkWriteDescriptorSetInlineUniformBlockEXT inline_uniform_block_write;
+    VkWriteDescriptorSet descriptor_writes[D3D12_MAX_ROOT_COST / 2 + 1];
+    uint32_t inline_uniform_block_data[D3D12_MAX_ROOT_COST];
     const struct d3d12_root_parameter *root_parameter;
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
     unsigned int descriptor_write_count = 0;
@@ -2973,6 +3039,16 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
         if (!vk_write_descriptor_set_from_root_descriptor(&descriptor_writes[descriptor_write_count],
                 root_parameter, descriptor_set, bindings->root_descriptors))
             continue;
+
+        descriptor_write_count += 1;
+    }
+
+    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
+    {
+        d3d12_command_list_fetch_inline_uniform_block_data(list, bind_point, inline_uniform_block_data);
+
+        vk_write_descriptor_set_and_inline_uniform_block(&descriptor_writes[descriptor_write_count],
+                &inline_uniform_block_write, descriptor_set, root_signature, inline_uniform_block_data);
 
         descriptor_write_count += 1;
     }
@@ -3014,14 +3090,24 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_PACKED_DESCRIPTOR_SET)
         d3d12_command_list_update_packed_descriptors(list, bind_point);
 
-    if (bindings->root_descriptor_dirty_mask)
-        d3d12_command_list_update_root_descriptors(list, bind_point);
+    if (rs->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
+    {
+        /* Root constants and descriptor table offsets are part of the root descriptor set */
+        if (bindings->root_descriptor_dirty_mask || bindings->root_constant_dirty_mask
+                || (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS))
+            d3d12_command_list_update_root_descriptors(list, bind_point);
+    }
+    else
+    {
+        if (bindings->root_descriptor_dirty_mask)
+            d3d12_command_list_update_root_descriptors(list, bind_point);
 
-    if (bindings->root_constant_dirty_mask)
-        d3d12_command_list_update_root_constants(list, bind_point);
+        if (bindings->root_constant_dirty_mask)
+            d3d12_command_list_update_root_constants(list, bind_point);
 
-    if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS)
-        d3d12_command_list_update_descriptor_table_offsets(list, bind_point);
+        if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS)
+            d3d12_command_list_update_descriptor_table_offsets(list, bind_point);
+    }
 }
 
 static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *list)
