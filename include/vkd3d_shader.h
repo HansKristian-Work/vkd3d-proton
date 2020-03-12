@@ -171,10 +171,16 @@ struct vkd3d_shader_descriptor_table_buffer
     unsigned int count;  /* number of tables */
 };
 
+enum vkd3d_shader_interface_flag
+{
+    VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER = 0x00000001u,
+};
+
 struct vkd3d_shader_interface_info
 {
     enum vkd3d_shader_structure_type type;
     const void *next;
+    unsigned int flags; /* vkd3d_shader_interface_flags */
 
     struct vkd3d_shader_descriptor_table_buffer descriptor_tables;
     const struct vkd3d_shader_resource_binding *bindings;
@@ -182,6 +188,9 @@ struct vkd3d_shader_interface_info
 
     const struct vkd3d_shader_push_constant_buffer *push_constant_buffers;
     unsigned int push_constant_buffer_count;
+
+    /* Ignored unless VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER is set */
+    const struct vkd3d_shader_descriptor_binding *push_constant_ubo_binding;
 };
 
 struct vkd3d_shader_transform_feedback_element
