@@ -1468,12 +1468,14 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
 
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
     shader_interface.next = NULL;
+    shader_interface.flags = 0;
     shader_interface.descriptor_tables.offset = root_signature->descriptor_table_offset;
     shader_interface.descriptor_tables.count = root_signature->descriptor_table_count;
     shader_interface.bindings = root_signature->bindings;
     shader_interface.binding_count = root_signature->binding_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
+    shader_interface.push_constant_ubo_binding = NULL;
 
     if (FAILED(hr = vkd3d_create_compute_pipeline(device, &desc->CS, &shader_interface,
             root_signature->vk_pipeline_layout, &state->u.compute.vk_pipeline)))
@@ -2158,12 +2160,14 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
     shader_interface.next = NULL;
+    shader_interface.flags = 0;
     shader_interface.descriptor_tables.offset = root_signature->descriptor_table_offset;
     shader_interface.descriptor_tables.count = root_signature->descriptor_table_count;
     shader_interface.bindings = root_signature->bindings;
     shader_interface.binding_count = root_signature->binding_count;
     shader_interface.push_constant_buffers = root_signature->root_constants;
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
+    shader_interface.push_constant_ubo_binding = NULL;
 
     for (i = 0; i < ARRAY_SIZE(shader_stages); ++i)
     {
@@ -3038,12 +3042,14 @@ HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d
 
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
     shader_interface.next = NULL;
+    shader_interface.flags = 0;
     shader_interface.descriptor_tables.offset = 0;
     shader_interface.descriptor_tables.count = 0;
     shader_interface.bindings = &binding;
     shader_interface.binding_count = 1;
     shader_interface.push_constant_buffers = &push_constant;
     shader_interface.push_constant_buffer_count = 1;
+    shader_interface.push_constant_ubo_binding = NULL;
 
     for (i = 0; i < ARRAY_SIZE(pipelines); ++i)
     {

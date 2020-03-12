@@ -5168,11 +5168,15 @@ static void vkd3d_dxbc_compiler_emit_dcl_indexable_temp(struct vkd3d_dxbc_compil
 static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_compiler *compiler)
 {
     uint32_t uint_id, vec4_id, length_id, struct_id, pointer_type_id, var_id;
-    const SpvStorageClass storage_class = SpvStorageClassPushConstant;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     unsigned int i, j, count, reg_idx, cb_size;
     struct vkd3d_symbol reg_symbol;
+    SpvStorageClass storage_class;
     uint32_t *member_ids;
+    bool use_ubo;
+
+    use_ubo = !!(compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER);
+    storage_class = use_ubo ? SpvStorageClassUniform : SpvStorageClassPushConstant;
 
     count = compiler->shader_interface.descriptor_tables.count;
     for (i = 0; i < compiler->shader_interface.push_constant_buffer_count; ++i)
@@ -5251,6 +5255,12 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
         vkd3d_spirv_build_op_member_name(builder, struct_id, j, "table%u", i);
 
         ++j;
+    }
+
+    if (use_ubo)
+    {
+        vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id,
+                compiler->shader_interface.push_constant_ubo_binding);
     }
 }
 
@@ -7455,9 +7465,13 @@ static uint32_t vkd3d_dxbc_compiler_load_descriptor_table_offset(struct vkd3d_dx
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t uint_type_id, ptr_type_id, ptr_id, index;
+    SpvStorageClass storage_class;
+
+    storage_class = compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER
+            ? SpvStorageClassUniform : SpvStorageClassPushConstant;
 
     uint_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassPushConstant, uint_type_id);
+    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, uint_type_id);
 
     index = vkd3d_dxbc_compiler_get_constant_uint(compiler,
             compiler->descriptor_table_member + descriptor_table);
