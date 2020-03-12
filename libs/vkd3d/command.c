@@ -2947,16 +2947,15 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
     VkWriteDescriptorSet descriptor_writes[D3D12_MAX_ROOT_COST / 2];
     const struct d3d12_root_parameter *root_parameter;
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
     unsigned int descriptor_write_count = 0;
     unsigned int root_parameter_index;
 
-    if (!vk_info->KHR_push_descriptor)
+    if (!(root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS))
     {
-        /* Ensure that we populate all descriptors if VK_KHR_push_descriptor is unavailable */
+        /* Ensure that we populate all descriptors if push descriptors cannot be used */
         bindings->root_descriptor_dirty_mask |= bindings->root_descriptor_active_mask & root_signature->root_descriptor_mask;
 
         descriptor_set = d3d12_command_allocator_allocate_descriptor_set(
@@ -2981,7 +2980,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     if (!descriptor_write_count)
         return;
 
-    if (vk_info->KHR_push_descriptor)
+    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS)
     {
         VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, bind_point,
                 root_signature->vk_pipeline_layout, root_signature->root_descriptor_set,

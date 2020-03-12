@@ -702,6 +702,11 @@ enum vkd3d_root_descriptor_table_flag
     VKD3D_ROOT_DESCRIPTOR_TABLE_HAS_PACKED_DESCRIPTORS = 0x00000001u,
 };
 
+enum vkd3d_root_signature_flag
+{
+    VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS     = 0x00000001u,
+};
+
 struct d3d12_root_descriptor_table
 {
     uint32_t table_index;
@@ -757,6 +762,7 @@ struct d3d12_root_signature
     uint64_t root_descriptor_mask;
 
     D3D12_ROOT_SIGNATURE_FLAGS d3d12_flags;
+    unsigned int flags; /* vkd3d_root_signature_flag */
 
     unsigned int binding_count;
     struct vkd3d_shader_resource_binding *bindings;
