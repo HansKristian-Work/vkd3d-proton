@@ -38809,6 +38809,139 @@ static void test_bindless_full_root_parameters_sm51(void)
     destroy_test_context(&context);
 }
 
+static void test_bindless_cbv_sm51(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges;
+    ID3D12DescriptorHeap* heap;
+
+    ID3D12Resource* input_buffers[512];
+    ID3D12Resource* output_buffer;
+    struct resource_readback rb;
+
+    ID3D12GraphicsCommandList* command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    unsigned int i, descriptor_size;
+    struct test_context context;
+    ID3D12CommandQueue* queue;
+    HRESULT hr;
+
+    if (!init_compute_test_context(&context))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    root_signature_desc.NumParameters = 2;
+    root_signature_desc.Flags = 0;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.pParameters = root_parameters;
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = &descriptor_ranges;
+
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].Descriptor.RegisterSpace = 0;
+    root_parameters[1].Descriptor.ShaderRegister = 0;
+
+    descriptor_ranges.RegisterSpace = 1;
+    descriptor_ranges.BaseShaderRegister = 2;
+    descriptor_ranges.OffsetInDescriptorsFromTableStart = 1;
+    descriptor_ranges.NumDescriptors = UINT_MAX;
+    descriptor_ranges.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+
+    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    static const DWORD cs_code[] = {
+#if 0
+        struct Foo
+        {
+            uint value;
+        };
+        ConstantBuffer<Foo> CBVs[] : register(b2, space1);
+
+        RWByteAddressBuffer RWBuf : register(u0);
+
+        [numthreads(64, 1, 1)]
+        void main(uint index : SV_DispatchThreadID)
+        {
+            uint value = CBVs[NonUniformResourceIndex(index)].value;
+            RWBuf.Store(4 * index, value);
+        }
+#endif
+        0x43425844, 0x15b62447, 0xbdab3867, 0x4685eb54, 0xf1bf1b23, 0x00000001, 0x00000114, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000c0, 0x00050051, 0x00000030, 0x0100086a,
+        0x07000859, 0x00308e46, 0x00000000, 0x00000002, 0xffffffff, 0x00000001, 0x00000001, 0x0600009d,
+        0x0031ee46, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0200005f, 0x00020012, 0x02000068,
+        0x00000001, 0x0400009b, 0x00000040, 0x00000001, 0x00000001, 0x06000029, 0x00100012, 0x00000000,
+        0x0002000a, 0x00004001, 0x00000002, 0x04000036, 0x00100022, 0x00000000, 0x0002000a, 0x0d0000a6,
+        0x0021e012, 0x00000000, 0x00000000, 0x0010000a, 0x00000000, 0x8630800a, 0x00020001, 0x00000000,
+        0x00000002, 0x0010001a, 0x00000000, 0x00000000, 0x0100003e,
+    };
+
+    for (i = 0; i < 512; i++)
+    {
+        const UINT buffer_data[] = { i, i, i, i };
+        input_buffers[i] = create_default_buffer(context.device, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+        upload_buffer_data(input_buffers[i], 0, sizeof(buffer_data), buffer_data, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, input_buffers[i], D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    }
+
+    output_buffer = create_default_buffer(context.device, 4 * 256, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    context.pipeline_state = create_compute_pipeline_state(context.device,
+        context.root_signature,
+        shader_bytecode(cs_code, sizeof(cs_code)));
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 800000);
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
+    descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    for (i = 0; i < 512; i++)
+    {
+        D3D12_CONSTANT_BUFFER_VIEW_DESC view;
+        D3D12_CPU_DESCRIPTOR_HANDLE h = cpu_handle;
+        view.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(input_buffers[i]);
+        view.SizeInBytes = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
+        h.ptr += i * descriptor_size;
+        ID3D12Device_CreateConstantBufferView(context.device, &view, h);
+    }
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu_handle);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list, 1, ID3D12Resource_GetGPUVirtualAddress(output_buffer));
+    ID3D12GraphicsCommandList_Dispatch(command_list, 4, 1, 1);
+
+    transition_resource_state(command_list, output_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output_buffer, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
+
+    for (i = 0; i < 256; i++)
+    {
+        UINT value = get_readback_uint(&rb, i, 0, 0);
+        UINT reference = i + 1;
+        ok(value == reference, "Readback value for iteration %u is: %u\n", i, value);
+    }
+
+    release_resource_readback(&rb);
+    reset_command_list(command_list, context.allocator);
+
+    for (i = 0; i < 512; i++)
+        ID3D12Resource_Release(input_buffers[i]);
+    ID3D12Resource_Release(output_buffer);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -39006,4 +39139,5 @@ START_TEST(d3d12)
     run_test(test_bindless_srv_sm51);
     run_test(test_bindless_full_root_parameters_sm51);
     run_test(test_bindless_samplers_sm51);
+    run_test(test_bindless_cbv_sm51);
 }
