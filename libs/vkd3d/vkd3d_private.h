@@ -756,7 +756,7 @@ struct d3d12_root_signature
     uint64_t root_constant_mask;
     uint64_t root_descriptor_mask;
 
-    D3D12_ROOT_SIGNATURE_FLAGS flags;
+    D3D12_ROOT_SIGNATURE_FLAGS d3d12_flags;
 
     unsigned int binding_count;
     struct vkd3d_shader_resource_binding *bindings;
