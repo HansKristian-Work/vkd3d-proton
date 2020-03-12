@@ -721,7 +721,8 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 
 static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_signature *root_signature,
         const D3D12_ROOT_SIGNATURE_DESC *desc, const struct d3d12_root_signature_info *info,
-        struct vkd3d_descriptor_set_context *context, VkDescriptorSetLayout *vk_set_layout)
+        const VkPushConstantRange *push_constant_range, struct vkd3d_descriptor_set_context *context,
+        VkDescriptorSetLayout *vk_set_layout)
 {
     VkDescriptorSetLayoutBinding *vk_binding_info, *vk_binding;
     struct vkd3d_shader_resource_binding *binding;
@@ -730,10 +731,11 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     unsigned int i, j;
     HRESULT hr;
 
-    if (!info->root_descriptor_count)
+    if (!info->root_descriptor_count &&
+            !(root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK))
         return S_OK;
 
-    if (!(vk_binding_info = vkd3d_malloc(sizeof(*vk_binding_info) * info->root_descriptor_count)))
+    if (!(vk_binding_info = vkd3d_malloc(sizeof(*vk_binding_info) * (info->root_descriptor_count + 1))))
         return E_OUTOFMEMORY;
 
     for (i = 0, j = 0; i < desc->NumParameters; ++i)
@@ -775,11 +777,26 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
         context->vk_binding += 1;
     }
 
+    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
+    {
+        vk_binding = &vk_binding_info[j++];
+        vk_binding->binding = context->vk_binding;
+        vk_binding->descriptorType = VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT;
+        vk_binding->descriptorCount = push_constant_range->size;
+        vk_binding->stageFlags = VK_SHADER_STAGE_ALL;
+        vk_binding->pImmutableSamplers = NULL;
+
+        root_signature->push_constant_ubo_binding.set = context->vk_set;
+        root_signature->push_constant_ubo_binding.binding = context->vk_binding;
+
+        context->vk_binding += 1;
+    }
+
     vk_flags = root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS
             ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0;
 
     hr = vkd3d_create_descriptor_set_layout(root_signature->device, vk_flags,
-            info->root_descriptor_count, vk_binding_info, vk_set_layout);
+            j, vk_binding_info, vk_set_layout);
 
     vkd3d_free(vk_binding_info);
     return hr;
@@ -917,7 +934,8 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS;
 
     if (FAILED(hr = d3d12_root_signature_init_root_descriptors(root_signature, desc,
-                &info, &context, &root_signature->vk_root_descriptor_layout)))
+                &info, &root_signature->push_constant_range, &context,
+                &root_signature->vk_root_descriptor_layout)))
         goto fail;
 
     if (root_signature->vk_root_descriptor_layout)

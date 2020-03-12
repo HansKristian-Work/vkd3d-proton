@@ -705,6 +705,7 @@ enum vkd3d_root_descriptor_table_flag
 enum vkd3d_root_signature_flag
 {
     VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS     = 0x00000001u,
+    VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK = 0x00000002u,
 };
 
 struct d3d12_root_descriptor_table
@@ -775,6 +776,7 @@ struct d3d12_root_signature
 
     /* Use one global push constant range */
     VkPushConstantRange push_constant_range;
+    struct vkd3d_shader_descriptor_binding push_constant_ubo_binding;
 
     uint32_t descriptor_table_offset;
     uint32_t descriptor_table_count;
