@@ -5174,7 +5174,7 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
     struct vkd3d_symbol reg_symbol;
     uint32_t *member_ids;
 
-    count = compiler->shader_interface.descriptor_tables.count ? 1 : 0;
+    count = compiler->shader_interface.descriptor_tables.count;
     for (i = 0; i < compiler->shader_interface.push_constant_buffer_count; ++i)
     {
         const struct vkd3d_push_constant_buffer_binding *cb = &compiler->push_constants[i];
@@ -5206,12 +5206,8 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
         ++j;
     }
 
-    if (compiler->shader_interface.descriptor_tables.count)
-    {
-        length_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, compiler->shader_interface.descriptor_tables.count);
-        member_ids[j]  = vkd3d_spirv_build_op_type_array(builder, uint_id, length_id);
-        vkd3d_spirv_build_op_decorate1(builder, member_ids[j], SpvDecorationArrayStride, 4);
-    }
+    for (i = 0; i < compiler->shader_interface.descriptor_tables.count; i++)
+        member_ids[j++] = uint_id;
 
     struct_id = vkd3d_spirv_build_op_type_struct(builder, member_ids, count);
     vkd3d_spirv_build_op_decorate(builder, struct_id, SpvDecorationBlock, NULL, 0);
@@ -5244,12 +5240,17 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
 
     if (compiler->shader_interface.descriptor_tables.count)
     {
-        vkd3d_spirv_build_op_member_decorate1(builder, struct_id, j,
-                SpvDecorationOffset, compiler->shader_interface.descriptor_tables.offset);
-        vkd3d_spirv_build_op_member_name(builder, struct_id, j, "descriptor_tables");
-
         compiler->descriptor_table_var_id = var_id;
         compiler->descriptor_table_member = j;
+    }
+
+    for (i = 0; i < compiler->shader_interface.descriptor_tables.count; ++i)
+    {
+        vkd3d_spirv_build_op_member_decorate1(builder, struct_id, j,
+                SpvDecorationOffset, compiler->shader_interface.descriptor_tables.offset + sizeof(uint32_t) * i);
+        vkd3d_spirv_build_op_member_name(builder, struct_id, j, "table%u", i);
+
+        ++j;
     }
 }
 
@@ -7453,16 +7454,16 @@ static uint32_t vkd3d_dxbc_compiler_load_descriptor_table_offset(struct vkd3d_dx
         unsigned int descriptor_table)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    uint32_t uint_type_id, ptr_type_id, ptr_id, indices[2];
+    uint32_t uint_type_id, ptr_type_id, ptr_id, index;
 
     uint_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassPushConstant, uint_type_id);
 
-    indices[0] = vkd3d_dxbc_compiler_get_constant_uint(compiler, compiler->descriptor_table_member);
-    indices[1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, descriptor_table);
+    index = vkd3d_dxbc_compiler_get_constant_uint(compiler,
+            compiler->descriptor_table_member + descriptor_table);
 
     ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
-            compiler->descriptor_table_var_id, indices, ARRAY_SIZE(indices));
+            compiler->descriptor_table_var_id, &index, 1);
 
     return vkd3d_spirv_build_op_load(builder, uint_type_id, ptr_id, SpvMemoryAccessMaskNone);
 }
