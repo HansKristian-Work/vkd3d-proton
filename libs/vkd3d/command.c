@@ -1323,10 +1323,13 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
         {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1024},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1024},
         {VK_DESCRIPTOR_TYPE_SAMPLER, 1024},
+        /* must be last in the array */
+        {VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT, 65536}
     };
     struct d3d12_device *device = allocator->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct VkDescriptorPoolCreateInfo pool_desc;
+    VkDescriptorPoolInlineUniformBlockCreateInfoEXT inline_uniform_desc;
+    VkDescriptorPoolCreateInfo pool_desc;
     VkDevice vk_device = device->vk_device;
     VkDescriptorPool vk_pool;
     VkResult vr;
@@ -1339,8 +1342,12 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
     }
     else
     {
+        inline_uniform_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO_EXT;
+        inline_uniform_desc.pNext = NULL;
+        inline_uniform_desc.maxInlineUniformBlockBindings = 256;
+
         pool_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        pool_desc.pNext = NULL;
+        pool_desc.pNext = &inline_uniform_desc;
         /* For a correct implementation of RS 1.0 we need to update packed descriptor sets late rather than on draw.
          * If device does not support descriptor indexing, we must update on draw and pray applications don't rely on RS 1.0
          * guarantees. */
@@ -1349,6 +1356,14 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
         pool_desc.maxSets = 512;
         pool_desc.poolSizeCount = ARRAY_SIZE(pool_sizes);
         pool_desc.pPoolSizes = pool_sizes;
+
+        if (!device->vk_info.EXT_inline_uniform_block ||
+                device->vk_info.device_limits.maxPushConstantsSize >= D3D12_MAX_ROOT_COST)
+        {
+            pool_desc.pNext = NULL;
+            pool_desc.poolSizeCount -= 1;
+        }
+
         if ((vr = VK_CALL(vkCreateDescriptorPool(vk_device, &pool_desc, NULL, &vk_pool))) < 0)
         {
             ERR("Failed to create descriptor pool, vr %d.\n", vr);
