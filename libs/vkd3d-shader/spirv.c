@@ -2964,18 +2964,7 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
     uint32_t type_id, ptr_type_id;
     uint32_t indexes[3];
 
-    if (reg->type == VKD3DSPR_CONSTBUFFER)
-    {
-        assert(!reg->idx[0].rel_addr);
-
-        if (register_info->cbv_binding && (register_info->cbv_binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
-            indexes[index_count++] = vkd3d_dxbc_compiler_get_resource_index(compiler, reg, register_info->cbv_binding);
-
-        indexes[index_count++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, register_info->member_idx);
-        indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler,
-                &reg->idx[shader_is_sm_5_1(compiler) ? 2 : 1]);
-    }
-    else if (reg->type == VKD3DSPR_IMMCONSTBUFFER)
+    if (reg->type == VKD3DSPR_IMMCONSTBUFFER)
     {
         indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[0]);
     }
@@ -3025,9 +3014,6 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
         ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, register_info->storage_class, type_id);
         register_info->id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
                 register_info->id, indexes, index_count);
-
-        if (reg->modifier == VKD3DSPRM_NONUNIFORM)
-            vkd3d_dxbc_compiler_decorate_nonuniform(compiler, register_info->id);
     }
 }
 
@@ -3199,6 +3185,59 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_scalar(struct vkd3d_dxbc_compiler 
     return val_id;
 }
 
+static uint32_t vkd3d_dxbc_compiler_emit_load_constant_buffer(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg, const struct vkd3d_shader_register_info *register_info,
+        DWORD swizzle, DWORD write_mask)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t type_id, ptr_type_id, ptr_id, val_id, last_index;
+    uint32_t indexes[4], component_ids[4];
+    unsigned int i, j, component_count;
+
+    assert(!reg->idx[0].rel_addr);
+
+    last_index = 0;
+    if (register_info->cbv_binding && (register_info->cbv_binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
+        indexes[last_index++] = vkd3d_dxbc_compiler_get_resource_index(compiler, reg, register_info->cbv_binding);
+
+    indexes[last_index++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, register_info->member_idx);
+    indexes[last_index++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler,
+            &reg->idx[shader_is_sm_5_1(compiler) ? 2 : 1]);
+
+    type_id = vkd3d_spirv_get_type_id(builder, register_info->component_type, 1);
+    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, register_info->storage_class, type_id);
+
+    for (i = 0, j = 0; i < VKD3D_VEC4_SIZE; i++)
+    {
+        if (!(write_mask & (1 << i)))
+            continue;
+
+        indexes[last_index] = vkd3d_dxbc_compiler_get_constant_uint(compiler, vkd3d_swizzle_get_component(swizzle, i));
+
+        ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
+                register_info->id, indexes, last_index + 1);
+
+        if (reg->modifier == VKD3DSPRM_NONUNIFORM)
+            vkd3d_dxbc_compiler_decorate_nonuniform(compiler, ptr_id);
+
+        component_ids[j++] = vkd3d_spirv_build_op_load(builder, type_id, ptr_id, SpvMemoryAccessMaskNone);
+    }
+
+    component_count = vkd3d_write_mask_component_count(write_mask);
+
+    if (component_count == 1)
+    {
+        val_id = component_ids[0];
+    }
+    else
+    {
+        type_id = vkd3d_spirv_get_type_id(builder, register_info->component_type, component_count);
+        val_id = vkd3d_spirv_build_op_composite_construct(builder, type_id, component_ids, component_count);
+    }
+
+    return val_id;
+}
+
 static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, DWORD swizzle, DWORD write_mask)
 {
@@ -3218,26 +3257,35 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *co
         type_id = vkd3d_spirv_get_type_id(builder, component_type, component_count);
         return vkd3d_spirv_build_op_undef(builder, &builder->global_stream, type_id);
     }
-    vkd3d_dxbc_compiler_emit_dereference_register(compiler, reg, &reg_info);
 
-    /* Intermediate value (no storage class). */
-    if (reg_info.storage_class == SpvStorageClassMax)
+    if (reg->type == VKD3DSPR_CONSTBUFFER)
     {
-        val_id = reg_info.id;
-    }
-    else if (component_count == 1)
-    {
-        return vkd3d_dxbc_compiler_emit_load_scalar(compiler, reg, swizzle, write_mask, &reg_info);
+        /* Special code path to only load the required components */
+        val_id = vkd3d_dxbc_compiler_emit_load_constant_buffer(compiler, reg, &reg_info, swizzle, write_mask);
     }
     else
     {
-        type_id = vkd3d_spirv_get_type_id(builder,
-                reg_info.component_type, vkd3d_write_mask_component_count(reg_info.write_mask));
-        val_id = vkd3d_spirv_build_op_load(builder, type_id, reg_info.id, SpvMemoryAccessMaskNone);
-    }
+        vkd3d_dxbc_compiler_emit_dereference_register(compiler, reg, &reg_info);
 
-    val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-            val_id, reg_info.write_mask, reg_info.component_type, swizzle, write_mask);
+        /* Intermediate value (no storage class). */
+        if (reg_info.storage_class == SpvStorageClassMax)
+        {
+            val_id = reg_info.id;
+        }
+        else if (component_count == 1)
+        {
+            return vkd3d_dxbc_compiler_emit_load_scalar(compiler, reg, swizzle, write_mask, &reg_info);
+        }
+        else
+        {
+            type_id = vkd3d_spirv_get_type_id(builder,
+                    reg_info.component_type, vkd3d_write_mask_component_count(reg_info.write_mask));
+            val_id = vkd3d_spirv_build_op_load(builder, type_id, reg_info.id, SpvMemoryAccessMaskNone);
+        }
+
+        val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
+                val_id, reg_info.write_mask, reg_info.component_type, swizzle, write_mask);
+    }
 
     if (component_type != reg_info.component_type)
     {
