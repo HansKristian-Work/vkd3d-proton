@@ -174,6 +174,7 @@ struct vkd3d_shader_descriptor_table_buffer
 enum vkd3d_shader_interface_flag
 {
     VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER = 0x00000001u,
+    VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER   = 0x00000002u,
 };
 
 struct vkd3d_shader_interface_info

@@ -5034,20 +5034,42 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
 
     if (data_type == VKD3D_DATA_FLOAT)
     {
+        SpvDecoration block_type;
         uint32_t array_type_id;
 
-        /* Constant buffer. Use max size of 4096 vectors (64 kiB). */
-        array_type_id = vkd3d_spirv_build_op_type_array(builder,
-                vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE),
-                vkd3d_dxbc_compiler_get_constant_uint(compiler, 4096));
+        if (compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER)
+        {
+            array_type_id = vkd3d_spirv_build_op_type_runtime_array(builder,
+                    vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE));
+            block_type = SpvDecorationBufferBlock;
+        }
+        else
+        {
+            /* Constant buffer. Use max size of 4096 vectors (64 kiB). */
+            array_type_id = vkd3d_spirv_build_op_type_array(builder,
+                    vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE),
+                    vkd3d_dxbc_compiler_get_constant_uint(compiler, 4096));
+            block_type = SpvDecorationBlock;
+        }
+
         vkd3d_spirv_build_op_decorate1(builder, array_type_id, SpvDecorationArrayStride, 16);
 
         type_id = vkd3d_spirv_build_op_type_struct(builder, &array_type_id, 1);
-        vkd3d_spirv_build_op_decorate(builder, type_id, SpvDecorationBlock, NULL, 0);
+        vkd3d_spirv_build_op_decorate(builder, type_id, block_type, NULL, 0);
         vkd3d_spirv_build_op_member_decorate1(builder, type_id, 0, SpvDecorationOffset, 0);
 
-        vkd3d_spirv_enable_capability(builder, SpvCapabilityUniformBufferArrayDynamicIndexing);
-        vkd3d_spirv_enable_capability(builder, SpvCapabilityUniformBufferArrayNonUniformIndexingEXT);
+        if (compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER)
+        {
+            vkd3d_spirv_build_op_member_decorate(builder, type_id, 0, SpvDecorationNonWritable, NULL, 0);
+
+            vkd3d_spirv_enable_capability(builder, SpvCapabilityStorageBufferArrayDynamicIndexing);
+            vkd3d_spirv_enable_capability(builder, SpvCapabilityStorageBufferArrayNonUniformIndexingEXT);
+        }
+        else
+        {
+            vkd3d_spirv_enable_capability(builder, SpvCapabilityUniformBufferArrayDynamicIndexing);
+            vkd3d_spirv_enable_capability(builder, SpvCapabilityUniformBufferArrayNonUniformIndexingEXT);
+        }
     }
     else if (data_type == VKD3D_DATA_RESOURCE)
     {
