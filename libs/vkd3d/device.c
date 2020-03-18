@@ -1491,11 +1491,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     {
         descriptor_indexing->shaderInputAttachmentArrayDynamicIndexing = VK_FALSE;
         descriptor_indexing->shaderInputAttachmentArrayNonUniformIndexing = VK_FALSE;
-
-        /* We do not use storage buffers currently. */
-        features->shaderStorageBufferArrayDynamicIndexing = VK_FALSE;
-        descriptor_indexing->shaderStorageBufferArrayNonUniformIndexing = VK_FALSE;
-        descriptor_indexing->descriptorBindingStorageBufferUpdateAfterBind = VK_FALSE;
     }
 
     if (vulkan_info->EXT_descriptor_indexing && descriptor_indexing
