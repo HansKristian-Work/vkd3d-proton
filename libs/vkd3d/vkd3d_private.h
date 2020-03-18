@@ -1168,6 +1168,7 @@ enum vkd3d_bindless_flags
 
 struct vkd3d_bindless_set_info
 {
+    VkDescriptorType vk_descriptor_type;
     D3D12_DESCRIPTOR_HEAP_TYPE heap_type;
     D3D12_DESCRIPTOR_RANGE_TYPE range_type;
     enum vkd3d_shader_binding_flag binding_flag;
@@ -1191,7 +1192,12 @@ bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindle
         D3D12_DESCRIPTOR_RANGE_TYPE range_type, enum vkd3d_shader_binding_flag binding_flag,
         struct vkd3d_shader_descriptor_binding *binding) DECLSPEC_HIDDEN;
 
-VkDescriptorType vk_descriptor_type_from_bindless_set_info(const struct vkd3d_bindless_set_info *set_info) DECLSPEC_HIDDEN;
+inline VkDescriptorType vkd3d_bindless_state_get_cbv_descriptor_type(const struct vkd3d_bindless_state *bindless_state)
+{
+    return bindless_state->flags & VKD3D_BINDLESS_CBV_AS_SSBO
+            ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
+            : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+}
 
 struct vkd3d_format_compatibility_list
 {

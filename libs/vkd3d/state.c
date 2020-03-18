@@ -211,8 +211,8 @@ static enum vkd3d_shader_visibility vkd3d_shader_visibility_from_d3d12(D3D12_SHA
     }
 }
 
-static VkDescriptorType vk_descriptor_type_from_d3d12_range_type(D3D12_DESCRIPTOR_RANGE_TYPE type,
-        bool is_buffer)
+static VkDescriptorType vk_descriptor_type_from_d3d12_range_type(const struct vkd3d_bindless_state *bindless_state,
+        D3D12_DESCRIPTOR_RANGE_TYPE type, bool is_buffer)
 {
     switch (type)
     {
@@ -221,7 +221,7 @@ static VkDescriptorType vk_descriptor_type_from_d3d12_range_type(D3D12_DESCRIPTO
         case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
             return is_buffer ? VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
-            return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            return vkd3d_bindless_state_get_cbv_descriptor_type(bindless_state);
         case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
             return VK_DESCRIPTOR_TYPE_SAMPLER;
         default:
@@ -569,6 +569,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
         const D3D12_ROOT_SIGNATURE_DESC *desc, const struct d3d12_root_signature_info *info,
         struct vkd3d_descriptor_set_context *context, VkDescriptorSetLayout *vk_set_layout)
 {
+    struct vkd3d_bindless_state *bindless_state = &root_signature->device->bindless_state;
     VkDescriptorSetLayoutBinding *vk_binding_info;
     struct vkd3d_shader_resource_binding binding;
     struct d3d12_root_descriptor_table *table;
@@ -619,15 +620,13 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 
             if (d3d12_root_signature_descriptor_range_is_bindless(root_signature->device, range->RangeType))
             {
-                if (vkd3d_bindless_state_find_binding(&root_signature->device->bindless_state,
-                        range->RangeType, VKD3D_SHADER_BINDING_FLAG_BUFFER, &binding.binding))
+                if (vkd3d_bindless_state_find_binding(bindless_state, range->RangeType, VKD3D_SHADER_BINDING_FLAG_BUFFER, &binding.binding))
                 {
                     binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_BUFFER;
                     table->first_binding[table->binding_count++] = binding;
                 }
 
-                if (vkd3d_bindless_state_find_binding(&root_signature->device->bindless_state,
-                        range->RangeType, VKD3D_SHADER_BINDING_FLAG_IMAGE, &binding.binding))
+                if (vkd3d_bindless_state_find_binding(bindless_state, range->RangeType, VKD3D_SHADER_BINDING_FLAG_IMAGE, &binding.binding))
                 {
                     binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_IMAGE;
                     table->first_binding[table->binding_count++] = binding;
@@ -645,7 +644,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
                 {
                     VkDescriptorSetLayoutBinding vk_binding;
                     vk_binding.binding = binding.binding.binding = context->vk_binding++;
-                    vk_binding.descriptorType = vk_descriptor_type_from_d3d12_range_type(range->RangeType, true);
+                    vk_binding.descriptorType = vk_descriptor_type_from_d3d12_range_type(bindless_state, range->RangeType, true);
                     vk_binding.descriptorCount = 1;
                     vk_binding.stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
                     vk_binding.pImmutableSamplers = NULL;
@@ -664,7 +663,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
                     if (is_srv || is_uav)
                     {
                         vk_binding.binding = binding.binding.binding = context->vk_binding++;
-                        vk_binding.descriptorType = vk_descriptor_type_from_d3d12_range_type(range->RangeType, false);
+                        vk_binding.descriptorType = vk_descriptor_type_from_d3d12_range_type(bindless_state, range->RangeType, false);
                         binding.flags = VKD3D_SHADER_BINDING_FLAG_IMAGE;
 
                         table->first_binding[table->binding_count++] = binding;
@@ -682,7 +681,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
                 {
                     VkDescriptorSetLayoutBinding vk_binding;
                     vk_binding.binding = binding.binding.binding = context->vk_binding++;
-                    vk_binding.descriptorType = vk_descriptor_type_from_d3d12_range_type(range->RangeType, true);
+                    vk_binding.descriptorType = vk_descriptor_type_from_d3d12_range_type(bindless_state, range->RangeType, true);
                     vk_binding.descriptorCount = 1;
                     vk_binding.stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
                     vk_binding.pImmutableSamplers = NULL;
@@ -2823,6 +2822,8 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     VkDescriptorBindingFlagsEXT vk_binding_flags;
     VkResult vr;
 
+    set_info->vk_descriptor_type = vk_descriptor_type_from_d3d12_range_type(bindless_state,
+            range_type, binding_flag & VKD3D_SHADER_BINDING_FLAG_BUFFER);
     set_info->heap_type = d3d12_descriptor_heap_type_from_range_type(range_type);
     set_info->range_type = range_type;
     set_info->binding_flag = binding_flag;
@@ -2838,8 +2839,7 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     vk_binding_flags_info.pBindingFlags = &vk_binding_flags;
 
     vk_binding_info.binding = 0;
-    vk_binding_info.descriptorType = vk_descriptor_type_from_d3d12_range_type(range_type,
-            binding_flag & VKD3D_SHADER_BINDING_FLAG_BUFFER);
+    vk_binding_info.descriptorType = set_info->vk_descriptor_type;
     vk_binding_info.descriptorCount = d3d12_max_descriptor_count_from_range_type(range_type);
     vk_binding_info.stageFlags = VK_SHADER_STAGE_ALL;
     vk_binding_info.pImmutableSamplers = NULL;
@@ -2960,12 +2960,6 @@ bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindle
     }
 
     return false;
-}
-
-VkDescriptorType vk_descriptor_type_from_bindless_set_info(const struct vkd3d_bindless_set_info *set_info)
-{
-    return vk_descriptor_type_from_d3d12_range_type(set_info->range_type,
-            set_info->binding_flag == VKD3D_SHADER_BINDING_FLAG_BUFFER);
 }
 
 static void vkd3d_uav_clear_pipelines_cleanup(struct vkd3d_uav_clear_pipelines *pipelines,
