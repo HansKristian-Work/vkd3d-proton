@@ -2730,7 +2730,7 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
     }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_CBV;
-    descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptor->vk_descriptor_type = vkd3d_bindless_state_get_cbv_descriptor_type(&device->bindless_state);
 }
 
 static unsigned int vkd3d_view_flags_from_d3d12_buffer_srv_flags(D3D12_BUFFER_SRV_FLAGS flags)
@@ -3697,7 +3697,7 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_pool(struct d3d12_descrip
         if (set_info->heap_type == descriptor_heap->desc.Type)
         {
             VkDescriptorPoolSize *vk_pool_size = &vk_pool_sizes[pool_count++];
-            vk_pool_size->type = vk_descriptor_type_from_bindless_set_info(set_info);
+            vk_pool_size->type = set_info->vk_descriptor_type;
             vk_pool_size->descriptorCount = descriptor_heap->desc.NumDescriptors;
         }
     }
