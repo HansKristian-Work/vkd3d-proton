@@ -1358,7 +1358,7 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
         pool_desc.pPoolSizes = pool_sizes;
 
         if (!device->vk_info.EXT_inline_uniform_block ||
-                device->vk_info.device_limits.maxPushConstantsSize >= D3D12_MAX_ROOT_COST)
+                device->vk_info.device_limits.maxPushConstantsSize >= (D3D12_MAX_ROOT_COST * sizeof(uint32_t)))
         {
             pool_desc.pNext = NULL;
             pool_desc.poolSizeCount -= 1;
