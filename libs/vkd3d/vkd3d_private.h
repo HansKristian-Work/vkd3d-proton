@@ -1175,6 +1175,7 @@ enum vkd3d_bindless_flags
     VKD3D_BINDLESS_CBV          = (1u << 1),
     VKD3D_BINDLESS_SRV          = (1u << 2),
     VKD3D_BINDLESS_UAV          = (1u << 3),
+    VKD3D_BINDLESS_CBV_AS_SSBO  = (1u << 4),
 };
 
 struct vkd3d_bindless_set_info
