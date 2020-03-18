@@ -2172,6 +2172,7 @@ struct vkd3d_dxbc_compiler
     struct vkd3d_shader_spec_constant *spec_constants;
     size_t spec_constants_size;
 
+    uint32_t push_constant_member_count;
     uint32_t descriptor_table_var_id;
     uint32_t descriptor_table_member;
 
@@ -3222,10 +3223,21 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_constant_buffer(struct vkd3d_dxbc_
         }
         else
         {
-            /* Root constants are unrolled to individual floats */
-            indexes[last_index] = vkd3d_dxbc_compiler_get_constant_uint(compiler,
-                    register_info->member_idx + 4 * reg->idx[shader_is_sm_5_1(compiler) ? 2 : 1].offset +
-                    vkd3d_swizzle_get_component(swizzle, i));
+            /* Root constants are unrolled to individual 32-bit struct members */
+            uint32_t index = register_info->member_idx +
+                    4 * reg->idx[shader_is_sm_5_1(compiler) ? 2 : 1].offset +
+                    vkd3d_swizzle_get_component(swizzle, i);
+
+            if (index < compiler->push_constant_member_count)
+            {
+                indexes[last_index] = vkd3d_dxbc_compiler_get_constant_uint(compiler, index);
+            }
+            else
+            {
+                WARN("Root constant index out of bounds: cb %u, member %u\n", reg->idx[0].offset, index);
+                component_ids[j++] = vkd3d_spirv_get_op_constant(builder, type_id, 0);
+                continue;
+            }
         }
 
         ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
@@ -5248,6 +5260,9 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
         if (cb->reg.type)
             count += cb->pc.size / sizeof(uint32_t);
     }
+
+    compiler->push_constant_member_count = count;
+
     if (!count)
         return;
 
