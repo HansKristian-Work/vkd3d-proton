@@ -414,6 +414,19 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         }
     }
 
+    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER)
+    {
+        static const struct dxil_spv_option_bindless_cbv_ssbo_emulation helper =
+                { { DXIL_SPV_OPTION_BINDLESS_CBV_SSBO_EMULATION },
+                  DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support BINDLESS_CBV_AS_STORAGE_BUFFER.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
     if (compiler_args)
     {
         for (i = 0; i < compiler_args->target_extension_count; i++)
