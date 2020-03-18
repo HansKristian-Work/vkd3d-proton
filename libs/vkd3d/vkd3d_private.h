@@ -896,6 +896,26 @@ struct vkd3d_buffer
     VkDeviceMemory vk_memory;
 };
 
+struct d3d12_descriptor_pool_cache
+{
+    VkDescriptorPool vk_descriptor_pool;
+    VkDescriptorPool *free_descriptor_pools;
+    size_t free_descriptor_pools_size;
+    size_t free_descriptor_pool_count;
+
+    VkDescriptorPool *descriptor_pools;
+    size_t descriptor_pools_size;
+    size_t descriptor_pool_count;
+};
+
+enum vkd3d_descriptor_pool_types
+{
+    VKD3D_DESCRIPTOR_POOL_TYPE_STATIC = 0,
+    VKD3D_DESCRIPTOR_POOL_TYPE_VOLATILE,
+    VKD3D_DESCRIPTOR_POOL_TYPE_IMMUTABLE_SAMPLER,
+    VKD3D_DESCRIPTOR_POOL_TYPE_COUNT
+};
+
 /* ID3D12CommandAllocator */
 struct d3d12_command_allocator
 {
@@ -907,11 +927,7 @@ struct d3d12_command_allocator
 
     VkCommandPool vk_command_pool;
 
-    VkDescriptorPool vk_descriptor_pool;
-
-    VkDescriptorPool *free_descriptor_pools;
-    size_t free_descriptor_pools_size;
-    size_t free_descriptor_pool_count;
+    struct d3d12_descriptor_pool_cache descriptor_pool_caches[VKD3D_DESCRIPTOR_POOL_TYPE_COUNT];
 
     VkRenderPass *passes;
     size_t passes_size;
@@ -920,10 +936,6 @@ struct d3d12_command_allocator
     VkFramebuffer *framebuffers;
     size_t framebuffers_size;
     size_t framebuffer_count;
-
-    VkDescriptorPool *descriptor_pools;
-    size_t descriptor_pools_size;
-    size_t descriptor_pool_count;
 
     struct vkd3d_view **views;
     size_t views_size;
