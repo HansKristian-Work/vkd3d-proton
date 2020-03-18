@@ -285,7 +285,7 @@ static enum vkd3d_shader_descriptor_type vkd3d_descriptor_type_from_d3d12_root_p
 
 static HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
         VkDescriptorSetLayoutCreateFlags flags, unsigned int binding_count,
-        const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout)
+        const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout, bool need_volatile_descriptors)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDescriptorSetLayoutBindingFlagsCreateInfoEXT flags_info;
@@ -300,8 +300,7 @@ static HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
     set_desc.bindingCount = binding_count;
     set_desc.pBindings = bindings;
 
-    if (device->vk_info.supports_volatile_packed_descriptors &&
-        (flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) == 0)
+    if (need_volatile_descriptors && device->vk_info.supports_volatile_packed_descriptors)
     {
         set_desc.flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT_EXT;
         flags_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT;
@@ -711,7 +710,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 
     if (info->descriptor_count)
         hr = vkd3d_create_descriptor_set_layout(root_signature->device, 0,
-                info->descriptor_count, vk_binding_info, vk_set_layout);
+                info->descriptor_count, vk_binding_info, vk_set_layout, true);
     else
         hr = S_OK;
 
@@ -796,7 +795,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
             ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0;
 
     hr = vkd3d_create_descriptor_set_layout(root_signature->device, vk_flags,
-            j, vk_binding_info, vk_set_layout);
+            j, vk_binding_info, vk_set_layout, false);
 
     vkd3d_free(vk_binding_info);
     return hr;
@@ -848,7 +847,7 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
     }
 
     hr = vkd3d_create_descriptor_set_layout(root_signature->device, 0,
-            desc->NumStaticSamplers, vk_binding_info, vk_set_layout);
+            desc->NumStaticSamplers, vk_binding_info, vk_set_layout, false);
 
 cleanup:
     vkd3d_free(vk_binding_info);
@@ -3082,7 +3081,7 @@ HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d
     {
         set_binding.descriptorType = set_layouts[i].descriptor_type;
 
-        if (FAILED(hr = vkd3d_create_descriptor_set_layout(device, 0, 1, &set_binding, set_layouts[i].set_layout)))
+        if (FAILED(hr = vkd3d_create_descriptor_set_layout(device, 0, 1, &set_binding, set_layouts[i].set_layout, false)))
         {
             ERR("Failed to create descriptor set layout %u, hr %#x.", i, hr);
             goto fail;
