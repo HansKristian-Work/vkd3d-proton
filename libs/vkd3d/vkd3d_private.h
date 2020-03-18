@@ -1204,7 +1204,7 @@ bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindle
         D3D12_DESCRIPTOR_RANGE_TYPE range_type, enum vkd3d_shader_binding_flag binding_flag,
         struct vkd3d_shader_descriptor_binding *binding) DECLSPEC_HIDDEN;
 
-inline VkDescriptorType vkd3d_bindless_state_get_cbv_descriptor_type(const struct vkd3d_bindless_state *bindless_state)
+static inline VkDescriptorType vkd3d_bindless_state_get_cbv_descriptor_type(const struct vkd3d_bindless_state *bindless_state)
 {
     return bindless_state->flags & VKD3D_BINDLESS_CBV_AS_SSBO
             ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
