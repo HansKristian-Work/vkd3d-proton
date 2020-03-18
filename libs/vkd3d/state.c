@@ -2877,6 +2877,9 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
     if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindUniformBuffers >= 1000000 &&
             device_info->descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing)
         flags |= VKD3D_BINDLESS_CBV;
+    else if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers >= 1000000 &&
+            device_info->descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing)
+        flags |= VKD3D_BINDLESS_CBV | VKD3D_BINDLESS_CBV_AS_SSBO;
 
     return flags;
 }
