@@ -2866,18 +2866,23 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
     if (!vk_info->EXT_descriptor_indexing ||
             !device_info->descriptor_indexing_features.runtimeDescriptorArray ||
             !device_info->descriptor_indexing_features.descriptorBindingPartiallyBound ||
+            !device_info->descriptor_indexing_features.descriptorBindingUpdateUnusedWhilePending ||
             !device_info->descriptor_indexing_features.descriptorBindingVariableDescriptorCount)
         return 0;
 
     if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindSampledImages >= 1000000 &&
+            device_info->descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind &&
+            device_info->descriptor_indexing_features.descriptorBindingUniformTexelBufferUpdateAfterBind &&
             device_info->descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing &&
             device_info->descriptor_indexing_features.shaderUniformTexelBufferArrayNonUniformIndexing)
         flags |= VKD3D_BINDLESS_SAMPLER | VKD3D_BINDLESS_SRV;
 
     if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindUniformBuffers >= 1000000 &&
+            device_info->descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind &&
             device_info->descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing)
         flags |= VKD3D_BINDLESS_CBV;
     else if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers >= 1000000 &&
+            device_info->descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind &&
             device_info->descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing)
         flags |= VKD3D_BINDLESS_CBV | VKD3D_BINDLESS_CBV_AS_SSBO;
 
