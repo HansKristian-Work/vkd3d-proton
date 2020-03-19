@@ -1283,42 +1283,6 @@ static void vkd3d_init_feature_level(struct vkd3d_vulkan_info *vk_info,
     TRACE("Max feature level: %#x.\n", caps->max_feature_level);
 }
 
-static void vkd3d_init_shader_model(uint32_t api_version,
-        struct d3d12_caps *caps,
-        struct vkd3d_physical_device_info *physical_device_info)
-{
-    /* SHUFFLE is required to implement WaveReadLaneAt with dynamically uniform index before SPIR-V 1.5 / Vulkan 1.2. */
-    static const VkSubgroupFeatureFlags required =
-            VK_SUBGROUP_FEATURE_ARITHMETIC_BIT |
-            VK_SUBGROUP_FEATURE_BASIC_BIT |
-            VK_SUBGROUP_FEATURE_BALLOT_BIT |
-            VK_SUBGROUP_FEATURE_SHUFFLE_BIT |
-            VK_SUBGROUP_FEATURE_QUAD_BIT |
-            VK_SUBGROUP_FEATURE_VOTE_BIT;
-
-    static const VkSubgroupFeatureFlags required_stages =
-            VK_SHADER_STAGE_COMPUTE_BIT |
-            VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    if (api_version >= VK_API_VERSION_1_1 &&
-        vkd3d_shader_supports_dxil() &&
-        physical_device_info->subgroup_properties.subgroupSize >= 4 &&
-        (physical_device_info->subgroup_properties.supportedOperations & required) == required &&
-        (physical_device_info->subgroup_properties.supportedStages & required_stages) == required_stages)
-    {
-        /* TODO: Add checks for all the other features which are required to implement SM 6.0.
-         * - 16-bit arithmetic / storage. Supporting FP16/INT16 properly might require improved SSBO alignment features.
-         */
-        caps->max_shader_model = D3D_SHADER_MODEL_6_0;
-        TRACE("Enabling support for SM 6.0.\n");
-    }
-    else
-    {
-        caps->max_shader_model = D3D_SHADER_MODEL_5_1;
-        TRACE("Enabling support for SM 5.1.\n");
-    }
-}
-
 static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         const struct vkd3d_device_create_info *create_info,
         struct vkd3d_physical_device_info *physical_device_info,
@@ -1518,8 +1482,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
             WARN("Disabling support for Root Signature 1.0 VOLATILE descriptor semantics.\n");
         }
     }
-
-    vkd3d_init_shader_model(device->api_version, caps, physical_device_info);
 
     return S_OK;
 }
@@ -3467,6 +3429,47 @@ static const struct ID3D12DeviceVtbl d3d12_device_vtbl =
     d3d12_device_GetAdapterLuid,
 };
 
+static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
+{
+    const struct vkd3d_physical_device_info *physical_device_info = &device->device_info;
+
+    /* SHUFFLE is required to implement WaveReadLaneAt with dynamically uniform index before SPIR-V 1.5 / Vulkan 1.2. */
+    static const VkSubgroupFeatureFlags required =
+            VK_SUBGROUP_FEATURE_ARITHMETIC_BIT |
+            VK_SUBGROUP_FEATURE_BASIC_BIT |
+            VK_SUBGROUP_FEATURE_BALLOT_BIT |
+            VK_SUBGROUP_FEATURE_SHUFFLE_BIT |
+            VK_SUBGROUP_FEATURE_QUAD_BIT |
+            VK_SUBGROUP_FEATURE_VOTE_BIT;
+
+    static const VkSubgroupFeatureFlags required_stages =
+            VK_SHADER_STAGE_COMPUTE_BIT |
+            VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    if (device->api_version >= VK_API_VERSION_1_1 &&
+        vkd3d_shader_supports_dxil() &&
+        physical_device_info->subgroup_properties.subgroupSize >= 4 &&
+        (physical_device_info->subgroup_properties.supportedOperations & required) == required &&
+        (physical_device_info->subgroup_properties.supportedStages & required_stages) == required_stages)
+    {
+        /* TODO: Add checks for all the other features which are required to implement SM 6.0.
+         * - 16-bit arithmetic / storage. Supporting FP16/INT16 properly might require improved SSBO alignment features.
+         */
+        device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_0;
+        TRACE("Enabling support for SM 6.0.\n");
+    }
+    else
+    {
+        device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_5_1;
+        TRACE("Enabling support for SM 5.1.\n");
+    }
+}
+
+static void d3d12_device_caps_init(struct d3d12_device *device)
+{
+    d3d12_device_caps_init_shader_model(device);
+}
+
 static bool d3d12_device_supports_feature_level(struct d3d12_device *device, D3D_FEATURE_LEVEL feature_level)
 {
     return feature_level <= device->d3d12_caps.max_feature_level;
@@ -3533,6 +3536,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if ((device->parent = create_info->parent))
         IUnknown_AddRef(device->parent);
 
+    d3d12_device_caps_init(device);
     return S_OK;
 
 out_cleanup_bindless_state:
