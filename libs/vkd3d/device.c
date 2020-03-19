@@ -3309,6 +3309,7 @@ static D3D12_RESOURCE_BINDING_TIER d3d12_device_determine_resource_binding_tier(
 
 static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
 {
+    const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
     struct d3d12_caps *caps = &device->d3d12_caps;
 
     caps->options.DoublePrecisionFloatShaderOps = features->shaderFloat64;
