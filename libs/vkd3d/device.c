@@ -1202,7 +1202,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
     VkPhysicalDevice physical_device = device->vk_physical_device;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
-    struct d3d12_caps *caps = &device->d3d12_caps;
     VkExtensionProperties *vk_extensions;
     VkPhysicalDeviceFeatures *features;
     uint32_t count;
@@ -1228,50 +1227,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     vulkan_info->rasterization_stream = physical_device_info->xfb_properties.transformFeedbackRasterizationStreamSelect;
     vulkan_info->transform_feedback_queries = physical_device_info->xfb_properties.transformFeedbackQueries;
     vulkan_info->max_vertex_attrib_divisor = max(physical_device_info->vertex_divisor_properties.maxVertexAttribDivisor, 1);
-
-    caps->options.DoublePrecisionFloatShaderOps = features->shaderFloat64;
-    caps->options.OutputMergerLogicOp = features->logicOp;
-    /* SPV_KHR_16bit_storage */
-    caps->options.MinPrecisionSupport = D3D12_SHADER_MIN_PRECISION_SUPPORT_NONE;
-
-    if (!features->sparseBinding)
-        caps->options.TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
-    else if (!device->vk_info.sparse_properties.residencyNonResidentStrict)
-        caps->options.TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_1;
-    else if (!features->sparseResidencyImage3D)
-        caps->options.TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_2;
-    else
-        caps->options.TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_3;
-
-    /* FIXME: Implement tiled resources. */
-    if (caps->options.TiledResourcesTier)
-    {
-        WARN("Tiled resources are not implemented yet.\n");
-        caps->options.TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
-    }
-
-    /* FIXME We only support bindless for TIER_2 at the moment, but WoW
-     * requires TIER_3 support to offer D3D12 as an option at all */
-    if (device->vk_info.device_limits.maxPerStageDescriptorSamplers <= 16)
-        caps->options.ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_1;
-    else if (device->vk_info.device_limits.maxPerStageDescriptorUniformBuffers <= 14)
-        caps->options.ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_2;
-    else
-        caps->options.ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_3;
-
-    caps->options.PSSpecifiedStencilRefSupported = FALSE;
-    caps->options.TypedUAVLoadAdditionalFormats = features->shaderStorageImageExtendedFormats;
-    /* GL_INTEL_fragment_shader_ordering, no Vulkan equivalent. */
-    caps->options.ROVsSupported = FALSE;
-    /* GL_INTEL_conservative_rasterization, no Vulkan equivalent. */
-    caps->options.ConservativeRasterizationTier = D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED;
-    caps->options.MaxGPUVirtualAddressBitsPerResource = 40; /* FIXME */
-    caps->options.StandardSwizzle64KBSupported = FALSE;
-    caps->options.CrossNodeSharingTier = D3D12_CROSS_NODE_SHARING_TIER_NOT_SUPPORTED;
-    caps->options.CrossAdapterRowMajorTextureSupported = FALSE;
-    /* SPV_EXT_shader_viewport_index_layer */
-    caps->options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation = FALSE;
-    caps->options.ResourceHeapTier = D3D12_RESOURCE_HEAP_TIER_2;
 
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL, &count, NULL))) < 0)
     {
@@ -3341,6 +3296,49 @@ static const struct ID3D12DeviceVtbl d3d12_device_vtbl =
     d3d12_device_GetAdapterLuid,
 };
 
+static D3D12_RESOURCE_BINDING_TIER d3d12_device_determine_resource_binding_tier(struct d3d12_device *device)
+{
+    const uint32_t tier_2_required_flags = VKD3D_BINDLESS_SRV | VKD3D_BINDLESS_SAMPLER;
+    const uint32_t tier_3_required_flags = VKD3D_BINDLESS_CBV;
+
+    uint32_t bindless_flags = device->bindless_state.flags;
+
+    if ((bindless_flags & tier_2_required_flags) != tier_2_required_flags)
+        return D3D12_RESOURCE_BINDING_TIER_1;
+
+    if ((bindless_flags & tier_3_required_flags) != tier_3_required_flags)
+        return D3D12_RESOURCE_BINDING_TIER_2;
+
+    return D3D12_RESOURCE_BINDING_TIER_3;
+}
+
+static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
+{
+    struct d3d12_caps *caps = &device->d3d12_caps;
+
+    caps->options.DoublePrecisionFloatShaderOps = features->shaderFloat64;
+    caps->options.OutputMergerLogicOp = features->logicOp;
+    /* Currently not supported */
+    caps->options.MinPrecisionSupport = D3D12_SHADER_MIN_PRECISION_SUPPORT_NONE;
+    /* Currently not supported */
+    caps->options.TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
+    caps->options.ResourceBindingTier = d3d12_device_determine_resource_binding_tier(device);
+    /* Requires VK_EXT_shader_stencil_export */
+    caps->options.PSSpecifiedStencilRefSupported = FALSE;
+    caps->options.TypedUAVLoadAdditionalFormats = features->shaderStorageImageExtendedFormats;
+    /* Requires VK_EXT_fragment_shader_interlock */
+    caps->options.ROVsSupported = FALSE;
+    /* Requires VK_EXT_conservative_rasterization */
+    caps->options.ConservativeRasterizationTier = D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED;
+    caps->options.MaxGPUVirtualAddressBitsPerResource = 40; /* XXX */
+    caps->options.StandardSwizzle64KBSupported = FALSE;
+    caps->options.CrossNodeSharingTier = D3D12_CROSS_NODE_SHARING_TIER_NOT_SUPPORTED;
+    caps->options.CrossAdapterRowMajorTextureSupported = FALSE;
+    /* Requires VK_EXT_shader_viewport_index_layer */
+    caps->options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation = FALSE;
+    caps->options.ResourceHeapTier = D3D12_RESOURCE_HEAP_TIER_2;
+}
+
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -3405,6 +3403,7 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
 
 static void d3d12_device_caps_init(struct d3d12_device *device)
 {
+    d3d12_device_caps_init_feature_options(device);
     d3d12_device_caps_init_feature_level(device);
     d3d12_device_caps_init_shader_model(device);
 }
