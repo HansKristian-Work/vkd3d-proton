@@ -1469,13 +1469,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     vkd3d_free(vk_extensions);
 
     vkd3d_init_feature_level(vulkan_info, caps, features);
-    if (caps->max_feature_level < create_info->minimum_feature_level)
-    {
-        WARN("Feature level %#x is not supported.\n", create_info->minimum_feature_level);
-        vkd3d_free(*user_extension_supported);
-        *user_extension_supported = NULL;
-        return E_INVALIDARG;
-    }
 
     /* Shader extensions. */
     if (vulkan_info->EXT_shader_demote_to_helper_invocation)
@@ -2243,36 +2236,40 @@ static ULONG STDMETHODCALLTYPE d3d12_device_AddRef(ID3D12Device *iface)
     return refcount;
 }
 
+static void d3d12_device_destroy(struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    size_t i;
+
+    vkd3d_private_store_destroy(&device->private_store);
+
+    vkd3d_cleanup_format_info(device);
+    vkd3d_uav_clear_state_cleanup(&device->uav_clear_state, device);
+    vkd3d_bindless_state_cleanup(&device->bindless_state, device);
+    vkd3d_destroy_null_resources(&device->null_resources, device);
+    vkd3d_gpu_va_allocator_cleanup(&device->gpu_va_allocator);
+    vkd3d_render_pass_cache_cleanup(&device->render_pass_cache, device);
+    vkd3d_fence_worker_stop(&device->fence_worker, device);
+    d3d12_device_destroy_pipeline_cache(device);
+    d3d12_device_destroy_vkd3d_queues(device);
+    for (i = 0; i < ARRAY_SIZE(device->desc_mutex); ++i)
+        pthread_mutex_destroy(&device->desc_mutex[i]);
+    VK_CALL(vkDestroyDevice(device->vk_device, NULL));
+    if (device->parent)
+        IUnknown_Release(device->parent);
+    vkd3d_instance_decref(device->vkd3d_instance);
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_device_Release(ID3D12Device *iface)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     ULONG refcount = InterlockedDecrement(&device->refcount);
-    size_t i;
 
     TRACE("%p decreasing refcount to %u.\n", device, refcount);
 
     if (!refcount)
     {
-        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-
-        vkd3d_private_store_destroy(&device->private_store);
-
-        vkd3d_cleanup_format_info(device);
-        vkd3d_uav_clear_state_cleanup(&device->uav_clear_state, device);
-        vkd3d_bindless_state_cleanup(&device->bindless_state, device);
-        vkd3d_destroy_null_resources(&device->null_resources, device);
-        vkd3d_gpu_va_allocator_cleanup(&device->gpu_va_allocator);
-        vkd3d_render_pass_cache_cleanup(&device->render_pass_cache, device);
-        vkd3d_fence_worker_stop(&device->fence_worker, device);
-        d3d12_device_destroy_pipeline_cache(device);
-        d3d12_device_destroy_vkd3d_queues(device);
-        for (i = 0; i < ARRAY_SIZE(device->desc_mutex); ++i)
-            pthread_mutex_destroy(&device->desc_mutex[i]);
-        VK_CALL(vkDestroyDevice(device->vk_device, NULL));
-        if (device->parent)
-            IUnknown_Release(device->parent);
-        vkd3d_instance_decref(device->vkd3d_instance);
-
+        d3d12_device_destroy(device);
         vkd3d_free(device);
     }
 
@@ -3475,6 +3472,11 @@ static const struct ID3D12DeviceVtbl d3d12_device_vtbl =
     d3d12_device_GetAdapterLuid,
 };
 
+static bool d3d12_device_supports_feature_level(struct d3d12_device *device, D3D_FEATURE_LEVEL feature_level)
+{
+    return feature_level <= device->d3d12_caps.max_feature_level;
+}
+
 struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface)
 {
     if (!iface)
@@ -3571,6 +3573,14 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
     {
         vkd3d_free(object);
         return hr;
+    }
+
+    if (!d3d12_device_supports_feature_level(object, create_info->minimum_feature_level))
+    {
+        WARN("Feature level %#x is not supported.\n", create_info->minimum_feature_level);
+        d3d12_device_destroy(object);
+        vkd3d_free(object);
+        return E_INVALIDARG;
     }
 
     TRACE("Created device %p.\n", object);
