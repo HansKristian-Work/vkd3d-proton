@@ -131,8 +131,6 @@ struct vkd3d_vulkan_info
     unsigned int shader_extension_count;
     enum vkd3d_shader_target_extension shader_extensions[VKD3D_MAX_SHADER_EXTENSIONS];
 
-    D3D_FEATURE_LEVEL max_feature_level;
-    D3D_SHADER_MODEL max_shader_model;
     bool supports_volatile_packed_descriptors;
 };
 
@@ -1276,6 +1274,14 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceFeatures2 features2;
 };
 
+struct d3d12_caps
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+
+    D3D_FEATURE_LEVEL max_feature_level;
+    D3D_SHADER_MODEL max_shader_model;
+};
+
 /* ID3D12Device */
 struct d3d12_device
 {
@@ -1299,8 +1305,6 @@ struct d3d12_device
 
     VkPhysicalDeviceMemoryProperties memory_properties;
 
-    D3D12_FEATURE_DATA_D3D12_OPTIONS feature_options;
-
     struct vkd3d_vulkan_info vk_info;
     struct vkd3d_physical_device_info device_info;
 
@@ -1316,6 +1320,7 @@ struct d3d12_device
     LUID adapter_luid;
 
     struct vkd3d_private_store private_store;
+    struct d3d12_caps d3d12_caps;
 
     HRESULT removed_reason;
 
