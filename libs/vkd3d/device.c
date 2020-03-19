@@ -1192,97 +1192,6 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
             divisor_features->vertexAttributeInstanceRateZeroDivisor);
 }
 
-static void vkd3d_init_feature_level(struct vkd3d_vulkan_info *vk_info,
-        struct d3d12_caps *caps,
-        const VkPhysicalDeviceFeatures *features)
-{
-    bool have_11_0 = true;
-
-#define CHECK_MIN_REQUIREMENT(name, value) \
-    if (vk_info->device_limits.name < value) \
-        WARN(#name " does not meet feature level 11_0 requirements.\n");
-#define CHECK_MAX_REQUIREMENT(name, value) \
-    if (vk_info->device_limits.name > value) \
-        WARN(#name " does not meet feature level 11_0 requirements.\n");
-#define CHECK_FEATURE(name) \
-    if (!features->name) \
-    { \
-        WARN(#name " is not supported.\n"); \
-        have_11_0 = false; \
-    }
-
-    if (!vk_info->device_limits.timestampComputeAndGraphics)
-        WARN("Timestamps are not supported on all graphics and compute queues.\n");
-
-    CHECK_MIN_REQUIREMENT(maxPushConstantsSize, D3D12_MAX_ROOT_COST * sizeof(uint32_t));
-    CHECK_MIN_REQUIREMENT(maxComputeSharedMemorySize, D3D12_CS_TGSM_REGISTER_COUNT * sizeof(uint32_t));
-
-    CHECK_MAX_REQUIREMENT(viewportBoundsRange[0], D3D12_VIEWPORT_BOUNDS_MIN);
-    CHECK_MIN_REQUIREMENT(viewportBoundsRange[1], D3D12_VIEWPORT_BOUNDS_MAX);
-    CHECK_MIN_REQUIREMENT(viewportSubPixelBits, 8);
-
-    CHECK_MIN_REQUIREMENT(maxPerStageDescriptorUniformBuffers,
-            D3D12_COMMONSHADER_CONSTANT_BUFFER_REGISTER_COUNT);
-
-    CHECK_FEATURE(depthBiasClamp);
-    CHECK_FEATURE(depthClamp);
-    CHECK_FEATURE(drawIndirectFirstInstance);
-    CHECK_FEATURE(dualSrcBlend);
-    CHECK_FEATURE(fragmentStoresAndAtomics);
-    CHECK_FEATURE(fullDrawIndexUint32);
-    CHECK_FEATURE(geometryShader);
-    CHECK_FEATURE(imageCubeArray);
-    CHECK_FEATURE(independentBlend);
-    CHECK_FEATURE(multiDrawIndirect);
-    CHECK_FEATURE(multiViewport);
-    CHECK_FEATURE(occlusionQueryPrecise);
-    CHECK_FEATURE(pipelineStatisticsQuery);
-    CHECK_FEATURE(samplerAnisotropy);
-    CHECK_FEATURE(sampleRateShading);
-    CHECK_FEATURE(shaderClipDistance);
-    CHECK_FEATURE(shaderCullDistance);
-    CHECK_FEATURE(shaderImageGatherExtended);
-    CHECK_FEATURE(shaderStorageImageWriteWithoutFormat);
-    CHECK_FEATURE(tessellationShader);
-
-    if (!vk_info->EXT_depth_clip_enable)
-        WARN("Depth clip enable is not supported.\n");
-    if (!vk_info->EXT_transform_feedback)
-        WARN("Stream output is not supported.\n");
-
-    if (!vk_info->EXT_vertex_attribute_divisor)
-        WARN("Vertex attribute instance rate divisor is not supported.\n");
-    else if (!vk_info->vertex_attrib_zero_divisor)
-        WARN("Vertex attribute instance rate zero divisor is not supported.\n");
-
-#undef CHECK_MIN_REQUIREMENT
-#undef CHECK_MAX_REQUIREMENT
-#undef CHECK_FEATURE
-
-    caps->max_feature_level = D3D_FEATURE_LEVEL_11_0;
-
-    if (have_11_0
-            && caps->options.OutputMergerLogicOp
-            && features->vertexPipelineStoresAndAtomics
-            && vk_info->device_limits.maxPerStageDescriptorStorageBuffers >= D3D12_UAV_SLOT_COUNT
-            && vk_info->device_limits.maxPerStageDescriptorStorageImages >= D3D12_UAV_SLOT_COUNT)
-        caps->max_feature_level = D3D_FEATURE_LEVEL_11_1;
-
-    /* TODO: MinMaxFiltering */
-    if (caps->max_feature_level >= D3D_FEATURE_LEVEL_11_1
-            && caps->options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_2
-            && caps->options.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_2
-            && caps->options.TypedUAVLoadAdditionalFormats)
-        caps->max_feature_level = D3D_FEATURE_LEVEL_12_0;
-
-    if (caps->max_feature_level >= D3D_FEATURE_LEVEL_12_0
-            && caps->options.ROVsSupported
-            && caps->options.ConservativeRasterizationTier >= D3D12_CONSERVATIVE_RASTERIZATION_TIER_1)
-        caps->max_feature_level = D3D_FEATURE_LEVEL_12_1;
-
-    TRACE("Max feature level: %#x.\n", caps->max_feature_level);
-}
-
 static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         const struct vkd3d_device_create_info *create_info,
         struct vkd3d_physical_device_info *physical_device_info,
@@ -1431,8 +1340,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     }
 
     vkd3d_free(vk_extensions);
-
-    vkd3d_init_feature_level(vulkan_info, caps, features);
 
     /* Shader extensions. */
     if (vulkan_info->EXT_shader_demote_to_helper_invocation)
@@ -3434,6 +3341,32 @@ static const struct ID3D12DeviceVtbl d3d12_device_vtbl =
     d3d12_device_GetAdapterLuid,
 };
 
+static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
+{
+    const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
+    const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
+    struct d3d12_caps *caps = &device->d3d12_caps;
+
+    caps->max_feature_level = D3D_FEATURE_LEVEL_11_0;
+
+    if (caps->options.OutputMergerLogicOp && features->vertexPipelineStoresAndAtomics &&
+            vk_info->device_limits.maxPerStageDescriptorStorageBuffers >= D3D12_UAV_SLOT_COUNT &&
+            vk_info->device_limits.maxPerStageDescriptorStorageImages >= D3D12_UAV_SLOT_COUNT)
+        caps->max_feature_level = D3D_FEATURE_LEVEL_11_1;
+
+    if (caps->max_feature_level >= D3D_FEATURE_LEVEL_11_1 &&
+            caps->options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_2 &&
+            caps->options.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_2 &&
+            caps->options.TypedUAVLoadAdditionalFormats)
+        caps->max_feature_level = D3D_FEATURE_LEVEL_12_0;
+
+    if (caps->max_feature_level >= D3D_FEATURE_LEVEL_12_0 && caps->options.ROVsSupported &&
+            caps->options.ConservativeRasterizationTier >= D3D12_CONSERVATIVE_RASTERIZATION_TIER_1)
+        caps->max_feature_level = D3D_FEATURE_LEVEL_12_1;
+
+    TRACE("Max feature level: %#x.\n", caps->max_feature_level);
+}
+
 static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
 {
     const struct vkd3d_physical_device_info *physical_device_info = &device->device_info;
@@ -3472,6 +3405,7 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
 
 static void d3d12_device_caps_init(struct d3d12_device *device)
 {
+    d3d12_device_caps_init_feature_level(device);
     d3d12_device_caps_init_shader_model(device);
 }
 
