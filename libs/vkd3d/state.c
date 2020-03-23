@@ -2474,6 +2474,23 @@ HRESULT d3d12_pipeline_state_create_graphics(struct d3d12_device *device,
     return S_OK;
 }
 
+static bool vkd3d_topology_can_restart(VkPrimitiveTopology topology)
+{
+    switch (topology)
+    {
+    case VK_PRIMITIVE_TOPOLOGY_POINT_LIST:
+    case VK_PRIMITIVE_TOPOLOGY_LINE_LIST:
+    case VK_PRIMITIVE_TOPOLOGY_PATCH_LIST:
+    case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST:
+    case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST_WITH_ADJACENCY:
+    case VK_PRIMITIVE_TOPOLOGY_LINE_LIST_WITH_ADJACENCY:
+        return false;
+
+    default:
+        return true;
+    }
+}
+
 static enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_TOPOLOGY topology)
 {
     switch (topology)
@@ -2703,7 +2720,8 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     ia_desc.pNext = NULL;
     ia_desc.flags = 0;
     ia_desc.topology = vk_topology_from_d3d12_topology(topology);
-    ia_desc.primitiveRestartEnable = !!graphics->index_buffer_strip_cut_value;
+    ia_desc.primitiveRestartEnable = graphics->index_buffer_strip_cut_value &&
+                                     vkd3d_topology_can_restart(ia_desc.topology);
 
     tessellation_info.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
     tessellation_info.pNext = NULL;
