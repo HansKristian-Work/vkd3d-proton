@@ -143,6 +143,7 @@ static const char * const required_device_extensions[] =
 static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 {
     /* KHR extensions */
+    VK_EXTENSION(KHR_BUFFER_DEVICE_ADDRESS, KHR_buffer_device_address),
     VK_EXTENSION(KHR_DEDICATED_ALLOCATION, KHR_dedicated_allocation),
     VK_EXTENSION(KHR_DRAW_INDIRECT_COUNT, KHR_draw_indirect_count),
     VK_EXTENSION(KHR_GET_MEMORY_REQUIREMENTS_2, KHR_get_memory_requirements2),
@@ -696,6 +697,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDeviceInlineUniformBlockPropertiesEXT *inline_uniform_block_properties;
+    VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *buffer_device_address_features;
     VkPhysicalDeviceConditionalRenderingFeaturesEXT *conditional_rendering_features;
     VkPhysicalDeviceDescriptorIndexingPropertiesEXT *descriptor_indexing_properties;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT *vertex_divisor_properties;
@@ -714,6 +716,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
 
     memset(info, 0, sizeof(*info));
+    buffer_device_address_features = &info->buffer_device_address_features;
     conditional_rendering_features = &info->conditional_rendering_features;
     depth_clip_features = &info->depth_clip_features;
     descriptor_indexing_features = &info->descriptor_indexing_features;
@@ -732,6 +735,8 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 
+    buffer_device_address_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
+    vk_prepend_struct(&info->features2, buffer_device_address_features);
     conditional_rendering_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT;
     vk_prepend_struct(&info->features2, conditional_rendering_features);
     depth_clip_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT;
