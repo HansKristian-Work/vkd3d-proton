@@ -5013,8 +5013,9 @@ static void vkd3d_dxbc_compiler_emit_hull_shader_patch_constants(struct vkd3d_dx
 
 static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_binding(struct vkd3d_dxbc_compiler *compiler,
         enum vkd3d_data_type data_type, enum vkd3d_shader_resource_type resource_type, enum vkd3d_component_type component_type,
-        SpvStorageClass storage_class, const struct vkd3d_shader_descriptor_binding* binding_info)
+        SpvStorageClass storage_class, const struct vkd3d_shader_resource_binding* binding)
 {
+    const struct vkd3d_shader_descriptor_binding *binding_info = &binding->binding;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     struct vkd3d_shader_global_binding *current;
     uint32_t array_type_id, type_id, var_id;
@@ -5411,7 +5412,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
     {
         global_binding = vkd3d_dxbc_compiler_get_global_binding(compiler,
                 VKD3D_DATA_FLOAT, VKD3D_SHADER_RESOURCE_BUFFER,
-                VKD3D_TYPE_FLOAT, storage_class, &binding->binding);
+                VKD3D_TYPE_FLOAT, storage_class, binding);
 
         var_id = global_binding->var_id;
     }
@@ -5506,7 +5507,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
     if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
     {
         global_binding = vkd3d_dxbc_compiler_get_global_binding(compiler, VKD3D_DATA_SAMPLER,
-                VKD3D_SHADER_RESOURCE_NONE, VKD3D_TYPE_VOID, storage_class, &binding->binding);
+                VKD3D_SHADER_RESOURCE_NONE, VKD3D_TYPE_VOID, storage_class, binding);
 
         var_id = global_binding->var_id;
     }
@@ -5637,7 +5638,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     {
         global_binding = vkd3d_dxbc_compiler_get_global_binding(compiler,
                 is_uav ? VKD3D_DATA_UAV : VKD3D_DATA_RESOURCE, resource_type,
-                sampled_type, storage_class, &binding->binding);
+                sampled_type, storage_class, binding);
 
         type_id = global_binding->type_id;
         var_id = global_binding->var_id;
