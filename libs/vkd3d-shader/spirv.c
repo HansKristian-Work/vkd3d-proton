@@ -1710,6 +1710,7 @@ enum vkd3d_spirv_extension
     VKD3D_SPV_KHR_SHADER_DRAW_PARAMETERS        = 0x00000001,
     VKD3D_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION   = 0x00000002,
     VKD3D_SPV_EXT_DESCRIPTOR_INDEXING           = 0x00000004,
+    VKD3D_SPV_KHR_PHYSICAL_STORAGE_BUFFER       = 0x00000008,
 };
 
 struct vkd3d_spirv_extension_info
@@ -1719,6 +1720,7 @@ struct vkd3d_spirv_extension_info
 }
 static const vkd3d_spirv_extensions[] =
 {
+    {VKD3D_SPV_KHR_PHYSICAL_STORAGE_BUFFER,     "SPV_KHR_physical_storage_buffer"},
     {VKD3D_SPV_KHR_SHADER_DRAW_PARAMETERS,      "SPV_KHR_shader_draw_parameters"},
     {VKD3D_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION, "SPV_EXT_demote_to_helper_invocation"},
     {VKD3D_SPV_EXT_DESCRIPTOR_INDEXING,         "SPV_EXT_descriptor_indexing"},
@@ -1731,6 +1733,7 @@ struct vkd3d_spirv_capability_extension_mapping
 }
 static const vkd3d_spirv_capability_extensions[] =
 {
+    {SpvCapabilityPhysicalStorageBufferAddresses,         VKD3D_SPV_KHR_PHYSICAL_STORAGE_BUFFER},
     {SpvCapabilityDrawParameters,                         VKD3D_SPV_KHR_SHADER_DRAW_PARAMETERS},
     {SpvCapabilityDemoteToHelperInvocationEXT,            VKD3D_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION},
     {SpvCapabilityRuntimeDescriptorArrayEXT,              VKD3D_SPV_EXT_DESCRIPTOR_INDEXING},
@@ -5026,7 +5029,7 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
     const struct vkd3d_shader_descriptor_binding *binding_info = &binding->binding;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     struct vkd3d_shader_global_binding *current;
-    uint32_t array_type_id, type_id, var_id;
+    uint32_t type_id = 0, var_id = 0;
     unsigned int i;
 
     for (i = 0; i < compiler->global_binding_count; i++)
@@ -5039,9 +5042,6 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
                 current->binding.binding == binding_info->binding)
             return current;
     }
-
-    vkd3d_spirv_enable_capability(builder, SpvCapabilityRuntimeDescriptorArrayEXT);
-    vkd3d_spirv_enable_capability(builder, SpvCapabilityShaderNonUniformEXT);
 
     if (data_type == VKD3D_DATA_FLOAT)
     {
@@ -5105,8 +5105,32 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
     {
         if (binding->flags & VKD3D_SHADER_BINDING_FLAG_COUNTER)
         {
-            ERR("Bindless UAV counters not supported.\n");
-            return NULL;
+            uint32_t counter_struct_id, pointer_struct_id, array_type_id;
+
+            counter_struct_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+            counter_struct_id = vkd3d_spirv_build_op_type_struct(builder, &counter_struct_id, 1);
+
+            vkd3d_spirv_build_op_member_decorate1(builder, counter_struct_id, 0, SpvDecorationOffset, 0);
+            vkd3d_spirv_build_op_decorate(builder, counter_struct_id, SpvDecorationBlock, NULL, 0);
+            vkd3d_spirv_build_op_name(builder, counter_struct_id, "uav_ctr_t");
+
+            type_id = vkd3d_spirv_build_op_type_pointer(builder, SpvStorageClassPhysicalStorageBuffer, counter_struct_id);
+
+            array_type_id = vkd3d_spirv_build_op_type_runtime_array(builder, type_id);
+            vkd3d_spirv_build_op_decorate1(builder, array_type_id, SpvDecorationArrayStride, sizeof(uint64_t));
+
+            pointer_struct_id = vkd3d_spirv_build_op_type_struct(builder, &array_type_id, 1);
+
+            vkd3d_spirv_build_op_member_decorate1(builder, pointer_struct_id, 0, SpvDecorationOffset, 0);
+            vkd3d_spirv_build_op_decorate(builder, pointer_struct_id, SpvDecorationBufferBlock, NULL, 0);
+            vkd3d_spirv_build_op_name(builder, pointer_struct_id, "uav_ctrs_t");
+
+            var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
+                    vkd3d_spirv_get_op_type_pointer(builder, storage_class, pointer_struct_id),
+                    storage_class, 0);
+
+            vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationAliasedPointer, NULL, 0);
+            vkd3d_spirv_enable_capability(builder, SpvCapabilityPhysicalStorageBufferAddresses);
         }
         else
         {
@@ -5149,10 +5173,19 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
         return NULL;
     }
 
-    array_type_id = vkd3d_spirv_get_op_type_runtime_array(builder, type_id);
-    var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
-            vkd3d_spirv_get_op_type_pointer(builder, storage_class, array_type_id),
-            storage_class, 0);
+    if (!var_id)
+    {
+        uint32_t array_type_id;
+
+        /* Declare an actual descriptor array */
+        array_type_id = vkd3d_spirv_get_op_type_runtime_array(builder, type_id);
+        var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
+                vkd3d_spirv_get_op_type_pointer(builder, storage_class, array_type_id),
+                storage_class, 0);
+
+        vkd3d_spirv_enable_capability(builder, SpvCapabilityRuntimeDescriptorArrayEXT);
+        vkd3d_spirv_enable_capability(builder, SpvCapabilityShaderNonUniformEXT);
+    }
 
     vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, binding_info);
 
