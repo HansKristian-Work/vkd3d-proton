@@ -3100,9 +3100,12 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
             case D3D12_UAV_DIMENSION_TEXTURE3D:
                 vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_3D;
                 vkd3d_desc.miplevel_idx = desc->u.Texture3D.MipSlice;
-                if (desc->u.Texture3D.FirstWSlice || desc->u.Texture3D.WSize != resource->desc.DepthOrArraySize)
+                if (desc->u.Texture3D.FirstWSlice ||
+                    ((desc->u.Texture3D.WSize != resource->desc.DepthOrArraySize) && (desc->u.Texture3D.WSize != UINT_MAX)))
+                {
                     FIXME("Unhandled depth view %u-%u.\n",
-                            desc->u.Texture3D.FirstWSlice, desc->u.Texture3D.WSize);
+                          desc->u.Texture3D.FirstWSlice, desc->u.Texture3D.WSize);
+                }
                 break;
             default:
                 FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
@@ -3336,6 +3339,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
         {
             case D3D12_RTV_DIMENSION_TEXTURE2D:
                 vkd3d_desc.miplevel_idx = desc->u.Texture2D.MipSlice;
+                vkd3d_desc.layer_count = 1;
                 if (desc->u.Texture2D.PlaneSlice)
                     FIXME("Ignoring plane slice %u.\n", desc->u.Texture2D.PlaneSlice);
                 break;
@@ -3349,6 +3353,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
                 break;
             case D3D12_RTV_DIMENSION_TEXTURE2DMS:
                 vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
+                vkd3d_desc.layer_count = 1;
                 break;
             case D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY:
                 vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
@@ -3364,6 +3369,9 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
             default:
                 FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
         }
+
+        /* Avoid passing down UINT32_MAX here since that makes framebuffer logic later rather awkward. */
+        vkd3d_desc.layer_count = min(vkd3d_desc.layer_count, resource->desc.DepthOrArraySize - vkd3d_desc.layer_idx);
     }
     else if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
     {
@@ -3435,6 +3443,7 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
         {
             case D3D12_DSV_DIMENSION_TEXTURE2D:
                 vkd3d_desc.miplevel_idx = desc->u.Texture2D.MipSlice;
+                vkd3d_desc.layer_count = 1;
                 break;
             case D3D12_DSV_DIMENSION_TEXTURE2DARRAY:
                 vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
@@ -3444,6 +3453,7 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
                 break;
             case D3D12_DSV_DIMENSION_TEXTURE2DMS:
                 vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
+                vkd3d_desc.layer_count = 1;
                 break;
             case D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY:
                 vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
@@ -3453,6 +3463,9 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
             default:
                 FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
         }
+
+        /* Avoid passing down UINT32_MAX here since that makes framebuffer logic later rather awkward. */
+        vkd3d_desc.layer_count = min(vkd3d_desc.layer_count, resource->desc.DepthOrArraySize - vkd3d_desc.layer_idx);
     }
 
     assert(d3d12_resource_is_texture(resource));
