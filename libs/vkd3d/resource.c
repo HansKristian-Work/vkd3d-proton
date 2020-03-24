@@ -1106,6 +1106,10 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+    resource->weak->alive = false;
+    if (!InterlockedDecrement(&resource->weak->refcount))
+        vkd3d_free(resource->weak);
+
     if (resource->flags & VKD3D_RESOURCE_EXTERNAL)
         return;
 
@@ -1828,6 +1832,10 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     resource->refcount = 1;
     resource->internal_refcount = 1;
 
+    resource->weak = vkd3d_malloc(sizeof(*resource->weak));
+    resource->weak->alive = true;
+    resource->weak->refcount = 1;
+
     resource->desc = *desc;
 
     if (heap_properties && !d3d12_resource_validate_heap_properties(resource, heap_properties, initial_state))
@@ -2158,6 +2166,7 @@ static struct vkd3d_view *vkd3d_view_create(enum vkd3d_view_type type)
         view->refcount = 1;
         view->type = type;
         view->vk_counter_view = VK_NULL_HANDLE;
+        view->weak = NULL;
     }
     return view;
 }
@@ -2172,6 +2181,9 @@ static void vkd3d_view_destroy(struct vkd3d_view *view, struct d3d12_device *dev
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
     TRACE("Destroying view %p.\n", view);
+
+    if (view->weak && !InterlockedDecrement(&view->weak->refcount))
+        vkd3d_free(view->weak);
 
     switch (view->type)
     {
@@ -2211,6 +2223,13 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
 
     is_buffer = dst->magic == VKD3D_DESCRIPTOR_MAGIC_CBV ||
             dst->u.view->type == VKD3D_VIEW_TYPE_BUFFER;
+
+    if ((dst->magic == VKD3D_DESCRIPTOR_MAGIC_SRV || dst->magic == VKD3D_DESCRIPTOR_MAGIC_UAV) &&
+        dst->u.view->weak && !dst->u.view->weak->alive)
+    {
+        WARN("Attempting to write descriptor %p which references a freed resource.\n", (const void*)dst);
+        return;
+    }
 
     set_index = d3d12_descriptor_heap_set_index_from_magic(dst->magic, is_buffer);
 
@@ -2835,6 +2854,9 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
     descriptor->u.view = view;
+
+    descriptor->u.view->weak = resource->weak;
+    InterlockedIncrement(&descriptor->u.view->refcount);
 }
 
 void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
@@ -2939,6 +2961,9 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     descriptor->u.view = view;
+
+    descriptor->u.view->weak = resource->weak;
+    InterlockedIncrement(&descriptor->u.view->refcount);
 }
 
 static unsigned int vkd3d_view_flags_from_d3d12_buffer_uav_flags(D3D12_BUFFER_UAV_FLAGS flags)
@@ -3046,6 +3071,9 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
     descriptor->u.view = view;
 
+    descriptor->u.view->weak = resource->weak;
+    InterlockedIncrement(&descriptor->u.view->refcount);
+
     if (counter_resource)
     {
         const struct vkd3d_format *format;
@@ -3115,6 +3143,9 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     descriptor->u.view = view;
+
+    descriptor->u.view->weak = resource->weak;
+    InterlockedIncrement(&descriptor->u.view->refcount);
 }
 
 void d3d12_desc_create_uav(struct d3d12_desc *descriptor, struct d3d12_device *device,

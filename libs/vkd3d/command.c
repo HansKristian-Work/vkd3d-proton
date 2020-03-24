@@ -2628,6 +2628,12 @@ static bool vkd3d_descriptor_info_from_d3d12_desc(struct d3d12_device *device,
             if (desc->magic != VKD3D_DESCRIPTOR_MAGIC_SRV)
                 return false;
 
+            if (desc->u.view->weak && !desc->u.view->weak->alive)
+            {
+                WARN("SRV descriptor %p references a dead resource.\n", (const void*)desc);
+                break;
+            }
+
             if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_IMAGE)
                     && (desc->u.view->type == VKD3D_VIEW_TYPE_IMAGE))
             {
@@ -2647,6 +2653,12 @@ static bool vkd3d_descriptor_info_from_d3d12_desc(struct d3d12_device *device,
         case VKD3D_SHADER_DESCRIPTOR_TYPE_UAV:
             if (desc->magic != VKD3D_DESCRIPTOR_MAGIC_UAV)
                 return false;
+
+            if (desc->u.view->weak && !desc->u.view->weak->alive)
+            {
+                WARN("UAV descriptor %p references a dead resource.\n", (const void *) desc);
+                break;
+            }
 
             if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_IMAGE)
                     && (desc->u.view->type == VKD3D_VIEW_TYPE_IMAGE))
