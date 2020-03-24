@@ -4755,6 +4755,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
         BOOL single_descriptor_handle, const D3D12_CPU_DESCRIPTOR_HANDLE *depth_stencil_descriptor)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList2(iface);
+    const VkPhysicalDeviceLimits *limits = &list->device->vk_info.device_limits;
     const struct d3d12_rtv_desc *rtv_desc;
     const struct d3d12_dsv_desc *dsv_desc;
     VkFormat prev_dsv_format;
@@ -4773,9 +4774,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
         render_target_descriptor_count = ARRAY_SIZE(list->rtvs);
     }
 
-    list->fb_width = 0;
-    list->fb_height = 0;
-    list->fb_layer_count = 0;
+    list->fb_width = limits->maxFramebufferWidth;
+    list->fb_height = limits->maxFramebufferHeight;
+    list->fb_layer_count = limits->maxFramebufferLayers;
+
     for (i = 0; i < render_target_descriptor_count; ++i)
     {
         if (single_descriptor_handle)
@@ -4805,9 +4807,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
         }
 
         list->rtvs[i] = view->u.vk_image_view;
-        list->fb_width = max(list->fb_width, rtv_desc->width);
-        list->fb_height = max(list->fb_height, rtv_desc->height);
-        list->fb_layer_count = max(list->fb_layer_count, rtv_desc->layer_count);
+        list->fb_width = min(list->fb_width, rtv_desc->width);
+        list->fb_height = min(list->fb_height, rtv_desc->height);
+        list->fb_layer_count = min(list->fb_layer_count, rtv_desc->layer_count);
     }
 
     prev_dsv_format = list->dsv_format;
@@ -4829,9 +4831,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(ID3D12Graphi
             }
 
             list->dsv = view->u.vk_image_view;
-            list->fb_width = max(list->fb_width, dsv_desc->width);
-            list->fb_height = max(list->fb_height, dsv_desc->height);
-            list->fb_layer_count = max(list->fb_layer_count, dsv_desc->layer_count);
+            list->fb_width = min(list->fb_width, dsv_desc->width);
+            list->fb_height = min(list->fb_height, dsv_desc->height);
+            list->fb_layer_count = min(list->fb_layer_count, dsv_desc->layer_count);
             list->dsv_format = dsv_desc->format->vk_format;
         }
         else
