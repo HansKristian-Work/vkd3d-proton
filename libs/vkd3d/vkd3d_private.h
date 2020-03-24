@@ -404,12 +404,20 @@ struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface) DECLSPEC_HIDDE
 #define VKD3D_RESOURCE_LINEAR_TILING  0x00000010
 #define VKD3D_RESOURCE_PLACED_BUFFER  0x00000020
 
+struct d3d12_resource_weak_reference
+{
+    LONG refcount;
+    bool alive;
+};
+
 /* ID3D12Resource */
 struct d3d12_resource
 {
     ID3D12Resource ID3D12Resource_iface;
     LONG refcount;
     LONG internal_refcount;
+
+    struct d3d12_resource_weak_reference *weak;
 
     D3D12_RESOURCE_DESC desc;
 
@@ -478,7 +486,9 @@ enum vkd3d_view_type
 struct vkd3d_view
 {
     LONG refcount;
+    struct d3d12_resource_weak_reference *weak;
     enum vkd3d_view_type type;
+
     union
     {
         VkBufferView vk_buffer_view;
