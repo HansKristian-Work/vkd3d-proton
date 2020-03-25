@@ -411,7 +411,13 @@ static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_sig
             case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
                 /* separate image + buffer, packed uav counter descriptors */
                 info->binding_count += 2;
-                info->descriptor_count += range->NumDescriptors;
+
+                /* TODO implement bindless UAV counters */
+                if (range->NumDescriptors != 0xffffffffu)
+                {
+                    info->binding_count += range->NumDescriptors;
+                    info->descriptor_count += range->NumDescriptors;
+                }
                 break;
             case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
             case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
@@ -674,25 +680,30 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
             /* Add UAV counter bindings */
             if (is_uav)
             {
-                table->flags |= VKD3D_ROOT_DESCRIPTOR_TABLE_HAS_PACKED_DESCRIPTORS;
-
-                for (k = 0; k < range->NumDescriptors; ++k)
+                if (range->NumDescriptors != 0xffffffffu)
                 {
-                    VkDescriptorSetLayoutBinding vk_binding;
-                    vk_binding.binding = binding.binding.binding = context->vk_binding++;
-                    vk_binding.descriptorType = vk_descriptor_type_from_d3d12_range_type(bindless_state, range->RangeType, true);
-                    vk_binding.descriptorCount = 1;
-                    vk_binding.stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
-                    vk_binding.pImmutableSamplers = NULL;
+                    table->flags |= VKD3D_ROOT_DESCRIPTOR_TABLE_HAS_PACKED_DESCRIPTORS;
 
-                    binding.register_index = range->BaseShaderRegister + k;
-                    binding.register_count = 1;
-                    binding.descriptor_offset = range_descriptor_offset + k;
-                    binding.flags = VKD3D_SHADER_BINDING_FLAG_COUNTER;
+                    for (k = 0; k < range->NumDescriptors; ++k)
+                    {
+                        VkDescriptorSetLayoutBinding vk_binding;
+                        vk_binding.binding = binding.binding.binding = context->vk_binding++;
+                        vk_binding.descriptorType = vk_descriptor_type_from_d3d12_range_type(bindless_state, range->RangeType, true);
+                        vk_binding.descriptorCount = 1;
+                        vk_binding.stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
+                        vk_binding.pImmutableSamplers = NULL;
 
-                    table->first_binding[table->binding_count++] = binding;
-                    vk_binding_info[d++] = vk_binding;
+                        binding.register_index = range->BaseShaderRegister + k;
+                        binding.register_count = 1;
+                        binding.descriptor_offset = range_descriptor_offset + k;
+                        binding.flags = VKD3D_SHADER_BINDING_FLAG_COUNTER;
+
+                        table->first_binding[table->binding_count++] = binding;
+                        vk_binding_info[d++] = vk_binding;
+                    }
                 }
+                else
+                    WARN("Unbounded UAV counter range not supported.\n");
             }
 
             range_descriptor_offset = binding.descriptor_offset + binding.register_count;
