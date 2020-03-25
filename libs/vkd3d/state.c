@@ -693,6 +693,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
                         vk_binding.stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
                         vk_binding.pImmutableSamplers = NULL;
 
+                        binding.binding.set = context->vk_set;
                         binding.register_index = range->BaseShaderRegister + k;
                         binding.register_count = 1;
                         binding.descriptor_offset = range_descriptor_offset + k;
