@@ -5635,9 +5635,6 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
 
     if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
     {
-        if (is_uav && (uav_flags & VKD3D_SHADER_UAV_FLAG_ATOMIC_COUNTER))
-            FIXME("Bindless UAV counters currently not supported.\n");
-
         global_binding = vkd3d_dxbc_compiler_get_global_binding(compiler,
                 is_uav ? VKD3D_DATA_UAV : VKD3D_DATA_RESOURCE, resource_type,
                 sampled_type, storage_class, &binding->binding);
@@ -5659,19 +5656,19 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
 
         if (is_uav && !(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
             vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
+    }
 
-        if (is_uav && (uav_flags & VKD3D_SHADER_UAV_FLAG_ATOMIC_COUNTER))
-        {
-            assert(structure_stride); /* counters are valid only for structured buffers */
+    if (is_uav && (uav_flags & VKD3D_SHADER_UAV_FLAG_ATOMIC_COUNTER))
+    {
+        assert(structure_stride); /* counters are valid only for structured buffers */
 
-            counter_var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
-                    ptr_type_id, storage_class, 0);
+        counter_var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
+                vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id), storage_class, 0);
 
-            vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
-                    counter_var_id, reg, resource_type, true);
+        vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
+                counter_var_id, reg, resource_type, true);
 
-            vkd3d_spirv_build_op_name(builder, counter_var_id, "u%u_counter", reg->idx[0].offset);
-        }
+        vkd3d_spirv_build_op_name(builder, counter_var_id, "u%u_counter", reg->idx[0].offset);
     }
 
     vkd3d_symbol_make_resource(&resource_symbol, reg);
