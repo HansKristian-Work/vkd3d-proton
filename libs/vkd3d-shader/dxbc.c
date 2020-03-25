@@ -1519,6 +1519,7 @@ static bool shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
 
             case 0x20001:
                 param->modifier = VKD3DSPRM_NONUNIFORM;
+                *modifier = VKD3DSPSM_NONE;
                 break;
 
             default:
