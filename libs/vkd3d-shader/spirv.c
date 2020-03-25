@@ -5101,6 +5101,41 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
             vkd3d_spirv_enable_capability(builder, SpvCapabilitySampledImageArrayNonUniformIndexingEXT);
         }
     }
+    else if (data_type == VKD3D_DATA_UAV)
+    {
+        if (binding->flags & VKD3D_SHADER_BINDING_FLAG_COUNTER)
+        {
+            ERR("Bindless UAV counters not supported.\n");
+            return NULL;
+        }
+        else
+        {
+            const struct vkd3d_spirv_resource_type *type_info = vkd3d_get_spirv_resource_type(resource_type);
+            uint32_t sampled_type_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
+
+            type_id = vkd3d_spirv_get_op_type_image(builder, sampled_type_id, type_info->dim,
+                    0, type_info->arrayed, type_info->ms, 2, image_format);
+
+            if (image_format == SpvImageFormatUnknown)
+            {
+                vkd3d_spirv_enable_capability(builder, SpvCapabilityStorageImageWriteWithoutFormat);
+
+                if (!(flags & VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY))
+                    vkd3d_spirv_enable_capability(builder, SpvCapabilityStorageImageReadWithoutFormat);
+            }
+
+            if (resource_type == VKD3D_SHADER_RESOURCE_BUFFER)
+            {
+                vkd3d_spirv_enable_capability(builder, SpvCapabilityStorageTexelBufferArrayDynamicIndexingEXT);
+                vkd3d_spirv_enable_capability(builder, SpvCapabilityStorageTexelBufferArrayNonUniformIndexingEXT);
+            }
+            else
+            {
+                vkd3d_spirv_enable_capability(builder, SpvCapabilityStorageImageArrayDynamicIndexing);
+                vkd3d_spirv_enable_capability(builder, SpvCapabilityStorageImageArrayNonUniformIndexingEXT);
+            }
+        }
+    }
     else if (data_type == VKD3D_DATA_SAMPLER)
     {
         type_id = vkd3d_spirv_get_op_type_sampler(builder);
@@ -5120,6 +5155,9 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
             storage_class, 0);
 
     vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, binding_info);
+
+    if (flags & VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY)
+        vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
 
     if (!vkd3d_array_reserve((void **)&compiler->global_bindings, &compiler->global_bindings_size,
             compiler->global_binding_count + 1, sizeof(*compiler->global_bindings)))
