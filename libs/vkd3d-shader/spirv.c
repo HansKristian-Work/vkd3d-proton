@@ -8425,6 +8425,9 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
         sample_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
         pointer_id = vkd3d_spirv_build_op_image_texel_pointer(builder,
                 ptr_type_id, image.id, coordinate_id, sample_id);
+
+        if (resource->reg.modifier == VKD3DSPRM_NONUNIFORM)
+            vkd3d_dxbc_compiler_decorate_nonuniform(compiler, pointer_id);
     }
 
     val_id = vkd3d_dxbc_compiler_emit_load_src_with_type(compiler, &src[1], VKD3DSP_WRITEMASK_0, component_type);
