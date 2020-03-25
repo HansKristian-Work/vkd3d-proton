@@ -3216,28 +3216,30 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
 static void d3d12_command_list_check_index_buffer_strip_cut_value(struct d3d12_command_list *list)
 {
     struct d3d12_graphics_pipeline_state *graphics = &list->state->u.graphics;
-
-    /* In Vulkan, the strip cut value is derived from the index buffer format. */
-    switch (graphics->index_buffer_strip_cut_value)
+    if (TRACE_ON())
     {
+        /* In Vulkan, the strip cut value is derived from the index buffer format. */
+        switch (graphics->index_buffer_strip_cut_value)
+        {
         case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF:
             if (list->index_buffer_format != DXGI_FORMAT_R16_UINT)
             {
-                FIXME("Strip cut value 0xffff is not supported with index buffer format %#x.\n",
-                        list->index_buffer_format);
+                TRACE("Strip cut value 0xffff is not supported with index buffer format %#x.\n",
+                      list->index_buffer_format);
             }
             break;
 
         case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF:
             if (list->index_buffer_format != DXGI_FORMAT_R32_UINT)
             {
-                FIXME("Strip cut value 0xffffffff is not supported with index buffer format %#x.\n",
-                        list->index_buffer_format);
+                TRACE("Strip cut value 0xffffffff is not supported with index buffer format %#x.\n",
+                      list->index_buffer_format);
             }
             break;
 
         default:
             break;
+        }
     }
 }
 
