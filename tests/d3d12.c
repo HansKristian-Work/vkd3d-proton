@@ -39604,7 +39604,7 @@ static void test_bindless_uav_counter(bool use_dxil)
         cpu_h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_heap);
         cpu_h.ptr += (512 + i) * descriptor_size;
         ID3D12Device_CreateUnorderedAccessView(context.device, output_buffers[i], NULL, &view, cpu_h);
-        ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list, gpu_h, cpu_h, output_buffers[i], init_data, NULL, 0);
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list, gpu_h, cpu_h, output_buffers[i], init_data, 0, NULL);
     }
 
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
