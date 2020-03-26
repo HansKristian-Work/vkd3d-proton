@@ -21,6 +21,7 @@
 
 #include "config.h"
 #include "vkd3d_windows.h"
+#include "vkd3d_spinlock.h"
 
 #include <ctype.h>
 #include <stdint.h>
