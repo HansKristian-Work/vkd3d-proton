@@ -487,6 +487,7 @@ struct vkd3d_view
         VkSampler vk_sampler;
     } u;
     VkBufferView vk_counter_view;
+    VkDeviceAddress vk_counter_address;
     const struct vkd3d_format *format;
     union
     {

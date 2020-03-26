@@ -2158,6 +2158,7 @@ static struct vkd3d_view *vkd3d_view_create(enum vkd3d_view_type type)
         view->refcount = 1;
         view->type = type;
         view->vk_counter_view = VK_NULL_HANDLE;
+        view->vk_counter_address = 0;
     }
     return view;
 }
@@ -2204,11 +2205,22 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &dst->heap->device->vk_procs;
     union vkd3d_descriptor_info descriptor_info;
+    unsigned int descriptor_index, set_index;
     VkDescriptorSet vk_descriptor_set;
     VkWriteDescriptorSet vk_write;
-    unsigned int set_index;
     bool is_buffer;
 
+    descriptor_index = d3d12_desc_heap_offset(dst);
+
+    /* update UAV counter address */
+    if (dst->heap->uav_counters.data)
+    {
+        bool has_view = dst->magic != VKD3D_DESCRIPTOR_MAGIC_CBV;
+        dst->heap->uav_counters.data[descriptor_index] = has_view
+                ? dst->u.view->vk_counter_address : 0;
+    }
+
+    /* update the actual descriptor */
     is_buffer = dst->magic == VKD3D_DESCRIPTOR_MAGIC_CBV ||
             dst->u.view->type == VKD3D_VIEW_TYPE_BUFFER;
 
@@ -2238,7 +2250,7 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
     vk_write.pNext = NULL;
     vk_write.dstSet = vk_descriptor_set;
     vk_write.dstBinding = 0;
-    vk_write.dstArrayElement = d3d12_desc_heap_offset(dst);
+    vk_write.dstArrayElement = descriptor_index;
     vk_write.descriptorCount = 1;
     vk_write.descriptorType = dst->vk_descriptor_type;
     vk_write.pImageInfo = &descriptor_info.image;
@@ -3014,6 +3026,18 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
     descriptor->u.view = view;
 }
 
+static VkDeviceAddress vkd3d_get_buffer_device_address(struct d3d12_device *device, VkBuffer vk_buffer)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    VkBufferDeviceAddressInfoKHR address_info;
+    address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR;
+    address_info.pNext = NULL;
+    address_info.buffer = vk_buffer;
+
+    return VK_CALL(vkGetBufferDeviceAddressKHR(device->vk_device, &address_info));
+}
+
 static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_device *device,
         struct d3d12_resource *resource, struct d3d12_resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
@@ -3048,18 +3072,27 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
 
     if (counter_resource)
     {
-        const struct vkd3d_format *format;
-
         assert(d3d12_resource_is_buffer(counter_resource));
         assert(desc->u.Buffer.StructureByteStride);
 
-        format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
-        if (!vkd3d_create_vk_buffer_view(device, counter_resource->u.vk_buffer, format,
-                desc->u.Buffer.CounterOffsetInBytes + resource->heap_offset, sizeof(uint32_t), &view->vk_counter_view))
+        if (device->bindless_state.flags & VKD3D_BINDLESS_UAV_COUNTER)
         {
-            WARN("Failed to create counter buffer view.\n");
+            VkDeviceAddress address = vkd3d_get_buffer_device_address(device, counter_resource->u.vk_buffer);
+
             view->vk_counter_view = VK_NULL_HANDLE;
-            d3d12_desc_destroy(descriptor, device);
+            view->vk_counter_address = address + counter_resource->heap_offset + desc->u.Buffer.CounterOffsetInBytes;
+        }
+        else
+        {
+            const struct vkd3d_format *format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
+
+            if (!vkd3d_create_vk_buffer_view(device, counter_resource->u.vk_buffer, format,
+                    desc->u.Buffer.CounterOffsetInBytes + resource->heap_offset, sizeof(uint32_t), &view->vk_counter_view))
+            {
+                WARN("Failed to create counter buffer view.\n");
+                view->vk_counter_view = VK_NULL_HANDLE;
+                d3d12_desc_destroy(descriptor, device);
+            }
         }
     }
 }
