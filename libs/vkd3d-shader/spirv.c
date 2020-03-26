@@ -2102,12 +2102,18 @@ struct vkd3d_hull_shader_variables
     uint32_t patch_constants_id;
 };
 
+enum vkd3d_shader_global_binding_flag
+{
+    VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY = 0x00000001,
+};
+
 struct vkd3d_shader_global_binding
 {
     enum vkd3d_data_type data_type;
     enum vkd3d_shader_resource_type resource_type;
     enum vkd3d_component_type component_type;
     SpvImageFormat image_format;
+    unsigned int flags;
     struct vkd3d_shader_descriptor_binding binding;
 
     uint32_t type_id;
@@ -5014,7 +5020,8 @@ static void vkd3d_dxbc_compiler_emit_hull_shader_patch_constants(struct vkd3d_dx
 
 static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_binding(struct vkd3d_dxbc_compiler *compiler,
         enum vkd3d_data_type data_type, enum vkd3d_shader_resource_type resource_type, enum vkd3d_component_type component_type,
-        SpvStorageClass storage_class, const struct vkd3d_shader_resource_binding* binding, SpvImageFormat image_format)
+        SpvStorageClass storage_class, const struct vkd3d_shader_resource_binding* binding, SpvImageFormat image_format,
+        unsigned int flags)
 {
     const struct vkd3d_shader_descriptor_binding *binding_info = &binding->binding;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -5026,8 +5033,10 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
     {
         current = &compiler->global_bindings[i];
 
-        if (current->data_type == data_type && current->resource_type == resource_type && current->component_type == component_type &&
-                current->image_format == image_format && current->binding.set == binding_info->set && current->binding.binding == binding_info->binding)
+        if (current->data_type == data_type && current->resource_type == resource_type &&
+                current->component_type == component_type && current->image_format == image_format &&
+                current->flags == flags && current->binding.set == binding_info->set &&
+                current->binding.binding == binding_info->binding)
             return current;
     }
 
@@ -5124,6 +5133,7 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
     current->resource_type = resource_type;
     current->component_type = component_type;
     current->image_format = image_format;
+    current->flags = flags;
     current->binding = *binding_info;
     current->type_id = type_id;
     current->var_id = var_id;
@@ -5415,7 +5425,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
         global_binding = vkd3d_dxbc_compiler_get_global_binding(compiler,
                 VKD3D_DATA_FLOAT, VKD3D_SHADER_RESOURCE_BUFFER,
                 VKD3D_TYPE_FLOAT, storage_class, binding,
-                SpvImageFormatUnknown);
+                SpvImageFormatUnknown, 0);
 
         var_id = global_binding->var_id;
     }
@@ -5512,7 +5522,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
         global_binding = vkd3d_dxbc_compiler_get_global_binding(compiler,
                 VKD3D_DATA_SAMPLER, VKD3D_SHADER_RESOURCE_NONE,
                 VKD3D_TYPE_VOID, storage_class, binding,
-                SpvImageFormatUnknown);
+                SpvImageFormatUnknown, 0);
 
         var_id = global_binding->var_id;
     }
@@ -5642,13 +5652,20 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
     {
         SpvImageFormat format = SpvImageFormatUnknown;
+        unsigned int flags = 0;
 
-        if (is_uav && (structure_stride || raw || (uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS)))
-            format = image_format_for_image_read(sampled_type);
+        if (is_uav)
+        {
+            if (structure_stride || raw || (uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
+                format = image_format_for_image_read(sampled_type);
+
+            if (!(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
+                flags |= VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY;
+        }
 
         global_binding = vkd3d_dxbc_compiler_get_global_binding(compiler,
                 is_uav ? VKD3D_DATA_UAV : VKD3D_DATA_RESOURCE, resource_type,
-                sampled_type, storage_class, binding, format);
+                sampled_type, storage_class, binding, format, flags);
 
         type_id = global_binding->type_id;
         var_id = global_binding->var_id;
