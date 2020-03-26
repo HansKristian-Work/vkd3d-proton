@@ -2013,17 +2013,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     HRESULT hr;
     int ret;
 
-    static const DWORD default_ps_code[] =
-    {
-#if 0
-        ps_4_0
-        ret
-#endif
-        0x43425844, 0x19cbf606, 0x18f562b9, 0xdaeed4db, 0xc324aa46, 0x00000001, 0x00000060, 0x00000003,
-        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
-        0x00000008, 0x00000000, 0x00000008, 0x52444853, 0x0000000c, 0x00000040, 0x00000003, 0x0100003e,
-    };
-    static const D3D12_SHADER_BYTECODE default_ps = {default_ps_code, sizeof(default_ps_code)};
     static const struct
     {
         enum VkShaderStageFlagBits stage;
@@ -2145,15 +2134,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             WARN("Invalid DSV format %#x.\n", desc->DSVFormat);
             hr = E_INVALIDARG;
             goto fail;
-        }
-
-        if (!desc->PS.pShaderBytecode)
-        {
-            if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
-                    VK_SHADER_STAGE_FRAGMENT_BIT, &default_ps, NULL, NULL)))
-                goto fail;
-
-            ++graphics->stage_count;
         }
     }
 
