@@ -3762,6 +3762,51 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_set(struct d3d12_descript
     return S_OK;
 }
 
+static HRESULT d3d12_descriptor_heap_create_uav_counter_buffer(struct d3d12_descriptor_heap *descriptor_heap,
+        struct d3d12_descriptor_heap_uav_counters *uav_counters)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
+    struct d3d12_device *device = descriptor_heap->device;
+    D3D12_HEAP_PROPERTIES heap_info;
+    D3D12_RESOURCE_DESC buffer_desc;
+    D3D12_HEAP_FLAGS heap_flags;
+    VkResult vr;
+    HRESULT hr;
+
+    /* concurrently accessible storage buffer */
+    memset(&buffer_desc, 0, sizeof(buffer_desc));
+    buffer_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer_desc.Width = descriptor_heap->desc.NumDescriptors * sizeof(VkDeviceAddress);
+    buffer_desc.Height = 1;
+    buffer_desc.DepthOrArraySize = 1;
+    buffer_desc.MipLevels = 1;
+    buffer_desc.SampleDesc.Count = 1;
+    buffer_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    buffer_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    /* host-visible device memory */
+    memset(&heap_info, 0, sizeof(heap_info));
+    heap_info.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+    heap_flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+
+    if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc, &uav_counters->vk_buffer)))
+        return hr;
+
+    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, uav_counters->vk_buffer,
+            &heap_info, heap_flags, &uav_counters->vk_memory, NULL, NULL)))
+        return hr;
+
+    if ((vr = VK_CALL(vkMapMemory(device->vk_device, uav_counters->vk_memory,
+            0, VK_WHOLE_SIZE, 0, (void **)&uav_counters->data))))
+    {
+        ERR("Failed to map UAV counter address buffer, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descriptor_heap,
         struct d3d12_device *device, const D3D12_DESCRIPTOR_HEAP_DESC *desc)
 {
@@ -3792,6 +3837,14 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
                         set_info, &descriptor_heap->vk_descriptor_sets[set_index])))
                     goto fail;
             }
+        }
+
+        if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
+                (device->bindless_state.flags & VKD3D_BINDLESS_UAV_COUNTER))
+        {
+            if (FAILED(hr = d3d12_descriptor_heap_create_uav_counter_buffer(descriptor_heap,
+                    &descriptor_heap->uav_counters)))
+                goto fail;
         }
     }
 
@@ -3888,8 +3941,10 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
     const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
     const struct d3d12_device *device = descriptor_heap->device;
 
-    VK_CALL(vkDestroyDescriptorPool(device->vk_device,
-            descriptor_heap->vk_descriptor_pool, NULL));
+    VK_CALL(vkDestroyBuffer(device->vk_device, descriptor_heap->uav_counters.vk_buffer, NULL));
+    VK_CALL(vkFreeMemory(device->vk_device, descriptor_heap->uav_counters.vk_memory, NULL));
+
+    VK_CALL(vkDestroyDescriptorPool(device->vk_device, descriptor_heap->vk_descriptor_pool, NULL));
 }
 
 unsigned int d3d12_descriptor_heap_set_index_from_binding(const struct vkd3d_bindless_set_info *set)

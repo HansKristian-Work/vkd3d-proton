@@ -609,6 +609,13 @@ static inline struct d3d12_dsv_desc *d3d12_dsv_desc_from_cpu_handle(D3D12_CPU_DE
 void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc) DECLSPEC_HIDDEN;
 
+struct d3d12_descriptor_heap_uav_counters
+{
+    VkDeviceAddress *data;
+    VkDeviceMemory vk_memory;
+    VkBuffer vk_buffer;
+};
+
 /* ID3D12DescriptorHeap */
 struct d3d12_descriptor_heap
 {
@@ -620,6 +627,7 @@ struct d3d12_descriptor_heap
     VkDescriptorPool vk_descriptor_pool;
     VkDescriptorSet vk_descriptor_sets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
 
+    struct d3d12_descriptor_heap_uav_counters uav_counters;
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
