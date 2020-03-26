@@ -1743,6 +1743,7 @@ static const vkd3d_spirv_capability_extensions[] =
 static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
         struct vkd3d_shader_code *spirv)
 {
+    SpvAddressingModel addressing_model;
     struct vkd3d_spirv_stream stream;
     uint32_t extension_mask = 0;
     unsigned int i, j;
@@ -1785,7 +1786,12 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
         vkd3d_spirv_build_op_ext_inst_import(&stream, builder->ext_instr_set_glsl_450, "GLSL.std.450");
 
     /* entry point declarations */
-    vkd3d_spirv_build_op_memory_model(&stream, SpvAddressingModelLogical, SpvMemoryModelGLSL450);
+    addressing_model = SpvAddressingModelLogical;
+
+    if (vkd3d_spirv_has_capability(builder, SpvCapabilityPhysicalStorageBufferAddresses))
+        addressing_model = SpvAddressingModelPhysicalStorageBuffer64;
+
+    vkd3d_spirv_build_op_memory_model(&stream, addressing_model, SpvMemoryModelGLSL450);
     vkd3d_spirv_build_op_entry_point(&stream, builder->execution_model, builder->main_function_id,
             "main", builder->iface, builder->iface_element_count);
 
