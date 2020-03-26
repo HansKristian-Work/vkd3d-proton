@@ -2252,12 +2252,10 @@ void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *sr
         struct d3d12_device *device)
 {
     struct d3d12_desc destroy_desc;
-    pthread_mutex_t *mutex;
 
     destroy_desc.u.view = NULL;
 
-    mutex = d3d12_device_get_descriptor_mutex(device, dst);
-    pthread_mutex_lock(mutex);
+    spinlock_acquire(&dst->spinlock);
 
     /* Nothing to do for VKD3D_DESCRIPTOR_MAGIC_CBV. */
     if ((dst->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
@@ -2273,7 +2271,7 @@ void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *sr
     if (dst->magic != VKD3D_DESCRIPTOR_MAGIC_FREE)
         d3d12_desc_update_bindless_descriptor(dst);
 
-    pthread_mutex_unlock(mutex);
+    spinlock_release(&dst->spinlock);
 
     /* Destroy the view after unlocking to reduce wait time. */
     if (destroy_desc.u.view)
@@ -2287,18 +2285,16 @@ static void d3d12_desc_destroy(struct d3d12_desc *descriptor, struct d3d12_devic
     d3d12_desc_write_atomic(descriptor, &null_desc, device);
 }
 
-void d3d12_desc_copy(struct d3d12_desc *dst, const struct d3d12_desc *src,
+void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
         struct d3d12_device *device)
 {
     struct d3d12_desc tmp;
-    pthread_mutex_t *mutex;
 
     assert(dst != src);
 
     /* Shadow of the Tomb Raider and possibly other titles sometimes destroy
      * and rewrite a descriptor in another thread while it is being copied. */
-    mutex = d3d12_device_get_descriptor_mutex(device, src);
-    pthread_mutex_lock(mutex);
+    spinlock_acquire(&src->spinlock);
 
     if (src->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
             || src->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
@@ -2309,7 +2305,7 @@ void d3d12_desc_copy(struct d3d12_desc *dst, const struct d3d12_desc *src,
 
     tmp = *src;
 
-    pthread_mutex_unlock(mutex);
+    spinlock_release(&src->spinlock);
 
     d3d12_desc_write_atomic(dst, &tmp, device);
 }
@@ -3828,6 +3824,7 @@ static void d3d12_descriptor_heap_init_descriptors(struct d3d12_descriptor_heap 
             {
                 desc[i].heap = descriptor_heap;
                 desc[i].heap_offset = i;
+                spinlock_init(&desc[i].spinlock);
             }
             break;
 

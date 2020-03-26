@@ -2058,7 +2058,6 @@ static ULONG STDMETHODCALLTYPE d3d12_device_AddRef(ID3D12Device *iface)
 static void d3d12_device_destroy(struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    size_t i;
 
     vkd3d_private_store_destroy(&device->private_store);
 
@@ -2071,8 +2070,6 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_fence_worker_stop(&device->fence_worker, device);
     d3d12_device_destroy_pipeline_cache(device);
     d3d12_device_destroy_vkd3d_queues(device);
-    for (i = 0; i < ARRAY_SIZE(device->desc_mutex); ++i)
-        pthread_mutex_destroy(&device->desc_mutex[i]);
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
     if (device->parent)
         IUnknown_Release(device->parent);
@@ -2755,8 +2752,7 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(ID3D12Device *iface,
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     unsigned int dst_range_idx, dst_idx, src_range_idx, src_idx;
     unsigned int dst_range_size, src_range_size;
-    const struct d3d12_desc *src;
-    struct d3d12_desc *dst;
+    struct d3d12_desc *dst, *src;
 
     TRACE("iface %p, dst_descriptor_range_count %u, dst_descriptor_range_offsets %p, "
             "dst_descriptor_range_sizes %p, src_descriptor_range_count %u, "
@@ -3422,7 +3418,6 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 {
     const struct vkd3d_vk_device_procs *vk_procs;
     HRESULT hr;
-    size_t i;
 
     device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl;
     device->refcount = 1;
@@ -3463,9 +3458,6 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     vkd3d_render_pass_cache_init(&device->render_pass_cache);
     vkd3d_gpu_va_allocator_init(&device->gpu_va_allocator);
-
-    for (i = 0; i < ARRAY_SIZE(device->desc_mutex); ++i)
-        pthread_mutex_init(&device->desc_mutex[i], NULL);
 
     if ((device->parent = create_info->parent))
         IUnknown_AddRef(device->parent);
