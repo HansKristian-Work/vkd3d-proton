@@ -1898,6 +1898,8 @@ struct vkd3d_symbol_resource_data
     const struct vkd3d_spirv_resource_type *resource_type_info;
     unsigned int structure_stride;
     bool raw;
+    const struct vkd3d_shader_resource_binding *uav_counter_binding;
+    uint32_t uav_counter_type_id;
     uint32_t uav_counter_id;
 };
 
@@ -5618,6 +5620,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
     resource_symbol.info.resource.resource_type_info = NULL;
     resource_symbol.info.resource.structure_stride = 0;
     resource_symbol.info.resource.raw = 0;
+    resource_symbol.info.resource.uav_counter_binding = NULL;
+    resource_symbol.info.resource.uav_counter_type_id = 0;
     resource_symbol.info.resource.uav_counter_id = 0;
     vkd3d_dxbc_compiler_put_symbol(compiler, &resource_symbol);
 }
@@ -5689,13 +5693,13 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
         const struct vkd3d_shader_register *reg, enum vkd3d_shader_resource_type resource_type,
         enum vkd3d_data_type resource_data_type, unsigned int structure_stride, bool raw)
 {
-    uint32_t type_id, ptr_type_id, var_id, counter_var_id = 0;
+    uint32_t type_id, ptr_type_id, var_id, counter_type_id = 0, counter_var_id = 0;
+    const struct vkd3d_shader_resource_binding *binding, *counter_binding;
     const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     const struct vkd3d_spirv_resource_type *resource_type_info;
     const struct vkd3d_shader_global_binding *global_binding;
-    const struct vkd3d_shader_resource_binding *binding;
     enum vkd3d_component_type sampled_type;
     struct vkd3d_symbol resource_symbol;
     unsigned int uav_flags;
@@ -5761,14 +5765,30 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     {
         assert(structure_stride); /* counters are valid only for structured buffers */
 
-        counter_var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
-                vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id), storage_class, 0);
+        counter_binding = vkd3d_dxbc_compiler_get_uav_counter_binding(compiler, reg);
 
-        vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
-                counter_var_id, reg, resource_type, true);
+        if (counter_binding && (counter_binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
+        {
+            global_binding = vkd3d_dxbc_compiler_get_global_binding(compiler,
+                    VKD3D_DATA_UAV, VKD3D_SHADER_RESOURCE_NONE, VKD3D_DATA_UINT,
+                    SpvStorageClassUniform, counter_binding, SpvImageFormatUnknown, 0);
 
-        vkd3d_spirv_build_op_name(builder, counter_var_id, "u%u_counter", reg->idx[0].offset);
+            counter_type_id = global_binding->type_id;
+            counter_var_id = global_binding->var_id;
+        }
+        else
+        {
+            counter_var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
+                    vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id), storage_class, 0);
+
+            vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
+                    counter_var_id, reg, resource_type, true);
+
+            vkd3d_spirv_build_op_name(builder, counter_var_id, "u%u_counter", reg->idx[0].offset);
+        }
     }
+    else
+        counter_binding = NULL;
 
     vkd3d_symbol_make_resource(&resource_symbol, reg);
     resource_symbol.id = var_id;
@@ -5779,6 +5799,8 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     resource_symbol.info.resource.resource_type_info = resource_type_info;
     resource_symbol.info.resource.structure_stride = structure_stride;
     resource_symbol.info.resource.raw = raw;
+    resource_symbol.info.resource.uav_counter_binding = counter_binding;
+    resource_symbol.info.resource.uav_counter_type_id = counter_type_id;
     resource_symbol.info.resource.uav_counter_id = counter_var_id;
     vkd3d_dxbc_compiler_put_symbol(compiler, &resource_symbol);
 }
