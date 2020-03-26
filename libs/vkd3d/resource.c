@@ -829,6 +829,9 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
             | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
             | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
 
+    if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
+        buffer_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR;
+
     if (device->vk_info.EXT_conditional_rendering)
         buffer_info.usage |= VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT;
 
