@@ -978,6 +978,7 @@ enum vkd3d_pipeline_dirty_flag
     VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET       = 0x00000001u,
     VKD3D_PIPELINE_DIRTY_PACKED_DESCRIPTOR_SET    = 0x00000002u,
     VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS = 0x00000004u,
+    VKD3D_PIPELINE_DIRTY_UAV_COUNTER_BINDING      = 0x00000008u,
 };
 
 union vkd3d_descriptor_info
@@ -1058,6 +1059,7 @@ struct d3d12_command_list
     VkPipeline current_pipeline;
     VkRenderPass pso_render_pass;
     VkRenderPass current_render_pass;
+    VkBuffer uav_counter_address_buffer;
     struct vkd3d_pipeline_bindings pipeline_bindings[VK_PIPELINE_BIND_POINT_RANGE_SIZE];
     struct vkd3d_descriptor_updates packed_descriptors[VK_PIPELINE_BIND_POINT_RANGE_SIZE];
 

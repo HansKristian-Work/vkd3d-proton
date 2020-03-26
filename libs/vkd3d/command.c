@@ -1926,6 +1926,9 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
     if (bindings->root_signature->descriptor_table_count)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
 
+    if (bindings->root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_BINDLESS_UAV_COUNTERS)
+        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_UAV_COUNTER_BINDING;
+
     bindings->root_descriptor_dirty_mask = bindings->root_signature->root_descriptor_mask;
     bindings->root_constant_dirty_mask = bindings->root_signature->root_constant_mask;
 
@@ -2404,6 +2407,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->current_pipeline = VK_NULL_HANDLE;
     list->pso_render_pass = VK_NULL_HANDLE;
     list->current_render_pass = VK_NULL_HANDLE;
+    list->uav_counter_address_buffer = VK_NULL_HANDLE;
 
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
     memset(list->descriptor_heaps, 0, sizeof(list->descriptor_heaps));
@@ -3050,6 +3054,35 @@ static void d3d12_command_list_fetch_inline_uniform_block_data(struct d3d12_comm
     bindings->root_constant_dirty_mask = 0;
 }
 
+static bool vk_write_descriptor_set_from_uav_counter_binding(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point, VkDescriptorSet vk_descriptor_set,
+        VkWriteDescriptorSet *vk_descriptor_write, VkDescriptorBufferInfo *vk_buffer_info)
+{
+    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
+
+    bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_UAV_COUNTER_BINDING;
+
+    if (!list->uav_counter_address_buffer || !(root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_BINDLESS_UAV_COUNTERS))
+        return false;
+
+    vk_buffer_info->buffer = list->uav_counter_address_buffer;
+    vk_buffer_info->offset = 0;
+    vk_buffer_info->range = VK_WHOLE_SIZE;
+
+    vk_descriptor_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    vk_descriptor_write->pNext = NULL;
+    vk_descriptor_write->dstSet = vk_descriptor_set;
+    vk_descriptor_write->dstBinding = root_signature->uav_counter_binding.binding;
+    vk_descriptor_write->dstArrayElement = 0;
+    vk_descriptor_write->descriptorCount = 1;
+    vk_descriptor_write->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    vk_descriptor_write->pImageInfo = NULL;
+    vk_descriptor_write->pBufferInfo = vk_buffer_info;
+    vk_descriptor_write->pTexelBufferView = NULL;
+    return true;
+}
+
 static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point)
 {
@@ -3057,16 +3090,18 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkWriteDescriptorSetInlineUniformBlockEXT inline_uniform_block_write;
-    VkWriteDescriptorSet descriptor_writes[D3D12_MAX_ROOT_COST / 2 + 1];
+    VkWriteDescriptorSet descriptor_writes[D3D12_MAX_ROOT_COST / 2 + 2];
     uint32_t inline_uniform_block_data[D3D12_MAX_ROOT_COST];
     const struct d3d12_root_parameter *root_parameter;
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
+    VkDescriptorBufferInfo uav_counter_descriptor;
     unsigned int descriptor_write_count = 0;
     unsigned int root_parameter_index;
 
     if (!(root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS))
     {
         /* Ensure that we populate all descriptors if push descriptors cannot be used */
+        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_UAV_COUNTER_BINDING;
         bindings->root_descriptor_dirty_mask |= bindings->root_descriptor_active_mask & root_signature->root_descriptor_mask;
 
         descriptor_set = d3d12_command_allocator_allocate_descriptor_set(
@@ -3086,6 +3121,13 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
             continue;
 
         descriptor_write_count += 1;
+    }
+
+    if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_UAV_COUNTER_BINDING)
+    {
+        if (vk_write_descriptor_set_from_uav_counter_binding(list, bind_point,
+                descriptor_set, &descriptor_writes[descriptor_write_count], &uav_counter_descriptor))
+            descriptor_write_count += 1;
     }
 
     if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
@@ -3139,12 +3181,12 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     {
         /* Root constants and descriptor table offsets are part of the root descriptor set */
         if (bindings->root_descriptor_dirty_mask || bindings->root_constant_dirty_mask
-                || (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS))
+                || (bindings->dirty_flags & (VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS | VKD3D_PIPELINE_DIRTY_UAV_COUNTER_BINDING)))
             d3d12_command_list_update_root_descriptors(list, bind_point);
     }
     else
     {
-        if (bindings->root_descriptor_dirty_mask)
+        if (bindings->root_descriptor_dirty_mask || (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_UAV_COUNTER_BINDING))
             d3d12_command_list_update_root_descriptors(list, bind_point);
 
         if (bindings->root_constant_dirty_mask)
@@ -4290,6 +4332,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(ID3D12Graphi
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList2(iface);
     struct vkd3d_bindless_state *bindless_state = &list->device->bindless_state;
+    bool dirty_uav_counters = false;
     unsigned int i, j, set_index;
     uint64_t dirty_mask = 0;
 
@@ -4311,10 +4354,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(ID3D12Graphi
             list->descriptor_heaps[j] = heap->vk_descriptor_sets[set_index];
             dirty_mask |= 1ull << j;
         }
+
+        if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+        {
+            list->uav_counter_address_buffer = heap->uav_counters.vk_buffer;
+            dirty_uav_counters = true;
+        }
     }
 
     for (i = 0; i < ARRAY_SIZE(list->pipeline_bindings); i++)
-        list->pipeline_bindings[i].descriptor_heap_dirty_mask = dirty_mask;
+    {
+        struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[i];
+        bindings->descriptor_heap_dirty_mask = dirty_mask;
+
+        if (dirty_uav_counters && bindings->root_signature &&
+                (bindings->root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_BINDLESS_UAV_COUNTERS))
+            bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_UAV_COUNTER_BINDING;
+    }
 }
 
 static void d3d12_command_list_set_root_signature(struct d3d12_command_list *list,
