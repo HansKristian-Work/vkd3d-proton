@@ -8327,8 +8327,8 @@ static void vkd3d_dxbc_compiler_emit_uav_counter_instruction(struct vkd3d_dxbc_c
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
     unsigned int memory_semantics = SpvMemorySemanticsMaskNone;
-    uint32_t ptr_type_id, type_id, counter_id, result_id;
-    uint32_t coordinate_id, sample_id, pointer_id;
+    const struct vkd3d_shader_resource_binding *binding;
+    uint32_t type_id, result_id, pointer_id, zero_id;
     const struct vkd3d_symbol *resource_symbol;
     uint32_t operands[3];
     SpvOp op;
@@ -8337,14 +8337,39 @@ static void vkd3d_dxbc_compiler_emit_uav_counter_instruction(struct vkd3d_dxbc_c
             ? SpvOpAtomicIIncrement : SpvOpAtomicIDecrement;
 
     resource_symbol = vkd3d_dxbc_compiler_find_resource(compiler, &src->reg);
-    counter_id = resource_symbol->info.resource.uav_counter_id;
-    assert(counter_id);
+    binding = resource_symbol->info.resource.uav_counter_binding;
+    assert(resource_symbol->info.resource.uav_counter_id);
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassImage, type_id);
-    coordinate_id = sample_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
-    pointer_id = vkd3d_spirv_build_op_image_texel_pointer(builder,
-            ptr_type_id, counter_id, coordinate_id, sample_id);
+    zero_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
+
+    if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
+    {
+        uint32_t ctr_ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassPhysicalStorageBuffer, type_id);
+        uint32_t buf_ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassUniform, resource_symbol->info.resource.uav_counter_type_id);
+        uint32_t indices[2];
+
+        indices[0] = zero_id;
+        indices[1] = vkd3d_dxbc_compiler_get_resource_index(compiler, &src->reg, binding);
+
+        pointer_id = vkd3d_spirv_build_op_access_chain(builder, buf_ptr_type_id,
+                resource_symbol->info.resource.uav_counter_id,
+                indices, ARRAY_SIZE(indices));
+
+        pointer_id = vkd3d_spirv_build_op_load(builder,
+                resource_symbol->info.resource.uav_counter_type_id,
+                pointer_id, SpvMemoryAccessMaskNone);
+
+        pointer_id = vkd3d_spirv_build_op_access_chain1(builder,
+                ctr_ptr_type_id, pointer_id, zero_id);
+    }
+    else
+    {
+        uint32_t ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassImage, type_id);
+
+        pointer_id = vkd3d_spirv_build_op_image_texel_pointer(builder, ptr_type_id,
+            resource_symbol->info.resource.uav_counter_id, zero_id, zero_id);
+    }
 
     operands[0] = pointer_id;
     operands[1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvScopeDevice);
