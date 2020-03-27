@@ -427,6 +427,25 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         }
     }
 
+    for (i = 0; i < shader_interface_info->binding_count; i++)
+    {
+        /* Bindless UAV counters are implemented as physical storage buffer pointers. */
+        if ((shader_interface_info->bindings[i].flags & (VKD3D_SHADER_BINDING_FLAG_COUNTER | VKD3D_SHADER_BINDING_FLAG_BINDLESS)) ==
+            (VKD3D_SHADER_BINDING_FLAG_COUNTER | VKD3D_SHADER_BINDING_FLAG_BINDLESS))
+        {
+            static const struct dxil_spv_option_physical_storage_buffer helper =
+                    { { DXIL_SPV_OPTION_PHYSICAL_STORAGE_BUFFER },
+                      DXIL_SPV_TRUE };
+            if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+            {
+                ERR("dxil-spirv does not support PHYSICAL_STORAGE_BUFFER.\n");
+                ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                goto end;
+            }
+            break;
+        }
+    }
+
     if (compiler_args)
     {
         for (i = 0; i < compiler_args->target_extension_count; i++)
