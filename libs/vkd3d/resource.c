@@ -119,6 +119,7 @@ static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
         VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryAllocateFlagsInfo flags_info;
     VkMemoryAllocateInfo allocate_info;
     VkResult vr;
     HRESULT hr;
@@ -126,8 +127,15 @@ static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
     TRACE("Memory requirements: size %#"PRIx64", alignment %#"PRIx64".\n",
             memory_requirements->size, memory_requirements->alignment);
 
+    flags_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+    flags_info.pNext = dedicated_allocate_info;
+    flags_info.flags = 0;
+
+    if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
+        flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
+
     allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocate_info.pNext = dedicated_allocate_info;
+    allocate_info.pNext = &flags_info;
     allocate_info.allocationSize = memory_requirements->size;
     if (FAILED(hr = vkd3d_select_memory_type(device, memory_requirements->memoryTypeBits,
             heap_properties, heap_flags, &allocate_info.memoryTypeIndex)))
