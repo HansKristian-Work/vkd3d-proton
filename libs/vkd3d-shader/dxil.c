@@ -233,17 +233,25 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
             (binding->flags & resource_flags) != 0 &&
             dxil_match_shader_visibility(binding->shader_visibility, d3d_binding->d3d_binding.stage))
         {
-            if (d3d_binding->has_counter && (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
-            {
-                FIXME("Bindless UAV with counter currently not supported in DXIL.\n");
-                return DXIL_SPV_FALSE;
-            }
-
             if (d3d_binding->has_counter && (binding->flags & VKD3D_SHADER_BINDING_FLAG_COUNTER))
             {
-                vk_binding->counter_binding.set = binding->binding.set;
-                vk_binding->counter_binding.binding =
-                        binding->binding.binding + d3d_binding->d3d_binding.register_index - binding->register_index;
+                if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
+                {
+                    vk_binding->counter_binding.bindless.use_heap = DXIL_SPV_TRUE;
+                    vk_binding->counter_binding.bindless.heap_root_offset = binding->descriptor_offset +
+                            d3d_binding->d3d_binding.register_index - binding->register_index;
+                    vk_binding->counter_binding.bindless.root_constant_word =
+                            binding->descriptor_table +
+                            (shader_interface_info->descriptor_tables.offset / sizeof(uint32_t));
+                    vk_binding->counter_binding.set = binding->binding.set;
+                    vk_binding->counter_binding.binding = binding->binding.binding;
+                }
+                else
+                {
+                    vk_binding->counter_binding.set = binding->binding.set;
+                    vk_binding->counter_binding.binding =
+                            binding->binding.binding + d3d_binding->d3d_binding.register_index - binding->register_index;
+                }
                 found_binding = true;
             }
             else if (!(binding->flags & VKD3D_SHADER_BINDING_FLAG_COUNTER))
