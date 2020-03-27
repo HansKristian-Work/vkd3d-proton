@@ -3295,7 +3295,7 @@ static const struct ID3D12DeviceVtbl d3d12_device_vtbl =
 static D3D12_RESOURCE_BINDING_TIER d3d12_device_determine_resource_binding_tier(struct d3d12_device *device)
 {
     const uint32_t tier_2_required_flags = VKD3D_BINDLESS_SRV | VKD3D_BINDLESS_SAMPLER;
-    const uint32_t tier_3_required_flags = VKD3D_BINDLESS_CBV;
+    const uint32_t tier_3_required_flags = VKD3D_BINDLESS_CBV | VKD3D_BINDLESS_UAV | VKD3D_BINDLESS_UAV_COUNTER;
 
     uint32_t bindless_flags = device->bindless_state.flags;
 
