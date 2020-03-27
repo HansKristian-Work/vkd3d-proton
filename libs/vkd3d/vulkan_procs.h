@@ -178,9 +178,9 @@ VK_DEVICE_PFN(vkUpdateDescriptorSets)
 VK_DEVICE_PFN(vkWaitForFences)
 
 /* VK_KHR_buffer_device_address */
-VK_DEVICE_EXT_PFN(vkGetBufferDeviceAddressKHR);
-VK_DEVICE_EXT_PFN(vkGetBufferOpaqueCaptureAddressKHR);
-VK_DEVICE_EXT_PFN(vkGetDeviceMemoryOpaqueCaptureAddressKHR);
+VK_DEVICE_EXT_PFN(vkGetBufferDeviceAddressKHR)
+VK_DEVICE_EXT_PFN(vkGetBufferOpaqueCaptureAddressKHR)
+VK_DEVICE_EXT_PFN(vkGetDeviceMemoryOpaqueCaptureAddressKHR)
 
 /* VK_KHR_draw_indirect_count */
 VK_DEVICE_EXT_PFN(vkCmdDrawIndirectCountKHR)
