@@ -2277,9 +2277,7 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
 void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *src,
         struct d3d12_device *device)
 {
-    struct d3d12_desc destroy_desc;
-
-    destroy_desc.u.view = NULL;
+    struct vkd3d_view *destroy_view = NULL;
 
     spinlock_acquire(&dst->spinlock);
 
@@ -2288,7 +2286,7 @@ void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *sr
             || dst->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
             || dst->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
             && !InterlockedDecrement(&dst->u.view->refcount))
-        destroy_desc = *dst;
+        destroy_view = dst->u.view;
 
     dst->magic = src->magic;
     dst->vk_descriptor_type = src->vk_descriptor_type;
@@ -2300,8 +2298,8 @@ void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *sr
     spinlock_release(&dst->spinlock);
 
     /* Destroy the view after unlocking to reduce wait time. */
-    if (destroy_desc.u.view)
-        vkd3d_view_destroy(destroy_desc.u.view, device);
+    if (destroy_view)
+        vkd3d_view_destroy(destroy_view, device);
 }
 
 static void d3d12_desc_destroy(struct d3d12_desc *descriptor, struct d3d12_device *device)
