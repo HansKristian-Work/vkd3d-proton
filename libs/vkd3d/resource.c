@@ -2229,8 +2229,8 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
     /* update UAV counter address */
     if (dst->heap->uav_counters.data)
     {
-        bool has_view = dst->magic != VKD3D_DESCRIPTOR_MAGIC_CBV;
-        dst->heap->uav_counters.data[descriptor_index] = has_view
+        dst->heap->uav_counters.data[descriptor_index] =
+            (dst->magic & VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW)
                 ? dst->u.view->vk_counter_address : 0;
     }
 
@@ -2282,9 +2282,7 @@ void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *sr
     spinlock_acquire(&dst->spinlock);
 
     /* Nothing to do for VKD3D_DESCRIPTOR_MAGIC_CBV. */
-    if ((dst->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
-            || dst->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
-            || dst->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
+    if ((dst->magic & VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW)
             && !InterlockedDecrement(&dst->u.view->refcount))
         destroy_view = dst->u.view;
 
@@ -2320,12 +2318,8 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
      * and rewrite a descriptor in another thread while it is being copied. */
     spinlock_acquire(&src->spinlock);
 
-    if (src->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
-            || src->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
-            || src->magic == VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
-    {
+    if (src->magic & VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW)
         vkd3d_view_incref(src->u.view);
-    }
 
     tmp = *src;
 
