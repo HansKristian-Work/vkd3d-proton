@@ -158,6 +158,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_DESCRIPTOR_INDEXING, EXT_descriptor_indexing),
     VK_EXTENSION(EXT_INLINE_UNIFORM_BLOCK, EXT_inline_uniform_block),
     VK_EXTENSION(EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION, EXT_shader_demote_to_helper_invocation),
+    VK_EXTENSION(EXT_SUBGROUP_SIZE_CONTROL, EXT_subgroup_size_control),
     VK_EXTENSION(EXT_TEXEL_BUFFER_ALIGNMENT, EXT_texel_buffer_alignment),
     VK_EXTENSION(EXT_TRANSFORM_FEEDBACK, EXT_transform_feedback),
     VK_EXTENSION(EXT_VERTEX_ATTRIBUTE_DIVISOR, EXT_vertex_attribute_divisor),
@@ -702,6 +703,7 @@ VkInstance vkd3d_instance_get_vk_instance(struct vkd3d_instance *instance)
 static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkPhysicalDeviceSubgroupSizeControlPropertiesEXT *subgroup_size_control_properties;
     VkPhysicalDeviceInlineUniformBlockPropertiesEXT *inline_uniform_block_properties;
     VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *buffer_device_address_features;
     VkPhysicalDeviceConditionalRenderingFeaturesEXT *conditional_rendering_features;
@@ -747,6 +749,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     subgroup_properties = &info->subgroup_properties;
     timeline_semaphore_features = &info->timeline_semaphore_features;
     timeline_semaphore_properties = &info->timeline_semaphore_properties;
+    subgroup_size_control_properties = &info->subgroup_size_control_properties;
     shader_core_properties = &info->shader_core_properties;
     shader_core_properties2 = &info->shader_core_properties2;
     shader_sm_builtins_properties = &info->shader_sm_builtins_properties;
@@ -815,6 +818,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         demote_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES_EXT;
         vk_prepend_struct(&info->features2, demote_features);
+    }
+
+    if (vulkan_info->EXT_subgroup_size_control)
+    {
+        subgroup_size_control_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, subgroup_size_control_properties);
     }
 
     if (vulkan_info->EXT_texel_buffer_alignment)
