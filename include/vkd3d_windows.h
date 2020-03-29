@@ -98,6 +98,8 @@ typedef wchar_t WCHAR;
 # endif /* VKD3D_WIN32_WCHAR */
 typedef void *HANDLE;
 
+typedef const WCHAR* LPCWSTR;
+
 /* GUID */
 # ifdef __WIDL__
 typedef struct
