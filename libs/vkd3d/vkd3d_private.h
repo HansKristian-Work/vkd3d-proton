@@ -783,7 +783,6 @@ struct d3d12_root_signature
     struct vkd3d_shader_push_constant_buffer *root_constants;
 
     unsigned int packed_descriptor_count;
-    unsigned int root_descriptor_count;
 
     /* Use one global push constant range */
     VkPushConstantRange push_constant_range;
