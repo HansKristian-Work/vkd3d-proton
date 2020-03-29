@@ -817,7 +817,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
         vk_binding = &vk_binding_info[j++];
         vk_binding->binding = context->vk_binding;
         vk_binding->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        vk_binding->descriptorCount = push_constant_range->size;
+        vk_binding->descriptorCount = 1;
         vk_binding->stageFlags = VK_SHADER_STAGE_ALL;
         vk_binding->pImmutableSamplers = NULL;
 
