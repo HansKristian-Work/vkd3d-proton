@@ -2731,6 +2731,27 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_OPTIONS1:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS1 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options1;
+
+            TRACE("Wave ops %#x.\n", data->WaveOps);
+            TRACE("Min wave lane count %u.\n", data->WaveLaneCountMin);
+            TRACE("Max wave lane count %u.\n", data->WaveLaneCountMax);
+            TRACE("Total lane count %u.\n", data->TotalLaneCount);
+            TRACE("Expanded compute resource states %#x.\n", data->ExpandedComputeResourceStates);
+            TRACE("Int64 shader ops %#x.\n", data->Int64ShaderOps);
+            return S_OK;
+        }
+
         case D3D12_FEATURE_ROOT_SIGNATURE:
         {
             D3D12_FEATURE_DATA_ROOT_SIGNATURE *data = feature_data;
@@ -3528,29 +3549,83 @@ static D3D12_RESOURCE_BINDING_TIER d3d12_device_determine_resource_binding_tier(
 static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
-    struct d3d12_caps *caps = &device->d3d12_caps;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS *options = &device->d3d12_caps.options;
 
-    caps->options.DoublePrecisionFloatShaderOps = features->shaderFloat64;
-    caps->options.OutputMergerLogicOp = features->logicOp;
+    options->DoublePrecisionFloatShaderOps = features->shaderFloat64;
+    options->OutputMergerLogicOp = features->logicOp;
     /* Currently not supported */
-    caps->options.MinPrecisionSupport = D3D12_SHADER_MIN_PRECISION_SUPPORT_NONE;
+    options->MinPrecisionSupport = D3D12_SHADER_MIN_PRECISION_SUPPORT_NONE;
     /* Currently not supported */
-    caps->options.TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
-    caps->options.ResourceBindingTier = d3d12_device_determine_resource_binding_tier(device);
+    options->TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
+    options->ResourceBindingTier = d3d12_device_determine_resource_binding_tier(device);
     /* Requires VK_EXT_shader_stencil_export */
-    caps->options.PSSpecifiedStencilRefSupported = FALSE;
-    caps->options.TypedUAVLoadAdditionalFormats = features->shaderStorageImageExtendedFormats;
+    options->PSSpecifiedStencilRefSupported = FALSE;
+    options->TypedUAVLoadAdditionalFormats = features->shaderStorageImageExtendedFormats;
     /* Requires VK_EXT_fragment_shader_interlock */
-    caps->options.ROVsSupported = FALSE;
+    options->ROVsSupported = FALSE;
     /* Requires VK_EXT_conservative_rasterization */
-    caps->options.ConservativeRasterizationTier = D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED;
-    caps->options.MaxGPUVirtualAddressBitsPerResource = 40; /* XXX */
-    caps->options.StandardSwizzle64KBSupported = FALSE;
-    caps->options.CrossNodeSharingTier = D3D12_CROSS_NODE_SHARING_TIER_NOT_SUPPORTED;
-    caps->options.CrossAdapterRowMajorTextureSupported = FALSE;
+    options->ConservativeRasterizationTier = D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED;
+    options->MaxGPUVirtualAddressBitsPerResource = 40; /* XXX */
+    options->StandardSwizzle64KBSupported = FALSE;
+    options->CrossNodeSharingTier = D3D12_CROSS_NODE_SHARING_TIER_NOT_SUPPORTED;
+    options->CrossAdapterRowMajorTextureSupported = FALSE;
     /* Requires VK_EXT_shader_viewport_index_layer */
-    caps->options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation = FALSE;
-    caps->options.ResourceHeapTier = D3D12_RESOURCE_HEAP_TIER_2;
+    options->VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation = FALSE;
+    options->ResourceHeapTier = D3D12_RESOURCE_HEAP_TIER_2;
+}
+
+static void d3d12_device_caps_init_feature_options1(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS1 *options1 = &device->d3d12_caps.options1;
+
+    options1->WaveOps = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_0;
+
+    if (device->vk_info.EXT_subgroup_size_control)
+    {
+        options1->WaveLaneCountMin = device->device_info.subgroup_size_control_properties.minSubgroupSize;
+        options1->WaveLaneCountMax = device->device_info.subgroup_size_control_properties.maxSubgroupSize;
+    }
+    else
+    {
+        WARN("Device info for WaveLaneCountMin and WaveLaneCountMax may be inaccurate.\n");
+        options1->WaveLaneCountMin = device->device_info.subgroup_properties.subgroupSize;
+        options1->WaveLaneCountMax = device->device_info.subgroup_properties.subgroupSize;
+    }
+
+    if (device->vk_info.AMD_shader_core_properties)
+    {
+        const VkPhysicalDeviceShaderCorePropertiesAMD *amd = &device->device_info.shader_core_properties;
+        const VkPhysicalDeviceShaderCoreProperties2AMD *amd2 = &device->device_info.shader_core_properties2;
+        uint32_t compute_units;
+        
+        if (device->vk_info.AMD_shader_core_properties2)
+            compute_units = amd2->activeComputeUnitCount;
+        else
+            compute_units = amd->shaderEngineCount *
+                    amd->computeUnitsPerShaderArray;
+
+        /* There doesn't seem to be a way to get the SIMD width,
+         * so just assume 64 lanes per CU. True on GCN and RDNA. */
+        options1->TotalLaneCount = compute_units * 64;
+    }
+    else if (device->vk_info.NV_shader_sm_builtins)
+    {
+        /* Approximation, since we cannot query the number of lanes
+         * per SM. Appears to be correct on Pascal and Turing. */
+        const VkPhysicalDeviceShaderSMBuiltinsPropertiesNV *nv = &device->device_info.shader_sm_builtins_properties;
+        options1->TotalLaneCount = nv->shaderSMCount * nv->shaderWarpsPerSM * 2;
+    }
+    else
+    {
+        options1->TotalLaneCount = 32 * device->device_info.subgroup_properties.subgroupSize;
+        WARN("No device info available for TotalLaneCount = .\n");
+    }
+
+    options1->ExpandedComputeResourceStates = TRUE;
+    /* Does spirv-dxil support this? */
+    options1->Int64ShaderOps = FALSE;
+
+    FIXME("TotalLaneCount = %u, may be inaccurate.\n", options1->TotalLaneCount);
 }
 
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
@@ -3618,6 +3693,7 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
 static void d3d12_device_caps_init(struct d3d12_device *device)
 {
     d3d12_device_caps_init_feature_options(device);
+    d3d12_device_caps_init_feature_options1(device);
     d3d12_device_caps_init_feature_level(device);
     d3d12_device_caps_init_shader_model(device);
 }
