@@ -942,7 +942,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     root_signature->binding_count = info.binding_count;
     root_signature->static_sampler_count = desc->NumStaticSamplers;
     root_signature->packed_descriptor_count = info.descriptor_count;
-    root_signature->root_descriptor_count = info.root_descriptor_count;
 
     hr = E_OUTOFMEMORY;
     root_signature->parameter_count = desc->NumParameters;
