@@ -119,6 +119,7 @@ struct vkd3d_vulkan_info
     bool EXT_descriptor_indexing;
     bool EXT_inline_uniform_block;
     bool EXT_shader_demote_to_helper_invocation;
+    bool EXT_subgroup_size_control;
     bool EXT_texel_buffer_alignment;
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
@@ -1319,6 +1320,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
     VkPhysicalDeviceSubgroupProperties subgroup_properties;
     VkPhysicalDeviceTimelineSemaphorePropertiesKHR timeline_semaphore_properties;
+    VkPhysicalDeviceSubgroupSizeControlPropertiesEXT subgroup_size_control_properties;
     VkPhysicalDeviceShaderCorePropertiesAMD shader_core_properties;
     VkPhysicalDeviceShaderCoreProperties2AMD shader_core_properties2;
     VkPhysicalDeviceShaderSMBuiltinsPropertiesNV shader_sm_builtins_properties;
