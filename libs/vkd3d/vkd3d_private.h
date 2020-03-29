@@ -125,6 +125,8 @@ struct vkd3d_vulkan_info
     /* AMD device extensions */
     bool AMD_shader_core_properties;
     bool AMD_shader_core_properties2;
+    /* NV device extensions */
+    bool NV_shader_sm_builtins;
 
     bool rasterization_stream;
     bool transform_feedback_queries;
@@ -1319,6 +1321,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceTimelineSemaphorePropertiesKHR timeline_semaphore_properties;
     VkPhysicalDeviceShaderCorePropertiesAMD shader_core_properties;
     VkPhysicalDeviceShaderCoreProperties2AMD shader_core_properties2;
+    VkPhysicalDeviceShaderSMBuiltinsPropertiesNV shader_sm_builtins_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
