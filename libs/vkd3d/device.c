@@ -161,6 +161,9 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_TEXEL_BUFFER_ALIGNMENT, EXT_texel_buffer_alignment),
     VK_EXTENSION(EXT_TRANSFORM_FEEDBACK, EXT_transform_feedback),
     VK_EXTENSION(EXT_VERTEX_ATTRIBUTE_DIVISOR, EXT_vertex_attribute_divisor),
+    /* AMD extensions */
+    VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES, AMD_shader_core_properties),
+    VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES_2, AMD_shader_core_properties2),
 };
 
 static unsigned int get_spec_version(const VkExtensionProperties *extensions,
@@ -711,7 +714,9 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT *demote_features;
     VkPhysicalDeviceTimelineSemaphoreFeaturesKHR *timeline_semaphore_features;
     VkPhysicalDevicePushDescriptorPropertiesKHR *push_descriptor_properties;
+    VkPhysicalDeviceShaderCoreProperties2AMD *shader_core_properties2;
     VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
+    VkPhysicalDeviceShaderCorePropertiesAMD *shader_core_properties;
     VkPhysicalDeviceMaintenance3Properties *maintenance3_properties;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT *xfb_properties;
     VkPhysicalDevice physical_device = device->vk_physical_device;
@@ -739,6 +744,8 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     subgroup_properties = &info->subgroup_properties;
     timeline_semaphore_features = &info->timeline_semaphore_features;
     timeline_semaphore_properties = &info->timeline_semaphore_properties;
+    shader_core_properties = &info->shader_core_properties;
+    shader_core_properties2 = &info->shader_core_properties2;
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
@@ -828,6 +835,18 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, vertex_divisor_features);
         vertex_divisor_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES_EXT;
         vk_prepend_struct(&info->properties2, vertex_divisor_properties);
+    }
+
+    if (vulkan_info->AMD_shader_core_properties)
+    {
+        shader_core_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CORE_PROPERTIES_AMD;
+        vk_prepend_struct(&info->properties2, shader_core_properties);
+    }
+
+    if (vulkan_info->AMD_shader_core_properties2)
+    {
+        shader_core_properties2->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CORE_PROPERTIES_2_AMD;
+        vk_prepend_struct(&info->properties2, shader_core_properties2);
     }
 
     if (vulkan_info->KHR_get_physical_device_properties2)
