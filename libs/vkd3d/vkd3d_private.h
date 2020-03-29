@@ -122,6 +122,9 @@ struct vkd3d_vulkan_info
     bool EXT_texel_buffer_alignment;
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
+    /* AMD device extensions */
+    bool AMD_shader_core_properties;
+    bool AMD_shader_core_properties2;
 
     bool rasterization_stream;
     bool transform_feedback_queries;
@@ -1314,6 +1317,8 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
     VkPhysicalDeviceSubgroupProperties subgroup_properties;
     VkPhysicalDeviceTimelineSemaphorePropertiesKHR timeline_semaphore_properties;
+    VkPhysicalDeviceShaderCorePropertiesAMD shader_core_properties;
+    VkPhysicalDeviceShaderCoreProperties2AMD shader_core_properties2;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
