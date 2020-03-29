@@ -1269,6 +1269,7 @@ struct vkd3d_physical_device_info
     /* properties */
     VkPhysicalDeviceDescriptorIndexingPropertiesEXT descriptor_indexing_properties;
     VkPhysicalDeviceInlineUniformBlockPropertiesEXT inline_uniform_block_properties;
+    VkPhysicalDevicePushDescriptorPropertiesKHR push_descriptor_properties;
     VkPhysicalDeviceMaintenance3Properties maintenance3_properties;
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT xfb_properties;
