@@ -2274,17 +2274,13 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
     VK_CALL(vkUpdateDescriptorSets(dst->heap->device->vk_device, 1, &vk_write, 0, NULL));
 }
 
-void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *src,
-        struct d3d12_device *device)
+static inline void d3d12_desc_write(struct d3d12_desc *dst, const struct d3d12_desc *src,
+        struct vkd3d_view **destroy_view)
 {
-    struct vkd3d_view *destroy_view = NULL;
-
-    spinlock_acquire(&dst->spinlock);
-
     /* Nothing to do for VKD3D_DESCRIPTOR_MAGIC_CBV. */
     if ((dst->magic & VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW)
             && !InterlockedDecrement(&dst->u.view->refcount))
-        destroy_view = dst->u.view;
+        *destroy_view = dst->u.view;
 
     dst->magic = src->magic;
     dst->vk_descriptor_type = src->vk_descriptor_type;
@@ -2292,7 +2288,15 @@ void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *sr
 
     if (dst->magic != VKD3D_DESCRIPTOR_MAGIC_FREE)
         d3d12_desc_update_bindless_descriptor(dst);
+}
 
+void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *src,
+        struct d3d12_device *device)
+{
+    struct vkd3d_view *destroy_view = NULL;
+
+    spinlock_acquire(&dst->spinlock);
+    d3d12_desc_write(dst, src, &destroy_view);
     spinlock_release(&dst->spinlock);
 
     /* Destroy the view after unlocking to reduce wait time. */
@@ -2310,22 +2314,47 @@ static void d3d12_desc_destroy(struct d3d12_desc *descriptor, struct d3d12_devic
 void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
         struct d3d12_device *device)
 {
-    struct d3d12_desc tmp;
-
-    assert(dst != src);
+    struct vkd3d_view *destroy_view = NULL;
+    bool needs_update;
 
     /* Shadow of the Tomb Raider and possibly other titles sometimes destroy
      * and rewrite a descriptor in another thread while it is being copied. */
-    spinlock_acquire(&src->spinlock);
+    assert(dst != src);
 
-    if (src->magic & VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW)
-        vkd3d_view_incref(src->u.view);
+    /* Prevent deadlock */
+    spinlock_acquire(dst < src ? &dst->spinlock : &src->spinlock);
+    spinlock_acquire(dst < src ? &src->spinlock : &dst->spinlock);
 
-    tmp = *src;
+    /* Only update the descriptor if something has changed */
+    if (!(needs_update = (dst->magic != src->magic)))
+    {
+        if (dst->magic & VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW)
+        {
+            needs_update = dst->u.view != src->u.view;
+        }
+        else if (dst->magic != VKD3D_DESCRIPTOR_MAGIC_FREE)
+        {
+            needs_update = dst->u.vk_cbv_info.buffer != src->u.vk_cbv_info.buffer ||
+                dst->u.vk_cbv_info.offset != src->u.vk_cbv_info.offset ||
+                dst->u.vk_cbv_info.range != src->u.vk_cbv_info.range;
+        }
+    }
+
+    if (needs_update)
+    {
+        /* Perform the actual descriptor update */
+        if (src->magic & VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW)
+            InterlockedIncrement(&src->u.view->refcount);
+
+        d3d12_desc_write(dst, src, &destroy_view);
+    }
 
     spinlock_release(&src->spinlock);
+    spinlock_release(&dst->spinlock);
 
-    d3d12_desc_write_atomic(dst, &tmp, device);
+    /* Destroy the view after unlocking to reduce wait time. */
+    if (destroy_view)
+        vkd3d_view_destroy(destroy_view, device);
 }
 
 static VkDeviceSize vkd3d_get_required_texel_buffer_alignment(const struct d3d12_device *device,
