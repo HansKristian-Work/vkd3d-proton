@@ -2752,6 +2752,27 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_PROTECTED_RESOURCE_SESSION_SUPPORT:
+        {
+            D3D12_FEATURE_DATA_PROTECTED_RESOURCE_SESSION_SUPPORT *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            if (data->NodeIndex)
+            {
+                FIXME("Multi-adapter not supported.\n");
+                return E_INVALIDARG;
+            }
+
+            data->Support = D3D12_PROTECTED_RESOURCE_SESSION_SUPPORT_FLAG_NONE;
+            TRACE("Protected resource session support %#x.", data->Support);
+            return S_OK;
+        }
+
         case D3D12_FEATURE_ROOT_SIGNATURE:
         {
             D3D12_FEATURE_DATA_ROOT_SIGNATURE *data = feature_data;
