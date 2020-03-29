@@ -131,7 +131,8 @@ static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
     flags_info.pNext = dedicated_allocate_info;
     flags_info.flags = 0;
 
-    if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
+    if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS) &&
+            device->device_info.buffer_device_address_features.bufferDeviceAddress)
         flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
 
     allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
