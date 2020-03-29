@@ -1208,6 +1208,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     const struct vkd3d_optional_device_extensions_info *optional_extensions;
+    VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *buffer_device_address;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
     VkPhysicalDevice physical_device = device->vk_physical_device;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
@@ -1315,12 +1316,13 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     /* Disable unused Vulkan features. */
     features->shaderTessellationAndGeometryPointSize = VK_FALSE;
 
+    buffer_device_address = &physical_device_info->buffer_device_address_features;
+    buffer_device_address->bufferDeviceAddressCaptureReplay = VK_FALSE;
+    buffer_device_address->bufferDeviceAddressMultiDevice = VK_FALSE;
+
     descriptor_indexing = &physical_device_info->descriptor_indexing_features;
-    if (descriptor_indexing)
-    {
-        descriptor_indexing->shaderInputAttachmentArrayDynamicIndexing = VK_FALSE;
-        descriptor_indexing->shaderInputAttachmentArrayNonUniformIndexing = VK_FALSE;
-    }
+    descriptor_indexing->shaderInputAttachmentArrayDynamicIndexing = VK_FALSE;
+    descriptor_indexing->shaderInputAttachmentArrayNonUniformIndexing = VK_FALSE;
 
     if (vulkan_info->EXT_descriptor_indexing && descriptor_indexing
             && (descriptor_indexing->descriptorBindingUniformBufferUpdateAfterBind
