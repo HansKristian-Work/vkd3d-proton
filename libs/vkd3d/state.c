@@ -389,7 +389,7 @@ struct d3d12_root_signature_info
     uint32_t binding_count;
     uint32_t descriptor_count;
 
-    uint32_t root_descriptor_count;
+    uint32_t push_descriptor_count;
     uint32_t root_constant_count;
     bool has_uav_counters;
 
@@ -501,7 +501,7 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
             case D3D12_ROOT_PARAMETER_TYPE_SRV:
             case D3D12_ROOT_PARAMETER_TYPE_UAV:
                 info->binding_count += 1;
-                info->root_descriptor_count += 1;
+                info->push_descriptor_count += 1;
                 info->cost += 2;
                 break;
 
@@ -517,6 +517,10 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
     }
 
     info->binding_count += desc->NumStaticSamplers;
+
+    /* Account for UAV counter binding */
+    if (info->has_uav_counters)
+        info->push_descriptor_count += 1;
     return S_OK;
 }
 
@@ -767,10 +771,10 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     rs_flags = VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK |
         VKD3D_ROOT_SIGNATURE_USE_BINDLESS_UAV_COUNTERS;
 
-    if (!info->root_descriptor_count && !(root_signature->flags & rs_flags))
+    if (!info->push_descriptor_count && !(root_signature->flags & rs_flags))
         return S_OK;
 
-    if (!(vk_binding_info = vkd3d_malloc(sizeof(*vk_binding_info) * (info->root_descriptor_count + 2))))
+    if (!(vk_binding_info = vkd3d_malloc(sizeof(*vk_binding_info) * (info->push_descriptor_count + 1))))
         return E_OUTOFMEMORY;
 
     for (i = 0, j = 0; i < desc->NumParameters; ++i)
@@ -911,7 +915,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     const VkPhysicalDeviceProperties *vk_device_properties = &device->device_info.properties2.properties;
     const struct vkd3d_bindless_state *bindless_state = &device->bindless_state;
     VkDescriptorSetLayout set_layouts[VKD3D_MAX_DESCRIPTOR_SETS];
-    const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
     struct vkd3d_descriptor_set_context context;
     unsigned int i, push_constant_range_count;
     struct d3d12_root_signature_info info;
@@ -982,7 +985,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
     if (root_signature->push_constant_range.size <= vk_device_properties->limits.maxPushConstantsSize)
     {
-        if (vk_info->KHR_push_descriptor)
+        if (info.push_descriptor_count <= device->device_info.push_descriptor_properties.maxPushDescriptors)
             root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS;
     }
     else if (device->device_info.inline_uniform_block_features.inlineUniformBlock)
