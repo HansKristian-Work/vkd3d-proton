@@ -2790,6 +2790,35 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_ARCHITECTURE1:
+        {
+            D3D12_FEATURE_DATA_ARCHITECTURE1 *data = feature_data;
+            bool coherent;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            if (data->NodeIndex)
+            {
+                FIXME("Multi-adapter not supported.\n");
+                return E_INVALIDARG;
+            }
+
+            WARN("Assuming device does not support tile based rendering.\n");
+            data->TileBasedRenderer = FALSE;
+
+            data->UMA = d3d12_device_is_uma(device, &coherent);
+            data->CacheCoherentUMA = data->UMA ? coherent : FALSE;
+            data->IsolatedMMU = TRUE; /* Appears to be true Windows drivers */
+
+            TRACE("Tile based renderer %#x, UMA %#x, cache coherent UMA %#x, isolated MMU %#x.\n",
+                    data->TileBasedRenderer, data->UMA, data->CacheCoherentUMA, data->IsolatedMMU);
+            return S_OK;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
