@@ -707,6 +707,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *vertex_divisor_features;
     VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT *buffer_alignment_features;
     VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT *demote_features;
+    VkPhysicalDevicePushDescriptorPropertiesKHR *push_descriptor_properties;
     VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
     VkPhysicalDeviceMaintenance3Properties *maintenance3_properties;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT *xfb_properties;
@@ -723,6 +724,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     descriptor_indexing_properties = &info->descriptor_indexing_properties;
     inline_uniform_block_features = &info->inline_uniform_block_features;
     inline_uniform_block_properties = &info->inline_uniform_block_properties;
+    push_descriptor_properties = &info->push_descriptor_properties;
     maintenance3_properties = &info->maintenance3_properties;
     demote_features = &info->demote_features;
     buffer_alignment_features = &info->texel_buffer_alignment_features;
@@ -765,6 +767,8 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     vk_prepend_struct(&info->properties2, maintenance3_properties);
     descriptor_indexing_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES_EXT;
     vk_prepend_struct(&info->properties2, descriptor_indexing_properties);
+    push_descriptor_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR;
+    vk_prepend_struct(&info->properties2, push_descriptor_properties);
     buffer_alignment_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES_EXT;
     vk_prepend_struct(&info->properties2, buffer_alignment_properties);
     xfb_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT;
