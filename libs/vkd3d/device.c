@@ -164,6 +164,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     /* AMD extensions */
     VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES, AMD_shader_core_properties),
     VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES_2, AMD_shader_core_properties2),
+    /* NV extensions */
+    VK_EXTENSION(NV_SHADER_SM_BUILTINS, NV_shader_sm_builtins),
 };
 
 static unsigned int get_spec_version(const VkExtensionProperties *extensions,
@@ -709,6 +711,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceTimelineSemaphorePropertiesKHR *timeline_semaphore_properties;
     VkPhysicalDeviceInlineUniformBlockFeaturesEXT *inline_uniform_block_features;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing_features;
+    VkPhysicalDeviceShaderSMBuiltinsPropertiesNV *shader_sm_builtins_properties;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *vertex_divisor_features;
     VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT *buffer_alignment_features;
     VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT *demote_features;
@@ -746,6 +749,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     timeline_semaphore_properties = &info->timeline_semaphore_properties;
     shader_core_properties = &info->shader_core_properties;
     shader_core_properties2 = &info->shader_core_properties2;
+    shader_sm_builtins_properties = &info->shader_sm_builtins_properties;
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
@@ -847,6 +851,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         shader_core_properties2->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CORE_PROPERTIES_2_AMD;
         vk_prepend_struct(&info->properties2, shader_core_properties2);
+    }
+
+    if (vulkan_info->NV_shader_sm_builtins)
+    {
+        shader_sm_builtins_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SM_BUILTINS_PROPERTIES_NV;
+        vk_prepend_struct(&info->properties2, shader_sm_builtins_properties);
     }
 
     if (vulkan_info->KHR_get_physical_device_properties2)
