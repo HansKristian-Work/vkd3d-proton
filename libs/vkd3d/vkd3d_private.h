@@ -111,6 +111,7 @@ struct vkd3d_vulkan_info
     bool KHR_image_format_list;
     bool KHR_maintenance3;
     bool KHR_push_descriptor;
+    bool KHR_timeline_semaphore;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_debug_marker;
@@ -1278,6 +1279,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceTransformFeedbackPropertiesEXT xfb_properties;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
     VkPhysicalDeviceSubgroupProperties subgroup_properties;
+    VkPhysicalDeviceTimelineSemaphorePropertiesKHR timeline_semaphore_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
@@ -1291,6 +1293,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT texel_buffer_alignment_features;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
+    VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline_semaphore_features;
 
     VkPhysicalDeviceFeatures2 features2;
 };

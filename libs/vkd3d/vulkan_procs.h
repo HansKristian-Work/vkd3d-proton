@@ -182,6 +182,11 @@ VK_DEVICE_EXT_PFN(vkGetBufferDeviceAddressKHR)
 VK_DEVICE_EXT_PFN(vkGetBufferOpaqueCaptureAddressKHR)
 VK_DEVICE_EXT_PFN(vkGetDeviceMemoryOpaqueCaptureAddressKHR)
 
+/* VK_KHR_timeline_semaphore */
+VK_DEVICE_EXT_PFN(vkGetSemaphoreCounterValueKHR)
+VK_DEVICE_EXT_PFN(vkWaitSemaphoresKHR)
+VK_DEVICE_EXT_PFN(vkSignalSemaphoreKHR)
+
 /* VK_KHR_draw_indirect_count */
 VK_DEVICE_EXT_PFN(vkCmdDrawIndirectCountKHR)
 VK_DEVICE_EXT_PFN(vkCmdDrawIndexedIndirectCountKHR)
