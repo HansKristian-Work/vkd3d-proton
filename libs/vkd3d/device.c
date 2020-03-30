@@ -2873,6 +2873,26 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_OPTIONS3:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS3 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options3;
+
+            TRACE("Copy queue timestamp queries %#x.", data->CopyQueueTimestampQueriesSupported);
+            TRACE("Casting fully typed formats %#x.", data->CastingFullyTypedFormatSupported);
+            TRACE("Write buffer immediate support flags %#x.", data->WriteBufferImmediateSupportFlags);
+            TRACE("View instancing tier %u.", data->ViewInstancingTier);
+            TRACE("Barycentrics %#x.", data->BarycentricsSupported);
+            return S_OK;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
@@ -3742,6 +3762,21 @@ static void d3d12_device_caps_init_feature_options2(struct d3d12_device *device)
     options2->ProgrammableSamplePositionsTier = D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_NOT_SUPPORTED;
 }
 
+static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS3 *options3 = &device->d3d12_caps.options3;
+
+    options3->CopyQueueTimestampQueriesSupported = !!device->copy_queue->timestamp_bits;
+    /* Requires changes to format compatibility */
+    options3->CastingFullyTypedFormatSupported = FALSE;
+    /* Currently not supported */
+    options3->WriteBufferImmediateSupportFlags = 0;
+    /* Currently not supported */
+    options3->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
+    /* Currently not supported */
+    options3->BarycentricsSupported = FALSE;
+}
+
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -3809,6 +3844,7 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options(device);
     d3d12_device_caps_init_feature_options1(device);
     d3d12_device_caps_init_feature_options2(device);
+    d3d12_device_caps_init_feature_options3(device);
     d3d12_device_caps_init_feature_level(device);
     d3d12_device_caps_init_shader_model(device);
 }
