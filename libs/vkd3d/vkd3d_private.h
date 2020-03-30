@@ -1339,9 +1339,11 @@ struct d3d12_caps
 };
 
 /* ID3D12Device */
+typedef ID3D12Device d3d12_device_iface;
+
 struct d3d12_device
 {
-    ID3D12Device ID3D12Device_iface;
+    d3d12_device_iface ID3D12Device_iface;
     LONG refcount;
 
     VkDevice vk_device;
@@ -1394,7 +1396,7 @@ struct vkd3d_queue *d3d12_device_get_vkd3d_queue(struct d3d12_device *device,
 bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent) DECLSPEC_HIDDEN;
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
         const char *message, ...) VKD3D_PRINTF_FUNC(3, 4) DECLSPEC_HIDDEN;
-struct d3d12_device *unsafe_impl_from_ID3D12Device(ID3D12Device *iface) DECLSPEC_HIDDEN;
+struct d3d12_device *unsafe_impl_from_ID3D12Device(d3d12_device_iface *iface) DECLSPEC_HIDDEN;
 
 static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, REFIID iid, void **object)
 {
