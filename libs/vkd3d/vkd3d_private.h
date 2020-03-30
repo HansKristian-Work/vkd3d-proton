@@ -1063,9 +1063,11 @@ struct d3d12_deferred_descriptor_set_update
 };
 
 /* ID3D12CommandList */
+typedef ID3D12GraphicsCommandList2 d3d12_command_list_iface;
+
 struct d3d12_command_list
 {
-    ID3D12GraphicsCommandList2 ID3D12GraphicsCommandList2_iface;
+    d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
     LONG refcount;
 
     D3D12_COMMAND_LIST_TYPE type;
