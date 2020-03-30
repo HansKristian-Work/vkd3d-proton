@@ -38,6 +38,7 @@ cpp_quote("#define D3D12_DEFAULT_BLEND_FACTOR_BLUE (1.0f)")
 cpp_quote("#define D3D12_DEFAULT_BLEND_FACTOR_GREEN (1.0f)")
 cpp_quote("#define D3D12_DEFAULT_BLEND_FACTOR_RED (1.0f)")
 const UINT D3D12_DEFAULT_DEPTH_BIAS = 0;
+const UINT D3D12_DEFAULT_SAMPLE_MASK = 0xffffffff;
 cpp_quote("#define D3D12_DEFAULT_DEPTH_BIAS_CLAMP (0.0f)")
 cpp_quote("#define D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS (0.0f)")
 const UINT D3D12_DEFAULT_STENCIL_READ_MASK = 0xff;
@@ -1482,6 +1483,19 @@ typedef struct D3D12_DEPTH_STENCIL_DESC
     D3D12_DEPTH_STENCILOP_DESC FrontFace;
     D3D12_DEPTH_STENCILOP_DESC BackFace;
 } D3D12_DEPTH_STENCIL_DESC;
+
+typedef struct D3D12_DEPTH_STENCIL_DESC1
+{
+    BOOL DepthEnable;
+    D3D12_DEPTH_WRITE_MASK DepthWriteMask;
+    D3D12_COMPARISON_FUNC DepthFunc;
+    BOOL StencilEnable;
+    UINT8 StencilReadMask;
+    UINT8 StencilWriteMask;
+    D3D12_DEPTH_STENCILOP_DESC FrontFace;
+    D3D12_DEPTH_STENCILOP_DESC BackFace;
+    BOOL DepthBoundsTestEnable;
+} D3D12_DEPTH_STENCIL_DESC1;
 
 typedef enum D3D12_BLEND
 {
@@ -3474,7 +3488,7 @@ interface ID3D12Device1 : ID3D12Device
 ]
 interface ID3D12Device2 : ID3D12Device1
 {
-    HRESULT CreatePipelineState(const D3D12_PIPELINE_STATE_STREAM_DESC desc,
+    HRESULT CreatePipelineState(const D3D12_PIPELINE_STATE_STREAM_DESC *desc,
             REFIID riid, void **pipeline_state);
 }
 
@@ -3487,7 +3501,7 @@ interface ID3D12Device2 : ID3D12Device1
 interface ID3D12Device3 : ID3D12Device2
 {
     HRESULT OpenExistingHeapFromAddress(void *address,
-            REFIID rrid, void **heap);
+            REFIID riid, void **heap);
 
     HRESULT OpenExistingHeapFromFileMapping(HANDLE file_mapping,
             REFIID riid, void **heap);
