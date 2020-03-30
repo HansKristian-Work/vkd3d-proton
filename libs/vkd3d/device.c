@@ -2819,6 +2819,23 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_OPTIONS2:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS2 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options2;
+
+            TRACE("Depth bounds test %#x.\n", data->DepthBoundsTestSupported);
+            TRACE("Programmable sample positions tier %u.\n", data->ProgrammableSamplePositionsTier);
+            return S_OK;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
@@ -3678,6 +3695,16 @@ static void d3d12_device_caps_init_feature_options1(struct d3d12_device *device)
     FIXME("TotalLaneCount = %u, may be inaccurate.\n", options1->TotalLaneCount);
 }
 
+static void d3d12_device_caps_init_feature_options2(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS2 *options2 = &device->d3d12_caps.options2;
+
+    /* Currently not supported */
+    options2->DepthBoundsTestSupported = FALSE;
+    /* Requires VK_EXT_sample_locations */
+    options2->ProgrammableSamplePositionsTier = D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_NOT_SUPPORTED;
+}
+
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -3744,6 +3771,7 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
 {
     d3d12_device_caps_init_feature_options(device);
     d3d12_device_caps_init_feature_options1(device);
+    d3d12_device_caps_init_feature_options2(device);
     d3d12_device_caps_init_feature_level(device);
     d3d12_device_caps_init_shader_model(device);
 }
