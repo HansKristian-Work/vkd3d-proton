@@ -150,6 +150,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_IMAGE_FORMAT_LIST, KHR_image_format_list),
     VK_EXTENSION(KHR_MAINTENANCE3, KHR_maintenance3),
     VK_EXTENSION(KHR_PUSH_DESCRIPTOR, KHR_push_descriptor),
+    VK_EXTENSION(KHR_TIMELINE_SEMAPHORE, KHR_timeline_semaphore),
     /* EXT extensions */
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
     VK_EXTENSION(EXT_DEBUG_MARKER, EXT_debug_marker),
@@ -702,11 +703,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceDescriptorIndexingPropertiesEXT *descriptor_indexing_properties;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT *vertex_divisor_properties;
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT *buffer_alignment_properties;
+    VkPhysicalDeviceTimelineSemaphorePropertiesKHR *timeline_semaphore_properties;
     VkPhysicalDeviceInlineUniformBlockFeaturesEXT *inline_uniform_block_features;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing_features;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *vertex_divisor_features;
     VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT *buffer_alignment_features;
     VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT *demote_features;
+    VkPhysicalDeviceTimelineSemaphoreFeaturesKHR *timeline_semaphore_features;
     VkPhysicalDevicePushDescriptorPropertiesKHR *push_descriptor_properties;
     VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
     VkPhysicalDeviceMaintenance3Properties *maintenance3_properties;
@@ -734,6 +737,8 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     xfb_features = &info->xfb_features;
     xfb_properties = &info->xfb_properties;
     subgroup_properties = &info->subgroup_properties;
+    timeline_semaphore_features = &info->timeline_semaphore_features;
+    timeline_semaphore_properties = &info->timeline_semaphore_properties;
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
@@ -745,6 +750,14 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         buffer_device_address_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
         vk_prepend_struct(&info->features2, buffer_device_address_features);
+    }
+
+    if (vulkan_info->KHR_timeline_semaphore)
+    {
+        timeline_semaphore_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, timeline_semaphore_features);
+        timeline_semaphore_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES_KHR;
+        vk_prepend_struct(&info->properties2, timeline_semaphore_properties);
     }
 
     if (vulkan_info->KHR_push_descriptor)
