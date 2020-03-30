@@ -2101,6 +2101,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface 
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (IsEqualGUID(riid, &IID_ID3D12Device)
+            || IsEqualGUID(riid, &IID_ID3D12Device1)
+            || IsEqualGUID(riid, &IID_ID3D12Device2)
+            || IsEqualGUID(riid, &IID_ID3D12Device3)
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
@@ -3342,7 +3345,72 @@ static LUID * STDMETHODCALLTYPE d3d12_device_GetAdapterLuid(d3d12_device_iface *
     return luid;
 }
 
-static const struct ID3D12DeviceVtbl d3d12_device_vtbl =
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineLibrary(d3d12_device_iface *iface,
+        const void *blob, SIZE_T blob_size, REFIID iid, void **lib)
+{
+    FIXME("iface %p, blob %p, blob_size %lu, iid %s, lib %p stub!\n",
+            iface, blob, blob_size, debugstr_guid(iid), lib);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_SetEventOnMultipleFenceCompletion(d3d12_device_iface *iface,
+        ID3D12Fence *const *fences, const UINT64 *values, UINT fence_count,
+        D3D12_MULTIPLE_FENCE_WAIT_FLAGS flags, HANDLE event)
+{
+    FIXME("iface %p, fences %p, values %p, fence_count %u, flags %#x, event %p stub!\n",
+            iface, fences, values, fence_count, flags, event);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_SetResidencyPriority(d3d12_device_iface *iface,
+        UINT object_count, ID3D12Pageable *const *objects, const D3D12_RESIDENCY_PRIORITY *priorities)
+{
+    FIXME("iface %p, object_count %u, objects %p, priorities %p stub!\n",
+            iface, object_count, objects, priorities);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineState(d3d12_device_iface *iface,
+        const D3D12_PIPELINE_STATE_STREAM_DESC *desc, REFIID riid, void **pipeline_state)
+{
+    FIXME("iface %p, desc %p, riid %s, pipeline_state %p stub!\n",
+            iface, desc, debugstr_guid(riid), pipeline_state);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_device_iface *iface,
+        void *address, REFIID riid, void **heap)
+{
+    FIXME("iface %p, address %p, riid %s, heap %p stub!\n",
+            iface, address, debugstr_guid(riid), heap);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromFileMapping(d3d12_device_iface *iface,
+        HANDLE file_mapping, REFIID riid, void **heap)
+{
+    FIXME("iface %p, file_mapping %p, riid %s, heap %p stub!\n",
+            iface, file_mapping, debugstr_guid(riid), heap);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_EnqueueMakeResident(d3d12_device_iface *iface,
+        D3D12_RESIDENCY_FLAGS flags, UINT num_objects, ID3D12Pageable *const *objects,
+        ID3D12Fence *fence_to_signal, UINT64 fence_value_to_signal)
+{
+    FIXME("iface %p, flags %#x, num_objects %u, objects %p, fence_to_signal %p, fence_value_to_signal %lu stub!\n",
+            iface, flags, num_objects, objects, fence_to_signal, fence_value_to_signal);
+
+    return E_NOTIMPL;
+}
+
+static const struct ID3D12Device3Vtbl d3d12_device_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,
@@ -3391,6 +3459,16 @@ static const struct ID3D12DeviceVtbl d3d12_device_vtbl =
     d3d12_device_CreateCommandSignature,
     d3d12_device_GetResourceTiling,
     d3d12_device_GetAdapterLuid,
+    /* ID3D12Device1 methods */
+    d3d12_device_CreatePipelineLibrary,
+    d3d12_device_SetEventOnMultipleFenceCompletion,
+    d3d12_device_SetResidencyPriority,
+    /* ID3D12Device2 methods */
+    d3d12_device_CreatePipelineState,
+    /* ID3D12Device3 methods */
+    d3d12_device_OpenExistingHeapFromAddress,
+    d3d12_device_OpenExistingHeapFromFileMapping,
+    d3d12_device_EnqueueMakeResident,
 };
 
 static D3D12_RESOURCE_BINDING_TIER d3d12_device_determine_resource_binding_tier(struct d3d12_device *device)
