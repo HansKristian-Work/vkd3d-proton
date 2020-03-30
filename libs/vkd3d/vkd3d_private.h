@@ -198,6 +198,7 @@ struct vkd3d_fence_worker
     struct vkd3d_enqueued_fence
     {
         VkFence vk_fence;
+        VkSemaphore vk_semaphore;
         struct vkd3d_waiting_fence waiting_fence;
     } *enqueued_fences;
     size_t enqueued_fences_size;
@@ -207,6 +208,11 @@ struct vkd3d_fence_worker
     size_t vk_fences_size;
     struct vkd3d_waiting_fence *fences;
     size_t fences_size;
+
+    uint64_t *semaphore_wait_values;
+    VkSemaphore *vk_semaphores;
+    size_t vk_semaphores_size;
+    size_t semaphore_wait_values_size;
 
     struct d3d12_device *device;
 };
@@ -350,6 +356,8 @@ struct d3d12_fence
 {
     ID3D12Fence ID3D12Fence_iface;
     LONG refcount;
+
+    VkSemaphore timeline_semaphore;
 
     uint64_t value;
     pthread_mutex_t mutex;
