@@ -2855,6 +2855,24 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_COMMAND_QUEUE_PRIORITY:
+        {
+            D3D12_FEATURE_DATA_COMMAND_QUEUE_PRIORITY *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            /* FIXME We ignore priorities since Vulkan queues are created up-front */
+            data->PriorityForTypeIsSupported = data->Priority <= D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
+
+            TRACE("Command list type %u supports priority %u: %#x.",
+                    data->CommandListType, data->Priority, data->PriorityForTypeIsSupported);
+            return S_OK;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
