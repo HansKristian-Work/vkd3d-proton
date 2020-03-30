@@ -1201,42 +1201,19 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
             divisor_features->vertexAttributeInstanceRateZeroDivisor);
 }
 
-static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
+static HRESULT vkd3d_init_device_extensions(struct d3d12_device *device,
         const struct vkd3d_device_create_info *create_info,
-        struct vkd3d_physical_device_info *physical_device_info,
         uint32_t *device_extension_count, bool **user_extension_supported)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     const struct vkd3d_optional_device_extensions_info *optional_extensions;
-    VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *buffer_device_address;
-    VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
     VkPhysicalDevice physical_device = device->vk_physical_device;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
     VkExtensionProperties *vk_extensions;
-    VkPhysicalDeviceFeatures *features;
     uint32_t count;
     VkResult vr;
 
     *device_extension_count = 0;
-
-    vkd3d_trace_physical_device(physical_device, physical_device_info, vk_procs);
-    vkd3d_trace_physical_device_features(physical_device_info);
-    vkd3d_trace_physical_device_limits(physical_device_info);
-
-    features = &physical_device_info->features2.features;
-
-    if (!features->sparseResidencyBuffer || !features->sparseResidencyImage2D)
-    {
-        features->sparseResidencyBuffer = VK_FALSE;
-        features->sparseResidencyImage2D = VK_FALSE;
-        physical_device_info->properties2.properties.sparseProperties.residencyNonResidentStrict = VK_FALSE;
-    }
-
-    vulkan_info->device_limits = physical_device_info->properties2.properties.limits;
-    vulkan_info->sparse_properties = physical_device_info->properties2.properties.sparseProperties;
-    vulkan_info->rasterization_stream = physical_device_info->xfb_properties.transformFeedbackRasterizationStreamSelect;
-    vulkan_info->transform_feedback_queries = physical_device_info->xfb_properties.transformFeedbackQueries;
-    vulkan_info->max_vertex_attrib_divisor = max(physical_device_info->vertex_divisor_properties.maxVertexAttribDivisor, 1);
 
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL, &count, NULL))) < 0)
     {
@@ -1280,6 +1257,43 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
             *user_extension_supported, vulkan_info, "device",
             device->vkd3d_instance->config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG);
 
+    if (get_spec_version(vk_extensions, count, VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME) < 3)
+        vulkan_info->EXT_vertex_attribute_divisor = false;
+
+    vkd3d_free(vk_extensions);
+    return S_OK;
+}
+
+static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
+        const struct vkd3d_device_create_info *create_info,
+        struct vkd3d_physical_device_info *physical_device_info)
+{
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *buffer_device_address;
+    VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
+    VkPhysicalDevice physical_device = device->vk_physical_device;
+    struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
+    VkPhysicalDeviceFeatures *features;
+
+    vkd3d_trace_physical_device(physical_device, physical_device_info, vk_procs);
+    vkd3d_trace_physical_device_features(physical_device_info);
+    vkd3d_trace_physical_device_limits(physical_device_info);
+
+    features = &physical_device_info->features2.features;
+
+    if (!features->sparseResidencyBuffer || !features->sparseResidencyImage2D)
+    {
+        features->sparseResidencyBuffer = VK_FALSE;
+        features->sparseResidencyImage2D = VK_FALSE;
+        physical_device_info->properties2.properties.sparseProperties.residencyNonResidentStrict = VK_FALSE;
+    }
+
+    vulkan_info->device_limits = physical_device_info->properties2.properties.limits;
+    vulkan_info->sparse_properties = physical_device_info->properties2.properties.sparseProperties;
+    vulkan_info->rasterization_stream = physical_device_info->xfb_properties.transformFeedbackRasterizationStreamSelect;
+    vulkan_info->transform_feedback_queries = physical_device_info->xfb_properties.transformFeedbackQueries;
+    vulkan_info->max_vertex_attrib_divisor = max(physical_device_info->vertex_divisor_properties.maxVertexAttribDivisor, 1);
+
     if (!physical_device_info->conditional_rendering_features.conditionalRendering)
         vulkan_info->EXT_conditional_rendering = false;
     if (!physical_device_info->depth_clip_features.depthClipEnable)
@@ -1290,21 +1304,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         vulkan_info->EXT_texel_buffer_alignment = false;
 
     vulkan_info->texel_buffer_alignment_properties = physical_device_info->texel_buffer_alignment_properties;
-
-    if (get_spec_version(vk_extensions, count, VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME) >= 3)
-    {
-        const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
-        divisor_features = &physical_device_info->vertex_divisor_features;
-        if (!divisor_features->vertexAttributeInstanceRateDivisor)
-            vulkan_info->EXT_vertex_attribute_divisor = false;
-        vulkan_info->vertex_attrib_zero_divisor = divisor_features->vertexAttributeInstanceRateZeroDivisor;
-    }
-    else
-    {
-        vulkan_info->vertex_attrib_zero_divisor = false;
-    }
-
-    vkd3d_free(vk_extensions);
+    vulkan_info->vertex_attrib_zero_divisor = physical_device_info->vertex_divisor_features.vertexAttributeInstanceRateZeroDivisor;
 
     /* Shader extensions. */
     if (vulkan_info->EXT_shader_demote_to_helper_invocation)
@@ -1648,10 +1648,13 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 
+    if (FAILED(hr = vkd3d_init_device_extensions(device, create_info,
+            &extension_count, &user_extension_supported)))
+        return hr;
+
     vkd3d_physical_device_info_init(&device->device_info, device);
 
-    if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &device->device_info,
-            &extension_count, &user_extension_supported)))
+    if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &device->device_info)))
         return hr;
 
     if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
