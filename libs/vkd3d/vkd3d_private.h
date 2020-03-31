@@ -358,6 +358,7 @@ struct d3d12_fence
     LONG refcount;
 
     VkSemaphore timeline_semaphore;
+    uint64_t pending_timeline_value;
 
     uint64_t value;
     pthread_mutex_t mutex;

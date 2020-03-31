@@ -945,17 +945,122 @@ static HRESULT d3d12_fence_add_vk_semaphore(struct d3d12_fence *fence,
     return hr;
 }
 
-static HRESULT d3d12_fence_signal_timeline_semaphore(struct d3d12_fence *fence, uint64_t value)
+static void d3d12_fence_signal_external_events_locked(struct d3d12_fence *fence)
+{
+    unsigned int i, j;
+
+    for (i = 0, j = 0; i < fence->event_count; ++i)
+    {
+        struct vkd3d_waiting_event *current = &fence->events[i];
+
+        if (current->value <= fence->value)
+        {
+            fence->device->signal_event(current->event);
+        }
+        else
+        {
+            if (i != j)
+                fence->events[j] = *current;
+            ++j;
+        }
+    }
+
+    fence->event_count = j;
+}
+
+static bool d3d12_fence_update_gpu_signal_timeline_semaphore(struct d3d12_fence *fence, uint64_t value)
+{
+    struct d3d12_device *device = fence->device;
+    bool need_signal = false;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&fence->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return false;
+    }
+
+    /* If we're attempting to async signal a fence with a value which is not monotonically increasing the payload value,
+     * warn about this case. Do not treat this as an error since it might work. */
+    if (value > fence->pending_timeline_value)
+    {
+        /* Sanity check against the delta limit. Use the current fence value. */
+        if (value - fence->value > device->device_info.timeline_semaphore_properties.maxTimelineSemaphoreValueDifference)
+        {
+            FIXME("Timeline semaphore delta is %"PRIu64", but implementation only supports a delta of %"PRIu64".\n",
+                  value - fence->value, device->device_info.timeline_semaphore_properties.maxTimelineSemaphoreValueDifference);
+        }
+
+        fence->pending_timeline_value = value;
+        need_signal = true;
+    }
+    else
+    {
+        FIXME("Fence %p is being signalled non-monotonically. Old pending value %"PRIu64", new pending value %"PRIu64".\n",
+              fence, fence->pending_timeline_value, value);
+
+        /* Mostly to be safe against weird, unknown use cases.
+         * The pending signal might be blocked by another fence,
+         * we'll base this on the actual, currently visible count value. */
+        need_signal = value > fence->value;
+    }
+
+    pthread_mutex_unlock(&fence->mutex);
+    return need_signal;
+}
+
+static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fence, uint64_t value)
 {
     VkSemaphoreSignalInfoKHR info = { VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO_KHR };
     struct d3d12_device *device = fence->device;
     struct vkd3d_vk_device_procs *vk_procs;
     VkResult vr;
+    int rc;
 
-    vk_procs = &device->vk_procs;
-    info.semaphore = fence->timeline_semaphore;
-    info.value = value;
-    vr = VK_CALL(vkSignalSemaphoreKHR(device->vk_device, &info));
+    if ((rc = pthread_mutex_lock(&fence->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    /* We must only signal a value which is greater than the current value.
+     * That value can be in the range of current known value (fence->value), or as large as pending_timeline_value.
+     * Pending timeline value signal might be blocked by another synchronization primitive, and thus statically cannot be that value,
+     * so the safest thing to do is to check the current value which is updated by the fence wait thread continuously.
+     * This check is technically racy since the value might be immediately out of date,
+     * but there is no way to avoid this. */
+    if (value > fence->value)
+    {
+        /* Sanity check against the delta limit. */
+        if (value - fence->value > device->device_info.timeline_semaphore_properties.maxTimelineSemaphoreValueDifference)
+        {
+            FIXME("Timeline semaphore delta is %"PRIu64", but implementation only supports a delta of %"PRIu64".\n",
+                  value - fence->value, device->device_info.timeline_semaphore_properties.maxTimelineSemaphoreValueDifference);
+        }
+
+        vk_procs = &device->vk_procs;
+        info.semaphore = fence->timeline_semaphore;
+        info.value = value;
+        vr = VK_CALL(vkSignalSemaphoreKHR(device->vk_device, &info));
+
+        if (vr == VK_SUCCESS)
+        {
+            fence->value = value;
+            if (value > fence->pending_timeline_value)
+                fence->pending_timeline_value = value;
+        }
+        else
+            ERR("Failed to signal timeline semaphore, vr %d.\n", vr);
+    }
+    else
+    {
+        FIXME("Attempting to signal fence %p with %"PRIu64", but value is currently %"PRIu64".\n", fence, value, fence->value);
+        vr = VK_SUCCESS;
+    }
+
+    d3d12_fence_signal_external_events_locked(fence);
+
+    pthread_mutex_unlock(&fence->mutex);
     return hresult_from_vk_result(vr);
 }
 
@@ -963,7 +1068,7 @@ static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t value, VkF
 {
     struct d3d12_device *device = fence->device;
     struct vkd3d_signaled_semaphore *current;
-    unsigned int i, j;
+    unsigned int i;
     int rc;
 
     if ((rc = pthread_mutex_lock(&fence->mutex)))
@@ -976,27 +1081,11 @@ static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t value, VkF
     {
         FIXME("Fence values must be monotonically increasing. Fence %p, was %"PRIx64", now %"PRIx64".\n",
               fence, fence->value, value);
-        value = fence->value;
     }
     else
         fence->value = value;
 
-    for (i = 0, j = 0; i < fence->event_count; ++i)
-    {
-        struct vkd3d_waiting_event *current = &fence->events[i];
-
-        if (current->value <= value)
-        {
-            fence->device->signal_event(current->event);
-        }
-        else
-        {
-            if (i != j)
-                fence->events[j] = *current;
-            ++j;
-        }
-    }
-    fence->event_count = j;
+    d3d12_fence_signal_external_events_locked(fence);
 
     if (vk_fence)
     {
@@ -1209,15 +1298,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(ID3D12Fence *i
 static HRESULT STDMETHODCALLTYPE d3d12_fence_Signal(ID3D12Fence *iface, UINT64 value)
 {
     struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
-    HRESULT hr;
 
     TRACE("iface %p, value %#"PRIx64".\n", iface, value);
 
     if (fence->timeline_semaphore)
-        if (FAILED(hr = d3d12_fence_signal_timeline_semaphore(fence, value)))
-            return hr;
-
-    return d3d12_fence_signal(fence, value, VK_NULL_HANDLE);
+        return d3d12_fence_signal_cpu_timeline_semaphore(fence, value);
+    else
+        return d3d12_fence_signal(fence, value, VK_NULL_HANDLE);
 }
 
 static const struct ID3D12FenceVtbl d3d12_fence_vtbl =
@@ -1264,6 +1351,8 @@ static HRESULT d3d12_fence_init_timeline(struct d3d12_fence *fence, struct d3d12
         WARN("Failed to create timeline semaphore, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
     }
+
+    fence->pending_timeline_value = initial_value;
     return S_OK;
 }
 
@@ -6429,6 +6518,20 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
             goto fail_vkresult;
         }
     }
+    else
+    {
+        if (d3d12_fence_update_gpu_signal_timeline_semaphore(fence, value))
+        {
+            vk_semaphore = fence->timeline_semaphore;
+            assert(vk_semaphore);
+        }
+        else
+        {
+            /* If we are not incrementing the counter,
+             * this is a noop since we cannot signal a timeline semaphore non-monotonically in Vulkan. */
+            return S_OK;
+        }
+    }
 
     if (!(vk_queue = vkd3d_queue_acquire(vkd3d_queue)))
     {
@@ -6444,11 +6547,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
             ERR("Failed to create Vulkan semaphore, vr %d.\n", vr);
             vk_semaphore = VK_NULL_HANDLE;
         }
-    }
-    else
-    {
-        vk_semaphore = fence->timeline_semaphore;
-        assert(vk_semaphore);
     }
 
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
