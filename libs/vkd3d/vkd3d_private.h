@@ -905,10 +905,33 @@ static inline bool d3d12_pipeline_state_has_unknown_dsv_format(struct d3d12_pipe
     return false;
 }
 
-HRESULT d3d12_pipeline_state_create_compute(struct d3d12_device *device,
-        const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
-HRESULT d3d12_pipeline_state_create_graphics(struct d3d12_device *device,
-        const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
+struct d3d12_pipeline_state_desc
+{
+    ID3D12RootSignature *root_signature;
+    D3D12_SHADER_BYTECODE vs;
+    D3D12_SHADER_BYTECODE ps;
+    D3D12_SHADER_BYTECODE ds;
+    D3D12_SHADER_BYTECODE hs;
+    D3D12_SHADER_BYTECODE gs;
+    D3D12_SHADER_BYTECODE cs;
+    D3D12_STREAM_OUTPUT_DESC stream_output;
+    D3D12_BLEND_DESC blend_state;
+    UINT sample_mask;
+    D3D12_RASTERIZER_DESC rasterizer_state;
+    D3D12_DEPTH_STENCIL_DESC depth_stencil_state;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
+    D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value;
+    D3D12_PRIMITIVE_TOPOLOGY_TYPE primitive_topology_type;
+    D3D12_RT_FORMAT_ARRAY rtv_formats;
+    DXGI_FORMAT dsv_format;
+    DXGI_SAMPLE_DESC sample_desc;
+    UINT node_mask;
+    D3D12_CACHED_PIPELINE_STATE cached_pso;
+    D3D12_PIPELINE_STATE_FLAGS flags;
+};
+
+HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
+        const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
         D3D12_PRIMITIVE_TOPOLOGY topology, const uint32_t *strides, VkFormat dsv_format,
         VkRenderPass *vk_render_pass) DECLSPEC_HIDDEN;

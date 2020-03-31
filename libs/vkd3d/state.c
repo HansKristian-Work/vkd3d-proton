@@ -1564,7 +1564,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
 }
 
 static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *state,
-        struct d3d12_device *device, const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc)
+        struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_shader_interface_info shader_interface;
@@ -1574,7 +1574,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     state->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
     state->refcount = 1;
 
-    if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->pRootSignature)))
+    if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->root_signature)))
     {
         WARN("Root signature is NULL.\n");
         return E_INVALIDARG;
@@ -1591,7 +1591,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
     shader_interface.push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
 
-    if (FAILED(hr = vkd3d_create_compute_pipeline(device, &desc->CS, &shader_interface,
+    if (FAILED(hr = vkd3d_create_compute_pipeline(device, &desc->cs, &shader_interface,
             root_signature->vk_pipeline_layout, &state->u.compute.vk_pipeline)))
     {
         WARN("Failed to create Vulkan compute pipeline, hr %#x.\n", hr);
@@ -1606,28 +1606,6 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
     d3d12_device_add_ref(state->device = device);
-
-    return S_OK;
-}
-
-HRESULT d3d12_pipeline_state_create_compute(struct d3d12_device *device,
-        const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc, struct d3d12_pipeline_state **state)
-{
-    struct d3d12_pipeline_state *object;
-    HRESULT hr;
-
-    if (!(object = vkd3d_malloc(sizeof(*object))))
-        return E_OUTOFMEMORY;
-
-    if (FAILED(hr = d3d12_pipeline_state_init_compute(object, device, desc)))
-    {
-        vkd3d_free(object);
-        return hr;
-    }
-
-    TRACE("Created compute pipeline state %p.\n", object);
-
-    *state = object;
 
     return S_OK;
 }
@@ -2029,12 +2007,12 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
 }
 
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
-        struct d3d12_device *device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc)
+        struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
 {
     unsigned int ps_output_swizzle[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    const D3D12_STREAM_OUTPUT_DESC *so_desc = &desc->StreamOutput;
+    const D3D12_STREAM_OUTPUT_DESC *so_desc = &desc->stream_output;
     VkVertexInputBindingDivisorDescriptionEXT *binding_divisor;
     const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
     const struct vkd3d_shader_compile_arguments *compile_args;
@@ -2065,11 +2043,11 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
     shader_stages[] =
     {
-        {VK_SHADER_STAGE_VERTEX_BIT,                  offsetof(D3D12_GRAPHICS_PIPELINE_STATE_DESC, VS)},
-        {VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,    offsetof(D3D12_GRAPHICS_PIPELINE_STATE_DESC, HS)},
-        {VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, offsetof(D3D12_GRAPHICS_PIPELINE_STATE_DESC, DS)},
-        {VK_SHADER_STAGE_GEOMETRY_BIT,                offsetof(D3D12_GRAPHICS_PIPELINE_STATE_DESC, GS)},
-        {VK_SHADER_STAGE_FRAGMENT_BIT,                offsetof(D3D12_GRAPHICS_PIPELINE_STATE_DESC, PS)},
+        {VK_SHADER_STAGE_VERTEX_BIT,                  offsetof(struct d3d12_pipeline_state_desc, vs)},
+        {VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,    offsetof(struct d3d12_pipeline_state_desc, hs)},
+        {VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, offsetof(struct d3d12_pipeline_state_desc, ds)},
+        {VK_SHADER_STAGE_GEOMETRY_BIT,                offsetof(struct d3d12_pipeline_state_desc, gs)},
+        {VK_SHADER_STAGE_FRAGMENT_BIT,                offsetof(struct d3d12_pipeline_state_desc, ps)},
     };
 
     state->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
@@ -2079,26 +2057,26 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     memset(&input_signature, 0, sizeof(input_signature));
 
-    for (i = desc->NumRenderTargets; i < ARRAY_SIZE(desc->RTVFormats); ++i)
+    for (i = desc->rtv_formats.NumRenderTargets; i < ARRAY_SIZE(desc->rtv_formats.RTFormats); ++i)
     {
-        if (desc->RTVFormats[i] != DXGI_FORMAT_UNKNOWN)
+        if (desc->rtv_formats.RTFormats[i] != DXGI_FORMAT_UNKNOWN)
         {
             WARN("Format must be set to DXGI_FORMAT_UNKNOWN for inactive render targets.\n");
             return E_INVALIDARG;
         }
     }
 
-    if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->pRootSignature)))
+    if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->root_signature)))
     {
         WARN("Root signature is NULL.\n");
         return E_INVALIDARG;
     }
 
-    sample_count = vk_samples_from_dxgi_sample_desc(&desc->SampleDesc);
-    if (desc->SampleDesc.Count != 1 && desc->SampleDesc.Quality)
-        WARN("Ignoring sample quality %u.\n", desc->SampleDesc.Quality);
+    sample_count = vk_samples_from_dxgi_sample_desc(&desc->sample_desc);
+    if (desc->sample_desc.Count != 1 && desc->sample_desc.Quality)
+        WARN("Ignoring sample quality %u.\n", desc->sample_desc.Quality);
 
-    rt_count = desc->NumRenderTargets;
+    rt_count = desc->rtv_formats.NumRenderTargets;
     if (rt_count > ARRAY_SIZE(graphics->blend_attachments))
     {
         FIXME("NumRenderTargets %zu > %zu, ignoring extra formats.\n",
@@ -2111,26 +2089,26 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     {
         const D3D12_RENDER_TARGET_BLEND_DESC *rt_desc;
 
-        if (desc->RTVFormats[i] == DXGI_FORMAT_UNKNOWN)
+        if (desc->rtv_formats.RTFormats[i] == DXGI_FORMAT_UNKNOWN)
         {
             graphics->null_attachment_mask |= 1u << i;
             ps_output_swizzle[i] = VKD3D_NO_SWIZZLE;
             graphics->rtv_formats[i] = VK_FORMAT_UNDEFINED;
         }
-        else if ((format = vkd3d_get_format(device, desc->RTVFormats[i], false)))
+        else if ((format = vkd3d_get_format(device, desc->rtv_formats.RTFormats[i], false)))
         {
             ps_output_swizzle[i] = vkd3d_get_rt_format_swizzle(format);
             graphics->rtv_formats[i] = format->vk_format;
         }
         else
         {
-            WARN("Invalid RTV format %#x.\n", desc->RTVFormats[i]);
+            WARN("Invalid RTV format %#x.\n", desc->rtv_formats.RTFormats[i]);
             hr = E_INVALIDARG;
             goto fail;
         }
 
-        rt_desc = &desc->BlendState.RenderTarget[desc->BlendState.IndependentBlendEnable ? i : 0];
-        if (desc->BlendState.IndependentBlendEnable && rt_desc->LogicOpEnable)
+        rt_desc = &desc->blend_state.RenderTarget[desc->blend_state.IndependentBlendEnable ? i : 0];
+        if (desc->blend_state.IndependentBlendEnable && rt_desc->LogicOpEnable)
         {
             WARN("IndependentBlendEnable must be FALSE when logic operations are enabled.\n");
             hr = E_INVALIDARG;
@@ -2149,8 +2127,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         graphics->rtv_formats[i] = VK_FORMAT_UNDEFINED;
     graphics->rt_count = rt_count;
 
-    ds_desc_from_d3d12(&graphics->ds_desc, &desc->DepthStencilState);
-    if (desc->DSVFormat == DXGI_FORMAT_UNKNOWN
+    ds_desc_from_d3d12(&graphics->ds_desc, &desc->depth_stencil_state);
+    if (desc->dsv_format == DXGI_FORMAT_UNKNOWN
             && graphics->ds_desc.depthTestEnable && !graphics->ds_desc.depthWriteEnable
             && graphics->ds_desc.depthCompareOp == VK_COMPARE_OP_ALWAYS && !graphics->ds_desc.stencilTestEnable)
     {
@@ -2161,13 +2139,13 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->dsv_format = VK_FORMAT_UNDEFINED;
     if (graphics->ds_desc.depthTestEnable || graphics->ds_desc.stencilTestEnable)
     {
-        if (desc->DSVFormat == DXGI_FORMAT_UNKNOWN)
+        if (desc->dsv_format == DXGI_FORMAT_UNKNOWN)
         {
             WARN("DSV format is DXGI_FORMAT_UNKNOWN.\n");
             graphics->dsv_format = VK_FORMAT_UNDEFINED;
             graphics->null_attachment_mask |= dsv_attachment_mask(graphics);
         }
-        else if ((format = vkd3d_get_format(device, desc->DSVFormat, true)))
+        else if ((format = vkd3d_get_format(device, desc->dsv_format, true)))
         {
             if (!(format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
                 FIXME("Format %#x is not depth/stencil format.\n", format->dxgi_format);
@@ -2176,7 +2154,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         }
         else
         {
-            WARN("Invalid DSV format %#x.\n", desc->DSVFormat);
+            WARN("Invalid DSV format %#x.\n", desc->dsv_format);
             hr = E_INVALIDARG;
             goto fail;
         }
@@ -2194,7 +2172,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     ps_compile_args.target_extensions = vk_info->shader_extensions;
     ps_compile_args.parameter_count = ARRAY_SIZE(ps_shader_parameters);
     ps_compile_args.parameters = ps_shader_parameters;
-    ps_compile_args.dual_source_blending = is_dual_source_blending(&desc->BlendState.RenderTarget[0]);
+    ps_compile_args.dual_source_blending = is_dual_source_blending(&desc->blend_state.RenderTarget[0]);
     ps_compile_args.output_swizzles = ps_output_swizzle;
     ps_compile_args.output_swizzle_count = rt_count;
 
@@ -2204,11 +2182,11 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         hr = E_INVALIDARG;
         goto fail;
     }
-    if (ps_compile_args.dual_source_blending && desc->BlendState.IndependentBlendEnable)
+    if (ps_compile_args.dual_source_blending && desc->blend_state.IndependentBlendEnable)
     {
-        for (i = 1; i < ARRAY_SIZE(desc->BlendState.RenderTarget); ++i)
+        for (i = 1; i < ARRAY_SIZE(desc->blend_state.RenderTarget); ++i)
         {
-            if (desc->BlendState.RenderTarget[i].BlendEnable)
+            if (desc->blend_state.RenderTarget[i].BlendEnable)
             {
                 WARN("Blend enable cannot be set for render target %u when dual source blending is used.\n", i);
                 hr = E_INVALIDARG;
@@ -2244,9 +2222,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         xfb_info.buffer_strides = so_desc->pBufferStrides;
         xfb_info.buffer_stride_count = so_desc->NumStrides;
 
-        if (desc->GS.pShaderBytecode)
+        if (desc->gs.pShaderBytecode)
             xfb_stage = VK_SHADER_STAGE_GEOMETRY_BIT;
-        else if (desc->DS.pShaderBytecode)
+        else if (desc->ds.pShaderBytecode)
             xfb_stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
         else
             xfb_stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -2284,7 +2262,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
             case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
             case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
-                if (desc->PrimitiveTopologyType != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH)
+                if (desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH)
                 {
                     WARN("D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH must be used with tessellation shaders.\n");
                     hr = E_INVALIDARG;
@@ -2313,7 +2291,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         ++graphics->stage_count;
     }
 
-    graphics->attribute_count = desc->InputLayout.NumElements;
+    graphics->attribute_count = desc->input_layout.NumElements;
     if (graphics->attribute_count > ARRAY_SIZE(graphics->attributes))
     {
         FIXME("InputLayout.NumElements %zu > %zu, ignoring extra elements.\n",
@@ -2329,13 +2307,13 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         goto fail;
     }
 
-    if (FAILED(hr = compute_input_layout_offsets(device, &desc->InputLayout, aligned_offsets)))
+    if (FAILED(hr = compute_input_layout_offsets(device, &desc->input_layout, aligned_offsets)))
         goto fail;
 
     graphics->instance_divisor_count = 0;
     for (i = 0, j = 0, mask = 0; i < graphics->attribute_count; ++i)
     {
-        const D3D12_INPUT_ELEMENT_DESC *e = &desc->InputLayout.pInputElementDescs[i];
+        const D3D12_INPUT_ELEMENT_DESC *e = &desc->input_layout.pInputElementDescs[i];
         const struct vkd3d_shader_signature_element *signature_element;
 
         if (!(format = vkd3d_get_format(device, e->Format, false)))
@@ -2417,30 +2395,30 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->attribute_count = j;
     vkd3d_shader_free_shader_signature(&input_signature);
 
-    switch (desc->IBStripCutValue)
+    switch (desc->strip_cut_value)
     {
         case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED:
         case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF:
         case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF:
-            graphics->index_buffer_strip_cut_value = desc->IBStripCutValue;
+            graphics->index_buffer_strip_cut_value = desc->strip_cut_value;
             break;
         default:
-            WARN("Invalid index buffer strip cut value %#x.\n", desc->IBStripCutValue);
+            WARN("Invalid index buffer strip cut value %#x.\n", desc->strip_cut_value);
             hr = E_INVALIDARG;
             goto fail;
     }
 
     is_dsv_format_unknown = graphics->null_attachment_mask & dsv_attachment_mask(graphics);
 
-    rs_desc_from_d3d12(&graphics->rs_desc, &desc->RasterizerState);
+    rs_desc_from_d3d12(&graphics->rs_desc, &desc->rasterizer_state);
     have_attachment = graphics->rt_count || graphics->dsv_format || is_dsv_format_unknown;
-    if ((!have_attachment && !(desc->PS.pShaderBytecode && desc->PS.BytecodeLength))
+    if ((!have_attachment && !(desc->ps.pShaderBytecode && desc->ps.BytecodeLength))
             || so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM)
         graphics->rs_desc.rasterizerDiscardEnable = VK_TRUE;
 
     rs_stream_info_from_d3d12(&graphics->rs_stream_info, &graphics->rs_desc, so_desc, vk_info);
     if (vk_info->EXT_depth_clip_enable)
-        rs_depth_clip_info_from_d3d12(&graphics->rs_depth_clip_info, &graphics->rs_desc, &desc->RasterizerState);
+        rs_depth_clip_info_from_d3d12(&graphics->rs_depth_clip_info, &graphics->rs_desc, &desc->rasterizer_state);
 
     graphics->ms_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     graphics->ms_desc.pNext = NULL;
@@ -2449,14 +2427,14 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->ms_desc.sampleShadingEnable = VK_FALSE;
     graphics->ms_desc.minSampleShading = 0.0f;
     graphics->ms_desc.pSampleMask = NULL;
-    if (desc->SampleMask != ~0u)
+    if (desc->sample_mask != ~0u)
     {
         assert(DIV_ROUND_UP(sample_count, 32) <= ARRAY_SIZE(graphics->sample_mask));
-        graphics->sample_mask[0] = desc->SampleMask;
+        graphics->sample_mask[0] = desc->sample_mask;
         graphics->sample_mask[1] = 0xffffffffu;
         graphics->ms_desc.pSampleMask = graphics->sample_mask;
     }
-    graphics->ms_desc.alphaToCoverageEnable = desc->BlendState.AlphaToCoverageEnable;
+    graphics->ms_desc.alphaToCoverageEnable = desc->blend_state.AlphaToCoverageEnable;
     graphics->ms_desc.alphaToOneEnable = VK_FALSE;
 
     /* We defer creating the render pass for pipelines wth DSVFormat equal to
@@ -2489,8 +2467,8 @@ fail:
     return hr;
 }
 
-HRESULT d3d12_pipeline_state_create_graphics(struct d3d12_device *device,
-        const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, struct d3d12_pipeline_state **state)
+HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
+        const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state)
 {
     struct d3d12_pipeline_state *object;
     HRESULT hr;
@@ -2498,16 +2476,30 @@ HRESULT d3d12_pipeline_state_create_graphics(struct d3d12_device *device,
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    if (FAILED(hr = d3d12_pipeline_state_init_graphics(object, device, desc)))
+    switch (bind_point)
+    {
+        case VK_PIPELINE_BIND_POINT_COMPUTE:
+            hr = d3d12_pipeline_state_init_compute(object, device, desc);
+            break;
+
+        case VK_PIPELINE_BIND_POINT_GRAPHICS:
+            hr = d3d12_pipeline_state_init_graphics(object, device, desc);
+            break;
+
+        default:
+            ERR("Invalid pipeline type %u.", bind_point);
+            hr = E_INVALIDARG;
+    }
+
+    if (FAILED(hr))
     {
         vkd3d_free(object);
         return hr;
     }
 
-    TRACE("Created graphics pipeline state %p.\n", object);
+    TRACE("Created pipeline state %p.\n", object);
 
     *state = object;
-
     return S_OK;
 }
 
