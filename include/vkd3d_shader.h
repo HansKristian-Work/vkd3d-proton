@@ -272,7 +272,7 @@ struct vkd3d_shader_domain_shader_compile_arguments
     const void *next;
 
     enum vkd3d_tessellator_output_primitive output_primitive;
-    enum vkd3d_tessellator_output_primitive partitioning;
+    enum vkd3d_tessellator_partitioning partitioning;
 };
 
 /* root signature 1.0 */
