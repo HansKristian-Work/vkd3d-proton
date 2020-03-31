@@ -3761,10 +3761,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_EnqueueMakeResident(d3d12_device_i
         D3D12_RESIDENCY_FLAGS flags, UINT num_objects, ID3D12Pageable *const *objects,
         ID3D12Fence *fence_to_signal, UINT64 fence_value_to_signal)
 {
-    FIXME("iface %p, flags %#x, num_objects %u, objects %p, fence_to_signal %p, fence_value_to_signal %lu stub!\n",
+    FIXME_ONCE("iface %p, flags %#x, num_objects %u, objects %p, fence_to_signal %p, fence_value_to_signal %lu stub!\n",
             iface, flags, num_objects, objects, fence_to_signal, fence_value_to_signal);
 
-    return E_NOTIMPL;
+    return ID3D12Fence_Signal(fence_to_signal, fence_value_to_signal);
 }
 
 static const struct ID3D12Device3Vtbl d3d12_device_vtbl =
