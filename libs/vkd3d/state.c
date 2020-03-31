@@ -1767,7 +1767,7 @@ static void vk_stencil_op_state_from_d3d12(struct VkStencilOpState *vk_desc,
 }
 
 static void ds_desc_from_d3d12(struct VkPipelineDepthStencilStateCreateInfo *vk_desc,
-        const D3D12_DEPTH_STENCIL_DESC *d3d12_desc)
+        const D3D12_DEPTH_STENCIL_DESC1 *d3d12_desc)
 {
     memset(vk_desc, 0, sizeof(*vk_desc));
     vk_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -1783,7 +1783,7 @@ static void ds_desc_from_d3d12(struct VkPipelineDepthStencilStateCreateInfo *vk_
         vk_desc->depthWriteEnable = VK_FALSE;
         vk_desc->depthCompareOp = VK_COMPARE_OP_NEVER;
     }
-    vk_desc->depthBoundsTestEnable = VK_FALSE;
+    vk_desc->depthBoundsTestEnable = d3d12_desc->DepthBoundsTestEnable;
     if ((vk_desc->stencilTestEnable = d3d12_desc->StencilEnable))
     {
         vk_stencil_op_state_from_d3d12(&vk_desc->front, &d3d12_desc->FrontFace,
@@ -2128,6 +2128,13 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->rt_count = rt_count;
 
     ds_desc_from_d3d12(&graphics->ds_desc, &desc->depth_stencil_state);
+    if (graphics->ds_desc.depthBoundsTestEnable)
+    {
+        ERR("Depth bounds test not supported.\n");
+        hr = E_INVALIDARG;
+        goto fail;
+    }
+
     if (desc->dsv_format == DXGI_FORMAT_UNKNOWN
             && graphics->ds_desc.depthTestEnable && !graphics->ds_desc.depthWriteEnable
             && graphics->ds_desc.depthCompareOp == VK_COMPARE_OP_ALWAYS && !graphics->ds_desc.stencilTestEnable)
@@ -2436,6 +2443,13 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
     graphics->ms_desc.alphaToCoverageEnable = desc->blend_state.AlphaToCoverageEnable;
     graphics->ms_desc.alphaToOneEnable = VK_FALSE;
+
+    if (desc->view_instancing_desc.ViewInstanceCount)
+    {
+        ERR("View instancing not supported.\n");
+        hr = E_INVALIDARG;
+        goto fail;
+    }
 
     /* We defer creating the render pass for pipelines wth DSVFormat equal to
      * DXGI_FORMAT_UNKNOWN. We take the actual DSV format from the bound DSV. */
