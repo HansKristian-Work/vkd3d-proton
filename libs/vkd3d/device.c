@@ -2249,13 +2249,40 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateGraphicsPipelineState(ID3D12
         const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid, void **pipeline_state)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_pipeline_state_desc pipeline_desc;
     struct d3d12_pipeline_state *object;
+    unsigned int i;
     HRESULT hr;
 
     TRACE("iface %p, desc %p, riid %s, pipeline_state %p.\n",
             iface, desc, debugstr_guid(riid), pipeline_state);
 
-    if (FAILED(hr = d3d12_pipeline_state_create_graphics(device, desc, &object)))
+    memset(&pipeline_desc, 0, sizeof(pipeline_desc));
+    pipeline_desc.root_signature = desc->pRootSignature;
+    pipeline_desc.vs = desc->VS;
+    pipeline_desc.ps = desc->PS;
+    pipeline_desc.ds = desc->DS;
+    pipeline_desc.hs = desc->HS;
+    pipeline_desc.gs = desc->GS;
+    pipeline_desc.stream_output = desc->StreamOutput;
+    pipeline_desc.blend_state = desc->BlendState;
+    pipeline_desc.sample_mask = desc->SampleMask;
+    pipeline_desc.rasterizer_state = desc->RasterizerState;
+    pipeline_desc.depth_stencil_state = desc->DepthStencilState;
+    pipeline_desc.input_layout = desc->InputLayout;
+    pipeline_desc.strip_cut_value = desc->IBStripCutValue;
+    pipeline_desc.primitive_topology_type = desc->PrimitiveTopologyType;
+    pipeline_desc.rtv_formats.NumRenderTargets = desc->NumRenderTargets;
+    for (i = 0; i < ARRAY_SIZE(desc->RTVFormats); i++)
+        pipeline_desc.rtv_formats.RTFormats[i] = desc->RTVFormats[i];
+    pipeline_desc.dsv_format = desc->DSVFormat;
+    pipeline_desc.sample_desc = desc->SampleDesc;
+    pipeline_desc.node_mask = desc->NodeMask;
+    pipeline_desc.cached_pso = desc->CachedPSO;
+    pipeline_desc.flags = desc->Flags;
+
+    if (FAILED(hr = d3d12_pipeline_state_create(device,
+            VK_PIPELINE_BIND_POINT_GRAPHICS, &pipeline_desc, &object)))
         return hr;
 
     return return_interface(&object->ID3D12PipelineState_iface,
@@ -2266,13 +2293,22 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateComputePipelineState(ID3D12D
         const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc, REFIID riid, void **pipeline_state)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_pipeline_state_desc pipeline_desc;
     struct d3d12_pipeline_state *object;
     HRESULT hr;
 
     TRACE("iface %p, desc %p, riid %s, pipeline_state %p.\n",
             iface, desc, debugstr_guid(riid), pipeline_state);
 
-    if (FAILED(hr = d3d12_pipeline_state_create_compute(device, desc, &object)))
+    memset(&pipeline_desc, 0, sizeof(pipeline_desc));
+    pipeline_desc.root_signature = desc->pRootSignature;
+    pipeline_desc.cs = desc->CS;
+    pipeline_desc.node_mask = desc->NodeMask;
+    pipeline_desc.cached_pso = desc->CachedPSO;
+    pipeline_desc.flags = desc->Flags;
+
+    if (FAILED(hr = d3d12_pipeline_state_create(device,
+            VK_PIPELINE_BIND_POINT_COMPUTE, &pipeline_desc, &object)))
         return hr;
 
     return return_interface(&object->ID3D12PipelineState_iface,
