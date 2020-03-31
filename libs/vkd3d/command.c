@@ -452,7 +452,7 @@ static void vkd3d_wait_for_gpu_timeline_semaphores(struct vkd3d_fence_worker *wo
             counter_value >= current->value)
         {
             TRACE("Signaling fence %p value %#"PRIx64".\n", current->fence, current->value);
-            if (FAILED(hr = d3d12_fence_signal(current->fence, counter_value, NULL)))
+            if (FAILED(hr = d3d12_fence_signal(current->fence, counter_value, VK_NULL_HANDLE)))
                 ERR("Failed to signal D3D12 fence, hr %#x.\n", hr);
 
             InterlockedDecrement(&current->fence->pending_worker_operation_count);
