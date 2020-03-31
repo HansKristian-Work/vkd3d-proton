@@ -2286,6 +2286,19 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandAllocator(d3d12_devic
             riid, command_allocator);
 }
 
+static void d3d12_promote_depth_stencil_desc(D3D12_DEPTH_STENCIL_DESC1 *out, const D3D12_DEPTH_STENCIL_DESC *in)
+{
+    out->DepthEnable = in->DepthEnable;
+    out->DepthWriteMask = in->DepthWriteMask;
+    out->DepthFunc = in->DepthFunc;
+    out->StencilEnable = in->StencilEnable;
+    out->StencilReadMask = in->StencilReadMask;
+    out->StencilWriteMask = in->StencilWriteMask;
+    out->FrontFace = in->FrontFace;
+    out->BackFace = in->BackFace;
+    out->DepthBoundsTestEnable = FALSE;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateGraphicsPipelineState(d3d12_device_iface *iface,
         const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid, void **pipeline_state)
 {
@@ -2309,7 +2322,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateGraphicsPipelineState(d3d12_
     pipeline_desc.blend_state = desc->BlendState;
     pipeline_desc.sample_mask = desc->SampleMask;
     pipeline_desc.rasterizer_state = desc->RasterizerState;
-    pipeline_desc.depth_stencil_state = desc->DepthStencilState;
+    d3d12_promote_depth_stencil_desc(&pipeline_desc.depth_stencil_state, &desc->DepthStencilState);
     pipeline_desc.input_layout = desc->InputLayout;
     pipeline_desc.strip_cut_value = desc->IBStripCutValue;
     pipeline_desc.primitive_topology_type = desc->PrimitiveTopologyType;
