@@ -865,6 +865,11 @@ struct d3d12_graphics_pipeline_state
     VkPipelineRasterizationDepthClipStateCreateInfoEXT rs_depth_clip_info;
     VkPipelineRasterizationStateStreamCreateInfoEXT rs_stream_info;
 
+    VkDynamicState dynamic_states[VKD3D_MAX_DYNAMIC_STATE_COUNT];
+    VkPipelineDynamicStateCreateInfo dynamic_desc;
+
+    uint32_t dynamic_state_flags; /* vkd3d_dynamic_state_flag */
+
     const struct d3d12_root_signature *root_signature;
 
     struct list compiled_pipelines;
