@@ -2059,6 +2059,43 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
     return vkd3d_render_pass_cache_find(&device->render_pass_cache, device, &key, vk_render_pass);
 }
 
+static void d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_graphics_pipeline_state *graphics)
+{
+    VkPipelineDynamicStateCreateInfo *dynamic_desc = &graphics->dynamic_desc;
+    unsigned int i, j;
+
+    static const struct
+    {
+        enum vkd3d_dynamic_state_flag flag;
+        VkDynamicState vk_state;
+    }
+    dynamic_state_list[] =
+    {
+        { VKD3D_DYNAMIC_STATE_VIEWPORT,           VK_DYNAMIC_STATE_VIEWPORT           },
+        { VKD3D_DYNAMIC_STATE_SCISSOR,            VK_DYNAMIC_STATE_SCISSOR            },
+        { VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS,    VK_DYNAMIC_STATE_BLEND_CONSTANTS    },
+        { VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE,  VK_DYNAMIC_STATE_STENCIL_REFERENCE  },
+    };
+
+    /* TODO only enable those states that we actually need */
+    graphics->dynamic_state_flags = VKD3D_DYNAMIC_STATE_VIEWPORT |
+            VKD3D_DYNAMIC_STATE_SCISSOR |
+            VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS |
+            VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE;
+
+    for (i = 0, j = 0; i < ARRAY_SIZE(dynamic_state_list); i++)
+    {
+        if (graphics->dynamic_state_flags & dynamic_state_list[i].flag)
+            graphics->dynamic_states[j++] = dynamic_state_list[i].vk_state;
+    }
+
+    dynamic_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamic_desc->pNext = NULL;
+    dynamic_desc->flags = 0;
+    dynamic_desc->dynamicStateCount = j;
+    dynamic_desc->pDynamicStates = graphics->dynamic_states;
+}
+
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
 {
@@ -2524,6 +2561,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             device, 0, &graphics->render_pass)))
         goto fail;
 
+    d3d12_graphics_pipeline_state_init_dynamic_state(graphics);
+
     graphics->root_signature = root_signature;
 
     list_init(&graphics->compiled_pipelines);
@@ -2754,21 +2793,6 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         .scissorCount = 1,
         .pScissors = NULL,
     };
-    static const VkDynamicState dynamic_states[] =
-    {
-        VK_DYNAMIC_STATE_VIEWPORT,
-        VK_DYNAMIC_STATE_SCISSOR,
-        VK_DYNAMIC_STATE_BLEND_CONSTANTS,
-        VK_DYNAMIC_STATE_STENCIL_REFERENCE,
-    };
-    static const VkPipelineDynamicStateCreateInfo dynamic_desc =
-    {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .dynamicStateCount = ARRAY_SIZE(dynamic_states),
-        .pDynamicStates = dynamic_states,
-    };
 
     assert(d3d12_pipeline_state_is_graphics(state));
 
@@ -2849,7 +2873,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     pipeline_desc.pMultisampleState = &graphics->ms_desc;
     pipeline_desc.pDepthStencilState = &graphics->ds_desc;
     pipeline_desc.pColorBlendState = &graphics->blend_desc;
-    pipeline_desc.pDynamicState = &dynamic_desc;
+    pipeline_desc.pDynamicState = &graphics->dynamic_desc;
     pipeline_desc.layout = graphics->root_signature->vk_pipeline_layout;
     pipeline_desc.subpass = 0;
     pipeline_desc.basePipelineHandle = VK_NULL_HANDLE;
