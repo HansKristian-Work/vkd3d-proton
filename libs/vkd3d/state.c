@@ -1894,9 +1894,62 @@ static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentSta
         vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_B_BIT;
     if (d3d12_desc->RenderTargetWriteMask & D3D12_COLOR_WRITE_ENABLE_ALPHA)
         vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
+}
 
-    if (d3d12_desc->LogicOpEnable)
-        FIXME("Ignoring LogicOpEnable %#x.\n", d3d12_desc->LogicOpEnable);
+static VkLogicOp vk_logic_op_from_d3d12(D3D12_LOGIC_OP op)
+{
+    switch (op)
+    {
+        case D3D12_LOGIC_OP_CLEAR:
+            return VK_LOGIC_OP_CLEAR;
+        case D3D12_LOGIC_OP_SET:
+            return VK_LOGIC_OP_SET;
+        case D3D12_LOGIC_OP_COPY:
+            return VK_LOGIC_OP_COPY;
+        case D3D12_LOGIC_OP_COPY_INVERTED:
+            return VK_LOGIC_OP_COPY_INVERTED;
+        case D3D12_LOGIC_OP_NOOP:
+            return VK_LOGIC_OP_NO_OP;
+        case D3D12_LOGIC_OP_INVERT:
+            return VK_LOGIC_OP_INVERT;
+        case D3D12_LOGIC_OP_AND:
+            return VK_LOGIC_OP_AND;
+        case D3D12_LOGIC_OP_NAND:
+            return VK_LOGIC_OP_NAND;
+        case D3D12_LOGIC_OP_OR:
+            return VK_LOGIC_OP_OR;
+        case D3D12_LOGIC_OP_NOR:
+            return VK_LOGIC_OP_NOR;
+        case D3D12_LOGIC_OP_XOR:
+            return VK_LOGIC_OP_XOR;
+        case D3D12_LOGIC_OP_EQUIV:
+            return VK_LOGIC_OP_EQUIVALENT;
+        case D3D12_LOGIC_OP_AND_REVERSE:
+            return VK_LOGIC_OP_AND_REVERSE;
+        case D3D12_LOGIC_OP_AND_INVERTED:
+            return VK_LOGIC_OP_AND_INVERTED;
+        case D3D12_LOGIC_OP_OR_REVERSE:
+            return VK_LOGIC_OP_OR_REVERSE;
+        case D3D12_LOGIC_OP_OR_INVERTED:
+            return VK_LOGIC_OP_OR_INVERTED;
+        default:
+            FIXME("Unhandled logic op %#x.\n", op);
+            return VK_LOGIC_OP_NO_OP;
+    }
+}
+
+static void blend_desc_from_d3d12(VkPipelineColorBlendStateCreateInfo *vk_desc, const D3D12_BLEND_DESC *d3d12_desc,
+        uint32_t attachment_count, const VkPipelineColorBlendAttachmentState *attachments)
+{
+    vk_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    vk_desc->pNext = NULL;
+    vk_desc->flags = 0;
+    vk_desc->logicOpEnable = d3d12_desc->RenderTarget[0].LogicOpEnable;
+    vk_desc->logicOp = vk_logic_op_from_d3d12(d3d12_desc->RenderTarget[0].LogicOp);
+    vk_desc->attachmentCount = attachment_count;
+    vk_desc->pAttachments = attachments;
+    /* Blend constants are dynamic state */
+    memset(vk_desc->blendConstants, 0, sizeof(vk_desc->blendConstants));
 }
 
 static bool is_dual_source_blending_blend(D3D12_BLEND b)
@@ -2009,6 +2062,7 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
 {
+    const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
     unsigned int ps_output_swizzle[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -2123,9 +2177,20 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
         blend_attachment_from_d3d12(&graphics->blend_attachments[i], rt_desc);
     }
+
     for (i = rt_count; i < ARRAY_SIZE(graphics->rtv_formats); ++i)
         graphics->rtv_formats[i] = VK_FORMAT_UNDEFINED;
     graphics->rt_count = rt_count;
+
+    blend_desc_from_d3d12(&graphics->blend_desc, &desc->blend_state,
+            graphics->rt_count, graphics->blend_attachments);
+
+    if (graphics->blend_desc.logicOpEnable && !features->logicOp)
+    {
+        ERR("Logic op not supported by device.\n");
+        hr = E_INVALIDARG;
+        goto fail;
+    }
 
     ds_desc_from_d3d12(&graphics->ds_desc, &desc->depth_stencil_state);
     if (graphics->ds_desc.depthBoundsTestEnable)
@@ -2669,7 +2734,6 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     VkPipelineTessellationStateCreateInfo tessellation_info;
     VkPipelineVertexInputStateCreateInfo input_desc;
     VkPipelineInputAssemblyStateCreateInfo ia_desc;
-    VkPipelineColorBlendStateCreateInfo blend_desc;
     struct d3d12_device *device = state->device;
     VkGraphicsPipelineCreateInfo pipeline_desc;
     struct vkd3d_pipeline_key pipeline_key;
@@ -2772,18 +2836,6 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     tessellation_info.patchControlPoints
             = max(topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1, 1);
 
-    blend_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    blend_desc.pNext = NULL;
-    blend_desc.flags = 0;
-    blend_desc.logicOpEnable = VK_FALSE;
-    blend_desc.logicOp = VK_LOGIC_OP_COPY;
-    blend_desc.attachmentCount = graphics->rt_count;
-    blend_desc.pAttachments = graphics->blend_attachments;
-    blend_desc.blendConstants[0] = D3D12_DEFAULT_BLEND_FACTOR_RED;
-    blend_desc.blendConstants[1] = D3D12_DEFAULT_BLEND_FACTOR_GREEN;
-    blend_desc.blendConstants[2] = D3D12_DEFAULT_BLEND_FACTOR_BLUE;
-    blend_desc.blendConstants[3] = D3D12_DEFAULT_BLEND_FACTOR_ALPHA;
-
     pipeline_desc.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipeline_desc.pNext = NULL;
     pipeline_desc.flags = 0;
@@ -2796,7 +2848,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     pipeline_desc.pRasterizationState = &graphics->rs_desc;
     pipeline_desc.pMultisampleState = &graphics->ms_desc;
     pipeline_desc.pDepthStencilState = &graphics->ds_desc;
-    pipeline_desc.pColorBlendState = &blend_desc;
+    pipeline_desc.pColorBlendState = &graphics->blend_desc;
     pipeline_desc.pDynamicState = &dynamic_desc;
     pipeline_desc.layout = graphics->root_signature->vk_pipeline_layout;
     pipeline_desc.subpass = 0;
