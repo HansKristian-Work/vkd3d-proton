@@ -2093,6 +2093,7 @@ static void d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_graphi
         { VKD3D_DYNAMIC_STATE_SCISSOR,            VK_DYNAMIC_STATE_SCISSOR            },
         { VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS,    VK_DYNAMIC_STATE_BLEND_CONSTANTS    },
         { VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE,  VK_DYNAMIC_STATE_STENCIL_REFERENCE  },
+        { VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS,       VK_DYNAMIC_STATE_DEPTH_BOUNDS       },
     };
 
     /* Enable dynamic states as necessary */
@@ -2100,6 +2101,9 @@ static void d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_graphi
 
     if (graphics->ds_desc.stencilTestEnable)
         graphics->dynamic_state_flags |= VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE;
+
+    if (graphics->ds_desc.depthBoundsTestEnable)
+        graphics->dynamic_state_flags |= VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS;
 
     for (i = 0; i < graphics->rt_count; i++)
     {
@@ -2255,9 +2259,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
 
     ds_desc_from_d3d12(&graphics->ds_desc, &desc->depth_stencil_state);
-    if (graphics->ds_desc.depthBoundsTestEnable)
+    if (graphics->ds_desc.depthBoundsTestEnable && !features->depthBounds)
     {
-        ERR("Depth bounds test not supported.\n");
+        ERR("Depth bounds test not supported by device.\n");
         hr = E_INVALIDARG;
         goto fail;
     }
