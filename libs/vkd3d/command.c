@@ -2694,6 +2694,12 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->current_render_pass = VK_NULL_HANDLE;
     list->uav_counter_address_buffer = VK_NULL_HANDLE;
 
+    memset(&list->dynamic_state, 0, sizeof(list->dynamic_state));
+    list->dynamic_state.blend_constants[0] = D3D12_DEFAULT_BLEND_FACTOR_RED;
+    list->dynamic_state.blend_constants[1] = D3D12_DEFAULT_BLEND_FACTOR_GREEN;
+    list->dynamic_state.blend_constants[2] = D3D12_DEFAULT_BLEND_FACTOR_BLUE;
+    list->dynamic_state.blend_constants[3] = D3D12_DEFAULT_BLEND_FACTOR_ALPHA;
+
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
     memset(list->descriptor_heaps, 0, sizeof(list->descriptor_heaps));
 
@@ -3494,6 +3500,38 @@ static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *l
     return true;
 }
 
+static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
+
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
+    {
+        VK_CALL(vkCmdSetViewport(list->vk_command_buffer,
+                0, dyn_state->viewport_count, dyn_state->viewports));
+    }
+
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
+    {
+        VK_CALL(vkCmdSetScissor(list->vk_command_buffer,
+                0, dyn_state->viewport_count, dyn_state->scissors));
+    }
+
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS)
+    {
+        VK_CALL(vkCmdSetBlendConstants(list->vk_command_buffer,
+                dyn_state->blend_constants));
+    }
+
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE)
+    {
+        VK_CALL(vkCmdSetStencilReference(list->vk_command_buffer,
+                VK_STENCIL_FRONT_AND_BACK, dyn_state->stencil_reference));
+    }
+
+    dyn_state->dirty_flags = 0;
+}
+
 static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -3505,6 +3543,9 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
         return false;
     if (!d3d12_command_list_update_current_framebuffer(list))
         return false;
+
+    if (list->dynamic_state.dirty_flags)
+        d3d12_command_list_update_dynamic_state(list);
 
     d3d12_command_list_update_descriptors(list, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
