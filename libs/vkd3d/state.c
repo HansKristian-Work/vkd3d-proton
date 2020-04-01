@@ -217,11 +217,9 @@ static VkDescriptorType vk_descriptor_type_from_d3d12_range_type(const struct vk
     switch (type)
     {
         case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
-            return is_buffer ? VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
         case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-            return is_buffer ? VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
-            return vkd3d_bindless_state_get_cbv_descriptor_type(bindless_state);
+            return VK_DESCRIPTOR_TYPE_GENERIC_HACK;
         case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
             return VK_DESCRIPTOR_TYPE_SAMPLER;
         default:
@@ -2991,7 +2989,18 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     vk_binding_flags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT |
             VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT_EXT |
             VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT |
-            VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT_EXT;
+            VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT_EXT |
+            VK_DESCRIPTOR_BINDING_VIEW_AS_PLAIN_DATA_BIT_HACK;
+
+    if (set_info->vk_descriptor_type == VK_DESCRIPTOR_TYPE_GENERIC_HACK)
+    {
+        vk_binding_flags |= VK_DESCRIPTOR_BINDING_GENERIC_SAMPLED_IMAGE_BIT_HACK |
+                            VK_DESCRIPTOR_BINDING_GENERIC_STORAGE_IMAGE_BIT_HACK |
+                            VK_DESCRIPTOR_BINDING_GENERIC_UNIFORM_BUFFER_BIT_HACK |
+                            VK_DESCRIPTOR_BINDING_GENERIC_STORAGE_TEXEL_BUFFER_BIT_HACK |
+                            VK_DESCRIPTOR_BINDING_GENERIC_STORAGE_BUFFER_BIT_HACK |
+                            VK_DESCRIPTOR_BINDING_GENERIC_UNIFORM_TEXEL_BUFFER_BIT_HACK;
+    }
 
     vk_binding_flags_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT;
     vk_binding_flags_info.pNext = NULL;
@@ -3082,28 +3091,11 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
             goto fail;
     }
 
-    if (bindless_state->flags & VKD3D_BINDLESS_CBV)
-    {
-        if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                D3D12_DESCRIPTOR_RANGE_TYPE_CBV, VKD3D_SHADER_BINDING_FLAG_BUFFER)))
-            goto fail;
-    }
-
     if (bindless_state->flags & VKD3D_BINDLESS_SRV)
     {
+        /* Adds the generic set. */
         if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_BUFFER)) ||
-            FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
-            goto fail;
-    }
-
-    if (bindless_state->flags & VKD3D_BINDLESS_UAV)
-    {
-        if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_BUFFER)) ||
-            FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
+                D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_BUFFER)))
             goto fail;
     }
 
@@ -3128,6 +3120,26 @@ bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindle
         D3D12_DESCRIPTOR_RANGE_TYPE range_type, enum vkd3d_shader_binding_flag binding_flag,
         struct vkd3d_shader_descriptor_binding *binding)
 {
+#if 1
+    if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER)
+    {
+        binding->set = 0;
+        binding->binding = 0;
+        return binding_flag == VKD3D_SHADER_BINDING_FLAG_IMAGE;
+    }
+    else if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_CBV)
+    {
+        binding->set = 1;
+        binding->binding = 0;
+        return binding_flag == VKD3D_SHADER_BINDING_FLAG_BUFFER;
+    }
+    else
+    {
+        binding->set = 1;
+        binding->binding = 0;
+        return true;
+    }
+#else
     unsigned int i;
 
     for (i = 0; i < bindless_state->set_count; i++)
@@ -3143,6 +3155,7 @@ bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindle
     }
 
     return false;
+#endif
 }
 
 static void vkd3d_uav_clear_pipelines_cleanup(struct vkd3d_uav_clear_pipelines *pipelines,

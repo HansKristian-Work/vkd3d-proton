@@ -527,6 +527,7 @@ struct vkd3d_view
 };
 
 void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device) DECLSPEC_HIDDEN;
+void vkd3d_view_destroy(struct vkd3d_view *view, struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_view_incref(struct vkd3d_view *view) DECLSPEC_HIDDEN;
 
 struct vkd3d_texture_view_desc
@@ -542,22 +543,23 @@ struct vkd3d_texture_view_desc
 };
 
 bool vkd3d_create_buffer_view(struct d3d12_device *device, VkBuffer vk_buffer, const struct vkd3d_format *format,
-        VkDeviceSize offset, VkDeviceSize size, struct vkd3d_view **view) DECLSPEC_HIDDEN;
+        VkDeviceSize offset, VkDeviceSize size, struct vkd3d_view *view) DECLSPEC_HIDDEN;
 bool vkd3d_create_texture_view(struct d3d12_device *device, VkImage vk_image,
-        const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view) DECLSPEC_HIDDEN;
+        const struct vkd3d_texture_view_desc *desc, struct vkd3d_view *view) DECLSPEC_HIDDEN;
+
+union vkd3d_descriptor_info
+{
+    VkBufferView buffer_view;
+    VkDescriptorBufferInfo buffer;
+    VkDescriptorImageInfo image;
+};
 
 struct d3d12_desc
 {
     struct d3d12_descriptor_heap *heap;
+    VkDeviceAddress uav_counter_address;
+    struct vkd3d_view view;
     uint32_t heap_offset;
-    spinlock_t spinlock;
-    uint32_t magic;
-    VkDescriptorType vk_descriptor_type;
-    union
-    {
-        VkDescriptorBufferInfo vk_cbv_info;
-        struct vkd3d_view *view;
-    } u;
 };
 
 static inline struct d3d12_desc *d3d12_desc_from_cpu_handle(D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle)
@@ -673,12 +675,12 @@ static inline unsigned int d3d12_descriptor_heap_cbv_set_index()
 
 static inline unsigned int d3d12_descriptor_heap_srv_set_index(bool is_buffer)
 {
-    return 1 + (is_buffer ? 0 : 1);
+    return 0;
 }
 
 static inline unsigned int d3d12_descriptor_heap_uav_set_index(bool is_buffer)
 {
-    return 3 + (is_buffer ? 0 : 1);
+    return 0;
 }
 
 static inline uint32_t d3d12_desc_heap_offset(const struct d3d12_desc *dst)
@@ -687,7 +689,8 @@ static inline uint32_t d3d12_desc_heap_offset(const struct d3d12_desc *dst)
 }
 
 unsigned int d3d12_descriptor_heap_set_index_from_binding(const struct vkd3d_bindless_set_info *set) DECLSPEC_HIDDEN;
-unsigned int d3d12_descriptor_heap_set_index_from_magic(uint32_t magic, bool is_buffer) DECLSPEC_HIDDEN;
+unsigned int d3d12_descriptor_heap_set_index_from_magic(uint32_t magic) DECLSPEC_HIDDEN;
+unsigned int d3d12_descriptor_heap_set_index_from_vk_descriptor_type(VkDescriptorType type) DECLSPEC_HIDDEN;
 
 /* ID3D12QueryHeap */
 struct d3d12_query_heap
@@ -1038,13 +1041,6 @@ enum vkd3d_pipeline_dirty_flag
     VKD3D_PIPELINE_DIRTY_PACKED_DESCRIPTOR_SET    = 0x00000002u,
     VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS = 0x00000004u,
     VKD3D_PIPELINE_DIRTY_UAV_COUNTER_BINDING      = 0x00000008u,
-};
-
-union vkd3d_descriptor_info
-{
-    VkBufferView buffer_view;
-    VkDescriptorBufferInfo buffer;
-    VkDescriptorImageInfo image;
 };
 
 struct vkd3d_descriptor_updates
