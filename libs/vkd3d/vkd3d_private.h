@@ -1095,6 +1095,9 @@ struct vkd3d_dynamic_state
 
     float blend_constants[4];
     uint32_t stencil_reference;
+
+    uint32_t vertex_strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    D3D12_PRIMITIVE_TOPOLOGY primitive_topology;
 };
 
 /* ID3D12CommandList */
@@ -1111,9 +1114,6 @@ struct d3d12_command_list
     bool is_recording;
     bool is_valid;
     VkCommandBuffer vk_command_buffer;
-
-    uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
-    D3D12_PRIMITIVE_TOPOLOGY primitive_topology;
 
     DXGI_FORMAT index_buffer_format;
 

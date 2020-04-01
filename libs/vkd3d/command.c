@@ -2672,9 +2672,6 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 {
     d3d12_command_list_iface *iface = &list->ID3D12GraphicsCommandList_iface;
 
-    memset(list->strides, 0, sizeof(list->strides));
-    list->primitive_topology = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
-
     list->index_buffer_format = DXGI_FORMAT_UNKNOWN;
 
     memset(list->rtvs, 0, sizeof(list->rtvs));
@@ -2699,6 +2696,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->dynamic_state.blend_constants[1] = D3D12_DEFAULT_BLEND_FACTOR_GREEN;
     list->dynamic_state.blend_constants[2] = D3D12_DEFAULT_BLEND_FACTOR_BLUE;
     list->dynamic_state.blend_constants[3] = D3D12_DEFAULT_BLEND_FACTOR_ALPHA;
+    list->dynamic_state.primitive_topology = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
 
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
     memset(list->descriptor_heaps, 0, sizeof(list->descriptor_heaps));
@@ -2888,7 +2886,8 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     }
 
     if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
-            list->primitive_topology, list->strides, list->dsv_format, &vk_render_pass)))
+            list->dynamic_state.primitive_topology, list->dynamic_state.vertex_strides,
+            list->dsv_format, &vk_render_pass)))
         return false;
 
     /* The render pass cache ensures that we use the same Vulkan render pass
@@ -4263,6 +4262,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(d3d12_co
         D3D12_PRIMITIVE_TOPOLOGY topology)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
 
     TRACE("iface %p, topology %#x.\n", iface, topology);
 
@@ -4272,10 +4272,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(d3d12_co
         return;
     }
 
-    if (list->primitive_topology == topology)
+    if (dyn_state->primitive_topology == topology)
         return;
 
-    list->primitive_topology = topology;
+    dyn_state->primitive_topology = topology;
     d3d12_command_list_invalidate_current_pipeline(list);
 }
 
@@ -5032,11 +5032,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
         UINT start_slot, UINT view_count, const D3D12_VERTEX_BUFFER_VIEW *views)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
+    VkDeviceSize offsets[ARRAY_SIZE(dyn_state->vertex_strides)];
+    VkBuffer buffers[ARRAY_SIZE(dyn_state->vertex_strides)];
     const struct vkd3d_null_resources *null_resources;
     struct vkd3d_gpu_va_allocator *gpu_va_allocator;
-    VkDeviceSize offsets[ARRAY_SIZE(list->strides)];
     const struct vkd3d_vk_device_procs *vk_procs;
-    VkBuffer buffers[ARRAY_SIZE(list->strides)];
     struct d3d12_resource *resource;
     bool invalidate = false;
     unsigned int i, stride;
@@ -5047,7 +5048,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
     null_resources = &list->device->null_resources;
     gpu_va_allocator = &list->device->gpu_va_allocator;
 
-    if (start_slot >= ARRAY_SIZE(list->strides) || view_count > ARRAY_SIZE(list->strides) - start_slot)
+    if (start_slot >= ARRAY_SIZE(dyn_state->vertex_strides) ||
+            view_count > ARRAY_SIZE(dyn_state->vertex_strides) - start_slot)
     {
         WARN("Invalid start slot %u / view count %u.\n", start_slot, view_count);
         return;
@@ -5069,8 +5071,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
             stride = 0;
         }
 
-        invalidate |= list->strides[start_slot + i] != stride;
-        list->strides[start_slot + i] = stride;
+        invalidate |= dyn_state->vertex_strides[start_slot + i] != stride;
+        dyn_state->vertex_strides[start_slot + i] = stride;
     }
 
     if (view_count)
