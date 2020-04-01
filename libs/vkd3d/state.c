@@ -2059,6 +2059,23 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
     return vkd3d_render_pass_cache_find(&device->render_pass_cache, device, &key, vk_render_pass);
 }
 
+static bool vk_blend_factor_needs_blend_constants(VkBlendFactor blend_factor)
+{
+    return blend_factor == VK_BLEND_FACTOR_CONSTANT_COLOR ||
+            blend_factor == VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR ||
+            blend_factor == VK_BLEND_FACTOR_CONSTANT_ALPHA ||
+            blend_factor == VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
+}
+
+static bool vk_blend_attachment_needs_blend_constants(const VkPipelineColorBlendAttachmentState *attachment)
+{
+    return attachment->blendEnable && (
+            vk_blend_factor_needs_blend_constants(attachment->srcColorBlendFactor) ||
+            vk_blend_factor_needs_blend_constants(attachment->dstColorBlendFactor) ||
+            vk_blend_factor_needs_blend_constants(attachment->srcAlphaBlendFactor) ||
+            vk_blend_factor_needs_blend_constants(attachment->dstAlphaBlendFactor));
+}
+
 static void d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_graphics_pipeline_state *graphics)
 {
     VkPipelineDynamicStateCreateInfo *dynamic_desc = &graphics->dynamic_desc;
@@ -2077,12 +2094,19 @@ static void d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_graphi
         { VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE,  VK_DYNAMIC_STATE_STENCIL_REFERENCE  },
     };
 
-    /* TODO only enable those states that we actually need */
-    graphics->dynamic_state_flags = VKD3D_DYNAMIC_STATE_VIEWPORT |
-            VKD3D_DYNAMIC_STATE_SCISSOR |
-            VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS |
-            VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE;
+    /* Enable dynamic states as necessary */
+    graphics->dynamic_state_flags = VKD3D_DYNAMIC_STATE_VIEWPORT | VKD3D_DYNAMIC_STATE_SCISSOR;
 
+    if (graphics->ds_desc.stencilTestEnable)
+        graphics->dynamic_state_flags |= VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE;
+
+    for (i = 0; i < graphics->rt_count; i++)
+    {
+        if (vk_blend_attachment_needs_blend_constants(&graphics->blend_attachments[i]))
+            graphics->dynamic_state_flags |= VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS;
+    }
+
+    /* Build dynamic state create info */
     for (i = 0, j = 0; i < ARRAY_SIZE(dynamic_state_list); i++)
     {
         if (graphics->dynamic_state_flags & dynamic_state_list[i].flag)
