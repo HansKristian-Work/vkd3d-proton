@@ -66,6 +66,7 @@ struct d3d12_device;
 struct d3d12_resource;
 
 struct vkd3d_bindless_set_info;
+struct vkd3d_dynamic_state;
 
 struct vkd3d_vk_global_procs
 {
@@ -956,8 +957,7 @@ struct d3d12_pipeline_state_desc
 HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
         const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
-        D3D12_PRIMITIVE_TOPOLOGY topology, const uint32_t *strides, VkFormat dsv_format,
-        VkRenderPass *vk_render_pass) DECLSPEC_HIDDEN;
+        const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass) DECLSPEC_HIDDEN;
 struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface) DECLSPEC_HIDDEN;
 
 struct vkd3d_buffer

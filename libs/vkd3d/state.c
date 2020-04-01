@@ -2787,8 +2787,7 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
 }
 
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
-        D3D12_PRIMITIVE_TOPOLOGY topology, const uint32_t *strides, VkFormat dsv_format,
-        VkRenderPass *vk_render_pass)
+        const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass)
 {
     VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
@@ -2821,7 +2820,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     assert(d3d12_pipeline_state_is_graphics(state));
 
     memset(&pipeline_key, 0, sizeof(pipeline_key));
-    pipeline_key.topology = topology;
+    pipeline_key.topology = dyn_state->primitive_topology;
 
     for (i = 0, mask = 0; i < graphics->attribute_count; ++i)
     {
@@ -2841,10 +2840,10 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         mask |= 1u << binding;
         b = &bindings[binding_count];
         b->binding = binding;
-        b->stride = strides[binding];
+        b->stride = dyn_state->vertex_strides[binding];
         b->inputRate = graphics->input_rates[binding];
 
-        pipeline_key.strides[binding_count] = strides[binding];
+        pipeline_key.strides[binding_count] = b->stride;
 
         ++binding_count;
     }
@@ -2874,7 +2873,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     ia_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     ia_desc.pNext = NULL;
     ia_desc.flags = 0;
-    ia_desc.topology = vk_topology_from_d3d12_topology(topology);
+    ia_desc.topology = vk_topology_from_d3d12_topology(dyn_state->primitive_topology);
     ia_desc.primitiveRestartEnable = graphics->index_buffer_strip_cut_value &&
                                      vkd3d_topology_can_restart(ia_desc.topology);
 
@@ -2882,7 +2881,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     tessellation_info.pNext = NULL;
     tessellation_info.flags = 0;
     tessellation_info.patchControlPoints
-            = max(topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1, 1);
+            = max(dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1, 1);
 
     pipeline_desc.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipeline_desc.pNext = NULL;
