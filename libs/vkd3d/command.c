@@ -2886,8 +2886,7 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     }
 
     if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
-            list->dynamic_state.primitive_topology, list->dynamic_state.vertex_strides,
-            list->dsv_format, &vk_render_pass)))
+            &list->dynamic_state, list->dsv_format, &vk_render_pass)))
         return false;
 
     /* The render pass cache ensures that we use the same Vulkan render pass
