@@ -827,6 +827,16 @@ struct d3d12_root_signature *unsafe_impl_from_ID3D12RootSignature(ID3D12RootSign
 int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *desc) DECLSPEC_HIDDEN;
 
+#define VKD3D_MAX_DYNAMIC_STATE_COUNT (4)
+
+enum vkd3d_dynamic_state_flag
+{
+    VKD3D_DYNAMIC_STATE_VIEWPORT          = (1 << 0),
+    VKD3D_DYNAMIC_STATE_SCISSOR           = (1 << 1),
+    VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS   = (1 << 2),
+    VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE = (1 << 3),
+};
+
 struct d3d12_graphics_pipeline_state
 {
     VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
@@ -1070,6 +1080,18 @@ struct d3d12_deferred_descriptor_set_update
     unsigned int root_parameter_index;
 };
 
+struct vkd3d_dynamic_state
+{
+    uint32_t dirty_flags; /* vkd3d_dynamic_state_flags */
+
+    uint32_t viewport_count;
+    VkViewport viewports[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
+    VkRect2D scissors[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
+
+    float blend_constants[4];
+    uint32_t stencil_reference;
+};
+
 /* ID3D12CommandList */
 typedef ID3D12GraphicsCommandList2 d3d12_command_list_iface;
 
@@ -1106,6 +1128,7 @@ struct d3d12_command_list
     VkRenderPass pso_render_pass;
     VkRenderPass current_render_pass;
     VkBuffer uav_counter_address_buffer;
+    struct vkd3d_dynamic_state dynamic_state;
     struct vkd3d_pipeline_bindings pipeline_bindings[VK_PIPELINE_BIND_POINT_RANGE_SIZE];
     struct vkd3d_descriptor_updates packed_descriptors[VK_PIPELINE_BIND_POINT_RANGE_SIZE];
 
