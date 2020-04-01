@@ -849,6 +849,7 @@ struct d3d12_graphics_pipeline_state
     VkPipelineRasterizationStateCreateInfo rs_desc;
     VkPipelineMultisampleStateCreateInfo ms_desc;
     VkPipelineDepthStencilStateCreateInfo ds_desc;
+    VkPipelineColorBlendStateCreateInfo blend_desc;
 
     VkSampleMask sample_mask[2];
     VkPipelineRasterizationDepthClipStateCreateInfoEXT rs_depth_clip_info;
