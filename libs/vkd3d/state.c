@@ -1305,6 +1305,7 @@ void vkd3d_render_pass_cache_cleanup(struct vkd3d_render_pass_cache *cache,
 struct vkd3d_pipeline_key
 {
     D3D12_PRIMITIVE_TOPOLOGY topology;
+    uint32_t viewport_count;
     uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     VkFormat dsv_format;
 };
@@ -2798,6 +2799,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     VkPipelineInputAssemblyStateCreateInfo ia_desc;
     struct d3d12_device *device = state->device;
     VkGraphicsPipelineCreateInfo pipeline_desc;
+    VkPipelineViewportStateCreateInfo vp_desc;
     struct vkd3d_pipeline_key pipeline_key;
     size_t binding_count = 0;
     VkPipeline vk_pipeline;
@@ -2806,21 +2808,11 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     VkResult vr;
     HRESULT hr;
 
-    static const VkPipelineViewportStateCreateInfo vp_desc =
-    {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .viewportCount = 1,
-        .pViewports = NULL,
-        .scissorCount = 1,
-        .pScissors = NULL,
-    };
-
     assert(d3d12_pipeline_state_is_graphics(state));
 
     memset(&pipeline_key, 0, sizeof(pipeline_key));
     pipeline_key.topology = dyn_state->primitive_topology;
+    pipeline_key.viewport_count = max(dyn_state->viewport_count, 1);
 
     for (i = 0, mask = 0; i < graphics->attribute_count; ++i)
     {
@@ -2882,6 +2874,14 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     tessellation_info.flags = 0;
     tessellation_info.patchControlPoints
             = max(dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1, 1);
+
+    vp_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    vp_desc.pNext = NULL;
+    vp_desc.flags = 0;
+    vp_desc.viewportCount = pipeline_key.viewport_count;
+    vp_desc.pViewports = NULL;
+    vp_desc.scissorCount = pipeline_key.viewport_count;
+    vp_desc.pScissors = NULL;
 
     pipeline_desc.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipeline_desc.pNext = NULL;

@@ -4287,10 +4287,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(d3d12_command_li
 
     TRACE("iface %p, viewport_count %u, viewports %p.\n", iface, viewport_count, viewports);
 
-    if (viewport_count > 1)
+    if (viewport_count > ARRAY_SIZE(dyn_state->viewports))
     {
-        FIXME_ONCE("Viewport count %u currently not supported.\n", viewport_count);
-        viewport_count = 1;
+        FIXME_ONCE("Viewport count %u > D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE.\n", viewport_count);
+        viewport_count = ARRAY_SIZE(dyn_state->viewports);
     }
 
     for (i = 0; i < viewport_count; ++i)
@@ -4317,6 +4317,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(d3d12_command_li
     {
         dyn_state->viewport_count = viewport_count;
         dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR;
+        d3d12_command_list_invalidate_current_pipeline(list);
     }
 
     dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT;
