@@ -3928,10 +3928,10 @@ static void d3d12_device_caps_init_feature_options1(struct d3d12_device *device)
 
 static void d3d12_device_caps_init_feature_options2(struct d3d12_device *device)
 {
+    const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
     D3D12_FEATURE_DATA_D3D12_OPTIONS2 *options2 = &device->d3d12_caps.options2;
 
-    /* Currently not supported */
-    options2->DepthBoundsTestSupported = FALSE;
+    options2->DepthBoundsTestSupported = features->depthBounds;
     /* Requires VK_EXT_sample_locations */
     options2->ProgrammableSamplePositionsTier = D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_NOT_SUPPORTED;
 }

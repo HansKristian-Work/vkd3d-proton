@@ -828,7 +828,7 @@ struct d3d12_root_signature *unsafe_impl_from_ID3D12RootSignature(ID3D12RootSign
 int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *desc) DECLSPEC_HIDDEN;
 
-#define VKD3D_MAX_DYNAMIC_STATE_COUNT (4)
+#define VKD3D_MAX_DYNAMIC_STATE_COUNT (5)
 
 enum vkd3d_dynamic_state_flag
 {
@@ -836,6 +836,7 @@ enum vkd3d_dynamic_state_flag
     VKD3D_DYNAMIC_STATE_SCISSOR           = (1 << 1),
     VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS   = (1 << 2),
     VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE = (1 << 3),
+    VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS      = (1 << 4),
 };
 
 struct d3d12_graphics_pipeline_state
@@ -1095,6 +1096,9 @@ struct vkd3d_dynamic_state
 
     float blend_constants[4];
     uint32_t stencil_reference;
+
+    float min_depth_bounds;
+    float max_depth_bounds;
 
     uint32_t vertex_strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     D3D12_PRIMITIVE_TOPOLOGY primitive_topology;

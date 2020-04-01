@@ -2696,6 +2696,10 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->dynamic_state.blend_constants[1] = D3D12_DEFAULT_BLEND_FACTOR_GREEN;
     list->dynamic_state.blend_constants[2] = D3D12_DEFAULT_BLEND_FACTOR_BLUE;
     list->dynamic_state.blend_constants[3] = D3D12_DEFAULT_BLEND_FACTOR_ALPHA;
+
+    list->dynamic_state.min_depth_bounds = 0.0f;
+    list->dynamic_state.max_depth_bounds = 1.0f;
+
     list->dynamic_state.primitive_topology = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
 
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
@@ -3528,6 +3532,12 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
     {
         VK_CALL(vkCmdSetStencilReference(list->vk_command_buffer,
                 VK_STENCIL_FRONT_AND_BACK, dyn_state->stencil_reference));
+    }
+
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS)
+    {
+        VK_CALL(vkCmdSetDepthBounds(list->vk_command_buffer,
+                dyn_state->min_depth_bounds, dyn_state->max_depth_bounds));
     }
 
     dyn_state->dirty_flags = 0;
@@ -6114,7 +6124,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_AtomicCopyBufferUINT64(d3d12_co
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetDepthBounds(d3d12_command_list_iface *iface,
         FLOAT min, FLOAT max)
 {
-    FIXME("iface %p, min %.8e, max %.8e stub!\n", iface, min, max);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
+
+    TRACE("iface %p, min %.8e, max %.8e.\n", iface, min, max);
+
+    dyn_state->min_depth_bounds = min;
+    dyn_state->max_depth_bounds = max;
+
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetSamplePositions(d3d12_command_list_iface *iface,
