@@ -3505,6 +3505,9 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
 
+    /* Make sure we only update states that are dynamic in the pipeline */
+    dyn_state->dirty_flags &= list->state->u.graphics.dynamic_state_flags;
+
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
     {
         VK_CALL(vkCmdSetViewport(list->vk_command_buffer,
@@ -4279,89 +4282,99 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(d3d12_co
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(d3d12_command_list_iface *iface,
         UINT viewport_count, const D3D12_VIEWPORT *viewports)
 {
-    VkViewport vk_viewports[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs;
+    struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
     unsigned int i;
 
     TRACE("iface %p, viewport_count %u, viewports %p.\n", iface, viewport_count, viewports);
 
-    if (viewport_count > ARRAY_SIZE(vk_viewports))
+    if (viewport_count > 1)
     {
-        FIXME("Viewport count %u > D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE.\n", viewport_count);
-        viewport_count = ARRAY_SIZE(vk_viewports);
+        FIXME_ONCE("Viewport count %u currently not supported.\n", viewport_count);
+        viewport_count = 1;
     }
 
     for (i = 0; i < viewport_count; ++i)
     {
-        vk_viewports[i].x = viewports[i].TopLeftX;
-        vk_viewports[i].y = viewports[i].TopLeftY + viewports[i].Height;
-        vk_viewports[i].width = viewports[i].Width;
-        vk_viewports[i].height = -viewports[i].Height;
-        vk_viewports[i].minDepth = viewports[i].MinDepth;
-        vk_viewports[i].maxDepth = viewports[i].MaxDepth;
-
-        if (!vk_viewports[i].width || !vk_viewports[i].height)
+        if (!viewports[i].Width || !viewports[i].Height)
         {
             FIXME_ONCE("Invalid viewport %u, ignoring RSSetViewports().\n", i);
             return;
         }
     }
 
-    vk_procs = &list->device->vk_procs;
-    VK_CALL(vkCmdSetViewport(list->vk_command_buffer, 0, viewport_count, vk_viewports));
+    for (i = 0; i < viewport_count; ++i)
+    {
+        VkViewport *vk_viewport = &dyn_state->viewports[i];
+        vk_viewport->x = viewports[i].TopLeftX;
+        vk_viewport->y = viewports[i].TopLeftY + viewports[i].Height;
+        vk_viewport->width = viewports[i].Width;
+        vk_viewport->height = -viewports[i].Height;
+        vk_viewport->minDepth = viewports[i].MinDepth;
+        vk_viewport->maxDepth = viewports[i].MaxDepth;
+    }
+
+    if (dyn_state->viewport_count != viewport_count)
+    {
+        dyn_state->viewport_count = viewport_count;
+        dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR;
+    }
+
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(d3d12_command_list_iface *iface,
         UINT rect_count, const D3D12_RECT *rects)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    VkRect2D vk_rects[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
-    const struct vkd3d_vk_device_procs *vk_procs;
+    struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
     unsigned int i;
 
     TRACE("iface %p, rect_count %u, rects %p.\n", iface, rect_count, rects);
 
-    if (rect_count > ARRAY_SIZE(vk_rects))
+    if (rect_count > ARRAY_SIZE(dyn_state->scissors))
     {
         FIXME("Rect count %u > D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE.\n", rect_count);
-        rect_count = ARRAY_SIZE(vk_rects);
+        rect_count = ARRAY_SIZE(dyn_state->scissors);
     }
 
     for (i = 0; i < rect_count; ++i)
     {
-        vk_rects[i].offset.x = rects[i].left;
-        vk_rects[i].offset.y = rects[i].top;
-        vk_rects[i].extent.width = rects[i].right - rects[i].left;
-        vk_rects[i].extent.height = rects[i].bottom - rects[i].top;
+        VkRect2D *vk_rect = &dyn_state->scissors[i];
+        vk_rect->offset.x = rects[i].left;
+        vk_rect->offset.y = rects[i].top;
+        vk_rect->extent.width = rects[i].right - rects[i].left;
+        vk_rect->extent.height = rects[i].bottom - rects[i].top;
     }
 
-    vk_procs = &list->device->vk_procs;
-    VK_CALL(vkCmdSetScissor(list->vk_command_buffer, 0, rect_count, vk_rects));
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetBlendFactor(d3d12_command_list_iface *iface,
         const FLOAT blend_factor[4])
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs;
+    struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
+    unsigned int i;
 
     TRACE("iface %p, blend_factor %p.\n", iface, blend_factor);
 
-    vk_procs = &list->device->vk_procs;
-    VK_CALL(vkCmdSetBlendConstants(list->vk_command_buffer, blend_factor));
+    for (i = 0; i < 4; i++)
+        dyn_state->blend_constants[i] = blend_factor[i];
+
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetStencilRef(d3d12_command_list_iface *iface,
         UINT stencil_ref)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs;
+    struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
 
     TRACE("iface %p, stencil_ref %u.\n", iface, stencil_ref);
 
-    vk_procs = &list->device->vk_procs;
-    VK_CALL(vkCmdSetStencilReference(list->vk_command_buffer, VK_STENCIL_FRONT_AND_BACK, stencil_ref));
+    dyn_state->stencil_reference = stencil_ref;
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_list_iface *iface,
@@ -4376,6 +4389,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
         return;
 
     d3d12_command_list_invalidate_current_pipeline(list);
+
+    if (d3d12_pipeline_state_is_graphics(state))
+    {
+        uint32_t old_dynamic_state_flags = d3d12_pipeline_state_is_graphics(list->state)
+            ? list->state->u.graphics.dynamic_state_flags
+            : 0u;
+
+        /* Reapply all dynamic states that were not dynamic in previously bound pipeline */
+        list->dynamic_state.dirty_flags |= state->u.graphics.dynamic_state_flags & ~old_dynamic_state_flags;
+    }
 
     list->state = state;
 }
