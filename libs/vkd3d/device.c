@@ -3067,6 +3067,7 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(d3d12_device_iface *i
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     unsigned int dst_range_idx, dst_idx, src_range_idx, src_idx;
     unsigned int dst_range_size, src_range_size;
+    int to_copy_dst, to_copy_src, to_copy;
     struct d3d12_desc *dst, *src;
 
     TRACE("iface %p, dst_descriptor_range_count %u, dst_descriptor_range_offsets %p, "
@@ -3094,8 +3095,15 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(d3d12_device_iface *i
         dst = d3d12_desc_from_cpu_handle(dst_descriptor_range_offsets[dst_range_idx]);
         src = d3d12_desc_from_cpu_handle(src_descriptor_range_offsets[src_range_idx]);
 
-        while (dst_idx < dst_range_size && src_idx < src_range_size)
-            d3d12_desc_copy(&dst[dst_idx++], &src[src_idx++], device);
+        to_copy_dst = dst_range_size - dst_idx;
+        to_copy_src = src_range_size - src_idx;
+        to_copy = min(to_copy_dst, to_copy_src);
+        if (to_copy > 0)
+        {
+            d3d12_desc_copy_multiple(&dst[dst_idx], &src[src_idx], device, to_copy);
+            dst_idx += to_copy;
+            src_idx += to_copy;
+        }
 
         if (dst_idx >= dst_range_size)
         {
@@ -3115,13 +3123,22 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple(d3d12_device_if
         const D3D12_CPU_DESCRIPTOR_HANDLE src_descriptor_range_offset,
         D3D12_DESCRIPTOR_HEAP_TYPE descriptor_heap_type)
 {
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
     TRACE("iface %p, descriptor_count %u, dst_descriptor_range_offset %#lx, "
             "src_descriptor_range_offset %#lx, descriptor_heap_type %#x.\n",
             iface, descriptor_count, dst_descriptor_range_offset.ptr, src_descriptor_range_offset.ptr,
             descriptor_heap_type);
 
-    d3d12_device_CopyDescriptors(iface, 1, &dst_descriptor_range_offset, &descriptor_count,
-            1, &src_descriptor_range_offset, &descriptor_count, descriptor_heap_type);
+    if (descriptor_heap_type != D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV
+        && descriptor_heap_type != D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+    {
+        FIXME("Unhandled descriptor heap type %#x.\n", descriptor_heap_type);
+        return;
+    }
+
+    d3d12_desc_copy_multiple(d3d12_desc_from_cpu_handle(dst_descriptor_range_offset),
+                             d3d12_desc_from_cpu_handle(src_descriptor_range_offset),
+                             device, descriptor_count);
 }
 
 static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo(

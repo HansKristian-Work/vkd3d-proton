@@ -574,6 +574,8 @@ static inline struct d3d12_desc *d3d12_desc_from_gpu_handle(D3D12_GPU_DESCRIPTOR
 
 void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
+void d3d12_desc_copy_multiple(struct d3d12_desc *dst, struct d3d12_desc *src,
+        struct d3d12_device *device, unsigned int count) DECLSPEC_HIDDEN;
 void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc) DECLSPEC_HIDDEN;
 void d3d12_desc_create_srv(struct d3d12_desc *descriptor,

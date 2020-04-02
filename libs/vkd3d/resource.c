@@ -2250,7 +2250,7 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst,
 void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
         struct d3d12_device *device)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &dst->heap->device->vk_procs;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDescriptorSet vk_dst_desc_set, vk_src_desc_set;
     VkCopyDescriptorSet vk_copy;
     unsigned int dst_offset;
@@ -2261,12 +2261,12 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
 
     dst_offset = dst->heap_offset;
     src_offset = src->heap_offset;
-    if (dst->heap->uav_counters.data)
-        dst->heap->uav_counters.data[dst_offset] = src->uav_counter_address;
 
     vk_dst_desc_set = dst->heap->vk_descriptor_sets[0];
     vk_src_desc_set = src->heap->vk_descriptor_sets[0];
 
+    if (dst->heap->uav_counters.data)
+        dst->heap->uav_counters.data[dst_offset] = src->uav_counter_address;
     dst->view = src->view;
     dst->uav_counter_address = src->uav_counter_address;
 
@@ -2281,6 +2281,41 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
     vk_copy.srcBinding = 0;
 
     VK_CALL(vkUpdateDescriptorSets(dst->heap->device->vk_device, 0, NULL, 1, &vk_copy));
+}
+
+void d3d12_desc_copy_multiple(struct d3d12_desc *dst, struct d3d12_desc *src,
+        struct d3d12_device *device, unsigned int count)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkCopyDescriptorSet vk_copy;
+    unsigned int dst_offset;
+    unsigned int src_offset;
+    unsigned int i;
+
+    if (dst == src)
+        return;
+
+    dst_offset = dst->heap_offset;
+    src_offset = src->heap_offset;
+
+    vk_copy.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+    vk_copy.pNext = NULL;
+    vk_copy.descriptorCount = count;
+    vk_copy.dstArrayElement = dst_offset;
+    vk_copy.srcArrayElement = src_offset;
+    vk_copy.dstSet = dst->heap->vk_descriptor_sets[0];
+    vk_copy.srcSet = src->heap->vk_descriptor_sets[0];
+    vk_copy.dstBinding = 0;
+    vk_copy.srcBinding = 0;
+    VK_CALL(vkUpdateDescriptorSets(dst->heap->device->vk_device, 0, NULL, 1, &vk_copy));
+
+    for (i = 0; i < count; i++, dst++, src++)
+    {
+        if (dst->heap->uav_counters.data)
+            dst->heap->uav_counters.data[dst_offset] = src->uav_counter_address;
+        dst->view = src->view;
+        dst->uav_counter_address = src->uav_counter_address;
+    }
 }
 
 static VkDeviceSize vkd3d_get_required_texel_buffer_alignment(const struct d3d12_device *device,
