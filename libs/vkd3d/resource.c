@@ -2164,36 +2164,99 @@ ULONG vkd3d_resource_decref(ID3D12Resource *resource)
 }
 
 /* CBVs, SRVs, UAVs */
-static void vkd3d_view_create(struct vkd3d_view *view, enum vkd3d_view_type type)
+void vkd3d_view_init(struct vkd3d_view *view, enum vkd3d_view_type type)
 {
     memset(view, 0, sizeof(*view));
     view->type = type;
     view->refcount = 1;
 }
 
+static void vkd3d_view_init_with_stack(struct vkd3d_view *view, enum vkd3d_view_type type, uint8_t *stack, size_t size)
+{
+    assert(size <= 0xffff);
+    vkd3d_view_init(view, type);
+    view->stack_ptr = (uintptr_t)stack;
+    view->stack_size = (uint16_t)size;
+}
+
+static void* VKAPI_CALL vkd3d_view_stack_allocate(void *userdata, size_t size, size_t align, VkSystemAllocationScope scope)
+{
+    struct vkd3d_view *view = userdata;
+    uintptr_t aligned_base;
+    void *ret;
+
+    aligned_base = (view->stack_ptr + view->stack_offset + align - 1) & ~(align - 1);
+
+    if (view->stack_ptr && aligned_base + size <= view->stack_ptr + view->stack_size)
+    {
+        ret = (void*)aligned_base;
+        view->stack_offset = aligned_base + size - view->stack_ptr;
+    }
+    else
+    {
+        if (view->stack_ptr)
+            FIXME("Overflowed stack allocator!\n");
+        ret = vkd3d_malloc(size);
+    }
+    return ret;
+}
+
+static void* VKAPI_CALL vkd3d_view_stack_reallocate(void *userdata, void *original, size_t size, size_t align, VkSystemAllocationScope scope)
+{
+    if (original == NULL)
+        return vkd3d_view_stack_allocate(userdata, size, align, scope);
+    else
+    {
+        /* Need to store allocated size cookie before stack allocation. */
+        return NULL;
+    }
+}
+
+static void VKAPI_CALL vkd3d_view_stack_free(void *userdata, void *ptr_)
+{
+    struct vkd3d_view *view = userdata;
+    uintptr_t ptr = (uintptr_t)ptr_;
+
+    if (ptr < view->stack_ptr || ptr >= (view->stack_ptr + view->stack_size))
+        vkd3d_free(ptr_);
+}
+
+/* Since we are allocating views in-place and freeing them right away after updating descriptors
+ * we should be able to improve performance with a stack allocator. */
+static const VkAllocationCallbacks vkd3d_view_allocator = {
+    NULL,
+    vkd3d_view_stack_allocate,
+    vkd3d_view_stack_reallocate,
+    vkd3d_view_stack_free,
+    NULL,
+    NULL,
+};
+
 void vkd3d_view_incref(struct vkd3d_view *view)
 {
     InterlockedIncrement(&view->refcount);
 }
 
-void vkd3d_view_destroy(struct vkd3d_view *view, struct d3d12_device *device)
+void vkd3d_view_deinit(struct vkd3d_view *view, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkAllocationCallbacks callbacks = vkd3d_view_allocator;
+    callbacks.pUserData = view;
 
     TRACE("Destroying view %p.\n", view);
 
     switch (view->type)
     {
         case VKD3D_VIEW_TYPE_BUFFER:
-            VK_CALL(vkDestroyBufferView(device->vk_device, view->u.vk_buffer_view, NULL));
+            VK_CALL(vkDestroyBufferView(device->vk_device, view->u.vk_buffer_view, &callbacks));
             view->u.vk_buffer_view = VK_NULL_HANDLE;
             break;
         case VKD3D_VIEW_TYPE_IMAGE:
-            VK_CALL(vkDestroyImageView(device->vk_device, view->u.vk_image_view, NULL));
+            VK_CALL(vkDestroyImageView(device->vk_device, view->u.vk_image_view, &callbacks));
             view->u.vk_image_view = VK_NULL_HANDLE;
             break;
         case VKD3D_VIEW_TYPE_SAMPLER:
-            VK_CALL(vkDestroySampler(device->vk_device, view->u.vk_sampler, NULL));
+            VK_CALL(vkDestroySampler(device->vk_device, view->u.vk_sampler, &callbacks));
             view->u.vk_sampler = VK_NULL_HANDLE;
             break;
         default:
@@ -2201,14 +2264,14 @@ void vkd3d_view_destroy(struct vkd3d_view *view, struct d3d12_device *device)
     }
 
     if (view->vk_counter_view)
-        VK_CALL(vkDestroyBufferView(device->vk_device, view->vk_counter_view, NULL));
+        VK_CALL(vkDestroyBufferView(device->vk_device, view->vk_counter_view, &callbacks));
 }
 
 void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device)
 {
     if (!InterlockedDecrement(&view->refcount))
     {
-        vkd3d_view_destroy(view, device);
+        vkd3d_view_deinit(view, device);
         vkd3d_free(view);
     }
 }
@@ -2347,7 +2410,7 @@ static VkDeviceSize vkd3d_get_required_texel_buffer_alignment(const struct d3d12
 
 static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
         VkBuffer vk_buffer, const struct vkd3d_format *format,
-        VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view)
+        VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view, const VkAllocationCallbacks *callbacks)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkBufferViewCreateInfo view_desc;
@@ -2371,7 +2434,7 @@ static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
     view_desc.format = format->vk_format;
     view_desc.offset = offset;
     view_desc.range = range;
-    if ((vr = VK_CALL(vkCreateBufferView(device->vk_device, &view_desc, NULL, vk_view))) < 0)
+    if ((vr = VK_CALL(vkCreateBufferView(device->vk_device, &view_desc, callbacks, vk_view))) < 0)
         WARN("Failed to create Vulkan buffer view, vr %d.\n", vr);
     return vr == VK_SUCCESS;
 }
@@ -2379,7 +2442,7 @@ static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
 static bool vkd3d_create_vk_image_view(struct d3d12_device *device,
         VkImage vk_image, const struct vkd3d_format *format, VkImageViewType type,
         VkImageAspectFlags aspect_mask, uint32_t base_mip, uint32_t mip_count,
-        uint32_t base_layer, uint32_t layer_count, VkImageView *vk_view)
+        uint32_t base_layer, uint32_t layer_count, VkImageView *vk_view, const VkAllocationCallbacks *callbacks)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkImageViewCreateInfo view_desc;
@@ -2403,7 +2466,7 @@ static bool vkd3d_create_vk_image_view(struct d3d12_device *device,
     view_desc.subresourceRange.baseArrayLayer = base_layer;
     view_desc.subresourceRange.layerCount = layer_count;
 
-    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, vk_view))) < 0)
+    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, callbacks, vk_view))) < 0)
         WARN("Failed to create Vulkan image view, vr %d.\n", vr);
     return vr == VK_SUCCESS;
 }
@@ -2411,10 +2474,12 @@ static bool vkd3d_create_vk_image_view(struct d3d12_device *device,
 bool vkd3d_create_buffer_view(struct d3d12_device *device, VkBuffer vk_buffer, const struct vkd3d_format *format,
         VkDeviceSize offset, VkDeviceSize size, struct vkd3d_view *view)
 {
+    VkAllocationCallbacks callbacks = vkd3d_view_allocator;
     VkBufferView vk_view;
-    vkd3d_view_create(view, VKD3D_VIEW_TYPE_BUFFER);
 
-    if (!vkd3d_create_vk_buffer_view(device, vk_buffer, format, offset, size, &vk_view))
+    callbacks.pUserData = view;
+
+    if (!vkd3d_create_vk_buffer_view(device, vk_buffer, format, offset, size, &vk_view, &callbacks))
         return false;
 
     view->u.vk_buffer_view = vk_view;
@@ -2650,10 +2715,13 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, VkImage vk_image,
         const struct vkd3d_texture_view_desc *desc, struct vkd3d_view *view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkAllocationCallbacks callbacks = vkd3d_view_allocator;
     const struct vkd3d_format *format = desc->format;
     struct VkImageViewCreateInfo view_desc;
     VkImageView vk_view;
     VkResult vr;
+
+    callbacks.pUserData = view;
 
     view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_desc.pNext = NULL;
@@ -2669,13 +2737,11 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, VkImage vk_image,
     view_desc.subresourceRange.levelCount = desc->miplevel_count;
     view_desc.subresourceRange.baseArrayLayer = desc->layer_idx;
     view_desc.subresourceRange.layerCount = desc->layer_count;
-    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &vk_view))) < 0)
+    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, &callbacks, &vk_view))) < 0)
     {
         WARN("Failed to create Vulkan image view, vr %d.\n", vr);
         return false;
     }
-
-    vkd3d_view_create(view, VKD3D_VIEW_TYPE_IMAGE);
 
     view->u.vk_image_view = vk_view;
     view->format = format;
@@ -2741,6 +2807,7 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
     struct vkd3d_null_resources *null_resources = &device->null_resources;
     struct vkd3d_texture_view_desc vkd3d_desc;
     union vkd3d_descriptor_info info;
+    uint8_t stack_buffer[1024];
     struct vkd3d_view view;
     VkImage vk_image;
 
@@ -2757,13 +2824,14 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
         case D3D12_SRV_DIMENSION_BUFFER:
             WARN("Creating NULL buffer SRV %#x.\n", desc->Format);
 
+            vkd3d_view_init_with_stack(&view, VKD3D_VIEW_TYPE_BUFFER, stack_buffer, sizeof(stack_buffer));
             if (vkd3d_create_buffer_view(device, null_resources->vk_buffer,
                     vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
                     0, VKD3D_NULL_BUFFER_SIZE, &view))
             {
                 info.buffer_view = view.u.vk_buffer_view;
                 d3d12_desc_update_bindless_descriptor(descriptor, &info, VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER);
-                vkd3d_view_destroy(&view, device);
+                vkd3d_view_deinit(&view, device);
                 descriptor->view = view;
             }
             return;
@@ -2795,13 +2863,14 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
     vkd3d_desc.components.a = VK_COMPONENT_SWIZZLE_ZERO;
     vkd3d_desc.allowed_swizzle = true;
 
+    vkd3d_view_init_with_stack(&view, VKD3D_VIEW_TYPE_IMAGE, stack_buffer, sizeof(stack_buffer));
     if (!vkd3d_create_texture_view(device, vk_image, &vkd3d_desc, &view))
         return;
 
     info.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     info.image.imageView = view.u.vk_image_view;
     d3d12_desc_update_bindless_descriptor(descriptor, &info, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
-    vkd3d_view_destroy(&view, device);
+    vkd3d_view_deinit(&view, device);
     descriptor->view = view;
 }
 
@@ -2810,6 +2879,7 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
 {
     union vkd3d_descriptor_info info;
+    uint8_t stack_buffer[1024];
     struct vkd3d_view view;
     unsigned int flags;
 
@@ -2826,6 +2896,7 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
     }
 
     flags = vkd3d_view_flags_from_d3d12_buffer_srv_flags(desc->u.Buffer.Flags);
+    vkd3d_view_init_with_stack(&view, VKD3D_VIEW_TYPE_BUFFER, stack_buffer, sizeof(stack_buffer));
     if (!vkd3d_create_buffer_view_for_resource(device, resource, desc->Format,
             desc->u.Buffer.FirstElement, desc->u.Buffer.NumElements,
             desc->u.Buffer.StructureByteStride, flags, &view))
@@ -2834,7 +2905,7 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
     memset(&info, 0, sizeof(info));
     info.buffer_view = view.u.vk_buffer_view;
     d3d12_desc_update_bindless_descriptor(descriptor, &info, VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER);
-    vkd3d_view_destroy(&view, device);
+    vkd3d_view_deinit(&view, device);
     descriptor->view = view;
 }
 
@@ -2844,6 +2915,7 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
 {
     struct vkd3d_texture_view_desc vkd3d_desc;
     union vkd3d_descriptor_info info;
+    uint8_t stack_buffer[1024];
     struct vkd3d_view view;
 
     if (!resource)
@@ -2935,6 +3007,7 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
         }
     }
 
+    vkd3d_view_init_with_stack(&view, VKD3D_VIEW_TYPE_IMAGE, stack_buffer, sizeof(stack_buffer));
     if (!vkd3d_create_texture_view(device, resource->u.vk_image, &vkd3d_desc, &view))
         return;
 
@@ -2942,7 +3015,7 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
     info.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     info.image.imageView = view.u.vk_image_view;
     d3d12_desc_update_bindless_descriptor(descriptor, &info, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
-    vkd3d_view_destroy(&view, device);
+    vkd3d_view_deinit(&view, device);
     descriptor->view = view;
 }
 
@@ -2961,6 +3034,7 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
     struct vkd3d_null_resources *null_resources = &device->null_resources;
     struct vkd3d_texture_view_desc vkd3d_desc;
     union vkd3d_descriptor_info info;
+    uint8_t stack_buffer[1024];
     struct vkd3d_view view;
     VkImage vk_image;
 
@@ -2977,13 +3051,14 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
         case D3D12_UAV_DIMENSION_BUFFER:
             WARN("Creating NULL buffer UAV %#x.\n", desc->Format);
 
+            vkd3d_view_init_with_stack(&view, VKD3D_VIEW_TYPE_BUFFER, stack_buffer, sizeof(stack_buffer));
             if (vkd3d_create_buffer_view(device, null_resources->vk_storage_buffer,
                     vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
                     0, VKD3D_NULL_BUFFER_SIZE, &view))
             {
                 info.buffer_view = view.u.vk_buffer_view;
                 d3d12_desc_update_bindless_descriptor(descriptor, &info, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER);
-                vkd3d_view_destroy(&view, device);
+                vkd3d_view_deinit(&view, device);
                 descriptor->view = view;
             }
             return;
@@ -3015,13 +3090,14 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
     vkd3d_desc.components.a = VK_COMPONENT_SWIZZLE_A;
     vkd3d_desc.allowed_swizzle = false;
 
+    vkd3d_view_init_with_stack(&view, VKD3D_VIEW_TYPE_IMAGE, stack_buffer, sizeof(stack_buffer));
     if (!vkd3d_create_texture_view(device, vk_image, &vkd3d_desc, &view))
         return;
 
     info.image.imageView = view.u.vk_image_view;
     info.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     d3d12_desc_update_bindless_descriptor(descriptor, &info, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-    vkd3d_view_destroy(&view, device);
+    vkd3d_view_deinit(&view, device);
     descriptor->view = view;
 }
 
@@ -3042,6 +3118,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
     union vkd3d_descriptor_info info;
+    uint8_t stack_buffer[1024];
     struct vkd3d_view view;
     unsigned int flags;
 
@@ -3061,6 +3138,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
         FIXME("Ignoring counter offset %"PRIu64".\n", desc->u.Buffer.CounterOffsetInBytes);
 
     flags = vkd3d_view_flags_from_d3d12_buffer_uav_flags(desc->u.Buffer.Flags);
+    vkd3d_view_init_with_stack(&view, VKD3D_VIEW_TYPE_BUFFER, stack_buffer, sizeof(stack_buffer));
     if (!vkd3d_create_buffer_view_for_resource(device, resource, desc->Format,
             desc->u.Buffer.FirstElement, desc->u.Buffer.NumElements,
             desc->u.Buffer.StructureByteStride, flags, &view))
@@ -3076,7 +3154,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     memset(&info, 0, sizeof(info));
     info.buffer_view = view.u.vk_buffer_view;
     d3d12_desc_update_bindless_descriptor(descriptor, &info, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER);
-    vkd3d_view_destroy(&view, device);
+    vkd3d_view_deinit(&view, device);
     descriptor->view = view;
 }
 
@@ -3086,6 +3164,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
 {
     struct vkd3d_texture_view_desc vkd3d_desc;
     union vkd3d_descriptor_info info;
+    uint8_t stack_buffer[1024];
     struct vkd3d_view view;
 
     if (!init_default_texture_view_desc(&vkd3d_desc, resource, desc ? desc->Format : 0))
@@ -3129,6 +3208,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         }
     }
 
+    vkd3d_view_init_with_stack(&view, VKD3D_VIEW_TYPE_IMAGE, stack_buffer, sizeof(stack_buffer));
     if (!vkd3d_create_texture_view(device, resource->u.vk_image, &vkd3d_desc, &view))
         return;
 
@@ -3136,7 +3216,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
     info.image.imageView = view.u.vk_image_view;
     info.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     d3d12_desc_update_bindless_descriptor(descriptor, &info, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-    vkd3d_view_destroy(&view, device);
+    vkd3d_view_deinit(&view, device);
     descriptor->view = view;
 }
 
@@ -3180,7 +3260,7 @@ bool vkd3d_create_raw_buffer_view(struct d3d12_device *device,
     range = min(resource->desc.Width - offset, device->vk_info.device_limits.maxStorageBufferRange);
 
     return vkd3d_create_vk_buffer_view(device, resource->u.vk_buffer, format,
-            offset, range, vk_buffer_view);
+            offset, range, vk_buffer_view, NULL);
 }
 
 /* samplers */
@@ -3289,7 +3369,7 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         FIXME("Ignoring border color {%.8e, %.8e, %.8e, %.8e}.\n",
                 desc->BorderColor[0], desc->BorderColor[1], desc->BorderColor[2], desc->BorderColor[3]);
 
-    vkd3d_view_create(&view, VKD3D_VIEW_TYPE_SAMPLER);
+    vkd3d_view_init(&view, VKD3D_VIEW_TYPE_SAMPLER);
 
     if (d3d12_create_sampler(device, desc->Filter, desc->AddressU,
             desc->AddressV, desc->AddressW, desc->MipLODBias, desc->MaxAnisotropy,
@@ -3303,7 +3383,7 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
     info.image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     d3d12_desc_update_bindless_descriptor(sampler, &info, VK_DESCRIPTOR_TYPE_SAMPLER);
-    vkd3d_view_destroy(&view, device);
+    vkd3d_view_deinit(&view, device);
     sampler->view = view;
 }
 
@@ -3405,6 +3485,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 
     assert(d3d12_resource_is_texture(resource));
 
+    vkd3d_view_init(view, VKD3D_VIEW_TYPE_IMAGE);
     if (!vkd3d_create_texture_view(device, resource->u.vk_image, &vkd3d_desc, view))
         return;
 
@@ -3493,6 +3574,7 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
 
     assert(d3d12_resource_is_texture(resource));
 
+    vkd3d_view_init(view, VKD3D_VIEW_TYPE_IMAGE);
     if (!vkd3d_create_texture_view(device, resource->u.vk_image, &vkd3d_desc, view))
         return;
 
@@ -4437,7 +4519,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
         goto fail;
     if (!vkd3d_create_vk_buffer_view(device, null_resources->vk_buffer,
             vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
-            0, VK_WHOLE_SIZE, &null_resources->vk_buffer_view))
+            0, VK_WHOLE_SIZE, &null_resources->vk_buffer_view, NULL))
         goto fail;
 
     /* buffer UAV */
@@ -4451,7 +4533,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
         goto fail;
     if (!vkd3d_create_vk_buffer_view(device, null_resources->vk_storage_buffer,
             vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
-            0, VK_WHOLE_SIZE, &null_resources->vk_storage_buffer_view))
+            0, VK_WHOLE_SIZE, &null_resources->vk_storage_buffer_view, NULL))
         goto fail;
 
     /* 2D SRV */
@@ -4476,7 +4558,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     if (!vkd3d_create_vk_image_view(device, null_resources->vk_2d_image,
             vkd3d_get_format(device, resource_desc.Format, false), VK_IMAGE_VIEW_TYPE_2D,
             VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS,
-            &null_resources->vk_2d_image_view))
+            &null_resources->vk_2d_image_view, NULL))
         goto fail;
 
     /* 2D UAV */
@@ -4502,7 +4584,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     if (!vkd3d_create_vk_image_view(device, null_resources->vk_2d_storage_image,
             vkd3d_get_format(device, resource_desc.Format, false), VK_IMAGE_VIEW_TYPE_2D,
             VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS,
-            &null_resources->vk_2d_storage_image_view))
+            &null_resources->vk_2d_storage_image_view, NULL))
         goto fail;
 
     /* Sampler */

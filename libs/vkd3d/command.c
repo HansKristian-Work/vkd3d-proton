@@ -5698,6 +5698,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     }
 
     uint_view = vkd3d_malloc(sizeof(*uint_view));
+    vkd3d_view_init(uint_view, VKD3D_VIEW_TYPE_IMAGE);
 
     if (d3d12_resource_is_buffer(resource_impl))
     {

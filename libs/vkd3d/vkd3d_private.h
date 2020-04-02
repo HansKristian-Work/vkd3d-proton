@@ -499,7 +499,12 @@ enum vkd3d_view_type
 struct vkd3d_view
 {
     LONG refcount;
+    uint16_t stack_size;
+    uint16_t stack_offset;
+    uintptr_t stack_ptr;
+
     enum vkd3d_view_type type;
+
     union
     {
         VkBufferView vk_buffer_view;
@@ -526,8 +531,9 @@ struct vkd3d_view
     } info;
 };
 
+void vkd3d_view_init(struct vkd3d_view *view, enum vkd3d_view_type type) DECLSPEC_HIDDEN;
 void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device) DECLSPEC_HIDDEN;
-void vkd3d_view_destroy(struct vkd3d_view *view, struct d3d12_device *device) DECLSPEC_HIDDEN;
+void vkd3d_view_deinit(struct vkd3d_view *view, struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_view_incref(struct vkd3d_view *view) DECLSPEC_HIDDEN;
 
 struct vkd3d_texture_view_desc
