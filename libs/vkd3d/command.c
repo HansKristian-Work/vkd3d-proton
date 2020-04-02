@@ -2910,6 +2910,7 @@ static bool vkd3d_descriptor_info_from_d3d12_desc(struct d3d12_device *device,
         const struct d3d12_desc *desc, const struct vkd3d_shader_resource_binding *binding,
         union vkd3d_descriptor_info *vk_descriptor)
 {
+    abort();
     return false;
 #if 0
     switch (binding->type)
@@ -3021,6 +3022,9 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
         const struct d3d12_desc *base_descriptor,
         unsigned int root_parameter_index)
 {
+    abort();
+
+#if 0
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct d3d12_root_descriptor_table *table;
     union vkd3d_descriptor_info *vk_descriptor;
@@ -3041,7 +3045,6 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
         {
             const struct d3d12_desc *desc = &base_descriptor[binding->descriptor_offset + j];
 
-#if 0
             /* Skip invalid descriptors */
             if (vkd3d_descriptor_info_from_d3d12_desc(list->device, desc, binding, vk_descriptor))
             {
@@ -3049,7 +3052,6 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
                                                             desc->vk_descriptor_type, vk_descriptor,
                                                             &updates->descriptor_writes[write_count++]);
             }
-#endif
 
             vk_descriptor++;
         }
@@ -3060,6 +3062,7 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
         VK_CALL(vkUpdateDescriptorSets(list->device->vk_device,
                 write_count, updates->descriptor_writes, 0, NULL));
     }
+#endif
 }
 
 static void d3d12_deferred_descriptor_set_update_resolve(struct d3d12_command_list *list,
