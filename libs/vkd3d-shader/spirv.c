@@ -1711,6 +1711,7 @@ enum vkd3d_spirv_extension
     VKD3D_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION   = 0x00000002,
     VKD3D_SPV_EXT_DESCRIPTOR_INDEXING           = 0x00000004,
     VKD3D_SPV_KHR_PHYSICAL_STORAGE_BUFFER       = 0x00000008,
+    VKD3D_SPV_EXT_SHADER_VIEWPORT_INDEX_LAYER   = 0x00000010,
 };
 
 struct vkd3d_spirv_extension_info
@@ -1724,6 +1725,7 @@ static const vkd3d_spirv_extensions[] =
     {VKD3D_SPV_KHR_SHADER_DRAW_PARAMETERS,      "SPV_KHR_shader_draw_parameters"},
     {VKD3D_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION, "SPV_EXT_demote_to_helper_invocation"},
     {VKD3D_SPV_EXT_DESCRIPTOR_INDEXING,         "SPV_EXT_descriptor_indexing"},
+    {VKD3D_SPV_EXT_SHADER_VIEWPORT_INDEX_LAYER, "SPV_EXT_shader_viewport_index_layer"},
 };
 
 struct vkd3d_spirv_capability_extension_mapping
@@ -1738,6 +1740,7 @@ static const vkd3d_spirv_capability_extensions[] =
     {SpvCapabilityDemoteToHelperInvocationEXT,            VKD3D_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION},
     {SpvCapabilityRuntimeDescriptorArrayEXT,              VKD3D_SPV_EXT_DESCRIPTOR_INDEXING},
     {SpvCapabilityShaderNonUniformEXT,                    VKD3D_SPV_EXT_DESCRIPTOR_INDEXING},
+    {SpvCapabilityShaderViewportIndexLayerEXT,            VKD3D_SPV_EXT_SHADER_VIEWPORT_INDEX_LAYER},
 };
 
 static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
@@ -3618,9 +3621,15 @@ static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *com
             break;
         case SpvBuiltInLayer:
             vkd3d_spirv_enable_capability(builder, SpvCapabilityGeometry);
+
+            if (compiler->shader_type == VKD3D_SHADER_TYPE_VERTEX || compiler->shader_type == VKD3D_SHADER_TYPE_DOMAIN)
+                vkd3d_spirv_enable_capability(builder, SpvCapabilityShaderViewportIndexLayerEXT);
             break;
         case SpvBuiltInViewportIndex:
             vkd3d_spirv_enable_capability(builder, SpvCapabilityMultiViewport);
+
+            if (compiler->shader_type == VKD3D_SHADER_TYPE_VERTEX || compiler->shader_type == VKD3D_SHADER_TYPE_DOMAIN)
+                vkd3d_spirv_enable_capability(builder, SpvCapabilityShaderViewportIndexLayerEXT);
             break;
         case SpvBuiltInSampleId:
             vkd3d_spirv_enable_capability(builder, SpvCapabilitySampleRateShading);
