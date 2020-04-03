@@ -1712,6 +1712,7 @@ enum vkd3d_spirv_extension
     VKD3D_SPV_EXT_DESCRIPTOR_INDEXING           = 0x00000004,
     VKD3D_SPV_KHR_PHYSICAL_STORAGE_BUFFER       = 0x00000008,
     VKD3D_SPV_EXT_SHADER_VIEWPORT_INDEX_LAYER   = 0x00000010,
+    VKD3D_SPV_EXT_SHADER_STENCIL_EXPORT         = 0x00000020,
 };
 
 struct vkd3d_spirv_extension_info
@@ -1726,6 +1727,7 @@ static const vkd3d_spirv_extensions[] =
     {VKD3D_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION, "SPV_EXT_demote_to_helper_invocation"},
     {VKD3D_SPV_EXT_DESCRIPTOR_INDEXING,         "SPV_EXT_descriptor_indexing"},
     {VKD3D_SPV_EXT_SHADER_VIEWPORT_INDEX_LAYER, "SPV_EXT_shader_viewport_index_layer"},
+    {VKD3D_SPV_EXT_SHADER_STENCIL_EXPORT,       "SPV_EXT_shader_stencil_export"},
 };
 
 struct vkd3d_spirv_capability_extension_mapping
@@ -1741,6 +1743,7 @@ static const vkd3d_spirv_capability_extensions[] =
     {SpvCapabilityRuntimeDescriptorArrayEXT,              VKD3D_SPV_EXT_DESCRIPTOR_INDEXING},
     {SpvCapabilityShaderNonUniformEXT,                    VKD3D_SPV_EXT_DESCRIPTOR_INDEXING},
     {SpvCapabilityShaderViewportIndexLayerEXT,            VKD3D_SPV_EXT_SHADER_VIEWPORT_INDEX_LAYER},
+    {SpvCapabilityStencilExportEXT,                       VKD3D_SPV_EXT_SHADER_STENCIL_EXPORT},
 };
 
 static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
@@ -2690,6 +2693,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
         case VKD3DSPR_PRIMID:
             /* SPIRV-Tools disassembler generates names for SPIR-V built-ins. */
             return false;
+        case VKD3DSPR_STENCILREFOUT:
+            snprintf(buffer, buffer_size, "oStencilRef");
+            break;
         default:
             FIXME("Unhandled register %#x.\n", reg->type);
             snprintf(buffer, buffer_size, "unrecognized_%#x", reg->type);
@@ -3840,6 +3846,8 @@ vkd3d_register_builtins[] =
     {VKD3DSPR_DEPTHOUT,         {VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth}},
     {VKD3DSPR_DEPTHOUTGE,       {VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth}},
     {VKD3DSPR_DEPTHOUTLE,       {VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth}},
+
+    {VKD3DSPR_STENCILREFOUT,    {VKD3D_TYPE_UINT, 1, SpvBuiltInFragStencilRefEXT}},
 };
 
 static void vkd3d_dxbc_compiler_emit_register_execution_mode(struct vkd3d_dxbc_compiler *compiler,
@@ -3852,6 +3860,10 @@ static void vkd3d_dxbc_compiler_emit_register_execution_mode(struct vkd3d_dxbc_c
             break;
         case VKD3DSPR_DEPTHOUTLE:
             vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeDepthLess, NULL, 0);
+            break;
+        case VKD3DSPR_STENCILREFOUT:
+            vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeStencilRefReplacingEXT, NULL, 0);
+            vkd3d_spirv_enable_capability(&compiler->spirv_builder, SpvCapabilityStencilExportEXT);
             break;
         default:
             return;
@@ -4617,6 +4629,7 @@ static void vkd3d_dxbc_compiler_emit_output_register(struct vkd3d_dxbc_compiler 
         return;
     }
 
+    vkd3d_dxbc_compiler_emit_register_execution_mode(compiler, &dst->reg);
     output_id = vkd3d_dxbc_compiler_emit_builtin_variable(compiler, builtin, SpvStorageClassOutput, 0);
 
     vkd3d_symbol_make_register(&reg_symbol, reg);
