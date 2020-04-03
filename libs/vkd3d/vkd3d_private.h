@@ -120,6 +120,7 @@ struct vkd3d_vulkan_info
     bool EXT_descriptor_indexing;
     bool EXT_inline_uniform_block;
     bool EXT_shader_demote_to_helper_invocation;
+    bool EXT_shader_stencil_export;
     bool EXT_shader_viewport_index_layer;
     bool EXT_subgroup_size_control;
     bool EXT_texel_buffer_alignment;
