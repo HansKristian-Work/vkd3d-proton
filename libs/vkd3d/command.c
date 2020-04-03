@@ -434,7 +434,7 @@ static void vkd3d_wait_for_gpu_timeline_semaphores(struct vkd3d_fence_worker *wo
     wait_info.semaphoreCount = worker->fence_count;
     wait_info.pValues = worker->semaphore_wait_values;
 
-    vr = VK_CALL(vkWaitSemaphoresKHR(device->vk_device, &wait_info, ~(uint64_t)0));
+    vr = VK_CALL(vkWaitSemaphoresKHR(device->vk_device, &wait_info, UINT64_MAX));
     if (vr == VK_TIMEOUT)
         return;
     if (vr != VK_SUCCESS)
@@ -1009,11 +1009,24 @@ static bool d3d12_fence_update_gpu_signal_timeline_semaphore(struct d3d12_fence 
     return need_signal;
 }
 
+static uint64_t get_time_nsec(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000000000ll + ts.tv_nsec;
+}
+
+static void log_time_delta(uint64_t a, uint64_t b)
+{
+    FIXME("Delta time: %.3f us\n", 1e-3 * (b - a));
+}
+
 static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fence, uint64_t value)
 {
     VkSemaphoreSignalInfoKHR info = { VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO_KHR };
     struct d3d12_device *device = fence->device;
     struct vkd3d_vk_device_procs *vk_procs;
+    uint64_t start_time, end_time;
     VkResult vr;
     int rc;
 
@@ -1041,7 +1054,11 @@ static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fen
         vk_procs = &device->vk_procs;
         info.semaphore = fence->timeline_semaphore;
         info.value = value;
+
+        start_time = get_time_nsec();
         vr = VK_CALL(vkSignalSemaphoreKHR(device->vk_device, &info));
+        end_time = get_time_nsec();
+        log_time_delta(start_time, end_time);
 
         if (vr == VK_SUCCESS)
         {
