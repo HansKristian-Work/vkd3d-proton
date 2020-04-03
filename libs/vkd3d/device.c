@@ -158,6 +158,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_DESCRIPTOR_INDEXING, EXT_descriptor_indexing),
     VK_EXTENSION(EXT_INLINE_UNIFORM_BLOCK, EXT_inline_uniform_block),
     VK_EXTENSION(EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION, EXT_shader_demote_to_helper_invocation),
+    VK_EXTENSION(EXT_SHADER_STENCIL_EXPORT, EXT_shader_stencil_export),
     VK_EXTENSION(EXT_SHADER_VIEWPORT_INDEX_LAYER, EXT_shader_viewport_index_layer),
     VK_EXTENSION(EXT_SUBGROUP_SIZE_CONTROL, EXT_subgroup_size_control),
     VK_EXTENSION(EXT_TEXEL_BUFFER_ALIGNMENT, EXT_texel_buffer_alignment),
@@ -3858,8 +3859,7 @@ static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
     /* Currently not supported */
     options->TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
     options->ResourceBindingTier = d3d12_device_determine_resource_binding_tier(device);
-    /* Requires VK_EXT_shader_stencil_export */
-    options->PSSpecifiedStencilRefSupported = FALSE;
+    options->PSSpecifiedStencilRefSupported = vk_info->EXT_shader_stencil_export;
     options->TypedUAVLoadAdditionalFormats = features->shaderStorageImageExtendedFormats;
     /* Requires VK_EXT_fragment_shader_interlock */
     options->ROVsSupported = FALSE;
