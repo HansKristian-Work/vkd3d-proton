@@ -1470,6 +1470,18 @@ static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(str
     return ID3D12Device_GetDescriptorHandleIncrementSize(&device->ID3D12Device_iface, descriptor_type);
 }
 
+/* ID3DBlob */
+struct d3d_blob
+{
+    ID3D10Blob ID3DBlob_iface;
+    LONG refcount;
+
+    void *buffer;
+    SIZE_T size;
+};
+
+HRESULT d3d_blob_create(void *buffer, SIZE_T size, struct d3d_blob **blob);
+
 /* utils */
 enum vkd3d_format_type
 {
