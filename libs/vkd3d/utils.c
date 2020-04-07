@@ -1080,3 +1080,107 @@ HRESULT vkd3d_set_vk_object_name(struct d3d12_device *device, uint64_t vk_object
 
     return hresult_from_vk_result(vr);
 }
+
+static struct d3d_blob *impl_from_ID3DBlob(ID3DBlob *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d_blob, ID3DBlob_iface);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d_blob_QueryInterface(ID3DBlob *iface, REFIID riid, void **object)
+{
+    TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
+
+    if (IsEqualGUID(riid, &IID_ID3DBlob)
+            || IsEqualGUID(riid, &IID_IUnknown))
+    {
+        ID3D10Blob_AddRef(iface);
+        *object = iface;
+        return S_OK;
+    }
+
+    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(riid));
+
+    *object = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE d3d_blob_AddRef(ID3DBlob *iface)
+{
+    struct d3d_blob *blob = impl_from_ID3DBlob(iface);
+    ULONG refcount = InterlockedIncrement(&blob->refcount);
+
+    TRACE("%p increasing refcount to %u.\n", blob, refcount);
+
+    return refcount;
+}
+
+static ULONG STDMETHODCALLTYPE d3d_blob_Release(ID3DBlob *iface)
+{
+    struct d3d_blob *blob = impl_from_ID3DBlob(iface);
+    ULONG refcount = InterlockedDecrement(&blob->refcount);
+
+    TRACE("%p decreasing refcount to %u.\n", blob, refcount);
+
+    if (!refcount)
+    {
+        vkd3d_free(blob->buffer);
+
+        vkd3d_free(blob);
+    }
+
+    return refcount;
+}
+
+static void * STDMETHODCALLTYPE d3d_blob_GetBufferPointer(ID3DBlob *iface)
+{
+    struct d3d_blob *blob = impl_from_ID3DBlob(iface);
+
+    TRACE("iface %p.\n", iface);
+
+    return blob->buffer;
+}
+
+static SIZE_T STDMETHODCALLTYPE d3d_blob_GetBufferSize(ID3DBlob *iface)
+{
+    struct d3d_blob *blob = impl_from_ID3DBlob(iface);
+
+    TRACE("iface %p.\n", iface);
+
+    return blob->size;
+}
+
+static const struct ID3D10BlobVtbl d3d_blob_vtbl =
+{
+    /* IUnknown methods */
+    d3d_blob_QueryInterface,
+    d3d_blob_AddRef,
+    d3d_blob_Release,
+    /* ID3DBlob methods */
+    d3d_blob_GetBufferPointer,
+    d3d_blob_GetBufferSize
+};
+
+static void d3d_blob_init(struct d3d_blob *blob, void *buffer, SIZE_T size)
+{
+    blob->ID3DBlob_iface.lpVtbl = &d3d_blob_vtbl;
+    blob->refcount = 1;
+
+    blob->buffer = buffer;
+    blob->size = size;
+}
+
+HRESULT d3d_blob_create(void *buffer, SIZE_T size, struct d3d_blob **blob)
+{
+    struct d3d_blob *object;
+
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    d3d_blob_init(object, buffer, size);
+
+    TRACE("Created blob object %p.\n", object);
+
+    *blob = object;
+
+    return S_OK;
+}
