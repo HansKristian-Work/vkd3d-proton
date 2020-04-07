@@ -2861,10 +2861,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                 return E_INVALIDARG;
             }
 
-            /* FIXME MSDN says SINGLE_PSO is always supported, but we
-             * currently don't support the API, including GetCachedBlob. */
+            /* Stub implementation, but we do expose the API. */
             WARN("Shader cache features not supported.");
-            data->SupportFlags = D3D12_SHADER_CACHE_SUPPORT_NONE;
+            data->SupportFlags = D3D12_SHADER_CACHE_SUPPORT_SINGLE_PSO;
 
             TRACE("Shader cache support flags %#x.", data->SupportFlags);
             return S_OK;

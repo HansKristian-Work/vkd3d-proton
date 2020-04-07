@@ -1461,9 +1461,19 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetDevice(ID3D12PipelineSt
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetCachedBlob(ID3D12PipelineState *iface,
         ID3DBlob **blob)
 {
-    FIXME("iface %p, blob %p stub!\n", iface, blob);
+    struct d3d_blob *blob_object;
+    HRESULT hr;
 
-    return E_NOTIMPL;
+    FIXME_ONCE("iface %p, blob %p semi-stub!\n", iface, blob);
+
+    if (FAILED(hr = d3d_blob_create(NULL, 0, &blob_object)))
+    {
+        ERR("Failed to create blob, hr %#x.", hr);
+        return hr;
+    }
+
+    *blob = &blob_object->ID3DBlob_iface;
+    return S_OK;
 }
 
 static const struct ID3D12PipelineStateVtbl d3d12_pipeline_state_vtbl =
