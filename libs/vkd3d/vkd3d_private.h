@@ -963,6 +963,21 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass) DECLSPEC_HIDDEN;
 struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface) DECLSPEC_HIDDEN;
 
+/* ID3D12PipelineLibrary */
+typedef ID3D12PipelineLibrary1 d3d12_pipeline_library_iface;
+
+struct d3d12_pipeline_library
+{
+    d3d12_pipeline_library_iface ID3D12PipelineLibrary_iface;
+    LONG refcount;
+
+    struct d3d12_device *device;
+    struct vkd3d_private_store private_store;
+};
+
+HRESULT d3d12_pipeline_library_create(struct d3d12_device *device, const void *blob,
+        size_t blob_length, struct d3d12_pipeline_library **pipeline_library) DECLSPEC_HIDDEN;
+
 struct vkd3d_buffer
 {
     VkBuffer vk_buffer;
