@@ -3563,10 +3563,18 @@ static LUID * STDMETHODCALLTYPE d3d12_device_GetAdapterLuid(d3d12_device_iface *
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineLibrary(d3d12_device_iface *iface,
         const void *blob, SIZE_T blob_size, REFIID iid, void **lib)
 {
-    FIXME("iface %p, blob %p, blob_size %lu, iid %s, lib %p stub!\n",
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_pipeline_library* pipeline_library;
+    HRESULT hr;
+
+    TRACE("iface %p, blob %p, blob_size %lu, iid %s, lib %p.\n",
             iface, blob, blob_size, debugstr_guid(iid), lib);
 
-    return E_NOTIMPL;
+    if (FAILED(hr = d3d12_pipeline_library_create(device, blob, blob_size, &pipeline_library)))
+        return hr;
+
+    return return_interface(&pipeline_library->ID3D12PipelineLibrary_iface,
+            &IID_ID3D12PipelineLibrary, iid, lib);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetEventOnMultipleFenceCompletion(d3d12_device_iface *iface,
