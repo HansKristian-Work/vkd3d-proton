@@ -3492,7 +3492,7 @@ interface ID3D12Device1 : ID3D12Device
 }
 
 [
-    uuid(81dadc15-2bad-4392-93c5-101345c4aa98),
+    uuid(30baa41e-b15b-475c-a0bb-1af5c5b64328),
     object,
     local,
     pointer_default(unique)
