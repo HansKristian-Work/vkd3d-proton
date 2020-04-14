@@ -1122,7 +1122,7 @@ struct vkd3d_dynamic_state
 };
 
 /* ID3D12CommandList */
-typedef ID3D12GraphicsCommandList2 d3d12_command_list_iface;
+typedef ID3D12GraphicsCommandList3 d3d12_command_list_iface;
 
 struct d3d12_command_list
 {

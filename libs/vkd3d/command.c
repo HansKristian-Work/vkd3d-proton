@@ -2506,15 +2506,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command
 {
     TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
 
-    if (IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList2)
+    if (IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList1)
-            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList2)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList3)
             || IsEqualGUID(iid, &IID_ID3D12CommandList)
             || IsEqualGUID(iid, &IID_ID3D12DeviceChild)
             || IsEqualGUID(iid, &IID_ID3D12Object)
             || IsEqualGUID(iid, &IID_IUnknown))
     {
-        ID3D12GraphicsCommandList2_AddRef(iface);
+        ID3D12GraphicsCommandList_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -2712,7 +2713,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     memset(list->so_counter_buffers, 0, sizeof(list->so_counter_buffers));
     memset(list->so_counter_buffer_offsets, 0, sizeof(list->so_counter_buffer_offsets));
 
-    ID3D12GraphicsCommandList2_SetPipelineState(iface, initial_pipeline_state);
+    ID3D12GraphicsCommandList_SetPipelineState(iface, initial_pipeline_state);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(d3d12_command_list_iface *iface,
@@ -6176,7 +6177,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
     }
 }
 
-static const struct ID3D12GraphicsCommandList2Vtbl d3d12_command_list_vtbl =
+static void STDMETHODCALLTYPE d3d12_command_list_SetProtectedResourceSession(d3d12_command_list_iface *iface,
+        ID3D12ProtectedResourceSession *protected_session)
+{
+    FIXME("iface %p, protected_session %p stub!\n", iface, protected_session);
+}
+
+static const struct ID3D12GraphicsCommandList3Vtbl d3d12_command_list_vtbl =
 {
     /* IUnknown methods */
     d3d12_command_list_QueryInterface,
@@ -6252,6 +6259,8 @@ static const struct ID3D12GraphicsCommandList2Vtbl d3d12_command_list_vtbl =
     d3d12_command_list_SetViewInstanceMask,
     /* ID3D12GraphicsCommandList2 methods */
     d3d12_command_list_WriteBufferImmediate,
+    /* ID3D12GraphicsCommandList3 methods */
+    d3d12_command_list_SetProtectedResourceSession,
 };
 
 static struct d3d12_command_list *unsafe_impl_from_ID3D12CommandList(ID3D12CommandList *iface)
