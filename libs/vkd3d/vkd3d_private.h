@@ -1405,7 +1405,7 @@ struct d3d12_caps
 };
 
 /* ID3D12Device */
-typedef ID3D12Device3 d3d12_device_iface;
+typedef ID3D12Device4 d3d12_device_iface;
 
 struct d3d12_device
 {
