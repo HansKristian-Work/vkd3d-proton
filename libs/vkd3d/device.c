@@ -3148,72 +3148,18 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple(d3d12_device_if
             1, &src_descriptor_range_offset, &descriptor_count, descriptor_heap_type);
 }
 
+static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo1(d3d12_device_iface *iface,
+        D3D12_RESOURCE_ALLOCATION_INFO *info, UINT visible_mask, UINT count, const D3D12_RESOURCE_DESC *resource_descs,
+        D3D12_RESOURCE_ALLOCATION_INFO1 *resource_infos);
+
 static D3D12_RESOURCE_ALLOCATION_INFO * STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo(
         d3d12_device_iface *iface, D3D12_RESOURCE_ALLOCATION_INFO *info, UINT visible_mask,
         UINT count, const D3D12_RESOURCE_DESC *resource_descs)
 {
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    const D3D12_RESOURCE_DESC *desc;
-    uint64_t requested_alignment;
-
     TRACE("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p.\n",
             iface, info, visible_mask, count, resource_descs);
 
-    debug_ignored_node_mask(visible_mask);
-
-    info->SizeInBytes = 0;
-    info->Alignment = 0;
-
-    if (count != 1)
-    {
-        FIXME("Multiple resource descriptions not supported.\n");
-        return info;
-    }
-
-    desc = &resource_descs[0];
-
-    if (FAILED(d3d12_resource_validate_desc(desc, device)))
-    {
-        WARN("Invalid resource desc.\n");
-        goto invalid;
-    }
-
-    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
-    {
-        info->SizeInBytes = desc->Width;
-        info->Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-    }
-    else
-    {
-        if (FAILED(vkd3d_get_image_allocation_info(device, desc, info)))
-        {
-            WARN("Failed to get allocation info for texture.\n");
-            goto invalid;
-        }
-
-        requested_alignment = desc->Alignment
-                ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-        info->Alignment = max(info->Alignment, requested_alignment);
-    }
-
-    info->SizeInBytes = align(info->SizeInBytes, info->Alignment);
-
-    TRACE("Size %#"PRIx64", alignment %#"PRIx64".\n", info->SizeInBytes, info->Alignment);
-
-    return info;
-
-invalid:
-    info->SizeInBytes = ~(uint64_t)0;
-
-    /* FIXME: Should we support D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT for small MSSA resources? */
-    if (desc->SampleDesc.Count != 1)
-        info->Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
-    else
-        info->Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-
-    TRACE("Alignment %#"PRIx64".\n", info->Alignment);
-
-    return info;
+    return d3d12_device_GetResourceAllocationInfo1(iface, info, visible_mask, count, resource_descs, NULL);
 }
 
 static D3D12_HEAP_PROPERTIES * STDMETHODCALLTYPE d3d12_device_GetCustomHeapProperties(d3d12_device_iface *iface,
@@ -3883,8 +3829,73 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourc
         D3D12_RESOURCE_ALLOCATION_INFO *info, UINT visible_mask, UINT count, const D3D12_RESOURCE_DESC *resource_descs,
         D3D12_RESOURCE_ALLOCATION_INFO1 *resource_infos)
 {
-    FIXME("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p, resource_infos %p stub!.\n",
-            iface, info, visible_mask, count, resource_descs, resource_infos);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    uint64_t requested_alignment, resource_offset;
+    D3D12_RESOURCE_ALLOCATION_INFO resource_info;
+    bool hasMsaaResource = false;
+    unsigned int i;
+
+    TRACE("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p.\n",
+            iface, info, visible_mask, count, resource_descs);
+
+    debug_ignored_node_mask(visible_mask);
+
+    info->SizeInBytes = 0;
+    info->Alignment = 0;
+
+    for (i = 0; i < count; i++)
+    {
+        const D3D12_RESOURCE_DESC *desc = &resource_descs[i];
+        hasMsaaResource |= desc->SampleDesc.Count > 1;
+
+        if (FAILED(d3d12_resource_validate_desc(desc, device)))
+        {
+            WARN("Invalid resource desc.\n");
+            goto invalid;
+        }
+
+        if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        {
+            resource_info.SizeInBytes = desc->Width;
+            resource_info.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        }
+        else
+        {
+            if (FAILED(vkd3d_get_image_allocation_info(device, desc, &resource_info)))
+            {
+                WARN("Failed to get allocation info for texture.\n");
+                goto invalid;
+            }
+
+            requested_alignment = desc->Alignment
+                    ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+            resource_info.Alignment = max(resource_info.Alignment, requested_alignment);
+        }
+
+        resource_info.SizeInBytes = align(resource_info.SizeInBytes, resource_info.Alignment);
+        resource_offset = align(info->SizeInBytes, resource_info.Alignment);
+
+        if (resource_infos)
+        {
+            resource_infos[i].Offset = resource_offset;
+            resource_infos[i].SizeInBytes = resource_info.SizeInBytes;
+            resource_infos[i].Alignment = resource_info.Alignment;
+        }
+
+        info->SizeInBytes = resource_offset + resource_info.SizeInBytes;
+        info->Alignment = max(info->Alignment, resource_info.Alignment);
+    }
+
+    return info;
+
+invalid:
+    info->SizeInBytes = ~(uint64_t)0;
+
+    /* FIXME: Should we support D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT for small MSSA resources? */
+    if (hasMsaaResource)
+        info->Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
+    else
+        info->Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 
     return info;
 }
