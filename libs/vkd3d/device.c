@@ -2940,6 +2940,24 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_OPTIONS4:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS4 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options4;
+
+            TRACE("64kB alignment for MSAA textures %#x.\n", data->MSAA64KBAlignedTextureSupported);
+            TRACE("Shared resource compatibility tier %u.\n", data->SharedResourceCompatibilityTier);
+            TRACE("Native 16-bit shader ops %#x.\n", data->Native16BitShaderOpsSupported);
+            return S_OK;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
@@ -4090,6 +4108,18 @@ static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
     options3->BarycentricsSupported = FALSE;
 }
 
+static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS4 *options4 = &device->d3d12_caps.options4;
+
+    /* Requires changes to format compatibility */
+    options4->MSAA64KBAlignedTextureSupported = FALSE;
+    /* Shared resources not supported */
+    options4->SharedResourceCompatibilityTier = D3D12_SHARED_RESOURCE_COMPATIBILITY_TIER_0;
+    /* Currently not supported */
+    options4->Native16BitShaderOpsSupported = FALSE;
+}
+
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -4158,6 +4188,7 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options1(device);
     d3d12_device_caps_init_feature_options2(device);
     d3d12_device_caps_init_feature_options3(device);
+    d3d12_device_caps_init_feature_options4(device);
     d3d12_device_caps_init_feature_level(device);
     d3d12_device_caps_init_shader_model(device);
 }
