@@ -431,9 +431,11 @@ struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface) DECLSPEC_HIDDE
 #define VKD3D_RESOURCE_PLACED_BUFFER  0x00000020
 
 /* ID3D12Resource */
+typedef ID3D12Resource1 d3d12_resource_iface;
+
 struct d3d12_resource
 {
-    ID3D12Resource ID3D12Resource_iface;
+    d3d12_resource_iface ID3D12Resource_iface;
     LONG refcount;
     LONG internal_refcount;
 

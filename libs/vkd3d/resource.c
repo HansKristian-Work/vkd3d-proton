@@ -1224,17 +1224,18 @@ static void d3d12_resource_get_level_box(const struct d3d12_resource *resource,
 }
 
 /* ID3D12Resource */
-static inline struct d3d12_resource *impl_from_ID3D12Resource(ID3D12Resource *iface)
+static inline struct d3d12_resource *impl_from_ID3D12Resource(d3d12_resource_iface *iface)
 {
     return CONTAINING_RECORD(iface, struct d3d12_resource, ID3D12Resource_iface);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_resource_QueryInterface(ID3D12Resource *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_resource_QueryInterface(d3d12_resource_iface *iface,
         REFIID riid, void **object)
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (IsEqualGUID(riid, &IID_ID3D12Resource)
+            || IsEqualGUID(riid, &IID_ID3D12Resource1)
             || IsEqualGUID(riid, &IID_ID3D12Pageable)
             || IsEqualGUID(riid, &IID_ID3D12DeviceChild)
             || IsEqualGUID(riid, &IID_ID3D12Object)
@@ -1251,7 +1252,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_QueryInterface(ID3D12Resource *i
     return E_NOINTERFACE;
 }
 
-static ULONG STDMETHODCALLTYPE d3d12_resource_AddRef(ID3D12Resource *iface)
+static ULONG STDMETHODCALLTYPE d3d12_resource_AddRef(d3d12_resource_iface *iface)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
     ULONG refcount = InterlockedIncrement(&resource->refcount);
@@ -1269,7 +1270,7 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_AddRef(ID3D12Resource *iface)
     return refcount;
 }
 
-static ULONG STDMETHODCALLTYPE d3d12_resource_Release(ID3D12Resource *iface)
+static ULONG STDMETHODCALLTYPE d3d12_resource_Release(d3d12_resource_iface *iface)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
     ULONG refcount = InterlockedDecrement(&resource->refcount);
@@ -1288,7 +1289,7 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_Release(ID3D12Resource *iface)
     return refcount;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_resource_GetPrivateData(ID3D12Resource *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_resource_GetPrivateData(d3d12_resource_iface *iface,
         REFGUID guid, UINT *data_size, void *data)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
@@ -1298,7 +1299,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_GetPrivateData(ID3D12Resource *i
     return vkd3d_get_private_data(&resource->private_store, guid, data_size, data);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateData(ID3D12Resource *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateData(d3d12_resource_iface *iface,
         REFGUID guid, UINT data_size, const void *data)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
@@ -1308,7 +1309,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateData(ID3D12Resource *i
     return vkd3d_set_private_data(&resource->private_store, guid, data_size, data);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateDataInterface(ID3D12Resource *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateDataInterface(d3d12_resource_iface *iface,
         REFGUID guid, const IUnknown *data)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
@@ -1318,7 +1319,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateDataInterface(ID3D12Re
     return vkd3d_set_private_data_interface(&resource->private_store, guid, data);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(ID3D12Resource *iface, const WCHAR *name)
+static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(d3d12_resource_iface *iface, const WCHAR *name)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
     HRESULT hr;
@@ -1339,7 +1340,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(ID3D12Resource *iface, c
                 VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, name);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_resource_GetDevice(ID3D12Resource *iface, REFIID iid, void **device)
+static HRESULT STDMETHODCALLTYPE d3d12_resource_GetDevice(d3d12_resource_iface *iface, REFIID iid, void **device)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
 
@@ -1348,7 +1349,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_GetDevice(ID3D12Resource *iface,
     return d3d12_device_query_interface(resource->device, iid, device);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT sub_resource,
+static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(d3d12_resource_iface *iface, UINT sub_resource,
         const D3D12_RANGE *read_range, void **data)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
@@ -1395,7 +1396,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(ID3D12Resource *iface, UINT 
     return hr;
 }
 
-static void STDMETHODCALLTYPE d3d12_resource_Unmap(ID3D12Resource *iface, UINT sub_resource,
+static void STDMETHODCALLTYPE d3d12_resource_Unmap(d3d12_resource_iface *iface, UINT sub_resource,
         const D3D12_RANGE *written_range)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
@@ -1416,7 +1417,7 @@ static void STDMETHODCALLTYPE d3d12_resource_Unmap(ID3D12Resource *iface, UINT s
     d3d12_heap_unmap(resource->heap, resource);
 }
 
-static D3D12_RESOURCE_DESC * STDMETHODCALLTYPE d3d12_resource_GetDesc(ID3D12Resource *iface,
+static D3D12_RESOURCE_DESC * STDMETHODCALLTYPE d3d12_resource_GetDesc(d3d12_resource_iface *iface,
         D3D12_RESOURCE_DESC *resource_desc)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
@@ -1427,7 +1428,7 @@ static D3D12_RESOURCE_DESC * STDMETHODCALLTYPE d3d12_resource_GetDesc(ID3D12Reso
     return resource_desc;
 }
 
-static D3D12_GPU_VIRTUAL_ADDRESS STDMETHODCALLTYPE d3d12_resource_GetGPUVirtualAddress(ID3D12Resource *iface)
+static D3D12_GPU_VIRTUAL_ADDRESS STDMETHODCALLTYPE d3d12_resource_GetGPUVirtualAddress(d3d12_resource_iface *iface)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
 
@@ -1436,7 +1437,7 @@ static D3D12_GPU_VIRTUAL_ADDRESS STDMETHODCALLTYPE d3d12_resource_GetGPUVirtualA
     return resource->gpu_address;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(ID3D12Resource *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resource_iface *iface,
         UINT dst_sub_resource, const D3D12_BOX *dst_box, const void *src_data,
         UINT src_row_pitch, UINT src_slice_pitch)
 {
@@ -1528,7 +1529,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(ID3D12Resourc
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(ID3D12Resource *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resource_iface *iface,
         void *dst_data, UINT dst_row_pitch, UINT dst_slice_pitch,
         UINT src_sub_resource, const D3D12_BOX *src_box)
 {
@@ -1620,7 +1621,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(ID3D12Resour
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_resource_GetHeapProperties(ID3D12Resource *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_resource_GetHeapProperties(d3d12_resource_iface *iface,
         D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS *flags)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
@@ -1657,7 +1658,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_GetHeapProperties(ID3D12Resource
     return S_OK;
 }
 
-static const struct ID3D12ResourceVtbl d3d12_resource_vtbl =
+static HRESULT STDMETHODCALLTYPE d3d12_resource_GetProtectedResourceSession(d3d12_resource_iface *iface,
+        REFIID iid, void **protected_session)
+{
+    FIXME("iface %p, iid %s, protected_session %p stub!", iface, debugstr_guid(iid), protected_session);
+
+    return E_NOTIMPL;
+}
+
+static const struct ID3D12Resource1Vtbl d3d12_resource_vtbl =
 {
     /* IUnknown methods */
     d3d12_resource_QueryInterface,
@@ -1678,14 +1687,21 @@ static const struct ID3D12ResourceVtbl d3d12_resource_vtbl =
     d3d12_resource_WriteToSubresource,
     d3d12_resource_ReadFromSubresource,
     d3d12_resource_GetHeapProperties,
+    /* ID3D12Resource1 methods */
+    d3d12_resource_GetProtectedResourceSession,
 };
 
-struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface)
+static struct d3d12_resource *unsafe_impl_from_ID3D12Resource1(ID3D12Resource1 *iface)
 {
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == &d3d12_resource_vtbl);
     return impl_from_ID3D12Resource(iface);
+}
+
+struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface)
+{
+    return unsafe_impl_from_ID3D12Resource1((ID3D12Resource1 *)iface);
 }
 
 static void d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
@@ -2162,7 +2178,7 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device,
 
     TRACE("Created resource %p.\n", object);
 
-    *resource = &object->ID3D12Resource_iface;
+    *resource = (ID3D12Resource *)&object->ID3D12Resource_iface;
 
     return S_OK;
 }
@@ -2170,13 +2186,13 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device,
 ULONG vkd3d_resource_incref(ID3D12Resource *resource)
 {
     TRACE("resource %p.\n", resource);
-    return d3d12_resource_incref(impl_from_ID3D12Resource(resource));
+    return d3d12_resource_incref(unsafe_impl_from_ID3D12Resource(resource));
 }
 
 ULONG vkd3d_resource_decref(ID3D12Resource *resource)
 {
     TRACE("resource %p.\n", resource);
-    return d3d12_resource_decref(impl_from_ID3D12Resource(resource));
+    return d3d12_resource_decref(unsafe_impl_from_ID3D12Resource(resource));
 }
 
 /* CBVs, SRVs, UAVs */
