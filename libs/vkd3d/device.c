@@ -2144,6 +2144,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface 
             || IsEqualGUID(riid, &IID_ID3D12Device1)
             || IsEqualGUID(riid, &IID_ID3D12Device2)
             || IsEqualGUID(riid, &IID_ID3D12Device3)
+            || IsEqualGUID(riid, &IID_ID3D12Device4)
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
@@ -3776,7 +3777,73 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_EnqueueMakeResident(d3d12_device_i
     return ID3D12Fence_Signal(fence_to_signal, fence_value_to_signal);
 }
 
-static const struct ID3D12Device3Vtbl d3d12_device_vtbl =
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandList1(d3d12_device_iface *iface,
+        UINT node_mask, D3D12_COMMAND_LIST_TYPE type, D3D12_COMMAND_LIST_FLAGS flags,
+        REFIID riid, void **command_list)
+{
+    FIXME("iface %p, node_mask 0x%08x, type %#x, flags %#x, riid %s, command_list %p stub!\n",
+            iface, node_mask, type, flags, debugstr_guid(riid), command_list);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateProtectedResourceSession(d3d12_device_iface *iface,
+        const D3D12_PROTECTED_RESOURCE_SESSION_DESC *desc, REFIID iid, void **session)
+{
+    FIXME("iface %p, desc %p, iid %s, session %p stub!\n",
+            iface, desc, debugstr_guid(iid), session);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource1(d3d12_device_iface *iface,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value,
+        ID3D12ProtectedResourceSession *protected_session,
+        REFIID iid, void **resource)
+{
+    FIXME("iface %p, heap_properties %p, heap_flags %#x,  desc %p, initial_state %#x, "
+            "optimized_clear_value %p, protected_session %p, iid %s, resource %p stub!\n",
+            iface, heap_properties, heap_flags, desc, initial_state,
+            optimized_clear_value, protected_session, debugstr_guid(iid), resource);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateHeap1(d3d12_device_iface *iface,
+        const D3D12_HEAP_DESC *desc, ID3D12ProtectedResourceSession *protected_session,
+        REFIID iid, void **heap)
+{
+    FIXME("iface %p, desc %p, protected_session %p, iid %s, heap %p stub!\n",
+            iface, desc, protected_session, debugstr_guid(iid), heap);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource1(d3d12_device_iface *iface,
+        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state, const D3D12_CLEAR_VALUE *optimized_clear_value,
+        ID3D12ProtectedResourceSession *protected_session, REFIID iid, void **resource)
+{
+    FIXME("iface %p, desc %p, initial_state %#x, optimized_clear_value %p, "
+            "protected_session %p, iid %s, resource %p stub!\n",
+            iface, desc, initial_state, optimized_clear_value,
+            protected_session, debugstr_guid(iid), resource);
+
+    return E_NOTIMPL;
+}
+
+static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo1(d3d12_device_iface *iface,
+        D3D12_RESOURCE_ALLOCATION_INFO *info, UINT visible_mask, UINT count, const D3D12_RESOURCE_DESC *resource_descs,
+        D3D12_RESOURCE_ALLOCATION_INFO1 *resource_infos)
+{
+    FIXME("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p, resource_infos %p stub!.\n",
+            iface, info, visible_mask, count, resource_descs, resource_infos);
+
+    return info;
+}
+
+static const struct ID3D12Device4Vtbl d3d12_device_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,
@@ -3835,6 +3902,13 @@ static const struct ID3D12Device3Vtbl d3d12_device_vtbl =
     d3d12_device_OpenExistingHeapFromAddress,
     d3d12_device_OpenExistingHeapFromFileMapping,
     d3d12_device_EnqueueMakeResident,
+    /* ID3D12Device4 methods */
+    d3d12_device_CreateCommandList1,
+    d3d12_device_CreateProtectedResourceSession,
+    d3d12_device_CreateCommittedResource1,
+    d3d12_device_CreateHeap1,
+    d3d12_device_CreateReservedResource1,
+    d3d12_device_GetResourceAllocationInfo1,
 };
 
 static D3D12_RESOURCE_BINDING_TIER d3d12_device_determine_resource_binding_tier(struct d3d12_device *device)
