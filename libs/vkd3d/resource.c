@@ -288,17 +288,18 @@ static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage 
 }
 
 /* ID3D12Heap */
-static inline struct d3d12_heap *impl_from_ID3D12Heap(ID3D12Heap *iface)
+static inline struct d3d12_heap *impl_from_ID3D12Heap(d3d12_heap_iface *iface)
 {
     return CONTAINING_RECORD(iface, struct d3d12_heap, ID3D12Heap_iface);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(ID3D12Heap *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(d3d12_heap_iface *iface,
         REFIID iid, void **object)
 {
     TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
 
     if (IsEqualGUID(iid, &IID_ID3D12Heap)
+            || IsEqualGUID(iid, &IID_ID3D12Heap1)
             || IsEqualGUID(iid, &IID_ID3D12Pageable)
             || IsEqualGUID(iid, &IID_ID3D12DeviceChild)
             || IsEqualGUID(iid, &IID_ID3D12Object)
@@ -315,7 +316,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(ID3D12Heap *iface,
     return E_NOINTERFACE;
 }
 
-static ULONG STDMETHODCALLTYPE d3d12_heap_AddRef(ID3D12Heap *iface)
+static ULONG STDMETHODCALLTYPE d3d12_heap_AddRef(d3d12_heap_iface *iface)
 {
     struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
     ULONG refcount = InterlockedIncrement(&heap->refcount);
@@ -354,7 +355,7 @@ static void d3d12_heap_destroy(struct d3d12_heap *heap)
         d3d12_device_release(device);
 }
 
-static ULONG STDMETHODCALLTYPE d3d12_heap_Release(ID3D12Heap *iface)
+static ULONG STDMETHODCALLTYPE d3d12_heap_Release(d3d12_heap_iface *iface)
 {
     struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
     ULONG refcount = InterlockedDecrement(&heap->refcount);
@@ -367,7 +368,7 @@ static ULONG STDMETHODCALLTYPE d3d12_heap_Release(ID3D12Heap *iface)
     return refcount;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_heap_GetPrivateData(ID3D12Heap *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_heap_GetPrivateData(d3d12_heap_iface *iface,
         REFGUID guid, UINT *data_size, void *data)
 {
     struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
@@ -377,7 +378,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_GetPrivateData(ID3D12Heap *iface,
     return vkd3d_get_private_data(&heap->private_store, guid, data_size, data);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateData(ID3D12Heap *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateData(d3d12_heap_iface *iface,
         REFGUID guid, UINT data_size, const void *data)
 {
     struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
@@ -387,7 +388,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateData(ID3D12Heap *iface,
     return vkd3d_set_private_data(&heap->private_store, guid, data_size, data);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateDataInterface(ID3D12Heap *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateDataInterface(d3d12_heap_iface *iface,
         REFGUID guid, const IUnknown *data)
 {
     struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
@@ -397,7 +398,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateDataInterface(ID3D12Heap *
     return vkd3d_set_private_data_interface(&heap->private_store, guid, data);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_heap_SetName(ID3D12Heap *iface, const WCHAR *name)
+static HRESULT STDMETHODCALLTYPE d3d12_heap_SetName(d3d12_heap_iface *iface, const WCHAR *name)
 {
     struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
 
@@ -407,7 +408,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_SetName(ID3D12Heap *iface, const WCH
             VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, name);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_heap_GetDevice(ID3D12Heap *iface, REFIID iid, void **device)
+static HRESULT STDMETHODCALLTYPE d3d12_heap_GetDevice(d3d12_heap_iface *iface, REFIID iid, void **device)
 {
     struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
 
@@ -416,7 +417,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_GetDevice(ID3D12Heap *iface, REFIID 
     return d3d12_device_query_interface(heap->device, iid, device);
 }
 
-static D3D12_HEAP_DESC * STDMETHODCALLTYPE d3d12_heap_GetDesc(ID3D12Heap *iface,
+static D3D12_HEAP_DESC * STDMETHODCALLTYPE d3d12_heap_GetDesc(d3d12_heap_iface *iface,
         D3D12_HEAP_DESC *desc)
 {
     struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
@@ -427,7 +428,15 @@ static D3D12_HEAP_DESC * STDMETHODCALLTYPE d3d12_heap_GetDesc(ID3D12Heap *iface,
     return desc;
 }
 
-static const struct ID3D12HeapVtbl d3d12_heap_vtbl =
+static HRESULT STDMETHODCALLTYPE d3d12_heap_GetProtectedResourceSession(d3d12_heap_iface *iface,
+        REFIID iid, void **protected_session)
+{
+    FIXME("iface %p, iid %s, protected_session %p stub!", iface, debugstr_guid(iid), protected_session);
+
+    return E_NOTIMPL;
+}
+
+static const struct ID3D12Heap1Vtbl d3d12_heap_vtbl =
 {
     /* IUnknown methods */
     d3d12_heap_QueryInterface,
@@ -442,14 +451,21 @@ static const struct ID3D12HeapVtbl d3d12_heap_vtbl =
     d3d12_heap_GetDevice,
     /* ID3D12Heap methods */
     d3d12_heap_GetDesc,
+    /* ID3D12Heap1 methods */
+    d3d12_heap_GetProtectedResourceSession,
 };
 
-struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface)
+static struct d3d12_heap *unsafe_impl_from_ID3D12Heap1(ID3D12Heap1 *iface)
 {
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == &d3d12_heap_vtbl);
     return impl_from_ID3D12Heap(iface);
+}
+
+struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface)
+{
+    return unsafe_impl_from_ID3D12Heap1((ID3D12Heap1 *)iface);
 }
 
 static HRESULT d3d12_heap_map(struct d3d12_heap *heap, uint64_t offset,
