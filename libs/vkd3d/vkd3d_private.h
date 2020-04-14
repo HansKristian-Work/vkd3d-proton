@@ -396,9 +396,11 @@ HRESULT d3d12_fence_create(struct d3d12_device *device,
         uint64_t initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence) DECLSPEC_HIDDEN;
 
 /* ID3D12Heap */
+typedef ID3D12Heap1 d3d12_heap_iface;
+
 struct d3d12_heap
 {
-    ID3D12Heap ID3D12Heap_iface;
+    d3d12_heap_iface ID3D12Heap_iface;
     LONG refcount;
 
     bool is_private;
