@@ -3551,7 +3551,7 @@ interface ID3D12Device4 : ID3D12Device3
             ID3D12ProtectedResourceSession *protected_session,
             REFIID riid, void **resource);
 
-    D3D12_RESOURCE_ALLOCATION_INFO GetResourceAllocationInfo(UINT visible_mask,
+    D3D12_RESOURCE_ALLOCATION_INFO GetResourceAllocationInfo1(UINT visible_mask,
             UINT reource_desc_count, const D3D12_RESOURCE_DESC *resource_descs,
             D3D12_RESOURCE_ALLOCATION_INFO1 *resource_allocation_infos);
 }
