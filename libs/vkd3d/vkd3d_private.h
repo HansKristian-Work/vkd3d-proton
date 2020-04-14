@@ -1049,6 +1049,7 @@ struct d3d12_command_allocator
 
 HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_allocator **allocator) DECLSPEC_HIDDEN;
+struct d3d12_command_allocator *unsafe_impl_from_ID3D12CommandAllocator(ID3D12CommandAllocator *iface) DECLSPEC_HIDDEN;
 
 enum vkd3d_pipeline_dirty_flag
 {
