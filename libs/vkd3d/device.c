@@ -2958,6 +2958,28 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_SERIALIZATION:
+        {
+            D3D12_FEATURE_DATA_SERIALIZATION *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            if (data->NodeIndex)
+            {
+                FIXME("Multi-adapter not supported.\n");
+                return E_INVALIDARG;
+            }
+
+            data->HeapSerializationTier = D3D12_HEAP_SERIALIZATION_TIER_0;
+
+            TRACE("Heap serialization tier %u.\n", data->HeapSerializationTier);
+            return S_OK;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
