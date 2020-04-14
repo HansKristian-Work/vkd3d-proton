@@ -2013,7 +2013,7 @@ static const struct ID3D12CommandAllocatorVtbl d3d12_command_allocator_vtbl =
     d3d12_command_allocator_Reset,
 };
 
-static struct d3d12_command_allocator *unsafe_impl_from_ID3D12CommandAllocator(ID3D12CommandAllocator *iface)
+struct d3d12_command_allocator *unsafe_impl_from_ID3D12CommandAllocator(ID3D12CommandAllocator *iface)
 {
     if (!iface)
         return NULL;
@@ -6288,16 +6288,17 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
 
     d3d12_device_add_ref(list->device = device);
 
-    list->allocator = allocator;
-
-    if (SUCCEEDED(hr = d3d12_command_allocator_allocate_command_buffer(allocator, list)))
+    if ((list->allocator = allocator))
     {
-        d3d12_command_list_reset_state(list, initial_pipeline_state);
-    }
-    else
-    {
-        vkd3d_private_store_destroy(&list->private_store);
-        d3d12_device_release(device);
+        if (SUCCEEDED(hr = d3d12_command_allocator_allocate_command_buffer(allocator, list)))
+        {
+            d3d12_command_list_reset_state(list, initial_pipeline_state);
+        }
+        else
+        {
+            vkd3d_private_store_destroy(&list->private_store);
+            d3d12_device_release(device);
+        }
     }
 
     return hr;
@@ -6307,22 +6308,9 @@ HRESULT d3d12_command_list_create(struct d3d12_device *device,
         UINT node_mask, D3D12_COMMAND_LIST_TYPE type, ID3D12CommandAllocator *allocator_iface,
         ID3D12PipelineState *initial_pipeline_state, struct d3d12_command_list **list)
 {
-    struct d3d12_command_allocator *allocator;
+    struct d3d12_command_allocator *allocator = unsafe_impl_from_ID3D12CommandAllocator(allocator_iface);
     struct d3d12_command_list *object;
     HRESULT hr;
-
-    if (!(allocator = unsafe_impl_from_ID3D12CommandAllocator(allocator_iface)))
-    {
-        WARN("Command allocator is NULL.\n");
-        return E_INVALIDARG;
-    }
-
-    if (allocator->type != type)
-    {
-        WARN("Command list types do not match (allocator %#x, list %#x).\n",
-                allocator->type, type);
-        return E_INVALIDARG;
-    }
 
     debug_ignored_node_mask(node_mask);
 
