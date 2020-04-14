@@ -3303,22 +3303,19 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource(d3d12_device_
     return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
 }
 
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource1(d3d12_device_iface *iface,
+        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state, const D3D12_CLEAR_VALUE *optimized_clear_value,
+        ID3D12ProtectedResourceSession *protected_session, REFIID iid, void **resource);
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource(d3d12_device_iface *iface,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, REFIID iid, void **resource)
 {
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_resource *object;
-    HRESULT hr;
-
     TRACE("iface %p, desc %p, initial_state %#x, optimized_clear_value %p, iid %s, resource %p.\n",
             iface, desc, initial_state, optimized_clear_value, debugstr_guid(iid), resource);
 
-    if (FAILED(hr = d3d12_reserved_resource_create(device,
-            desc, initial_state, optimized_clear_value, &object)))
-        return hr;
-
-    return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
+    return d3d12_device_CreateReservedResource1(iface, desc, initial_state,
+            optimized_clear_value, NULL, iid, resource);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateSharedHandle(d3d12_device_iface *iface,
@@ -3843,12 +3840,21 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource1(d3d12_devi
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state, const D3D12_CLEAR_VALUE *optimized_clear_value,
         ID3D12ProtectedResourceSession *protected_session, REFIID iid, void **resource)
 {
-    FIXME("iface %p, desc %p, initial_state %#x, optimized_clear_value %p, "
-            "protected_session %p, iid %s, resource %p stub!\n",
-            iface, desc, initial_state, optimized_clear_value,
-            protected_session, debugstr_guid(iid), resource);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_resource *object;
+    HRESULT hr;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, desc %p, initial_state %#x, optimized_clear_value %p, protected_session %p, iid %s, resource %p.\n",
+            iface, desc, initial_state, optimized_clear_value, protected_session, debugstr_guid(iid), resource);
+
+    if (protected_session)
+        FIXME("Ignoring protected session %p.\n", protected_session);
+
+    if (FAILED(hr = d3d12_reserved_resource_create(device,
+            desc, initial_state, optimized_clear_value, &object)))
+        return hr;
+
+    return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
 }
 
 static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo1(d3d12_device_iface *iface,
