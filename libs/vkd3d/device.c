@@ -2146,6 +2146,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface 
             || IsEqualGUID(riid, &IID_ID3D12Device3)
             || IsEqualGUID(riid, &IID_ID3D12Device4)
             || IsEqualGUID(riid, &IID_ID3D12Device5)
+            || IsEqualGUID(riid, &IID_ID3D12Device6)
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
@@ -4047,7 +4048,17 @@ static D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS STDMETHODCALLTYPE d3d12_device_Ch
     return D3D12_DRIVER_MATCHING_IDENTIFIER_UNRECOGNIZED;
 }
 
-static const struct ID3D12Device5Vtbl d3d12_device_vtbl =
+static HRESULT STDMETHODCALLTYPE d3d12_device_SetBackgroundProcessingMode(d3d12_device_iface *iface,
+        D3D12_BACKGROUND_PROCESSING_MODE mode, D3D12_MEASUREMENTS_ACTION action, HANDLE event,
+        BOOL further_measurements)
+{
+    FIXME("iface %p, mode %u, action %u, event %p, further_measurements %#x stub!\n",
+            iface, mode, action, event, further_measurements);
+
+    return E_NOTIMPL;
+}
+
+static const struct ID3D12Device6Vtbl d3d12_device_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,
@@ -4122,6 +4133,8 @@ static const struct ID3D12Device5Vtbl d3d12_device_vtbl =
     d3d12_device_CreateStateObject,
     d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo,
     d3d12_device_CheckDriverMatchingIdentifier,
+    /* ID3D12Device6 methods */
+    d3d12_device_SetBackgroundProcessingMode,
 };
 
 static D3D12_RESOURCE_BINDING_TIER d3d12_device_determine_resource_binding_tier(struct d3d12_device *device)
