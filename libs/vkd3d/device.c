@@ -3038,6 +3038,20 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_QUERY_META_COMMAND:
+        {
+            D3D12_FEATURE_DATA_QUERY_META_COMMAND *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            FIXME("Unsupported meta command %s.\n", debugstr_guid(&data->CommandId));
+            return E_INVALIDARG;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
