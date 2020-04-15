@@ -361,10 +361,14 @@ struct vkd3d_signaled_semaphore
 };
 
 /* ID3D12Fence */
+typedef ID3D12Fence1 d3d12_fence_iface;
+
 struct d3d12_fence
 {
-    ID3D12Fence ID3D12Fence_iface;
+    d3d12_fence_iface ID3D12Fence_iface;
     LONG refcount;
+
+    D3D12_FENCE_FLAGS d3d12_flags;
 
     VkSemaphore timeline_semaphore;
     uint64_t pending_timeline_value;
