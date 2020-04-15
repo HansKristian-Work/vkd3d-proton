@@ -3018,6 +3018,26 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_OPTIONS6:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS6 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options6;
+
+            TRACE("Additional shading rates %#x.\n", data->AdditionalShadingRatesSupported);
+            TRACE("Per-primtive shading rate with viewport indexing %#x.\n", data->PerPrimitiveShadingRateSupportedWithViewportIndexing);
+            TRACE("Variable shading rate tier %u.\n", data->VariableShadingRateTier);
+            TRACE("Shading rate image tile size %u.\n", data->ShadingRateImageTileSize);
+            TRACE("Background processing %#x.\n", data->BackgroundProcessingSupported);
+            return S_OK;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
@@ -4284,6 +4304,19 @@ static void d3d12_device_caps_init_feature_options5(struct d3d12_device *device)
     options5->RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
 }
 
+static void d3d12_device_caps_init_feature_options6(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS6 *options6 = &device->d3d12_caps.options6;
+
+    /* Currently not supported */
+    options6->AdditionalShadingRatesSupported = FALSE;
+    options6->PerPrimitiveShadingRateSupportedWithViewportIndexing = FALSE;
+    options6->VariableShadingRateTier = D3D12_VARIABLE_SHADING_RATE_TIER_NOT_SUPPORTED;
+    options6->ShadingRateImageTileSize = 0;
+    /* Not implemented */
+    options6->BackgroundProcessingSupported = FALSE;
+}
+
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -4354,6 +4387,7 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options3(device);
     d3d12_device_caps_init_feature_options4(device);
     d3d12_device_caps_init_feature_options5(device);
+    d3d12_device_caps_init_feature_options6(device);
     d3d12_device_caps_init_feature_level(device);
     d3d12_device_caps_init_shader_model(device);
 }
