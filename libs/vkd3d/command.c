@@ -6587,6 +6587,104 @@ static void STDMETHODCALLTYPE d3d12_command_queue_CopyTileMappings(ID3D12Command
             src_region_start_coordinate, region_size, flags);
 }
 
+static void d3d12_command_queue_defer_signal(
+        struct d3d12_command_queue *command_queue, struct d3d12_fence *fence, UINT64 value)
+{
+    if (vkd3d_array_reserve((void **)&command_queue->pending_submissions, &command_queue->pending_submissions_size,
+                            command_queue->pending_submissions_count + 1, sizeof(*command_queue->pending_submissions)))
+    {
+        struct d3d12_command_queue_deferred_operation op;
+        op.type = VKD3D_DEFERRED_SUBMISSION_SIGNAL;
+        op.u.signal.fence = fence;
+        op.u.signal.value = value;
+        command_queue->pending_submissions[command_queue->pending_submissions_count++] = op;
+    }
+    else
+        ERR("Failed to queue submission.\n");
+}
+
+static void d3d12_command_queue_defer_wait(
+        struct d3d12_command_queue *command_queue, struct d3d12_fence *fence, UINT64 value)
+{
+    if (vkd3d_array_reserve((void **)&command_queue->pending_submissions, &command_queue->pending_submissions_size,
+                            command_queue->pending_submissions_count + 1, sizeof(*command_queue->pending_submissions)))
+    {
+        struct d3d12_command_queue_deferred_operation op;
+        op.type = VKD3D_DEFERRED_SUBMISSION_WAIT;
+        op.u.wait.fence = fence;
+        op.u.wait.value = value;
+        command_queue->pending_submissions[command_queue->pending_submissions_count++] = op;
+    }
+    else
+        ERR("Failed to queue submission.\n");
+}
+
+static void d3d12_command_queue_defer_execute(
+        struct d3d12_command_queue *command_queue, VkCommandBuffer *cmd, UINT count)
+{
+    if (vkd3d_array_reserve((void **)&command_queue->pending_submissions, &command_queue->pending_submissions_size,
+                            command_queue->pending_submissions_count + 1, sizeof(*command_queue->pending_submissions)))
+    {
+        struct d3d12_command_queue_deferred_operation op;
+        op.type = VKD3D_DEFERRED_SUBMISSION_EXECUTE;
+        op.u.execute.cmd = cmd;
+        op.u.execute.count = count;
+        command_queue->pending_submissions[command_queue->pending_submissions_count++] = op;
+    }
+    else
+        ERR("Failed to queue submission.\n");
+}
+
+static bool d3d12_command_queue_submit_or_defer(
+        struct d3d12_command_queue *command_queue, VkCommandBuffer *buffers, UINT count)
+{
+    if (command_queue->pending_submissions_count)
+    {
+        d3d12_command_queue_defer_execute(command_queue, buffers, count);
+        return false;
+    }
+    else
+        return true;
+}
+
+static bool d3d12_command_queue_signal_or_defer(
+        struct d3d12_command_queue *command_queue, struct d3d12_fence *fence, UINT64 value)
+{
+    if (command_queue->pending_submissions_count)
+    {
+        d3d12_command_queue_defer_signal(command_queue, fence, value);
+        return false;
+    }
+    else
+        return true;
+}
+
+static bool d3d12_command_queue_wait_for_timeline_semaphore_or_defer(
+        struct d3d12_command_queue *command_queue, struct d3d12_fence *fence, UINT64 value)
+{
+    bool can_submit;
+    int rc;
+    if ((rc = pthread_mutex_lock(&fence->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return false;
+    }
+
+    if (fence->pending_timeline_value < value || command_queue->pending_submissions_count)
+    {
+        /* We cannot safely wait just yet, so defer the wait. */
+        d3d12_command_queue_defer_wait(command_queue, fence, value);
+        /* Once the fence is signalled up to a pending value, we should run maintenance on the queue. */
+        d3d12_fence_add_pending_queue_notification(fence, value, command_queue);
+        can_submit = false;
+    }
+    else
+        can_submit = true;
+
+    pthread_mutex_unlock(&fence->mutex);
+    return can_submit;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12CommandQueue *iface,
         UINT command_list_count, ID3D12CommandList * const *command_lists)
 {
@@ -6642,6 +6740,16 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         ERR("Failed to acquire queue %p.\n", command_queue->vkd3d_queue);
         vkd3d_free(buffers);
         return;
+    }
+
+    if (command_queue->device->device_info.timeline_semaphore_features.timelineSemaphore)
+    {
+        if (!d3d12_command_queue_submit_or_defer(command_queue, buffers, command_list_count))
+        {
+            /* Deferring takes ownership of the command buffers. */
+            vkd3d_queue_release(command_queue->vkd3d_queue);
+            return;
+        }
     }
 
     if ((vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_desc, VK_NULL_HANDLE))) < 0)
@@ -6727,6 +6835,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
         ERR("Failed to acquire queue %p.\n", vkd3d_queue);
         hr = E_FAIL;
         goto fail;
+    }
+
+    if (timeline && !d3d12_command_queue_signal_or_defer(command_queue, fence, value))
+    {
+        vkd3d_queue_release(vkd3d_queue);
+        return S_OK;
     }
 
     if (!timeline)
@@ -6876,6 +6990,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Wait(ID3D12CommandQueue *if
         ERR("Failed to acquire queue %p.\n", queue);
         hr = E_FAIL;
         goto fail;
+    }
+
+    if (timeline && !d3d12_command_queue_wait_for_timeline_semaphore_or_defer(command_queue, fence, value))
+    {
+        /* D3D12 allows full out-of-order timeline semaphore waits, however,
+         * in Vulkan we might have multiple D3D12 queues sitting on top of our single queue.
+         * Waiting and signalling out of order therefore is not safe. If we do not know that there is a pending signal for value,
+         * we freeze the queue and defer any actions. */
+        vkd3d_queue_release(queue);
+        return S_OK;
     }
 
     if (!timeline && !semaphore)
@@ -7030,6 +7154,10 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
 
     queue->last_waited_fence = NULL;
     queue->last_waited_fence_value = 0;
+
+    queue->pending_submissions = NULL;
+    queue->pending_submissions_size = 0;
+    queue->pending_submissions_count = 0;
 
     if (desc->Priority == D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME)
     {

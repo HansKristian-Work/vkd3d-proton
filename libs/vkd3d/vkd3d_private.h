@@ -1220,6 +1220,43 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device,
 void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_queue_release(struct vkd3d_queue *queue) DECLSPEC_HIDDEN;
 
+enum vkd3d_deferred_submission_type
+{
+    VKD3D_DEFERRED_SUBMISSION_WAIT,
+    VKD3D_DEFERRED_SUBMISSION_EXECUTE,
+    VKD3D_DEFERRED_SUBMISSION_SIGNAL
+};
+
+struct vkd3d_deferred_queue_signal
+{
+    struct d3d12_fence *fence;
+    UINT64 value;
+};
+
+struct vkd3d_deferred_queue_wait
+{
+    struct d3d12_fence *fence;
+    UINT64 value;
+};
+
+struct vkd3d_deferred_queue_execute
+{
+    /* Owned */
+    VkCommandBuffer *cmd;
+    UINT count;
+};
+
+struct d3d12_command_queue_deferred_operation
+{
+    enum vkd3d_deferred_submission_type type;
+    union
+    {
+        struct vkd3d_deferred_queue_signal signal;
+        struct vkd3d_deferred_queue_wait wait;
+        struct vkd3d_deferred_queue_execute execute;
+    } u;
+};
+
 /* ID3D12CommandQueue */
 struct d3d12_command_queue
 {
@@ -1229,6 +1266,10 @@ struct d3d12_command_queue
     D3D12_COMMAND_QUEUE_DESC desc;
 
     struct vkd3d_queue *vkd3d_queue;
+
+    struct d3d12_command_queue_deferred_operation *pending_submissions;
+    size_t pending_submissions_size;
+    size_t pending_submissions_count;
 
     const struct d3d12_fence *last_waited_fence;
     uint64_t last_waited_fence_value;
