@@ -3217,23 +3217,32 @@ static bool vk_write_descriptor_set_from_root_descriptor(VkWriteDescriptorSet *v
 {
     const union vkd3d_descriptor_info *descriptor;
 
+    descriptor = &descriptors[root_parameter->u.descriptor.packed_descriptor];
+
     switch (root_parameter->parameter_type)
     {
         case D3D12_ROOT_PARAMETER_TYPE_CBV:
             vk_descriptor_write->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+
+            if (!descriptor->buffer.buffer)
+                return false;
             break;
         case D3D12_ROOT_PARAMETER_TYPE_SRV:
             vk_descriptor_write->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+
+            if (!descriptor->buffer_view)
+                return false;
             break;
         case D3D12_ROOT_PARAMETER_TYPE_UAV:
             vk_descriptor_write->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+
+            if (!descriptor->buffer_view)
+                return false;
             break;
         default:
             ERR("Invalid root descriptor %#x.\n", root_parameter->parameter_type);
             return false;
     }
-
-    descriptor = &descriptors[root_parameter->u.descriptor.packed_descriptor];
 
     vk_descriptor_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     vk_descriptor_write->pNext = NULL;
