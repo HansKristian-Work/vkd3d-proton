@@ -2999,6 +2999,24 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_OPTIONS5:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS5 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options5;
+
+            TRACE("SRV-only Tiled Resources Tier 3 %#x.\n", data->SRVOnlyTiledResourceTier3);
+            TRACE("Render pass tier %u.\n", data->RenderPassesTier);
+            TRACE("Raytracing tier %u.\n", data->RaytracingTier);
+            return S_OK;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
@@ -4240,6 +4258,19 @@ static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
     options4->Native16BitShaderOpsSupported = FALSE;
 }
 
+static void d3d12_device_caps_init_feature_options5(struct d3d12_device *device)
+{
+    const D3D12_FEATURE_DATA_D3D12_OPTIONS *options = &device->d3d12_caps.options;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS5 *options5 = &device->d3d12_caps.options5;
+
+    /* Tiled resources currently not supported */
+    options5->SRVOnlyTiledResourceTier3 = options->TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_3;
+    /* Currently not supported */
+    options5->RenderPassesTier = D3D12_RENDER_PASS_TIER_0;
+    /* Currently not supported */
+    options5->RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+}
+
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -4309,6 +4340,7 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options2(device);
     d3d12_device_caps_init_feature_options3(device);
     d3d12_device_caps_init_feature_options4(device);
+    d3d12_device_caps_init_feature_options5(device);
     d3d12_device_caps_init_feature_level(device);
     d3d12_device_caps_init_shader_model(device);
 }
