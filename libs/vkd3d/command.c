@@ -968,6 +968,95 @@ static void d3d12_fence_signal_external_events_locked(struct d3d12_fence *fence)
     fence->event_count = j;
 }
 
+static void d3d12_command_queue_kick_pending_submissions(struct d3d12_command_queue *queue, struct d3d12_fence *fence)
+{
+    /* Iterate over all pending submissions and submit them until we reach an unsatisfied dependency. */
+    unsigned int i, j;
+
+    vkd3d_queue_acquire(queue->vkd3d_queue);
+
+    for (i = 0; i < queue->pending_submissions_count; i++)
+    {
+        struct d3d12_command_queue_deferred_operation *op = &queue->pending_submissions[i];
+
+        switch (op->type)
+        {
+        case VKD3D_DEFERRED_SUBMISSION_WAIT:
+            break;
+        case VKD3D_DEFERRED_SUBMISSION_SIGNAL:
+            break;
+        case VKD3D_DEFERRED_SUBMISSION_EXECUTE:
+            break;
+        }
+    }
+
+    vkd3d_queue_release(queue->vkd3d_queue);
+}
+
+static void d3d12_fence_signal_kick_pending_queues(struct d3d12_fence *fence)
+{
+    struct d3d12_fence_queue_kick *kicks;
+    unsigned int i, j, k;
+    size_t kicks_count;
+    size_t kicks_size;
+
+    pthread_mutex_lock(&fence->mutex);
+
+    /* There is a deadlock scenario here we need to handle. In submit, we will lock in queue -> fence order.
+     * Here we start by locking the fence, followed by each queue we need to kick.
+     *
+     * To avoid any hazard, we temporarily take ownership of the kicks, perform the queue kicks outside any locks, and
+     * then merge back the still pending kicks after we're done.
+     * We very rarely need to do any work here, this only happens for out-of-order submits. */
+
+    kicks = fence->kicks;
+    kicks_count = fence->kicks_count;
+    kicks_size = fence->kicks_size;
+    fence->kicks = NULL;
+    fence->kicks_count = 0;
+    fence->kicks_size = 0;
+    pthread_mutex_unlock(&fence->mutex);
+
+    /* Now we can kick and take locks in queue -> fence order. */
+    for (i = 0, j = 0; i < kicks_count; i++)
+    {
+        if (fence->pending_timeline_value >= fence->kicks[i].value)
+            d3d12_command_queue_kick_pending_submissions(fence->kicks[i].queue, fence);
+        else if (i != j)
+            fence->kicks[j++] = fence->kicks[i];
+    }
+
+    kicks_count = j;
+
+    /* We consumed every pending kick. */
+    if (kicks_count == 0)
+    {
+        vkd3d_free(kicks);
+        return;
+    }
+
+    /* Now, we need to merge back any still pending kicks. */
+    pthread_mutex_lock(&fence->mutex);
+    if (fence->kicks == NULL)
+    {
+        fence->kicks = kicks;
+        fence->kicks_count = kicks_count;
+        fence->kicks_size = kicks_size;
+    }
+    else
+    {
+        /* After we unlocked, there were queued up more pending submissions.
+         * We'll have to merge these two arrays. */
+        vkd3d_array_reserve((void **)&fence->kicks, &fence->kicks_size,
+                fence->kicks_count + kicks_count, sizeof(*fence->kicks));
+
+        memcpy(fence->kicks + fence->kicks_size, kicks, kicks_count * sizeof(*kicks));
+        fence->kicks_count += kicks_count;
+        vkd3d_free(kicks);
+    }
+    pthread_mutex_unlock(&fence->mutex);
+}
+
 static bool d3d12_fence_update_gpu_signal_timeline_semaphore(struct d3d12_fence *fence, uint64_t value)
 {
     struct d3d12_device *device = fence->device;
@@ -1014,6 +1103,7 @@ static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fen
     VkSemaphoreSignalInfoKHR info = { VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO_KHR };
     struct d3d12_device *device = fence->device;
     struct vkd3d_vk_device_procs *vk_procs;
+    bool need_kick = false;
     VkResult vr;
     int rc;
 
@@ -1047,7 +1137,10 @@ static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fen
         {
             fence->value = value;
             if (value > fence->pending_timeline_value)
+            {
                 fence->pending_timeline_value = value;
+                need_kick = true;
+            }
         }
         else
             ERR("Failed to signal timeline semaphore, vr %d.\n", vr);
@@ -1061,6 +1154,11 @@ static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fen
     d3d12_fence_signal_external_events_locked(fence);
 
     pthread_mutex_unlock(&fence->mutex);
+
+    /* We just bumped the pending timeline value, so now is the time to kick. */
+    if (need_kick)
+        d3d12_fence_signal_kick_pending_queues(fence);
+
     return hresult_from_vk_result(vr);
 }
 
@@ -1373,6 +1471,18 @@ static HRESULT d3d12_fence_init_timeline(struct d3d12_fence *fence, struct d3d12
     return S_OK;
 }
 
+static void d3d12_fence_add_pending_queue_notification_locked(struct d3d12_fence *fence,
+        UINT64 value, struct d3d12_command_queue *queue)
+{
+    struct d3d12_fence_queue_kick kick;
+    vkd3d_array_reserve((void **)&fence->kicks, &fence->kicks_size,
+            fence->kicks_count + 1, sizeof(*fence->kicks));
+
+    kick.queue = queue;
+    kick.value = value;
+    fence->kicks[fence->kicks_count++] = kick;
+}
+
 static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *device,
         UINT64 initial_value, D3D12_FENCE_FLAGS flags)
 {
@@ -1382,6 +1492,10 @@ static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *
     fence->ID3D12Fence_iface.lpVtbl = &d3d12_fence_vtbl;
     fence->refcount = 1;
     fence->d3d12_flags = flags;
+
+    fence->kicks = NULL;
+    fence->kicks_size = 0;
+    fence->kicks_count = 0;
 
     fence->timeline_semaphore = VK_NULL_HANDLE;
     if (device->device_info.timeline_semaphore_features.timelineSemaphore)
@@ -6675,7 +6789,7 @@ static bool d3d12_command_queue_wait_for_timeline_semaphore_or_defer(
         /* We cannot safely wait just yet, so defer the wait. */
         d3d12_command_queue_defer_wait(command_queue, fence, value);
         /* Once the fence is signalled up to a pending value, we should run maintenance on the queue. */
-        d3d12_fence_add_pending_queue_notification(fence, value, command_queue);
+        d3d12_fence_add_pending_queue_notification_locked(fence, value, command_queue);
         can_submit = false;
     }
     else
@@ -6893,6 +7007,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
 
     if (timeline)
     {
+        /* We're signalling a fence, so this is a good time to kick other submissions. */
+        d3d12_fence_signal_kick_pending_queues(fence);
         if (SUCCEEDED(hr = vkd3d_enqueue_timeline_semaphore(&device->fence_worker, vk_semaphore, fence, value, vkd3d_queue, sequence_number)))
             vk_semaphore = VK_NULL_HANDLE;
     }

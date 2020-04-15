@@ -363,6 +363,12 @@ struct vkd3d_signaled_semaphore
 /* ID3D12Fence */
 typedef ID3D12Fence1 d3d12_fence_iface;
 
+struct d3d12_fence_queue_kick
+{
+    struct d3d12_command_queue *queue;
+    UINT64 value;
+};
+
 struct d3d12_fence
 {
     d3d12_fence_iface ID3D12Fence_iface;
@@ -386,6 +392,10 @@ struct d3d12_fence
 
     struct list semaphores;
     unsigned int semaphore_count;
+
+    struct d3d12_fence_queue_kick *kicks;
+    size_t kicks_size;
+    size_t kicks_count;
 
     LONG pending_worker_operation_count;
 
