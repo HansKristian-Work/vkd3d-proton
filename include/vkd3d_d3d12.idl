@@ -3568,10 +3568,10 @@ interface ID3D12Device5 : ID3D12Device4
 
     void RemoveDevice();
 
-    HRESULT EnumerateMetaCommands(UINT num_meta_commands, D3D12_META_COMMAND_DESC *descs);
+    HRESULT EnumerateMetaCommands(UINT *num_meta_commands, D3D12_META_COMMAND_DESC *descs);
 
     HRESULT EnumerateMetaCommandParameters(REFGUID command_id, D3D12_META_COMMAND_PARAMETER_STAGE Stage,
-            UINT total_structure_size, UINT parameter_count, D3D12_META_COMMAND_PARAMETER_DESC *parameter_descs);
+            UINT *total_structure_size, UINT *parameter_count, D3D12_META_COMMAND_PARAMETER_DESC *parameter_descs);
 
     HRESULT CreateMetaCommand(REFGUID command_id, UINT node_mask, const void *creation_parameters_data,
             SIZE_T creation_parameters_size, REFIID riid, void **meta_command);
