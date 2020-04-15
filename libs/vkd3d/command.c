@@ -2529,6 +2529,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList2)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList3)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList4)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList5)
             || IsEqualGUID(iid, &IID_ID3D12CommandList)
             || IsEqualGUID(iid, &IID_ID3D12DeviceChild)
             || IsEqualGUID(iid, &IID_ID3D12Object)
@@ -6265,7 +6266,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list
     FIXME("iface %p, desc %p stub!\n", iface, desc);
 }
 
-static const struct ID3D12GraphicsCommandList4Vtbl d3d12_command_list_vtbl =
+static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRate(d3d12_command_list_iface *iface,
+        D3D12_SHADING_RATE base, const D3D12_SHADING_RATE_COMBINER *combiners)
+{
+    FIXME("iface %p, base %#x, combiners %p stub!\n", iface, base, combiners);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_command_list_iface *iface,
+        ID3D12Resource *image)
+{
+    FIXME("iface %p, image %p stub!\n", iface, image);
+}
+
+static const struct ID3D12GraphicsCommandList5Vtbl d3d12_command_list_vtbl =
 {
     /* IUnknown methods */
     d3d12_command_list_QueryInterface,
@@ -6353,6 +6366,9 @@ static const struct ID3D12GraphicsCommandList4Vtbl d3d12_command_list_vtbl =
     d3d12_command_list_CopyRaytracingAccelerationStructure,
     d3d12_command_list_SetPipelineState1,
     d3d12_command_list_DispatchRays,
+    /* ID3D12GraphicsCommandList5 methods */
+    d3d12_command_list_RSSetShadingRate,
+    d3d12_command_list_RSSetShadingRateImage,
 };
 
 static struct d3d12_command_list *unsafe_impl_from_ID3D12CommandList(ID3D12CommandList *iface)
