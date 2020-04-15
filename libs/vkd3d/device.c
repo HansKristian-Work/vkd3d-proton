@@ -2145,6 +2145,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface 
             || IsEqualGUID(riid, &IID_ID3D12Device2)
             || IsEqualGUID(riid, &IID_ID3D12Device3)
             || IsEqualGUID(riid, &IID_ID3D12Device4)
+            || IsEqualGUID(riid, &IID_ID3D12Device5)
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
@@ -3958,7 +3959,77 @@ invalid:
     return info;
 }
 
-static const struct ID3D12Device4Vtbl d3d12_device_vtbl =
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateLifetimeTracker(d3d12_device_iface *iface,
+        ID3D12LifetimeOwner *owner, REFIID iid, void **tracker)
+{
+    FIXME("iface %p, owner %p, iid %s, tracker %p stub!\n",
+            iface, owner, debugstr_guid(iid), tracker);
+
+    return E_NOTIMPL;
+}
+
+static void STDMETHODCALLTYPE d3d12_device_RemoveDevice(d3d12_device_iface *iface)
+{
+    FIXME("iface %p stub!\n", iface);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_EnumerateMetaCommands(d3d12_device_iface *iface,
+        UINT *count, D3D12_META_COMMAND_DESC *descs)
+{
+    FIXME("iface %p, count %p, descs %p stub!\n", iface, count, descs);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_EnumerateMetaCommandParameters(d3d12_device_iface *iface,
+        REFGUID command_id, D3D12_META_COMMAND_PARAMETER_STAGE stage, UINT *total_size,
+        UINT *param_count, D3D12_META_COMMAND_PARAMETER_DESC *param_descs)
+{
+    FIXME("iface %p, command_id %s, stage %u, total_size %p, param_count %p, param_descs %p stub!\n",
+            iface, debugstr_guid(command_id), stage, total_size, param_count, param_descs);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateMetaCommand(d3d12_device_iface *iface,
+        REFGUID command_id, UINT node_mask, const void *param_data, SIZE_T param_size,
+        REFIID iid, void **meta_command)
+{
+    FIXME("iface %p, command_id %s, node_mask %#x, param_data %p, param_size %zu, iid %s, meta_command %p stub!\n",
+            iface, debugstr_guid(command_id), node_mask, param_data, param_size, debugstr_guid(iid), meta_command);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateStateObject(d3d12_device_iface *iface,
+        const D3D12_STATE_OBJECT_DESC *desc, REFIID iid, void **state_object)
+{
+    FIXME("iface %p, desc %p, iid %s, state_object %p stub!\n",
+            iface, desc, debugstr_guid(iid), state_object);
+
+    return E_NOTIMPL;
+}
+
+static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo(d3d12_device_iface *iface,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
+{
+    FIXME("iface %p, desc %p, info %p stub!\n", iface, desc, info);
+}
+
+static D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS STDMETHODCALLTYPE d3d12_device_CheckDriverMatchingIdentifier(d3d12_device_iface *iface,
+        D3D12_SERIALIZED_DATA_TYPE serialized_data_type, const D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER *identifier)
+{
+    FIXME("iface %p, serialized_data_type %u, identifier %p stub!\n",
+            iface, serialized_data_type, identifier);
+
+    if (serialized_data_type != D3D12_SERIALIZED_DATA_RAYTRACING_ACCELERATION_STRUCTURE)
+        return D3D12_DRIVER_MATCHING_IDENTIFIER_UNSUPPORTED_TYPE;
+
+    return D3D12_DRIVER_MATCHING_IDENTIFIER_UNRECOGNIZED;
+}
+
+static const struct ID3D12Device5Vtbl d3d12_device_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,
@@ -4024,6 +4095,15 @@ static const struct ID3D12Device4Vtbl d3d12_device_vtbl =
     d3d12_device_CreateHeap1,
     d3d12_device_CreateReservedResource1,
     d3d12_device_GetResourceAllocationInfo1,
+    /* ID3D12Device5 methods */
+    d3d12_device_CreateLifetimeTracker,
+    d3d12_device_RemoveDevice,
+    d3d12_device_EnumerateMetaCommands,
+    d3d12_device_EnumerateMetaCommandParameters,
+    d3d12_device_CreateMetaCommand,
+    d3d12_device_CreateStateObject,
+    d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo,
+    d3d12_device_CheckDriverMatchingIdentifier,
 };
 
 static D3D12_RESOURCE_BINDING_TIER d3d12_device_determine_resource_binding_tier(struct d3d12_device *device)
