@@ -2528,6 +2528,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList1)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList2)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList3)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList4)
             || IsEqualGUID(iid, &IID_ID3D12CommandList)
             || IsEqualGUID(iid, &IID_ID3D12DeviceChild)
             || IsEqualGUID(iid, &IID_ID3D12Object)
@@ -6201,7 +6202,70 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetProtectedResourceSession(d3d
     FIXME("iface %p, protected_session %p stub!\n", iface, protected_session);
 }
 
-static const struct ID3D12GraphicsCommandList3Vtbl d3d12_command_list_vtbl =
+static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_list_iface *iface,
+        UINT rt_count, const D3D12_RENDER_PASS_RENDER_TARGET_DESC *render_targets,
+        const D3D12_RENDER_PASS_DEPTH_STENCIL_DESC *depth_stencil, D3D12_RENDER_PASS_FLAGS flags)
+{
+    FIXME("iface %p, rt_count %u, render_targets %p, depth_stencil %p, flags %#x stub!\n",
+            iface, rt_count, render_targets, depth_stencil, flags);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_list_iface *iface)
+{
+    FIXME("iface %p stub!\n", iface);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_InitializeMetaCommand(d3d12_command_list_iface *iface,
+        ID3D12MetaCommand *meta_command, const void *parameter_data, SIZE_T parameter_size)
+{
+    FIXME("iface %p, meta_command %p, parameter_data %p, parameter_size %zu stub!\n",
+            iface, meta_command, parameter_data, parameter_size);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_ExecuteMetaCommand(d3d12_command_list_iface *iface,
+        ID3D12MetaCommand *meta_command, const void *parameter_data, SIZE_T parameter_size)
+{
+    FIXME("iface %p, meta_command %p, parameter_data %p, parameter_size %zu stub!\n",
+            iface, meta_command, parameter_data, parameter_size);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
+{
+    FIXME("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p stub!\n",
+            iface, desc, num_postbuild_info_descs, postbuild_info_descs);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStructurePostbuildInfo(d3d12_command_list_iface *iface,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
+        const D3D12_GPU_VIRTUAL_ADDRESS *src_data)
+{
+    FIXME("iface %p, desc %p, num_acceleration_structures %u, src_data %p stub!\n",
+            iface, desc, num_acceleration_structures, src_data);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
+        D3D12_GPU_VIRTUAL_ADDRESS dst_data, D3D12_GPU_VIRTUAL_ADDRESS src_data,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode)
+{
+    FIXME("iface %p, dst_data %#"PRIx64", src_data %#"PRIx64", mode %u stub!\n",
+            iface, dst_data, src_data, mode);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command_list_iface *iface,
+        ID3D12StateObject *state_object)
+{
+    FIXME("iface %p, state_object %p stub!\n", iface, state_object);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list_iface *iface,
+        const D3D12_DISPATCH_RAYS_DESC *desc)
+{
+    FIXME("iface %p, desc %p stub!\n", iface, desc);
+}
+
+static const struct ID3D12GraphicsCommandList4Vtbl d3d12_command_list_vtbl =
 {
     /* IUnknown methods */
     d3d12_command_list_QueryInterface,
@@ -6279,6 +6343,16 @@ static const struct ID3D12GraphicsCommandList3Vtbl d3d12_command_list_vtbl =
     d3d12_command_list_WriteBufferImmediate,
     /* ID3D12GraphicsCommandList3 methods */
     d3d12_command_list_SetProtectedResourceSession,
+    /* ID3D12GraphicsCommandList4 methods */
+    d3d12_command_list_BeginRenderPass,
+    d3d12_command_list_EndRenderPass,
+    d3d12_command_list_InitializeMetaCommand,
+    d3d12_command_list_ExecuteMetaCommand,
+    d3d12_command_list_BuildRaytracingAccelerationStructure,
+    d3d12_command_list_EmitRaytracingAccelerationStructurePostbuildInfo,
+    d3d12_command_list_CopyRaytracingAccelerationStructure,
+    d3d12_command_list_SetPipelineState1,
+    d3d12_command_list_DispatchRays,
 };
 
 static struct d3d12_command_list *unsafe_impl_from_ID3D12CommandList(ID3D12CommandList *iface)
