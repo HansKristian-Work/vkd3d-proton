@@ -178,7 +178,8 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
 
     memory_requirements = &memory_requirements2.memoryRequirements;
 
-    if (device->vk_info.KHR_dedicated_allocation)
+    if (heap_flags == D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS &&
+        device->vk_info.KHR_dedicated_allocation)
     {
         info.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_REQUIREMENTS_INFO_2;
         info.pNext = NULL;
