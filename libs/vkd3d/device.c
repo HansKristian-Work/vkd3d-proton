@@ -4399,6 +4399,64 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
     }
 }
 
+static void d3d12_device_caps_override(struct d3d12_device *device)
+{
+    D3D_FEATURE_LEVEL fl_override = (D3D_FEATURE_LEVEL)0;
+    struct d3d12_caps *caps = &device->d3d12_caps;
+    const char* fl_string;
+    unsigned int i;
+
+    static const struct
+    {
+        const char* string;
+        D3D_FEATURE_LEVEL feature_level;
+    }
+    feature_levels[] =
+    {
+        { "11_0", D3D_FEATURE_LEVEL_11_0 },
+        { "11_1", D3D_FEATURE_LEVEL_11_1 },
+        { "12_0", D3D_FEATURE_LEVEL_12_0 },
+        { "12_1", D3D_FEATURE_LEVEL_12_1 },
+    };
+
+    if (!(fl_string = getenv("VKD3D_FEATURE_LEVEL")))
+        return;
+
+    for (i = 0; i < ARRAY_SIZE(feature_levels); i++)
+    {
+        if (!strcmp(fl_string, feature_levels[i].string))
+        {
+            fl_override = feature_levels[i].feature_level;
+            break;
+        }
+    }
+
+    if (!fl_override)
+    {
+        WARN("Unrecognized feature level %s.\n", fl_string);
+        return;
+    }
+
+    if (fl_override >= D3D_FEATURE_LEVEL_11_1)
+        caps->options.OutputMergerLogicOp = TRUE;
+
+    if (fl_override >= D3D_FEATURE_LEVEL_12_0)
+    {
+        caps->options.TiledResourcesTier = max(caps->options.TiledResourcesTier, D3D12_TILED_RESOURCES_TIER_2);
+        caps->options.ResourceBindingTier = max(caps->options.ResourceBindingTier, D3D12_RESOURCE_BINDING_TIER_2);
+        caps->options.TypedUAVLoadAdditionalFormats = TRUE;
+    }
+
+    if (fl_override >= D3D_FEATURE_LEVEL_12_1)
+    {
+        caps->options.ROVsSupported = TRUE;
+        caps->options.ConservativeRasterizationTier = max(caps->options.ConservativeRasterizationTier, D3D12_CONSERVATIVE_RASTERIZATION_TIER_1);
+    }
+
+    caps->max_feature_level = fl_override;
+    WARN("Overriding feature level: %#x.\n", fl_override);
+}
+
 static void d3d12_device_caps_init(struct d3d12_device *device)
 {
     d3d12_device_caps_init_feature_options(device);
@@ -4410,6 +4468,8 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options6(device);
     d3d12_device_caps_init_feature_level(device);
     d3d12_device_caps_init_shader_model(device);
+
+    d3d12_device_caps_override(device);
 }
 
 static bool d3d12_device_supports_feature_level(struct d3d12_device *device, D3D_FEATURE_LEVEL feature_level)
