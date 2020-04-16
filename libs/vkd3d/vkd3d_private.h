@@ -362,6 +362,7 @@ struct d3d12_fence
 
     uint64_t value;
     pthread_mutex_t mutex;
+    pthread_cond_t cond;
 
     struct vkd3d_waiting_event
     {
@@ -1189,6 +1190,44 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device,
 void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_queue_release(struct vkd3d_queue *queue) DECLSPEC_HIDDEN;
 
+enum vkd3d_submission_type
+{
+    VKD3D_SUBMISSION_WAIT,
+    VKD3D_SUBMISSION_SIGNAL,
+    VKD3D_SUBMISSION_EXECUTE,
+    VKD3D_SUBMISSION_STOP,
+    VKD3D_SUBMISSION_DRAIN
+};
+
+struct d3d12_command_queue_submission_wait
+{
+    struct d3d12_fence *fence;
+    UINT64 value;
+};
+
+struct d3d12_command_queue_submission_signal
+{
+    struct d3d12_fence *fence;
+    UINT64 value;
+};
+
+struct d3d12_command_queue_submission_execute
+{
+    VkCommandBuffer *cmd;
+    UINT count;
+};
+
+struct d3d12_command_queue_submission
+{
+    enum vkd3d_submission_type type;
+    union
+    {
+        struct d3d12_command_queue_submission_wait wait;
+        struct d3d12_command_queue_submission_signal signal;
+        struct d3d12_command_queue_submission_execute execute;
+    } u;
+};
+
 /* ID3D12CommandQueue */
 struct d3d12_command_queue
 {
@@ -1201,11 +1240,22 @@ struct d3d12_command_queue
 
     struct d3d12_device *device;
 
+    pthread_mutex_t queue_lock;
+    pthread_cond_t queue_cond;
+    pthread_t submission_thread;
+
+    struct d3d12_command_queue_submission *submissions;
+    size_t submissions_count;
+    size_t submissions_size;
+    uint64_t drain_count;
+    uint64_t queue_drain_count;
+
     struct vkd3d_private_store private_store;
 };
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
         const D3D12_COMMAND_QUEUE_DESC *desc, struct d3d12_command_queue **queue) DECLSPEC_HIDDEN;
+void d3d12_command_queue_submit_stop(struct d3d12_command_queue *queue) DECLSPEC_HIDDEN;
 
 /* ID3D12CommandSignature */
 struct d3d12_command_signature
