@@ -191,7 +191,6 @@ struct vkd3d_waiting_fence
     struct d3d12_fence *fence;
     uint64_t value;
     struct vkd3d_queue *queue;
-    uint64_t queue_sequence_number;
 };
 
 struct vkd3d_fence_worker
@@ -206,15 +205,12 @@ struct vkd3d_fence_worker
     size_t enqueued_fence_count;
     struct vkd3d_enqueued_fence
     {
-        VkFence vk_fence;
         VkSemaphore vk_semaphore;
         struct vkd3d_waiting_fence waiting_fence;
     } *enqueued_fences;
     size_t enqueued_fences_size;
 
     size_t fence_count;
-    VkFence *vk_fences;
-    size_t vk_fences_size;
     struct vkd3d_waiting_fence *fences;
     size_t fences_size;
 
@@ -351,15 +347,6 @@ HRESULT vkd3d_set_private_data(struct vkd3d_private_store *store,
 HRESULT vkd3d_set_private_data_interface(struct vkd3d_private_store *store,
         const GUID *tag, const IUnknown *object) DECLSPEC_HIDDEN;
 
-struct vkd3d_signaled_semaphore
-{
-    struct list entry;
-    uint64_t value;
-    VkSemaphore vk_semaphore;
-    VkFence vk_fence;
-    bool is_acquired;
-};
-
 /* ID3D12Fence */
 typedef ID3D12Fence1 d3d12_fence_iface;
 
@@ -384,12 +371,7 @@ struct d3d12_fence
     size_t events_size;
     size_t event_count;
 
-    struct list semaphores;
-    unsigned int semaphore_count;
-
     LONG pending_worker_operation_count;
-
-    VkFence old_vk_fences[VKD3D_MAX_VK_SYNC_OBJECTS];
 
     struct d3d12_device *device;
 
@@ -1195,22 +1177,9 @@ struct vkd3d_queue
 
     VkQueue vk_queue;
 
-    uint64_t completed_sequence_number;
-    uint64_t submitted_sequence_number;
-
     uint32_t vk_family_index;
     VkQueueFlags vk_queue_flags;
     uint32_t timestamp_bits;
-
-    struct
-    {
-        VkSemaphore vk_semaphore;
-        uint64_t sequence_number;
-    } *semaphores;
-    size_t semaphores_size;
-    size_t semaphore_count;
-
-    VkSemaphore old_vk_semaphores[VKD3D_MAX_VK_SYNC_OBJECTS];
 };
 
 VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue) DECLSPEC_HIDDEN;
@@ -1229,9 +1198,6 @@ struct d3d12_command_queue
     D3D12_COMMAND_QUEUE_DESC desc;
 
     struct vkd3d_queue *vkd3d_queue;
-
-    const struct d3d12_fence *last_waited_fence;
-    uint64_t last_waited_fence_value;
 
     struct d3d12_device *device;
 

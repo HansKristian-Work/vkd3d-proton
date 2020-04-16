@@ -1452,6 +1452,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         }
     }
 
+    if (!vulkan_info->KHR_timeline_semaphore)
+    {
+        ERR("Timeline semaphores are not supported by this implementation. This is required for correct operation.\n");
+        return E_INVALIDARG;
+    }
+
     return S_OK;
 }
 
