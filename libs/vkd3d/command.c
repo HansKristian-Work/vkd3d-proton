@@ -4993,81 +4993,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(d3d12_com
             &clear_value, rect_count, rects);
 }
 
-struct vkd3d_uav_clear_pipeline
-{
-    VkDescriptorSetLayout vk_set_layout;
-    VkPipelineLayout vk_pipeline_layout;
-    VkPipeline vk_pipeline;
-    VkExtent3D group_size;
-};
-
-static void vkd3d_uav_clear_state_get_buffer_pipeline(const struct vkd3d_uav_clear_state *state,
-        enum vkd3d_format_type format_type, struct vkd3d_uav_clear_pipeline *info)
-{
-    const struct vkd3d_uav_clear_pipelines *pipelines;
-
-    pipelines = format_type == VKD3D_FORMAT_TYPE_UINT ? &state->pipelines_uint : &state->pipelines_float;
-    info->vk_set_layout = state->vk_set_layout_buffer;
-    info->vk_pipeline_layout = state->vk_pipeline_layout_buffer;
-    info->vk_pipeline = pipelines->buffer;
-    info->group_size = (VkExtent3D){128, 1, 1};
-}
-
-static void vkd3d_uav_clear_state_get_image_pipeline(const struct vkd3d_uav_clear_state *state,
-        VkImageViewType image_view_type, enum vkd3d_format_type format_type, struct vkd3d_uav_clear_pipeline *info)
-{
-    const struct vkd3d_uav_clear_pipelines *pipelines;
-
-    pipelines = format_type == VKD3D_FORMAT_TYPE_UINT ? &state->pipelines_uint : &state->pipelines_float;
-    info->vk_set_layout = state->vk_set_layout_image;
-    info->vk_pipeline_layout = state->vk_pipeline_layout_image;
-
-    switch (image_view_type)
-    {
-        case VK_IMAGE_VIEW_TYPE_1D:
-            info->vk_pipeline = pipelines->image_1d;
-            info->group_size = (VkExtent3D){64, 1, 1};
-            break;
-
-        case VK_IMAGE_VIEW_TYPE_1D_ARRAY:
-            info->vk_pipeline = pipelines->image_1d_array;
-            info->group_size = (VkExtent3D){64, 1, 1};
-            break;
-
-        case VK_IMAGE_VIEW_TYPE_2D:
-            info->vk_pipeline = pipelines->image_2d;
-            info->group_size = (VkExtent3D){8, 8, 1};
-            break;
-
-        case VK_IMAGE_VIEW_TYPE_2D_ARRAY:
-            info->vk_pipeline = pipelines->image_2d_array;
-            info->group_size = (VkExtent3D){8, 8, 1};
-            break;
-
-        case VK_IMAGE_VIEW_TYPE_3D:
-            info->vk_pipeline = pipelines->image_3d;
-            info->group_size = (VkExtent3D){8, 8, 1};
-            break;
-
-        default:
-            ERR("Unhandled view type %#x.\n", image_view_type);
-            info->vk_pipeline = VK_NULL_HANDLE;
-            info->group_size = (VkExtent3D){0, 0, 0};
-            break;
-    }
-}
-
 static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
-        struct d3d12_resource *resource, struct vkd3d_view *view, const VkClearColorValue *clear_colour,
-        unsigned int rect_count, const D3D12_RECT *rects)
+        struct d3d12_resource *resource, struct vkd3d_view *view, const VkClearColorValue *clear_color,
+        UINT rect_count, const D3D12_RECT *rects)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     unsigned int i, miplevel_idx, layer_count;
-    struct vkd3d_uav_clear_pipeline pipeline;
-    struct vkd3d_uav_clear_args clear_args;
+    struct vkd3d_clear_uav_pipeline pipeline;
+    struct vkd3d_clear_uav_args clear_args;
     VkDescriptorImageInfo image_info;
     D3D12_RECT full_rect, curr_rect;
     VkWriteDescriptorSet write_set;
+    VkExtent3D workgroup_size;
 
     d3d12_command_list_track_resource_usage(list, resource);
     d3d12_command_list_end_current_render_pass(list);
@@ -5078,7 +5015,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     if (!d3d12_command_allocator_add_view(list->allocator, view))
         WARN("Failed to add view.\n");
 
-    clear_args.colour = *clear_colour;
+    clear_args.clear_color = *clear_color;
 
     write_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write_set.pNext = NULL;
@@ -5086,19 +5023,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     write_set.dstArrayElement = 0;
     write_set.descriptorCount = 1;
 
-    if (d3d12_resource_is_buffer(resource))
-    {
-        write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-        write_set.pImageInfo = NULL;
-        write_set.pBufferInfo = NULL;
-        write_set.pTexelBufferView = &view->u.vk_buffer_view;
-
-        miplevel_idx = 0;
-        layer_count = 1;
-        vkd3d_uav_clear_state_get_buffer_pipeline(&list->device->uav_clear_state,
-                view->format->type, &pipeline);
-    }
-    else
+    if (d3d12_resource_is_texture(resource))
     {
         image_info.sampler = VK_NULL_HANDLE;
         image_info.imageView = view->u.vk_image_view;
@@ -5113,8 +5038,24 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
         layer_count = view->info.texture.vk_view_type == VK_IMAGE_VIEW_TYPE_3D
                 ? d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx)
                 : view->info.texture.layer_count;
-        vkd3d_uav_clear_state_get_image_pipeline(&list->device->uav_clear_state,
-                view->info.texture.vk_view_type, view->format->type, &pipeline);
+        pipeline = vkd3d_clear_uav_ops_get_clear_image_pipeline(
+                &list->device->meta_ops.clear_uav, view->info.texture.vk_view_type,
+                view->format->type == VKD3D_FORMAT_TYPE_UINT);
+        workgroup_size = vkd3d_get_clear_image_uav_workgroup_size(view->info.texture.vk_view_type);
+    }
+    else
+    {
+        write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+        write_set.pImageInfo = NULL;
+        write_set.pBufferInfo = NULL;
+        write_set.pTexelBufferView = &view->u.vk_buffer_view;
+
+        miplevel_idx = 0;
+        layer_count = 1;
+        pipeline = vkd3d_clear_uav_ops_get_clear_buffer_pipeline(
+                &list->device->meta_ops.clear_uav,
+                view->format->type == VKD3D_FORMAT_TYPE_UINT);
+        workgroup_size = vkd3d_get_clear_buffer_uav_workgroup_size();
     }
 
     if (!(write_set.dstSet = d3d12_command_allocator_allocate_descriptor_set(
@@ -5131,52 +5072,55 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     full_rect.top = 0;
     full_rect.bottom = d3d12_resource_desc_get_height(&resource->desc, miplevel_idx);
 
-    if (!rect_count)
+    /* clear full resource if no rects are specified */
+    curr_rect = full_rect;
+
+    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
+            VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.vk_pipeline));
+
+    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer,
+            VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.vk_pipeline_layout,
+            0, 1, &write_set.dstSet, 0, NULL));
+
+    for (i = 0; i < rect_count || !i; i++)
     {
-        rects = &full_rect;
-        rect_count = 1;
-    }
+        if (rect_count)
+        {
+            /* clamp to actual resource region and skip empty rects */
+            curr_rect.left = max(rects[i].left, full_rect.left);
+            curr_rect.top = max(rects[i].top, full_rect.top);
+            curr_rect.right = min(rects[i].right, full_rect.right);
+            curr_rect.bottom = min(rects[i].bottom, full_rect.bottom);
 
-    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.vk_pipeline));
-
-    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-            pipeline.vk_pipeline_layout, 0, 1, &write_set.dstSet, 0, NULL));
-
-    for (i = 0; i < rect_count; ++i)
-    {
-        /* Clamp to the actual resource region and skip empty rectangles. */
-        curr_rect.left = max(rects[i].left, full_rect.left);
-        curr_rect.top = max(rects[i].top, full_rect.top);
-        curr_rect.right = min(rects[i].right, full_rect.right);
-        curr_rect.bottom = min(rects[i].bottom, full_rect.bottom);
-
-        if (curr_rect.left >= curr_rect.right || curr_rect.top >= curr_rect.bottom)
-            continue;
+            if (curr_rect.left >= curr_rect.right || curr_rect.top >= curr_rect.bottom)
+                continue;
+        }
 
         clear_args.offset.x = curr_rect.left;
         clear_args.offset.y = curr_rect.top;
         clear_args.extent.width = curr_rect.right - curr_rect.left;
         clear_args.extent.height = curr_rect.bottom - curr_rect.top;
 
-        VK_CALL(vkCmdPushConstants(list->vk_command_buffer, pipeline.vk_pipeline_layout,
-                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(clear_args), &clear_args));
+        VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+                pipeline.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                0, sizeof(clear_args), &clear_args));
 
         VK_CALL(vkCmdDispatch(list->vk_command_buffer,
-                vkd3d_compute_workgroup_count(clear_args.extent.width, pipeline.group_size.width),
-                vkd3d_compute_workgroup_count(clear_args.extent.height, pipeline.group_size.height),
-                vkd3d_compute_workgroup_count(layer_count, pipeline.group_size.depth)));
+                vkd3d_compute_workgroup_count(clear_args.extent.width, workgroup_size.width),
+                vkd3d_compute_workgroup_count(clear_args.extent.height, workgroup_size.height),
+                vkd3d_compute_workgroup_count(layer_count, workgroup_size.depth)));
     }
 }
 
-static const struct vkd3d_format *vkd3d_fixup_clear_uav_uint_colour(struct d3d12_device *device,
-        DXGI_FORMAT dxgi_format, VkClearColorValue *colour)
+static const struct vkd3d_format *vkd3d_fixup_clear_uav_uint_color(struct d3d12_device *device,
+        DXGI_FORMAT dxgi_format, VkClearColorValue *color)
 {
     switch (dxgi_format)
     {
         case DXGI_FORMAT_R11G11B10_FLOAT:
-            colour->uint32[0] = (colour->uint32[0] & 0x7ff)
-                    | ((colour->uint32[1] & 0x7ff) << 11)
-                    | ((colour->uint32[2] & 0x3ff) << 22);
+            color->uint32[0] = (color->uint32[0] & 0x7FF)
+                    | ((color->uint32[1] & 0x7FF) << 11)
+                    | ((color->uint32[2] & 0x3FF) << 22);
             return vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
 
         default:
@@ -5189,61 +5133,66 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
         const UINT values[4], UINT rect_count, const D3D12_RECT *rects)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    struct d3d12_device *device = list->device;
-    struct vkd3d_view *view, *uint_view = NULL;
+    struct vkd3d_view *base_view, *uint_view;
     struct vkd3d_texture_view_desc view_desc;
     const struct vkd3d_format *uint_format;
     struct d3d12_resource *resource_impl;
-    VkClearColorValue colour;
+    VkClearColorValue color;
 
     TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
-    resource_impl = unsafe_impl_from_ID3D12Resource(resource);
-    view = d3d12_desc_from_cpu_handle(cpu_handle)->u.view;
-    memcpy(colour.uint32, values, sizeof(colour.uint32));
+    memcpy(color.uint32, values, sizeof(color.uint32));
 
-    if (view->format->type != VKD3D_FORMAT_TYPE_UINT)
+    resource_impl = unsafe_impl_from_ID3D12Resource(resource);
+
+    base_view = d3d12_desc_from_cpu_handle(cpu_handle)->u.view;
+    uint_view = NULL;
+
+    if (base_view->format->type != VKD3D_FORMAT_TYPE_UINT)
     {
-        if (!(uint_format = vkd3d_find_uint_format(device, view->format->dxgi_format))
-                && !(uint_format = vkd3d_fixup_clear_uav_uint_colour(device, view->format->dxgi_format, &colour)))
+        uint_format = vkd3d_find_uint_format(list->device, base_view->format->dxgi_format);
+
+        if (!uint_format && !(uint_format = vkd3d_fixup_clear_uav_uint_color(
+                list->device, base_view->format->dxgi_format, &color)))
         {
-            ERR("Unhandled format %#x.\n", view->format->dxgi_format);
+            ERR("Unhandled format %d.\n", base_view->format->dxgi_format);
             return;
         }
 
-        if (d3d12_resource_is_buffer(resource_impl))
-        {
-            if (!vkd3d_create_buffer_view(device, resource_impl->u.vk_buffer, uint_format,
-                    view->info.buffer.offset, view->info.buffer.size, &uint_view))
-            {
-                ERR("Failed to create buffer view.\n");
-                return;
-            }
-        }
-        else
+        if (d3d12_resource_is_texture(resource_impl))
         {
             memset(&view_desc, 0, sizeof(view_desc));
-            view_desc.view_type = view->info.texture.vk_view_type;
+            view_desc.view_type = base_view->info.texture.vk_view_type;
             view_desc.format = uint_format;
-            view_desc.miplevel_idx = view->info.texture.miplevel_idx;
+            view_desc.miplevel_idx = base_view->info.texture.miplevel_idx;
             view_desc.miplevel_count = 1;
-            view_desc.layer_idx = view->info.texture.layer_idx;
-            view_desc.layer_count = view->info.texture.layer_count;
+            view_desc.layer_idx = base_view->info.texture.layer_idx;
+            view_desc.layer_count = base_view->info.texture.layer_count;
+            view_desc.allowed_swizzle = false;
 
-            if (!vkd3d_create_texture_view(device, resource_impl->u.vk_image, &view_desc, &uint_view))
+            if (!vkd3d_create_texture_view(list->device, resource_impl->u.vk_image, &view_desc, &uint_view))
             {
                 ERR("Failed to create image view.\n");
                 return;
             }
         }
-        view = uint_view;
+        else
+        {
+            if (!vkd3d_create_buffer_view(list->device, resource_impl->u.vk_buffer, uint_format,
+                    base_view->info.buffer.offset, base_view->info.buffer.size, &uint_view))
+            {
+                ERR("Failed to create buffer view.\n");
+                return;
+            }
+        }
     }
 
-    d3d12_command_list_clear_uav(list, resource_impl, view, &colour, rect_count, rects);
+    d3d12_command_list_clear_uav(list, resource_impl,
+      uint_view ? uint_view : base_view, &color, rect_count, rects);
 
     if (uint_view)
-        vkd3d_view_decref(uint_view, device);
+        vkd3d_view_decref(uint_view, list->device);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d3d12_command_list_iface *iface,
@@ -5252,17 +5201,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *resource_impl;
-    VkClearColorValue colour;
     struct vkd3d_view *view;
+    VkClearColorValue color;
 
     TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
+    memcpy(color.float32, values, sizeof(color.float32));
+
     resource_impl = unsafe_impl_from_ID3D12Resource(resource);
     view = d3d12_desc_from_cpu_handle(cpu_handle)->u.view;
-    memcpy(colour.float32, values, sizeof(colour.float32));
 
-    d3d12_command_list_clear_uav(list, resource_impl, view, &colour, rect_count, rects);
+    d3d12_command_list_clear_uav(list, resource_impl, view, &color, rect_count, rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_list_iface *iface,
