@@ -3657,10 +3657,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_SetEventOnMultipleFenceCompletion(
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetResidencyPriority(d3d12_device_iface *iface,
         UINT object_count, ID3D12Pageable *const *objects, const D3D12_RESIDENCY_PRIORITY *priorities)
 {
-    FIXME("iface %p, object_count %u, objects %p, priorities %p stub!\n",
+    FIXME_ONCE("iface %p, object_count %u, objects %p, priorities %p stub!\n",
             iface, object_count, objects, priorities);
 
-    return E_NOTIMPL;
+    return S_OK;
 }
 
 static void d3d12_init_pipeline_state_desc(struct d3d12_pipeline_state_desc *desc)
