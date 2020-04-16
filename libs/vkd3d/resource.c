@@ -324,17 +324,13 @@ static ULONG STDMETHODCALLTYPE d3d12_heap_AddRef(d3d12_heap_iface *iface)
 
 static ULONG d3d12_resource_decref(struct d3d12_resource *resource);
 
-static void d3d12_heap_destroy(struct d3d12_heap *heap)
+static void d3d12_heap_cleanup(struct d3d12_heap *heap)
 {
     struct d3d12_device *device = heap->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
-    TRACE("Destroying heap %p.\n", heap);
-
     if (heap->buffer_resource)
         d3d12_resource_decref(heap->buffer_resource);
-
-    vkd3d_private_store_destroy(&heap->private_store);
 
     VK_CALL(vkFreeMemory(device->vk_device, heap->vk_memory, NULL));
 
@@ -343,10 +339,17 @@ static void d3d12_heap_destroy(struct d3d12_heap *heap)
     if (heap->is_private)
         device = NULL;
 
-    vkd3d_free(heap);
-
     if (device)
         d3d12_device_release(device);
+}
+
+static void d3d12_heap_destroy(struct d3d12_heap *heap)
+{
+    TRACE("Destroying heap %p.\n", heap);
+
+    d3d12_heap_cleanup(heap);
+    vkd3d_private_store_destroy(&heap->private_store);
+    vkd3d_free(heap);
 }
 
 static ULONG STDMETHODCALLTYPE d3d12_heap_Release(d3d12_heap_iface *iface)
@@ -606,8 +609,10 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     D3D12_RESOURCE_DESC resource_desc;
     D3D12_RESOURCE_STATES initial_resource_state;
 
+    memset(heap, 0, sizeof(*heap));
     heap->ID3D12Heap_iface.lpVtbl = &d3d12_heap_vtbl;
     heap->refcount = 1;
+    heap->device = device;
 
     heap->is_private = !!resource;
 
@@ -616,6 +621,9 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     heap->map_ptr = NULL;
     heap->map_count = 0;
     heap->buffer_resource = NULL;
+
+    if (!heap->is_private)
+        d3d12_device_add_ref(heap->device);
 
     if (!heap->desc.Properties.CreationNodeMask)
         heap->desc.Properties.CreationNodeMask = 1;
@@ -629,18 +637,15 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
         heap->desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 
     if (FAILED(hr = validate_heap_desc(&heap->desc, resource)))
+    {
+        d3d12_heap_cleanup(heap);
         return hr;
+    }
 
     if ((rc = pthread_mutex_init(&heap->mutex, NULL)))
     {
         ERR("Failed to initialize mutex, error %d.\n", rc);
         return hresult_from_errno(rc);
-    }
-
-    if (FAILED(hr = vkd3d_private_store_init(&heap->private_store)))
-    {
-        pthread_mutex_destroy(&heap->mutex);
-        return hr;
     }
 
     buffers_allowed = !(heap->desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS);
@@ -682,7 +687,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
                                               &resource_desc, initial_resource_state,
                                               NULL, false, &heap->buffer_resource)))
         {
-            heap->buffer_resource = NULL;
+            d3d12_heap_cleanup(heap);
             return hr;
         }
         /* This internal resource should not own a reference on the device.
@@ -725,21 +730,12 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
                 heap->desc.Flags, &memory_requirements, NULL,
                 &heap->vk_memory, &heap->vk_memory_type);
     }
-    if (FAILED(hr))
+
+    if (FAILED(hr) || FAILED(hr = vkd3d_private_store_init(&heap->private_store)))
     {
-        vkd3d_private_store_destroy(&heap->private_store);
-        pthread_mutex_destroy(&heap->mutex);
-        if (heap->buffer_resource)
-        {
-            d3d12_resource_decref(heap->buffer_resource);
-            heap->buffer_resource = NULL;
-        }
+        d3d12_heap_cleanup(heap);
         return hr;
     }
-
-    heap->device = device;
-    if (!heap->is_private)
-        d3d12_device_add_ref(heap->device);
 
     return S_OK;
 }
