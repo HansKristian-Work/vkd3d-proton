@@ -4103,6 +4103,9 @@ static bool needs_private_io_variable(const struct vkd3d_shader_signature *signa
     bool have_sysval = false;
     unsigned int i, count;
 
+    if (builtin && builtin->spirv_array_size)
+        return true;
+
     if (*component_count == VKD3D_VEC4_SIZE)
         return false;
 
