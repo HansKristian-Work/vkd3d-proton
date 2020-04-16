@@ -393,11 +393,8 @@ struct d3d12_heap
     bool is_private;
     D3D12_HEAP_DESC desc;
 
-    pthread_mutex_t mutex;
-
     VkDeviceMemory vk_memory;
     void *map_ptr;
-    unsigned int map_count;
     uint32_t vk_memory_type;
 
     struct d3d12_resource *buffer_resource;
@@ -435,8 +432,6 @@ struct d3d12_resource
         VkImage vk_image;
     } u;
     unsigned int flags;
-
-    unsigned int map_count;
 
     struct d3d12_heap *heap;
     uint64_t heap_offset;
