@@ -1350,6 +1350,66 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_GetDevice(d3d12_resource_iface *
     return d3d12_device_query_interface(resource->device, iid, device);
 }
 
+static bool d3d12_resource_get_mapped_memory_range(struct d3d12_resource *resource,
+        UINT subresource, const D3D12_RANGE *range, VkMappedMemoryRange *vk_mapped_range)
+{
+    const struct d3d12_device *device = resource->device;
+    const struct d3d12_heap *heap = resource->heap;
+
+    if (range && range->End <= range->Begin)
+        return false;
+
+    if (device->memory_properties.memoryTypes[heap->vk_memory_type].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+        return false;
+
+    vk_mapped_range->sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+    vk_mapped_range->pNext = NULL;
+    vk_mapped_range->memory = heap->vk_memory;
+
+    if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+    {
+        vk_mapped_range->offset = resource->heap_offset;
+        vk_mapped_range->size = resource->desc.Width;
+    }
+    else
+    {
+        FIXME("Not implemented for textures.\n");
+        return false;
+    }
+
+    if (range)
+    {
+        vk_mapped_range->offset += range->Begin;
+        vk_mapped_range->size = range->End - range->Begin;
+    }
+
+    return true;
+}
+
+static void d3d12_resource_invalidate_range(struct d3d12_resource *resource,
+        UINT subresource, const D3D12_RANGE *read_range)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &resource->device->vk_procs;
+    VkMappedMemoryRange mapped_range;
+
+    if (!d3d12_resource_get_mapped_memory_range(resource, subresource, read_range, &mapped_range))
+        return;
+
+    VK_CALL(vkInvalidateMappedMemoryRanges(resource->device->vk_device, 1, &mapped_range));
+}
+
+static void d3d12_resource_flush_range(struct d3d12_resource *resource,
+        UINT subresource, const D3D12_RANGE *written_range)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &resource->device->vk_procs;
+    VkMappedMemoryRange mapped_range;
+
+    if (!d3d12_resource_get_mapped_memory_range(resource, subresource, written_range, &mapped_range))
+        return;
+
+    VK_CALL(vkFlushMappedMemoryRanges(resource->device->vk_device, 1, &mapped_range));
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(d3d12_resource_iface *iface, UINT sub_resource,
         const D3D12_RANGE *read_range, void **data)
 {
@@ -1386,14 +1446,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(d3d12_resource_iface *iface,
         return E_NOTIMPL;
     }
 
-    WARN("Ignoring read range %p.\n", read_range);
-
     if (FAILED(hr = d3d12_heap_map(resource->heap, resource->heap_offset, resource, data)))
         WARN("Failed to map resource %p, hr %#x.\n", resource, hr);
 
     if (data)
         TRACE("Returning pointer %p.\n", *data);
 
+    d3d12_resource_invalidate_range(resource, sub_resource, read_range);
     return hr;
 }
 
@@ -1413,8 +1472,7 @@ static void STDMETHODCALLTYPE d3d12_resource_Unmap(d3d12_resource_iface *iface, 
         return;
     }
 
-    WARN("Ignoring written range %p.\n", written_range);
-
+    d3d12_resource_flush_range(resource, sub_resource, written_range);
     d3d12_heap_unmap(resource->heap, resource);
 }
 
