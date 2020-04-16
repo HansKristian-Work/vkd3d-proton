@@ -41,23 +41,21 @@ static HRESULT vkd3d_select_memory_type(struct d3d12_device *device, uint32_t me
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, unsigned int *type_index)
 {
     const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
-    VkMemoryPropertyFlags flags[3];
-    unsigned int i, j, count = 0;
+    VkMemoryPropertyFlags flags;
+    unsigned int i;
 
     switch (heap_properties->Type)
     {
         case D3D12_HEAP_TYPE_DEFAULT:
-            flags[count++] = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+            flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
             break;
 
         case D3D12_HEAP_TYPE_UPLOAD:
-            flags[count++] = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
             break;
 
         case D3D12_HEAP_TYPE_READBACK:
-            flags[count++] = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                    | VK_MEMORY_PROPERTY_HOST_CACHED_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-            flags[count++] = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
             break;
 
         case D3D12_HEAP_TYPE_CUSTOM:
@@ -72,14 +70,13 @@ static HRESULT vkd3d_select_memory_type(struct d3d12_device *device, uint32_t me
             switch (heap_properties->CPUPageProperty)
             {
                 case D3D12_CPU_PAGE_PROPERTY_WRITE_BACK:
-                    flags[count++] = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                            | VK_MEMORY_PROPERTY_HOST_CACHED_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-                    /* Fall through. */
+                    flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+                    break;
                 case D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE:
-                    flags[count++] = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-                    /* Fall through. */
+                    flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+                    break;
                 case D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE:
-                    flags[count++] = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+                    flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
                     break;
                 case D3D12_CPU_PAGE_PROPERTY_UNKNOWN:
                 default:
@@ -93,19 +90,15 @@ static HRESULT vkd3d_select_memory_type(struct d3d12_device *device, uint32_t me
             return E_INVALIDARG;
     }
 
-    for (j = 0; j < count; ++j)
+    for (i = 0; i < memory_info->memoryTypeCount; ++i)
     {
-        VkMemoryPropertyFlags preferred_flags = flags[j];
+        if (!(memory_type_mask & (1u << i)))
+            continue;
 
-        for (i = 0; i < memory_info->memoryTypeCount; ++i)
+        if ((memory_info->memoryTypes[i].propertyFlags & flags) == flags)
         {
-            if (!(memory_type_mask & (1u << i)))
-                continue;
-            if ((memory_info->memoryTypes[i].propertyFlags & preferred_flags) == preferred_flags)
-            {
-                *type_index = i;
-                return S_OK;
-            }
+            *type_index = i;
+            return S_OK;
         }
     }
 
