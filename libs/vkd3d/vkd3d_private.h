@@ -1302,24 +1302,25 @@ struct vkd3d_format_compatibility_list
     VkFormat vk_formats[VKD3D_MAX_COMPATIBLE_FORMAT_COUNT];
 };
 
-struct vkd3d_uav_clear_args
+/* meta operations */
+struct vkd3d_clear_uav_args
 {
-    VkClearColorValue colour;
+    VkClearColorValue clear_color;
     VkOffset2D offset;
     VkExtent2D extent;
 };
 
-struct vkd3d_uav_clear_pipelines
+struct vkd3d_clear_uav_pipelines
 {
     VkPipeline buffer;
     VkPipeline image_1d;
-    VkPipeline image_1d_array;
     VkPipeline image_2d;
-    VkPipeline image_2d_array;
     VkPipeline image_3d;
+    VkPipeline image_1d_array;
+    VkPipeline image_2d_array;
 };
 
-struct vkd3d_uav_clear_state
+struct vkd3d_clear_uav_ops
 {
     VkDescriptorSetLayout vk_set_layout_buffer;
     VkDescriptorSetLayout vk_set_layout_image;
@@ -1327,12 +1328,40 @@ struct vkd3d_uav_clear_state
     VkPipelineLayout vk_pipeline_layout_buffer;
     VkPipelineLayout vk_pipeline_layout_image;
 
-    struct vkd3d_uav_clear_pipelines pipelines_float;
-    struct vkd3d_uav_clear_pipelines pipelines_uint;
+    struct vkd3d_clear_uav_pipelines clear_float;
+    struct vkd3d_clear_uav_pipelines clear_uint;
 };
 
-HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d3d12_device *device) DECLSPEC_HIDDEN;
-void vkd3d_uav_clear_state_cleanup(struct vkd3d_uav_clear_state *state, struct d3d12_device *device) DECLSPEC_HIDDEN;
+struct vkd3d_clear_uav_pipeline
+{
+    VkDescriptorSetLayout vk_set_layout;
+    VkPipelineLayout vk_pipeline_layout;
+    VkPipeline vk_pipeline;
+};
+
+HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
+void vkd3d_clear_uav_ops_cleanup(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
+struct vkd3d_clear_uav_pipeline vkd3d_clear_uav_ops_get_clear_buffer_pipeline(const struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
+        bool as_uint) DECLSPEC_HIDDEN;
+struct vkd3d_clear_uav_pipeline vkd3d_clear_uav_ops_get_clear_image_pipeline(const struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
+        VkImageViewType image_view_type, bool as_uint) DECLSPEC_HIDDEN;
+VkExtent3D vkd3d_get_clear_image_uav_workgroup_size(VkImageViewType view_type) DECLSPEC_HIDDEN;
+
+inline VkExtent3D vkd3d_get_clear_buffer_uav_workgroup_size()
+{
+    VkExtent3D result = { 128, 1, 1 };
+    return result;
+}
+
+struct vkd3d_meta_ops
+{
+    struct vkd3d_clear_uav_ops clear_uav;
+};
+
+HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device) DECLSPEC_HIDDEN;
+HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device) DECLSPEC_HIDDEN;
 
 struct vkd3d_physical_device_info
 {
@@ -1430,7 +1459,7 @@ struct d3d12_device
     const struct vkd3d_format_compatibility_list *format_compatibility_lists;
     struct vkd3d_null_resources null_resources;
     struct vkd3d_bindless_state bindless_state;
-    struct vkd3d_uav_clear_state uav_clear_state;
+    struct vkd3d_meta_ops meta_ops;
 };
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,

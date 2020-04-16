@@ -108,6 +108,7 @@ libvkd3d_la_SOURCES = \
 	include/vkd3d_unknown.idl \
 	libs/vkd3d/command.c \
 	libs/vkd3d/device.c \
+	libs/vkd3d/meta.c \
 	libs/vkd3d/resource.c \
 	libs/vkd3d/state.c \
 	libs/vkd3d/utils.c \
