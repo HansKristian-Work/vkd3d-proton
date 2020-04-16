@@ -334,8 +334,6 @@ static void d3d12_heap_cleanup(struct d3d12_heap *heap)
 
     VK_CALL(vkFreeMemory(device->vk_device, heap->vk_memory, NULL));
 
-    pthread_mutex_destroy(&heap->mutex);
-
     if (heap->is_private)
         device = NULL;
 
@@ -504,7 +502,6 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     VkDeviceSize vk_memory_size;
     VkResult vr;
     HRESULT hr;
-    int rc;
     bool buffers_allowed;
     D3D12_RESOURCE_DESC resource_desc;
     D3D12_RESOURCE_STATES initial_resource_state;
@@ -519,7 +516,6 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     heap->desc = *desc;
 
     heap->map_ptr = NULL;
-    heap->map_count = 0;
     heap->buffer_resource = NULL;
 
     if (!heap->is_private)
@@ -540,12 +536,6 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     {
         d3d12_heap_cleanup(heap);
         return hr;
-    }
-
-    if ((rc = pthread_mutex_init(&heap->mutex, NULL)))
-    {
-        ERR("Failed to initialize mutex, error %d.\n", rc);
-        return hresult_from_errno(rc);
     }
 
     buffers_allowed = !(heap->desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS);
@@ -1907,8 +1897,6 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
             WARN("Invalid resource dimension %#x.\n", resource->desc.Dimension);
             return E_INVALIDARG;
     }
-
-    resource->map_count = 0;
 
     resource->initial_state = initial_state;
 
