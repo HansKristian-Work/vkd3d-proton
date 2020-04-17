@@ -25,6 +25,7 @@
 
 #if (__STDC_VERSION__ >= 201112L) && !defined(__STDC_NO_ATOMICS__)
 #include <stdatomic.h>
+#define HAVE_EXPLICIT_ATOMIC_LOADS
 
 #elif defined(__GNUC__) && ((__GNUC__ * 1000 + __GNUC_MINOR__) >= 4007)
 
@@ -35,6 +36,7 @@
 #define memory_order_relaxed __ATOMIC_RELAXED
 #define memory_order_acquire __ATOMIC_ACQUIRE
 #define memory_order_release __ATOMIC_RELEASE
+#define HAVE_EXPLICIT_ATOMIC_LOADS
 
 #elif defined(__GNUC__)
 /* Legacy GCC intrinsics */

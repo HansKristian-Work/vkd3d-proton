@@ -155,7 +155,7 @@ static void vkd3d_fence_worker_remove_fence(struct vkd3d_fence_worker *worker, s
     LONG count;
     int rc;
 
-    if (!(count = atomic_add_fetch(&fence->pending_worker_operation_count, 0)))
+    if (!(count = atomic_load_acquire(&fence->pending_worker_operation_count)))
         return;
 
     WARN("Waiting for %u pending fence operations (fence %p).\n", count, fence);
@@ -166,7 +166,7 @@ static void vkd3d_fence_worker_remove_fence(struct vkd3d_fence_worker *worker, s
         return;
     }
 
-    while ((count = atomic_add_fetch(&fence->pending_worker_operation_count, 0)))
+    while ((count = atomic_load_acquire(&fence->pending_worker_operation_count)))
     {
         TRACE("Still waiting for %u pending fence operations (fence %p).\n", count, fence);
 
@@ -291,7 +291,7 @@ static void *vkd3d_fence_worker_main(void *arg)
     {
         vkd3d_wait_for_gpu_timeline_semaphores(worker);
 
-        if (!worker->fence_count || atomic_add_fetch(&worker->enqueued_fence_count, 0))
+        if (!worker->fence_count || atomic_load_acquire(&worker->enqueued_fence_count))
         {
             if ((rc = pthread_mutex_lock(&worker->mutex)))
             {
@@ -1517,7 +1517,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
         TRACE("Resetting command list %p.\n", list);
     }
 
-    if ((pending = atomic_add_fetch(&allocator->outstanding_submissions_count, 0)) != 0)
+    if ((pending = atomic_load_acquire(&allocator->outstanding_submissions_count)) != 0)
     {
         /* HACK: There are currently command lists waiting to be submitted to the queue in the submission threads.
          * Buggy application, but work around this by not resetting the command pool this time.

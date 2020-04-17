@@ -203,6 +203,13 @@ static inline LONG InterlockedDecrement(LONG volatile *x)
 # error "atomic_add_fetch() not implemented for this platform"
 #endif  /* HAVE_SYNC_ADD_AND_FETCH */
 
+#ifdef HAVE_EXPLICIT_ATOMIC_LOADS
+/* Piggyback on stdatomic from spinlock.h */
+# define atomic_load_acquire(ptr) atomic_load_explicit(ptr, memory_order_acquire)
+#else
+# define atomic_load_acquire(ptr) atomic_add_fetch(ptr, 0)
+#endif
+
 static inline void vkd3d_parse_version(const char *version, int *major, int *minor)
 {
     *major = atoi(version);
