@@ -4516,7 +4516,6 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     const bool use_sparse_resources = device->vk_info.sparse_properties.residencyNonResidentStrict;
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
-    VkResult vr;
     HRESULT hr;
 
     TRACE("Creating resources for NULL views.\n");
@@ -4615,15 +4614,6 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             &null_resources->vk_2d_storage_image_view))
         goto fail;
 
-    /* Sampler */
-    if ((vr = d3d12_create_sampler(device, D3D12_FILTER_MIN_MAG_MIP_LINEAR,
-            D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
-            0.0f, 1, D3D12_COMPARISON_FUNC_ALWAYS, -FLT_MAX, FLT_MAX, &null_resources->vk_sampler)))
-    {
-        hr = hresult_from_vk_result(vr);
-        goto fail;
-    }
-
     /* set Vulkan object names */
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_buffer,
             VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, "NULL buffer");
@@ -4645,8 +4635,6 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, "NULL 2D UAV image");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_storage_image_view,
             VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_VIEW_EXT, "NULL 2D UAV image view");
-    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_sampler,
-            VK_DEBUG_REPORT_OBJECT_TYPE_SAMPLER_EXT, "NULL sampler");
     if (!use_sparse_resources)
     {
         vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_storage_buffer_memory,
@@ -4683,8 +4671,6 @@ void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
     VK_CALL(vkDestroyImageView(device->vk_device, null_resources->vk_2d_storage_image_view, NULL));
     VK_CALL(vkDestroyImage(device->vk_device, null_resources->vk_2d_storage_image, NULL));
     VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_2d_storage_image_memory, NULL));
-
-    VK_CALL(vkDestroySampler(device->vk_device, null_resources->vk_sampler, NULL));
 
     memset(null_resources, 0, sizeof(*null_resources));
 }
