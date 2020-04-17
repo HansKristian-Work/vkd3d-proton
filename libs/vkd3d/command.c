@@ -1038,6 +1038,7 @@ static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_comm
     }
 
     allocator->current_command_list = list;
+    list->outstanding_submissions_count = &allocator->outstanding_submissions_count;
 
     return S_OK;
 }
@@ -1500,6 +1501,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
     const struct vkd3d_vk_device_procs *vk_procs;
     struct d3d12_command_list *list;
     struct d3d12_device *device;
+    LONG pending;
     VkResult vr;
 
     TRACE("iface %p.\n", iface);
@@ -1513,6 +1515,23 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
         }
 
         TRACE("Resetting command list %p.\n", list);
+    }
+
+    if ((pending = atomic_add_fetch(&allocator->outstanding_submissions_count, 0)) != 0)
+    {
+        /* HACK: There are currently command lists waiting to be submitted to the queue in the submission threads.
+         * Buggy application, but work around this by not resetting the command pool this time.
+         * To be perfectly safe, we can only reset after the fence timeline is signalled,
+         * however, this is enough to workaround SotTR which resets the command list right
+         * after calling ID3D12CommandQueue::ExecuteCommandLists().
+         * Only happens once or twice on bootup and doesn't cause memory leaks over time
+         * since the command pool is eventually reset.
+         * Game does not seem to care if E_FAIL is returned, which is the correct thing to do here.
+         *
+         * TODO: Guard this with actual timeline semaphores from vkQueueSubmit(). */
+        ERR("There are still %u pending command lists awaiting execution from command allocator iface %p!\n",
+            (unsigned int)pending, iface);
+        return E_FAIL;
     }
 
     device = allocator->device;
@@ -1595,7 +1614,7 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
 
     allocator->ID3D12CommandAllocator_iface.lpVtbl = &d3d12_command_allocator_vtbl;
     allocator->refcount = 1;
-
+    allocator->outstanding_submissions_count = 0;
     allocator->type = type;
     allocator->vk_queue_flags = queue->vk_queue_flags;
 
@@ -6081,6 +6100,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     struct d3d12_command_queue_submission sub;
     struct d3d12_command_list *cmd_list;
     VkCommandBuffer *buffers;
+    LONG **outstanding;
     unsigned int i, j;
 
     TRACE("iface %p, command_list_count %u, command_lists %p.\n",
@@ -6089,6 +6109,12 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     if (!(buffers = vkd3d_calloc(command_list_count, sizeof(*buffers))))
     {
         ERR("Failed to allocate command buffer array.\n");
+        return;
+    }
+
+    if (!(outstanding = vkd3d_calloc(command_list_count, sizeof(*outstanding))))
+    {
+        ERR("Failed to allocate outstanding submissions count.\n");
         return;
     }
 
@@ -6104,6 +6130,9 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             return;
         }
 
+        outstanding[i] = cmd_list->outstanding_submissions_count;
+        InterlockedIncrement(outstanding[i]);
+
         for (j = 0; j < cmd_list->descriptor_updates_count; j++)
             d3d12_deferred_descriptor_set_update_resolve(cmd_list, &cmd_list->descriptor_updates[j]);
         buffers[i] = cmd_list->vk_command_buffer;
@@ -6112,6 +6141,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     sub.type = VKD3D_SUBMISSION_EXECUTE;
     sub.u.execute.cmd = buffers;
     sub.u.execute.count = command_list_count;
+    sub.u.execute.outstanding_submissions_count = outstanding;
     d3d12_command_queue_add_submission(command_queue, &sub);
 }
 
@@ -6470,6 +6500,8 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 {
     struct d3d12_command_queue_submission submission;
     struct d3d12_command_queue *queue = userdata;
+    unsigned int i;
+
     vkd3d_set_thread_name("vkd3d_queue");
 
     for (;;)
@@ -6499,6 +6531,10 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
         case VKD3D_SUBMISSION_EXECUTE:
             d3d12_command_queue_execute(queue, submission.u.execute.cmd, submission.u.execute.count);
             vkd3d_free(submission.u.execute.cmd);
+            /* TODO: The correct place to do this would be in a fence handler, but this is good enough for now. */
+            for (i = 0; i < submission.u.execute.count; i++)
+                InterlockedDecrement(submission.u.execute.outstanding_submissions_count[i]);
+            vkd3d_free(submission.u.execute.outstanding_submissions_count);
             break;
 
         case VKD3D_SUBMISSION_DRAIN:
