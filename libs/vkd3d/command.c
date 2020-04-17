@@ -5719,14 +5719,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_lis
 static void STDMETHODCALLTYPE d3d12_command_list_InitializeMetaCommand(d3d12_command_list_iface *iface,
         ID3D12MetaCommand *meta_command, const void *parameter_data, SIZE_T parameter_size)
 {
-    FIXME("iface %p, meta_command %p, parameter_data %p, parameter_size %zu stub!\n",
+    FIXME("iface %p, meta_command %p, parameter_data %p, parameter_size %lu stub!\n",
             iface, meta_command, parameter_data, parameter_size);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ExecuteMetaCommand(d3d12_command_list_iface *iface,
         ID3D12MetaCommand *meta_command, const void *parameter_data, SIZE_T parameter_size)
 {
-    FIXME("iface %p, meta_command %p, parameter_data %p, parameter_size %zu stub!\n",
+    FIXME("iface %p, meta_command %p, parameter_data %p, parameter_size %lu stub!\n",
             iface, meta_command, parameter_data, parameter_size);
 }
 
