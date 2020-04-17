@@ -3837,7 +3837,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_EnqueueMakeResident(d3d12_device_i
         D3D12_RESIDENCY_FLAGS flags, UINT num_objects, ID3D12Pageable *const *objects,
         ID3D12Fence *fence_to_signal, UINT64 fence_value_to_signal)
 {
-    FIXME_ONCE("iface %p, flags %#x, num_objects %u, objects %p, fence_to_signal %p, fence_value_to_signal %lu stub!\n",
+    FIXME_ONCE("iface %p, flags %#x, num_objects %u, objects %p, fence_to_signal %p, fence_value_to_signal %"PRIu64" stub!\n",
             iface, flags, num_objects, objects, fence_to_signal, fence_value_to_signal);
 
     return ID3D12Fence_Signal(fence_to_signal, fence_value_to_signal);
@@ -4054,7 +4054,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateMetaCommand(d3d12_device_ifa
         REFGUID command_id, UINT node_mask, const void *param_data, SIZE_T param_size,
         REFIID iid, void **meta_command)
 {
-    FIXME("iface %p, command_id %s, node_mask %#x, param_data %p, param_size %zu, iid %s, meta_command %p stub!\n",
+    FIXME("iface %p, command_id %s, node_mask %#x, param_data %p, param_size %lu, iid %s, meta_command %p stub!\n",
             iface, debugstr_guid(command_id), node_mask, param_data, param_size, debugstr_guid(iid), meta_command);
 
     return E_NOTIMPL;
