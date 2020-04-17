@@ -33409,7 +33409,7 @@ static void test_resource_allocation_info(void)
         return;
     }
 
-    if (FAILED(ID3D12Device_QueryInterface(device, &IID_ID3D12Device4, &device4)))
+    if (FAILED(ID3D12Device_QueryInterface(device, &IID_ID3D12Device4, (void**)&device4)))
         skip("GetResourceAllocationInfo1 not supported by device.\n");
 
     desc[0].Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -33434,11 +33434,11 @@ static void test_resource_allocation_info(void)
     {
         uint64_t offset = 0;
 
-        info1 = ID3D12Device4_GetResourceAllocationInfo1(device, 0, 2, &desc[0], NULL);
+        info1 = ID3D12Device4_GetResourceAllocationInfo1(device4, 0, 2, &desc[0], NULL);
         ok(info1.SizeInBytes == info.SizeInBytes, "Got unexpected size %"PRIu64".\n", info1.SizeInBytes);
         ok(info1.Alignment == info.Alignment, "Got unexpected alignment %"PRIu64".\n", info1.Alignment);
 
-        info1 = ID3D12Device4_GetResourceAllocationInfo1(device, 0, 2, &desc[0], &res_info[0]);
+        info1 = ID3D12Device4_GetResourceAllocationInfo1(device4, 0, 2, &desc[0], &res_info[0]);
         ok(info1.SizeInBytes == info.SizeInBytes, "Got unexpected size %"PRIu64".\n", info1.SizeInBytes);
         ok(info1.Alignment == info.Alignment, "Got unexpected alignment %"PRIu64".\n", info1.Alignment);
 
@@ -40476,7 +40476,7 @@ static void test_stencil_export(bool use_dxil)
         0x28, 0x15, 0x11, 0x48, 0xa3, 0x09, 0x01, 0x30, 0x62, 0x90, 0x00, 0x20, 0x08, 0x06, 0x05, 0x36, 0x51, 0x14, 0x13, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     };
     const D3D12_SHADER_BYTECODE ps = {
-        use_dxil ? ps_code_dxil : ps_code,
+        use_dxil ? (const void*)ps_code_dxil : (const void*)ps_code,
         use_dxil ? sizeof(ps_code_dxil) : sizeof(ps_code)};
     static const DWORD ps_sample_code[] =
     {
