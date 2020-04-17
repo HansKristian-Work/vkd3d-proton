@@ -874,7 +874,7 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
     {
         const D3D12_STATIC_SAMPLER_DESC *s = &desc->pStaticSamplers[i];
 
-        if (FAILED(hr = vkd3d_create_static_sampler(root_signature->device, s, &root_signature->static_samplers[i])))
+        if (FAILED(hr = d3d12_create_static_sampler(root_signature->device, s, &root_signature->static_samplers[i])))
             goto cleanup;
 
         vk_binding = &vk_binding_info[i];
