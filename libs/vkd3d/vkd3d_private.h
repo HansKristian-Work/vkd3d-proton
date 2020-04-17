@@ -1032,6 +1032,8 @@ struct d3d12_command_allocator
     size_t command_buffers_size;
     size_t command_buffer_count;
 
+    LONG outstanding_submissions_count;
+
     struct d3d12_command_list *current_command_list;
     struct d3d12_device *device;
 
@@ -1164,6 +1166,8 @@ struct d3d12_command_list
     size_t descriptor_updates_size;
     size_t descriptor_updates_count;
 
+    LONG *outstanding_submissions_count;
+
     struct vkd3d_private_store private_store;
 };
 
@@ -1214,6 +1218,7 @@ struct d3d12_command_queue_submission_signal
 struct d3d12_command_queue_submission_execute
 {
     VkCommandBuffer *cmd;
+    LONG **outstanding_submissions_count;
     UINT count;
 };
 
