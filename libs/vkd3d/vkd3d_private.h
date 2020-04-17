@@ -1392,6 +1392,52 @@ HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
 void vkd3d_clear_uav_ops_cleanup(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
 
+struct vkd3d_copy_image_args
+{
+    VkOffset2D offset;
+};
+
+struct vkd3d_copy_image_info
+{
+    VkDescriptorSetLayout vk_set_layout;
+    VkPipelineLayout vk_pipeline_layout;
+    VkRenderPass vk_render_pass;
+    VkPipeline vk_pipeline;
+};
+
+struct vkd3d_copy_image_pipeline_key
+{
+    const struct vkd3d_format *format;
+    VkImageViewType view_type;
+    VkSampleCountFlagBits sample_count;
+};
+
+struct vkd3d_copy_image_pipeline
+{
+    struct vkd3d_copy_image_pipeline_key key;
+
+    VkRenderPass vk_render_pass;
+    VkPipeline vk_pipeline;
+};
+
+struct vkd3d_copy_image_ops
+{
+    VkDescriptorSetLayout vk_set_layout;
+    VkPipelineLayout vk_pipeline_layout;
+    VkShaderModule vk_fs_module;
+
+    pthread_mutex_t mutex;
+
+    struct vkd3d_copy_image_pipeline *pipelines;
+    size_t pipelines_size;
+    size_t pipeline_count;
+};
+
+HRESULT vkd3d_copy_image_ops_init(struct vkd3d_copy_image_ops *meta_copy_image_ops,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
+void vkd3d_copy_image_ops_cleanup(struct vkd3d_copy_image_ops *meta_copy_image_ops,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
+
 struct vkd3d_meta_ops_common
 {
     VkShaderModule vk_module_fullscreen_vs;
@@ -1403,6 +1449,7 @@ struct vkd3d_meta_ops
     struct d3d12_device *device;
     struct vkd3d_meta_ops_common common;
     struct vkd3d_clear_uav_ops clear_uav;
+    struct vkd3d_copy_image_ops copy_image;
 };
 
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device) DECLSPEC_HIDDEN;
@@ -1419,6 +1466,12 @@ inline VkExtent3D vkd3d_meta_get_clear_buffer_uav_workgroup_size()
     VkExtent3D result = { 128, 1, 1 };
     return result;
 }
+
+HRESULT vkd3d_meta_get_copy_image_pipeline(struct vkd3d_meta_ops *meta_ops,
+        const struct vkd3d_copy_image_pipeline_key *key, struct vkd3d_copy_image_info *info) DECLSPEC_HIDDEN;
+VkImageViewType vkd3d_meta_get_copy_image_view_type(D3D12_RESOURCE_DIMENSION dim) DECLSPEC_HIDDEN;
+const struct vkd3d_format *vkd3d_meta_get_copy_image_attachment_format(struct vkd3d_meta_ops *meta_ops,
+        const struct vkd3d_format *dst_format, const struct vkd3d_format *src_format) DECLSPEC_HIDDEN;
 
 struct vkd3d_physical_device_info
 {

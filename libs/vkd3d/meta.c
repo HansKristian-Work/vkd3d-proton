@@ -113,6 +113,184 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
     return vr;
 }
 
+static VkResult vkd3d_meta_create_render_pass(struct d3d12_device *device, VkSampleCountFlagBits samples,
+        const struct vkd3d_format *format, VkRenderPass *vk_render_pass)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkAttachmentDescription attachment_info;
+    VkAttachmentReference attachment_ref;
+    VkSubpassDescription subpass_info;
+    VkRenderPassCreateInfo pass_info;
+    bool has_depth_target;
+    VkImageLayout layout;
+    VkResult vr;
+
+    assert(format);
+
+    has_depth_target = (format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0;
+
+    layout = has_depth_target
+            ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+            : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    attachment_info.flags = 0;
+    attachment_info.format = format->vk_format;
+    attachment_info.samples = samples;
+    attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment_info.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachment_info.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment_info.initialLayout = layout;
+    attachment_info.finalLayout = layout;
+
+    attachment_ref.attachment = 0;
+    attachment_ref.layout = layout;
+
+    subpass_info.flags = 0;
+    subpass_info.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass_info.inputAttachmentCount = 0;
+    subpass_info.pInputAttachments = NULL;
+    subpass_info.colorAttachmentCount = has_depth_target ? 0 : 1;
+    subpass_info.pColorAttachments = has_depth_target ? NULL : &attachment_ref;
+    subpass_info.pResolveAttachments = NULL;
+    subpass_info.pDepthStencilAttachment = has_depth_target ? &attachment_ref : NULL;
+    subpass_info.preserveAttachmentCount = 0;
+    subpass_info.pPreserveAttachments = NULL;
+
+    pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    pass_info.pNext = NULL;
+    pass_info.flags = 0;
+    pass_info.attachmentCount = 1;
+    pass_info.pAttachments = &attachment_info;
+    pass_info.subpassCount = 1;
+    pass_info.pSubpasses = &subpass_info;
+    pass_info.dependencyCount = 0;
+    pass_info.pDependencies = NULL;
+
+    if ((vr = VK_CALL(vkCreateRenderPass(device->vk_device, &pass_info, NULL, vk_render_pass))) < 0)
+        ERR("Failed to create render pass, vr %d.\n", vr);
+
+    return vr;
+}
+
+static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_ops,
+        VkPipelineLayout layout, VkRenderPass render_pass, VkShaderModule fs_module,
+        VkSampleCountFlagBits samples, const VkPipelineDepthStencilStateCreateInfo *ds_state,
+        const VkPipelineColorBlendStateCreateInfo *cb_state, const VkSpecializationInfo *spec_info,
+        VkPipeline *vk_pipeline)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &meta_ops->device->vk_procs;
+    VkPipelineShaderStageCreateInfo shader_stages[3];
+    VkPipelineInputAssemblyStateCreateInfo ia_state;
+    VkPipelineRasterizationStateCreateInfo rs_state;
+    VkPipelineVertexInputStateCreateInfo vi_state;
+    VkPipelineMultisampleStateCreateInfo ms_state;
+    VkPipelineViewportStateCreateInfo vp_state;
+    VkPipelineDynamicStateCreateInfo dyn_state;
+    VkGraphicsPipelineCreateInfo pipeline_info;
+    const uint32_t sample_mask = 0xFFFFFFFF;
+    VkResult vr;
+
+    static const VkDynamicState dynamic_states[] =
+    {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR,
+    };
+
+    vi_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vi_state.pNext = NULL;
+    vi_state.flags = 0;
+    vi_state.vertexBindingDescriptionCount = 0;
+    vi_state.pVertexBindingDescriptions = NULL;
+    vi_state.vertexAttributeDescriptionCount = 0;
+    vi_state.pVertexAttributeDescriptions = NULL;
+
+    ia_state.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    ia_state.pNext = NULL;
+    ia_state.flags = 0;
+    ia_state.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    ia_state.primitiveRestartEnable = false;
+
+    vp_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    vp_state.pNext = NULL;
+    vp_state.flags = 0;
+    vp_state.viewportCount = 1;
+    vp_state.pViewports = NULL;
+    vp_state.scissorCount = 1;
+    vp_state.pScissors = NULL;
+
+    rs_state.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rs_state.pNext = NULL;
+    rs_state.flags = 0;
+    rs_state.depthClampEnable = VK_TRUE;
+    rs_state.rasterizerDiscardEnable = VK_FALSE;
+    rs_state.polygonMode = VK_POLYGON_MODE_FILL;
+    rs_state.cullMode = VK_CULL_MODE_NONE;
+    rs_state.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rs_state.depthBiasEnable = VK_FALSE;
+    rs_state.depthBiasConstantFactor = 0.0f;
+    rs_state.depthBiasClamp = 0.0f;
+    rs_state.depthBiasSlopeFactor = 0.0f;
+    rs_state.lineWidth = 1.0f;
+
+    ms_state.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    ms_state.pNext = NULL;
+    ms_state.flags = 0;
+    ms_state.rasterizationSamples = samples;
+    ms_state.sampleShadingEnable = samples != VK_SAMPLE_COUNT_1_BIT;
+    ms_state.minSampleShading = 1.0f;
+    ms_state.pSampleMask = &sample_mask;
+    ms_state.alphaToCoverageEnable = VK_FALSE;
+    ms_state.alphaToOneEnable = VK_FALSE;
+
+    dyn_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dyn_state.pNext = NULL;
+    dyn_state.flags = 0;
+    dyn_state.dynamicStateCount = ARRAY_SIZE(dynamic_states);
+    dyn_state.pDynamicStates = dynamic_states;
+
+    pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipeline_info.pNext = NULL;
+    pipeline_info.stageCount = 0;
+    pipeline_info.pStages = shader_stages;
+    pipeline_info.pVertexInputState = &vi_state;
+    pipeline_info.pInputAssemblyState = &ia_state;
+    pipeline_info.pTessellationState = NULL;
+    pipeline_info.pViewportState = &vp_state;
+    pipeline_info.pRasterizationState = &rs_state;
+    pipeline_info.pMultisampleState = &ms_state;
+    pipeline_info.pDepthStencilState = ds_state;
+    pipeline_info.pColorBlendState = cb_state;
+    pipeline_info.pDynamicState = &dyn_state;
+    pipeline_info.layout = layout;
+    pipeline_info.renderPass = render_pass;
+    pipeline_info.subpass = 0;
+    pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
+    pipeline_info.basePipelineIndex = -1;
+
+    vkd3d_meta_make_shader_stage(&shader_stages[pipeline_info.stageCount++],
+            VK_SHADER_STAGE_VERTEX_BIT, meta_ops->common.vk_module_fullscreen_vs, "main", NULL);
+
+    if (meta_ops->common.vk_module_fullscreen_gs)
+    {
+        vkd3d_meta_make_shader_stage(&shader_stages[pipeline_info.stageCount++],
+                VK_SHADER_STAGE_GEOMETRY_BIT, meta_ops->common.vk_module_fullscreen_gs, "main", NULL);
+    }
+
+    if (fs_module)
+    {
+        vkd3d_meta_make_shader_stage(&shader_stages[pipeline_info.stageCount++],
+                VK_SHADER_STAGE_FRAGMENT_BIT, fs_module, "main", spec_info);
+    }
+
+    if ((vr = VK_CALL(vkCreateGraphicsPipelines(meta_ops->device->vk_device,
+            VK_NULL_HANDLE, 1, &pipeline_info, NULL, vk_pipeline))))
+        ERR("Failed to create graphics pipeline, vr %d.\n", vr);
+
+    return vr;
+}
+
+
 HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
         struct d3d12_device *device)
 {
@@ -335,6 +513,264 @@ VkExtent3D vkd3d_meta_get_clear_image_uav_workgroup_size(VkImageViewType view_ty
     }
 }
 
+HRESULT vkd3d_copy_image_ops_init(struct vkd3d_copy_image_ops *meta_copy_image_ops,
+        struct d3d12_device *device)
+{
+    VkDescriptorSetLayoutBinding set_binding;
+    VkPushConstantRange push_constant_range;
+    VkResult vr;
+    int rc;
+
+    memset(meta_copy_image_ops, 0, sizeof(*meta_copy_image_ops));
+
+    if ((rc = pthread_mutex_init(&meta_copy_image_ops->mutex, NULL)))
+    {
+        ERR("Failed to initialize mutex, error %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    set_binding.binding = 0;
+    set_binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    set_binding.descriptorCount = 1;
+    set_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    set_binding.pImmutableSamplers = NULL;
+
+    if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding, &meta_copy_image_ops->vk_set_layout)) < 0)
+    {
+        ERR("Failed to create descriptor set layout, vr %d.\n", vr);
+        goto fail;
+    }
+
+    push_constant_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    push_constant_range.offset = 0;
+    push_constant_range.size = sizeof(struct vkd3d_copy_image_args);
+
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_copy_image_ops->vk_set_layout,
+            1, &push_constant_range, &meta_copy_image_ops->vk_pipeline_layout)))
+    {
+        ERR("Failed to create pipeline layout, vr %d.\n", vr);
+        goto fail;
+    }
+
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_copy_image_float_spv), &meta_copy_image_ops->vk_fs_module)) < 0)
+    {
+        ERR("Failed to create shader modules, vr %d.\n", vr);
+        goto fail;
+    }
+
+    return S_OK;
+
+fail:
+    vkd3d_copy_image_ops_cleanup(meta_copy_image_ops, device);
+    return hresult_from_vk_result(vr);
+}
+
+void vkd3d_copy_image_ops_cleanup(struct vkd3d_copy_image_ops *meta_copy_image_ops,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    size_t i;
+
+    for (i = 0; i < meta_copy_image_ops->pipeline_count; i++)
+    {
+        struct vkd3d_copy_image_pipeline *pipeline = &meta_copy_image_ops->pipelines[i];
+
+        VK_CALL(vkDestroyRenderPass(device->vk_device, pipeline->vk_render_pass, NULL));
+        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline->vk_pipeline, NULL));
+    }
+
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_copy_image_ops->vk_set_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_copy_image_ops->vk_pipeline_layout, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_module, NULL));
+
+    pthread_mutex_destroy(&meta_copy_image_ops->mutex);
+
+    vkd3d_free(meta_copy_image_ops->pipelines);
+}
+
+static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta_ops,
+        const struct vkd3d_copy_image_pipeline_key *key, struct vkd3d_copy_image_pipeline *pipeline)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &meta_ops->device->vk_procs;
+    struct vkd3d_copy_image_ops *meta_copy_image_ops = &meta_ops->copy_image;
+    VkPipelineColorBlendAttachmentState blend_attachment;
+    VkPipelineDepthStencilStateCreateInfo ds_state;
+    VkPipelineColorBlendStateCreateInfo cb_state;
+    VkSpecializationInfo spec_info;
+    bool has_depth_target;
+    VkResult vr;
+
+    struct spec_data
+    {
+        uint32_t mode;
+    } spec_data;
+
+    static const VkSpecializationMapEntry map_entries[] =
+    {
+        { 0, offsetof(struct spec_data, mode), sizeof(spec_data.mode) },
+    };
+
+    if (key->view_type == VK_IMAGE_VIEW_TYPE_1D_ARRAY)
+    {
+        spec_data.mode = VKD3D_META_COPY_MODE_1D;
+    }
+    else if (key->view_type == VK_IMAGE_VIEW_TYPE_2D_ARRAY)
+    {
+        spec_data.mode = key->sample_count == VK_SAMPLE_COUNT_1_BIT
+                ? VKD3D_META_COPY_MODE_2D : VKD3D_META_COPY_MODE_MS;
+    }
+    else
+    {
+        ERR("Unhandled view type %u.\n", key->view_type);
+        return E_INVALIDARG;
+    }
+
+    spec_info.mapEntryCount = ARRAY_SIZE(map_entries);
+    spec_info.pMapEntries = map_entries;
+    spec_info.dataSize = sizeof(spec_data);
+    spec_info.pData = &spec_data;
+
+    has_depth_target = (key->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0;
+
+    ds_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    ds_state.pNext = NULL;
+    ds_state.flags = 0;
+    ds_state.depthTestEnable = VK_TRUE;
+    ds_state.depthWriteEnable = VK_TRUE;
+    ds_state.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+    ds_state.depthBoundsTestEnable = VK_FALSE;
+    ds_state.stencilTestEnable = VK_FALSE;
+    memset(&ds_state.front, 0, sizeof(ds_state.front));
+    memset(&ds_state.back, 0, sizeof(ds_state.back));
+    ds_state.minDepthBounds = 0.0f;
+    ds_state.maxDepthBounds = 1.0f;
+
+    memset(&blend_attachment, 0, sizeof(blend_attachment));
+    blend_attachment.blendEnable = VK_FALSE;
+    blend_attachment.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    cb_state.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    cb_state.pNext = NULL;
+    cb_state.flags = 0;
+    cb_state.logicOpEnable = VK_FALSE;
+    cb_state.logicOp = VK_LOGIC_OP_NO_OP;
+    cb_state.attachmentCount = 1;
+    cb_state.pAttachments = &blend_attachment;
+    memset(&cb_state.blendConstants, 0, sizeof(cb_state.blendConstants));
+
+    if ((vr = vkd3d_meta_create_render_pass(meta_ops->device,
+            key->sample_count, key->format, &pipeline->vk_render_pass)) < 0)
+        return hresult_from_vk_result(vr);
+
+    if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
+            meta_copy_image_ops->vk_pipeline_layout, pipeline->vk_render_pass,
+            meta_copy_image_ops->vk_fs_module, key->sample_count,
+            has_depth_target ? &ds_state : NULL, has_depth_target ? NULL : &cb_state,
+            &spec_info, &pipeline->vk_pipeline)) < 0)
+    {
+        VK_CALL(vkDestroyRenderPass(meta_ops->device->vk_device, pipeline->vk_render_pass, NULL));
+        return hresult_from_vk_result(vr);
+    }
+
+    pipeline->key = *key;
+    return S_OK;
+}
+
+HRESULT vkd3d_meta_get_copy_image_pipeline(struct vkd3d_meta_ops *meta_ops,
+        const struct vkd3d_copy_image_pipeline_key *key, struct vkd3d_copy_image_info *info)
+{
+    struct vkd3d_copy_image_ops *meta_copy_image_ops = &meta_ops->copy_image;
+    struct vkd3d_copy_image_pipeline *pipeline;
+    HRESULT hr;
+    size_t i;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&meta_copy_image_ops->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    info->vk_set_layout = meta_copy_image_ops->vk_set_layout;
+    info->vk_pipeline_layout = meta_copy_image_ops->vk_pipeline_layout;
+
+    for (i = 0; i < meta_copy_image_ops->pipeline_count; i++)
+    {
+        pipeline = &meta_copy_image_ops->pipelines[i];
+
+        if (!memcmp(key, &pipeline->key, sizeof(*key)))
+        {
+            info->vk_render_pass = pipeline->vk_render_pass;
+            info->vk_pipeline = pipeline->vk_pipeline;
+            pthread_mutex_unlock(&meta_copy_image_ops->mutex);
+            return S_OK;
+        }
+    }
+
+    if (!vkd3d_array_reserve((void **)&meta_copy_image_ops->pipelines, &meta_copy_image_ops->pipelines_size,
+            meta_copy_image_ops->pipeline_count + 1, sizeof(*meta_copy_image_ops->pipelines)))
+    {
+        ERR("Failed to reserve space for pipeline.\n");
+        return E_OUTOFMEMORY;
+    }
+
+    pipeline = &meta_copy_image_ops->pipelines[meta_copy_image_ops->pipeline_count++];
+
+    if (FAILED(hr = vkd3d_meta_create_copy_image_pipeline(meta_ops, key, pipeline)))
+    {
+        pthread_mutex_unlock(&meta_copy_image_ops->mutex);
+        return hr;
+    }
+
+    info->vk_render_pass = pipeline->vk_render_pass;
+    info->vk_pipeline = pipeline->vk_pipeline;
+
+    pthread_mutex_unlock(&meta_copy_image_ops->mutex);
+    return S_OK;
+}
+
+VkImageViewType vkd3d_meta_get_copy_image_view_type(D3D12_RESOURCE_DIMENSION dim)
+{
+    switch (dim)
+    {
+        case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
+            return VK_IMAGE_VIEW_TYPE_1D_ARRAY;
+        case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
+            return VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        default:
+            ERR("Unhandled resource dimension %u.\n", dim);
+            return VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+    }
+}
+
+const struct vkd3d_format *vkd3d_meta_get_copy_image_attachment_format(struct vkd3d_meta_ops *meta_ops,
+        const struct vkd3d_format *dst_format, const struct vkd3d_format *src_format)
+{
+    DXGI_FORMAT dxgi_format = DXGI_FORMAT_UNKNOWN;
+
+    if (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+        return dst_format;
+
+    assert(src_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    switch (src_format->vk_format)
+    {
+        case VK_FORMAT_D16_UNORM:
+            dxgi_format = DXGI_FORMAT_R16_UNORM;
+            break;
+        case VK_FORMAT_D32_SFLOAT:
+            dxgi_format = DXGI_FORMAT_R32_FLOAT;
+            break;
+        default:
+            ERR("Unhandled format %u.\n", src_format->vk_format);
+            return NULL;
+    }
+
+    return vkd3d_get_format(meta_ops->device, dxgi_format, false);
+}
+
 static HRESULT vkd3d_meta_ops_common_init(struct vkd3d_meta_ops_common *meta_ops_common, struct d3d12_device *device)
 {
     VkResult vr;
@@ -381,8 +817,13 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
     if (FAILED(hr = vkd3d_clear_uav_ops_init(&meta_ops->clear_uav, device)))
         goto fail_clear_uav_ops;
 
+    if (FAILED(hr = vkd3d_copy_image_ops_init(&meta_ops->copy_image, device)))
+        goto fail_copy_image_ops;
+
     return S_OK;
 
+fail_copy_image_ops:
+    vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav, device);
 fail_clear_uav_ops:
     vkd3d_meta_ops_common_cleanup(&meta_ops->common, device);
 fail_common:
@@ -391,6 +832,7 @@ fail_common:
 
 HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
 {
+    vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image, device);
     vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav, device);
     vkd3d_meta_ops_common_cleanup(&meta_ops->common, device);
     return S_OK;
