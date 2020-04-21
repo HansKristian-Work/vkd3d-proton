@@ -255,9 +255,10 @@ void vkd3d_clear_uav_ops_cleanup(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
     }
 }
 
-struct vkd3d_clear_uav_pipeline vkd3d_clear_uav_ops_get_clear_buffer_pipeline(const struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
+struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_buffer_uav_pipeline(struct vkd3d_meta_ops *meta_ops,
         bool as_uint)
 {
+    struct vkd3d_clear_uav_ops *meta_clear_uav_ops = &meta_ops->clear_uav;
     struct vkd3d_clear_uav_pipeline info;
 
     const struct vkd3d_clear_uav_pipelines *pipelines = as_uint
@@ -270,9 +271,10 @@ struct vkd3d_clear_uav_pipeline vkd3d_clear_uav_ops_get_clear_buffer_pipeline(co
     return info;
 }
 
-struct vkd3d_clear_uav_pipeline vkd3d_clear_uav_ops_get_clear_image_pipeline(const struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
+struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_image_uav_pipeline(struct vkd3d_meta_ops *meta_ops,
         VkImageViewType image_view_type, bool as_uint)
 {
+    struct vkd3d_clear_uav_ops *meta_clear_uav_ops = &meta_ops->clear_uav;
     struct vkd3d_clear_uav_pipeline info;
 
     const struct vkd3d_clear_uav_pipelines *pipelines = as_uint
@@ -307,7 +309,7 @@ struct vkd3d_clear_uav_pipeline vkd3d_clear_uav_ops_get_clear_image_pipeline(con
     return info;
 }
 
-VkExtent3D vkd3d_get_clear_image_uav_workgroup_size(VkImageViewType view_type)
+VkExtent3D vkd3d_meta_get_clear_image_uav_workgroup_size(VkImageViewType view_type)
 {
     switch (view_type)
     {

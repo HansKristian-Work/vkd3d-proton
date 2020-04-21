@@ -1391,17 +1391,6 @@ HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_clear_uav_ops_cleanup(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
-struct vkd3d_clear_uav_pipeline vkd3d_clear_uav_ops_get_clear_buffer_pipeline(const struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
-        bool as_uint) DECLSPEC_HIDDEN;
-struct vkd3d_clear_uav_pipeline vkd3d_clear_uav_ops_get_clear_image_pipeline(const struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
-        VkImageViewType image_view_type, bool as_uint) DECLSPEC_HIDDEN;
-VkExtent3D vkd3d_get_clear_image_uav_workgroup_size(VkImageViewType view_type) DECLSPEC_HIDDEN;
-
-static inline VkExtent3D vkd3d_get_clear_buffer_uav_workgroup_size()
-{
-    VkExtent3D result = { 128, 1, 1 };
-    return result;
-}
 
 struct vkd3d_meta_ops
 {
@@ -1410,6 +1399,18 @@ struct vkd3d_meta_ops
 
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device) DECLSPEC_HIDDEN;
 HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device) DECLSPEC_HIDDEN;
+
+struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_buffer_uav_pipeline(struct vkd3d_meta_ops *meta_ops,
+        bool as_uint) DECLSPEC_HIDDEN;
+struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_image_uav_pipeline(struct vkd3d_meta_ops *meta_ops,
+        VkImageViewType image_view_type, bool as_uint) DECLSPEC_HIDDEN;
+VkExtent3D vkd3d_meta_get_clear_image_uav_workgroup_size(VkImageViewType view_type) DECLSPEC_HIDDEN;
+
+inline VkExtent3D vkd3d_meta_get_clear_buffer_uav_workgroup_size()
+{
+    VkExtent3D result = { 128, 1, 1 };
+    return result;
+}
 
 struct vkd3d_physical_device_info
 {
