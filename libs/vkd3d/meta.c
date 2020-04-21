@@ -70,13 +70,32 @@ static VkResult vkd3d_create_pipeline_layout(struct d3d12_device *device,
     return VK_CALL(vkCreatePipelineLayout(device->vk_device, &pipeline_layout_info, NULL, pipeline_layout));
 }
 
+static void vkd3d_make_shader_stage(VkPipelineShaderStageCreateInfo *info, VkShaderStageFlagBits stage,
+        VkShaderModule module, const char* entry_point, const VkSpecializationInfo *spec_info)
+{
+    info->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    info->pNext = NULL;
+    info->flags = 0;
+    info->stage = stage;
+    info->module = module;
+    info->pName = entry_point;
+    info->pSpecializationInfo = spec_info;
+}
+
 static VkResult vkd3d_create_compute_pipeline(struct d3d12_device *device,
         size_t code_size, const uint32_t *code, VkPipelineLayout layout,
         const VkSpecializationInfo *specialization_info, VkPipeline *pipeline)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkComputePipelineCreateInfo pipeline_info;
+    VkShaderModule module;
     VkResult vr;
+
+    if ((vr = vkd3d_create_shader_module(device, code, code_size, &module)) < 0)
+    {
+        ERR("Failed to create shader module, vr %d.", vr);
+        return vr;
+    }
 
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = NULL;
@@ -85,21 +104,11 @@ static VkResult vkd3d_create_compute_pipeline(struct d3d12_device *device,
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
 
-    pipeline_info.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    pipeline_info.stage.pNext = NULL;
-    pipeline_info.stage.flags = 0;
-    pipeline_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    pipeline_info.stage.pName = "main";
-    pipeline_info.stage.pSpecializationInfo = specialization_info;
-
-    if ((vr = vkd3d_create_shader_module(device, code, code_size, &pipeline_info.stage.module)) < 0)
-    {
-        ERR("Failed to create shader module, vr %d.", vr);
-        return vr;
-    }
+    vkd3d_make_shader_stage(&pipeline_info.stage,
+            VK_SHADER_STAGE_COMPUTE_BIT, module, "main", specialization_info);
 
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, pipeline));
-    VK_CALL(vkDestroyShaderModule(device->vk_device, pipeline_info.stage.module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, module, NULL));
 
     return vr;
 }
