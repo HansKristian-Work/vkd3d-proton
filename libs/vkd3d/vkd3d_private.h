@@ -1392,8 +1392,16 @@ HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
 void vkd3d_clear_uav_ops_cleanup(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
 
+struct vkd3d_meta_ops_common
+{
+    VkShaderModule vk_module_fullscreen_vs;
+    VkShaderModule vk_module_fullscreen_gs;
+};
+
 struct vkd3d_meta_ops
 {
+    struct d3d12_device *device;
+    struct vkd3d_meta_ops_common common;
     struct vkd3d_clear_uav_ops clear_uav;
 };
 
