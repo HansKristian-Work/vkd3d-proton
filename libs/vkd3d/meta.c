@@ -21,7 +21,7 @@
 
 #define SPIRV_CODE(name) name, sizeof(name)
 
-static VkResult vkd3d_create_shader_module(struct d3d12_device *device,
+static VkResult vkd3d_meta_create_shader_module(struct d3d12_device *device,
         const uint32_t *code, size_t code_size, VkShaderModule *module)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -36,7 +36,7 @@ static VkResult vkd3d_create_shader_module(struct d3d12_device *device,
     return VK_CALL(vkCreateShaderModule(device->vk_device, &shader_module_info, NULL, module));
 }
 
-static VkResult vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
+static VkResult vkd3d_meta_create_descriptor_set_layout(struct d3d12_device *device,
         uint32_t binding_count, const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -51,7 +51,7 @@ static VkResult vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
     return VK_CALL(vkCreateDescriptorSetLayout(device->vk_device, &set_layout_info, NULL, set_layout));
 }
 
-static VkResult vkd3d_create_pipeline_layout(struct d3d12_device *device,
+static VkResult vkd3d_meta_create_pipeline_layout(struct d3d12_device *device,
         uint32_t set_layout_count, const VkDescriptorSetLayout *set_layouts,
         uint32_t push_constant_range_count, const VkPushConstantRange *push_constant_ranges,
         VkPipelineLayout *pipeline_layout)
@@ -70,7 +70,7 @@ static VkResult vkd3d_create_pipeline_layout(struct d3d12_device *device,
     return VK_CALL(vkCreatePipelineLayout(device->vk_device, &pipeline_layout_info, NULL, pipeline_layout));
 }
 
-static void vkd3d_make_shader_stage(VkPipelineShaderStageCreateInfo *info, VkShaderStageFlagBits stage,
+static void vkd3d_meta_make_shader_stage(VkPipelineShaderStageCreateInfo *info, VkShaderStageFlagBits stage,
         VkShaderModule module, const char* entry_point, const VkSpecializationInfo *spec_info)
 {
     info->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -82,7 +82,7 @@ static void vkd3d_make_shader_stage(VkPipelineShaderStageCreateInfo *info, VkSha
     info->pSpecializationInfo = spec_info;
 }
 
-static VkResult vkd3d_create_compute_pipeline(struct d3d12_device *device,
+static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
         size_t code_size, const uint32_t *code, VkPipelineLayout layout,
         const VkSpecializationInfo *specialization_info, VkPipeline *pipeline)
 {
@@ -91,7 +91,7 @@ static VkResult vkd3d_create_compute_pipeline(struct d3d12_device *device,
     VkShaderModule module;
     VkResult vr;
 
-    if ((vr = vkd3d_create_shader_module(device, code, code_size, &module)) < 0)
+    if ((vr = vkd3d_meta_create_shader_module(device, code, code_size, &module)) < 0)
     {
         ERR("Failed to create shader module, vr %d.", vr);
         return vr;
@@ -104,7 +104,7 @@ static VkResult vkd3d_create_compute_pipeline(struct d3d12_device *device,
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
 
-    vkd3d_make_shader_stage(&pipeline_info.stage,
+    vkd3d_meta_make_shader_stage(&pipeline_info.stage,
             VK_SHADER_STAGE_COMPUTE_BIT, module, "main", specialization_info);
 
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, pipeline));
@@ -193,7 +193,7 @@ HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
     {
         set_binding.descriptorType = set_layouts[i].descriptor_type;
 
-        vr = vkd3d_create_descriptor_set_layout(device, 1, &set_binding, set_layouts[i].set_layout);
+        vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding, set_layouts[i].set_layout);
 
         if (vr < 0)
         {
@@ -201,7 +201,7 @@ HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
             goto fail;
         }
 
-        vr = vkd3d_create_pipeline_layout(device, 1, set_layouts[i].set_layout,
+        vr = vkd3d_meta_create_pipeline_layout(device, 1, set_layouts[i].set_layout,
                 1, &push_constant_range, set_layouts[i].pipeline_layout);
 
         if (vr < 0)
@@ -213,7 +213,7 @@ HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
 
     for (i = 0; i < ARRAY_SIZE(pipelines); i++)
     {
-        if ((vr = vkd3d_create_compute_pipeline(device, pipelines[i].code_size, pipelines[i].code,
+        if ((vr = vkd3d_meta_create_compute_pipeline(device, pipelines[i].code_size, pipelines[i].code,
                 *pipelines[i].pipeline_layout, NULL, pipelines[i].pipeline)) < 0)
         {
             ERR("Failed to create compute pipeline %u, vr %d.", i, vr);
