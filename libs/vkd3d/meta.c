@@ -335,20 +335,63 @@ VkExtent3D vkd3d_meta_get_clear_image_uav_workgroup_size(VkImageViewType view_ty
     }
 }
 
+static HRESULT vkd3d_meta_ops_common_init(struct vkd3d_meta_ops_common *meta_ops_common, struct d3d12_device *device)
+{
+    VkResult vr;
+
+    if (device->vk_info.EXT_shader_viewport_index_layer)
+    {
+        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(vs_fullscreen_layer_spv), &meta_ops_common->vk_module_fullscreen_vs)) < 0)
+        {
+            ERR("Failed to create shader modules, vr %d.\n", vr);
+            return hresult_from_vk_result(vr);
+        }
+    }
+    else
+    {
+        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(vs_fullscreen_spv), &meta_ops_common->vk_module_fullscreen_vs)) < 0 ||
+            (vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(gs_fullscreen_spv), &meta_ops_common->vk_module_fullscreen_gs)) < 0)
+        {
+            ERR("Failed to create shader modules, vr %d.\n", vr);
+            return hresult_from_vk_result(vr);
+        }
+    }
+
+    return S_OK;
+}
+
+static void vkd3d_meta_ops_common_cleanup(struct vkd3d_meta_ops_common *meta_ops_common, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_ops_common->vk_module_fullscreen_vs, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_ops_common->vk_module_fullscreen_gs, NULL));
+}
+
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
 {
     HRESULT hr;
 
     memset(meta_ops, 0, sizeof(*meta_ops));
+    meta_ops->device = device;
+
+    if (FAILED(hr = vkd3d_meta_ops_common_init(&meta_ops->common, device)))
+        goto fail_common;
 
     if (FAILED(hr = vkd3d_clear_uav_ops_init(&meta_ops->clear_uav, device)))
-        return hr;
+        goto fail_clear_uav_ops;
 
     return S_OK;
+
+fail_clear_uav_ops:
+    vkd3d_meta_ops_common_cleanup(&meta_ops->common, device);
+fail_common:
+    return hr;
 }
 
 HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
 {
     vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav, device);
+    vkd3d_meta_ops_common_cleanup(&meta_ops->common, device);
     return S_OK;
 }
