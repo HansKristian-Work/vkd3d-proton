@@ -5083,10 +5083,10 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
         layer_count = view->info.texture.vk_view_type == VK_IMAGE_VIEW_TYPE_3D
                 ? d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx)
                 : view->info.texture.layer_count;
-        pipeline = vkd3d_clear_uav_ops_get_clear_image_pipeline(
-                &list->device->meta_ops.clear_uav, view->info.texture.vk_view_type,
+        pipeline = vkd3d_meta_get_clear_image_uav_pipeline(
+                &list->device->meta_ops, view->info.texture.vk_view_type,
                 view->format->type == VKD3D_FORMAT_TYPE_UINT);
-        workgroup_size = vkd3d_get_clear_image_uav_workgroup_size(view->info.texture.vk_view_type);
+        workgroup_size = vkd3d_meta_get_clear_image_uav_workgroup_size(view->info.texture.vk_view_type);
     }
     else
     {
@@ -5097,10 +5097,9 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
 
         miplevel_idx = 0;
         layer_count = 1;
-        pipeline = vkd3d_clear_uav_ops_get_clear_buffer_pipeline(
-                &list->device->meta_ops.clear_uav,
-                view->format->type == VKD3D_FORMAT_TYPE_UINT);
-        workgroup_size = vkd3d_get_clear_buffer_uav_workgroup_size();
+        pipeline = vkd3d_meta_get_clear_buffer_uav_pipeline(
+                &list->device->meta_ops, view->format->type == VKD3D_FORMAT_TYPE_UINT);
+        workgroup_size = vkd3d_meta_get_clear_buffer_uav_workgroup_size();
     }
 
     if (!(write_set.dstSet = d3d12_command_allocator_allocate_descriptor_set(
