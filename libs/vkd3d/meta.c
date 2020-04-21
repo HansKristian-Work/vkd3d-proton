@@ -22,7 +22,7 @@
 #define SPIRV_CODE(name) name, sizeof(name)
 
 static VkResult vkd3d_create_shader_module(struct d3d12_device *device,
-        size_t code_size, const uint32_t *code, VkShaderModule *module)
+        const uint32_t *code, size_t code_size, VkShaderModule *module)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkShaderModuleCreateInfo shader_module_info;
@@ -92,7 +92,7 @@ static VkResult vkd3d_create_compute_pipeline(struct d3d12_device *device,
     pipeline_info.stage.pName = "main";
     pipeline_info.stage.pSpecializationInfo = specialization_info;
 
-    if ((vr = vkd3d_create_shader_module(device, code_size, code, &pipeline_info.stage.module)) < 0)
+    if ((vr = vkd3d_create_shader_module(device, code, code_size, &pipeline_info.stage.module)) < 0)
     {
         ERR("Failed to create shader module, vr %d.", vr);
         return vr;
