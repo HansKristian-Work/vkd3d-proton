@@ -1671,6 +1671,17 @@ static inline const struct vkd3d_format *vkd3d_format_from_d3d12_resource_desc(
             desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
 }
 
+static inline VkImageSubresourceRange vk_subresource_range_from_layers(const VkImageSubresourceLayers *layers)
+{
+    VkImageSubresourceRange range;
+    range.aspectMask = layers->aspectMask;
+    range.baseMipLevel = layers->mipLevel;
+    range.levelCount = 1;
+    range.baseArrayLayer = layers->baseArrayLayer;
+    range.layerCount = layers->layerCount;
+    return range;
+}
+
 static inline bool d3d12_box_is_empty(const D3D12_BOX *box)
 {
     return box->right <= box->left || box->bottom <= box->top || box->back <= box->front;
