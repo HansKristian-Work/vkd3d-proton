@@ -2348,17 +2348,48 @@ static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
     }
 }
 
-static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_list *list)
+static bool d3d12_command_list_create_framebuffer(struct d3d12_command_list *list, VkRenderPass render_pass,
+        uint32_t view_count, const VkImageView *views, VkExtent3D extent, VkFramebuffer *vk_framebuffer)
 {
     struct d3d12_device *device = list->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct VkFramebufferCreateInfo fb_desc;
+    VkResult vr;
+
+    fb_desc.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fb_desc.pNext = NULL;
+    fb_desc.flags = 0;
+    fb_desc.renderPass = render_pass;
+    fb_desc.attachmentCount = view_count;
+    fb_desc.pAttachments = views;
+    fb_desc.width = extent.width;
+    fb_desc.height = extent.height;
+    fb_desc.layers = extent.depth;
+
+    if ((vr = VK_CALL(vkCreateFramebuffer(device->vk_device, &fb_desc, NULL, vk_framebuffer))) < 0)
+    {
+        ERR("Failed to create Vulkan framebuffer, vr %d.\n", vr);
+        return false;
+    }
+
+    if (!d3d12_command_allocator_add_framebuffer(list->allocator, *vk_framebuffer))
+    {
+        WARN("Failed to add framebuffer.\n");
+        VK_CALL(vkDestroyFramebuffer(device->vk_device, *vk_framebuffer, NULL));
+        return false;
+    }
+
+    return true;
+}
+
+static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_list *list)
+{
     VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
     struct d3d12_graphics_pipeline_state *graphics;
-    struct VkFramebufferCreateInfo fb_desc;
     VkFramebuffer vk_framebuffer;
     unsigned int view_count;
+    VkExtent3D extent;
     unsigned int i;
-    VkResult vr;
 
     if (list->current_framebuffer != VK_NULL_HANDLE)
         return true;
@@ -2392,23 +2423,11 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
         }
     }
 
-    fb_desc.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    fb_desc.pNext = NULL;
-    fb_desc.flags = 0;
-    fb_desc.renderPass = list->pso_render_pass;
-    fb_desc.attachmentCount = view_count;
-    fb_desc.pAttachments = views;
-    d3d12_command_list_get_fb_extent(list, &fb_desc.width, &fb_desc.height, &fb_desc.layers);
-    if ((vr = VK_CALL(vkCreateFramebuffer(device->vk_device, &fb_desc, NULL, &vk_framebuffer))) < 0)
-    {
-        WARN("Failed to create Vulkan framebuffer, vr %d.\n", vr);
-        return false;
-    }
+    d3d12_command_list_get_fb_extent(list, &extent.width, &extent.height, &extent.depth);
 
-    if (!d3d12_command_allocator_add_framebuffer(list->allocator, vk_framebuffer))
+    if (!d3d12_command_list_create_framebuffer(list, list->pso_render_pass, view_count, views, extent, &vk_framebuffer))
     {
-        WARN("Failed to add framebuffer.\n");
-        VK_CALL(vkDestroyFramebuffer(device->vk_device, vk_framebuffer, NULL));
+        ERR("Failed to create framebuffer.\n");
         return false;
     }
 
@@ -4837,10 +4856,10 @@ static void d3d12_command_list_clear(struct d3d12_command_list *list,
     struct VkSubpassDescription sub_pass_desc;
     struct VkRenderPassCreateInfo pass_desc;
     struct VkRenderPassBeginInfo begin_desc;
-    struct VkFramebufferCreateInfo fb_desc;
     VkFramebuffer vk_framebuffer;
     VkRenderPass vk_render_pass;
     D3D12_RECT full_rect;
+    VkExtent3D extent;
     unsigned int i;
     VkResult vr;
 
@@ -4895,25 +4914,13 @@ static void d3d12_command_list_clear(struct d3d12_command_list *list,
         WARN("Failed to add view.\n");
     }
 
-    fb_desc.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    fb_desc.pNext = NULL;
-    fb_desc.flags = 0;
-    fb_desc.renderPass = vk_render_pass;
-    fb_desc.attachmentCount = 1;
-    fb_desc.pAttachments = &view->u.vk_image_view;
-    fb_desc.width = width;
-    fb_desc.height = height;
-    fb_desc.layers = layer_count;
-    if ((vr = VK_CALL(vkCreateFramebuffer(list->device->vk_device, &fb_desc, NULL, &vk_framebuffer))) < 0)
-    {
-        WARN("Failed to create Vulkan framebuffer, vr %d.\n", vr);
-        return;
-    }
+    extent.width = width;
+    extent.height = height;
+    extent.depth = layer_count;
 
-    if (!d3d12_command_allocator_add_framebuffer(list->allocator, vk_framebuffer))
+    if (!d3d12_command_list_create_framebuffer(list, vk_render_pass, 1, &view->u.vk_image_view, extent, &vk_framebuffer))
     {
-        WARN("Failed to add framebuffer.\n");
-        VK_CALL(vkDestroyFramebuffer(list->device->vk_device, vk_framebuffer, NULL));
+        ERR("Failed to create framebuffer.\n");
         return;
     }
 
