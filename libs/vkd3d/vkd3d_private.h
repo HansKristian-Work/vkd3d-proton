@@ -1595,6 +1595,7 @@ void vkd3d_format_copy_data(const struct vkd3d_format *format, const uint8_t *sr
 
 const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
         DXGI_FORMAT dxgi_format, bool depth_stencil) DECLSPEC_HIDDEN;
+DXGI_FORMAT vkd3d_get_typeless_format(const struct d3d12_device *device, DXGI_FORMAT dxgi_format) DECLSPEC_HIDDEN;
 const struct vkd3d_format *vkd3d_find_uint_format(const struct d3d12_device *device,
         DXGI_FORMAT dxgi_format) DECLSPEC_HIDDEN;
 
