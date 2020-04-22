@@ -875,6 +875,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     VkImageFormatListCreateInfoKHR format_list;
     const struct vkd3d_format *format;
     VkImageCreateInfo image_info;
+    DXGI_FORMAT typeless_format;
     VkResult vr;
 
     if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
@@ -938,6 +939,16 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
 
     image_info.mipLevels = min(desc->MipLevels, max_miplevel_count(desc));
     image_info.samples = vk_samples_from_dxgi_sample_desc(&desc->SampleDesc);
+
+    /* Additional usage flags for shader-based copies */
+    typeless_format = vkd3d_get_typeless_format(device, format->dxgi_format);
+
+    if (typeless_format == DXGI_FORMAT_R32_TYPELESS || typeless_format == DXGI_FORMAT_R16_TYPELESS)
+    {
+        image_info.usage |= (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                ? VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                : VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    }
 
     if (sparse_resource)
     {
