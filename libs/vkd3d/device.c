@@ -4289,8 +4289,7 @@ static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
     D3D12_FEATURE_DATA_D3D12_OPTIONS3 *options3 = &device->d3d12_caps.options3;
 
     options3->CopyQueueTimestampQueriesSupported = !!device->copy_queue->timestamp_bits;
-    /* Requires changes to format compatibility */
-    options3->CastingFullyTypedFormatSupported = FALSE;
+    options3->CastingFullyTypedFormatSupported = TRUE;
     /* Currently not supported */
     options3->WriteBufferImmediateSupportFlags = 0;
     /* Currently not supported */
