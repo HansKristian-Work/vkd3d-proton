@@ -40626,12 +40626,12 @@ static void test_stencil_export(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_stencil_export_dxbc()
+static void test_stencil_export_dxbc(void)
 {
     test_stencil_export(false);
 }
 
-static void test_stencil_export_dxil()
+static void test_stencil_export_dxil(void)
 {
     test_stencil_export(true);
 }
