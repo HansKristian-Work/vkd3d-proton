@@ -3474,87 +3474,236 @@ static HRESULT d3d12_command_list_allocate_transfer_buffer(struct d3d12_command_
     return S_OK;
 }
 
-/* In Vulkan, each depth/stencil format is only compatible with itself.
- * This means that we are not allowed to copy texture regions directly between
- * depth/stencil and color formats.
- *
- * FIXME: Implement color <-> depth/stencil blits in shaders.
- */
-static void d3d12_command_list_copy_incompatible_texture_region(struct d3d12_command_list *list,
-        struct d3d12_resource *dst_resource, unsigned int dst_sub_resource_idx,
-        const struct vkd3d_format *dst_format, struct d3d12_resource *src_resource,
-        unsigned int src_sub_resource_idx, const struct vkd3d_format *src_format)
+static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
+        struct d3d12_resource *dst_resource, const struct vkd3d_format *dst_format, VkImageLayout dst_layout,
+        struct d3d12_resource *src_resource, const struct vkd3d_format *src_format, VkImageLayout src_layout,
+        const VkImageCopy *region)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    const D3D12_RESOURCE_DESC *dst_desc = &dst_resource->desc;
-    const D3D12_RESOURCE_DESC *src_desc = &src_resource->desc;
-    unsigned int dst_miplevel_idx, src_miplevel_idx;
-    struct vkd3d_buffer transfer_buffer;
-    VkBufferImageCopy buffer_image_copy;
-    VkBufferMemoryBarrier vk_barrier;
-    VkDeviceSize buffer_size;
+    struct vkd3d_texture_view_desc dst_view_desc, src_view_desc;
+    struct vkd3d_copy_image_pipeline_key pipeline_key;
+    struct vkd3d_copy_image_info pipeline_info;
+    VkImageMemoryBarrier vk_image_barriers[2];
+    VkWriteDescriptorSet vk_descriptor_write;
+    struct vkd3d_copy_image_args push_args;
+    struct vkd3d_view *dst_view, *src_view;
+    VkDescriptorImageInfo vk_image_info;
+    VkDescriptorSet vk_descriptor_set;
+    VkRenderPassBeginInfo begin_info;
+    VkImageLayout attachment_layout;
+    VkFramebuffer vk_framebuffer;
+    bool dst_is_depth_stencil;
+    VkViewport viewport;
+    VkExtent3D extent;
+    VkRect2D scissor;
+    unsigned int i;
     HRESULT hr;
 
-    WARN("Copying incompatible texture formats %#x, %#x -> %#x, %#x.\n",
-            src_format->dxgi_format, src_format->vk_format,
-            dst_format->dxgi_format, dst_format->vk_format);
-
-    assert(d3d12_resource_is_texture(dst_resource));
-    assert(d3d12_resource_is_texture(src_resource));
-    assert(!vkd3d_format_is_compressed(dst_format));
-    assert(!vkd3d_format_is_compressed(src_format));
-    assert(dst_format->byte_count == src_format->byte_count);
-
-    buffer_image_copy.bufferOffset = 0;
-    buffer_image_copy.bufferRowLength = 0;
-    buffer_image_copy.bufferImageHeight = 0;
-    vk_image_subresource_layers_from_d3d12(&buffer_image_copy.imageSubresource,
-            src_format, src_sub_resource_idx, src_desc->MipLevels);
-    src_miplevel_idx = buffer_image_copy.imageSubresource.mipLevel;
-    buffer_image_copy.imageOffset.x = 0;
-    buffer_image_copy.imageOffset.y = 0;
-    buffer_image_copy.imageOffset.z = 0;
-    vk_extent_3d_from_d3d12_miplevel(&buffer_image_copy.imageExtent, src_desc, src_miplevel_idx);
-
-    buffer_size = src_format->byte_count * buffer_image_copy.imageExtent.width *
-            buffer_image_copy.imageExtent.height * buffer_image_copy.imageExtent.depth;
-    if (FAILED(hr = d3d12_command_list_allocate_transfer_buffer(list, buffer_size, &transfer_buffer)))
+    if (dst_format->vk_aspect_mask == src_format->vk_aspect_mask)
     {
-        ERR("Failed to allocate transfer buffer, hr %#x.\n", hr);
-        return;
+        VK_CALL(vkCmdCopyImage(list->vk_command_buffer,
+                src_resource->u.vk_image, src_layout,
+                dst_resource->u.vk_image, dst_layout,
+                1, region));
     }
+    else
+    {
+        dst_is_depth_stencil = !!(dst_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT));
 
-    VK_CALL(vkCmdCopyImageToBuffer(list->vk_command_buffer,
-            src_resource->u.vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            transfer_buffer.vk_buffer, 1, &buffer_image_copy));
+        if (!(dst_format = vkd3d_meta_get_copy_image_attachment_format(&list->device->meta_ops, dst_format, src_format)))
+        {
+            ERR("No attachment format found for source format %u.\n", src_format->vk_format);
+            return;
+        }
 
-    vk_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-    vk_barrier.pNext = NULL;
-    vk_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vk_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    vk_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    vk_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    vk_barrier.buffer = transfer_buffer.vk_buffer;
-    vk_barrier.offset = 0;
-    vk_barrier.size = VK_WHOLE_SIZE;
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-            0, NULL, 1, &vk_barrier, 0, NULL));
+        pipeline_key.format = dst_format;
+        pipeline_key.view_type = vkd3d_meta_get_copy_image_view_type(dst_resource->desc.Dimension);
+        pipeline_key.sample_count = vk_samples_from_dxgi_sample_desc(&dst_resource->desc.SampleDesc);
 
-    vk_image_subresource_layers_from_d3d12(&buffer_image_copy.imageSubresource,
-            dst_format, dst_sub_resource_idx, dst_desc->MipLevels);
-    dst_miplevel_idx = buffer_image_copy.imageSubresource.mipLevel;
+        if (FAILED(hr = vkd3d_meta_get_copy_image_pipeline(&list->device->meta_ops, &pipeline_key, &pipeline_info)))
+        {
+            ERR("Failed to obtain pipeline, format %u, view_type %u, sample_count %u.\n",
+                    pipeline_key.format->vk_format, pipeline_key.view_type, pipeline_key.sample_count);
+            return;
+        }
 
-    assert(d3d12_resource_desc_get_width(src_desc, src_miplevel_idx) ==
-            d3d12_resource_desc_get_width(dst_desc, dst_miplevel_idx));
-    assert(d3d12_resource_desc_get_height(src_desc, src_miplevel_idx) ==
-            d3d12_resource_desc_get_height(dst_desc, dst_miplevel_idx));
-    assert(d3d12_resource_desc_get_depth(src_desc, src_miplevel_idx) ==
-            d3d12_resource_desc_get_depth(dst_desc, dst_miplevel_idx));
+        d3d12_command_list_invalidate_current_pipeline(list);
+        d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_GRAPHICS, true);
 
-    VK_CALL(vkCmdCopyBufferToImage(list->vk_command_buffer,
-            transfer_buffer.vk_buffer, dst_resource->u.vk_image,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &buffer_image_copy));
+        memset(&dst_view_desc, 0, sizeof(dst_view_desc));
+        dst_view_desc.view_type = pipeline_key.view_type;
+        dst_view_desc.format = dst_format;
+        dst_view_desc.miplevel_idx = region->dstSubresource.mipLevel;
+        dst_view_desc.miplevel_count = 1;
+        dst_view_desc.layer_idx = region->dstSubresource.baseArrayLayer;
+        dst_view_desc.layer_count = region->dstSubresource.layerCount;
+        dst_view_desc.allowed_swizzle = false;
+
+        memset(&src_view_desc, 0, sizeof(src_view_desc));
+        src_view_desc.view_type = pipeline_key.view_type;
+        src_view_desc.format = src_format;
+        src_view_desc.miplevel_idx = region->srcSubresource.mipLevel;
+        src_view_desc.miplevel_count = 1;
+        src_view_desc.layer_idx = region->srcSubresource.baseArrayLayer;
+        src_view_desc.layer_count = region->srcSubresource.layerCount;
+        src_view_desc.allowed_swizzle = false;
+
+        dst_view = src_view = NULL;
+
+        if (!vkd3d_create_texture_view(list->device, dst_resource->u.vk_image, &dst_view_desc, &dst_view) ||
+                !vkd3d_create_texture_view(list->device, src_resource->u.vk_image, &src_view_desc, &src_view))
+        {
+            ERR("Failed to create image views.\n");
+            goto cleanup;
+        }
+
+        if (!d3d12_command_allocator_add_view(list->allocator, dst_view) ||
+                !d3d12_command_allocator_add_view(list->allocator, src_view))
+        {
+            ERR("Failed to add views.\n");
+            goto cleanup;
+        }
+
+        extent.width = d3d12_resource_desc_get_width(&dst_resource->desc, dst_view_desc.miplevel_idx);
+        extent.height = d3d12_resource_desc_get_height(&dst_resource->desc, dst_view_desc.miplevel_idx);
+        extent.depth = dst_view_desc.layer_count;
+
+        if (!d3d12_command_list_create_framebuffer(list, pipeline_info.vk_render_pass, 1, &dst_view->u.vk_image_view, extent, &vk_framebuffer))
+        {
+            ERR("Failed to create framebuffer.\n");
+            goto cleanup;
+        }
+
+        begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        begin_info.pNext = NULL;
+        begin_info.renderPass = pipeline_info.vk_render_pass;
+        begin_info.framebuffer = vk_framebuffer;
+        begin_info.clearValueCount = 0;
+        begin_info.pClearValues = NULL;
+        begin_info.renderArea.offset.x = 0;
+        begin_info.renderArea.offset.y = 0;
+        begin_info.renderArea.extent.width = extent.width;
+        begin_info.renderArea.extent.height = extent.height;
+
+        viewport.x = (float)region->dstOffset.x;
+        viewport.y = (float)region->dstOffset.y;
+        viewport.width = (float)region->extent.width;
+        viewport.height = (float)region->extent.height;
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+
+        scissor.offset.x = region->dstOffset.x;
+        scissor.offset.y = region->dstOffset.y;
+        scissor.extent.width = region->extent.width;
+        scissor.extent.height = region->extent.height;
+
+        push_args.offset.x = region->srcOffset.x - region->dstOffset.x;
+        push_args.offset.y = region->srcOffset.y - region->dstOffset.y;
+
+        vk_descriptor_set = d3d12_command_allocator_allocate_descriptor_set(
+                list->allocator, pipeline_info.vk_set_layout,
+                VKD3D_DESCRIPTOR_POOL_TYPE_STATIC);
+
+        if (!vk_descriptor_set)
+        {
+            ERR("Failed to allocate descriptor set.\n");
+            goto cleanup;
+        }
+
+        vk_image_info.sampler = VK_NULL_HANDLE;
+        vk_image_info.imageView = src_view->u.vk_image_view;
+        vk_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        vk_descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        vk_descriptor_write.pNext = NULL;
+        vk_descriptor_write.dstSet = vk_descriptor_set;
+        vk_descriptor_write.dstBinding = 0;
+        vk_descriptor_write.dstArrayElement = 0;
+        vk_descriptor_write.descriptorCount = 1;
+        vk_descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        vk_descriptor_write.pImageInfo = &vk_image_info;
+        vk_descriptor_write.pBufferInfo = NULL;
+        vk_descriptor_write.pTexelBufferView = NULL;
+
+        VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &vk_descriptor_write, 0, NULL));
+
+        for (i = 0; i < ARRAY_SIZE(vk_image_barriers); i++)
+        {
+            vk_image_barriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            vk_image_barriers[i].pNext = NULL;
+            vk_image_barriers[i].srcAccessMask = 0;
+            vk_image_barriers[i].dstAccessMask = 0;
+            vk_image_barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            vk_image_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        }
+
+        attachment_layout = dst_is_depth_stencil
+                ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+                : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        vk_image_barriers[0].oldLayout = dst_layout;
+        vk_image_barriers[0].newLayout = attachment_layout;
+        vk_image_barriers[0].image = dst_resource->u.vk_image;
+        vk_image_barriers[0].subresourceRange = vk_subresource_range_from_layers(&region->dstSubresource);
+        vk_image_barriers[0].dstAccessMask = dst_is_depth_stencil
+                ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+                : VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+        if (region->extent.width == extent.width && region->extent.height == extent.height)
+            vk_image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        vk_image_barriers[1].oldLayout = src_layout;
+        vk_image_barriers[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        vk_image_barriers[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vk_image_barriers[1].image = src_resource->u.vk_image;
+        vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&region->srcSubresource);
+
+        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+                VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
+                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers),
+                vk_image_barriers));
+
+        VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE));
+        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_info.vk_pipeline));
+        VK_CALL(vkCmdSetViewport(list->vk_command_buffer, 0, 1, &viewport));
+        VK_CALL(vkCmdSetScissor(list->vk_command_buffer, 0, 1, &scissor));
+        VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                pipeline_info.vk_pipeline_layout, 0, 1, &vk_descriptor_set, 0, NULL));
+        VK_CALL(vkCmdPushConstants(list->vk_command_buffer, pipeline_info.vk_pipeline_layout,
+                VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_args), &push_args));
+        VK_CALL(vkCmdDraw(list->vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
+        VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
+
+        vk_image_barriers[0].oldLayout = attachment_layout;
+        vk_image_barriers[0].newLayout = dst_layout;
+        vk_image_barriers[0].srcAccessMask = dst_is_depth_stencil
+                ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+                : VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        vk_image_barriers[0].dstAccessMask = 0;
+
+        vk_image_barriers[1].oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        vk_image_barriers[1].newLayout = src_layout;
+        vk_image_barriers[1].dstAccessMask = 0;
+
+        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT,
+                0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers),
+                vk_image_barriers));
+
+cleanup:
+        if (dst_view)
+            vkd3d_view_decref(dst_view, list->device);
+        if (src_view)
+            vkd3d_view_decref(src_view, list->device);
+    }
 }
 
 static bool validate_d3d12_box(const D3D12_BOX *box)
@@ -3680,20 +3829,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
                 && (src_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
             FIXME("Depth-stencil format %#x not fully supported yet.\n", src_format->dxgi_format);
 
-        if (dst_format->vk_aspect_mask != src_format->vk_aspect_mask)
-        {
-            d3d12_command_list_copy_incompatible_texture_region(list,
-                    dst_resource, dst->u.SubresourceIndex, dst_format,
-                    src_resource, src->u.SubresourceIndex, src_format);
-            return;
-        }
-
         vk_image_copy_from_d3d12(&image_copy, src->u.SubresourceIndex, dst->u.SubresourceIndex,
                  &src_resource->desc, &dst_resource->desc, src_format, dst_format,
                  src_box, dst_x, dst_y, dst_z);
-        VK_CALL(vkCmdCopyImage(list->vk_command_buffer, src_resource->u.vk_image,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->u.vk_image,
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &image_copy));
+
+        d3d12_command_list_copy_image(list,
+                dst_resource, dst_format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                src_resource, src_format, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                &image_copy);
     }
     else
     {
