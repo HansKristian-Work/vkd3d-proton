@@ -451,22 +451,33 @@ const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
     return NULL;
 }
 
+DXGI_FORMAT vkd3d_get_typeless_format(const struct d3d12_device *device, DXGI_FORMAT dxgi_format)
+{
+    const struct vkd3d_format *format = vkd3d_get_format(device, dxgi_format, true);
+    unsigned int i;
+
+    if (!format)
+        return DXGI_FORMAT_UNKNOWN;
+
+    if (format->type == VKD3D_FORMAT_TYPE_TYPELESS)
+        return dxgi_format;
+
+    for (i = 0; i < ARRAY_SIZE(vkd3d_format_compatibility_info); ++i)
+    {
+        if (vkd3d_format_compatibility_info[i].format == dxgi_format)
+            return vkd3d_format_compatibility_info[i].typeless_format;
+    }
+
+    return DXGI_FORMAT_UNKNOWN;
+}
+
 const struct vkd3d_format *vkd3d_find_uint_format(const struct d3d12_device *device, DXGI_FORMAT dxgi_format)
 {
     DXGI_FORMAT typeless_format = DXGI_FORMAT_UNKNOWN;
     const struct vkd3d_format *vkd3d_format;
     unsigned int i;
 
-    for (i = 0; i < ARRAY_SIZE(vkd3d_format_compatibility_info); ++i)
-    {
-        if (vkd3d_format_compatibility_info[i].format == dxgi_format)
-        {
-            typeless_format = vkd3d_format_compatibility_info[i].typeless_format;
-            break;
-        }
-    }
-
-    if (!typeless_format)
+    if (!(typeless_format = vkd3d_get_typeless_format(device, dxgi_format)))
         return NULL;
 
     for (i = 0; i < ARRAY_SIZE(vkd3d_format_compatibility_info); ++i)
