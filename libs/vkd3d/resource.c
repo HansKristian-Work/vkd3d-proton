@@ -829,11 +829,15 @@ static unsigned int max_miplevel_count(const D3D12_RESOURCE_DESC *desc)
 static const struct vkd3d_format_compatibility_list *vkd3d_get_format_compatibility_list(
         const struct d3d12_device *device, DXGI_FORMAT dxgi_format)
 {
+    DXGI_FORMAT typeless_format;
     unsigned int i;
+
+    if (!(typeless_format = vkd3d_get_typeless_format(device, dxgi_format)))
+        typeless_format = dxgi_format;
 
     for (i = 0; i < device->format_compatibility_list_count; ++i)
     {
-        if (device->format_compatibility_lists[i].typeless_format == dxgi_format)
+        if (device->format_compatibility_lists[i].typeless_format == typeless_format)
             return &device->format_compatibility_lists[i];
     }
 
