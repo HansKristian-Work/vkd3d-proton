@@ -3907,9 +3907,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
                     &src_resource->desc, &dst_resource->desc, src_format, dst_format, NULL, 0, 0, 0);
             vk_image_copy.dstSubresource.layerCount = layer_count;
             vk_image_copy.srcSubresource.layerCount = layer_count;
-            VK_CALL(vkCmdCopyImage(list->vk_command_buffer, src_resource->u.vk_image,
-                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->u.vk_image,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &vk_image_copy));
+
+            d3d12_command_list_copy_image(list,
+                    dst_resource, dst_format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    src_resource, src_format, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    &vk_image_copy);
         }
     }
 }
