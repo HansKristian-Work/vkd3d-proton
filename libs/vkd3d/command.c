@@ -5470,7 +5470,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
             {
                 VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
                         query_heap->vk_query_pool, first, count, buffer->u.vk_buffer,
-                        offset, stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+                        buffer->heap_offset + offset, stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
             }
             count = 0;
             first = start_index + i;
@@ -5483,7 +5483,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
              *   a VK_ERROR_DEVICE_LOST error may occur."
              */
             VK_CALL(vkCmdFillBuffer(list->vk_command_buffer,
-                    buffer->u.vk_buffer, offset, stride, 0x00000000));
+                    buffer->u.vk_buffer, buffer->heap_offset + offset, stride, 0x00000000));
 
             ++first;
             offset += stride;
@@ -5494,7 +5494,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
     {
         VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
                 query_heap->vk_query_pool, first, count, buffer->u.vk_buffer,
-                offset, stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+                buffer->heap_offset + offset, stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
     }
 }
 
