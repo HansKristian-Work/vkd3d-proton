@@ -1128,18 +1128,6 @@ static bool d3d12_command_allocator_add_buffer_view(struct d3d12_command_allocat
     return true;
 }
 
-static bool d3d12_command_allocator_add_transfer_buffer(struct d3d12_command_allocator *allocator,
-        const struct vkd3d_buffer *buffer)
-{
-    if (!vkd3d_array_reserve((void **)&allocator->transfer_buffers, &allocator->transfer_buffers_size,
-            allocator->transfer_buffer_count + 1, sizeof(*allocator->transfer_buffers)))
-        return false;
-
-    allocator->transfer_buffers[allocator->transfer_buffer_count++] = *buffer;
-
-    return true;
-}
-
 static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
         struct d3d12_command_allocator *allocator, enum vkd3d_descriptor_pool_types pool_type)
 {
@@ -1273,14 +1261,6 @@ static void d3d12_command_list_allocator_destroyed(struct d3d12_command_list *li
     list->vk_command_buffer = VK_NULL_HANDLE;
 }
 
-static void vkd3d_buffer_destroy(struct vkd3d_buffer *buffer, struct d3d12_device *device)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-
-    VK_CALL(vkFreeMemory(device->vk_device, buffer->vk_memory, NULL));
-    VK_CALL(vkDestroyBuffer(device->vk_device, buffer->vk_buffer, NULL));
-}
-
 static void d3d12_command_allocator_free_descriptor_pool_cache(struct d3d12_command_allocator *allocator,
         struct d3d12_descriptor_pool_cache *cache, bool keep_reusable_resources)
 {
@@ -1334,12 +1314,6 @@ static void d3d12_command_allocator_free_resources(struct d3d12_command_allocato
                 &allocator->descriptor_pool_caches[i],
                 keep_reusable_resources);
     }
-
-    for (i = 0; i < allocator->transfer_buffer_count; ++i)
-    {
-        vkd3d_buffer_destroy(&allocator->transfer_buffers[i], device);
-    }
-    allocator->transfer_buffer_count = 0;
 
     for (i = 0; i < allocator->buffer_view_count; ++i)
     {
@@ -1423,7 +1397,6 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
             d3d12_command_list_allocator_destroyed(allocator->current_command_list);
 
         d3d12_command_allocator_free_resources(allocator, false);
-        vkd3d_free(allocator->transfer_buffers);
         vkd3d_free(allocator->buffer_views);
         vkd3d_free(allocator->views);
         for (i = 0; i < VKD3D_DESCRIPTOR_POOL_TYPE_COUNT; i++)
@@ -1652,10 +1625,6 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     allocator->buffer_views = NULL;
     allocator->buffer_views_size = 0;
     allocator->buffer_view_count = 0;
-
-    allocator->transfer_buffers = NULL;
-    allocator->transfer_buffers_size = 0;
-    allocator->transfer_buffer_count = 0;
 
     allocator->command_buffers = NULL;
     allocator->command_buffers_size = 0;
@@ -3428,50 +3397,6 @@ static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
         unsigned int miplevel = image_copy->srcSubresource.mipLevel;
         vk_extent_3d_from_d3d12_miplevel(&image_copy->extent, src_desc, miplevel);
     }
-}
-
-static HRESULT d3d12_command_list_allocate_transfer_buffer(struct d3d12_command_list *list,
-        VkDeviceSize size, struct vkd3d_buffer *buffer)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    struct d3d12_device *device = list->device;
-    D3D12_HEAP_PROPERTIES heap_properties;
-    D3D12_RESOURCE_DESC buffer_desc;
-    HRESULT hr;
-
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-    buffer_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    buffer_desc.Alignment = 0;
-    buffer_desc.Width = size;
-    buffer_desc.Height = 1;
-    buffer_desc.DepthOrArraySize = 1;
-    buffer_desc.MipLevels = 1;
-    buffer_desc.Format = DXGI_FORMAT_UNKNOWN;
-    buffer_desc.SampleDesc.Count = 1;
-    buffer_desc.SampleDesc.Quality = 0;
-    buffer_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    buffer_desc.Flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
-
-    if (FAILED(hr = vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
-            &buffer_desc, &buffer->vk_buffer)))
-        return hr;
-    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, buffer->vk_buffer,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &buffer->vk_memory, NULL, NULL)))
-    {
-        VK_CALL(vkDestroyBuffer(device->vk_device, buffer->vk_buffer, NULL));
-        return hr;
-    }
-
-    if (!d3d12_command_allocator_add_transfer_buffer(list->allocator, buffer))
-    {
-        ERR("Failed to add transfer buffer.\n");
-        vkd3d_buffer_destroy(buffer, device);
-        return E_OUTOFMEMORY;
-    }
-
-    return S_OK;
 }
 
 static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
