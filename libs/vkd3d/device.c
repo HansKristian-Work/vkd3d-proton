@@ -1948,11 +1948,73 @@ static D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate_fallback(struct
     return base;
 }
 
+D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate_placed(struct vkd3d_gpu_va_allocator *allocator,
+        D3D12_GPU_VIRTUAL_ADDRESS base, D3D12_GPU_VIRTUAL_ADDRESS end, void *ptr)
+{
+    /* Use the dumb and slow path for now until we figure out a smarter algorithm */
+    unsigned int i;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&allocator->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return 0;
+    }
+
+    i = 0;
+    if (allocator->fallback_allocation_count)
+    {
+        if (end > allocator->fallback_allocations[0].base)
+        {
+            for (i = 0; i < allocator->fallback_allocation_count - 1; i++)
+            {
+                if (base >= allocator->fallback_allocations[i].base + allocator->fallback_allocations[i].size &&
+                    end <= allocator->fallback_allocations[i + 1].base)
+                {
+                    i++;
+                    break;
+                }
+            }
+
+            if (base >= allocator->fallback_allocations[i].base + allocator->fallback_allocations[i].size)
+                i++;
+        }
+    }
+
+    if (!vkd3d_array_reserve((void **)&allocator->fallback_allocations, &allocator->fallback_allocations_size,
+                             allocator->fallback_allocation_count + 1, sizeof(*allocator->fallback_allocations)))
+    {
+        base = 0;
+        goto unlock_out;
+    }
+
+    if (i < allocator->fallback_allocation_count)
+    {
+        memmove(allocator->fallback_allocations + i + 1,
+                allocator->fallback_allocations + i,
+                (allocator->fallback_allocation_count - i) * sizeof(*allocator->fallback_allocations));
+    }
+    allocator->fallback_allocations[i].base = base;
+    allocator->fallback_allocations[i].size = end - base;
+    allocator->fallback_allocations[i].ptr = ptr;
+    allocator->fallback_allocation_count++;
+
+unlock_out:
+    pthread_mutex_unlock(&allocator->mutex);
+    return base;
+}
+
 D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_allocator *allocator,
         size_t alignment, size_t size, void *ptr)
 {
     D3D12_GPU_VIRTUAL_ADDRESS address;
     int rc;
+
+    if (allocator->force_placed)
+    {
+        ERR("Allocator is working in placed mode. Cannot allocate arbitrary address.\n");
+        return 0;
+    }
 
     if (size > ~(size_t)0 - (alignment - 1))
         return 0;
@@ -2036,7 +2098,7 @@ void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocato
      * slab_mem_allocation[base_index] block. This can only happen if someone
      * is trying to free the entry while we're dereferencing it, which would
      * be a serious application bug. */
-    if (address < VKD3D_VA_FALLBACK_BASE)
+    if (address < VKD3D_VA_FALLBACK_BASE && !allocator->force_placed)
         return vkd3d_gpu_va_allocator_dereference_slab(allocator, address);
 
     /* Slow fallback. */
@@ -2109,7 +2171,7 @@ void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator, D3D12
         return;
     }
 
-    if (address < VKD3D_VA_FALLBACK_BASE)
+    if (address < VKD3D_VA_FALLBACK_BASE && !allocator->force_placed)
     {
         vkd3d_gpu_va_allocator_free_slab(allocator, address);
         pthread_mutex_unlock(&allocator->mutex);
@@ -2121,7 +2183,7 @@ void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator, D3D12
     pthread_mutex_unlock(&allocator->mutex);
 }
 
-static bool vkd3d_gpu_va_allocator_init(struct vkd3d_gpu_va_allocator *allocator)
+static bool vkd3d_gpu_va_allocator_init(struct vkd3d_gpu_va_allocator *allocator, bool force_placed)
 {
     unsigned int i;
     int rc;
@@ -2151,6 +2213,7 @@ static bool vkd3d_gpu_va_allocator_init(struct vkd3d_gpu_va_allocator *allocator
         return false;
     }
 
+    allocator->force_placed = force_placed;
     return true;
 }
 
@@ -4615,12 +4678,17 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         goto out_cleanup_bindless_state;
 
     vkd3d_render_pass_cache_init(&device->render_pass_cache);
-    vkd3d_gpu_va_allocator_init(&device->gpu_va_allocator);
 
     if ((device->parent = create_info->parent))
         IUnknown_AddRef(device->parent);
 
     d3d12_device_caps_init(device);
+
+    /* With ray-tracing enabled, we can no longer fake GPU VAs since applications may place
+     * actual GPU VAs directly in buffers. */
+    vkd3d_gpu_va_allocator_init(&device->gpu_va_allocator,
+            device->d3d12_caps.options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_0);
+
     return S_OK;
 
 out_cleanup_bindless_state:

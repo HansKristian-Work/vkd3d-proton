@@ -494,9 +494,10 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device,
                                      struct d3d12_resource **resource);
 
 static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
-        struct d3d12_device *device, const D3D12_HEAP_DESC *desc, const struct d3d12_resource *resource)
+        struct d3d12_device *device, const D3D12_HEAP_DESC *desc, struct d3d12_resource *resource)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkBufferDeviceAddressInfoKHR buffer_address_info;
     VkMemoryRequirements memory_requirements;
     const VkMemoryType *memory_type;
     VkDeviceSize vk_memory_size;
@@ -592,6 +593,22 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
             hr = vkd3d_allocate_buffer_memory(device, resource->u.vk_buffer,
                     &heap->desc.Properties, heap->desc.Flags,
                     &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
+
+            if (resource->gpu_address == 0)
+            {
+                buffer_address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR;
+                buffer_address_info.pNext = NULL;
+                buffer_address_info.buffer = resource->u.vk_buffer;
+                resource->gpu_address = VK_CALL(vkGetBufferDeviceAddressKHR(device->vk_device, &buffer_address_info));
+                if (!vkd3d_gpu_va_allocator_allocate_placed(&device->gpu_va_allocator,
+                        resource->gpu_address, resource->gpu_address + vk_memory_size,
+                        resource))
+                {
+                    ERR("Failed to place VA allocation.\n");
+                    d3d12_heap_cleanup(heap);
+                    return E_OUTOFMEMORY;
+                }
+            }
         }
         else
         {
@@ -607,6 +624,25 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
         hr = vkd3d_allocate_buffer_memory(device, heap->buffer_resource->u.vk_buffer,
                                           &heap->desc.Properties, heap->desc.Flags,
                                           &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
+
+        if (heap->buffer_resource->gpu_address == 0)
+        {
+            buffer_address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR;
+            buffer_address_info.pNext = NULL;
+            buffer_address_info.buffer = heap->buffer_resource->u.vk_buffer;
+            heap->buffer_resource->gpu_address =
+                    VK_CALL(vkGetBufferDeviceAddressKHR(device->vk_device, &buffer_address_info));
+
+            if (!vkd3d_gpu_va_allocator_allocate_placed(&device->gpu_va_allocator,
+                                                        heap->buffer_resource->gpu_address,
+                                                        heap->buffer_resource->gpu_address + vk_memory_size,
+                                                        heap->buffer_resource))
+            {
+                ERR("Failed to place VA allocation.\n");
+                d3d12_heap_cleanup(heap);
+                return E_OUTOFMEMORY;
+            }
+        }
     }
     else
     {
@@ -659,7 +695,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
 }
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
-        const struct d3d12_resource *resource, struct d3d12_heap **heap)
+        struct d3d12_resource *resource, struct d3d12_heap **heap)
 {
     struct d3d12_heap *object;
     HRESULT hr;
@@ -2397,7 +2433,12 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
             if (FAILED(hr = vkd3d_create_buffer(device, heap_properties, heap_flags,
                     &resource->desc, &resource->u.vk_buffer)))
                 return hr;
-            if (!(resource->gpu_address = vkd3d_gpu_va_allocator_allocate(&device->gpu_va_allocator,
+
+            if (device->gpu_va_allocator.force_placed)
+            {
+                resource->gpu_address = 0; /* Resolve when we bind the resource. We'll need the real, physical address. */
+            }
+            else if (!(resource->gpu_address = vkd3d_gpu_va_allocator_allocate(&device->gpu_va_allocator,
                     desc->Alignment ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
                     desc->Width, resource)))
             {
