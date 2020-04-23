@@ -4183,11 +4183,162 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateStateObject(d3d12_device_ifa
     return E_NOTIMPL;
 }
 
+static VkBuildAccelerationStructureFlagsKHR
+vk_acceleration_structure_flags_from_d3d12(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags)
+{
+    VkBuildAccelerationStructureFlagsKHR vk_flags = 0;
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_MINIMIZE_MEMORY)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_LOW_MEMORY_BIT_KHR;
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR; /* There is no flag for this? */
+
+    return vk_flags;
+}
+
+static VkIndexType vk_ray_tracing_index_type(DXGI_FORMAT fmt)
+{
+    switch (fmt)
+    {
+        case DXGI_FORMAT_R32_UINT:
+            return VK_INDEX_TYPE_UINT32;
+        case DXGI_FORMAT_R16_UINT:
+            return VK_INDEX_TYPE_UINT16;
+        default:
+            return VK_INDEX_TYPE_NONE_KHR;
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo(d3d12_device_iface *iface,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
 {
-    FIXME("iface %p, desc %p, info %p stub!\n", iface, desc, info);
+    VkAccelerationStructureCreateGeometryTypeInfoKHR *geom_info;
+    VkAccelerationStructureMemoryRequirementsInfoKHR vk_info;
+    VkAccelerationStructureKHR acceleration_structure_copy;
+    VkAccelerationStructureKHR acceleration_structure;
+    VkAccelerationStructureCreateInfoKHR create_info;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkMemoryRequirements2 memory_requirements;
+    struct d3d12_device *device;
+    unsigned int i;
+
+    device = impl_from_ID3D12Device(iface);
+
+    TRACE("iface %p, desc %p, info %p stub!\n", iface, desc, info);
+    vk_procs = &device->vk_procs;
+
+    geom_info = vkd3d_calloc(sizeof(*geom_info), desc->NumDescs);
+
+    /* First, we need to create an acceleration structure before we can query how to create an acceleration structure.
+     * (????) */
+    memset(&create_info, 0, sizeof(create_info));
+    create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+    create_info.type = desc->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL ?
+            VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+    create_info.flags = vk_acceleration_structure_flags_from_d3d12(desc->Flags);
+    create_info.maxGeometryCount = desc->NumDescs;
+    create_info.pGeometryInfos = geom_info;
+
+    for (i = 0; i < desc->NumDescs; i++)
+    {
+        struct VkAccelerationStructureCreateGeometryTypeInfoKHR *g = &geom_info[i];
+        g->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+
+        if (desc->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL)
+        {
+            const D3D12_RAYTRACING_GEOMETRY_DESC *geom =
+                    desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY ? &desc->u.pGeometryDescs[i] : desc->u.ppGeometryDescs[i];
+
+            if (geom->Type == D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES)
+            {
+                const D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC *tri = &geom->u.Triangles;
+                g->allowsTransforms = tri->Transform3x4 != 0;
+                g->geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+                g->indexType = vk_ray_tracing_index_type(tri->IndexFormat);
+
+                /* Spec doesn't specify MaxIndexCount, so I assume we're supposed to do it like this. */
+                g->maxVertexCount = g->indexType != VK_INDEX_TYPE_NONE_KHR ? tri->IndexCount : tri->VertexCount;
+                g->vertexFormat = vkd3d_get_vk_format(tri->VertexFormat);
+            }
+            else if (geom->Type == D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS)
+            {
+                const D3D12_RAYTRACING_GEOMETRY_AABBS_DESC *aabb = &geom->u.AABBs;
+                g->geometryType = VK_GEOMETRY_TYPE_AABBS_KHR;
+                g->maxPrimitiveCount = aabb->AABBCount;
+            }
+        }
+        else
+        {
+            /* For TOP AS with ARRAY_OF_POINTERS, do we need multiple descs like this? */
+            g->geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+            g->maxPrimitiveCount = desc->NumDescs;
+            create_info.maxGeometryCount = 1;
+            break;
+        }
+    }
+
+    VK_CALL(vkCreateAccelerationStructureKHR(device->vk_device, &create_info, NULL, &acceleration_structure));
+
+    vk_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_INFO_KHR;
+    vk_info.pNext = NULL;
+    vk_info.buildType = VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR;
+    vk_info.accelerationStructure = acceleration_structure;
+
+    memory_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+    memory_requirements.pNext = NULL;
+
+    vk_info.type = VK_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_TYPE_BUILD_SCRATCH_KHR;
+    VK_CALL(vkGetAccelerationStructureMemoryRequirementsKHR(device->vk_device, &vk_info, &memory_requirements));
+    info->ScratchDataSizeInBytes = memory_requirements.memoryRequirements.size;
+
+    /* At some point we will get a request to place an acceleration structure at given GPU VA.
+     * There we will create an AS with compacted size instead of geometry info and pray that the
+     * returned VA from the AS matches what we expect. If not, it is not possible to continue since we cannot fall back to another allocation,
+     * application has already committed to a specific AS.
+     * The AS will be kept alive in the heap since the application does not know anything about lifetime here, it just assumes plain buffer. */
+
+    vk_info.type = VK_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_TYPE_UPDATE_SCRATCH_KHR;
+    VK_CALL(vkGetAccelerationStructureMemoryRequirementsKHR(device->vk_device, &vk_info, &memory_requirements));
+    info->UpdateScratchDataSizeInBytes = memory_requirements.memoryRequirements.size;
+
+    vk_info.type = VK_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_TYPE_OBJECT_KHR;
+    VK_CALL(vkGetAccelerationStructureMemoryRequirementsKHR(device->vk_device, &vk_info, &memory_requirements));
+    info->ResultDataMaxSizeInBytes = memory_requirements.memoryRequirements.size;
+
+    /* Finally, when we place the acceleration structure on a heap,
+     * we will use a size which fills the entire heap (since we have no idea about desired size, we just get a raw VA),
+     * query memory requirements in the "copy size" mode, just to make sure
+     * we can safely allocate the acceleration structure later with that mode later. */
+    create_info.compactedSize = info->ResultDataMaxSizeInBytes;
+    create_info.maxGeometryCount = 0;
+    create_info.pGeometryInfos = NULL;
+    VK_CALL(vkCreateAccelerationStructureKHR(device->vk_device, &create_info, NULL, &acceleration_structure_copy));
+
+    vk_info.accelerationStructure = acceleration_structure_copy;
+    VK_CALL(vkGetAccelerationStructureMemoryRequirementsKHR(device->vk_device, &vk_info, &memory_requirements));
+    info->ResultDataMaxSizeInBytes = memory_requirements.memoryRequirements.size;
+
+    if (memory_requirements.memoryRequirements.alignment > D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT)
+    {
+        FIXME("Required AS alignment (%u) is larger than what D3D12 expects (%u).\n",
+              (unsigned int) memory_requirements.memoryRequirements.alignment,
+              D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
+    }
+
+    /* If our heap does not have the memory type we want, there is not much we can do.
+     * D3D12 assumes an acceleration structure is a good old UAV and we get no indication where app might want to place the AS. */
+
+    vkd3d_free(geom_info);
+    VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, acceleration_structure, NULL));
+    VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, acceleration_structure_copy, NULL));
 }
 
 static D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS STDMETHODCALLTYPE d3d12_device_CheckDriverMatchingIdentifier(d3d12_device_iface *iface,
