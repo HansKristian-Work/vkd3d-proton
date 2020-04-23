@@ -27,7 +27,9 @@
 #endif  /* VKD3D_NO_WIN32_TYPES */
 
 #ifndef VKD3D_NO_VULKAN_H
+#define VK_ENABLE_BETA_EXTENSIONS
 # include <vulkan/vulkan.h>
+# include <vulkan/vulkan_beta.h>
 #endif  /* VKD3D_NO_VULKAN_H */
 
 #ifdef __cplusplus

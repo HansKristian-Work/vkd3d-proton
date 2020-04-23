@@ -151,6 +151,9 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_MAINTENANCE3, KHR_maintenance3),
     VK_EXTENSION(KHR_PUSH_DESCRIPTOR, KHR_push_descriptor),
     VK_EXTENSION(KHR_TIMELINE_SEMAPHORE, KHR_timeline_semaphore),
+    VK_EXTENSION(KHR_RAY_TRACING, KHR_ray_tracing),
+    VK_EXTENSION(KHR_PIPELINE_LIBRARY, KHR_pipeline_library),
+    VK_EXTENSION(KHR_DEFERRED_HOST_OPERATIONS, KHR_deferred_host_operations),
     /* EXT extensions */
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
     VK_EXTENSION(EXT_CUSTOM_BORDER_COLOR, EXT_custom_border_color),
@@ -730,8 +733,10 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
     VkPhysicalDeviceShaderCorePropertiesAMD *shader_core_properties;
     VkPhysicalDeviceMaintenance3Properties *maintenance3_properties;
+    VkPhysicalDeviceRayTracingPropertiesKHR *ray_tracing_properties;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT *xfb_properties;
     VkPhysicalDevice physical_device = device->vk_physical_device;
+    VkPhysicalDeviceRayTracingFeaturesKHR *ray_tracing_features;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT *xfb_features;
     VkPhysicalDeviceSubgroupProperties *subgroup_properties;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
@@ -763,6 +768,8 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     shader_core_properties2 = &info->shader_core_properties2;
     shader_sm_builtins_properties = &info->shader_sm_builtins_properties;
     sampler_filter_minmax_properties = &info->sampler_filter_minmax_properties;
+    ray_tracing_properties = &info->ray_tracing_properties;
+    ray_tracing_features = &info->ray_tracing_features;
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
@@ -890,6 +897,14 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         shader_sm_builtins_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SM_BUILTINS_PROPERTIES_NV;
         vk_prepend_struct(&info->properties2, shader_sm_builtins_properties);
+    }
+
+    if (vulkan_info->KHR_ray_tracing)
+    {
+        ray_tracing_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PROPERTIES_KHR;
+        vk_prepend_struct(&info->properties2, ray_tracing_properties);
+        ray_tracing_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, ray_tracing_features);
     }
 
     if (vulkan_info->KHR_get_physical_device_properties2)
@@ -4368,14 +4383,31 @@ static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
 
 static void d3d12_device_caps_init_feature_options5(struct d3d12_device *device)
 {
+    const VkPhysicalDeviceRayTracingPropertiesKHR *rt_properties = &device->device_info.ray_tracing_properties;
+    const VkPhysicalDeviceRayTracingFeaturesKHR *rt_features = &device->device_info.ray_tracing_features;
     const D3D12_FEATURE_DATA_D3D12_OPTIONS *options = &device->d3d12_caps.options;
     D3D12_FEATURE_DATA_D3D12_OPTIONS5 *options5 = &device->d3d12_caps.options5;
 
     options5->SRVOnlyTiledResourceTier3 = options->TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_3;
     /* Currently not supported */
     options5->RenderPassesTier = D3D12_RENDER_PASS_TIER_0;
-    /* Currently not supported */
-    options5->RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+
+    /* We must also support full bindless. */
+    if (vkd3d_shader_supports_dxil() &&
+        device->vk_info.KHR_ray_tracing &&
+        rt_features->rayTracing &&
+        rt_properties->shaderGroupBaseAlignment <= D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT &&
+        rt_properties->shaderGroupHandleSize <= D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES &&
+        rt_properties->maxRecursionDepth >= D3D12_RAYTRACING_MAX_DECLARABLE_TRACE_RECURSION_DEPTH &&
+        rt_properties->maxShaderGroupStride >= 4096 && /* There is no constant for this */
+        rt_properties->maxDescriptorSetAccelerationStructures >= 1000000)
+    {
+        options5->RaytracingTier = D3D12_RAYTRACING_TIER_1_0;
+    }
+    else
+    {
+        options5->RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+    }
 }
 
 static void d3d12_device_caps_init_feature_options6(struct d3d12_device *device)
