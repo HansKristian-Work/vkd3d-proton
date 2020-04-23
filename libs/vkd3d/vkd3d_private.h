@@ -396,6 +396,14 @@ HRESULT d3d12_fence_create(struct d3d12_device *device,
 /* ID3D12Heap */
 typedef ID3D12Heap1 d3d12_heap_iface;
 
+struct d3d12_placed_acceleration_structure
+{
+    D3D12_GPU_VIRTUAL_ADDRESS gpu_va;
+    VkAccelerationStructureTypeKHR type;
+    VkBuildAccelerationStructureFlagsKHR flags;
+    VkAccelerationStructureKHR acceleration_structure;
+};
+
 struct d3d12_heap
 {
     d3d12_heap_iface ID3D12Heap_iface;
@@ -411,12 +419,22 @@ struct d3d12_heap
     struct d3d12_resource *buffer_resource;
     struct d3d12_device *device;
 
+    pthread_mutex_t acceleration_structure_lock;
+    struct d3d12_placed_acceleration_structure *acceleration_structures;
+    size_t acceleration_structures_count;
+    size_t acceleration_structures_size;
+
     struct vkd3d_private_store private_store;
 };
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
         struct d3d12_resource *resource, struct d3d12_heap **heap) DECLSPEC_HIDDEN;
 struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface) DECLSPEC_HIDDEN;
+
+VkAccelerationStructureKHR d3d12_device_place_acceleration_structure(struct d3d12_device *device,
+        VkAccelerationStructureTypeKHR type, VkBuildAccelerationStructureFlagsKHR flags, D3D12_GPU_VIRTUAL_ADDRESS addr) DECLSPEC_HIDDEN;
+VkAccelerationStructureKHR d3d12_heap_place_acceleration_structure(struct d3d12_heap *heap,
+        VkAccelerationStructureTypeKHR type, VkBuildAccelerationStructureFlagsKHR flags, D3D12_GPU_VIRTUAL_ADDRESS addr) DECLSPEC_HIDDEN;
 
 #define VKD3D_RESOURCE_PUBLIC_FLAGS \
         (VKD3D_RESOURCE_INITIAL_STATE_TRANSITION | VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)

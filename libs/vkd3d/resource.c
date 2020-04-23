@@ -297,8 +297,14 @@ static ULONG d3d12_resource_decref(struct d3d12_resource *resource);
 
 static void d3d12_heap_cleanup(struct d3d12_heap *heap)
 {
+    size_t i;
     struct d3d12_device *device = heap->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    for (i = 0; i < heap->acceleration_structures_count; i++)
+        VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, heap->acceleration_structures[i].acceleration_structure, NULL));
+    vkd3d_free(heap->acceleration_structures);
+    pthread_mutex_destroy(&heap->acceleration_structure_lock);
 
     if (heap->buffer_resource)
         d3d12_resource_decref(heap->buffer_resource);
@@ -490,6 +496,11 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     heap->map_ptr = NULL;
     heap->buffer_resource = NULL;
 
+    pthread_mutex_init(&heap->acceleration_structure_lock, NULL);
+    heap->acceleration_structures = NULL;
+    heap->acceleration_structures_count = 0;
+    heap->acceleration_structures_size = 0;
+
     if (!heap->is_private)
         d3d12_device_add_ref(heap->device);
 
@@ -663,6 +674,135 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     }
 
     return S_OK;
+}
+
+VkAccelerationStructureKHR d3d12_heap_place_acceleration_structure(struct d3d12_heap *heap,
+        VkAccelerationStructureTypeKHR type, VkBuildAccelerationStructureFlagsKHR flags, D3D12_GPU_VIRTUAL_ADDRESS addr)
+{
+    VkAccelerationStructureMemoryRequirementsInfoKHR req_info;
+    VkAccelerationStructureDeviceAddressInfoKHR addr_info;
+    VkBindAccelerationStructureMemoryInfoKHR bind_info;
+    VkAccelerationStructureCreateInfoKHR create_info;
+    VkMemoryRequirements2 memory_requirements;
+    struct vkd3d_vk_device_procs *vk_procs;
+    VkAccelerationStructureKHR as;
+    struct d3d12_device *device;
+    VkDeviceSize placed_offset;
+    VkDeviceSize allowed_size;
+    VkDeviceAddress real_va;
+    size_t i;
+
+    device = heap->device;
+    vk_procs = &device->vk_procs;
+    pthread_mutex_lock(&heap->acceleration_structure_lock);
+
+    for (i = 0; i < heap->acceleration_structures_count; i++)
+    {
+        if (heap->acceleration_structures[i].type == type &&
+            heap->acceleration_structures[i].gpu_va == addr &&
+            heap->acceleration_structures[i].flags == flags)
+        {
+            as = heap->acceleration_structures[i].acceleration_structure;
+            goto unlock_out;
+        }
+    }
+
+    /* We do not know how large the app wants the acceleration structure to be,
+     * so just try to consume the rest of the heap. */
+    allowed_size = heap->buffer_resource->gpu_address + heap->buffer_resource->desc.Width - addr;
+    allowed_size &= ~((VkDeviceSize)D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT - 1);
+    placed_offset = addr - heap->buffer_resource->gpu_address;
+
+    memset(&create_info, 0, sizeof(create_info));
+    create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+    create_info.type = type;
+    create_info.flags = flags;
+    create_info.compactedSize = allowed_size;
+
+    if (VK_CALL(vkCreateAccelerationStructureKHR(device->vk_device, &create_info, NULL, &as)) != VK_SUCCESS)
+    {
+        as = VK_NULL_HANDLE;
+        goto unlock_out;
+    }
+
+    memset(&req_info, 0, sizeof(req_info));
+    req_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_INFO_KHR;
+    req_info.accelerationStructure = as;
+    req_info.buildType = VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR;
+    req_info.type = VK_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_TYPE_OBJECT_KHR;
+
+    memory_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+    memory_requirements.pNext = NULL;
+    VK_CALL(vkGetAccelerationStructureMemoryRequirementsKHR(device->vk_device, &req_info, &memory_requirements));
+
+    /* We need to rely on blind luck here that everything works out at the last minute, goal here is that
+     * we bind the AS and that it happens to return the GPU VA we want. If it doesn't work, we have no possible workaround. */
+
+    if (placed_offset & (memory_requirements.memoryRequirements.alignment - 1))
+    {
+        FIXME("Cannot place acceleration structure on wrong alignment.\n");
+        VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, as, NULL));
+        as = VK_NULL_HANDLE;
+        goto unlock_out;
+    }
+
+    if (memory_requirements.memoryRequirements.size > allowed_size)
+    {
+        FIXME("Needs more space in acceleration structure than we can support (%"PRIu64" > %"PRIu64").\n",
+              memory_requirements.memoryRequirements.size, allowed_size);
+        VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, as, NULL));
+        as = VK_NULL_HANDLE;
+        goto unlock_out;
+    }
+
+    if (!((1u << heap->vk_memory_type) & memory_requirements.memoryRequirements.memoryTypeBits))
+    {
+        FIXME("Cannot bind acceleration structure to memory type %u.\n", heap->vk_memory_type);
+        VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, as, NULL));
+        as = VK_NULL_HANDLE;
+        goto unlock_out;
+    }
+
+    memset(&bind_info, 0, sizeof(bind_info));
+    bind_info.sType = VK_STRUCTURE_TYPE_BIND_ACCELERATION_STRUCTURE_MEMORY_INFO_KHR;
+    bind_info.accelerationStructure = as;
+    bind_info.memory = heap->vk_memory;
+    bind_info.memoryOffset = placed_offset;
+    if (VK_CALL(vkBindAccelerationStructureMemoryKHR(device->vk_device, 1, &bind_info)) != VK_SUCCESS)
+    {
+        ERR("Failed to bind acceleration structure memory.\n");
+        VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, as, NULL));
+        as = VK_NULL_HANDLE;
+        goto unlock_out;
+    }
+
+    addr_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+    addr_info.pNext = NULL;
+    addr_info.accelerationStructure = as;
+    real_va = VK_CALL(vkGetAccelerationStructureDeviceAddressKHR(device->vk_device, &addr_info));
+
+    if (real_va != addr)
+    {
+        ERR("Actual AS GPU VA does not match expected value (0x%"PRIx64", != 0x%"PRIx64".\n",
+            real_va, addr);
+
+        VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, as, NULL));
+        as = VK_NULL_HANDLE;
+        goto unlock_out;
+    }
+
+    vkd3d_array_reserve((void**)&heap->acceleration_structures, &heap->acceleration_structures_size,
+                        heap->acceleration_structures_count + 1, sizeof(*heap->acceleration_structures));
+
+    heap->acceleration_structures[heap->acceleration_structures_count].acceleration_structure = as;
+    heap->acceleration_structures[heap->acceleration_structures_count].type = type;
+    heap->acceleration_structures[heap->acceleration_structures_count].flags = flags;
+    heap->acceleration_structures[heap->acceleration_structures_count].gpu_va = addr;
+    heap->acceleration_structures_count++;
+
+unlock_out:
+    pthread_mutex_unlock(&heap->acceleration_structure_lock);
+    return as;
 }
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
