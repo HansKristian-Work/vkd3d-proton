@@ -1457,7 +1457,7 @@ struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_image_uav_pipeline(struct v
         VkImageViewType image_view_type, bool as_uint) DECLSPEC_HIDDEN;
 VkExtent3D vkd3d_meta_get_clear_image_uav_workgroup_size(VkImageViewType view_type) DECLSPEC_HIDDEN;
 
-inline VkExtent3D vkd3d_meta_get_clear_buffer_uav_workgroup_size()
+static inline VkExtent3D vkd3d_meta_get_clear_buffer_uav_workgroup_size()
 {
     VkExtent3D result = { 128, 1, 1 };
     return result;
