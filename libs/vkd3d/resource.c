@@ -865,6 +865,21 @@ static bool vkd3d_is_linear_tiling_supported(const struct d3d12_device *device, 
             && (image_info->samples & properties.sampleCounts);
 }
 
+static VkImageLayout vk_common_image_layout_from_d3d12_desc(const D3D12_RESOURCE_DESC *desc)
+{
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
+        return VK_IMAGE_LAYOUT_GENERAL;
+
+    /* DENY_SHADER_RESOURCE only allowed with ALLOW_DEPTH_STENCIL */
+    if (desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)
+        return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
+        return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+    return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+}
+
 static HRESULT vkd3d_create_image(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, struct d3d12_resource *resource, VkImage *vk_image)
@@ -1014,8 +1029,16 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
         image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     }
 
-    if (resource && image_info.tiling == VK_IMAGE_TILING_LINEAR)
-        resource->flags |= VKD3D_RESOURCE_LINEAR_TILING;
+    if (resource)
+    {
+        if (image_info.tiling == VK_IMAGE_TILING_LINEAR)
+        {
+            resource->flags |= VKD3D_RESOURCE_LINEAR_TILING;
+            resource->common_layout = VK_IMAGE_LAYOUT_GENERAL;
+        }
+        else
+            resource->common_layout = vk_common_image_layout_from_d3d12_desc(desc);
+    }
 
     if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, vk_image))) < 0)
         WARN("Failed to create Vulkan image, vr %d.\n", vr);
@@ -1868,6 +1891,8 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
 
     resource->gpu_address = 0;
     resource->flags = 0;
+    resource->common_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+
     if (placed && d3d12_resource_is_buffer(resource))
         resource->flags |= VKD3D_RESOURCE_PLACED_BUFFER;
 
