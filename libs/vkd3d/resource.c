@@ -2282,9 +2282,7 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
     {
         descriptor_info.image.sampler = dst->u.view->u.vk_sampler;
         descriptor_info.image.imageView = dst->u.view->u.vk_image_view;
-        descriptor_info.image.imageLayout = dst->magic == VKD3D_DESCRIPTOR_MAGIC_SRV
-                ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                : VK_IMAGE_LAYOUT_GENERAL;
+        descriptor_info.image.imageLayout = dst->u.view->info.texture.vk_layout;
     }
 
     vk_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
