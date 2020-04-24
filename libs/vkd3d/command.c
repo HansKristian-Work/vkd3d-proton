@@ -3435,6 +3435,10 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     {
         dst_is_depth_stencil = !!(dst_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT));
 
+        attachment_layout = dst_is_depth_stencil
+                ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+                : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
         if (!(dst_format = vkd3d_meta_get_copy_image_attachment_format(&list->device->meta_ops, dst_format, src_format)))
         {
             ERR("No attachment format found for source format %u.\n", src_format->vk_format);
@@ -3457,6 +3461,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
         memset(&dst_view_desc, 0, sizeof(dst_view_desc));
         dst_view_desc.view_type = pipeline_key.view_type;
+        dst_view_desc.layout = d3d12_resource_pick_layout(dst_resource, attachment_layout);
         dst_view_desc.format = dst_format;
         dst_view_desc.miplevel_idx = region->dstSubresource.mipLevel;
         dst_view_desc.miplevel_count = 1;
@@ -3466,6 +3471,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
         memset(&src_view_desc, 0, sizeof(src_view_desc));
         src_view_desc.view_type = pipeline_key.view_type;
+        src_view_desc.layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         src_view_desc.format = src_format;
         src_view_desc.miplevel_idx = region->srcSubresource.mipLevel;
         src_view_desc.miplevel_count = 1;
@@ -3561,10 +3567,6 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
             vk_image_barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             vk_image_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         }
-
-        attachment_layout = dst_is_depth_stencil
-                ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-                : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
         vk_image_barriers[0].oldLayout = dst_layout;
         vk_image_barriers[0].newLayout = attachment_layout;
@@ -5285,6 +5287,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
         {
             memset(&view_desc, 0, sizeof(view_desc));
             view_desc.view_type = base_view->info.texture.vk_view_type;
+            view_desc.layout = base_view->info.texture.vk_layout;
             view_desc.format = uint_format;
             view_desc.miplevel_idx = base_view->info.texture.miplevel_idx;
             view_desc.miplevel_count = 1;

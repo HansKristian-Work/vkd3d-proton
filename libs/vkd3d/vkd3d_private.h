@@ -514,6 +514,7 @@ struct vkd3d_view
         struct
         {
             VkImageViewType vk_view_type;
+            VkImageLayout vk_layout;
             unsigned int miplevel_idx;
             unsigned int layer_idx;
             unsigned int layer_count;
@@ -527,6 +528,7 @@ void vkd3d_view_incref(struct vkd3d_view *view) DECLSPEC_HIDDEN;
 struct vkd3d_texture_view_desc
 {
     VkImageViewType view_type;
+    VkImageLayout layout;
     const struct vkd3d_format *format;
     unsigned int miplevel_idx;
     unsigned int miplevel_count;
