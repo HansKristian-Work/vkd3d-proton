@@ -301,11 +301,6 @@ static void d3d12_heap_cleanup(struct d3d12_heap *heap)
     struct d3d12_device *device = heap->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
-    for (i = 0; i < heap->acceleration_structures_count; i++)
-        VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, heap->acceleration_structures[i].acceleration_structure, NULL));
-    vkd3d_free(heap->acceleration_structures);
-    pthread_mutex_destroy(&heap->acceleration_structure_lock);
-
     if (heap->buffer_resource)
         d3d12_resource_decref(heap->buffer_resource);
 
@@ -496,11 +491,6 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     heap->map_ptr = NULL;
     heap->buffer_resource = NULL;
 
-    pthread_mutex_init(&heap->acceleration_structure_lock, NULL);
-    heap->acceleration_structures = NULL;
-    heap->acceleration_structures_count = 0;
-    heap->acceleration_structures_size = 0;
-
     if (!heap->is_private)
         d3d12_device_add_ref(heap->device);
 
@@ -676,7 +666,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     return S_OK;
 }
 
-VkAccelerationStructureKHR d3d12_heap_place_acceleration_structure(struct d3d12_heap *heap,
+VkAccelerationStructureKHR d3d12_resource_place_acceleration_structure(struct d3d12_resource *resource,
         VkAccelerationStructureTypeKHR type, VkBuildAccelerationStructureFlagsKHR flags, D3D12_GPU_VIRTUAL_ADDRESS addr)
 {
     VkAccelerationStructureMemoryRequirementsInfoKHR req_info;
@@ -692,26 +682,26 @@ VkAccelerationStructureKHR d3d12_heap_place_acceleration_structure(struct d3d12_
     VkDeviceAddress real_va;
     size_t i;
 
-    device = heap->device;
+    device = resource->device;
     vk_procs = &device->vk_procs;
-    pthread_mutex_lock(&heap->acceleration_structure_lock);
+    pthread_mutex_lock(&resource->acceleration_structure_lock);
 
-    for (i = 0; i < heap->acceleration_structures_count; i++)
+    for (i = 0; i < resource->acceleration_structures_count; i++)
     {
-        if (heap->acceleration_structures[i].type == type &&
-            heap->acceleration_structures[i].gpu_va == addr &&
-            heap->acceleration_structures[i].flags == flags)
+        if (resource->acceleration_structures[i].type == type &&
+            resource->acceleration_structures[i].gpu_va == addr &&
+            resource->acceleration_structures[i].flags == flags)
         {
-            as = heap->acceleration_structures[i].acceleration_structure;
+            as = resource->acceleration_structures[i].acceleration_structure;
             goto unlock_out;
         }
     }
 
     /* We do not know how large the app wants the acceleration structure to be,
      * so just try to consume the rest of the heap. */
-    allowed_size = heap->buffer_resource->gpu_address + heap->buffer_resource->desc.Width - addr;
+    allowed_size = resource->gpu_address + resource->desc.Width - addr;
     allowed_size &= ~((VkDeviceSize)D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT - 1);
-    placed_offset = addr - heap->buffer_resource->gpu_address;
+    placed_offset = addr - resource->gpu_address;
 
     memset(&create_info, 0, sizeof(create_info));
     create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
@@ -755,9 +745,9 @@ VkAccelerationStructureKHR d3d12_heap_place_acceleration_structure(struct d3d12_
         goto unlock_out;
     }
 
-    if (!((1u << heap->vk_memory_type) & memory_requirements.memoryRequirements.memoryTypeBits))
+    if (!((1u << resource->heap->vk_memory_type) & memory_requirements.memoryRequirements.memoryTypeBits))
     {
-        FIXME("Cannot bind acceleration structure to memory type %u.\n", heap->vk_memory_type);
+        FIXME("Cannot bind acceleration structure to memory type %u.\n", resource->heap->vk_memory_type);
         VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, as, NULL));
         as = VK_NULL_HANDLE;
         goto unlock_out;
@@ -766,7 +756,7 @@ VkAccelerationStructureKHR d3d12_heap_place_acceleration_structure(struct d3d12_
     memset(&bind_info, 0, sizeof(bind_info));
     bind_info.sType = VK_STRUCTURE_TYPE_BIND_ACCELERATION_STRUCTURE_MEMORY_INFO_KHR;
     bind_info.accelerationStructure = as;
-    bind_info.memory = heap->vk_memory;
+    bind_info.memory = resource->heap->vk_memory;
     bind_info.memoryOffset = placed_offset;
     if (VK_CALL(vkBindAccelerationStructureMemoryKHR(device->vk_device, 1, &bind_info)) != VK_SUCCESS)
     {
@@ -791,18 +781,33 @@ VkAccelerationStructureKHR d3d12_heap_place_acceleration_structure(struct d3d12_
         goto unlock_out;
     }
 
-    vkd3d_array_reserve((void**)&heap->acceleration_structures, &heap->acceleration_structures_size,
-                        heap->acceleration_structures_count + 1, sizeof(*heap->acceleration_structures));
+    vkd3d_array_reserve((void**)&resource->acceleration_structures, &resource->acceleration_structures_size,
+                        resource->acceleration_structures_count + 1, sizeof(*resource->acceleration_structures));
 
-    heap->acceleration_structures[heap->acceleration_structures_count].acceleration_structure = as;
-    heap->acceleration_structures[heap->acceleration_structures_count].type = type;
-    heap->acceleration_structures[heap->acceleration_structures_count].flags = flags;
-    heap->acceleration_structures[heap->acceleration_structures_count].gpu_va = addr;
-    heap->acceleration_structures_count++;
+    resource->acceleration_structures[resource->acceleration_structures_count].acceleration_structure = as;
+    resource->acceleration_structures[resource->acceleration_structures_count].type = type;
+    resource->acceleration_structures[resource->acceleration_structures_count].flags = flags;
+    resource->acceleration_structures[resource->acceleration_structures_count].gpu_va = addr;
+    resource->acceleration_structures_count++;
 
 unlock_out:
-    pthread_mutex_unlock(&heap->acceleration_structure_lock);
+    pthread_mutex_unlock(&resource->acceleration_structure_lock);
     return as;
+}
+
+VkAccelerationStructureKHR d3d12_device_place_acceleration_structure(struct d3d12_device *device,
+        VkAccelerationStructureTypeKHR type,
+        VkBuildAccelerationStructureFlagsKHR flags,
+        D3D12_GPU_VIRTUAL_ADDRESS addr)
+{
+    struct d3d12_resource *resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, addr);
+    if (!resource)
+    {
+        ERR("Cannot deference VA 0x%"PRIx64".\n", addr);
+        return VK_NULL_HANDLE;
+    }
+
+    return d3d12_resource_place_acceleration_structure(resource, type, flags, addr);
 }
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
@@ -1427,6 +1432,7 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
 static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    unsigned int i;
 
     if (resource->flags & VKD3D_RESOURCE_EXTERNAL)
         return;
@@ -1438,6 +1444,11 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
         vkd3d_free(resource->sparse.tiles);
         vkd3d_free(resource->sparse.tilings);
     }
+
+    for (i = 0; i < resource->acceleration_structures_count; i++)
+        VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, resource->acceleration_structures[i].acceleration_structure, NULL));
+    vkd3d_free(resource->acceleration_structures);
+    pthread_mutex_destroy(&resource->acceleration_structure_lock);
 
     if (!(resource->flags & VKD3D_RESOURCE_PLACED_BUFFER))
     {
@@ -2585,6 +2596,11 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
 
     resource->heap = NULL;
     resource->heap_offset = 0;
+
+    pthread_mutex_init(&resource->acceleration_structure_lock, NULL);
+    resource->acceleration_structures = NULL;
+    resource->acceleration_structures_count = 0;
+    resource->acceleration_structures_size = 0;
 
     if (FAILED(hr = vkd3d_private_store_init(&resource->private_store)))
     {

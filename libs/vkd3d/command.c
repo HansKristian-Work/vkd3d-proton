@@ -6335,8 +6335,100 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
 {
-    FIXME("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p stub!\n",
+    const VkAccelerationStructureBuildOffsetInfoKHR **p_offset_info;
+    VkAccelerationStructureBuildOffsetInfoKHR *offset_info;
+    VkAccelerationStructureBuildGeometryInfoKHR geom_info;
+    VkAccelerationStructureGeometryKHR *geometries;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct d3d12_device *device;
+    unsigned int i, num_descs;
+
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    device = list->device;
+    vk_procs = &device->vk_procs;
+
+    TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p!\n",
             iface, desc, num_postbuild_info_descs, postbuild_info_descs);
+
+    if (num_postbuild_info_descs)
+        FIXME("postbuild_info_descs ignored.\n");
+
+    num_descs = desc->Inputs.NumDescs;
+    if (desc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
+        num_descs = 1;
+
+    geometries = vkd3d_calloc(num_descs, sizeof(*geometries));
+    offset_info = vkd3d_calloc(num_descs, sizeof(*offset_info));
+    p_offset_info = vkd3d_calloc(num_descs, sizeof(*p_offset_info));
+
+    memset(&geom_info, 0, sizeof(geom_info));
+    geom_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+    geom_info.type = desc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL ?
+                     VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+    geom_info.geometryArrayOfPointers = VK_FALSE;
+    geom_info.flags = d3d12_acceleration_structure_flags(desc->Inputs.Flags);
+    geom_info.scratchData.deviceAddress = desc->ScratchAccelerationStructureData;
+    geom_info.dstAccelerationStructure =
+            d3d12_device_place_acceleration_structure(device, geom_info.type, geom_info.flags, desc->DestAccelerationStructureData);
+    geom_info.update = (desc->Inputs.Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) != 0;
+    geom_info.geometryCount = num_descs;
+    geom_info.ppGeometries = (const VkAccelerationStructureGeometryKHR * const *)&geometries;
+
+    for (i = 0; i < num_descs; i++)
+    {
+        VkAccelerationStructureGeometryKHR *g = &geometries[i];
+        g->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+
+        if (geom_info.type == VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR)
+        {
+            g->geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+            g->geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
+            g->geometry.instances.pNext = NULL;
+            g->geometry.instances.arrayOfPointers = desc->Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS;
+            g->geometry.instances.data.deviceAddress = desc->Inputs.u.InstanceDescs;
+            offset_info[i].primitiveCount = desc->Inputs.NumDescs;
+        }
+        else
+        {
+            const D3D12_RAYTRACING_GEOMETRY_DESC *geom =
+                    desc->Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY ?
+                    &desc->Inputs.u.pGeometryDescs[i] : desc->Inputs.u.ppGeometryDescs[i];
+
+            if (geom->Type == D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES)
+            {
+                const D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC *tri = &geom->u.Triangles;
+                g->geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+                g->geometry.triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+                g->geometry.triangles.pNext = NULL;
+                g->geometry.triangles.indexType = vkd3d_get_index_format(tri->IndexFormat);
+                g->geometry.triangles.vertexFormat = vkd3d_get_vk_format(tri->VertexFormat);
+                g->geometry.triangles.indexData.deviceAddress = tri->IndexBuffer;
+                g->geometry.triangles.transformData.deviceAddress = tri->Transform3x4;
+                g->geometry.triangles.vertexData.deviceAddress = tri->VertexBuffer.StartAddress;
+                g->geometry.triangles.vertexStride = tri->VertexBuffer.StrideInBytes;
+
+                /* This is a portability hazard if D3D12 gets indirect AS build. */
+                offset_info[i].primitiveCount = (tri->IndexFormat != DXGI_FORMAT_UNKNOWN ? tri->IndexCount : tri->VertexCount) / 3;
+            }
+            else if (geom->Type == D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS)
+            {
+                const D3D12_RAYTRACING_GEOMETRY_AABBS_DESC *aabb = &geom->u.AABBs;
+                g->geometryType = VK_GEOMETRY_TYPE_AABBS_KHR;
+                g->geometry.aabbs.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR;
+                g->geometry.aabbs.pNext = NULL;
+                g->geometry.aabbs.data.deviceAddress = aabb->AABBs.StartAddress;
+                g->geometry.aabbs.stride = aabb->AABBs.StrideInBytes;
+            }
+        }
+
+        p_offset_info[i] = &offset_info[i];
+    }
+
+    VK_CALL(vkCmdBuildAccelerationStructureKHR(list->vk_command_buffer, 1, &geom_info, p_offset_info));
+
+    vkd3d_free(geometries);
+    vkd3d_free(offset_info);
+    vkd3d_free(p_offset_info);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStructurePostbuildInfo(d3d12_command_list_iface *iface,

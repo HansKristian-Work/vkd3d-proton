@@ -419,11 +419,6 @@ struct d3d12_heap
     struct d3d12_resource *buffer_resource;
     struct d3d12_device *device;
 
-    pthread_mutex_t acceleration_structure_lock;
-    struct d3d12_placed_acceleration_structure *acceleration_structures;
-    size_t acceleration_structures_count;
-    size_t acceleration_structures_size;
-
     struct vkd3d_private_store private_store;
 };
 
@@ -433,7 +428,7 @@ struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface) DECLSPEC_HIDDE
 
 VkAccelerationStructureKHR d3d12_device_place_acceleration_structure(struct d3d12_device *device,
         VkAccelerationStructureTypeKHR type, VkBuildAccelerationStructureFlagsKHR flags, D3D12_GPU_VIRTUAL_ADDRESS addr) DECLSPEC_HIDDEN;
-VkAccelerationStructureKHR d3d12_heap_place_acceleration_structure(struct d3d12_heap *heap,
+VkAccelerationStructureKHR d3d12_resource_place_acceleration_structure(struct d3d12_resource *heap,
         VkAccelerationStructureTypeKHR type, VkBuildAccelerationStructureFlagsKHR flags, D3D12_GPU_VIRTUAL_ADDRESS addr) DECLSPEC_HIDDEN;
 
 #define VKD3D_RESOURCE_PUBLIC_FLAGS \
@@ -510,6 +505,11 @@ struct d3d12_resource
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+
+    pthread_mutex_t acceleration_structure_lock;
+    struct d3d12_placed_acceleration_structure *acceleration_structures;
+    size_t acceleration_structures_count;
+    size_t acceleration_structures_size;
 };
 
 static inline bool d3d12_resource_is_buffer(const struct d3d12_resource *resource)
@@ -1934,6 +1934,39 @@ static inline void vk_prepend_struct(void *header, void *structure)
     assert(!vk_structure->pNext);
     vk_structure->pNext = vk_header->pNext;
     vk_header->pNext = vk_structure;
+}
+
+static inline VkBuildAccelerationStructureFlagsKHR
+d3d12_acceleration_structure_flags(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags)
+{
+    VkBuildAccelerationStructureFlagsKHR vk_flags = 0;
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_MINIMIZE_MEMORY)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_LOW_MEMORY_BIT_KHR;
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR; /* There is no flag for this? */
+
+    return vk_flags;
+}
+
+static VkIndexType vkd3d_get_index_format(DXGI_FORMAT fmt)
+{
+    switch (fmt)
+    {
+    case DXGI_FORMAT_R32_UINT:
+        return VK_INDEX_TYPE_UINT32;
+    case DXGI_FORMAT_R16_UINT:
+        return VK_INDEX_TYPE_UINT16;
+    default:
+        return VK_INDEX_TYPE_NONE_KHR;
+    }
 }
 
 #endif  /* __VKD3D_PRIVATE_H */

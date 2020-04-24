@@ -4183,39 +4183,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateStateObject(d3d12_device_ifa
     return E_NOTIMPL;
 }
 
-static VkBuildAccelerationStructureFlagsKHR
-vk_acceleration_structure_flags_from_d3d12(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags)
-{
-    VkBuildAccelerationStructureFlagsKHR vk_flags = 0;
-    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE)
-        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
-    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION)
-        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
-    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD)
-        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
-    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE)
-        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_MINIMIZE_MEMORY)
-        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_LOW_MEMORY_BIT_KHR;
-    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)
-        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR; /* There is no flag for this? */
-
-    return vk_flags;
-}
-
-static VkIndexType vk_ray_tracing_index_type(DXGI_FORMAT fmt)
-{
-    switch (fmt)
-    {
-        case DXGI_FORMAT_R32_UINT:
-            return VK_INDEX_TYPE_UINT32;
-        case DXGI_FORMAT_R16_UINT:
-            return VK_INDEX_TYPE_UINT16;
-        default:
-            return VK_INDEX_TYPE_NONE_KHR;
-    }
-}
-
 static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo(d3d12_device_iface *iface,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
@@ -4243,7 +4210,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
     create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
     create_info.type = desc->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL ?
             VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-    create_info.flags = vk_acceleration_structure_flags_from_d3d12(desc->Flags);
+    create_info.flags = d3d12_acceleration_structure_flags(desc->Flags);
     create_info.maxGeometryCount = desc->NumDescs;
     create_info.pGeometryInfos = geom_info;
 
@@ -4262,7 +4229,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
                 const D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC *tri = &geom->u.Triangles;
                 g->allowsTransforms = tri->Transform3x4 != 0;
                 g->geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-                g->indexType = vk_ray_tracing_index_type(tri->IndexFormat);
+                g->indexType = vkd3d_get_index_format(tri->IndexFormat);
 
                 /* Spec doesn't specify MaxIndexCount, so I assume we're supposed to do it like this. */
                 g->maxVertexCount = g->indexType != VK_INDEX_TYPE_NONE_KHR ? tri->IndexCount : tri->VertexCount;
