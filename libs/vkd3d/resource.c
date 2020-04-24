@@ -2685,6 +2685,7 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
         return false;
     }
 
+    desc->layout = resource->common_layout;
     desc->miplevel_idx = 0;
     desc->miplevel_count = 1;
     desc->layer_idx = 0;
@@ -2759,6 +2760,7 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, VkImage vk_image,
     object->u.vk_image_view = vk_view;
     object->format = format;
     object->info.texture.vk_view_type = desc->view_type;
+    object->info.texture.vk_layout = desc->layout;
     object->info.texture.miplevel_idx = desc->miplevel_idx;
     object->info.texture.layer_idx = desc->layer_idx;
     object->info.texture.layer_count = desc->layer_count;
@@ -2858,6 +2860,7 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
 
     WARN("Creating NULL SRV %#x.\n", desc->ViewDimension);
 
+    vkd3d_desc.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     vkd3d_desc.format = vkd3d_get_format(device, VKD3D_NULL_SRV_FORMAT, false);
     vkd3d_desc.miplevel_idx = 0;
     vkd3d_desc.miplevel_count = 1;
@@ -3080,6 +3083,7 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
 
     WARN("Creating NULL UAV %#x.\n", desc->ViewDimension);
 
+    vkd3d_desc.layout = VK_IMAGE_LAYOUT_GENERAL;
     vkd3d_desc.format = vkd3d_get_format(device, VKD3D_NULL_UAV_FORMAT, false);
     vkd3d_desc.miplevel_idx = 0;
     vkd3d_desc.miplevel_count = 1;
@@ -3508,6 +3512,8 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
         return;
     }
 
+    vkd3d_desc.layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
     if (desc)
     {
         switch (desc->ViewDimension)
@@ -3592,6 +3598,23 @@ static void d3d12_dsv_desc_destroy(struct d3d12_dsv_desc *dsv, struct d3d12_devi
     memset(dsv, 0, sizeof(*dsv));
 }
 
+static VkImageLayout d3d12_dsv_layout_from_flags(UINT flags)
+{
+    const D3D12_DSV_FLAGS mask = D3D12_DSV_FLAG_READ_ONLY_DEPTH | D3D12_DSV_FLAG_READ_ONLY_STENCIL;
+
+    switch (flags & mask)
+    {
+        default: /* case 0: */
+            return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        case D3D12_DSV_FLAG_READ_ONLY_DEPTH:
+            return VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
+        case D3D12_DSV_FLAG_READ_ONLY_STENCIL:
+            return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL;
+        case D3D12_DSV_FLAG_READ_ONLY_DEPTH | D3D12_DSV_FLAG_READ_ONLY_STENCIL:
+            return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    }
+}
+
 void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc)
 {
@@ -3623,8 +3646,8 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
 
     if (desc)
     {
-        if (desc->Flags)
-            FIXME("Ignoring flags %#x.\n", desc->Flags);
+        vkd3d_desc.layout = d3d12_resource_pick_layout(resource,
+                d3d12_dsv_layout_from_flags(desc->Flags));
 
         switch (desc->ViewDimension)
         {
@@ -3664,6 +3687,8 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
         /* Avoid passing down UINT32_MAX here since that makes framebuffer logic later rather awkward. */
         vkd3d_desc.layer_count = min(vkd3d_desc.layer_count, resource->desc.DepthOrArraySize - vkd3d_desc.layer_idx);
     }
+    else
+        vkd3d_desc.layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
     assert(d3d12_resource_is_texture(resource));
 
