@@ -436,6 +436,7 @@ struct d3d12_resource
     struct d3d12_heap *heap;
     uint64_t heap_offset;
 
+    VkImageLayout common_layout;
     D3D12_RESOURCE_STATES initial_state;
     D3D12_RESOURCE_STATES present_state;
 
