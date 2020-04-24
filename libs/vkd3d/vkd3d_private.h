@@ -1956,7 +1956,7 @@ d3d12_acceleration_structure_flags(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD
     return vk_flags;
 }
 
-static VkIndexType vkd3d_get_index_format(DXGI_FORMAT fmt)
+static inline VkIndexType vkd3d_get_index_format(DXGI_FORMAT fmt)
 {
     switch (fmt)
     {
