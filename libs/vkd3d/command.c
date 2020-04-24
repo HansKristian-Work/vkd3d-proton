@@ -2480,7 +2480,7 @@ static bool vkd3d_descriptor_info_from_d3d12_desc(struct d3d12_device *device,
             {
                 vk_descriptor->image.imageView = desc->u.view->u.vk_image_view;
                 vk_descriptor->image.sampler = VK_NULL_HANDLE;
-                vk_descriptor->image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                vk_descriptor->image.imageLayout = desc->u.view->info.texture.vk_layout;
                 return true;
             }
             else if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_BUFFER)
@@ -2500,7 +2500,7 @@ static bool vkd3d_descriptor_info_from_d3d12_desc(struct d3d12_device *device,
             {
                 vk_descriptor->image.imageView = desc->u.view->u.vk_image_view;
                 vk_descriptor->image.sampler = VK_NULL_HANDLE;
-                vk_descriptor->image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+                vk_descriptor->image.imageLayout = desc->u.view->info.texture.vk_layout;
                 return true;
             }
             else if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_BUFFER)
@@ -3543,7 +3543,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
         vk_image_info.sampler = VK_NULL_HANDLE;
         vk_image_info.imageView = src_view->u.vk_image_view;
-        vk_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        vk_image_info.imageLayout = src_view_desc.layout;
 
         vk_descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         vk_descriptor_write.pNext = NULL;
@@ -3569,7 +3569,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         }
 
         vk_image_barriers[0].oldLayout = dst_layout;
-        vk_image_barriers[0].newLayout = attachment_layout;
+        vk_image_barriers[0].newLayout = dst_view_desc.layout;
         vk_image_barriers[0].image = dst_resource->u.vk_image;
         vk_image_barriers[0].subresourceRange = vk_subresource_range_from_layers(&region->dstSubresource);
         vk_image_barriers[0].dstAccessMask = dst_is_depth_stencil
@@ -3580,7 +3580,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
             vk_image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
         vk_image_barriers[1].oldLayout = src_layout;
-        vk_image_barriers[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        vk_image_barriers[1].newLayout = src_view_desc.layout;
         vk_image_barriers[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
         vk_image_barriers[1].image = src_resource->u.vk_image;
         vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&region->srcSubresource);
@@ -3605,7 +3605,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         VK_CALL(vkCmdDraw(list->vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
         VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
 
-        vk_image_barriers[0].oldLayout = attachment_layout;
+        vk_image_barriers[0].oldLayout = dst_view_desc.layout;
         vk_image_barriers[0].newLayout = dst_layout;
         vk_image_barriers[0].srcAccessMask = dst_is_depth_stencil
                 ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
@@ -5151,7 +5151,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     {
         image_info.sampler = VK_NULL_HANDLE;
         image_info.imageView = view->u.vk_image_view;
-        image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        image_info.imageLayout = view->info.texture.vk_layout;
 
         write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         write_set.pImageInfo = &image_info;
