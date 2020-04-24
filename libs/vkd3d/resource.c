@@ -160,12 +160,8 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
         VkDeviceMemory *vk_memory, uint32_t *vk_memory_type, VkDeviceSize *vk_memory_size)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkMemoryDedicatedAllocateInfo *dedicated_allocation = NULL;
-    VkMemoryDedicatedRequirements dedicated_requirements;
-    VkMemoryDedicatedAllocateInfo dedicated_info;
     VkMemoryRequirements2 memory_requirements2;
     VkMemoryRequirements *memory_requirements;
-    VkBufferMemoryRequirementsInfo2 info;
     VkResult vr;
     HRESULT hr;
 
@@ -173,7 +169,7 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
     VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, vk_buffer, memory_requirements));
 
     if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
-            memory_requirements, dedicated_allocation, vk_memory, vk_memory_type)))
+            memory_requirements, NULL, vk_memory, vk_memory_type)))
         return hr;
 
     if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, vk_buffer, *vk_memory, 0))) < 0)
@@ -297,7 +293,6 @@ static ULONG d3d12_resource_decref(struct d3d12_resource *resource);
 
 static void d3d12_heap_cleanup(struct d3d12_heap *heap)
 {
-    size_t i;
     struct d3d12_device *device = heap->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
