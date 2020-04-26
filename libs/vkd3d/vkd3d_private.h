@@ -1131,8 +1131,8 @@ struct d3d12_command_list
 
     DXGI_FORMAT index_buffer_format;
 
-    VkImageView rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-    VkImageView dsv;
+    struct d3d12_rtv_desc rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    struct d3d12_dsv_desc dsv;
     unsigned int fb_width;
     unsigned int fb_height;
     unsigned int fb_layer_count;
