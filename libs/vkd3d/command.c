@@ -2207,7 +2207,6 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 
     memset(list->rtvs, 0, sizeof(list->rtvs));
     memset(&list->dsv, 0, sizeof(list->dsv));
-    list->dsv_format = VK_FORMAT_UNDEFINED;
     list->fb_width = 0;
     list->fb_height = 0;
     list->fb_layer_count = 0;
@@ -2292,7 +2291,7 @@ static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list 
     assert(d3d12_pipeline_state_is_graphics(list->state));
     graphics = &list->state->u.graphics;
 
-    return graphics->dsv_format || (d3d12_pipeline_state_has_unknown_dsv_format(list->state) && list->dsv_format);
+    return graphics->dsv_format || (d3d12_pipeline_state_has_unknown_dsv_format(list->state) && list->dsv.format);
 }
 
 static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
@@ -2431,6 +2430,7 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkRenderPass vk_render_pass;
     VkPipeline vk_pipeline;
+    VkFormat dsv_format;
 
     if (list->current_pipeline != VK_NULL_HANDLE)
         return true;
@@ -2441,8 +2441,10 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
         return false;
     }
 
+    dsv_format = list->dsv.format ? list->dsv.format->vk_format : VK_FORMAT_UNDEFINED;
+
     if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
-            &list->dynamic_state, list->dsv_format, &vk_render_pass)))
+            &list->dynamic_state, dsv_format, &vk_render_pass)))
         return false;
 
     /* The render pass cache ensures that we use the same Vulkan render pass
@@ -4827,9 +4829,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const VkPhysicalDeviceLimits *limits = &list->device->vk_info.device_limits;
+    VkFormat prev_dsv_format, next_dsv_format;
     const struct d3d12_rtv_desc *rtv_desc;
     const struct d3d12_dsv_desc *dsv_desc;
-    VkFormat prev_dsv_format;
     unsigned int i;
 
     TRACE("iface %p, render_target_descriptor_count %u, render_target_descriptors %p, "
@@ -4847,6 +4849,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
     list->fb_width = limits->maxFramebufferWidth;
     list->fb_height = limits->maxFramebufferHeight;
     list->fb_layer_count = limits->maxFramebufferLayers;
+
+    prev_dsv_format = list->dsv.format ? list->dsv.format->vk_format : VK_FORMAT_UNDEFINED;
+    next_dsv_format = VK_FORMAT_UNDEFINED;
 
     memset(list->rtvs, 0, sizeof(list->rtvs));
     memset(&list->dsv, 0, sizeof(list->dsv));
@@ -4881,8 +4886,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
         list->fb_layer_count = min(list->fb_layer_count, rtv_desc->layer_count);
     }
 
-    prev_dsv_format = list->dsv_format;
-    list->dsv_format = VK_FORMAT_UNDEFINED;
     if (depth_stencil_descriptor)
     {
         if ((dsv_desc = d3d12_dsv_desc_from_cpu_handle(*depth_stencil_descriptor))
@@ -4898,7 +4901,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
             list->fb_width = min(list->fb_width, dsv_desc->width);
             list->fb_height = min(list->fb_height, dsv_desc->height);
             list->fb_layer_count = min(list->fb_layer_count, dsv_desc->layer_count);
-            list->dsv_format = dsv_desc->format->vk_format;
+            next_dsv_format = dsv_desc->format->vk_format;
         }
         else
         {
@@ -4906,7 +4909,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
         }
     }
 
-    if (prev_dsv_format != list->dsv_format && d3d12_pipeline_state_has_unknown_dsv_format(list->state))
+    if (prev_dsv_format != next_dsv_format && d3d12_pipeline_state_has_unknown_dsv_format(list->state))
         d3d12_command_list_invalidate_current_pipeline(list);
 
     d3d12_command_list_invalidate_current_framebuffer(list);

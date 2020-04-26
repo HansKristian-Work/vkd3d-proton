@@ -1136,7 +1136,6 @@ struct d3d12_command_list
     unsigned int fb_width;
     unsigned int fb_height;
     unsigned int fb_layer_count;
-    VkFormat dsv_format;
 
     bool xfb_enabled;
 
