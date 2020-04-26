@@ -3913,8 +3913,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     const struct vkd3d_format *src_format, *dst_format, *vk_format;
     struct d3d12_resource *dst_resource, *src_resource;
     const struct vkd3d_vk_device_procs *vk_procs;
+    VkImageMemoryBarrier vk_image_barriers[2];
+    VkImageLayout dst_layout, src_layout;
     const struct d3d12_device *device;
     VkImageResolve vk_image_resolve;
+    unsigned int i;
 
     TRACE("iface %p, dst_resource %p, dst_sub_resource_idx %u, src_resource %p, src_sub_resource_idx %u, "
             "format %#x.\n", iface, dst, dst_sub_resource_idx, src, src_sub_resource_idx, format);
@@ -3975,9 +3978,52 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     vk_extent_3d_from_d3d12_miplevel(&vk_image_resolve.extent,
             &dst_resource->desc, vk_image_resolve.dstSubresource.mipLevel);
 
+    dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    src_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    for (i = 0; i < ARRAY_SIZE(vk_image_barriers); i++)
+    {
+        vk_image_barriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        vk_image_barriers[i].pNext = NULL;
+        vk_image_barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vk_image_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    }
+
+    vk_image_barriers[0].srcAccessMask = 0;
+    vk_image_barriers[0].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vk_image_barriers[0].oldLayout = dst_resource->common_layout;
+    vk_image_barriers[0].newLayout = dst_layout;
+    vk_image_barriers[0].image = dst_resource->u.vk_image;
+    vk_image_barriers[0].subresourceRange = vk_subresource_range_from_layers(&vk_image_resolve.dstSubresource);
+
+    vk_image_barriers[1].srcAccessMask = 0;
+    vk_image_barriers[1].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    vk_image_barriers[1].oldLayout = src_resource->common_layout;
+    vk_image_barriers[1].newLayout = src_layout;
+    vk_image_barriers[1].image = src_resource->u.vk_image;
+    vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&vk_image_resolve.srcSubresource);
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers), vk_image_barriers));
+
     VK_CALL(vkCmdResolveImage(list->vk_command_buffer, src_resource->u.vk_image,
             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->u.vk_image,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &vk_image_resolve));
+
+    vk_image_barriers[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vk_image_barriers[0].dstAccessMask = 0;
+    vk_image_barriers[0].oldLayout = dst_layout;
+    vk_image_barriers[0].newLayout = dst_resource->common_layout;
+
+    vk_image_barriers[1].srcAccessMask = 0;
+    vk_image_barriers[1].dstAccessMask = 0;
+    vk_image_barriers[1].oldLayout = src_layout;
+    vk_image_barriers[1].newLayout = src_resource->common_layout;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers), vk_image_barriers));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(d3d12_command_list_iface *iface,
