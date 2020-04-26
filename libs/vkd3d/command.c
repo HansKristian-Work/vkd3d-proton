@@ -2206,7 +2206,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->index_buffer_format = DXGI_FORMAT_UNKNOWN;
 
     memset(list->rtvs, 0, sizeof(list->rtvs));
-    list->dsv = VK_NULL_HANDLE;
+    memset(&list->dsv, 0, sizeof(list->dsv));
     list->dsv_format = VK_FORMAT_UNDEFINED;
     list->fb_width = 0;
     list->fb_height = 0;
@@ -2369,27 +2369,29 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
     {
         if (graphics->null_attachment_mask & (1u << i))
         {
-            if (list->rtvs[i])
+            if (list->rtvs[i].view)
                 WARN("Expected NULL RTV for attachment %u.\n", i);
             continue;
         }
 
-        if (!list->rtvs[i])
+        if (!list->rtvs[i].view)
         {
             FIXME("Invalid RTV for attachment %u.\n", i);
             return false;
         }
 
-        views[view_count++] = list->rtvs[i];
+        views[view_count++] = list->rtvs[i].view->u.vk_image_view;
     }
 
     if (d3d12_command_list_has_depth_stencil_view(list))
     {
-        if (!(views[view_count++] = list->dsv))
+        if (!list->dsv.view)
         {
             FIXME("Invalid DSV.\n");
             return false;
         }
+
+        views[view_count++] = list->dsv.view->u.vk_image_view;
     }
 
     d3d12_command_list_get_fb_extent(list, &extent.width, &extent.height, &extent.depth);
@@ -4828,7 +4830,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
     const struct d3d12_rtv_desc *rtv_desc;
     const struct d3d12_dsv_desc *dsv_desc;
     VkFormat prev_dsv_format;
-    struct vkd3d_view *view;
     unsigned int i;
 
     TRACE("iface %p, render_target_descriptor_count %u, render_target_descriptors %p, "
@@ -4847,6 +4848,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
     list->fb_height = limits->maxFramebufferHeight;
     list->fb_layer_count = limits->maxFramebufferLayers;
 
+    memset(list->rtvs, 0, sizeof(list->rtvs));
+    memset(&list->dsv, 0, sizeof(list->dsv));
+
     for (i = 0; i < render_target_descriptor_count; ++i)
     {
         if (single_descriptor_handle)
@@ -4862,27 +4866,22 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
         if (!rtv_desc || !rtv_desc->resource)
         {
             WARN("RTV descriptor %u is not initialized.\n", i);
-            list->rtvs[i] = VK_NULL_HANDLE;
             continue;
         }
 
         d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
 
         /* In D3D12 CPU descriptors are consumed when a command is recorded. */
-        view = rtv_desc->view;
-        if (!d3d12_command_allocator_add_view(list->allocator, view))
-        {
+        if (!d3d12_command_allocator_add_view(list->allocator, rtv_desc->view))
             WARN("Failed to add view.\n");
-        }
 
-        list->rtvs[i] = view->u.vk_image_view;
+        list->rtvs[i] = *rtv_desc;
         list->fb_width = min(list->fb_width, rtv_desc->width);
         list->fb_height = min(list->fb_height, rtv_desc->height);
         list->fb_layer_count = min(list->fb_layer_count, rtv_desc->layer_count);
     }
 
     prev_dsv_format = list->dsv_format;
-    list->dsv = VK_NULL_HANDLE;
     list->dsv_format = VK_FORMAT_UNDEFINED;
     if (depth_stencil_descriptor)
     {
@@ -4892,14 +4891,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
             d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
 
             /* In D3D12 CPU descriptors are consumed when a command is recorded. */
-            view = dsv_desc->view;
-            if (!d3d12_command_allocator_add_view(list->allocator, view))
-            {
+            if (!d3d12_command_allocator_add_view(list->allocator, dsv_desc->view))
                 WARN("Failed to add view.\n");
-                list->dsv = VK_NULL_HANDLE;
-            }
 
-            list->dsv = view->u.vk_image_view;
+            list->dsv = *dsv_desc;
             list->fb_width = min(list->fb_width, dsv_desc->width);
             list->fb_height = min(list->fb_height, dsv_desc->height);
             list->fb_layer_count = min(list->fb_layer_count, dsv_desc->layer_count);
