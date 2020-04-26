@@ -2180,7 +2180,7 @@ static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12
         struct d3d12_resource *resource)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkPipelineStageFlags src_stage_mask, dst_stage_mask;
+    VkPipelineStageFlags dst_stage_mask = 0;
     const struct vkd3d_format *format;
     VkImageMemoryBarrier barrier;
 
@@ -2194,20 +2194,11 @@ static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12
 
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.pNext = NULL;
-
-    /* vkQueueSubmit() defines a memory dependency with prior host writes. */
-    src_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     barrier.srcAccessMask = 0;
-    barrier.oldLayout = d3d12_resource_is_cpu_accessible(resource) ?
-            VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
-
-    if (!vk_barrier_parameters_from_d3d12_resource_state(list->device, resource->initial_state, 0,
-            resource, list->vk_queue_flags, &barrier.dstAccessMask, &dst_stage_mask, &barrier.newLayout))
-    {
-        FIXME("Unhandled state %#x.\n", resource->initial_state);
-        return;
-    }
-
+    barrier.dstAccessMask = 0;
+    barrier.oldLayout = d3d12_resource_is_cpu_accessible(resource)
+            ? VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = resource->common_layout;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = resource->u.vk_image;
@@ -2217,11 +2208,15 @@ static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12
     barrier.subresourceRange.baseArrayLayer = 0;
     barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
+    vk_access_and_stage_flags_from_d3d12_resource_state(list->device, resource,
+            resource->initial_state, list->vk_queue_flags, &dst_stage_mask, &barrier.dstAccessMask);
+
     TRACE("Initial state %#x transition for resource %p (old layout %#x, new layout %#x).\n",
             resource->initial_state, resource, barrier.oldLayout, barrier.newLayout);
 
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer, src_stage_mask, dst_stage_mask, 0,
-            0, NULL, 0, NULL, 1, &barrier));
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, dst_stage_mask,
+            0, 0, NULL, 0, NULL, 1, &barrier));
 }
 
 static void d3d12_command_list_track_resource_usage(struct d3d12_command_list *list,
