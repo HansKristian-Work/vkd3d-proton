@@ -265,8 +265,8 @@ struct vkd3d_render_pass_key
     unsigned int attachment_count;
     bool depth_enable;
     bool stencil_enable;
-    bool depth_stencil_write;
-    bool padding;
+    bool depth_write;
+    bool stencil_write;
     unsigned int sample_count;
     VkFormat vk_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
 };
@@ -851,6 +851,7 @@ struct d3d12_graphics_pipeline_state
     unsigned int null_attachment_mask;
     VkFormat dsv_format;
     VkFormat rtv_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    VkImageLayout dsv_layout;
     VkRenderPass render_pass;
 
     D3D12_INDEX_BUFFER_STRIP_CUT_VALUE index_buffer_strip_cut_value;

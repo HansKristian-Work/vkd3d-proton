@@ -1751,7 +1751,7 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
 
     dsv = &list->dsv;
 
-    if (dsv->view)
+    if (dsv->view && list->dsv_layout)
     {
         stage_mask |= vk_render_pass_barrier_from_view(dsv->view,
                 dsv->resource, mode, &vk_image_barriers[j++]);

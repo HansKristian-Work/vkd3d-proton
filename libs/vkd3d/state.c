@@ -1113,6 +1113,21 @@ struct vkd3d_render_pass_entry
 
 STATIC_ASSERT(sizeof(struct vkd3d_render_pass_key) == 48);
 
+static VkImageLayout vkd3d_render_pass_get_depth_stencil_layout(const struct vkd3d_render_pass_key *key)
+{
+    if (!key->depth_enable && !key->stencil_enable)
+        return VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (key->depth_write && key->stencil_write)
+        return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    else if (key->depth_write)
+        return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL;
+    else if (key->stencil_write)
+        return VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
+    else
+        return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+}
+
 static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pass_cache *cache,
         struct d3d12_device *device, const struct vkd3d_render_pass_key *key, VkRenderPass *vk_render_pass)
 {
@@ -1169,9 +1184,7 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
 
     if (have_depth_stencil)
     {
-        VkImageLayout depth_layout = key->depth_stencil_write
-                ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-                : VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        VkImageLayout depth_layout = vkd3d_render_pass_get_depth_stencil_layout(key);
 
         attachments[attachment_index].flags = 0;
         attachments[attachment_index].format = key->vk_formats[index];
@@ -2030,7 +2043,7 @@ STATIC_ASSERT(sizeof(struct vkd3d_shader_transform_feedback_element) == sizeof(D
 
 static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
         struct d3d12_graphics_pipeline_state *graphics, struct d3d12_device *device,
-        VkFormat dynamic_dsv_format, VkRenderPass *vk_render_pass)
+        VkFormat dynamic_dsv_format, VkRenderPass *vk_render_pass, VkImageLayout *dsv_layout)
 {
     struct vkd3d_render_pass_key key;
     VkFormat dsv_format;
@@ -2047,15 +2060,16 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
         assert(graphics->ds_desc.front.writeMask == graphics->ds_desc.back.writeMask);
         key.depth_enable = graphics->ds_desc.depthTestEnable;
         key.stencil_enable = graphics->ds_desc.stencilTestEnable;
-        key.depth_stencil_write = graphics->ds_desc.depthWriteEnable
-                || graphics->ds_desc.front.writeMask;
+        key.depth_write = key.depth_enable && graphics->ds_desc.depthWriteEnable;
+        key.stencil_write = key.stencil_enable && graphics->ds_desc.front.writeMask != 0;
         key.vk_formats[key.attachment_count++] = dsv_format;
     }
     else
     {
         key.depth_enable = false;
         key.stencil_enable = false;
-        key.depth_stencil_write = false;
+        key.depth_write = false;
+        key.stencil_write = false;
     }
 
     if (key.attachment_count != ARRAY_SIZE(key.vk_formats))
@@ -2063,8 +2077,10 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
     for (i = key.attachment_count; i < ARRAY_SIZE(key.vk_formats); ++i)
         assert(key.vk_formats[i] == VK_FORMAT_UNDEFINED);
 
-    key.padding = 0;
     key.sample_count = graphics->ms_desc.rasterizationSamples;
+
+    if (dsv_layout)
+        *dsv_layout = vkd3d_render_pass_get_depth_stencil_layout(&key);
 
     return vkd3d_render_pass_cache_find(&device->render_pass_cache, device, &key, vk_render_pass);
 }
@@ -2596,7 +2612,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     if (is_dsv_format_unknown)
         graphics->render_pass = VK_NULL_HANDLE;
     else if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics,
-            device, 0, &graphics->render_pass)))
+            device, 0, &graphics->render_pass, &graphics->dsv_layout)))
         goto fail;
 
     d3d12_graphics_pipeline_state_init_dynamic_state(graphics);
@@ -2922,7 +2938,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
             TRACE("Compiling %p with DSV format %#x.\n", state, dsv_format);
 
         if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device, dsv_format,
-                &pipeline_desc.renderPass)))
+                &pipeline_desc.renderPass, &graphics->dsv_layout)))
             return VK_NULL_HANDLE;
     }
 
