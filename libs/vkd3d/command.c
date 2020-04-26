@@ -3391,31 +3391,92 @@ static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
 }
 
 static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
-        struct d3d12_resource *dst_resource, const struct vkd3d_format *dst_format, VkImageLayout dst_layout,
-        struct d3d12_resource *src_resource, const struct vkd3d_format *src_format, VkImageLayout src_layout,
+        struct d3d12_resource *dst_resource, const struct vkd3d_format *dst_format,
+        struct d3d12_resource *src_resource, const struct vkd3d_format *src_format,
         const VkImageCopy *region)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_texture_view_desc dst_view_desc, src_view_desc;
     struct vkd3d_copy_image_pipeline_key pipeline_key;
+    VkPipelineStageFlags src_stages, dst_stages;
     struct vkd3d_copy_image_info pipeline_info;
     VkImageMemoryBarrier vk_image_barriers[2];
     VkWriteDescriptorSet vk_descriptor_write;
     struct vkd3d_copy_image_args push_args;
     struct vkd3d_view *dst_view, *src_view;
+    VkAccessFlags src_access, dst_access;
+    VkImageLayout src_layout, dst_layout;
+    bool dst_is_depth_stencil, use_copy;
     VkDescriptorImageInfo vk_image_info;
     VkDescriptorSet vk_descriptor_set;
     VkRenderPassBeginInfo begin_info;
-    VkImageLayout attachment_layout;
     VkFramebuffer vk_framebuffer;
-    bool dst_is_depth_stencil;
     VkViewport viewport;
     VkExtent3D extent;
     VkRect2D scissor;
     unsigned int i;
     HRESULT hr;
 
-    if (dst_format->vk_aspect_mask == src_format->vk_aspect_mask)
+    use_copy = dst_format->vk_aspect_mask == src_format->vk_aspect_mask;
+    dst_is_depth_stencil = !!(dst_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT));
+
+    if (use_copy)
+    {
+        src_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        src_access = VK_ACCESS_TRANSFER_READ_BIT;
+        dst_access = VK_ACCESS_TRANSFER_WRITE_BIT;
+    }
+    else
+    {
+        src_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        src_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        src_access = VK_ACCESS_SHADER_READ_BIT;
+
+        if (dst_is_depth_stencil)
+        {
+            dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            dst_stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+            dst_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        }
+        else
+        {
+            dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            dst_stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dst_access = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(vk_image_barriers); i++)
+    {
+        vk_image_barriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        vk_image_barriers[i].pNext = NULL;
+        vk_image_barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vk_image_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    }
+
+    vk_image_barriers[0].srcAccessMask = 0;
+    vk_image_barriers[0].dstAccessMask = dst_access;
+    vk_image_barriers[0].oldLayout = dst_resource->common_layout;
+    vk_image_barriers[0].newLayout = dst_layout;
+    vk_image_barriers[0].image = dst_resource->u.vk_image;
+    vk_image_barriers[0].subresourceRange = vk_subresource_range_from_layers(&region->dstSubresource);
+
+    vk_image_barriers[1].srcAccessMask = 0;
+    vk_image_barriers[1].dstAccessMask = src_access;
+    vk_image_barriers[1].oldLayout = src_resource->common_layout;
+    vk_image_barriers[1].newLayout = src_layout;
+    vk_image_barriers[1].image = src_resource->u.vk_image;
+    vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&region->srcSubresource);
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, src_stages | dst_stages,
+            0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers),
+            vk_image_barriers));
+
+    if (use_copy)
     {
         VK_CALL(vkCmdCopyImage(list->vk_command_buffer,
                 src_resource->u.vk_image, src_layout,
@@ -3424,16 +3485,12 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     }
     else
     {
-        dst_is_depth_stencil = !!(dst_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT));
-
-        attachment_layout = dst_is_depth_stencil
-                ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-                : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        dst_view = src_view = NULL;
 
         if (!(dst_format = vkd3d_meta_get_copy_image_attachment_format(&list->device->meta_ops, dst_format, src_format)))
         {
             ERR("No attachment format found for source format %u.\n", src_format->vk_format);
-            return;
+            goto cleanup;
         }
 
         pipeline_key.format = dst_format;
@@ -3444,7 +3501,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         {
             ERR("Failed to obtain pipeline, format %u, view_type %u, sample_count %u.\n",
                     pipeline_key.format->vk_format, pipeline_key.view_type, pipeline_key.sample_count);
-            return;
+            goto cleanup;
         }
 
         d3d12_command_list_invalidate_current_pipeline(list);
@@ -3452,7 +3509,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
         memset(&dst_view_desc, 0, sizeof(dst_view_desc));
         dst_view_desc.view_type = pipeline_key.view_type;
-        dst_view_desc.layout = d3d12_resource_pick_layout(dst_resource, attachment_layout);
+        dst_view_desc.layout = dst_layout;
         dst_view_desc.format = dst_format;
         dst_view_desc.miplevel_idx = region->dstSubresource.mipLevel;
         dst_view_desc.miplevel_count = 1;
@@ -3462,15 +3519,13 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
         memset(&src_view_desc, 0, sizeof(src_view_desc));
         src_view_desc.view_type = pipeline_key.view_type;
-        src_view_desc.layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        src_view_desc.layout = src_layout;
         src_view_desc.format = src_format;
         src_view_desc.miplevel_idx = region->srcSubresource.mipLevel;
         src_view_desc.miplevel_count = 1;
         src_view_desc.layer_idx = region->srcSubresource.baseArrayLayer;
         src_view_desc.layer_count = region->srcSubresource.layerCount;
         src_view_desc.allowed_swizzle = false;
-
-        dst_view = src_view = NULL;
 
         if (!vkd3d_create_texture_view(list->device, dst_resource->u.vk_image, &dst_view_desc, &dst_view) ||
                 !vkd3d_create_texture_view(list->device, src_resource->u.vk_image, &src_view_desc, &src_view))
@@ -3549,42 +3604,6 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
         VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &vk_descriptor_write, 0, NULL));
 
-        for (i = 0; i < ARRAY_SIZE(vk_image_barriers); i++)
-        {
-            vk_image_barriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            vk_image_barriers[i].pNext = NULL;
-            vk_image_barriers[i].srcAccessMask = 0;
-            vk_image_barriers[i].dstAccessMask = 0;
-            vk_image_barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            vk_image_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        }
-
-        vk_image_barriers[0].oldLayout = dst_layout;
-        vk_image_barriers[0].newLayout = dst_view_desc.layout;
-        vk_image_barriers[0].image = dst_resource->u.vk_image;
-        vk_image_barriers[0].subresourceRange = vk_subresource_range_from_layers(&region->dstSubresource);
-        vk_image_barriers[0].dstAccessMask = dst_is_depth_stencil
-                ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
-                : VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-        if (region->extent.width == extent.width && region->extent.height == extent.height)
-            vk_image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-        vk_image_barriers[1].oldLayout = src_layout;
-        vk_image_barriers[1].newLayout = src_view_desc.layout;
-        vk_image_barriers[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vk_image_barriers[1].image = src_resource->u.vk_image;
-        vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&region->srcSubresource);
-
-        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-                VK_PIPELINE_STAGE_TRANSFER_BIT,
-                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
-                VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
-                VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
-                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers),
-                vk_image_barriers));
-
         VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE));
         VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_info.vk_pipeline));
         VK_CALL(vkCmdSetViewport(list->vk_command_buffer, 0, 1, &viewport));
@@ -3596,32 +3615,27 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         VK_CALL(vkCmdDraw(list->vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
         VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
 
-        vk_image_barriers[0].oldLayout = dst_view_desc.layout;
-        vk_image_barriers[0].newLayout = dst_layout;
-        vk_image_barriers[0].srcAccessMask = dst_is_depth_stencil
-                ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
-                : VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        vk_image_barriers[0].dstAccessMask = 0;
-
-        vk_image_barriers[1].oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        vk_image_barriers[1].newLayout = src_layout;
-        vk_image_barriers[1].dstAccessMask = 0;
-
-        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
-                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
-                VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-                VK_PIPELINE_STAGE_TRANSFER_BIT,
-                0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers),
-                vk_image_barriers));
-
 cleanup:
         if (dst_view)
             vkd3d_view_decref(dst_view, list->device);
         if (src_view)
             vkd3d_view_decref(src_view, list->device);
     }
+
+    vk_image_barriers[0].srcAccessMask = dst_access;
+    vk_image_barriers[0].dstAccessMask = 0;
+    vk_image_barriers[0].oldLayout = dst_layout;
+    vk_image_barriers[0].newLayout = dst_resource->common_layout;
+
+    vk_image_barriers[1].srcAccessMask = src_access;
+    vk_image_barriers[1].dstAccessMask = 0;
+    vk_image_barriers[1].oldLayout = src_layout;
+    vk_image_barriers[1].newLayout = src_resource->common_layout;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            dst_stages, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers),
+            vk_image_barriers));
 }
 
 static bool validate_d3d12_box(const D3D12_BOX *box)
