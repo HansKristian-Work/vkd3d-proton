@@ -3645,6 +3645,30 @@ static bool validate_d3d12_box(const D3D12_BOX *box)
             && box->back > box->front;
 }
 
+static void d3d12_command_list_transition_image_layout(struct d3d12_command_list *list,
+        VkImage vk_image, const VkImageSubresourceLayers *vk_subresource,
+        VkPipelineStageFlags src_stages, VkAccessFlags src_access, VkImageLayout old_layout,
+        VkPipelineStageFlags dst_stages, VkAccessFlags dst_access, VkImageLayout new_layout)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkImageMemoryBarrier vk_barrier;
+
+    vk_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    vk_barrier.pNext = NULL;
+    vk_barrier.srcAccessMask = src_access;
+    vk_barrier.dstAccessMask = dst_access;
+    vk_barrier.oldLayout = old_layout;
+    vk_barrier.newLayout = new_layout;
+    vk_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vk_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vk_barrier.image = vk_image;
+    vk_barrier.subresourceRange = vk_subresource_range_from_layers(vk_subresource);
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            src_stages, dst_stages, 0, 0, NULL, 0, NULL,
+            1, &vk_barrier));
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command_list_iface *iface,
         const D3D12_TEXTURE_COPY_LOCATION *dst, UINT dst_x, UINT dst_y, UINT dst_z,
         const D3D12_TEXTURE_COPY_LOCATION *src, const D3D12_BOX *src_box)
@@ -3654,6 +3678,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
     const struct vkd3d_format *src_format, *dst_format;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkBufferImageCopy buffer_image_copy;
+    VkImageLayout vk_layout;
     VkImageCopy image_copy;
 
     TRACE("iface %p, dst %p, dst_x %u, dst_y %u, dst_z %u, src %p, src_box %p.\n",
@@ -3701,9 +3726,21 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         vk_image_buffer_copy_from_d3d12(&buffer_image_copy, &dst->u.PlacedFootprint,
                 src->u.SubresourceIndex, &src_resource->desc, dst_format, src_box, dst_x, dst_y, dst_z);
         buffer_image_copy.bufferOffset += dst_resource->heap_offset;
+
+        vk_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+        d3d12_command_list_transition_image_layout(list, src_resource->u.vk_image,
+                &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                0, src_resource->common_layout, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_ACCESS_TRANSFER_READ_BIT, vk_layout);
+
         VK_CALL(vkCmdCopyImageToBuffer(list->vk_command_buffer,
-                src_resource->u.vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                src_resource->u.vk_image, vk_layout,
                 dst_resource->u.vk_buffer, 1, &buffer_image_copy));
+
+        d3d12_command_list_transition_image_layout(list, src_resource->u.vk_image,
+                &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                vk_layout, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, src_resource->common_layout);
     }
     else if (src->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT
             && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
@@ -3731,9 +3768,22 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         vk_buffer_image_copy_from_d3d12(&buffer_image_copy, &src->u.PlacedFootprint,
                 dst->u.SubresourceIndex, &dst_resource->desc, src_format, src_box, dst_x, dst_y, dst_z);
         buffer_image_copy.bufferOffset += src_resource->heap_offset;
+
+        vk_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+        d3d12_command_list_transition_image_layout(list, dst_resource->u.vk_image,
+                &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                0, dst_resource->common_layout, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_ACCESS_TRANSFER_WRITE_BIT, vk_layout);
+
         VK_CALL(vkCmdCopyBufferToImage(list->vk_command_buffer,
                 src_resource->u.vk_buffer, dst_resource->u.vk_image,
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &buffer_image_copy));
+                vk_layout, 1, &buffer_image_copy));
+
+        d3d12_command_list_transition_image_layout(list, dst_resource->u.vk_image,
+                &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_ACCESS_TRANSFER_WRITE_BIT, vk_layout, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                0, dst_resource->common_layout);
     }
     else if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
             && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
@@ -3765,10 +3815,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
                  &src_resource->desc, &dst_resource->desc, src_format, dst_format,
                  src_box, dst_x, dst_y, dst_z);
 
-        d3d12_command_list_copy_image(list,
-                dst_resource, dst_format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                src_resource, src_format, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                &image_copy);
+        d3d12_command_list_copy_image(list, dst_resource, dst_format,
+                src_resource, src_format, &image_copy);
     }
     else
     {
@@ -3840,10 +3888,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
             vk_image_copy.dstSubresource.layerCount = layer_count;
             vk_image_copy.srcSubresource.layerCount = layer_count;
 
-            d3d12_command_list_copy_image(list,
-                    dst_resource, dst_format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    src_resource, src_format, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                    &vk_image_copy);
+            d3d12_command_list_copy_image(list, dst_resource, dst_format,
+                    src_resource, src_format, &vk_image_copy);
         }
     }
 }
