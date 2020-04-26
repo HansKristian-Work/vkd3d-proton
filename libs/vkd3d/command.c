@@ -1839,6 +1839,126 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
     }
 }
 
+static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d12_device *device,
+        const struct d3d12_resource *resource, uint32_t state_mask, VkQueueFlags vk_queue_flags,
+        VkPipelineStageFlags *stages, VkAccessFlags *access)
+{
+    VkPipelineStageFlags queue_shader_stages = 0;
+    uint32_t unhandled_state = 0;
+
+    if (vk_queue_flags & VK_QUEUE_GRAPHICS_BIT)
+    {
+        queue_shader_stages |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+                VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT |
+                VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
+                VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT |
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+
+    if (vk_queue_flags & VK_QUEUE_COMPUTE_BIT)
+        queue_shader_stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+
+    if (state_mask == D3D12_RESOURCE_STATE_COMMON)
+    {
+        *stages |= VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        *access |= VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        return;
+    }
+
+    while (state_mask)
+    {
+        uint32_t state = state_mask & -state_mask;
+
+        switch (state)
+        {
+            case D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER:
+                *stages |= queue_shader_stages;
+                *access |= VK_ACCESS_UNIFORM_READ_BIT;
+
+                if (device->bindless_state.flags & VKD3D_BINDLESS_CBV_AS_SSBO)
+                    *access |= VK_ACCESS_SHADER_READ_BIT;
+
+                if (vk_queue_flags & VK_QUEUE_GRAPHICS_BIT)
+                {
+                    *stages |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+                    *access |= VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+                }
+                break;
+
+            case D3D12_RESOURCE_STATE_INDEX_BUFFER:
+                *stages |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+                *access |= VK_ACCESS_INDEX_READ_BIT;
+                break;
+
+            case D3D12_RESOURCE_STATE_RENDER_TARGET:
+                *stages |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+                break;
+
+            case D3D12_RESOURCE_STATE_UNORDERED_ACCESS:
+                *stages |= queue_shader_stages;
+                *access |= VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+                break;
+
+            case D3D12_RESOURCE_STATE_DEPTH_WRITE:
+            case D3D12_RESOURCE_STATE_DEPTH_READ:
+                *stages |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+                break;
+
+            case D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:
+                *stages |= queue_shader_stages & ~VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+                *access |= VK_ACCESS_SHADER_READ_BIT;
+                break;
+
+            case D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE:
+                *stages |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+                *access |= VK_ACCESS_SHADER_READ_BIT;
+                break;
+
+            case D3D12_RESOURCE_STATE_STREAM_OUT:
+                *stages |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_TRANSFORM_FEEDBACK_BIT_EXT;
+                *access |= VK_ACCESS_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT | VK_ACCESS_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT |
+                        VK_ACCESS_TRANSFORM_FEEDBACK_WRITE_BIT_EXT;
+                break;
+
+            case D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT:
+                *stages |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+                *access |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+
+                if (device->vk_info.EXT_conditional_rendering)
+                {
+                    *stages |= VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT;
+                    *access |= VK_ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT;
+                }
+                break;
+
+            case D3D12_RESOURCE_STATE_COPY_DEST:
+                *stages |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+                if (d3d12_resource_is_buffer(resource))
+                    *access |= VK_ACCESS_TRANSFER_WRITE_BIT;
+                break;
+
+            case D3D12_RESOURCE_STATE_COPY_SOURCE:
+                *stages |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+                if (d3d12_resource_is_buffer(resource))
+                    *access |= VK_ACCESS_TRANSFER_READ_BIT;
+                break;
+
+            case D3D12_RESOURCE_STATE_RESOLVE_DEST:
+            case D3D12_RESOURCE_STATE_RESOLVE_SOURCE:
+                *stages |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+                break;
+
+            default:
+                unhandled_state |= state;
+        }
+
+        state_mask &= ~state;
+    }
+
+    if (unhandled_state)
+        FIXME("Unhandled resource state %#x.\n", unhandled_state);
+}
+
 static bool vk_barrier_parameters_from_d3d12_resource_state(struct d3d12_device *device, unsigned int state,
         unsigned int stencil_state, const struct d3d12_resource *resource, VkQueueFlags vk_queue_flags,
         VkAccessFlags *access_mask, VkPipelineStageFlags *stage_flags, VkImageLayout *image_layout)
