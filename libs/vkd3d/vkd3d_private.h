@@ -1134,6 +1134,7 @@ struct d3d12_command_list
 
     struct d3d12_rtv_desc rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_dsv_desc dsv;
+    VkImageLayout dsv_layout;
     unsigned int fb_width;
     unsigned int fb_height;
     unsigned int fb_layer_count;

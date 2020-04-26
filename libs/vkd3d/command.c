@@ -1688,10 +1688,13 @@ enum vkd3d_render_pass_transition_mode
 };
 
 static VkPipelineStageFlags vk_render_pass_barrier_from_view(const struct vkd3d_view *view, const struct d3d12_resource *resource,
-        enum vkd3d_render_pass_transition_mode mode, VkImageMemoryBarrier *vk_barrier)
+        enum vkd3d_render_pass_transition_mode mode, VkImageLayout layout, VkImageMemoryBarrier *vk_barrier)
 {
     VkPipelineStageFlags stages;
     VkAccessFlags access;
+
+    if (!layout)
+        layout = view->info.texture.vk_layout;
 
     if (view->format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
     {
@@ -1712,13 +1715,13 @@ static VkPipelineStageFlags vk_render_pass_barrier_from_view(const struct vkd3d_
         vk_barrier->srcAccessMask = 0;
         vk_barrier->dstAccessMask = access;
         vk_barrier->oldLayout = resource->common_layout;
-        vk_barrier->newLayout = view->info.texture.vk_layout;
+        vk_barrier->newLayout = layout;
     }
     else /* if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_END) */
     {
         vk_barrier->srcAccessMask = access;
         vk_barrier->dstAccessMask = 0;
-        vk_barrier->oldLayout = view->info.texture.vk_layout;
+        vk_barrier->oldLayout = layout;
         vk_barrier->newLayout = resource->common_layout;
     }
 
@@ -1745,16 +1748,16 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
         if (!rtv->view)
             continue;
 
-        stage_mask |= vk_render_pass_barrier_from_view(rtv->view,
-                rtv->resource, mode, &vk_image_barriers[j++]);
+        stage_mask |= vk_render_pass_barrier_from_view(rtv->view, rtv->resource,
+                mode, VK_IMAGE_LAYOUT_UNDEFINED, &vk_image_barriers[j++]);
     }
 
     dsv = &list->dsv;
 
     if (dsv->view && list->dsv_layout)
     {
-        stage_mask |= vk_render_pass_barrier_from_view(dsv->view,
-                dsv->resource, mode, &vk_image_barriers[j++]);
+        stage_mask |= vk_render_pass_barrier_from_view(dsv->view, dsv->resource,
+                mode, list->dsv_layout, &vk_image_barriers[j++]);
     }
 
     if (!j)
@@ -2192,6 +2195,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 
     memset(list->rtvs, 0, sizeof(list->rtvs));
     memset(&list->dsv, 0, sizeof(list->dsv));
+    list->dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     list->fb_width = 0;
     list->fb_height = 0;
     list->fb_layer_count = 0;
@@ -2439,6 +2443,7 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
         list->pso_render_pass = vk_render_pass;
         d3d12_command_list_invalidate_current_framebuffer(list);
         d3d12_command_list_invalidate_current_render_pass(list);
+        list->dsv_layout = list->state->u.graphics.dsv_layout;
     }
 
     VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, vk_pipeline));
