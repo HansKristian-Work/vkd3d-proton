@@ -1685,6 +1685,22 @@ static inline VkImageSubresourceRange vk_subresource_range_from_layers(const VkI
     return range;
 }
 
+static inline VkImageSubresourceLayers vk_subresource_layers_from_view(const struct vkd3d_view *view)
+{
+    VkImageSubresourceLayers layers;
+    layers.aspectMask = view->format->vk_aspect_mask;
+    layers.mipLevel = view->info.texture.miplevel_idx;
+    layers.baseArrayLayer = view->info.texture.layer_idx;
+    layers.layerCount = view->info.texture.layer_count;
+    return layers;
+}
+
+static inline VkImageSubresourceRange vk_subresource_range_from_view(const struct vkd3d_view *view)
+{
+    VkImageSubresourceLayers layers = vk_subresource_layers_from_view(view);
+    return vk_subresource_range_from_layers(&layers);
+}
+
 static inline bool d3d12_box_is_empty(const D3D12_BOX *box)
 {
     return box->right <= box->left || box->bottom <= box->top || box->back <= box->front;

@@ -1681,6 +1681,90 @@ static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_
     list->current_pipeline = VK_NULL_HANDLE;
 }
 
+enum vkd3d_render_pass_transition_mode
+{
+    VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN,
+    VKD3D_RENDER_PASS_TRANSITION_MODE_END,
+};
+
+static VkPipelineStageFlags vk_render_pass_barrier_from_view(const struct vkd3d_view *view, const struct d3d12_resource *resource,
+        enum vkd3d_render_pass_transition_mode mode, VkImageMemoryBarrier *vk_barrier)
+{
+    VkPipelineStageFlags stages;
+    VkAccessFlags access;
+
+    if (view->format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
+    {
+        stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        access = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+    }
+    else
+    {
+        stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+    }
+
+    vk_barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    vk_barrier->pNext = NULL;
+
+    if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN)
+    {
+        vk_barrier->srcAccessMask = 0;
+        vk_barrier->dstAccessMask = access;
+        vk_barrier->oldLayout = resource->common_layout;
+        vk_barrier->newLayout = view->info.texture.vk_layout;
+    }
+    else /* if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_END) */
+    {
+        vk_barrier->srcAccessMask = access;
+        vk_barrier->dstAccessMask = 0;
+        vk_barrier->oldLayout = view->info.texture.vk_layout;
+        vk_barrier->newLayout = resource->common_layout;
+    }
+
+    vk_barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vk_barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vk_barrier->image = resource->u.vk_image;
+    vk_barrier->subresourceRange = vk_subresource_range_from_view(view);
+    return stages;
+}
+
+static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_list *list,
+        enum vkd3d_render_pass_transition_mode mode)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkImageMemoryBarrier vk_image_barriers[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+    VkPipelineStageFlags stage_mask = 0;
+    struct d3d12_dsv_desc *dsv;
+    uint32_t i, j;
+
+    for (i = 0, j = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+    {
+        struct d3d12_rtv_desc *rtv = &list->rtvs[i];
+
+        if (!rtv->view)
+            continue;
+
+        stage_mask |= vk_render_pass_barrier_from_view(rtv->view,
+                rtv->resource, mode, &vk_image_barriers[j++]);
+    }
+
+    dsv = &list->dsv;
+
+    if (dsv->view)
+    {
+        stage_mask |= vk_render_pass_barrier_from_view(dsv->view,
+                dsv->resource, mode, &vk_image_barriers[j++]);
+    }
+
+    if (!j)
+        return;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+        stage_mask, stage_mask, 0, 0, NULL, 0, NULL,
+        j, vk_image_barriers));
+}
+
 static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -1692,7 +1776,10 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
     }
 
     if (list->current_render_pass)
+    {
         VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
+        d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_END);
+    }
 
     list->current_render_pass = VK_NULL_HANDLE;
 
@@ -3128,6 +3215,8 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
 
     vk_render_pass = list->pso_render_pass;
     assert(vk_render_pass);
+
+    d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN);
 
     begin_desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     begin_desc.pNext = NULL;
@@ -4839,6 +4928,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
             iface, render_target_descriptor_count, render_target_descriptors,
             single_descriptor_handle, depth_stencil_descriptor);
 
+    d3d12_command_list_invalidate_current_framebuffer(list);
+    d3d12_command_list_invalidate_current_render_pass(list);
+
     if (render_target_descriptor_count > ARRAY_SIZE(list->rtvs))
     {
         WARN("Descriptor count %u > %zu, ignoring extra descriptors.\n",
@@ -4911,9 +5003,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
 
     if (prev_dsv_format != next_dsv_format && d3d12_pipeline_state_has_unknown_dsv_format(list->state))
         d3d12_command_list_invalidate_current_pipeline(list);
-
-    d3d12_command_list_invalidate_current_framebuffer(list);
-    d3d12_command_list_invalidate_current_render_pass(list);
 }
 
 static void d3d12_command_list_clear(struct d3d12_command_list *list,
