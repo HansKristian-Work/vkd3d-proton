@@ -1768,7 +1768,7 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
         j, vk_image_barriers));
 }
 
-static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list)
+static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list, bool suspend)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
@@ -1779,11 +1779,13 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
     }
 
     if (list->current_render_pass)
-    {
         VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
-        d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_END);
-    }
 
+    /* Don't emit barriers for temporary suspendion of the render pass */
+    if (!suspend && (list->current_render_pass || list->render_pass_suspended))
+        d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_END);
+
+    list->render_pass_suspended = suspend && list->current_render_pass;
     list->current_render_pass = VK_NULL_HANDLE;
 
     if (list->xfb_enabled)
@@ -1805,7 +1807,7 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
 
 static void d3d12_command_list_invalidate_current_render_pass(struct d3d12_command_list *list)
 {
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, false);
 }
 
 static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
@@ -2010,7 +2012,7 @@ static void d3d12_command_list_track_resource_usage(struct d3d12_command_list *l
 {
     if (resource->flags & VKD3D_RESOURCE_INITIAL_STATE_TRANSITION)
     {
-        d3d12_command_list_end_current_render_pass(list);
+        d3d12_command_list_end_current_render_pass(list, true);
 
         d3d12_command_list_transition_resource_to_initial_state(list, resource);
         resource->flags &= ~VKD3D_RESOURCE_INITIAL_STATE_TRANSITION;
@@ -2159,7 +2161,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
 
     vk_procs = &list->device->vk_procs;
 
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, false);
     if (list->is_predicated)
         VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
 
@@ -2203,6 +2205,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->xfb_enabled = false;
 
     list->is_predicated = false;
+    list->render_pass_suspended = false;
 
     list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;
@@ -3045,7 +3048,7 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
 
 static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *list)
 {
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, false);
 
     if (!d3d12_command_list_update_compute_pipeline(list))
         return false;
@@ -3119,7 +3122,8 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     vk_render_pass = list->pso_render_pass;
     assert(vk_render_pass);
 
-    d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN);
+    if (!list->render_pass_suspended)
+        d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN);
 
     begin_desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     begin_desc.pNext = NULL;
@@ -3268,7 +3272,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
     d3d12_command_list_track_resource_usage(list, dst_resource);
     d3d12_command_list_track_resource_usage(list, src_resource);
 
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, true);
 
     buffer_copy.srcOffset = src_offset + src_resource->heap_offset;
     buffer_copy.dstOffset = dst_offset + dst_resource->heap_offset;
@@ -3703,7 +3707,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
     d3d12_command_list_track_resource_usage(list, dst_resource);
     d3d12_command_list_track_resource_usage(list, src_resource);
 
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, false);
 
     if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
             && dst->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
@@ -3851,7 +3855,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     d3d12_command_list_track_resource_usage(list, dst_resource);
     d3d12_command_list_track_resource_usage(list, src_resource);
 
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, false);
 
     if (d3d12_resource_is_buffer(dst_resource))
     {
@@ -3939,7 +3943,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     d3d12_command_list_track_resource_usage(list, dst_resource);
     d3d12_command_list_track_resource_usage(list, src_resource);
 
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, false);
 
     if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(device, &dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
     {
@@ -4250,7 +4254,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
 
     TRACE("iface %p, barrier_count %u, barriers %p.\n", iface, barrier_count, barriers);
 
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, false);
 
     vk_memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     vk_memory_barrier.pNext = NULL;
@@ -4790,7 +4794,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(d3d12_command_list
 
     TRACE("iface %p, start_slot %u, view_count %u, views %p.\n", iface, start_slot, view_count, views);
 
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, true);
 
     if (!list->device->vk_info.EXT_transform_feedback)
     {
@@ -4954,7 +4958,7 @@ static void d3d12_command_list_clear(struct d3d12_command_list *list,
     unsigned int i;
     VkResult vr;
 
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, false);
 
     stages = 0;
     access = 0;
@@ -5171,7 +5175,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     VkExtent3D workgroup_size;
 
     d3d12_command_list_track_resource_usage(list, resource);
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, false);
 
     d3d12_command_list_invalidate_current_pipeline(list);
     d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
@@ -5397,7 +5401,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
 
     vk_procs = &list->device->vk_procs;
 
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, true);
 
     VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
 
@@ -5426,7 +5430,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
 
     vk_procs = &list->device->vk_procs;
 
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, true);
 
     d3d12_query_heap_mark_result_as_available(query_heap, index);
 
@@ -5494,7 +5498,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
         return;
     }
 
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, true);
 
     stride = get_query_stride(type);
 
@@ -5560,8 +5564,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
 
     vk_procs = &list->device->vk_procs;
 
-    /* FIXME: Add support for conditional rendering in render passes. */
-    d3d12_command_list_end_current_render_pass(list);
+    d3d12_command_list_end_current_render_pass(list, true);
 
     if (resource)
     {

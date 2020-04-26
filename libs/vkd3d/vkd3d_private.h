@@ -1142,6 +1142,7 @@ struct d3d12_command_list
     bool xfb_enabled;
 
     bool is_predicated;
+    bool render_pass_suspended;
 
     VkFramebuffer current_framebuffer;
     VkPipeline current_pipeline;
