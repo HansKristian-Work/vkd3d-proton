@@ -4866,14 +4866,32 @@ static void d3d12_command_list_clear(struct d3d12_command_list *list,
     struct VkSubpassDescription sub_pass_desc;
     struct VkRenderPassCreateInfo pass_desc;
     struct VkRenderPassBeginInfo begin_desc;
+    VkSubpassDependency dependencies[2];
     VkFramebuffer vk_framebuffer;
+    VkPipelineStageFlags stages;
     VkRenderPass vk_render_pass;
+    VkAccessFlags access;
     D3D12_RECT full_rect;
     VkExtent3D extent;
     unsigned int i;
     VkResult vr;
 
     d3d12_command_list_end_current_render_pass(list);
+
+    stages = 0;
+    access = 0;
+
+    if (color_reference)
+    {
+        stages |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        access |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    }
+
+    if (ds_reference)
+    {
+        stages |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        access |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    }
 
     if (!rect_count)
     {
@@ -4897,6 +4915,22 @@ static void d3d12_command_list_clear(struct d3d12_command_list *list,
     sub_pass_desc.preserveAttachmentCount = 0;
     sub_pass_desc.pPreserveAttachments = NULL;
 
+    dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[0].dstSubpass = 0;
+    dependencies[0].srcStageMask = stages;
+    dependencies[0].dstStageMask = stages;
+    dependencies[0].srcAccessMask = 0;
+    dependencies[0].dstAccessMask = access;
+    dependencies[0].dependencyFlags = 0;
+
+    dependencies[1].srcSubpass = 0;
+    dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[1].srcStageMask = stages;
+    dependencies[1].dstStageMask = stages;
+    dependencies[1].srcAccessMask = access;
+    dependencies[1].dstAccessMask = 0;
+    dependencies[1].dependencyFlags = 0;
+
     pass_desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     pass_desc.pNext = NULL;
     pass_desc.flags = 0;
@@ -4904,8 +4938,8 @@ static void d3d12_command_list_clear(struct d3d12_command_list *list,
     pass_desc.pAttachments = attachment_desc;
     pass_desc.subpassCount = 1;
     pass_desc.pSubpasses = &sub_pass_desc;
-    pass_desc.dependencyCount = 0;
-    pass_desc.pDependencies = NULL;
+    pass_desc.dependencyCount = ARRAY_SIZE(dependencies);
+    pass_desc.pDependencies = dependencies;
     if ((vr = VK_CALL(vkCreateRenderPass(list->device->vk_device, &pass_desc, NULL, &vk_render_pass))) < 0)
     {
         WARN("Failed to create Vulkan render pass, vr %d.\n", vr);
@@ -4990,11 +5024,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(d3d12_com
         attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     }
-    attachment_desc.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    attachment_desc.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    attachment_desc.initialLayout = dsv_desc->resource->common_layout;
+    attachment_desc.finalLayout = dsv_desc->resource->common_layout;
 
     ds_reference.attachment = 0;
-    ds_reference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    ds_reference.layout = dsv_desc->view->info.texture.vk_layout;
 
     d3d12_command_list_clear(list, &attachment_desc, NULL, &ds_reference,
             dsv_desc->view, dsv_desc->width, dsv_desc->height, dsv_desc->layer_count,
@@ -5022,11 +5056,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(d3d12_com
     attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachment_desc.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    attachment_desc.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    attachment_desc.initialLayout = rtv_desc->resource->common_layout;
+    attachment_desc.finalLayout = rtv_desc->resource->common_layout;
 
     color_reference.attachment = 0;
-    color_reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color_reference.layout = rtv_desc->view->info.texture.vk_layout;
 
     if (rtv_desc->format->type == VKD3D_FORMAT_TYPE_UINT)
     {
