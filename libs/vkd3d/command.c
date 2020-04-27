@@ -1681,6 +1681,288 @@ static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_
     list->current_pipeline = VK_NULL_HANDLE;
 }
 
+static bool d3d12_command_list_create_framebuffer(struct d3d12_command_list *list, VkRenderPass render_pass,
+        uint32_t view_count, const VkImageView *views, VkExtent3D extent, VkFramebuffer *vk_framebuffer);
+
+static D3D12_RECT d3d12_get_view_rect(struct d3d12_resource *resource, struct vkd3d_view *view)
+{
+    D3D12_RECT rect;
+    rect.left = 0;
+    rect.top = 0;
+    rect.right = d3d12_resource_desc_get_width(&resource->desc, view->info.texture.miplevel_idx);
+    rect.bottom = d3d12_resource_desc_get_height(&resource->desc, view->info.texture.miplevel_idx);
+    return rect;
+}
+
+static bool vk_rect_from_d3d12(const D3D12_RECT *rect, VkRect2D *vk_rect)
+{
+    if (rect->top >= rect->bottom || rect->left >= rect->right)
+    {
+        WARN("Empty clear rect.\n");
+        return false;
+    }
+
+    vk_rect->offset.x = rect->left;
+    vk_rect->offset.y = rect->top;
+    vk_rect->extent.width = rect->right - rect->left;
+    vk_rect->extent.height = rect->bottom - rect->top;
+    return true;
+}
+
+static VkImageAspectFlags vk_writable_aspects_from_image_layout(VkImageLayout vk_layout)
+{
+    switch (vk_layout)
+    {
+        case VK_IMAGE_LAYOUT_GENERAL:
+            return VK_IMAGE_ASPECT_COLOR_BIT | VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+            return VK_IMAGE_ASPECT_COLOR_BIT;
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+            return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL:
+            return VK_IMAGE_ASPECT_STENCIL_BIT;
+        case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
+            return VK_IMAGE_ASPECT_DEPTH_BIT;
+        case VK_IMAGE_LAYOUT_UNDEFINED:
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+            return 0;
+        default:
+            ERR("Unhandled image layout %u.\n", vk_layout);
+            return 0;
+    }
+}
+
+static int d3d12_command_list_find_attachment(struct d3d12_command_list *list, const struct d3d12_resource *resource,
+        const struct vkd3d_view *view, VkImageAspectFlags clear_aspects)
+{
+    unsigned int i;
+
+    if (!list->current_render_pass)
+        return -1;
+
+    if (list->dsv.resource == resource)
+    {
+        const struct vkd3d_view *dsv = list->dsv.view;
+
+        if ((vk_writable_aspects_from_image_layout(list->dsv_layout) & clear_aspects) != clear_aspects)
+            return -1;
+
+        if (dsv->info.texture.miplevel_idx == view->info.texture.miplevel_idx &&
+                dsv->info.texture.layer_idx == view->info.texture.layer_idx &&
+                dsv->info.texture.layer_count == view->info.texture.layer_count)
+            return D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT;
+    }
+    else
+    {
+        for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+        {
+            const struct vkd3d_view *rtv = list->rtvs[i].view;
+
+            if (list->rtvs[i].resource != resource)
+                continue;
+
+            if (rtv->info.texture.miplevel_idx == view->info.texture.miplevel_idx &&
+                    rtv->info.texture.layer_idx == view->info.texture.layer_idx &&
+                    rtv->info.texture.layer_count == view->info.texture.layer_count)
+                return i;
+        }
+    }
+
+    return -1;
+}
+
+static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list *list, struct d3d12_resource *resource,
+        struct vkd3d_view *view, unsigned int attachment_idx, VkImageAspectFlags clear_aspects,
+        const VkClearValue *clear_value, UINT rect_count, const D3D12_RECT *rects)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkClearAttachment vk_clear_attachment;
+    VkClearRect vk_clear_rect;
+    D3D12_RECT full_rect;
+    unsigned int i;
+
+    if (!rect_count)
+    {
+        full_rect = d3d12_get_view_rect(resource, view);
+        rect_count = 1;
+        rects = &full_rect;
+    }
+
+    /* We expect more than one clear rect to be very uncommon
+     * in practice, so make no effort to batch calls for now.
+     * colorAttachment is ignored for depth-stencil clears. */
+    vk_clear_attachment.aspectMask = clear_aspects;
+    vk_clear_attachment.colorAttachment = attachment_idx;
+    vk_clear_attachment.clearValue = *clear_value;
+
+    vk_clear_rect.baseArrayLayer = 0;
+    vk_clear_rect.layerCount = view->info.texture.layer_count;
+
+    for (i = 0; i < rect_count; i++)
+    {
+        if (vk_rect_from_d3d12(&rects[i], &vk_clear_rect.rect))
+        {
+            VK_CALL(vkCmdClearAttachments(list->vk_command_buffer,
+                    1, &vk_clear_attachment, 1, &vk_clear_rect));
+        }
+    }
+}
+
+static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *list, struct d3d12_resource *resource,
+        struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value, UINT rect_count,
+        const D3D12_RECT *rects)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkAttachmentDescription attachment_desc;
+    VkAttachmentReference attachment_ref;
+    VkSubpassDependency dependencies[2];
+    VkSubpassDescription subpass_desc;
+    VkRenderPassBeginInfo begin_info;
+    VkRenderPassCreateInfo pass_info;
+    VkFramebuffer vk_framebuffer;
+    VkRenderPass vk_render_pass;
+    VkPipelineStageFlags stages;
+    VkAccessFlags access;
+    VkExtent3D extent;
+    bool clear_op;
+    VkResult vr;
+
+    attachment_desc.flags = 0;
+    attachment_desc.format = view->format->vk_format;
+    attachment_desc.samples = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
+    attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment_desc.initialLayout = resource->common_layout;
+    attachment_desc.finalLayout = resource->common_layout;
+
+    attachment_ref.attachment = 0;
+    attachment_ref.layout = view->info.texture.vk_layout;
+
+    subpass_desc.flags = 0;
+    subpass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass_desc.inputAttachmentCount = 0;
+    subpass_desc.pInputAttachments = NULL;
+    subpass_desc.colorAttachmentCount = 0;
+    subpass_desc.pColorAttachments = NULL;
+    subpass_desc.pResolveAttachments = NULL;
+    subpass_desc.pDepthStencilAttachment = NULL;
+    subpass_desc.preserveAttachmentCount = 0;
+    subpass_desc.pPreserveAttachments = NULL;
+
+    if ((clear_op = !rect_count))
+    {
+        if (clear_aspects & (VK_IMAGE_ASPECT_COLOR_BIT | VK_IMAGE_ASPECT_DEPTH_BIT))
+            attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+
+        if (clear_aspects & (VK_IMAGE_ASPECT_STENCIL_BIT))
+            attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+
+        /* Ignore 3D images as re-initializing those may cause us to
+         * discard the entire image, not just the layers to clear. */
+        if (clear_aspects == view->format->vk_aspect_mask &&
+                resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+            attachment_desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+
+    if (clear_aspects & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+    {
+        stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+        if (!clear_op || clear_aspects != view->format->vk_aspect_mask)
+            access |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+
+        subpass_desc.pDepthStencilAttachment = &attachment_ref;
+    }
+    else
+    {
+        stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        access = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+        if (!clear_op)
+            access |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+
+        subpass_desc.colorAttachmentCount = 1;
+        subpass_desc.pColorAttachments = &attachment_ref;
+    }
+
+    dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[0].dstSubpass = 0;
+    dependencies[0].srcStageMask = stages;
+    dependencies[0].dstStageMask = stages;
+    dependencies[0].srcAccessMask = 0;
+    dependencies[0].dstAccessMask = access;
+    dependencies[0].dependencyFlags = 0;
+
+    dependencies[1].srcSubpass = 0;
+    dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[1].srcStageMask = stages;
+    dependencies[1].dstStageMask = stages;
+    dependencies[1].srcAccessMask = access;
+    dependencies[1].dstAccessMask = 0;
+    dependencies[1].dependencyFlags = 0;
+
+    pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    pass_info.pNext = NULL;
+    pass_info.flags = 0;
+    pass_info.attachmentCount = 1;
+    pass_info.pAttachments = &attachment_desc;
+    pass_info.subpassCount = 1;
+    pass_info.pSubpasses = &subpass_desc;
+    pass_info.dependencyCount = ARRAY_SIZE(dependencies);
+    pass_info.pDependencies = dependencies;
+
+    if ((vr = VK_CALL(vkCreateRenderPass(list->device->vk_device, &pass_info, NULL, &vk_render_pass))) < 0)
+    {
+        WARN("Failed to create Vulkan render pass, vr %d.\n", vr);
+        return;
+    }
+
+    if (!d3d12_command_allocator_add_render_pass(list->allocator, vk_render_pass))
+    {
+        WARN("Failed to add render pass.\n");
+        VK_CALL(vkDestroyRenderPass(list->device->vk_device, vk_render_pass, NULL));
+        return;
+    }
+
+    if (!d3d12_command_allocator_add_view(list->allocator, view))
+        WARN("Failed to add view.\n");
+
+    extent.width = d3d12_resource_desc_get_width(&resource->desc, view->info.texture.miplevel_idx);
+    extent.height = d3d12_resource_desc_get_height(&resource->desc, view->info.texture.miplevel_idx);
+    extent.depth = view->info.texture.layer_count;
+
+    if (!d3d12_command_list_create_framebuffer(list, vk_render_pass, 1, &view->u.vk_image_view, extent, &vk_framebuffer))
+    {
+        ERR("Failed to create framebuffer.\n");
+        return;
+    }
+
+    begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    begin_info.pNext = NULL;
+    begin_info.renderPass = vk_render_pass;
+    begin_info.framebuffer = vk_framebuffer;
+    begin_info.renderArea.offset.x = 0;
+    begin_info.renderArea.offset.y = 0;
+    begin_info.renderArea.extent.width = extent.width;
+    begin_info.renderArea.extent.height = extent.height;
+    begin_info.clearValueCount = clear_op ? 1 : 0;
+    begin_info.pClearValues = clear_op ? clear_value : NULL;
+
+    VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer,
+            &begin_info, VK_SUBPASS_CONTENTS_INLINE));
+
+    if (!clear_op)
+    {
+        d3d12_command_list_clear_attachment_inline(list, resource, view, 0,
+                clear_aspects, clear_value, rect_count, rects);
+    }
+
+    VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
+}
+
 enum vkd3d_render_pass_transition_mode
 {
     VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN,
@@ -5065,6 +5347,44 @@ static void d3d12_command_list_clear(struct d3d12_command_list *list,
         begin_desc.renderArea.extent.height = rects[i].bottom - rects[i].top;
         VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer, &begin_desc, VK_SUBPASS_CONTENTS_INLINE));
         VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
+    }
+}
+
+static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list, struct d3d12_resource *resource,
+        struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value, UINT rect_count,
+        const D3D12_RECT *rects)
+{
+    D3D12_RECT full_rect;
+    int attachment_idx;
+    bool full_clear;
+    unsigned int i;
+
+    /* If one of the clear rectangles covers the entire image, we
+     * may be able to use a fast path and re-initialize the image */
+    full_rect = d3d12_get_view_rect(resource, view);
+    full_clear = !rect_count;
+
+    for (i = 0; i < rect_count && !full_clear; i++)
+        full_clear |= !memcmp(&rects[i], &full_rect, sizeof(full_rect));
+
+    if (full_clear)
+        rect_count = 0;
+
+    attachment_idx = d3d12_command_list_find_attachment(list, resource, view, clear_aspects);
+
+    if (attachment_idx < 0)
+    {
+        /* View currently not bound as a render target */
+        d3d12_command_list_end_current_render_pass(list, false);
+        d3d12_command_list_clear_attachment_pass(list, resource, view,
+                clear_aspects, clear_value, rect_count, rects);
+    }
+    else
+    {
+        /* View bound and render pass active, just emit the clear */
+        d3d12_command_list_clear_attachment_inline(list, resource, view,
+                attachment_idx, clear_aspects, clear_value,
+                rect_count, rects);
     }
 }
 
