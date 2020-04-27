@@ -5425,27 +5425,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(d3d12_com
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct d3d12_rtv_desc *rtv_desc = d3d12_rtv_desc_from_cpu_handle(rtv);
-    struct VkAttachmentDescription attachment_desc;
-    struct VkAttachmentReference color_reference;
     VkClearValue clear_value;
 
     TRACE("iface %p, rtv %#lx, color %p, rect_count %u, rects %p.\n",
             iface, rtv.ptr, color, rect_count, rects);
 
     d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
-
-    attachment_desc.flags = 0;
-    attachment_desc.format = rtv_desc->format->vk_format;
-    attachment_desc.samples = rtv_desc->sample_count;
-    attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachment_desc.initialLayout = rtv_desc->resource->common_layout;
-    attachment_desc.finalLayout = rtv_desc->resource->common_layout;
-
-    color_reference.attachment = 0;
-    color_reference.layout = rtv_desc->view->info.texture.vk_layout;
 
     if (rtv_desc->format->type == VKD3D_FORMAT_TYPE_UINT)
     {
@@ -5469,9 +5454,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(d3d12_com
         clear_value.color.float32[3] = color[3];
     }
 
-    d3d12_command_list_clear(list, &attachment_desc, &color_reference, NULL,
-            rtv_desc->view, rtv_desc->width, rtv_desc->height, rtv_desc->layer_count,
-            &clear_value, rect_count, rects);
+    d3d12_command_list_clear_attachment(list, rtv_desc->resource, rtv_desc->view,
+            VK_IMAGE_ASPECT_COLOR_BIT, &clear_value, rect_count, rects);
 }
 
 static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
