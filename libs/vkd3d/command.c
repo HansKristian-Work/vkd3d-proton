@@ -5082,28 +5082,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(d3d12_com
     attachment_desc.flags = 0;
     attachment_desc.format = dsv_desc->format->vk_format;
     attachment_desc.samples = dsv_desc->sample_count;
-    if (flags & D3D12_CLEAR_FLAG_DEPTH)
-    {
-        attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    }
-    else
-    {
-        attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    }
-    if (flags & D3D12_CLEAR_FLAG_STENCIL)
-    {
-        attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-    }
-    else
-    {
-        attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    }
+    attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachment_desc.initialLayout = dsv_desc->resource->common_layout;
     attachment_desc.finalLayout = dsv_desc->resource->common_layout;
+
+    if (flags & D3D12_CLEAR_FLAG_DEPTH)
+        attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+
+    if (flags & D3D12_CLEAR_FLAG_STENCIL)
+        attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 
     ds_reference.attachment = 0;
     ds_reference.layout = dsv_desc->view->info.texture.vk_layout;
