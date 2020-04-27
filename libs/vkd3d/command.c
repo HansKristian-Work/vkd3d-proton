@@ -5395,36 +5395,29 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(d3d12_com
     const union VkClearValue clear_value = {.depthStencil = {depth, stencil}};
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct d3d12_dsv_desc *dsv_desc = d3d12_dsv_desc_from_cpu_handle(dsv);
-    struct VkAttachmentDescription attachment_desc;
-    struct VkAttachmentReference ds_reference;
+    VkImageAspectFlags clear_aspects = 0;
 
     TRACE("iface %p, dsv %#lx, flags %#x, depth %.8e, stencil 0x%02x, rect_count %u, rects %p.\n",
             iface, dsv.ptr, flags, depth, stencil, rect_count, rects);
 
     d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
 
-    attachment_desc.flags = 0;
-    attachment_desc.format = dsv_desc->format->vk_format;
-    attachment_desc.samples = dsv_desc->sample_count;
-    attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachment_desc.initialLayout = dsv_desc->resource->common_layout;
-    attachment_desc.finalLayout = dsv_desc->resource->common_layout;
-
     if (flags & D3D12_CLEAR_FLAG_DEPTH)
-        attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        clear_aspects |= VK_IMAGE_ASPECT_DEPTH_BIT;
 
     if (flags & D3D12_CLEAR_FLAG_STENCIL)
-        attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        clear_aspects |= VK_IMAGE_ASPECT_STENCIL_BIT;
 
-    ds_reference.attachment = 0;
-    ds_reference.layout = dsv_desc->view->info.texture.vk_layout;
+    clear_aspects &= dsv_desc->format->vk_aspect_mask;
 
-    d3d12_command_list_clear(list, &attachment_desc, NULL, &ds_reference,
-            dsv_desc->view, dsv_desc->width, dsv_desc->height, dsv_desc->layer_count,
-            &clear_value, rect_count, rects);
+    if (!clear_aspects)
+    {
+        WARN("Not clearing any aspects.\n");
+        return;
+    }
+
+    d3d12_command_list_clear_attachment(list, dsv_desc->resource, dsv_desc->view,
+            clear_aspects, &clear_value, rect_count, rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(d3d12_command_list_iface *iface,
