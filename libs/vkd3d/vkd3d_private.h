@@ -1118,6 +1118,18 @@ struct vkd3d_dynamic_state
 /* ID3D12CommandList */
 typedef ID3D12GraphicsCommandList5 d3d12_command_list_iface;
 
+struct vkd3d_clear_attachment
+{
+    VkImageAspectFlags aspect_mask;
+    VkClearValue value;
+};
+
+struct vkd3d_clear_state
+{
+    uint64_t attachment_mask;
+    struct vkd3d_clear_attachment attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+};
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
@@ -1134,6 +1146,7 @@ struct d3d12_command_list
 
     struct d3d12_rtv_desc rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_dsv_desc dsv;
+    struct vkd3d_clear_state clear_state;
     VkImageLayout dsv_layout;
     unsigned int fb_width;
     unsigned int fb_height;
