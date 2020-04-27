@@ -1136,8 +1136,10 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_render_pass_entry *entry;
     unsigned int index, attachment_index;
+    VkSubpassDependency dependencies[2];
     VkSubpassDescription sub_pass_desc;
     VkRenderPassCreateInfo pass_info;
+    VkPipelineStageFlags stages;
     bool have_depth_stencil;
     unsigned int rt_count;
     VkResult vr;
@@ -1156,6 +1158,8 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
     have_depth_stencil = key->depth_enable || key->stencil_enable;
     rt_count = have_depth_stencil ? key->attachment_count - 1 : key->attachment_count;
     assert(rt_count <= D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT);
+
+    stages = 0;
 
     for (index = 0, attachment_index = 0; index < rt_count; ++index)
     {
@@ -1179,6 +1183,7 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
         attachment_references[index].attachment = attachment_index;
         attachment_references[index].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+        stages |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         ++attachment_index;
     }
 
@@ -1199,8 +1204,26 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
         attachment_references[index].attachment = attachment_index;
         attachment_references[index].layout = depth_layout;
 
+        stages |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
         attachment_index++;
     }
+
+    /* HACK: Stage masks should technically not be 0 */
+    dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[0].dstSubpass = 0;
+    dependencies[0].srcStageMask = stages;
+    dependencies[0].dstStageMask = stages;
+    dependencies[0].srcAccessMask = 0;
+    dependencies[0].dstAccessMask = 0;
+    dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+    dependencies[1].srcSubpass = 0;
+    dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[1].srcStageMask = stages;
+    dependencies[1].dstStageMask = stages;
+    dependencies[1].srcAccessMask = 0;
+    dependencies[1].dstAccessMask = 0;
+    dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
     sub_pass_desc.flags = 0;
     sub_pass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -1223,8 +1246,8 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
     pass_info.pAttachments = attachments;
     pass_info.subpassCount = 1;
     pass_info.pSubpasses = &sub_pass_desc;
-    pass_info.dependencyCount = 0;
-    pass_info.pDependencies = NULL;
+    pass_info.dependencyCount = ARRAY_SIZE(dependencies);
+    pass_info.pDependencies = dependencies;
     if ((vr = VK_CALL(vkCreateRenderPass(device->vk_device, &pass_info, NULL, vk_render_pass))) >= 0)
     {
         entry->vk_render_pass = *vk_render_pass;
