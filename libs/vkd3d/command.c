@@ -1732,20 +1732,14 @@ static VkImageAspectFlags vk_writable_aspects_from_image_layout(VkImageLayout vk
     }
 }
 
-static int d3d12_command_list_find_attachment(struct d3d12_command_list *list, const struct d3d12_resource *resource,
-        const struct vkd3d_view *view, VkImageAspectFlags clear_aspects)
+static int d3d12_command_list_find_attachment(struct d3d12_command_list *list,
+        const struct d3d12_resource *resource, const struct vkd3d_view *view)
 {
     unsigned int i;
-
-    if (!list->current_render_pass)
-        return -1;
 
     if (list->dsv.resource == resource)
     {
         const struct vkd3d_view *dsv = list->dsv.view;
-
-        if ((vk_writable_aspects_from_image_layout(list->dsv_layout) & clear_aspects) != clear_aspects)
-            return -1;
 
         if (dsv->info.texture.miplevel_idx == view->info.texture.miplevel_idx &&
                 dsv->info.texture.layer_idx == view->info.texture.layer_idx &&
@@ -1963,6 +1957,137 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
 }
 
+static void d3d12_command_list_clear_attachment_deferred(struct d3d12_command_list *list, unsigned int attachment_idx,
+        VkImageAspectFlags clear_aspects, const VkClearValue *clear_value)
+{
+    struct vkd3d_clear_state *clear_state = &list->clear_state;
+    struct vkd3d_clear_attachment *attachment = &clear_state->attachments[attachment_idx];
+
+    /* If necessary, combine with previous clear so that e.g. a
+     * depth-only clear does not override a stencil-only clear. */
+    clear_state->attachment_mask |= 1u << attachment_idx;
+    attachment->aspect_mask |= clear_aspects;
+
+    if (clear_aspects & VK_IMAGE_ASPECT_COLOR_BIT)
+        attachment->value.color = clear_value->color;
+
+    if (clear_aspects & VK_IMAGE_ASPECT_DEPTH_BIT)
+        attachment->value.depthStencil.depth = clear_value->depthStencil.depth;
+
+    if (clear_aspects & VK_IMAGE_ASPECT_STENCIL_BIT)
+        attachment->value.depthStencil.stencil = clear_value->depthStencil.stencil;
+}
+
+static bool d3d12_command_list_has_render_pass_rtv_clear(struct d3d12_command_list *list, unsigned int attachment_idx)
+{
+    const struct d3d12_graphics_pipeline_state *graphics;
+
+    if (!d3d12_pipeline_state_is_graphics(list->state))
+        return false;
+
+    graphics = &list->state->u.graphics;
+
+    return attachment_idx < graphics->rt_count &&
+            !(graphics->null_attachment_mask & (1 << attachment_idx)) &&
+            (list->clear_state.attachment_mask & (1 << attachment_idx));
+}
+
+static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list *list);
+
+static bool d3d12_command_list_has_render_pass_dsv_clear(struct d3d12_command_list *list)
+{
+    VkImageAspectFlags clear_aspects, write_aspects;
+
+    if (!d3d12_pipeline_state_is_graphics(list->state))
+        return false;
+
+    if (!d3d12_command_list_has_depth_stencil_view(list))
+        return false;
+
+    if (!(list->clear_state.attachment_mask & (1 << D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT)))
+        return false;
+
+    /* If any of the aspects to clear are read-only in the render
+     * pass, we have to perform the DSV clear in a separate pass. */
+    write_aspects = vk_writable_aspects_from_image_layout(list->dsv_layout);
+    clear_aspects = list->clear_state.attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT].aspect_mask;
+    return (write_aspects & clear_aspects) == clear_aspects;
+}
+
+static void d3d12_command_list_emit_deferred_clear(struct d3d12_command_list *list, unsigned int attachment_idx)
+{
+    struct vkd3d_clear_attachment *clear_attachment = &list->clear_state.attachments[attachment_idx];
+    struct d3d12_resource *resource;
+    struct vkd3d_view *view;
+
+    if (attachment_idx < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT)
+    {
+        resource = list->rtvs[attachment_idx].resource;
+        view = list->rtvs[attachment_idx].view;
+    }
+    else
+    {
+        resource = list->dsv.resource;
+        view = list->dsv.view;
+    }
+
+    if (list->current_render_pass)
+    {
+        d3d12_command_list_clear_attachment_inline(list, resource,
+                view, attachment_idx, clear_attachment->aspect_mask,
+                &clear_attachment->value, 0, NULL);
+    }
+    else
+    {
+        d3d12_command_list_clear_attachment_pass(list, resource, view,
+                clear_attachment->aspect_mask, &clear_attachment->value,
+                0, NULL);
+    }
+
+    clear_attachment->aspect_mask = 0;
+}
+
+static void d3d12_command_list_emit_render_pass_clears(struct d3d12_command_list *list, bool invert_mask)
+{
+    struct vkd3d_clear_state *clear_state = &list->clear_state;
+    uint64_t attachment_mask = 0;
+    unsigned int i;
+
+    if (!clear_state->attachment_mask)
+        return;
+
+    for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+    {
+        if (d3d12_command_list_has_render_pass_rtv_clear(list, i))
+            attachment_mask |= 1 << i;
+    }
+
+    if (d3d12_command_list_has_render_pass_dsv_clear(list))
+        attachment_mask |= 1 << D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT;
+
+    if (invert_mask)
+        attachment_mask = (~attachment_mask) & clear_state->attachment_mask;
+
+    clear_state->attachment_mask &= ~attachment_mask;
+
+    while (attachment_mask)
+    {
+        unsigned int attachment_idx = vkd3d_bitmask_iter64(&attachment_mask);
+        d3d12_command_list_emit_deferred_clear(list, attachment_idx);
+    }
+}
+
+static void d3d12_command_list_flush_deferred_clears(struct d3d12_command_list *list)
+{
+    struct vkd3d_clear_state *clear_state = &list->clear_state;
+
+    while (clear_state->attachment_mask)
+    {
+        unsigned int attachment_idx = vkd3d_bitmask_iter64(&clear_state->attachment_mask);
+        d3d12_command_list_emit_deferred_clear(list, attachment_idx);
+    }
+}
+
 enum vkd3d_render_pass_transition_mode
 {
     VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN,
@@ -1970,7 +2095,7 @@ enum vkd3d_render_pass_transition_mode
 };
 
 static VkPipelineStageFlags vk_render_pass_barrier_from_view(const struct vkd3d_view *view, const struct d3d12_resource *resource,
-        enum vkd3d_render_pass_transition_mode mode, VkImageLayout layout, VkImageMemoryBarrier *vk_barrier)
+        enum vkd3d_render_pass_transition_mode mode, VkImageLayout layout, bool clear, VkImageMemoryBarrier *vk_barrier)
 {
     VkPipelineStageFlags stages;
     VkAccessFlags access;
@@ -1998,6 +2123,11 @@ static VkPipelineStageFlags vk_render_pass_barrier_from_view(const struct vkd3d_
         vk_barrier->dstAccessMask = access;
         vk_barrier->oldLayout = resource->common_layout;
         vk_barrier->newLayout = layout;
+
+        /* Ignore 3D images as re-initializing those may cause us to
+         * discard the entire image, not just the layers to clear. */
+        if (clear && resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+            vk_barrier->oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     }
     else /* if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_END) */
     {
@@ -2021,6 +2151,7 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
     VkImageMemoryBarrier vk_image_barriers[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
     VkPipelineStageFlags stage_mask = 0;
     struct d3d12_dsv_desc *dsv;
+    bool do_clear = false;
     uint32_t i, j;
 
     for (i = 0, j = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
@@ -2030,16 +2161,22 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
         if (!rtv->view)
             continue;
 
+        if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN)
+            do_clear = d3d12_command_list_has_render_pass_rtv_clear(list, i);
+
         stage_mask |= vk_render_pass_barrier_from_view(rtv->view, rtv->resource,
-                mode, VK_IMAGE_LAYOUT_UNDEFINED, &vk_image_barriers[j++]);
+                mode, VK_IMAGE_LAYOUT_UNDEFINED, do_clear, &vk_image_barriers[j++]);
     }
 
     dsv = &list->dsv;
 
     if (dsv->view && list->dsv_layout)
     {
+        if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN)
+            do_clear = d3d12_command_list_has_render_pass_dsv_clear(list);
+
         stage_mask |= vk_render_pass_barrier_from_view(dsv->view, dsv->resource,
-                mode, list->dsv_layout, &vk_image_barriers[j++]);
+                mode, list->dsv_layout, do_clear, &vk_image_barriers[j++]);
     }
 
     if (!j)
@@ -2066,6 +2203,10 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
     /* Don't emit barriers for temporary suspendion of the render pass */
     if (!suspend && (list->current_render_pass || list->render_pass_suspended))
         d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_END);
+
+    /* Emit pending deferred clears. This can happen if
+     * no draw got executed after the clear operation. */
+    d3d12_command_list_flush_deferred_clears(list);
 
     list->render_pass_suspended = suspend && list->current_render_pass;
     list->current_render_pass = VK_NULL_HANDLE;
@@ -2479,6 +2620,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 
     memset(list->rtvs, 0, sizeof(list->rtvs));
     memset(&list->dsv, 0, sizeof(list->dsv));
+    memset(&list->clear_state, 0, sizeof(list->clear_state));
     list->dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     list->fb_width = 0;
     list->fb_height = 0;
@@ -2727,7 +2869,11 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     {
         list->pso_render_pass = vk_render_pass;
         d3d12_command_list_invalidate_current_framebuffer(list);
-        d3d12_command_list_invalidate_current_render_pass(list);
+        /* Don't end render pass if none is active, or otherwise
+         * deferred clears are not going to work as intended. */
+        if (list->current_render_pass || list->render_pass_suspended)
+            d3d12_command_list_invalidate_current_render_pass(list);
+        /* Only override this after ending the render pass. */
         list->dsv_layout = list->state->u.graphics.dsv_layout;
     }
 
@@ -3404,6 +3550,11 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     vk_render_pass = list->pso_render_pass;
     assert(vk_render_pass);
 
+    /* Emit deferred clears that we cannot clear inside the
+     * render pass, e.g. when the attachments to clear are
+     * not included in the current pipeline's render pass. */
+    d3d12_command_list_emit_render_pass_clears(list, true);
+
     if (!list->render_pass_suspended)
         d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN);
 
@@ -3420,6 +3571,9 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer, &begin_desc, VK_SUBPASS_CONTENTS_INLINE));
 
     list->current_render_pass = vk_render_pass;
+
+    /* Emit deferred clears with vkCmdClearAttachment */
+    d3d12_command_list_emit_render_pass_clears(list, false);
 
     graphics = &list->state->u.graphics;
     if (graphics->xfb_enabled)
@@ -5224,9 +5378,9 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
         struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value, UINT rect_count,
         const D3D12_RECT *rects)
 {
+    bool full_clear, writable = true;
     D3D12_RECT full_rect;
     int attachment_idx;
-    bool full_clear;
     unsigned int i;
 
     /* If one of the clear rectangles covers the entire image, we
@@ -5240,21 +5394,35 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
     if (full_clear)
         rect_count = 0;
 
-    attachment_idx = d3d12_command_list_find_attachment(list, resource, view, clear_aspects);
+    attachment_idx = d3d12_command_list_find_attachment(list, resource, view);
 
-    if (attachment_idx < 0)
+    if (attachment_idx == D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT && list->current_render_pass)
+        writable = (vk_writable_aspects_from_image_layout(list->dsv_layout) & clear_aspects) == clear_aspects;
+
+    if (attachment_idx < 0 || (!list->current_render_pass && !full_clear) || !writable)
     {
-        /* View currently not bound as a render target */
+        /* View currently not bound as a render target, or bound but
+         * the render pass isn't active and we're only going to clear
+         * a sub-region of the image, or one of the aspects to clear
+         * uses a read-only layout in the current render pass */
         d3d12_command_list_end_current_render_pass(list, false);
         d3d12_command_list_clear_attachment_pass(list, resource, view,
                 clear_aspects, clear_value, rect_count, rects);
     }
-    else
+    else if (list->current_render_pass)
     {
         /* View bound and render pass active, just emit the clear */
         d3d12_command_list_clear_attachment_inline(list, resource, view,
                 attachment_idx, clear_aspects, clear_value,
                 rect_count, rects);
+    }
+    else
+    {
+        /* View bound but render pass not active, and we'll clear
+         * the entire image. Defer the clear until we begin the
+         * render pass to avoid unnecessary barriers. */
+        d3d12_command_list_clear_attachment_deferred(list, attachment_idx,
+                clear_aspects, clear_value);
     }
 }
 
