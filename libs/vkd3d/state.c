@@ -1189,27 +1189,10 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
         attachments[attachment_index].flags = 0;
         attachments[attachment_index].format = key->vk_formats[index];
         attachments[attachment_index].samples = key->sample_count;
-
-        if (key->depth_enable)
-        {
-            attachments[attachment_index].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-            attachments[attachment_index].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        }
-        else
-        {
-            attachments[attachment_index].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-            attachments[attachment_index].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        }
-        if (key->stencil_enable)
-        {
-            attachments[attachment_index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-            attachments[attachment_index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-        }
-        else
-        {
-            attachments[attachment_index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-            attachments[attachment_index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        }
+        attachments[attachment_index].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        attachments[attachment_index].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        attachments[attachment_index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        attachments[attachment_index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
         attachments[attachment_index].initialLayout = depth_layout;
         attachments[attachment_index].finalLayout = depth_layout;
 
