@@ -2157,6 +2157,12 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device,
     object->flags = VKD3D_RESOURCE_EXTERNAL;
     object->flags |= create_info->flags & VKD3D_RESOURCE_PUBLIC_FLAGS;
     object->initial_state = D3D12_RESOURCE_STATE_COMMON;
+    object->common_layout = vk_common_image_layout_from_d3d12_desc(&object->desc);
+
+    /* DXGI only allows transfer and render target usage */
+    if (object->flags & VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)
+        object->common_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
     if (create_info->flags & VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)
         object->present_state = create_info->present_state;
     else
