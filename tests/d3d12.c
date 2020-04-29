@@ -41347,6 +41347,235 @@ static void test_raytracing(void)
     destroy_test_context(&context);
 }
 
+static uint32_t compute_tile_count(uint32_t resource_size, uint32_t mip, uint32_t tile_size)
+{
+    uint32_t mip_size = max(resource_size >> mip, 1u);
+    return (mip_size / tile_size) + (mip_size % tile_size ? 1 : 0);
+}
+
+static void test_get_resource_tiling(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    D3D12_PACKED_MIP_INFO packed_mip_info;
+    D3D12_SUBRESOURCE_TILING tilings[16];
+    UINT num_resource_tiles, num_tilings;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct test_context_desc desc;
+    struct test_context context;
+    D3D12_TILE_SHAPE tile_shape;
+    ID3D12Resource *resource;
+    unsigned int i, j;
+    HRESULT hr;
+
+    static const struct
+    {
+        D3D12_RESOURCE_DIMENSION dim;
+        DXGI_FORMAT format;
+        UINT width;
+        UINT height;
+        UINT depth_or_array_layers;
+        UINT mip_levels;
+        UINT expected_tile_count;
+        UINT expected_tiling_count;
+        UINT expected_standard_mips;
+        UINT tile_shape_w;
+        UINT tile_shape_h;
+        UINT tile_shape_d;
+        D3D12_TILED_RESOURCES_TIER min_tier;
+    }
+    tests[] =
+    {
+        /* Test buffers */
+        { D3D12_RESOURCE_DIMENSION_BUFFER,    DXGI_FORMAT_UNKNOWN,            1024,    1,  1,  1,  1,  1,  0, 65536,   1,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_BUFFER,    DXGI_FORMAT_UNKNOWN,        16*65536,    1,  1,  1, 16,  1,  0, 65536,   1,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        /* Test various image formats */
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8_UNORM,	           512,  512,  1,  1,  4,  1,  1,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8_UNORM,          512,  512,  1,  1,  8,  1,  1,   256, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,      512,  512,  1,  1, 16,  1,  1,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R16G16B16A16_UNORM,  512,  512,  1,  1, 32,  1,  1,   128,  64,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R32G32B32A32_FLOAT,  512,  512,  1,  1, 64,  1,  1,    64,  64,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_D16_UNORM,           512,  512,  1,  1,  8,  1,  1,   256, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_D32_FLOAT,           512,  512,  1,  1, 16,  1,  1,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        /* Test rectangular textures */
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,     1024,  256,  1,  1, 16,  1,  1,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,      256, 1024,  1,  1, 16,  1,  1,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,      192,  128,  1,  1,  2,  1,  1,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_2 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,      128,  192,  1,  1,  2,  1,  1,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_2 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,      320,  192,  1,  1,  6,  1,  1,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_2 },
+        /* Test array layers and packed mip levels */
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,      128,  128, 16,  1, 16, 16,  1,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,      128,  128,  1,  8,  1,  8,  1,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,      512,  512,  1, 10, 21, 10,  3,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,      512,  512,  4,  3, 84, 12,  3,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,       64,   64,  1,  1,  0,  1,  0,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = 640;
+    desc.rt_height = 480;
+    desc.rt_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
+
+    if (!options.TiledResourcesTier)
+    {
+        skip("Tiled resources not supported by device.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    /* Test behaviour with various parameter combinations */
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 512;
+    resource_desc.Height = 512;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 10;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc,
+        D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
+
+    num_tilings = 0;
+    ID3D12Device_GetResourceTiling(context.device, resource, NULL, NULL, NULL, &num_tilings, 0, NULL);
+    ok(num_tilings == 0, "Unexpected tiling count %u.\n", num_tilings);
+
+    num_tilings = ARRAY_SIZE(tilings);
+    ID3D12Device_GetResourceTiling(context.device, resource, NULL, NULL, NULL, &num_tilings, 10, tilings);
+    ok(num_tilings == 0, "Unexpected tiling count %u.\n", num_tilings);
+
+    num_tilings = ARRAY_SIZE(tilings);
+    ID3D12Device_GetResourceTiling(context.device, resource, NULL, NULL, NULL, &num_tilings, 2, tilings);
+    ok(num_tilings == 8, "Unexpected tiling count %u.\n", num_tilings);
+    ok(tilings[0].StartTileIndexInOverallResource == 20, "Unexpected start tile index %u.\n", tilings[0].StartTileIndexInOverallResource);
+
+    num_tilings = 1;
+    memset(&tilings, 0xaa, sizeof(tilings));
+    ID3D12Device_GetResourceTiling(context.device, resource, NULL, NULL, NULL, &num_tilings, 2, tilings);
+    ok(num_tilings == 1, "Unexpected tiling count %u.\n", num_tilings);
+    ok(tilings[0].StartTileIndexInOverallResource == 20, "Unexpected start tile index %u.\n", tilings[0].StartTileIndexInOverallResource);
+    ok(tilings[1].StartTileIndexInOverallResource == 0xaaaaaaaa, "Tiling array got modified.\n");
+
+    ID3D12Resource_Release(resource);
+
+    /* Test actual tiling properties */
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        unsigned int tile_index = 0;
+        vkd3d_test_set_context("test %u", i);
+
+        if (tests[i].min_tier > options.TiledResourcesTier)
+        {
+            skip("Tiled resources tier %u not supported.\n", tests[i].min_tier);
+            continue;
+        }
+
+        memset(&packed_mip_info, 0xaa, sizeof(packed_mip_info));
+        memset(&tile_shape, 0xaa, sizeof(tile_shape));
+        memset(&tilings, 0xaa, sizeof(tilings));
+
+        num_resource_tiles = 0xdeadbeef;
+        num_tilings = ARRAY_SIZE(tilings);
+
+        resource_desc.Dimension = tests[i].dim;
+        resource_desc.Alignment = 0;
+        resource_desc.Width = tests[i].width;
+        resource_desc.Height = tests[i].height;
+        resource_desc.DepthOrArraySize = tests[i].depth_or_array_layers;
+        resource_desc.MipLevels = tests[i].mip_levels;
+        resource_desc.Format = tests[i].format;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.SampleDesc.Quality = 0;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
+        resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+        if (tests[i].dim == D3D12_RESOURCE_DIMENSION_BUFFER)
+            resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+        hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &IID_ID3D12Resource, (void **)&resource);
+        ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
+
+        if (hr != S_OK)
+            continue;
+
+        ID3D12Device_GetResourceTiling(context.device, resource, &num_resource_tiles, &packed_mip_info, &tile_shape, &num_tilings, 0, tilings);
+
+        ok(num_resource_tiles >= tests[i].expected_tile_count, "Unexpected resource tile count %u.\n", num_resource_tiles);
+        ok(num_tilings == tests[i].expected_tiling_count, "Unexpected subresource tiling count %u.\n", num_tilings);
+
+        ok(packed_mip_info.NumStandardMips >= tests[i].expected_standard_mips, "Unexpected standard mip count %u.\n", packed_mip_info.NumStandardMips);
+        ok(packed_mip_info.NumPackedMips == (tests[i].dim == D3D12_RESOURCE_DIMENSION_BUFFER
+                ? 0 : tests[i].mip_levels - packed_mip_info.NumStandardMips),
+                "Unexpected packed mip count %u.\n", packed_mip_info.NumPackedMips);
+        ok((packed_mip_info.NumTilesForPackedMips == 0) == (packed_mip_info.NumPackedMips == 0),
+                "Unexpected packed tile count %u.\n", packed_mip_info.NumTilesForPackedMips);
+
+        if (packed_mip_info.NumStandardMips || !packed_mip_info.NumPackedMips)
+        {
+            ok(tile_shape.WidthInTexels == tests[i].tile_shape_w, "Unexpected tile width %u.\n", tile_shape.WidthInTexels);
+            ok(tile_shape.HeightInTexels == tests[i].tile_shape_h, "Unexpected tile height %u.\n", tile_shape.HeightInTexels);
+            ok(tile_shape.DepthInTexels == tests[i].tile_shape_d, "Unexpected tile depth %u.\n", tile_shape.DepthInTexels);
+        }
+        else
+        {
+            ok(!tile_shape.WidthInTexels && !tile_shape.HeightInTexels && !tile_shape.DepthInTexels,
+                    "Unexpected tile shape (%u,%u,%u) for packed resource.\n",
+                    tile_shape.WidthInTexels, tile_shape.HeightInTexels, tile_shape.DepthInTexels);
+        }
+
+        for (j = 0; j < tests[i].expected_tiling_count; j++)
+        {
+            uint32_t mip = j % tests[i].mip_levels;
+
+            if (mip < packed_mip_info.NumStandardMips || !packed_mip_info.NumPackedMips)
+            {
+                uint32_t expected_w = compute_tile_count(tests[i].width, mip, tests[i].tile_shape_w);
+                uint32_t expected_h = compute_tile_count(tests[i].height, mip, tests[i].tile_shape_h);
+                uint32_t expected_d = 1;
+
+                if (tests[i].dim == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+                    expected_d = compute_tile_count(tests[i].depth_or_array_layers, mip, tests[i].tile_shape_d);
+
+                ok(tilings[j].WidthInTiles == expected_w, "Unexpected width %u for subresource %u.\n", tilings[j].WidthInTiles, j);
+                ok(tilings[j].HeightInTiles == expected_h, "Unexpected width %u for subresource %u.\n", tilings[j].HeightInTiles, j);
+                ok(tilings[j].DepthInTiles == expected_d, "Unexpected width %u for subresource %u.\n", tilings[j].DepthInTiles, j);
+
+                ok(tilings[j].StartTileIndexInOverallResource == tile_index, "Unexpected start tile index %u for subresource %u.\n",
+                        tilings[j].StartTileIndexInOverallResource, j);
+
+                tile_index += tilings[j].WidthInTiles * tilings[j].HeightInTiles * tilings[j].DepthInTiles;
+            }
+            else
+            {
+                ok(!tilings[j].WidthInTiles && !tilings[j].HeightInTiles && !tilings[j].DepthInTiles,
+                        "Unexpected tile count (%u,%u,%u) for packed subresource %u.\n",
+                        tilings[j].WidthInTiles, tilings[j].HeightInTiles, tilings[j].DepthInTiles, j);
+                ok(tilings[j].StartTileIndexInOverallResource == 0xffffffff, "Unexpected start tile index %u for packed subresource %u.\n",
+                        tilings[j].StartTileIndexInOverallResource, j);
+            }
+        }
+
+        ok(num_resource_tiles == tile_index + packed_mip_info.NumTilesForPackedMips,
+                "Unexpected resource tile count %u.\n", num_resource_tiles);
+        ok(packed_mip_info.StartTileIndexInOverallResource == (packed_mip_info.NumPackedMips ? tile_index : 0),
+                "Unexpected mip tail start tile index %u.\n", packed_mip_info.StartTileIndexInOverallResource);
+
+        ID3D12Resource_Release(resource);
+    }
+    vkd3d_test_set_context(NULL);
+
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -41556,4 +41785,5 @@ START_TEST(d3d12)
     run_test(test_stencil_export_dxbc);
     run_test(test_stencil_export_dxil);
     run_test(test_raytracing);
+    run_test(test_get_resource_tiling);
 }
