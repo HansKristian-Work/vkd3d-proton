@@ -2550,6 +2550,40 @@ static void test_create_reserved_resource(void)
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
+    /* Depth-Stencil formats not allowed */
+    resource_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
+    hr = ID3D12Device_CreateReservedResource(device,
+        &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+        &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(resource);
+
+    /* More than one layer not allowed if some mips may be packed */
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UINT;
+    resource_desc.DepthOrArraySize = 4;
+    resource_desc.MipLevels = 10;
+    hr = ID3D12Device_CreateReservedResource(device,
+        &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+        &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(resource);
+
+    /* 1D not allowed */
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UINT;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    hr = ID3D12Device_CreateReservedResource(device,
+        &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+        &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(resource);
+
 done:
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
