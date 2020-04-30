@@ -40550,7 +40550,7 @@ static void test_stencil_export(bool use_dxil)
     }
 
     hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
-    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n");
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
 
     if (!options.PSSpecifiedStencilRefSupported)
     {
