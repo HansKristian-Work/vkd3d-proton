@@ -3362,7 +3362,7 @@ static VkBorderColor vk_static_border_color_from_d3d12(D3D12_STATIC_BORDER_COLOR
     }
 }
 
-static VkBorderColor vk_border_color_from_d3d12(const float *border_color)
+static VkBorderColor vk_border_color_from_d3d12(struct d3d12_device *device, const float *border_color)
 {
     unsigned int i;
 
@@ -3383,9 +3383,14 @@ static VkBorderColor vk_border_color_from_d3d12(const float *border_color)
             return border_colors[i].vk_border_color;
     }
 
-    FIXME("Unsupported border color (%f, %f, %f, %f).\n",
-            border_color[0], border_color[1], border_color[2], border_color[3]);
-    return VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+    if (!device->device_info.custom_border_color_features.customBorderColorWithoutFormat)
+    {
+        FIXME("Unsupported border color (%f, %f, %f, %f).\n",
+                border_color[0], border_color[1], border_color[2], border_color[3]);
+        return VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+    }
+
+    return VK_BORDER_COLOR_FLOAT_CUSTOM_EXT;
 }
 
 HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
@@ -3427,8 +3432,15 @@ static HRESULT d3d12_create_sampler(struct d3d12_device *device,
         const D3D12_SAMPLER_DESC *desc, VkSampler *vk_sampler)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct VkSamplerCreateInfo sampler_desc;
+    VkSamplerCustomBorderColorCreateInfoEXT border_color_info;
+    VkSamplerCreateInfo sampler_desc;
     VkResult vr;
+
+    border_color_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT;
+    border_color_info.pNext = NULL;
+    memcpy(border_color_info.customBorderColor.float32, desc->BorderColor,
+            sizeof(border_color_info.customBorderColor.float32));
+    border_color_info.format = VK_FORMAT_UNDEFINED;
 
     sampler_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     sampler_desc.pNext = NULL;
@@ -3450,7 +3462,10 @@ static HRESULT d3d12_create_sampler(struct d3d12_device *device,
     sampler_desc.unnormalizedCoordinates = VK_FALSE;
 
     if (d3d12_sampler_needs_border_color(desc->AddressU, desc->AddressV, desc->AddressW))
-        sampler_desc.borderColor = vk_border_color_from_d3d12(desc->BorderColor);
+        sampler_desc.borderColor = vk_border_color_from_d3d12(device, desc->BorderColor);
+
+    if (sampler_desc.borderColor == VK_BORDER_COLOR_FLOAT_CUSTOM_EXT)
+        sampler_desc.pNext = &border_color_info;
 
     if ((vr = VK_CALL(vkCreateSampler(device->vk_device, &sampler_desc, NULL, vk_sampler))) < 0)
         WARN("Failed to create Vulkan sampler, vr %d.\n", vr);
