@@ -117,6 +117,7 @@ struct vkd3d_vulkan_info
     bool KHR_timeline_semaphore;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
+    bool EXT_custom_border_color;
     bool EXT_debug_marker;
     bool EXT_depth_clip_enable;
     bool EXT_descriptor_indexing;
@@ -1507,6 +1508,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceSubgroupProperties subgroup_properties;
     VkPhysicalDeviceTimelineSemaphorePropertiesKHR timeline_semaphore_properties;
     VkPhysicalDeviceSubgroupSizeControlPropertiesEXT subgroup_size_control_properties;
+    VkPhysicalDeviceCustomBorderColorPropertiesEXT custom_border_color_properties;
     VkPhysicalDeviceShaderCorePropertiesAMD shader_core_properties;
     VkPhysicalDeviceShaderCoreProperties2AMD shader_core_properties2;
     VkPhysicalDeviceShaderSMBuiltinsPropertiesNV shader_sm_builtins_properties;
@@ -1523,6 +1525,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT texel_buffer_alignment_features;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
+    VkPhysicalDeviceCustomBorderColorFeaturesEXT custom_border_color_features;
     VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline_semaphore_features;
 
     VkPhysicalDeviceFeatures2 features2;
