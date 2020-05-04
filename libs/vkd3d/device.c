@@ -153,6 +153,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_TIMELINE_SEMAPHORE, KHR_timeline_semaphore),
     /* EXT extensions */
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
+    VK_EXTENSION(EXT_CUSTOM_BORDER_COLOR, EXT_custom_border_color),
     VK_EXTENSION(EXT_DEBUG_MARKER, EXT_debug_marker),
     VK_EXTENSION(EXT_DEPTH_CLIP_ENABLE, EXT_depth_clip_enable),
     VK_EXTENSION(EXT_DESCRIPTOR_INDEXING, EXT_descriptor_indexing),
@@ -708,6 +709,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceSubgroupSizeControlPropertiesEXT *subgroup_size_control_properties;
     VkPhysicalDeviceInlineUniformBlockPropertiesEXT *inline_uniform_block_properties;
     VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *buffer_device_address_features;
+    VkPhysicalDeviceCustomBorderColorPropertiesEXT *custom_border_color_properties;
     VkPhysicalDeviceConditionalRenderingFeaturesEXT *conditional_rendering_features;
     VkPhysicalDeviceDescriptorIndexingPropertiesEXT *descriptor_indexing_properties;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT *vertex_divisor_properties;
@@ -719,6 +721,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *vertex_divisor_features;
     VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT *buffer_alignment_features;
     VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT *demote_features;
+    VkPhysicalDeviceCustomBorderColorFeaturesEXT *custom_border_color_features;
     VkPhysicalDeviceTimelineSemaphoreFeaturesKHR *timeline_semaphore_features;
     VkPhysicalDevicePushDescriptorPropertiesKHR *push_descriptor_properties;
     VkPhysicalDeviceShaderCoreProperties2AMD *shader_core_properties2;
@@ -751,6 +754,8 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     subgroup_properties = &info->subgroup_properties;
     timeline_semaphore_features = &info->timeline_semaphore_features;
     timeline_semaphore_properties = &info->timeline_semaphore_properties;
+    custom_border_color_properties = &info->custom_border_color_properties;
+    custom_border_color_features = &info->custom_border_color_features;
     subgroup_size_control_properties = &info->subgroup_size_control_properties;
     shader_core_properties = &info->shader_core_properties;
     shader_core_properties2 = &info->shader_core_properties2;
@@ -792,6 +797,14 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         conditional_rendering_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT;
         vk_prepend_struct(&info->features2, conditional_rendering_features);
+    }
+
+    if (vulkan_info->EXT_custom_border_color)
+    {
+        custom_border_color_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, custom_border_color_features);
+        custom_border_color_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, custom_border_color_properties);
     }
 
     if (vulkan_info->EXT_depth_clip_enable)
@@ -1159,6 +1172,7 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
     const VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT *demote_features;
     const VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT *buffer_alignment_features;
     const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
+    const VkPhysicalDeviceCustomBorderColorFeaturesEXT *border_color_features;
     const VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
     const VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
     const VkPhysicalDeviceFeatures *features = &info->features2.features;
@@ -1295,6 +1309,11 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
             divisor_features->vertexAttributeInstanceRateDivisor);
     TRACE("    vertexAttributeInstanceRateZeroDivisor: %#x.\n",
             divisor_features->vertexAttributeInstanceRateZeroDivisor);
+
+    border_color_features = &info->custom_border_color_features;
+    TRACE("  VkPhysicalDeviceCustomBorderColorFeaturesEXT:\n");
+    TRACE("    customBorderColors: %#x\n", border_color_features->customBorderColors);
+    TRACE("    customBorderColorWithoutFormat: %#x\n", border_color_features->customBorderColorWithoutFormat);
 }
 
 static HRESULT vkd3d_init_device_extensions(struct d3d12_device *device,
