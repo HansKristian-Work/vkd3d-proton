@@ -61,6 +61,8 @@
 #define VKD3D_MAX_DESCRIPTOR_SETS 8u
 #define VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS 6u
 
+#define VKD3D_PIPELINE_BIND_POINT_COUNT 2u
+
 struct d3d12_command_list;
 struct d3d12_device;
 struct d3d12_resource;
@@ -1163,8 +1165,8 @@ struct d3d12_command_list
     VkRenderPass current_render_pass;
     VkBuffer uav_counter_address_buffer;
     struct vkd3d_dynamic_state dynamic_state;
-    struct vkd3d_pipeline_bindings pipeline_bindings[VK_PIPELINE_BIND_POINT_RANGE_SIZE];
-    struct vkd3d_descriptor_updates packed_descriptors[VK_PIPELINE_BIND_POINT_RANGE_SIZE];
+    struct vkd3d_pipeline_bindings pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_COUNT];
+    struct vkd3d_descriptor_updates packed_descriptors[VKD3D_PIPELINE_BIND_POINT_COUNT];
 
     VkDescriptorSet descriptor_heaps[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
 
