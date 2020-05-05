@@ -6519,17 +6519,173 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetDevice(ID3D12CommandQueu
     return d3d12_device_query_interface(command_queue->device, iid, device);
 }
 
+static unsigned int vkd3d_get_tile_index_from_coordinate(const struct d3d12_sparse_info *sparse,
+        const D3D12_TILED_RESOURCE_COORDINATE *coord)
+{
+    const D3D12_SUBRESOURCE_TILING *tiling = &sparse->tilings[coord->Subresource];
+
+    if (tiling->StartTileIndexInOverallResource == ~0u)
+        return sparse->packed_mips.StartTileIndexInOverallResource + coord->X;
+
+    return tiling->StartTileIndexInOverallResource + coord->X +
+            tiling->WidthInTiles * (coord->Y + tiling->HeightInTiles * coord->Z);
+}
+
+static unsigned int vkd3d_get_tile_index_from_region(const struct d3d12_sparse_info *sparse,
+        const D3D12_TILED_RESOURCE_COORDINATE *coord, const D3D12_TILE_REGION_SIZE *size,
+        unsigned int tile_index_in_region)
+{
+    if (!size->UseBox)
+    {
+        /* Tiles are already ordered by subresource and coordinates correctly,
+         * so we can just add the tile index to the region's base index */
+        return vkd3d_get_tile_index_from_coordinate(sparse, coord) + tile_index_in_region;
+    }
+    else
+    {
+        D3D12_TILED_RESOURCE_COORDINATE box_coord = *coord;
+        box_coord.X += (tile_index_in_region % size->Width);
+        box_coord.Y += (tile_index_in_region / size->Width) % size->Height;
+        box_coord.Z += (tile_index_in_region / (size->Width * size->Height));
+        return vkd3d_get_tile_index_from_coordinate(sparse, &box_coord);
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12CommandQueue *iface,
-        ID3D12Resource *resource, UINT region_count, const D3D12_TILED_RESOURCE_COORDINATE *region_start_coordinates,
+        ID3D12Resource *resource, UINT region_count, const D3D12_TILED_RESOURCE_COORDINATE *region_coords,
         const D3D12_TILE_REGION_SIZE *region_sizes, ID3D12Heap *heap, UINT range_count,
         const D3D12_TILE_RANGE_FLAGS *range_flags, UINT *heap_range_offsets, UINT *range_tile_counts,
         D3D12_TILE_MAPPING_FLAGS flags)
 {
-    FIXME("iface %p, resource %p, region_count %u, region_start_coordinates %p, "
+    struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
+    unsigned int region_tile = 0, region_idx = 0, range_tile = 0, range_idx = 0;
+    struct d3d12_resource *res = unsafe_impl_from_ID3D12Resource(resource);
+    struct d3d12_heap *memory_heap = unsafe_impl_from_ID3D12Heap(heap);
+    struct vkd3d_sparse_memory_bind *bind, **bound_tiles;
+    struct d3d12_sparse_info *sparse = &res->sparse;
+    D3D12_TILED_RESOURCE_COORDINATE region_coord;
+    struct d3d12_command_queue_submission sub;
+    D3D12_TILE_REGION_SIZE region_size;
+    D3D12_TILE_RANGE_FLAGS range_flag;
+    UINT range_size, range_offset;
+    size_t bind_infos_size = 0;
+
+    TRACE("iface %p, resource %p, region_count %u, region_coords %p, "
             "region_sizes %p, heap %p, range_count %u, range_flags %p, heap_range_offsets %p, "
-            "range_tile_counts %p, flags %#x stub!\n",
-            iface, resource, region_count, region_start_coordinates, region_sizes, heap,
+            "range_tile_counts %p, flags %#x.\n",
+            iface, resource, region_count, region_coords, region_sizes, heap,
             range_count, range_flags, heap_range_offsets, range_tile_counts, flags);
+
+    if (!region_count || !range_count)
+        return;
+
+    sub.type = VKD3D_SUBMISSION_BIND_SPARSE;
+    sub.u.bind_sparse.mode = VKD3D_SPARSE_MEMORY_BIND_MODE_UPDATE;
+    sub.u.bind_sparse.bind_count = 0;
+    sub.u.bind_sparse.bind_infos = NULL;
+    sub.u.bind_sparse.dst_resource = res;
+    sub.u.bind_sparse.src_resource = NULL;
+
+    if (region_coords)
+        region_coord = region_coords[0];
+    else
+    {
+        region_coord.X = 0;
+        region_coord.Y = 0;
+        region_coord.Z = 0;
+        region_coord.Subresource = 0;
+    }
+
+    if (region_sizes)
+        region_size = region_sizes[0];
+    else
+    {
+        region_size.NumTiles = region_coords ? 1 : sparse->tile_count;
+        region_size.UseBox = false;
+        region_size.Width = 0;
+        region_size.Height = 0;
+        region_size.Depth = 0;
+    }
+
+    range_flag = range_flags ? range_flags[0] : D3D12_TILE_RANGE_FLAG_NONE;
+    range_size = range_tile_counts ? range_tile_counts[0] : ~0u;
+    range_offset = heap_range_offsets ? heap_range_offsets[0] : 0;
+
+    if (!(bound_tiles = vkd3d_calloc(sparse->tile_count, sizeof(*bound_tiles))))
+    {
+        ERR("Failed to allocate tile mapping table.\n");
+        return;
+    }
+
+    while (region_idx < region_count && range_idx < range_count)
+    {
+        if (range_flag != D3D12_TILE_RANGE_FLAG_SKIP)
+        {
+            unsigned int tile_index = vkd3d_get_tile_index_from_region(sparse, &region_coord, &region_size, region_tile);
+
+            if (!(bind = bound_tiles[tile_index]))
+            {
+                if (!vkd3d_array_reserve((void **)&sub.u.bind_sparse.bind_infos, &bind_infos_size,
+                        sub.u.bind_sparse.bind_count + 1, sizeof(*sub.u.bind_sparse.bind_infos)))
+                {
+                    ERR("Failed to allocate bind info array.\n");
+                    goto fail;
+                }
+
+                bind = &sub.u.bind_sparse.bind_infos[sub.u.bind_sparse.bind_count++];
+                bound_tiles[tile_index] = bind;
+            }
+
+            bind->dst_tile = tile_index;
+            bind->src_tile = 0;
+
+            if (range_flag == D3D12_TILE_RANGE_FLAG_NULL)
+            {
+                bind->vk_memory = VK_NULL_HANDLE;
+                bind->vk_offset = 0;
+            }
+            else
+            {
+                bind->vk_memory = memory_heap->vk_memory;
+                bind->vk_offset = VKD3D_TILE_SIZE * range_offset;
+
+                if (range_flag != D3D12_TILE_RANGE_FLAG_REUSE_SINGLE_TILE)
+                    bind->vk_offset += VKD3D_TILE_SIZE * range_tile;
+            }
+        }
+
+        if (++range_tile == range_size)
+        {
+            range_idx += 1;
+            range_tile = 0;
+
+            if (range_flags)
+                range_flag = range_flags[range_idx];
+
+            range_size = range_tile_counts[range_idx];
+            range_offset = heap_range_offsets[range_idx];
+        }
+
+        if (++region_tile == region_size.NumTiles)
+        {
+            region_idx += 1;
+            region_tile = 0;
+
+            if (region_coords)
+                region_coord = region_coords[region_idx];
+
+            if (region_sizes)
+                region_size = region_sizes[region_idx];
+        }
+    }
+
+    vkd3d_free(bound_tiles);
+    d3d12_command_queue_add_submission(command_queue, &sub);
+    return;
+
+fail:
+    vkd3d_free(bound_tiles);
+    vkd3d_free(sub.u.bind_sparse.bind_infos);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_queue_CopyTileMappings(ID3D12CommandQueue *iface,
