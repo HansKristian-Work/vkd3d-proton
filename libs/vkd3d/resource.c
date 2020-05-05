@@ -1284,6 +1284,12 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
     if (resource->flags & VKD3D_RESOURCE_EXTERNAL)
         return;
 
+    if (resource->flags & VKD3D_RESOURCE_SPARSE)
+    {
+        vkd3d_free(resource->sparse.tiles);
+        vkd3d_free(resource->sparse.tilings);
+    }
+
     if (!(resource->flags & VKD3D_RESOURCE_PLACED_BUFFER))
     {
         if (resource->gpu_address)
@@ -2056,6 +2062,105 @@ static bool d3d12_resource_validate_heap_properties(const struct d3d12_resource 
     return true;
 }
 
+static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
+        struct d3d12_device *device, struct d3d12_sparse_info *sparse)
+{
+    VkSparseImageMemoryRequirements vk_memory_requirements;
+    unsigned int i, subresource;
+    VkOffset3D tile_offset;
+
+    memset(sparse, 0, sizeof(*sparse));
+
+    if (!(resource->flags & VKD3D_RESOURCE_SPARSE))
+        return S_OK;
+
+    sparse->tiling_count = d3d12_resource_desc_get_sub_resource_count(&resource->desc);
+    sparse->tile_count = 0;
+
+    if (!(sparse->tilings = vkd3d_malloc(sparse->tiling_count * sizeof(*sparse->tilings))))
+    {
+        ERR("Failed to allocate subresource tiling info array.\n");
+        return E_OUTOFMEMORY;
+    }
+
+    d3d12_resource_get_tiling(device, resource, &sparse->tile_count, &sparse->packed_mips,
+            &sparse->tile_shape, sparse->tilings, &vk_memory_requirements);
+
+    if (!(sparse->tiles = vkd3d_malloc(sparse->tile_count * sizeof(*sparse->tiles))))
+    {
+        ERR("Failed to allocate tile mapping array.\n");
+        return E_OUTOFMEMORY;
+    }
+
+    tile_offset.x = 0;
+    tile_offset.y = 0;
+    tile_offset.z = 0;
+    subresource = 0;
+
+    for (i = 0; i < sparse->tile_count; i++)
+    {
+        if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        {
+            VkDeviceSize offset = VKD3D_TILE_SIZE * i;
+            sparse->tiles[i].u.buffer.offset = offset;
+            sparse->tiles[i].u.buffer.length = min(VKD3D_TILE_SIZE, resource->desc.Width - offset);
+        }
+        else if (i >= sparse->packed_mips.StartTileIndexInOverallResource)
+        {
+            VkDeviceSize offset = VKD3D_TILE_SIZE * (i - sparse->packed_mips.StartTileIndexInOverallResource);
+            sparse->tiles[i].u.buffer.offset = vk_memory_requirements.imageMipTailOffset + offset;
+            sparse->tiles[i].u.buffer.length = min(VKD3D_TILE_SIZE, vk_memory_requirements.imageMipTailSize - offset);
+        }
+        else
+        {
+            struct d3d12_sparse_image_region *region = &sparse->tiles[i].u.image;
+            VkExtent3D block_extent = vk_memory_requirements.formatProperties.imageGranularity;
+            VkExtent3D mip_extent;
+
+            assert(subresource < sparse->tiling_count && sparse->tilings[subresource].WidthInTiles &&
+                    sparse->tilings[subresource].HeightInTiles && sparse->tilings[subresource].DepthInTiles);
+
+            region->subresource.aspectMask = vk_memory_requirements.formatProperties.aspectMask;
+            region->subresource.mipLevel = subresource % resource->desc.MipLevels;
+            region->subresource.arrayLayer = subresource / resource->desc.MipLevels;
+
+            region->offset.x = tile_offset.x * block_extent.width;
+            region->offset.y = tile_offset.y * block_extent.height;
+            region->offset.z = tile_offset.z * block_extent.depth;
+
+            mip_extent.width = d3d12_resource_desc_get_width(&resource->desc, region->subresource.mipLevel);
+            mip_extent.height = d3d12_resource_desc_get_height(&resource->desc, region->subresource.mipLevel);
+            mip_extent.depth = d3d12_resource_desc_get_depth(&resource->desc, region->subresource.mipLevel);
+
+            region->extent.width = min(block_extent.width, mip_extent.width - region->offset.x);
+            region->extent.height = min(block_extent.height, mip_extent.height - region->offset.y);
+            region->extent.depth = min(block_extent.depth, mip_extent.depth - region->offset.z);
+
+            if (++tile_offset.x == sparse->tilings[subresource].WidthInTiles)
+            {
+                tile_offset.x = 0;
+                if (++tile_offset.y == sparse->tilings[subresource].HeightInTiles)
+                {
+                    tile_offset.y = 0;
+                    if (++tile_offset.z == sparse->tilings[subresource].DepthInTiles)
+                    {
+                        tile_offset.z = 0;
+
+                        /* Find next subresource that is not part of the packed mip tail */
+                        while ((++subresource % resource->desc.MipLevels) >= sparse->packed_mips.NumStandardMips)
+                            continue;
+                    }
+                }
+            }
+        }
+
+        sparse->tiles[i].vk_memory = VK_NULL_HANDLE;
+        sparse->tiles[i].vk_offset = 0;
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
@@ -2140,6 +2245,12 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     }
 
     resource->initial_state = initial_state;
+
+    if (FAILED(hr = d3d12_resource_init_sparse_info(resource, device, &resource->sparse)))
+    {
+        d3d12_resource_destroy(resource, device);
+        return hr;
+    }
 
     resource->heap = NULL;
     resource->heap_offset = 0;
@@ -2359,6 +2470,8 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device,
     object->flags |= create_info->flags & VKD3D_RESOURCE_PUBLIC_FLAGS;
     object->initial_state = D3D12_RESOURCE_STATE_COMMON;
     object->common_layout = vk_common_image_layout_from_d3d12_desc(&object->desc);
+
+    memset(&object->sparse, 0, sizeof(object->sparse));
 
     /* DXGI only allows transfer and render target usage */
     if (object->flags & VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)

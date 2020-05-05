@@ -419,6 +419,40 @@ struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface) DECLSPEC_HIDDE
 #define VKD3D_RESOURCE_PLACED_BUFFER  0x00000020
 #define VKD3D_RESOURCE_SPARSE         0x00000040
 
+struct d3d12_sparse_image_region
+{
+    VkImageSubresource subresource;
+    VkOffset3D offset;
+    VkExtent3D extent;
+};
+
+struct d3d12_sparse_buffer_region
+{
+    VkDeviceSize offset;
+    VkDeviceSize length;
+};
+
+struct d3d12_sparse_tile
+{
+    union
+    {
+        struct d3d12_sparse_image_region image;
+        struct d3d12_sparse_buffer_region buffer;
+    } u;
+    VkDeviceMemory vk_memory;
+    VkDeviceSize vk_offset;
+};
+
+struct d3d12_sparse_info
+{
+    uint32_t tile_count;
+    uint32_t tiling_count;
+    struct d3d12_sparse_tile *tiles;
+    D3D12_TILE_SHAPE tile_shape;
+    D3D12_PACKED_MIP_INFO packed_mips;
+    D3D12_SUBRESOURCE_TILING *tilings;
+};
+
 /* ID3D12Resource */
 typedef ID3D12Resource1 d3d12_resource_iface;
 
@@ -444,6 +478,8 @@ struct d3d12_resource
     VkImageLayout common_layout;
     D3D12_RESOURCE_STATES initial_state;
     D3D12_RESOURCE_STATES present_state;
+
+    struct d3d12_sparse_info sparse;
 
     struct d3d12_device *device;
 
