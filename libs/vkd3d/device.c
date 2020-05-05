@@ -3608,17 +3608,34 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandSignature(d3d12_devic
 }
 
 static void STDMETHODCALLTYPE d3d12_device_GetResourceTiling(d3d12_device_iface *iface,
-        ID3D12Resource *resource, UINT *total_tile_count,
-        D3D12_PACKED_MIP_INFO *packed_mip_info, D3D12_TILE_SHAPE *standard_tile_shape,
-        UINT *sub_resource_tiling_count, UINT first_sub_resource_tiling,
-        D3D12_SUBRESOURCE_TILING *sub_resource_tilings)
+        ID3D12Resource *resource, UINT *tile_count, D3D12_PACKED_MIP_INFO *packed_mip_info,
+        D3D12_TILE_SHAPE *tile_shape, UINT *tiling_count, UINT first_tiling,
+        D3D12_SUBRESOURCE_TILING *tilings)
 {
-    FIXME("iface %p, resource %p, total_tile_count %p, packed_mip_info %p, "
-            "standard_title_shape %p, sub_resource_tiling_count %p, "
-            "first_sub_resource_tiling %u, sub_resource_tilings %p stub!\n",
-            iface, resource, total_tile_count, packed_mip_info, standard_tile_shape,
-            sub_resource_tiling_count, first_sub_resource_tiling,
-            sub_resource_tilings);
+    struct d3d12_sparse_info *sparse = &unsafe_impl_from_ID3D12Resource(resource)->sparse;
+    unsigned int max_tiling_count, i;
+
+    TRACE("iface %p, resource %p, tile_count %p, packed_mip_info %p, "
+            "tile_shape %p, tiling_count %p, first_tiling %u, tilings %p.\n",
+            iface, resource, tile_count, packed_mip_info, tile_shape, tiling_count,
+            first_tiling, tilings);
+
+    if (tile_count)
+        *tile_count = sparse->tile_count;
+
+    if (packed_mip_info)
+        *packed_mip_info = sparse->packed_mips;
+
+    if (tile_shape)
+        *tile_shape = sparse->tile_shape;
+
+    max_tiling_count = sparse->tiling_count - min(first_tiling, sparse->tiling_count);
+    max_tiling_count = min(max_tiling_count, *tiling_count);
+
+    for (i = 0; i < max_tiling_count; i++)
+        tilings[i] = sparse->tilings[first_tiling + i];
+
+    *tiling_count = max_tiling_count;
 }
 
 static LUID * STDMETHODCALLTYPE d3d12_device_GetAdapterLuid(d3d12_device_iface *iface, LUID *luid)
