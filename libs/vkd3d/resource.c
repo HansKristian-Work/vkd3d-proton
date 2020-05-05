@@ -934,6 +934,25 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
         image_info.flags |= VK_IMAGE_CREATE_SPARSE_BINDING_BIT |
                 VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT |
                 VK_IMAGE_CREATE_SPARSE_ALIASED_BIT;
+
+        if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D)
+        {
+            WARN("Tiled 1D textures not supported.\n");
+            return E_INVALIDARG;
+        }
+
+        if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D &&
+                device->d3d12_caps.options.TiledResourcesTier < D3D12_TILED_RESOURCES_TIER_3)
+        {
+            WARN("Tiled 3D textures not supported by device.\n");
+            return E_INVALIDARG;
+        }
+
+        if (!is_power_of_two(vkd3d_get_format(device, desc->Format, true)->vk_aspect_mask))
+        {
+            WARN("Multi-planar format %u not supported for tiled resources.\n", desc->Format);
+            return E_INVALIDARG;
+        }
     }
 
     image_info.imageType = vk_image_type_from_d3d12_resource_dimension(desc->Dimension);
