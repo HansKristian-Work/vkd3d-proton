@@ -62,6 +62,8 @@
 
 #define VKD3D_PIPELINE_BIND_POINT_COUNT 2u
 
+#define VKD3D_TILE_SIZE 65536
+
 struct d3d12_command_list;
 struct d3d12_device;
 struct d3d12_resource;
