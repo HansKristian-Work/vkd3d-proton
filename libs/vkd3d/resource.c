@@ -1896,6 +1896,9 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     if (placed && d3d12_resource_is_buffer(resource))
         resource->flags |= VKD3D_RESOURCE_PLACED_BUFFER;
 
+    if (!heap_properties)
+        resource->flags |= VKD3D_RESOURCE_SPARSE;
+
     if (FAILED(hr = d3d12_resource_validate_desc(&resource->desc, device)))
         return hr;
 
