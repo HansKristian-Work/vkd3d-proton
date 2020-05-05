@@ -1254,8 +1254,23 @@ enum vkd3d_submission_type
     VKD3D_SUBMISSION_WAIT,
     VKD3D_SUBMISSION_SIGNAL,
     VKD3D_SUBMISSION_EXECUTE,
+    VKD3D_SUBMISSION_BIND_SPARSE,
     VKD3D_SUBMISSION_STOP,
     VKD3D_SUBMISSION_DRAIN
+};
+
+enum vkd3d_sparse_memory_bind_mode
+{
+    VKD3D_SPARSE_MEMORY_BIND_MODE_UPDATE,
+    VKD3D_SPARSE_MEMORY_BIND_MODE_COPY,
+};
+
+struct vkd3d_sparse_memory_bind
+{
+    uint32_t dst_tile;
+    uint32_t src_tile;
+    VkDeviceMemory vk_memory;
+    VkDeviceSize vk_offset;
 };
 
 struct d3d12_command_queue_submission_wait
@@ -1277,6 +1292,15 @@ struct d3d12_command_queue_submission_execute
     UINT count;
 };
 
+struct d3d12_command_queue_submission_bind_sparse
+{
+    enum vkd3d_sparse_memory_bind_mode mode;
+    uint32_t bind_count;
+    struct vkd3d_sparse_memory_bind *bind_infos;
+    struct d3d12_resource *dst_resource;
+    struct d3d12_resource *src_resource;
+};
+
 struct d3d12_command_queue_submission
 {
     enum vkd3d_submission_type type;
@@ -1285,6 +1309,7 @@ struct d3d12_command_queue_submission
         struct d3d12_command_queue_submission_wait wait;
         struct d3d12_command_queue_submission_signal signal;
         struct d3d12_command_queue_submission_execute execute;
+        struct d3d12_command_queue_submission_bind_sparse bind_sparse;
     } u;
 };
 
