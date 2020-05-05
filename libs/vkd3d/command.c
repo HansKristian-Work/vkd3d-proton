@@ -6693,10 +6693,41 @@ static void STDMETHODCALLTYPE d3d12_command_queue_CopyTileMappings(ID3D12Command
         ID3D12Resource *src_resource, const D3D12_TILED_RESOURCE_COORDINATE *src_region_start_coordinate,
         const D3D12_TILE_REGION_SIZE *region_size, D3D12_TILE_MAPPING_FLAGS flags)
 {
-    FIXME("iface %p, dst_resource %p, dst_region_start_coordinate %p, "
-            "src_resource %p, src_region_start_coordinate %p, region_size %p, flags %#x stub!\n",
+    struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
+    struct d3d12_resource *dst_res = unsafe_impl_from_ID3D12Resource(dst_resource);
+    struct d3d12_resource *src_res = unsafe_impl_from_ID3D12Resource(src_resource);
+    struct d3d12_command_queue_submission sub;
+    struct vkd3d_sparse_memory_bind *bind;
+    unsigned int i;
+
+    TRACE("iface %p, dst_resource %p, dst_region_start_coordinate %p, "
+            "src_resource %p, src_region_start_coordinate %p, region_size %p, flags %#x.\n",
             iface, dst_resource, dst_region_start_coordinate, src_resource,
             src_region_start_coordinate, region_size, flags);
+
+    sub.type = VKD3D_SUBMISSION_BIND_SPARSE;
+    sub.u.bind_sparse.mode = VKD3D_SPARSE_MEMORY_BIND_MODE_COPY;
+    sub.u.bind_sparse.bind_count = region_size->NumTiles;
+    sub.u.bind_sparse.bind_infos = vkd3d_malloc(region_size->NumTiles * sizeof(*sub.u.bind_sparse.bind_infos));
+    sub.u.bind_sparse.dst_resource = dst_res;
+    sub.u.bind_sparse.src_resource = src_res;
+
+    if (!sub.u.bind_sparse.bind_infos)
+    {
+        ERR("Failed to allocate bind info array.\n");
+        return;
+    }
+
+    for (i = 0; i < region_size->NumTiles; i++)
+    {
+        bind = &sub.u.bind_sparse.bind_infos[i];
+        bind->dst_tile = vkd3d_get_tile_index_from_region(&dst_res->sparse, dst_region_start_coordinate, region_size, i);
+        bind->src_tile = vkd3d_get_tile_index_from_region(&src_res->sparse, src_region_start_coordinate, region_size, i);
+        bind->vk_memory = VK_NULL_HANDLE;
+        bind->vk_offset = 0;
+    }
+
+    d3d12_command_queue_add_submission(command_queue, &sub);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12CommandQueue *iface,
