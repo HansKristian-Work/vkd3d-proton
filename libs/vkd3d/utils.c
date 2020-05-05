@@ -580,11 +580,6 @@ bool is_write_resource_state(D3D12_RESOURCE_STATES state)
             | D3D12_RESOURCE_STATE_RESOLVE_DEST);
 }
 
-static bool is_power_of_two(unsigned int x)
-{
-    return x && !(x & (x -1));
-}
-
 bool is_valid_resource_state(D3D12_RESOURCE_STATES state)
 {
     const D3D12_RESOURCE_STATES valid_states =
