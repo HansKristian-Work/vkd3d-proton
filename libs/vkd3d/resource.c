@@ -880,6 +880,30 @@ static VkImageLayout vk_common_image_layout_from_d3d12_desc(const D3D12_RESOURCE
     return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 }
 
+static bool vkd3d_sparse_image_may_have_mip_tail(const D3D12_RESOURCE_DESC *desc,
+        const VkSparseImageFormatProperties *sparse_info)
+{
+    VkExtent3D mip_extent, block_extent = sparse_info->imageGranularity;
+    unsigned int mip_level;
+
+    /* probe smallest mip level in the image */
+    mip_level = desc->MipLevels - 1;
+    mip_extent.width = d3d12_resource_desc_get_width(desc, mip_level);
+    mip_extent.height = d3d12_resource_desc_get_height(desc, mip_level);
+    mip_extent.depth = d3d12_resource_desc_get_depth(desc, mip_level);
+
+    if (sparse_info->flags & VK_SPARSE_IMAGE_FORMAT_ALIGNED_MIP_SIZE_BIT)
+    {
+        return mip_extent.width % block_extent.width ||
+                mip_extent.height % block_extent.height ||
+                mip_extent.depth % block_extent.depth;
+    }
+
+    return mip_extent.width < block_extent.width ||
+            mip_extent.height < block_extent.height ||
+            mip_extent.depth < block_extent.depth;
+}
+
 static HRESULT vkd3d_create_image(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, struct d3d12_resource *resource, VkImage *vk_image)
@@ -891,6 +915,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     const struct vkd3d_format *format;
     VkImageCreateInfo image_info;
     DXGI_FORMAT typeless_format;
+    unsigned int i;
     VkResult vr;
 
     if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
@@ -1046,6 +1071,38 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     else
     {
         image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+
+    if (sparse_resource)
+    {
+        VkSparseImageFormatProperties sparse_infos[2];
+        uint32_t sparse_info_count = ARRAY_SIZE(sparse_infos);
+
+        // D3D12 only allows sparse images with one aspect, so we can only
+        // get one struct for metadata aspect and one for the data aspect
+        VK_CALL(vkGetPhysicalDeviceSparseImageFormatProperties(
+                device->vk_physical_device, image_info.format,
+                image_info.imageType, image_info.samples, image_info.usage,
+                image_info.tiling, &sparse_info_count, sparse_infos));
+
+        if (!sparse_info_count)
+        {
+            ERR("Sparse images not supported with format %u, type %u, samples %u, usage %#x, tiling %u.\n",
+                    image_info.format, image_info.imageType, image_info.samples, image_info.usage, image_info.tiling);
+            return E_INVALIDARG;
+        }
+
+        for (i = 0; i < sparse_info_count; i++)
+        {
+            if (sparse_infos[i].aspectMask & VK_IMAGE_ASPECT_METADATA_BIT)
+                continue;
+
+            if (vkd3d_sparse_image_may_have_mip_tail(desc, &sparse_infos[i]) && desc->DepthOrArraySize > 1 && desc->MipLevels > 1)
+            {
+                WARN("Multiple array layers not supported for sparse images with mip tail.\n");
+                return E_INVALIDARG;
+            }
+        }
     }
 
     if (resource)
