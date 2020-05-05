@@ -210,6 +210,11 @@ static inline LONG InterlockedDecrement(LONG volatile *x)
 # define atomic_load_acquire(ptr) atomic_add_fetch(ptr, 0)
 #endif
 
+static inline bool is_power_of_two(unsigned int x)
+{
+    return x && !(x & (x -1));
+}
+
 static inline void vkd3d_parse_version(const char *version, int *major, int *minor)
 {
     *major = atoi(version);
