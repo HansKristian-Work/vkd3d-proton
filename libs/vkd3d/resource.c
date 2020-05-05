@@ -1155,6 +1155,128 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     return hr;
 }
 
+static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_resource *resource,
+        UINT *total_tile_count, D3D12_PACKED_MIP_INFO *packed_mip_info, D3D12_TILE_SHAPE *tile_shape,
+        D3D12_SUBRESOURCE_TILING *tilings, VkSparseImageMemoryRequirements *vk_info)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkSparseImageMemoryRequirements *memory_requirements = NULL;
+    unsigned int i, tile_count, packed_tiles, standard_mips;
+    const D3D12_RESOURCE_DESC *desc = &resource->desc;
+    uint32_t memory_requirement_count = 0;
+    VkExtent3D block_extent;
+
+    memset(vk_info, 0, sizeof(*vk_info));
+
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+    {
+        tile_count = align(desc->Width, VKD3D_TILE_SIZE) / VKD3D_TILE_SIZE;
+
+        packed_mip_info->NumStandardMips = 0;
+        packed_mip_info->NumPackedMips = 0;
+        packed_mip_info->NumTilesForPackedMips = 0;
+        packed_mip_info->StartTileIndexInOverallResource = 0;
+
+        tile_shape->WidthInTexels = VKD3D_TILE_SIZE;
+        tile_shape->HeightInTexels = 1;
+        tile_shape->DepthInTexels = 1;
+
+        tilings[0].WidthInTiles = tile_count;
+        tilings[0].HeightInTiles = 1;
+        tilings[0].DepthInTiles = 1;
+        tilings[0].StartTileIndexInOverallResource = 0;
+
+        *total_tile_count = tile_count;
+    }
+    else
+    {
+        VK_CALL(vkGetImageSparseMemoryRequirements(device->vk_device,
+                resource->u.vk_image, &memory_requirement_count, NULL));
+
+        if (!memory_requirement_count)
+        {
+            ERR("Failed to query sparse memory requirements.\n");
+            return;
+        }
+
+        memory_requirements = vkd3d_malloc(memory_requirement_count * sizeof(*memory_requirements));
+
+        VK_CALL(vkGetImageSparseMemoryRequirements(device->vk_device,
+                resource->u.vk_image, &memory_requirement_count, memory_requirements));
+
+        for (i = 0; i < memory_requirement_count; i++)
+        {
+            if (!(memory_requirements[i].formatProperties.aspectMask & VK_IMAGE_ASPECT_METADATA_BIT))
+                *vk_info = memory_requirements[i];
+        }
+
+        vkd3d_free(memory_requirements);
+
+        /* Assume that there is no mip tail if either the size is zero or
+         * if the first LOD is out of range. It's not clear what drivers
+         * are supposed to report here if the image has no mip tail. */
+        standard_mips = vk_info->imageMipTailSize
+                ? min(desc->MipLevels, vk_info->imageMipTailFirstLod)
+                : desc->MipLevels;
+
+        packed_tiles = standard_mips < desc->MipLevels
+                ? align(vk_info->imageMipTailSize, VKD3D_TILE_SIZE) / VKD3D_TILE_SIZE
+                : 0;
+
+        if (!(vk_info->formatProperties.flags & VK_SPARSE_IMAGE_FORMAT_SINGLE_MIPTAIL_BIT))
+            packed_tiles *= d3d12_resource_desc_get_layer_count(desc);
+
+        block_extent = vk_info->formatProperties.imageGranularity;
+        tile_count = 0;
+
+        for (i = 0; i < d3d12_resource_desc_get_sub_resource_count(desc); i++)
+        {
+            unsigned int mip_level = i % desc->MipLevels;
+            unsigned int tile_count_w = align(d3d12_resource_desc_get_width(desc, mip_level), block_extent.width) / block_extent.width;
+            unsigned int tile_count_h = align(d3d12_resource_desc_get_height(desc, mip_level), block_extent.height) / block_extent.height;
+            unsigned int tile_count_d = align(d3d12_resource_desc_get_depth(desc, mip_level), block_extent.depth) / block_extent.depth;
+
+            if (mip_level < standard_mips)
+            {
+                tilings[i].WidthInTiles = tile_count_w;
+                tilings[i].HeightInTiles = tile_count_h;
+                tilings[i].DepthInTiles = tile_count_d;
+                tilings[i].StartTileIndexInOverallResource = tile_count;
+                tile_count += tile_count_w * tile_count_h * tile_count_d;
+            }
+            else
+            {
+                tilings[i].WidthInTiles = 0;
+                tilings[i].HeightInTiles = 0;
+                tilings[i].DepthInTiles = 0;
+                tilings[i].StartTileIndexInOverallResource = ~0u;
+            }
+        }
+
+        packed_mip_info->NumStandardMips = standard_mips;
+        packed_mip_info->NumTilesForPackedMips = packed_tiles;
+        packed_mip_info->NumPackedMips = desc->MipLevels - standard_mips;
+        packed_mip_info->StartTileIndexInOverallResource = packed_tiles ? tile_count : 0;
+
+        tile_count += packed_tiles;
+
+        if (standard_mips)
+        {
+            tile_shape->WidthInTexels = block_extent.width;
+            tile_shape->HeightInTexels = block_extent.height;
+            tile_shape->DepthInTexels = block_extent.depth;
+        }
+        else
+        {
+            tile_shape->WidthInTexels = 0;
+            tile_shape->HeightInTexels = 0;
+            tile_shape->DepthInTexels = 0;
+        }
+
+        *total_tile_count = tile_count;
+    }
+}
+
 static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
