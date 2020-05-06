@@ -53,7 +53,6 @@
 #define VKD3D_DESCRIPTOR_MAGIC_RTV     MAKE_MAGIC('R', 'T', 'V', 0)
 
 #define VKD3D_MAX_COMPATIBLE_FORMAT_COUNT 6u
-#define VKD3D_MAX_QUEUE_FAMILY_COUNT      3u
 #define VKD3D_MAX_SHADER_EXTENSIONS       1u
 #define VKD3D_MAX_SHADER_STAGES           5u
 #define VKD3D_MAX_VK_SYNC_OBJECTS         4u
@@ -1545,6 +1544,15 @@ struct d3d12_caps
     D3D_SHADER_MODEL max_shader_model;
 };
 
+enum vkd3d_queue_family
+{
+    VKD3D_QUEUE_FAMILY_GRAPHICS,
+    VKD3D_QUEUE_FAMILY_COMPUTE,
+    VKD3D_QUEUE_FAMILY_TRANSFER,
+
+    VKD3D_QUEUE_FAMILY_COUNT
+};
+
 /* ID3D12Device */
 typedef ID3D12Device6 d3d12_device_iface;
 
@@ -1575,7 +1583,7 @@ struct d3d12_device
     struct vkd3d_queue *direct_queue;
     struct vkd3d_queue *compute_queue;
     struct vkd3d_queue *copy_queue;
-    uint32_t queue_family_indices[VKD3D_MAX_QUEUE_FAMILY_COUNT];
+    uint32_t queue_family_indices[VKD3D_QUEUE_FAMILY_COUNT];
     unsigned int queue_family_count;
 
     struct vkd3d_instance *vkd3d_instance;
