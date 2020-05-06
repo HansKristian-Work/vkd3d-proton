@@ -1549,15 +1549,6 @@ static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
 }
 
 /* Vulkan queues */
-enum vkd3d_queue_family
-{
-    VKD3D_QUEUE_FAMILY_GRAPHICS,
-    VKD3D_QUEUE_FAMILY_COMPUTE,
-    VKD3D_QUEUE_FAMILY_TRANSFER,
-
-    VKD3D_QUEUE_FAMILY_COUNT,
-};
-
 struct vkd3d_device_queue_info
 {
     unsigned int family_index[VKD3D_QUEUE_FAMILY_COUNT];
