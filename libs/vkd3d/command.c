@@ -7017,7 +7017,10 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
         queue->desc.NodeMask = 0x1;
 
     if (!(queue->vkd3d_queue = d3d12_device_get_vkd3d_queue(device, desc->Type)))
-        return E_NOTIMPL;
+    {
+        hr = E_NOTIMPL;
+        goto fail;
+    }
 
     queue->submissions = NULL;
     queue->submissions_count = 0;
@@ -7026,29 +7029,46 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     queue->queue_drain_count = 0;
 
     if ((rc = pthread_mutex_init(&queue->queue_lock, NULL)) < 0)
-        return E_FAIL;
-    if ((rc = pthread_cond_init(&queue->queue_cond, NULL)) < 0)
-        return E_FAIL;
-    if ((rc = pthread_create(&queue->submission_thread, NULL, d3d12_command_queue_submission_worker_main, queue)) < 0)
-        return E_FAIL;
-
-    if (desc->Priority == D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME)
     {
-        FIXME("Global realtime priority is not implemented.\n");
-        return E_NOTIMPL;
+        hr = hresult_from_errno(rc);
+        goto fail;
     }
 
+    if ((rc = pthread_cond_init(&queue->queue_cond, NULL)) < 0)
+    {
+        hr = hresult_from_errno(rc);
+        goto fail_pthread_cond;
+    }
+
+    if ((rc = pthread_create(&queue->submission_thread, NULL, d3d12_command_queue_submission_worker_main, queue)) < 0)
+    {
+        hr = hresult_from_errno(rc);
+        goto fail_pthread_create;
+    }
+
+    if (desc->Priority == D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME)
+        FIXME("Global realtime priority is not implemented.\n");
     if (desc->Priority)
         FIXME("Ignoring priority %#x.\n", desc->Priority);
     if (desc->Flags)
         FIXME("Ignoring flags %#x.\n", desc->Flags);
 
     if (FAILED(hr = vkd3d_private_store_init(&queue->private_store)))
-        return hr;
+        goto fail_private_store;
 
     d3d12_device_add_ref(queue->device = device);
 
     return S_OK;
+
+fail_private_store:
+    d3d12_command_queue_submit_stop(queue);
+    pthread_join(queue->submission_thread, NULL);
+fail_pthread_create:
+    pthread_cond_destroy(&queue->queue_cond);
+fail_pthread_cond:
+    pthread_mutex_destroy(&queue->queue_lock);
+fail:
+    return hr;
 }
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
