@@ -1580,9 +1580,7 @@ struct d3d12_device
     struct vkd3d_vulkan_info vk_info;
     struct vkd3d_physical_device_info device_info;
 
-    struct vkd3d_queue *direct_queue;
-    struct vkd3d_queue *compute_queue;
-    struct vkd3d_queue *copy_queue;
+    struct vkd3d_queue *queues[VKD3D_QUEUE_FAMILY_COUNT];
     uint32_t queue_family_indices[VKD3D_QUEUE_FAMILY_COUNT];
     unsigned int queue_family_count;
 

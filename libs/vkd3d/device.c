@@ -1560,57 +1560,56 @@ struct vkd3d_device_queue_info
 
 static void d3d12_device_destroy_vkd3d_queues(struct d3d12_device *device)
 {
-    if (device->direct_queue)
-        vkd3d_queue_destroy(device->direct_queue, device);
-    if (device->compute_queue && device->compute_queue != device->direct_queue)
-        vkd3d_queue_destroy(device->compute_queue, device);
-    if (device->copy_queue && device->copy_queue != device->direct_queue
-            && device->copy_queue != device->compute_queue)
-        vkd3d_queue_destroy(device->copy_queue, device);
+    unsigned int i, j;
 
-    device->direct_queue = NULL;
-    device->compute_queue = NULL;
-    device->copy_queue = NULL;
+    for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
+    {
+        struct vkd3d_queue *queue = device->queues[i];
+
+        if (!queue)
+            continue;
+
+        /* Don't destroy the same queue twice */
+        for (j = i; j < VKD3D_QUEUE_FAMILY_COUNT; j++)
+        {
+            if (device->queues[j] == queue)
+                device->queues[j] = NULL;
+        }
+
+        vkd3d_queue_destroy(queue, device);
+    }
 }
 
 static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
         const struct vkd3d_device_queue_info *queue_info)
 {
-    uint32_t transfer_family_index = queue_info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER];
-    uint32_t compute_family_index = queue_info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
-    uint32_t direct_family_index = queue_info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS];
+    unsigned int i, j;
     HRESULT hr;
 
-    device->direct_queue = NULL;
-    device->compute_queue = NULL;
-    device->copy_queue = NULL;
-
     device->queue_family_count = 0;
+    memset(device->queues, 0, sizeof(device->queues));
     memset(device->queue_family_indices, 0, sizeof(device->queue_family_indices));
 
-    if (SUCCEEDED((hr = vkd3d_queue_create(device, direct_family_index,
-            &queue_info->vk_properties[VKD3D_QUEUE_FAMILY_GRAPHICS], &device->direct_queue))))
-        device->queue_family_indices[device->queue_family_count++] = direct_family_index;
-    else
-        goto out_destroy_queues;
+    for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
+    {
+        if (queue_info->family_index[i] == VK_QUEUE_FAMILY_IGNORED)
+            continue;
 
-    if (compute_family_index == direct_family_index)
-        device->compute_queue = device->direct_queue;
-    else if (SUCCEEDED(hr = vkd3d_queue_create(device, compute_family_index,
-            &queue_info->vk_properties[VKD3D_QUEUE_FAMILY_COMPUTE], &device->compute_queue)))
-        device->queue_family_indices[device->queue_family_count++] = compute_family_index;
-    else
-        goto out_destroy_queues;
+        for (j = 0; j < i; j++)
+        {
+            if (queue_info->family_index[i] == queue_info->family_index[j])
+                device->queues[i] = device->queues[j];
+        }
 
-    if (transfer_family_index == direct_family_index)
-        device->copy_queue = device->direct_queue;
-    else if (transfer_family_index == compute_family_index)
-        device->copy_queue = device->compute_queue;
-    else if (SUCCEEDED(hr = vkd3d_queue_create(device, transfer_family_index,
-            &queue_info->vk_properties[VKD3D_QUEUE_FAMILY_TRANSFER], &device->copy_queue)))
-        device->queue_family_indices[device->queue_family_count++] = transfer_family_index;
-    else
-        goto out_destroy_queues;
+        if (device->queues[i])
+            continue;
+
+        if (FAILED((hr = vkd3d_queue_create(device, queue_info->family_index[i],
+                &queue_info->vk_properties[i], &device->queues[i]))))
+            goto out_destroy_queues;
+
+        device->queue_family_indices[device->queue_family_count++] = queue_info->family_index[i];
+    }
 
     return S_OK;
 
@@ -4294,7 +4293,7 @@ static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS3 *options3 = &device->d3d12_caps.options3;
 
-    options3->CopyQueueTimestampQueriesSupported = !!device->copy_queue->timestamp_bits;
+    options3->CopyQueueTimestampQueriesSupported = !!device->queues[VKD3D_QUEUE_FAMILY_TRANSFER]->timestamp_bits;
     options3->CastingFullyTypedFormatSupported = TRUE;
     /* Currently not supported */
     options3->WriteBufferImmediateSupportFlags = 0;
