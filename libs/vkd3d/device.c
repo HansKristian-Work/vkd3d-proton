@@ -1660,6 +1660,9 @@ static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
     info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = vkd3d_find_queue(count, queue_properties,
             VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, VK_QUEUE_TRANSFER_BIT);
 
+    info->family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] = vkd3d_find_queue(count, queue_properties,
+            VK_QUEUE_SPARSE_BINDING_BIT, VK_QUEUE_SPARSE_BINDING_BIT);
+
     /* Works around https://gitlab.freedesktop.org/mesa/mesa/issues/2529.
      * The other viable workaround was to disable VK_EXT_descriptor_indexing for the time being,
      * but that did not work out as we relied on global_bo_list to deal with games like RE2 which appear
@@ -1752,6 +1755,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
             device_queue_info.family_index[VKD3D_QUEUE_FAMILY_COMPUTE]);
     TRACE("Using queue family %u for copy command queues.\n",
             device_queue_info.family_index[VKD3D_QUEUE_FAMILY_TRANSFER]);
+    TRACE("Using queue family %u for sparse binding.\n",
+            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING]);
 
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 
