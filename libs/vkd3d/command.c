@@ -1559,11 +1559,11 @@ struct vkd3d_queue *d3d12_device_get_vkd3d_queue(struct d3d12_device *device,
     switch (type)
     {
         case D3D12_COMMAND_LIST_TYPE_DIRECT:
-            return device->direct_queue;
+            return device->queues[VKD3D_QUEUE_FAMILY_GRAPHICS];
         case D3D12_COMMAND_LIST_TYPE_COMPUTE:
-            return device->compute_queue;
+            return device->queues[VKD3D_QUEUE_FAMILY_COMPUTE];
         case D3D12_COMMAND_LIST_TYPE_COPY:
-            return device->copy_queue;
+            return device->queues[VKD3D_QUEUE_FAMILY_TRANSFER];
         default:
             FIXME("Unhandled command list type %#x.\n", type);
             return NULL;
@@ -1583,7 +1583,7 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
         return hr;
 
     if (!(queue = d3d12_device_get_vkd3d_queue(device, type)))
-        queue = device->direct_queue;
+        queue = device->queues[VKD3D_QUEUE_FAMILY_GRAPHICS];
 
     allocator->ID3D12CommandAllocator_iface.lpVtbl = &d3d12_command_allocator_vtbl;
     allocator->refcount = 1;
