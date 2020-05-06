@@ -6450,6 +6450,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *i
     if (!refcount)
     {
         struct d3d12_device *device = command_queue->device;
+        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
         vkd3d_private_store_destroy(&command_queue->private_store);
 
@@ -6457,6 +6458,9 @@ static ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *i
         pthread_join(command_queue->submission_thread, NULL);
         pthread_mutex_destroy(&command_queue->queue_lock);
         pthread_cond_destroy(&command_queue->queue_cond);
+
+        VK_CALL(vkDestroySemaphore(device->vk_device, command_queue->sparse_binding_signal.vk_semaphore, NULL));
+        VK_CALL(vkDestroySemaphore(device->vk_device, command_queue->sparse_binding_wait.vk_semaphore, NULL));
 
         vkd3d_free(command_queue->submissions);
         vkd3d_free(command_queue);
@@ -7380,6 +7384,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
         struct d3d12_device *device, const D3D12_COMMAND_QUEUE_DESC *desc)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     HRESULT hr;
     int rc;
 
@@ -7402,10 +7407,19 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     queue->drain_count = 0;
     queue->queue_drain_count = 0;
 
+    if (FAILED(hr = vkd3d_create_timeline_semaphore(device, 0, &queue->sparse_binding_wait.vk_semaphore)))
+        goto fail;
+
+    if (FAILED(hr = vkd3d_create_timeline_semaphore(device, 0, &queue->sparse_binding_signal.vk_semaphore)))
+        goto fail_signal_semaphore;
+
+    queue->sparse_binding_wait.last_signaled = 0;
+    queue->sparse_binding_signal.last_signaled = 0;
+
     if ((rc = pthread_mutex_init(&queue->queue_lock, NULL)) < 0)
     {
         hr = hresult_from_errno(rc);
-        goto fail;
+        goto fail_pthread_mutex;
     }
 
     if ((rc = pthread_cond_init(&queue->queue_cond, NULL)) < 0)
@@ -7441,6 +7455,10 @@ fail_pthread_create:
     pthread_cond_destroy(&queue->queue_cond);
 fail_pthread_cond:
     pthread_mutex_destroy(&queue->queue_lock);
+fail_pthread_mutex:
+    VK_CALL(vkDestroySemaphore(device->vk_device, queue->sparse_binding_signal.vk_semaphore, NULL));
+fail_signal_semaphore:
+    VK_CALL(vkDestroySemaphore(device->vk_device, queue->sparse_binding_wait.vk_semaphore, NULL));
 fail:
     return hr;
 }
