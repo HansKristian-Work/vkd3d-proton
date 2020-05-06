@@ -451,6 +451,7 @@ struct d3d12_sparse_info
     D3D12_TILE_SHAPE tile_shape;
     D3D12_PACKED_MIP_INFO packed_mips;
     D3D12_SUBRESOURCE_TILING *tilings;
+    VkDeviceMemory vk_metadata_memory;
 };
 
 /* ID3D12Resource */
