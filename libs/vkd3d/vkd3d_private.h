@@ -1314,6 +1314,12 @@ struct d3d12_command_queue_submission
     } u;
 };
 
+struct vkd3d_timeline_semaphore
+{
+    VkSemaphore vk_semaphore;
+    uint64_t last_signaled;
+};
+
 /* ID3D12CommandQueue */
 struct d3d12_command_queue
 {
@@ -1335,6 +1341,9 @@ struct d3d12_command_queue
     size_t submissions_size;
     uint64_t drain_count;
     uint64_t queue_drain_count;
+
+    struct vkd3d_timeline_semaphore sparse_binding_wait;
+    struct vkd3d_timeline_semaphore sparse_binding_signal;
 
     struct vkd3d_private_store private_store;
 };
