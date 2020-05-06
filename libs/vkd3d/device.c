@@ -1551,7 +1551,7 @@ static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
 /* Vulkan queues */
 enum vkd3d_queue_family
 {
-    VKD3D_QUEUE_FAMILY_DIRECT,
+    VKD3D_QUEUE_FAMILY_GRAPHICS,
     VKD3D_QUEUE_FAMILY_COMPUTE,
     VKD3D_QUEUE_FAMILY_TRANSFER,
 
@@ -1587,7 +1587,7 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
 {
     uint32_t transfer_family_index = queue_info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER];
     uint32_t compute_family_index = queue_info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
-    uint32_t direct_family_index = queue_info->family_index[VKD3D_QUEUE_FAMILY_DIRECT];
+    uint32_t direct_family_index = queue_info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS];
     HRESULT hr;
 
     device->direct_queue = NULL;
@@ -1598,7 +1598,7 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
     memset(device->queue_family_indices, 0, sizeof(device->queue_family_indices));
 
     if (SUCCEEDED((hr = vkd3d_queue_create(device, direct_family_index,
-            &queue_info->vk_properties[VKD3D_QUEUE_FAMILY_DIRECT], &device->direct_queue))))
+            &queue_info->vk_properties[VKD3D_QUEUE_FAMILY_GRAPHICS], &device->direct_queue))))
         device->queue_family_indices[device->queue_family_count++] = direct_family_index;
     else
         goto out_destroy_queues;
@@ -1630,96 +1630,92 @@ out_destroy_queues:
 
 static float queue_priorities[] = {1.0f};
 
+static uint32_t vkd3d_find_queue(unsigned int count, const VkQueueFamilyProperties *properties,
+        VkQueueFlags mask, VkQueueFlags flags)
+{
+    unsigned int i;
+
+    for (i = 0; i < count; i++)
+    {
+        if ((properties[i].queueFlags & mask) == flags)
+            return i;
+    }
+
+    return VK_QUEUE_FAMILY_IGNORED;
+}
+
 static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
         VkPhysicalDevice physical_device, struct vkd3d_device_queue_info *info)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &vkd3d_instance->vk_procs;
     VkQueueFamilyProperties *queue_properties = NULL;
     VkDeviceQueueCreateInfo *queue_info = NULL;
-    unsigned int i;
+    unsigned int i, j;
     uint32_t count;
+    bool duplicate;
 
     memset(info, 0, sizeof(*info));
-    for (i = 0; i < ARRAY_SIZE(info->family_index); ++i)
-        info->family_index[i] = ~0u;
 
     VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &count, NULL));
     if (!(queue_properties = vkd3d_calloc(count, sizeof(*queue_properties))))
         return E_OUTOFMEMORY;
     VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &count, queue_properties));
 
-    for (i = 0; i < count; ++i)
-    {
-        enum vkd3d_queue_family vkd3d_family = VKD3D_QUEUE_FAMILY_COUNT;
+    info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS] = vkd3d_find_queue(count, queue_properties,
+            VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT, VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT);
 
-        if ((queue_properties[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
-                == (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
-        {
-            vkd3d_family = VKD3D_QUEUE_FAMILY_DIRECT;
-        }
-        if ((queue_properties[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
-                == VK_QUEUE_COMPUTE_BIT)
-        {
-            vkd3d_family = VKD3D_QUEUE_FAMILY_COMPUTE;
-        }
-        if ((queue_properties[i].queueFlags & ~VK_QUEUE_SPARSE_BINDING_BIT) == VK_QUEUE_TRANSFER_BIT)
-        {
-            vkd3d_family = VKD3D_QUEUE_FAMILY_TRANSFER;
-        }
+    info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = vkd3d_find_queue(count, queue_properties,
+            VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT, VK_QUEUE_COMPUTE_BIT);
 
-        if (vkd3d_family == VKD3D_QUEUE_FAMILY_COUNT)
-            continue;
+    info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = vkd3d_find_queue(count, queue_properties,
+            VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, VK_QUEUE_TRANSFER_BIT);
 
-        info->family_index[vkd3d_family] = i;
-        info->vk_properties[vkd3d_family] = queue_properties[i];
-        queue_info = &info->vk_queue_create_info[vkd3d_family];
-
-        queue_info->sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queue_info->pNext = NULL;
-        queue_info->flags = 0;
-        queue_info->queueFamilyIndex = i;
-        queue_info->queueCount = 1; /* FIXME: Use multiple queues. */
-        queue_info->pQueuePriorities = queue_priorities;
-    }
-
-    vkd3d_free(queue_properties);
-
-    if (info->family_index[VKD3D_QUEUE_FAMILY_DIRECT] == ~0u)
-    {
-        FIXME("Could not find a suitable queue family for a direct command queue.\n");
-        return E_FAIL;
-    }
-
-#define VKD3D_FORCE_SINGLE_QUEUE 1
     /* Works around https://gitlab.freedesktop.org/mesa/mesa/issues/2529.
      * The other viable workaround was to disable VK_EXT_descriptor_indexing for the time being,
      * but that did not work out as we relied on global_bo_list to deal with games like RE2 which appear
      * to potentially access descriptors which reference freed memory. This is fine in D3D12, but we need
      * PARTIALLY_BOUND_BIT semantics to make that work well.
      * Just disabling async compute works around the issue as well. */
+    #define VKD3D_FORCE_SINGLE_QUEUE 1
 
-    /* No compute-only queue family, reuse the direct queue family with graphics and compute. */
-    if (VKD3D_FORCE_SINGLE_QUEUE || info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] == ~0u)
+    if (info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] == VK_QUEUE_FAMILY_IGNORED || VKD3D_FORCE_SINGLE_QUEUE)
+        info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS];
+
+    if (info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] == VK_QUEUE_FAMILY_IGNORED || VKD3D_FORCE_SINGLE_QUEUE)
+        info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
+
+    for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; ++i)
     {
-        info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_DIRECT];
-        info->vk_properties[VKD3D_QUEUE_FAMILY_COMPUTE] = info->vk_properties[VKD3D_QUEUE_FAMILY_DIRECT];
-    }
-    if (VKD3D_FORCE_SINGLE_QUEUE || info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] == ~0u)
-    {
-        info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_DIRECT];
-        info->vk_properties[VKD3D_QUEUE_FAMILY_TRANSFER] = info->vk_properties[VKD3D_QUEUE_FAMILY_DIRECT];
+        if (info->family_index[i] == VK_QUEUE_FAMILY_IGNORED)
+            continue;
+
+        info->vk_properties[i] = queue_properties[info->family_index[i]];
+
+        /* Ensure that we don't create the same queue multiple times */
+        duplicate = false;
+
+        for (j = 0; j < i && !duplicate; j++)
+            duplicate = info->family_index[i] == info->family_index[j];
+
+        if (duplicate)
+            continue;
+
+        queue_info = &info->vk_queue_create_info[info->vk_family_count++];
+        queue_info->sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queue_info->pNext = NULL;
+        queue_info->flags = 0;
+        queue_info->queueFamilyIndex = info->family_index[i];
+        queue_info->queueCount = 1;
+        queue_info->pQueuePriorities = queue_priorities;
     }
 
-    /* Compact the array. */
-    info->vk_family_count = 1;
+    vkd3d_free(queue_properties);
 
-#if !VKD3D_FORCE_SINGLE_QUEUE
-    for (i = info->vk_family_count; i < ARRAY_SIZE(info->vk_queue_create_info); ++i)
+    if (info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS] == VK_QUEUE_FAMILY_IGNORED)
     {
-        if (info->vk_queue_create_info[i].queueCount)
-            info->vk_queue_create_info[info->vk_family_count++] = info->vk_queue_create_info[i];
+        ERR("Could not find a suitable queue family for a direct command queue.\n");
+        return E_FAIL;
     }
-#endif
 
     return S_OK;
 }
@@ -1761,7 +1757,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         return hr;
 
     TRACE("Using queue family %u for direct command queues.\n",
-            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_DIRECT]);
+            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_GRAPHICS]);
     TRACE("Using queue family %u for compute command queues.\n",
             device_queue_info.family_index[VKD3D_QUEUE_FAMILY_COMPUTE]);
     TRACE("Using queue family %u for copy command queues.\n",
