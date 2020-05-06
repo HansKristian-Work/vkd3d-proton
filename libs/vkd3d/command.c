@@ -113,6 +113,28 @@ static VkResult vkd3d_queue_wait_idle(struct vkd3d_queue *queue,
     return vr;
 }
 
+static HRESULT vkd3d_create_timeline_semaphore(struct d3d12_device *device, uint64_t initial_value, VkSemaphore *vk_semaphore)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkSemaphoreTypeCreateInfoKHR type_info;
+    VkSemaphoreCreateInfo info;
+    VkResult vr;
+
+    type_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR;
+    type_info.pNext = NULL;
+    type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE_KHR;
+    type_info.initialValue = initial_value;
+
+    info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    info.pNext = &type_info;
+    info.flags = 0;
+
+    if ((vr = VK_CALL(vkCreateSemaphore(device->vk_device, &info, NULL, vk_semaphore))) < 0)
+        ERR("Failed to create timeline semaphore, vr %d.\n", vr);
+
+    return hresult_from_vk_result(vr);
+}
+
 static HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
         struct d3d12_fence *fence, uint64_t value, struct vkd3d_queue *queue)
 {
@@ -878,23 +900,8 @@ static struct d3d12_fence *unsafe_impl_from_ID3D12Fence(ID3D12Fence *iface)
 static HRESULT d3d12_fence_init_timeline(struct d3d12_fence *fence, struct d3d12_device *device,
         UINT64 initial_value)
 {
-    VkSemaphoreTypeCreateInfoKHR type_info = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR };
-    VkSemaphoreCreateInfo info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkResult vr;
-
-    type_info.initialValue = initial_value;
-    type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE_KHR;
-    info.pNext = &type_info;
-
-    if ((vr = VK_CALL(vkCreateSemaphore(device->vk_device, &info, NULL, &fence->timeline_semaphore))))
-    {
-        WARN("Failed to create timeline semaphore, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
-    }
-
     fence->pending_timeline_value = initial_value;
-    return S_OK;
+    return vkd3d_create_timeline_semaphore(device, initial_value, &fence->timeline_semaphore);
 }
 
 static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *device,
