@@ -42326,6 +42326,269 @@ static void test_sampler_border_color(void)
     destroy_test_context(&context);
 }
 
+static void test_copy_tiles(void)
+{
+    #define TILE_SIZE 65536
+    ID3D12Resource *tiled_resource, *dst_buffer, *src_buffer;
+    D3D12_TILED_RESOURCE_COORDINATE region_offset;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    uint32_t tile_offset, buffer_offset;
+    D3D12_TILE_REGION_SIZE region_size;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    D3D12_HEAP_DESC heap_desc;
+    uint32_t *buffer_data;
+    unsigned int i, x, y;
+    ID3D12Heap *heap;
+    D3D12_BOX box;
+    HRESULT hr;
+
+    static const struct
+    {
+        uint32_t x;
+        uint32_t y;
+        uint32_t tile_idx;
+    }
+    image_tiles[] =
+    {
+        {1, 0, 0}, {2, 0, 1}, {1, 1, 2}, {2, 1, 3},
+        {3, 1, 4}, {0, 2, 5}, {1, 2, 6},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = 640;
+    desc.rt_height = 480;
+    desc.rt_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n");
+
+    if (!options.TiledResourcesTier)
+    {
+        skip("Tiled resources not supported by device.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.SizeInBytes = TILE_SIZE * 16;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = heap_desc.SizeInBytes;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_desc.Properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&src_buffer);
+    ok(hr == S_OK, "Failed to create buffer, hr %#x.\n", hr);
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_desc.Properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&dst_buffer);
+    ok(hr == S_OK, "Failed to create buffer, hr %#x.\n", hr);
+
+    buffer_data = malloc(resource_desc.Width);
+    for (i = 0; i < resource_desc.Width / sizeof(*buffer_data); i++)
+        buffer_data[i] = i;
+    upload_buffer_data(src_buffer, 0, resource_desc.Width, buffer_data, context.queue, context.list);
+
+    reset_command_list(context.list, context.allocator);
+    transition_resource_state(context.list, src_buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    /* Test buffer */
+    hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&tiled_resource);
+    ok(hr == S_OK, "Failed to create tiled buffer, hr %#x.\n", hr);
+
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+
+    tile_offset = 0;
+    ID3D12CommandQueue_UpdateTileMappings(context.queue, tiled_resource,
+            1, NULL, NULL, heap, 1, NULL, &tile_offset, NULL, D3D12_TILE_MAPPING_FLAG_NONE);
+
+    /* Copy source tiles 0-2 with a 32-byte offset to buffer tiles 4-6 */
+    set_region_offset(&region_offset, 4, 0, 0, 0);
+    set_region_size(&region_size, 3, false, 0, 0, 0);
+
+    buffer_offset = 32;
+
+    ID3D12GraphicsCommandList_CopyTiles(context.list, tiled_resource,
+            &region_offset, &region_size, src_buffer, buffer_offset,
+            D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+
+    transition_resource_state(context.list, tiled_resource,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(tiled_resource, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+    for (i = 0; i < 3 * TILE_SIZE / sizeof(*buffer_data); i += 1024)
+    {
+        uint32_t offset = i + 4 * TILE_SIZE / sizeof(*buffer_data);
+        set_box(&box, offset, 0, 0, offset + 1, 1, 1);
+        check_readback_data_uint(&rb, &box, buffer_data[i + buffer_offset / sizeof(*buffer_data)], 0);
+    }
+
+    release_resource_readback(&rb);
+
+    reset_command_list(context.list, context.allocator);
+
+    /* Read tiles 5-6 from the tiled resource */
+    set_region_offset(&region_offset, 5, 0, 0, 0);
+    set_region_size(&region_size, 1, false, 0, 0, 0);
+
+    ID3D12GraphicsCommandList_CopyTiles(context.list, tiled_resource,
+            &region_offset, &region_size, dst_buffer, 0,
+            D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+
+    /* NONE behaves the same as SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER */
+    set_region_offset(&region_offset, 6, 0, 0, 0);
+
+    ID3D12GraphicsCommandList_CopyTiles(context.list, tiled_resource,
+            &region_offset, &region_size, dst_buffer, TILE_SIZE,
+            D3D12_TILE_COPY_FLAG_NONE);
+
+    transition_resource_state(context.list, dst_buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(dst_buffer, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+    for (i = 0; i < 2 * TILE_SIZE / sizeof(*buffer_data); i += 1024)
+    {
+        uint32_t offset = i + (TILE_SIZE + buffer_offset) / sizeof(*buffer_data);
+        set_box(&box, i, 0, 0, i + 1, 1, 1);
+        check_readback_data_uint(&rb, &box, buffer_data[offset], 0);
+    }
+
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(tiled_resource);
+    ID3D12Heap_Release(heap);
+
+    /* Test image */
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 512;
+    resource_desc.Height = 512;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R32_UINT;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&tiled_resource);
+    ok(hr == S_OK, "Failed to create tiled buffer, hr %#x.\n", hr);
+
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+
+    tile_offset = 0;
+    ID3D12CommandQueue_UpdateTileMappings(context.queue, tiled_resource,
+            1, NULL, NULL, heap, 1, NULL, &tile_offset, NULL, D3D12_TILE_MAPPING_FLAG_NONE);
+
+    reset_command_list(context.list, context.allocator);
+
+    /* Copy source tiles 0-3 to 2x2 region at (1,0) */
+    set_region_offset(&region_offset, 1, 0, 0, 0);
+    set_region_size(&region_size, 4, true, 2, 2, 1);
+
+    ID3D12GraphicsCommandList_CopyTiles(context.list, tiled_resource,
+            &region_offset, &region_size, src_buffer, 0,
+            D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+
+    /* Copy source tiles 4-6 to (3,1), (0,2) and (1,2) */
+    set_region_offset(&region_offset, 3, 1, 0, 0);
+    set_region_size(&region_size, 3, false, 0, 0, 0);
+
+    ID3D12GraphicsCommandList_CopyTiles(context.list, tiled_resource,
+            &region_offset, &region_size, src_buffer, 4 * TILE_SIZE,
+            D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+
+    transition_resource_state(context.list, tiled_resource,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(tiled_resource, 0, &rb, context.queue, context.list);
+
+    for (i = 0; i < ARRAY_SIZE(image_tiles); i++)
+    {
+        for (y = 0; y < 128; y += 32)
+        {
+            for (x = 0; x < 128; x += 32)
+            {
+                uint32_t offset = image_tiles[i].tile_idx * TILE_SIZE / sizeof(*buffer_data) + 128 * y + x;
+                set_box(&box, 128 * image_tiles[i].x + x, 128 * image_tiles[i].y + y, 0,
+                        128 * image_tiles[i].x + x + 1, 128 * image_tiles[i].y + y + 1, 1);
+                check_readback_data_uint(&rb, &box, buffer_data[offset], 0);
+            }
+        }
+    }
+
+    release_resource_readback(&rb);
+
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, dst_buffer,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    /* Read 0-3 to 2x2 region at (1,0) */
+    set_region_offset(&region_offset, 1, 0, 0, 0);
+    set_region_size(&region_size, 4, true, 2, 2, 1);
+
+    ID3D12GraphicsCommandList_CopyTiles(context.list, tiled_resource,
+            &region_offset, &region_size, dst_buffer, 0,
+            D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+
+    /* Read tiles (3,1), (0,2) and (1,2) */
+    set_region_offset(&region_offset, 3, 1, 0, 0);
+    set_region_size(&region_size, 3, false, 0, 0, 0);
+
+    ID3D12GraphicsCommandList_CopyTiles(context.list, tiled_resource,
+            &region_offset, &region_size, dst_buffer, 4 * TILE_SIZE,
+            D3D12_TILE_COPY_FLAG_NONE);
+
+    transition_resource_state(context.list, dst_buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(dst_buffer, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+    for (i = 0; i < ARRAY_SIZE(image_tiles); i++)
+    {
+        for (x = 0; x < TILE_SIZE / sizeof(uint32_t); x += 1024)
+        {
+            uint32_t offset = image_tiles[i].tile_idx * TILE_SIZE / sizeof(uint32_t) + x;
+            set_box(&box, offset, 0, 0, offset + 1, 1, 1);
+            check_readback_data_uint(&rb, &box, buffer_data[offset], 0);
+        }
+    }
+
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(tiled_resource);
+    ID3D12Heap_Release(heap);
+
+    ID3D12Resource_Release(src_buffer);
+    ID3D12Resource_Release(dst_buffer);
+
+    free(buffer_data);
+    destroy_test_context(&context);
+#undef TILE_SIZE
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -42538,4 +42801,5 @@ START_TEST(d3d12)
     run_test(test_get_resource_tiling);
     run_test(test_update_tile_mappings);
     run_test(test_sampler_border_color);
+    run_test(test_copy_tiles);
 }
