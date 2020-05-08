@@ -4346,15 +4346,135 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     }
 }
 
+static unsigned int vkd3d_get_tile_index_from_region(const struct d3d12_sparse_info *sparse,
+        const D3D12_TILED_RESOURCE_COORDINATE *coord, const D3D12_TILE_REGION_SIZE *size,
+        unsigned int tile_index_in_region);
+
 static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_iface *iface,
-        ID3D12Resource *tiled_resource, const D3D12_TILED_RESOURCE_COORDINATE *tile_region_start_coordinate,
-        const D3D12_TILE_REGION_SIZE *tile_region_size, ID3D12Resource *buffer, UINT64 buffer_offset,
+        ID3D12Resource *tiled_resource, const D3D12_TILED_RESOURCE_COORDINATE *region_coord,
+        const D3D12_TILE_REGION_SIZE *region_size, ID3D12Resource *buffer, UINT64 buffer_offset,
         D3D12_TILE_COPY_FLAGS flags)
 {
-    FIXME("iface %p, tiled_resource %p, tile_region_start_coordinate %p, tile_region_size %p, "
-            "buffer %p, buffer_offset %#"PRIx64", flags %#x stub!\n",
-            iface, tiled_resource, tile_region_start_coordinate, tile_region_size,
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct d3d12_resource *tiled_res, *linear_res;
+    VkImageMemoryBarrier vk_image_barrier;
+    VkBufferImageCopy buffer_image_copy;
+    const struct vkd3d_format *format;
+    VkImageLayout vk_image_layout;
+    VkBufferCopy buffer_copy;
+    bool copy_to_buffer;
+    unsigned int i;
+
+    TRACE("iface %p, tiled_resource %p, region_coord %p, region_size %p, "
+            "buffer %p, buffer_offset %#"PRIx64", flags %#x.\n",
+            iface, tiled_resource, region_coord, region_size,
             buffer, buffer_offset, flags);
+
+    d3d12_command_list_end_current_render_pass(list, true);
+
+    tiled_res = unsafe_impl_from_ID3D12Resource(tiled_resource);
+    linear_res = unsafe_impl_from_ID3D12Resource(buffer);
+
+    d3d12_command_list_track_resource_usage(list, tiled_res);
+
+    /* We can't rely on D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER being
+     * set for the copy-to-buffer case, since D3D12_TILE_COPY_FLAG_NONE behaves the same. */
+    copy_to_buffer = !(flags & D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+
+    if (d3d12_resource_is_texture(tiled_res))
+    {
+        /* This API cannot be used for non-tiled resources, so this is safe */
+        const D3D12_TILE_SHAPE *tile_shape = &tiled_res->sparse.tile_shape;
+
+        if (tiled_res->desc.SampleDesc.Count > 1)
+        {
+            FIXME("MSAA images not supported.\n");
+            return;
+        }
+
+        format = vkd3d_format_from_d3d12_resource_desc(list->device, &tiled_res->desc, 0);
+
+        vk_image_layout = d3d12_resource_pick_layout(tiled_res, copy_to_buffer
+                ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+        vk_image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        vk_image_barrier.pNext = NULL;
+        vk_image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vk_image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vk_image_barrier.srcAccessMask = 0;
+        vk_image_barrier.dstAccessMask = copy_to_buffer ? VK_ACCESS_TRANSFER_READ_BIT : VK_ACCESS_TRANSFER_WRITE_BIT;
+        vk_image_barrier.oldLayout = tiled_res->common_layout;
+        vk_image_barrier.newLayout = vk_image_layout;
+        vk_image_barrier.image = tiled_res->u.vk_image;
+
+        /* The entire resource must be in the appropriate copy state */
+        vk_image_barrier.subresourceRange.aspectMask = format->vk_aspect_mask;
+        vk_image_barrier.subresourceRange.baseMipLevel = 0;
+        vk_image_barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+        vk_image_barrier.subresourceRange.baseArrayLayer = 0;
+        vk_image_barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                0, 0, NULL, 0, NULL, 1, &vk_image_barrier));
+
+        buffer_image_copy.bufferRowLength = tile_shape->WidthInTexels;
+        buffer_image_copy.bufferImageHeight = tile_shape->HeightInTexels;
+
+        for (i = 0; i < region_size->NumTiles; i++)
+        {
+            unsigned int tile_index = vkd3d_get_tile_index_from_region(&tiled_res->sparse, region_coord, region_size, i);
+            const struct d3d12_sparse_image_region *region = &tiled_res->sparse.tiles[tile_index].u.image;
+
+            buffer_image_copy.bufferOffset = buffer_offset + VKD3D_TILE_SIZE * i;
+            buffer_image_copy.imageSubresource = vk_subresource_layers_from_subresource(&region->subresource);
+            buffer_image_copy.imageOffset = region->offset;
+            buffer_image_copy.imageExtent = region->extent;
+
+            if (copy_to_buffer)
+            {
+                VK_CALL(vkCmdCopyImageToBuffer(list->vk_command_buffer,
+                        tiled_res->u.vk_image, vk_image_layout, linear_res->u.vk_buffer,
+                        1, &buffer_image_copy));
+            }
+            else
+            {
+                VK_CALL(vkCmdCopyBufferToImage(list->vk_command_buffer,
+                        linear_res->u.vk_buffer, tiled_res->u.vk_image, vk_image_layout,
+                        1, &buffer_image_copy));
+            }
+        }
+
+        vk_image_barrier.srcAccessMask = copy_to_buffer ? 0 : VK_ACCESS_TRANSFER_WRITE_BIT;
+        vk_image_barrier.dstAccessMask = 0;
+        vk_image_barrier.oldLayout = vk_image_layout;
+        vk_image_barrier.newLayout = tiled_res->common_layout;
+
+        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                0, 0, NULL, 0, NULL, 1, &vk_image_barrier));
+    }
+    else
+    {
+        buffer_copy.size = region_size->NumTiles * VKD3D_TILE_SIZE;
+
+        if (copy_to_buffer)
+        {
+            buffer_copy.srcOffset = VKD3D_TILE_SIZE * region_coord->X;
+            buffer_copy.dstOffset = buffer_offset;
+        }
+        else
+        {
+            buffer_copy.srcOffset = buffer_offset;
+            buffer_copy.dstOffset = VKD3D_TILE_SIZE * region_coord->X;
+        }
+
+        VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
+                copy_to_buffer ? tiled_res->u.vk_buffer : linear_res->u.vk_buffer,
+                copy_to_buffer ? linear_res->u.vk_buffer : tiled_res->u.vk_buffer,
+                1, &buffer_copy));
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_command_list_iface *iface,
