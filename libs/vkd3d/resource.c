@@ -2275,13 +2275,13 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
 
     for (i = 0; i < sparse->tile_count; i++)
     {
-        if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        if (d3d12_resource_is_buffer(resource))
         {
             VkDeviceSize offset = VKD3D_TILE_SIZE * i;
             sparse->tiles[i].u.buffer.offset = offset;
             sparse->tiles[i].u.buffer.length = min(VKD3D_TILE_SIZE, resource->desc.Width - offset);
         }
-        else if (i >= sparse->packed_mips.StartTileIndexInOverallResource)
+        else if (sparse->packed_mips.NumPackedMips && i >= sparse->packed_mips.StartTileIndexInOverallResource)
         {
             VkDeviceSize offset = VKD3D_TILE_SIZE * (i - sparse->packed_mips.StartTileIndexInOverallResource);
             sparse->tiles[i].u.buffer.offset = vk_memory_requirements.imageMipTailOffset + offset;
