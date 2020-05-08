@@ -357,8 +357,7 @@ static void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_F
     resource_desc.Flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
 
     hr = ID3D12Resource_GetHeapProperties(buffer, &heap_properties, NULL);
-    ok(SUCCEEDED(hr), "Failed to get heap properties.\n");
-    if (heap_properties.Type == D3D12_HEAP_TYPE_READBACK)
+    if (SUCCEEDED(hr) && heap_properties.Type == D3D12_HEAP_TYPE_READBACK)
     {
         rb_buffer = buffer;
         ID3D12Resource_AddRef(rb_buffer);
