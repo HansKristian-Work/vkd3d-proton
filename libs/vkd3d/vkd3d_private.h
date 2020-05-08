@@ -1787,6 +1787,16 @@ static inline VkImageSubresourceRange vk_subresource_range_from_layers(const VkI
     return range;
 }
 
+static inline VkImageSubresourceLayers vk_subresource_layers_from_subresource(const VkImageSubresource *subresource)
+{
+    VkImageSubresourceLayers layers;
+    layers.aspectMask = subresource->aspectMask;
+    layers.mipLevel = subresource->mipLevel;
+    layers.baseArrayLayer = subresource->arrayLayer;
+    layers.layerCount = 1;
+    return layers;
+}
+
 static inline VkImageSubresourceLayers vk_subresource_layers_from_view(const struct vkd3d_view *view)
 {
     VkImageSubresourceLayers layers;
