@@ -8024,7 +8024,7 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
 static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    uint32_t result_type_id, sampled_type_id, coordinate_id, dref_id, val_id, type_id, status_id = 0;
+    uint32_t result_type_id, sampled_type_id, coordinate_id, dref_id, val_id, status_id = 0;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
@@ -8071,10 +8071,6 @@ static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compil
     sampled_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, 1);
     coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_ALL);
     dref_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[3], VKD3DSP_WRITEMASK_0);
-    /* XXX: Nvidia is broken and expects that the D_ref is packed together with coordinates. */
-    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE);
-    coordinate_id = vkd3d_spirv_build_op_composite_insert1(builder,
-            type_id, dref_id, coordinate_id, image.resource_type_info->coordinate_component_count);
     result_type_id = is_sparse_op ? vkd3d_spirv_get_sparse_result_type(builder, sampled_type_id) : sampled_type_id;
     val_id = vkd3d_spirv_build_op_image_sample_dref(builder, op, result_type_id,
             image.sampled_image_id, coordinate_id, dref_id, operands_mask,
