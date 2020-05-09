@@ -410,6 +410,8 @@ static void vkd3d_spirv_build_string(struct vkd3d_spirv_stream *stream,
 }
 
 typedef uint32_t (*vkd3d_spirv_build_pfn)(struct vkd3d_spirv_builder *builder);
+typedef uint32_t (*vkd3d_spirv_build_v_pfn)(struct vkd3d_spirv_builder *builder,
+        const uint32_t *operands, unsigned int operand_count);
 typedef uint32_t (*vkd3d_spirv_build1_pfn)(struct vkd3d_spirv_builder *builder,
         uint32_t operand0);
 typedef uint32_t (*vkd3d_spirv_build1v_pfn)(struct vkd3d_spirv_builder *builder,
@@ -475,6 +477,33 @@ static void vkd3d_spirv_insert_declaration(struct vkd3d_spirv_builder *builder,
         ERR("Failed to insert declaration entry.\n");
         vkd3d_free(d);
     }
+}
+
+static uint32_t vkd3d_spirv_build_once_v(struct vkd3d_spirv_builder *builder,
+        SpvOp op, const uint32_t *operands, unsigned int operand_count,
+        vkd3d_spirv_build_v_pfn build_pfn)
+{
+    struct vkd3d_spirv_declaration declaration;
+    unsigned int i, param_idx = 0;
+    struct rb_entry *entry;
+
+    if (operand_count > ARRAY_SIZE(declaration.parameters))
+    {
+        WARN("Unsupported parameter count %u (opcode %#x).\n", operand_count, op);
+        return build_pfn(builder, operands, operand_count);
+    }
+
+    declaration.op = op;
+    for (i = 0; i < operand_count; ++i)
+        declaration.parameters[param_idx++] = operands[i];
+    declaration.parameter_count = param_idx;
+
+    if ((entry = rb_get(&builder->declarations, &declaration)))
+        return RB_ENTRY_VALUE(entry, struct vkd3d_spirv_declaration, entry)->id;
+
+    declaration.id = build_pfn(builder, operands, operand_count);
+    vkd3d_spirv_insert_declaration(builder, &declaration);
+    return declaration.id;
 }
 
 static uint32_t vkd3d_spirv_build_once1(struct vkd3d_spirv_builder *builder,
@@ -985,10 +1014,17 @@ static uint32_t vkd3d_spirv_get_op_type_runtime_array(struct vkd3d_spirv_builder
 }
 
 static uint32_t vkd3d_spirv_build_op_type_struct(struct vkd3d_spirv_builder *builder,
-        uint32_t *members, unsigned int member_count)
+        const uint32_t *members, unsigned int member_count)
 {
     return vkd3d_spirv_build_op_rv(builder, &builder->global_stream,
             SpvOpTypeStruct, members, member_count);
+}
+
+static uint32_t vkd3d_spirv_get_op_type_struct(struct vkd3d_spirv_builder *builder,
+        const uint32_t *members, unsigned int member_count)
+{
+    return vkd3d_spirv_build_once_v(builder, SpvOpTypeStruct, members, member_count,
+            vkd3d_spirv_build_op_type_struct);
 }
 
 static uint32_t vkd3d_spirv_build_op_type_sampler(struct vkd3d_spirv_builder *builder)
