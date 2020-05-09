@@ -1693,6 +1693,22 @@ static uint32_t vkd3d_spirv_get_type_id(struct vkd3d_spirv_builder *builder,
     }
 }
 
+static uint32_t vkd3d_spirv_get_sparse_result_type(struct vkd3d_spirv_builder *builder, uint32_t sampled_type_id)
+{
+    uint32_t members[2];
+    members[0] = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    members[1] = sampled_type_id;
+    return vkd3d_spirv_get_op_type_struct(builder, members, ARRAY_SIZE(members));
+}
+
+static void vkd3d_spirv_decompose_sparse_result(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t val_id, uint32_t *result_id, uint32_t *status_id)
+{
+    uint32_t uint_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    *status_id = vkd3d_spirv_build_op_composite_extract1(builder, uint_type_id, val_id, 0);
+    *result_id = vkd3d_spirv_build_op_composite_extract1(builder, result_type, val_id, 1);
+}
+
 static void vkd3d_spirv_builder_init(struct vkd3d_spirv_builder *builder)
 {
     vkd3d_spirv_stream_init(&builder->debug_stream);
