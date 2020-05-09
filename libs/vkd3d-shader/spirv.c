@@ -1518,21 +1518,21 @@ static uint32_t vkd3d_spirv_build_op_image_sample_dref(struct vkd3d_spirv_builde
             operands, ARRAY_SIZE(operands), image_operands_mask, image_operands, image_operand_count);
 }
 
-static uint32_t vkd3d_spirv_build_op_image_gather(struct vkd3d_spirv_builder *builder,
+static uint32_t vkd3d_spirv_build_op_image_gather(struct vkd3d_spirv_builder *builder, SpvOp op,
         uint32_t result_type, uint32_t sampled_image_id, uint32_t coordinate_id, uint32_t component_id,
         uint32_t image_operands_mask, const uint32_t *image_operands, unsigned int image_operand_count)
 {
     const uint32_t operands[] = {sampled_image_id, coordinate_id, component_id};
-    return vkd3d_spirv_build_image_instruction(builder, SpvOpImageGather, result_type,
+    return vkd3d_spirv_build_image_instruction(builder, op, result_type,
             operands, ARRAY_SIZE(operands), image_operands_mask, image_operands, image_operand_count);
 }
 
-static uint32_t vkd3d_spirv_build_op_image_dref_gather(struct vkd3d_spirv_builder *builder,
+static uint32_t vkd3d_spirv_build_op_image_dref_gather(struct vkd3d_spirv_builder *builder, SpvOp op,
         uint32_t result_type, uint32_t sampled_image_id, uint32_t coordinate_id, uint32_t dref_id,
         uint32_t image_operands_mask, const uint32_t *image_operands, unsigned int image_operand_count)
 {
     const uint32_t operands[] = {sampled_image_id, coordinate_id, dref_id};
-    return vkd3d_spirv_build_image_instruction(builder, SpvOpImageDrefGather, result_type,
+    return vkd3d_spirv_build_image_instruction(builder, op, result_type,
             operands, ARRAY_SIZE(operands), image_operands_mask, image_operands, image_operand_count);
 }
 
@@ -8080,8 +8080,8 @@ static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compil
 static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
+    uint32_t result_type_id, sampled_type_id, coordinate_id, component_id, dref_id, val_id, status_id = 0;
     const struct vkd3d_shader_src_param *addr, *offset, *resource, *sampler;
-    uint32_t sampled_type_id, coordinate_id, component_id, dref_id, val_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
@@ -8093,13 +8093,22 @@ static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compile
     uint32_t image_operands[1];
     DWORD coordinate_mask;
     bool extended_offset;
+    bool is_sparse_op;
+    SpvOp op;
+
+    if ((is_sparse_op = instruction->dst_count > 1))
+        vkd3d_spirv_enable_capability(builder, SpvCapabilitySparseResidency);
 
     if (instruction->handler_idx == VKD3DSIH_GATHER4_C
-            || instruction->handler_idx == VKD3DSIH_GATHER4_PO_C)
+            || instruction->handler_idx == VKD3DSIH_GATHER4_C_FEEDBACK
+            || instruction->handler_idx == VKD3DSIH_GATHER4_PO_C
+            || instruction->handler_idx == VKD3DSIH_GATHER4_PO_C_FEEDBACK)
         image_flags |= VKD3D_IMAGE_FLAG_DEPTH;
 
     extended_offset = instruction->handler_idx == VKD3DSIH_GATHER4_PO
-            || instruction->handler_idx == VKD3DSIH_GATHER4_PO_C;
+            || instruction->handler_idx == VKD3DSIH_GATHER4_PO_FEEDBACK
+            || instruction->handler_idx == VKD3DSIH_GATHER4_PO_C
+            || instruction->handler_idx == VKD3DSIH_GATHER4_PO_C_FEEDBACK;
 
     addr = &src[0];
     offset = extended_offset ? &src[1] : NULL;
@@ -8124,29 +8133,41 @@ static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compile
     }
 
     sampled_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
+    result_type_id = is_sparse_op ? vkd3d_spirv_get_sparse_result_type(builder, sampled_type_id) : sampled_type_id;
     coordinate_mask = (1u << image.resource_type_info->coordinate_component_count) - 1;
     coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, addr, coordinate_mask);
     if (image_flags & VKD3D_IMAGE_FLAG_DEPTH)
     {
+        op = is_sparse_op ? SpvOpImageSparseDrefGather : SpvOpImageDrefGather;
         dref_id = vkd3d_dxbc_compiler_emit_load_src(compiler,
                 &src[3 + extended_offset], VKD3DSP_WRITEMASK_0);
-        val_id = vkd3d_spirv_build_op_image_dref_gather(builder, sampled_type_id,
+        val_id = vkd3d_spirv_build_op_image_dref_gather(builder, op, result_type_id,
                 image.sampled_image_id, coordinate_id, dref_id,
                 operands_mask, image_operands, image_operand_count);
     }
     else
     {
+        op = is_sparse_op ? SpvOpImageSparseGather : SpvOpImageGather;
         component_idx = vkd3d_swizzle_get_component(sampler->swizzle, 0);
         /* Nvidia driver requires signed integer type. */
         component_id = vkd3d_dxbc_compiler_get_constant(compiler,
                 VKD3D_TYPE_INT, 1, &component_idx);
-        val_id = vkd3d_spirv_build_op_image_gather(builder, sampled_type_id,
+        val_id = vkd3d_spirv_build_op_image_gather(builder, op, result_type_id,
                 image.sampled_image_id, coordinate_id, component_id,
                 operands_mask, image_operands, image_operand_count);
     }
 
-    vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
-            dst, val_id, image.sampled_type, resource->swizzle);
+    if (is_sparse_op)
+    {
+        vkd3d_spirv_decompose_sparse_result(builder, sampled_type_id, val_id, &val_id, &status_id);
+        vkd3d_dxbc_compiler_emit_store_dst_scalar(compiler, &dst[1], status_id, VKD3D_TYPE_UINT, VKD3D_SWIZZLE_X);
+    }
+
+    if (dst[0].reg.type != VKD3DSPR_NULL)
+    {
+        vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
+                &dst[0], val_id, image.sampled_type, resource->swizzle);
+    }
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_raw_structured_addressing(
@@ -9314,9 +9335,13 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             vkd3d_dxbc_compiler_emit_sample_c(compiler, instruction);
             break;
         case VKD3DSIH_GATHER4:
+        case VKD3DSIH_GATHER4_FEEDBACK:
         case VKD3DSIH_GATHER4_C:
+        case VKD3DSIH_GATHER4_C_FEEDBACK:
         case VKD3DSIH_GATHER4_PO:
+        case VKD3DSIH_GATHER4_PO_FEEDBACK:
         case VKD3DSIH_GATHER4_PO_C:
+        case VKD3DSIH_GATHER4_PO_C_FEEDBACK:
             vkd3d_dxbc_compiler_emit_gather4(compiler, instruction);
             break;
         case VKD3DSIH_LD_RAW:
