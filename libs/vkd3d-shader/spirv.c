@@ -1494,10 +1494,10 @@ static uint32_t vkd3d_spirv_build_op_image_sample(struct vkd3d_spirv_builder *bu
 {
     const uint32_t operands[] = {sampled_image_id, coordinate_id};
 
-    if (op == SpvOpImageSampleExplicitLod)
+    if (op == SpvOpImageSampleExplicitLod || op == SpvOpImageSparseSampleExplicitLod)
         assert(image_operands_mask & (SpvImageOperandsLodMask | SpvImageOperandsGradMask));
     else
-        assert(op == SpvOpImageSampleImplicitLod);
+        assert(op == SpvOpImageSampleImplicitLod || op == SpvOpImageSparseSampleImplicitLod);
 
     return vkd3d_spirv_build_image_instruction(builder, op, result_type,
             operands, ARRAY_SIZE(operands), image_operands_mask, image_operands, image_operand_count);
@@ -7914,16 +7914,17 @@ static void vkd3d_dxbc_compiler_emit_lod(struct vkd3d_dxbc_compiler *compiler,
 static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
+    uint32_t result_type_id, sampled_type_id, coordinate_id, val_id, status_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
     const struct vkd3d_shader_src_param *resource, *sampler;
-    uint32_t sampled_type_id, coordinate_id, val_id;
     SpvImageOperandsMask operands_mask = 0;
     unsigned int image_operand_count = 0;
     struct vkd3d_shader_image image;
     uint32_t image_operands[3];
     DWORD coordinate_mask;
+    bool is_sparse_op;
     SpvOp op;
 
     resource = &src[1];
@@ -7931,19 +7932,25 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
     vkd3d_dxbc_compiler_prepare_image(compiler, &image,
             &resource->reg, &sampler->reg, VKD3D_IMAGE_FLAG_SAMPLED);
 
+    if ((is_sparse_op = (instruction->dst_count > 1 && dst[1].reg.type != VKD3DSPR_NULL)))
+        vkd3d_spirv_enable_capability(builder, SpvCapabilitySparseResidency);
+
     switch (instruction->handler_idx)
     {
         case VKD3DSIH_SAMPLE:
-            op = SpvOpImageSampleImplicitLod;
+        case VKD3DSIH_SAMPLE_FEEDBACK:
+            op = is_sparse_op ? SpvOpImageSparseSampleImplicitLod : SpvOpImageSampleImplicitLod;
             break;
         case VKD3DSIH_SAMPLE_B:
-            op = SpvOpImageSampleImplicitLod;
+        case VKD3DSIH_SAMPLE_B_FEEDBACK:
+            op = is_sparse_op ? SpvOpImageSparseSampleImplicitLod : SpvOpImageSampleImplicitLod;
             operands_mask |= SpvImageOperandsBiasMask;
             image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_load_src(compiler,
                     &src[3], VKD3DSP_WRITEMASK_0);
             break;
         case VKD3DSIH_SAMPLE_GRAD:
-            op = SpvOpImageSampleExplicitLod;
+        case VKD3DSIH_SAMPLE_GRAD_FEEDBACK:
+            op = is_sparse_op ? SpvOpImageSparseSampleExplicitLod : SpvOpImageSampleExplicitLod;
             operands_mask |= SpvImageOperandsGradMask;
             coordinate_mask = (1u << image.resource_type_info->offset_component_count) - 1;
             image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_load_src(compiler,
@@ -7952,7 +7959,8 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
                     &src[4], coordinate_mask);
             break;
         case VKD3DSIH_SAMPLE_LOD:
-            op = SpvOpImageSampleExplicitLod;
+        case VKD3DSIH_SAMPLE_LOD_FEEDBACK:
+            op = is_sparse_op ? SpvOpImageSparseSampleExplicitLod : SpvOpImageSampleExplicitLod;
             operands_mask |= SpvImageOperandsLodMask;
             image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_load_src(compiler,
                     &src[3], VKD3DSP_WRITEMASK_0);
@@ -7969,14 +7977,32 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
                 instruction, image.resource_type_info);
     }
 
+    if (instruction->dst_count > 1 && !(operands_mask & SpvImageOperandsLodMask))
+    {
+        vkd3d_spirv_enable_capability(builder, SpvCapabilityMinLod);
+        operands_mask |= SpvImageOperandsMinLodMask;
+        image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_load_src(compiler,
+                &src[instruction->src_count - 1], VKD3DSP_WRITEMASK_0);
+    }
+
     sampled_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
     coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_ALL);
+    result_type_id = is_sparse_op ? vkd3d_spirv_get_sparse_result_type(builder, sampled_type_id) : sampled_type_id;
     assert(image_operand_count <= ARRAY_SIZE(image_operands));
-    val_id = vkd3d_spirv_build_op_image_sample(builder, op, sampled_type_id,
+    val_id = vkd3d_spirv_build_op_image_sample(builder, op, result_type_id,
             image.sampled_image_id, coordinate_id, operands_mask, image_operands, image_operand_count);
 
-    vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
-            dst, val_id, image.sampled_type, resource->swizzle);
+    if (is_sparse_op)
+    {
+        vkd3d_spirv_decompose_sparse_result(builder, sampled_type_id, val_id, &val_id, &status_id);
+        vkd3d_dxbc_compiler_emit_store_dst_scalar(compiler, &dst[1], status_id, VKD3D_TYPE_UINT, VKD3D_SWIZZLE_X);
+    }
+
+    if (dst[0].reg.type != VKD3DSPR_NULL)
+    {
+        vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
+                &dst[0], val_id, image.sampled_type, resource->swizzle);
+    }
 }
 
 static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compiler,
@@ -9250,9 +9276,13 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             vkd3d_dxbc_compiler_emit_lod(compiler, instruction);
             break;
         case VKD3DSIH_SAMPLE:
+        case VKD3DSIH_SAMPLE_FEEDBACK:
         case VKD3DSIH_SAMPLE_B:
+        case VKD3DSIH_SAMPLE_B_FEEDBACK:
         case VKD3DSIH_SAMPLE_GRAD:
+        case VKD3DSIH_SAMPLE_GRAD_FEEDBACK:
         case VKD3DSIH_SAMPLE_LOD:
+        case VKD3DSIH_SAMPLE_LOD_FEEDBACK:
             vkd3d_dxbc_compiler_emit_sample(compiler, instruction);
             break;
         case VKD3DSIH_SAMPLE_C:
