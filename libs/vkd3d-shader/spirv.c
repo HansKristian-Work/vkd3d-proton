@@ -1545,12 +1545,12 @@ static uint32_t vkd3d_spirv_build_op_image_fetch(struct vkd3d_spirv_builder *bui
             operands, ARRAY_SIZE(operands), image_operands_mask, image_operands, image_operand_count);
 }
 
-static uint32_t vkd3d_spirv_build_op_image_read(struct vkd3d_spirv_builder *builder,
+static uint32_t vkd3d_spirv_build_op_image_read(struct vkd3d_spirv_builder *builder, SpvOp op,
         uint32_t result_type, uint32_t image_id, uint32_t coordinate_id,
         uint32_t image_operands_mask, const uint32_t *image_operands, unsigned int image_operand_count)
 {
     const uint32_t operands[] = {image_id, coordinate_id};
-    return vkd3d_spirv_build_image_instruction(builder, SpvOpImageRead, result_type,
+    return vkd3d_spirv_build_image_instruction(builder, op, result_type,
             operands, ARRAY_SIZE(operands), image_operands_mask, image_operands, image_operand_count);
 }
 
@@ -8447,23 +8447,39 @@ static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_comp
 static void vkd3d_dxbc_compiler_emit_ld_uav_typed(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
+    uint32_t result_type_id, coordinate_id, type_id, val_id, status_id = 0;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    uint32_t coordinate_id, type_id, val_id;
     struct vkd3d_shader_image image;
     DWORD coordinate_mask;
+    bool is_sparse_op;
+    SpvOp op;
 
+    if ((is_sparse_op = instruction->dst_count > 1))
+        vkd3d_spirv_enable_capability(builder, SpvCapabilitySparseResidency);
+
+    op = is_sparse_op ? SpvOpImageSparseRead : SpvOpImageRead;
     vkd3d_dxbc_compiler_prepare_image(compiler, &image, &src[1].reg, NULL, VKD3D_IMAGE_FLAG_NONE);
     type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
+    result_type_id = is_sparse_op ? vkd3d_spirv_get_sparse_result_type(builder, type_id) : type_id;
     coordinate_mask = (1u << image.resource_type_info->coordinate_component_count) - 1;
     coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], coordinate_mask);
 
-    val_id = vkd3d_spirv_build_op_image_read(builder, type_id,
+    val_id = vkd3d_spirv_build_op_image_read(builder, op, result_type_id,
             image.image_id, coordinate_id, SpvImageOperandsMaskNone, NULL, 0);
 
-    vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
-            dst, val_id, image.sampled_type, src[1].swizzle);
+    if (is_sparse_op)
+    {
+        vkd3d_spirv_decompose_sparse_result(builder, type_id, val_id, &val_id, &status_id);
+        vkd3d_dxbc_compiler_emit_store_dst_scalar(compiler, &dst[1], status_id, VKD3D_TYPE_UINT, VKD3D_SWIZZLE_X);
+    }
+
+    if (dst[0].reg.type != VKD3DSPR_NULL)
+    {
+        vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
+                &dst[0], val_id, image.sampled_type, src[1].swizzle);
+    }
 }
 
 static void vkd3d_dxbc_compiler_emit_store_uav_typed(struct vkd3d_dxbc_compiler *compiler,
@@ -9397,6 +9413,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             vkd3d_dxbc_compiler_emit_store_raw_structured(compiler, instruction);
             break;
         case VKD3DSIH_LD_UAV_TYPED:
+        case VKD3DSIH_LD_UAV_TYPED_FEEDBACK:
             vkd3d_dxbc_compiler_emit_ld_uav_typed(compiler, instruction);
             break;
         case VKD3DSIH_STORE_UAV_TYPED:
