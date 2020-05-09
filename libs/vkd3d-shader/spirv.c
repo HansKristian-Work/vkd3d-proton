@@ -8218,23 +8218,28 @@ static uint32_t vkd3d_dxbc_compiler_emit_raw_structured_addressing(
 static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
+    uint32_t coordinate_id, result_type_id, type_id, val_id, texel_type_id, status_id = 0;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    uint32_t coordinate_id, type_id, val_id, texel_type_id;
     const struct vkd3d_shader_src_param *resource;
     uint32_t base_coordinate_id, component_idx;
     uint32_t constituents[VKD3D_VEC4_SIZE];
     struct vkd3d_shader_image image;
-    unsigned int i, j;
+    unsigned int i, j, member_idx;
+    uint32_t members[2];
+    bool is_sparse_op;
     SpvOp op;
+
+    if ((is_sparse_op = instruction->dst_count > 1))
+        vkd3d_spirv_enable_capability(builder, SpvCapabilitySparseResidency);
 
     resource = &src[instruction->src_count - 1];
 
     if (resource->reg.type == VKD3DSPR_RESOURCE)
-        op = SpvOpImageFetch;
+        op = is_sparse_op ? SpvOpImageSparseFetch : SpvOpImageFetch;
     else
-        op = SpvOpImageRead;
+        op = is_sparse_op ? SpvOpImageSparseRead : SpvOpImageRead;
 
     vkd3d_dxbc_compiler_prepare_image(compiler, &image, &resource->reg, NULL, VKD3D_IMAGE_FLAG_NONE);
 
@@ -8243,7 +8248,14 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
             type_id, image.structure_stride, &src[0], VKD3DSP_WRITEMASK_0, &src[1], VKD3DSP_WRITEMASK_0);
 
     texel_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
+    result_type_id = is_sparse_op ? vkd3d_spirv_get_sparse_result_type(builder, texel_type_id) : texel_type_id;
     assert(dst->write_mask & VKD3DSP_WRITEMASK_ALL);
+
+    member_idx = 0;
+    if (is_sparse_op)
+        members[member_idx++] = 1;
+    members[member_idx++] = 0;
+
     for (i = 0, j = 0; i < VKD3D_VEC4_SIZE; ++i)
     {
         if (!(dst->write_mask & (VKD3DSP_WRITEMASK_0 << i)))
@@ -8256,12 +8268,24 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
                     coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
 
         val_id = vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
-                op, texel_type_id, image.image_id, coordinate_id);
-        constituents[j++] = vkd3d_spirv_build_op_composite_extract1(builder,
-                type_id, val_id, 0);
+                op, result_type_id, image.image_id, coordinate_id);
+        constituents[j++] = vkd3d_spirv_build_op_composite_extract(builder, type_id, val_id, members, member_idx);
+
+        if (is_sparse_op && !status_id)
+            status_id = vkd3d_spirv_build_op_composite_extract1(builder, type_id, val_id, 0);
     }
-    assert(dst->reg.data_type == VKD3D_DATA_UINT);
-    vkd3d_dxbc_compiler_emit_store_dst_components(compiler, dst, VKD3D_TYPE_UINT, constituents);
+
+    if (is_sparse_op)
+    {
+        assert(status_id);
+        vkd3d_dxbc_compiler_emit_store_dst_scalar(compiler, &dst[1], status_id, VKD3D_TYPE_UINT, VKD3D_SWIZZLE_X);
+    }
+
+    if (dst[0].reg.type != VKD3DSPR_NULL)
+    {
+        assert(dst[0].reg.data_type == VKD3D_DATA_UINT);
+        vkd3d_dxbc_compiler_emit_store_dst_components(compiler, &dst[0], VKD3D_TYPE_UINT, constituents);
+    }
 }
 
 static void vkd3d_dxbc_compiler_emit_ld_tgsm(struct vkd3d_dxbc_compiler *compiler,
@@ -9363,7 +9387,9 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             vkd3d_dxbc_compiler_emit_gather4(compiler, instruction);
             break;
         case VKD3DSIH_LD_RAW:
+        case VKD3DSIH_LD_RAW_FEEDBACK:
         case VKD3DSIH_LD_STRUCTURED:
+        case VKD3DSIH_LD_STRUCTURED_FEEDBACK:
             vkd3d_dxbc_compiler_emit_ld_raw_structured(compiler, instruction);
             break;
         case VKD3DSIH_STORE_RAW:
