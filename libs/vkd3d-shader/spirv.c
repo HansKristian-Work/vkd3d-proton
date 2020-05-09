@@ -8976,6 +8976,24 @@ static void vkd3d_dxbc_compiler_emit_cut_stream(struct vkd3d_dxbc_compiler *comp
     vkd3d_spirv_build_op_end_primitive(builder);
 }
 
+static void vkd3d_dxbc_compiler_emit_check_sparse_access(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t bool_type_id, src_id, val_id;
+
+    assert(instruction->dst_count == 1);
+    assert(instruction->src_count == 1);
+
+    bool_type_id = vkd3d_spirv_get_op_type_bool(builder);
+    src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst->write_mask);
+    val_id = vkd3d_spirv_build_op_tr1(builder, &builder->function_stream, SpvOpImageSparseTexelsResident, bool_type_id, src_id);
+    val_id = vkd3d_dxbc_compiler_emit_bool_to_int(compiler, 1, val_id);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
+}
+
 /* This function is called after declarations are processed. */
 static void vkd3d_dxbc_compiler_emit_main_prolog(struct vkd3d_dxbc_compiler *compiler)
 {
@@ -9312,6 +9330,9 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_CUT:
         case VKD3DSIH_CUT_STREAM:
             vkd3d_dxbc_compiler_emit_cut_stream(compiler, instruction);
+            break;
+        case VKD3DSIH_CHECK_ACCESS_FULLY_MAPPED:
+            vkd3d_dxbc_compiler_emit_check_sparse_access(compiler, instruction);
             break;
         case VKD3DSIH_DCL_HS_MAX_TESSFACTOR:
         case VKD3DSIH_HS_DECLS:
