@@ -301,6 +301,22 @@ enum vkd3d_sm4_opcode
     VKD3D_SM5_OP_EVAL_SAMPLE_INDEX                = 0xcc,
     VKD3D_SM5_OP_EVAL_CENTROID                    = 0xcd,
     VKD3D_SM5_OP_DCL_GS_INSTANCES                 = 0xce,
+    VKD3D_SM5_OP_GATHER4_FEEDBACK                 = 0xdb,
+    VKD3D_SM5_OP_GATHER4_C_FEEDBACK               = 0xdc,
+    VKD3D_SM5_OP_GATHER4_PO_FEEDBACK              = 0xdd,
+    VKD3D_SM5_OP_GATHER4_PO_C_FEEDBACK            = 0xde,
+    VKD3D_SM5_OP_LD_FEEDBACK                      = 0xdf,
+    VKD3D_SM5_OP_LD_MS_FEEDBACK                   = 0xe0,
+    VKD3D_SM5_OP_LD_UAV_TYPED_FEEDBACK            = 0xe1,
+    VKD3D_SM5_OP_LD_RAW_FEEDBACK                  = 0xe2,
+    VKD3D_SM5_OP_LD_STRUCTURED_FEEDBACK           = 0xe3,
+    VKD3D_SM5_OP_SAMPLE_L_FEEDBACK                = 0xe4,
+    VKD3D_SM5_OP_SAMPLE_C_LZ_FEEDBACK             = 0xe5,
+    VKD3D_SM5_OP_SAMPLE_CLAMP_FEEDBACK            = 0xe6,
+    VKD3D_SM5_OP_SAMPLE_B_CLAMP_FEEDBACK          = 0xe7,
+    VKD3D_SM5_OP_SAMPLE_D_CLAMP_FEEDBACK          = 0xe8,
+    VKD3D_SM5_OP_SAMPLE_C_CLAMP_FEEDBACK          = 0xe9,
+    VKD3D_SM5_OP_CHECK_ACCESS_FULLY_MAPPED        = 0xea,
 };
 
 enum vkd3d_sm4_register_type
@@ -451,7 +467,7 @@ struct vkd3d_sm4_data
 
     unsigned int output_map[MAX_REG_OUTPUT];
 
-    struct vkd3d_shader_src_param src_param[5];
+    struct vkd3d_shader_src_param src_param[6];
     struct vkd3d_shader_dst_param dst_param[2];
     struct list src_free;
     struct list src;
@@ -1202,6 +1218,22 @@ static const struct vkd3d_sm4_opcode_info opcode_table[] =
     {VKD3D_SM5_OP_EVAL_CENTROID,                    VKD3DSIH_EVAL_CENTROID,                    "f",    "f"},
     {VKD3D_SM5_OP_DCL_GS_INSTANCES,                 VKD3DSIH_DCL_GS_INSTANCES,                 "",     "",
             shader_sm4_read_declaration_count},
+    {VKD3D_SM5_OP_GATHER4_FEEDBACK,                 VKD3DSIH_GATHER4_FEEDBACK,                 "fu",   "fRS"},
+    {VKD3D_SM5_OP_GATHER4_C_FEEDBACK,               VKD3DSIH_GATHER4_C_FEEDBACK,               "fu",   "fRSf"},
+    {VKD3D_SM5_OP_GATHER4_PO_FEEDBACK,              VKD3DSIH_GATHER4_PO_FEEDBACK,              "fu",   "fiRS"},
+    {VKD3D_SM5_OP_GATHER4_PO_C_FEEDBACK,            VKD3DSIH_GATHER4_PO_C_FEEDBACK,            "fu",   "fiRSf"},
+    {VKD3D_SM5_OP_LD_FEEDBACK,                      VKD3DSIH_LD_FEEDBACK,                      "uu",   "iR"},
+    {VKD3D_SM5_OP_LD_MS_FEEDBACK,                   VKD3DSIH_LD2DMS_FEEDBACK,                  "uu",   "iRi"},
+    {VKD3D_SM5_OP_LD_UAV_TYPED_FEEDBACK,            VKD3DSIH_LD_UAV_TYPED_FEEDBACK,            "uu",   "iU"},
+    {VKD3D_SM5_OP_LD_RAW_FEEDBACK,                  VKD3DSIH_LD_RAW_FEEDBACK,                  "uu",   "iR"},
+    {VKD3D_SM5_OP_LD_STRUCTURED_FEEDBACK,           VKD3DSIH_LD_STRUCTURED_FEEDBACK,           "uu",   "iiR"},
+    {VKD3D_SM5_OP_SAMPLE_L_FEEDBACK,                VKD3DSIH_SAMPLE_LOD_FEEDBACK,              "fu",   "fRSf"},
+    {VKD3D_SM5_OP_SAMPLE_C_LZ_FEEDBACK,             VKD3DSIH_SAMPLE_C_LZ_FEEDBACK,             "fu",   "fRSf"},
+    {VKD3D_SM5_OP_SAMPLE_CLAMP_FEEDBACK,            VKD3DSIH_SAMPLE_FEEDBACK,                  "fu",   "fRSf"},
+    {VKD3D_SM5_OP_SAMPLE_B_CLAMP_FEEDBACK,          VKD3DSIH_SAMPLE_B_FEEDBACK,                "fu",   "fRSff"},
+    {VKD3D_SM5_OP_SAMPLE_D_CLAMP_FEEDBACK,          VKD3DSIH_SAMPLE_GRAD_FEEDBACK,             "fu",   "fRSfff"},
+    {VKD3D_SM5_OP_SAMPLE_C_CLAMP_FEEDBACK,          VKD3DSIH_SAMPLE_C_FEEDBACK,                "fu",   "fRSff"},
+    {VKD3D_SM5_OP_CHECK_ACCESS_FULLY_MAPPED,        VKD3DSIH_CHECK_ACCESS_FULLY_MAPPED,        "u",    "u"},
 };
 
 static const enum vkd3d_shader_register_type register_type_table[] =
