@@ -19,6 +19,8 @@
 #ifndef __VKD3D_D3D12_TEST_UTILS_H
 #define __VKD3D_D3D12_TEST_UTILS_H
 
+#define SHADER_BYTECODE(code) {code,sizeof(code)}
+
 #define wait_queue_idle(a, b) wait_queue_idle_(__LINE__, a, b)
 static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12CommandQueue *queue);
 static ID3D12Device *create_device(void);
