@@ -517,6 +517,13 @@ static inline bool d3d12_resource_is_buffer(const struct d3d12_resource *resourc
     return resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER;
 }
 
+static inline bool d3d12_resource_is_acceleration_structure(const struct d3d12_resource *resource)
+{
+    /* Acceleration structures must always be in this state from creation and can never leave or enter it.
+     * All synchronization happens via UAV barriers. */
+    return resource->initial_state == D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+}
+
 static inline bool d3d12_resource_is_texture(const struct d3d12_resource *resource)
 {
     return resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER;

@@ -929,6 +929,9 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
 
         if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
             buffer_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR;
+
+        if (device->device_info.ray_tracing_features.rayTracing)
+            buffer_info.usage |= VK_BUFFER_USAGE_RAY_TRACING_BIT_KHR;
     }
 
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))

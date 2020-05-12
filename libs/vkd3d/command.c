@@ -2291,7 +2291,11 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
     }
 
     if (vk_queue_flags & VK_QUEUE_COMPUTE_BIT)
+    {
         queue_shader_stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        if (device->device_info.ray_tracing_features.rayTracing)
+            queue_shader_stages |= VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR;
+    }
 
     if (state_mask == D3D12_RESOURCE_STATE_COMMON)
     {
@@ -2332,6 +2336,25 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
             case D3D12_RESOURCE_STATE_UNORDERED_ACCESS:
                 *stages |= queue_shader_stages;
                 *access |= VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+
+                if (vk_queue_flags & VK_QUEUE_COMPUTE_BIT)
+                {
+                    /* It is somewhat unclear which stages correspond to scratch memory read/write.
+                     * Just be conservative for now. */
+                    if (resource && d3d12_resource_is_acceleration_structure(resource))
+                    {
+                        *stages |= VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                        *access |= VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR |
+                                   VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+                    }
+                    else
+                    {
+                        /* Dupe for now, this should be the scratch memory path. */
+                        *stages |= VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                        *access |= VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR |
+                                   VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+                    }
+                }
                 break;
 
             case D3D12_RESOURCE_STATE_DEPTH_WRITE:
