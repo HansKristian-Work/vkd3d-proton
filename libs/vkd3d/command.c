@@ -5002,7 +5002,7 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
                 VKD3D_DESCRIPTOR_POOL_TYPE_IMMUTABLE_SAMPLER);
     }
 
-    d3d12_command_list_invalidate_root_parameters(list, bind_point, false);
+    d3d12_command_list_invalidate_root_parameters(list, bind_point, true);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootSignature(d3d12_command_list_iface *iface,
