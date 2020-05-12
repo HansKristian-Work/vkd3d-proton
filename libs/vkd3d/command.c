@@ -6098,18 +6098,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
 static void STDMETHODCALLTYPE d3d12_command_list_SetMarker(d3d12_command_list_iface *iface,
         UINT metadata, const void *data, UINT size)
 {
-    FIXME("iface %p, metadata %#x, data %p, size %u stub!\n", iface, metadata, data, size);
+    FIXME_ONCE("iface %p, metadata %#x, data %p, size %u stub!\n", iface, metadata, data, size);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_BeginEvent(d3d12_command_list_iface *iface,
         UINT metadata, const void *data, UINT size)
 {
-    FIXME("iface %p, metadata %#x, data %p, size %u stub!\n", iface, metadata, data, size);
+    FIXME_ONCE("iface %p, metadata %#x, data %p, size %u stub!\n", iface, metadata, data, size);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_EndEvent(d3d12_command_list_iface *iface)
 {
-    FIXME("iface %p stub!\n", iface);
+    FIXME_ONCE("iface %p stub!\n", iface);
 }
 
 STATIC_ASSERT(sizeof(VkDispatchIndirectCommand) == sizeof(D3D12_DISPATCH_ARGUMENTS));
