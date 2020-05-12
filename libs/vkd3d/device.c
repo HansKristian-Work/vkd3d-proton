@@ -4231,6 +4231,7 @@ static D3D12_RESOURCE_BINDING_TIER d3d12_device_determine_resource_binding_tier(
 
 static D3D12_TILED_RESOURCES_TIER d3d12_device_determine_tiled_resources_tier(struct d3d12_device *device)
 {
+    const VkPhysicalDeviceSamplerFilterMinmaxProperties *minmax_properties = &device->device_info.sampler_filter_minmax_properties;
     const VkPhysicalDeviceSparseProperties *sparse_properties = &device->device_info.properties2.properties.sparseProperties;
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
 
@@ -4240,7 +4241,13 @@ static D3D12_TILED_RESOURCES_TIER d3d12_device_determine_tiled_resources_tier(st
             !device->queues[VKD3D_QUEUE_FAMILY_SPARSE_BINDING])
         return D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
 
-    return D3D12_TILED_RESOURCES_TIER_1;
+    if (!features->shaderResourceResidency || !features->shaderResourceMinLod ||
+            sparse_properties->residencyAlignedMipSize ||
+            !sparse_properties->residencyNonResidentStrict ||
+            !minmax_properties->filterMinmaxSingleComponentFormats)
+        return D3D12_TILED_RESOURCES_TIER_1;
+
+    return D3D12_TILED_RESOURCES_TIER_2;
 }
 
 static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
