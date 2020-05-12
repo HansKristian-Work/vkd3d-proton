@@ -5145,34 +5145,51 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
     struct d3d12_resource *resource;
     VkBufferView vk_buffer_view;
 
-    /* FIXME handle null descriptors */
     root_parameter = root_signature_get_root_descriptor(root_signature, index);
     descriptor = &bindings->root_descriptors[root_parameter->u.descriptor.packed_descriptor];
 
     if (root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV)
     {
-        resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, gpu_address);
-        descriptor->buffer.buffer = resource->u.vk_buffer;
-        descriptor->buffer.offset = gpu_address - resource->gpu_address;
-        descriptor->buffer.range = min(resource->desc.Width - descriptor->buffer.offset,
-                vk_info->device_limits.maxUniformBufferRange);
+        if (gpu_address)
+        {
+            resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, gpu_address);
+            descriptor->buffer.buffer = resource->u.vk_buffer;
+            descriptor->buffer.offset = gpu_address - resource->gpu_address;
+            descriptor->buffer.range = min(resource->desc.Width - descriptor->buffer.offset,
+                    vk_info->device_limits.maxUniformBufferRange);
+        }
+        else
+        {
+            descriptor->buffer.buffer = list->device->null_resources.vk_buffer;
+            descriptor->buffer.offset = 0;
+            descriptor->buffer.range = VK_WHOLE_SIZE;
+        }
     }
     else
     {
-        if (!vkd3d_create_raw_buffer_view(list->device, gpu_address, &vk_buffer_view))
+        if (gpu_address)
         {
-            ERR("Failed to create buffer view.\n");
-            return;
-        }
+            if (!vkd3d_create_raw_buffer_view(list->device, gpu_address, &vk_buffer_view))
+            {
+                ERR("Failed to create buffer view.\n");
+                return;
+            }
 
-        if (!(d3d12_command_allocator_add_buffer_view(list->allocator, vk_buffer_view)))
-        {
-            ERR("Failed to add buffer view.\n");
-            VK_CALL(vkDestroyBufferView(list->device->vk_device, vk_buffer_view, NULL));
-            return;
+            if (!(d3d12_command_allocator_add_buffer_view(list->allocator, vk_buffer_view)))
+            {
+                ERR("Failed to add buffer view.\n");
+                VK_CALL(vkDestroyBufferView(list->device->vk_device, vk_buffer_view, NULL));
+                return;
+            }
+
+            descriptor->buffer_view = vk_buffer_view;
         }
-        
-        descriptor->buffer_view = vk_buffer_view;
+        else
+        {
+            descriptor->buffer_view = root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_SRV
+                    ? list->device->null_resources.vk_buffer_view
+                    : list->device->null_resources.vk_storage_buffer_view;
+        }
     }
 
     bindings->root_descriptor_dirty_mask |= 1ull << index;
