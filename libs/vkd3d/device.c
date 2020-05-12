@@ -158,6 +158,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_DEPTH_CLIP_ENABLE, EXT_depth_clip_enable),
     VK_EXTENSION(EXT_DESCRIPTOR_INDEXING, EXT_descriptor_indexing),
     VK_EXTENSION(EXT_INLINE_UNIFORM_BLOCK, EXT_inline_uniform_block),
+    VK_EXTENSION(EXT_SAMPLER_FILTER_MINMAX, EXT_sampler_filter_minmax),
     VK_EXTENSION(EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION, EXT_shader_demote_to_helper_invocation),
     VK_EXTENSION(EXT_SHADER_STENCIL_EXPORT, EXT_shader_stencil_export),
     VK_EXTENSION(EXT_SHADER_VIEWPORT_INDEX_LAYER, EXT_shader_viewport_index_layer),
@@ -712,6 +713,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceCustomBorderColorPropertiesEXT *custom_border_color_properties;
     VkPhysicalDeviceConditionalRenderingFeaturesEXT *conditional_rendering_features;
     VkPhysicalDeviceDescriptorIndexingPropertiesEXT *descriptor_indexing_properties;
+    VkPhysicalDeviceSamplerFilterMinmaxProperties *sampler_filter_minmax_properties;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT *vertex_divisor_properties;
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT *buffer_alignment_properties;
     VkPhysicalDeviceTimelineSemaphorePropertiesKHR *timeline_semaphore_properties;
@@ -760,6 +762,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     shader_core_properties = &info->shader_core_properties;
     shader_core_properties2 = &info->shader_core_properties2;
     shader_sm_builtins_properties = &info->shader_sm_builtins_properties;
+    sampler_filter_minmax_properties = &info->sampler_filter_minmax_properties;
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
@@ -827,6 +830,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, inline_uniform_block_features);
         inline_uniform_block_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_PROPERTIES_EXT;
         vk_prepend_struct(&info->properties2, inline_uniform_block_properties);
+    }
+
+    if (vulkan_info->EXT_sampler_filter_minmax)
+    {
+        sampler_filter_minmax_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_FILTER_MINMAX_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, sampler_filter_minmax_properties);
     }
 
     if (vulkan_info->EXT_shader_demote_to_helper_invocation)
