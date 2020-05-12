@@ -3831,6 +3831,23 @@ static VkSamplerAddressMode vk_address_mode_from_d3d12(D3D12_TEXTURE_ADDRESS_MOD
     }
 }
 
+static VkSamplerReductionModeEXT vk_reduction_mode_from_d3d12(D3D12_FILTER_REDUCTION_TYPE mode)
+{
+    switch (mode)
+    {
+        case D3D12_FILTER_REDUCTION_TYPE_STANDARD:
+        case D3D12_FILTER_REDUCTION_TYPE_COMPARISON:
+            return VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT;
+        case D3D12_FILTER_REDUCTION_TYPE_MINIMUM:
+            return VK_SAMPLER_REDUCTION_MODE_MIN_EXT;
+        case D3D12_FILTER_REDUCTION_TYPE_MAXIMUM:
+            return VK_SAMPLER_REDUCTION_MODE_MAX_EXT;
+        default:
+            FIXME("Unhandled reduction mode %#x.\n", mode);
+            return VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT;
+    }
+}
+
 static bool d3d12_sampler_needs_border_color(D3D12_TEXTURE_ADDRESS_MODE u,
         D3D12_TEXTURE_ADDRESS_MODE v, D3D12_TEXTURE_ADDRESS_MODE w)
 {
@@ -3890,8 +3907,13 @@ HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
         const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct VkSamplerCreateInfo sampler_desc;
+    VkSamplerReductionModeCreateInfoEXT reduction_desc;
+    VkSamplerCreateInfo sampler_desc;
     VkResult vr;
+
+    reduction_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT;
+    reduction_desc.pNext = NULL;
+    reduction_desc.reductionMode = vk_reduction_mode_from_d3d12(D3D12_DECODE_FILTER_REDUCTION(desc->Filter));
 
     sampler_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     sampler_desc.pNext = NULL;
@@ -3915,6 +3937,9 @@ HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
     if (d3d12_sampler_needs_border_color(desc->AddressU, desc->AddressV, desc->AddressW))
         sampler_desc.borderColor = vk_static_border_color_from_d3d12(desc->BorderColor);
 
+    if (reduction_desc.reductionMode != VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT && device->vk_info.EXT_sampler_filter_minmax)
+        vk_prepend_struct(&sampler_desc, &reduction_desc);
+
     if ((vr = VK_CALL(vkCreateSampler(device->vk_device, &sampler_desc, NULL, vk_sampler))) < 0)
         WARN("Failed to create Vulkan sampler, vr %d.\n", vr);
 
@@ -3926,6 +3951,7 @@ static HRESULT d3d12_create_sampler(struct d3d12_device *device,
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkSamplerCustomBorderColorCreateInfoEXT border_color_info;
+    VkSamplerReductionModeCreateInfoEXT reduction_desc;
     VkSamplerCreateInfo sampler_desc;
     VkResult vr;
 
@@ -3934,6 +3960,10 @@ static HRESULT d3d12_create_sampler(struct d3d12_device *device,
     memcpy(border_color_info.customBorderColor.float32, desc->BorderColor,
             sizeof(border_color_info.customBorderColor.float32));
     border_color_info.format = VK_FORMAT_UNDEFINED;
+
+    reduction_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT;
+    reduction_desc.pNext = NULL;
+    reduction_desc.reductionMode = vk_reduction_mode_from_d3d12(D3D12_DECODE_FILTER_REDUCTION(desc->Filter));
 
     sampler_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     sampler_desc.pNext = NULL;
@@ -3958,7 +3988,10 @@ static HRESULT d3d12_create_sampler(struct d3d12_device *device,
         sampler_desc.borderColor = vk_border_color_from_d3d12(device, desc->BorderColor);
 
     if (sampler_desc.borderColor == VK_BORDER_COLOR_FLOAT_CUSTOM_EXT)
-        sampler_desc.pNext = &border_color_info;
+        vk_prepend_struct(&sampler_desc, &border_color_info);
+
+    if (reduction_desc.reductionMode != VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT && device->vk_info.EXT_sampler_filter_minmax)
+        vk_prepend_struct(&sampler_desc, &reduction_desc);
 
     if ((vr = VK_CALL(vkCreateSampler(device->vk_device, &sampler_desc, NULL, vk_sampler))) < 0)
         WARN("Failed to create Vulkan sampler, vr %d.\n", vr);
