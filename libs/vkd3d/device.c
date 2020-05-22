@@ -1344,6 +1344,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     device->feature_options1.ExpandedComputeResourceStates = TRUE;
     device->feature_options1.Int64ShaderOps = features->shaderInt64;
 
+    /* Depth bounds test is enabled in D3D12_DEPTH_STENCIL_DESC1, which is not
+     * supported. */
+    device->feature_options2.DepthBoundsTestSupported = FALSE;
+    /* d3d12_command_list_SetSamplePositions() is not implemented. */
+    device->feature_options2.ProgrammableSamplePositionsTier = D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_NOT_SUPPORTED;
+
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL, &count, NULL))) < 0)
     {
         ERR("Failed to enumerate device extensions, vr %d.\n", vr);
@@ -2742,6 +2748,23 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
 
             TRACE("Tile based renderer %#x, UMA %#x, cache coherent UMA %#x, isolated MMU %#x.\n",
                     data->TileBasedRenderer, data->UMA, data->CacheCoherentUMA, data->IsolatedMMU);
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_D3D12_OPTIONS2:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS2 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->feature_options2;
+
+            TRACE("Depth bounds test %#x.\n", data->DepthBoundsTestSupported);
+            TRACE("Programmable sample positions tier %#x.\n", data->ProgrammableSamplePositionsTier);
             return S_OK;
         }
 
