@@ -1131,6 +1131,7 @@ struct d3d12_device
     VkPhysicalDeviceMemoryProperties memory_properties;
 
     D3D12_FEATURE_DATA_D3D12_OPTIONS feature_options;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS1 feature_options1;
 
     struct vkd3d_vulkan_info vk_info;
 

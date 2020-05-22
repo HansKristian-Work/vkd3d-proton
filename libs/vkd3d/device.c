@@ -1336,6 +1336,14 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     device->feature_options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation = FALSE;
     device->feature_options.ResourceHeapTier = D3D12_RESOURCE_HEAP_TIER_2;
 
+    /* Shader Model 6 support. */
+    device->feature_options1.WaveOps = FALSE;
+    device->feature_options1.WaveLaneCountMin = 0;
+    device->feature_options1.WaveLaneCountMax = 0;
+    device->feature_options1.TotalLaneCount = 0;
+    device->feature_options1.ExpandedComputeResourceStates = TRUE;
+    device->feature_options1.Int64ShaderOps = features->shaderInt64;
+
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL, &count, NULL))) < 0)
     {
         ERR("Failed to enumerate device extensions, vr %d.\n", vr);
@@ -2665,6 +2673,27 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             data->HighestShaderModel = D3D_SHADER_MODEL_5_1;
 
             TRACE("Shader model %#x.\n", data->HighestShaderModel);
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_D3D12_OPTIONS1:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS1 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->feature_options1;
+
+            TRACE("Wave ops %#x.\n", data->WaveOps);
+            TRACE("Min wave lane count %#x.\n", data->WaveLaneCountMin);
+            TRACE("Max wave lane count %#x.\n", data->WaveLaneCountMax);
+            TRACE("Total lane count %#x.\n", data->TotalLaneCount);
+            TRACE("Expanded compute resource states %#x.\n", data->ExpandedComputeResourceStates);
+            TRACE("Int64 shader ops %#x.\n", data->Int64ShaderOps);
             return S_OK;
         }
 
