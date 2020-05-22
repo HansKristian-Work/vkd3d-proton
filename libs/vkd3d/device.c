@@ -2788,6 +2788,32 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             return S_OK;
         }
 
+        case D3D12_FEATURE_COMMAND_QUEUE_PRIORITY:
+        {
+            D3D12_FEATURE_DATA_COMMAND_QUEUE_PRIORITY *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            switch (data->CommandListType)
+            {
+                case D3D12_COMMAND_LIST_TYPE_DIRECT:
+                case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+                case D3D12_COMMAND_LIST_TYPE_COPY:
+                    data->PriorityForTypeIsSupported = FALSE;
+                    TRACE("Command list type %#x, priority %u, supported %#x.\n",
+                            data->CommandListType, data->Priority, data->PriorityForTypeIsSupported);
+                    return S_OK;
+
+                default:
+                    FIXME("Unhandled command list type %#x.\n", data->CommandListType);
+                    return E_INVALIDARG;
+            }
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
