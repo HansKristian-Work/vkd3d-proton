@@ -873,7 +873,7 @@ static void shader_sm5_read_dcl_uav_structured(struct vkd3d_shader_instruction *
 
     shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_UAV, &ins->declaration.structured_resource.reg);
     ins->flags = (opcode_token & VKD3D_SM5_UAV_FLAGS_MASK) >> VKD3D_SM5_UAV_FLAGS_SHIFT;
-    ins->declaration.structured_resource.byte_stride = *tokens;
+    ins->declaration.structured_resource.byte_stride = *tokens++;
     if (ins->declaration.structured_resource.byte_stride % 4)
         FIXME("Byte stride %u is not multiple of 4.\n", ins->declaration.structured_resource.byte_stride);
     shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.structured_resource.register_space);
