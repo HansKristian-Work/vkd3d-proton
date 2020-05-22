@@ -908,7 +908,7 @@ static void shader_sm5_read_dcl_resource_structured(struct vkd3d_shader_instruct
     const DWORD *end = &tokens[token_count];
 
     shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_RESOURCE, &ins->declaration.structured_resource.reg);
-    ins->declaration.structured_resource.byte_stride = *tokens;
+    ins->declaration.structured_resource.byte_stride = *tokens++;
     if (ins->declaration.structured_resource.byte_stride % 4)
         FIXME("Byte stride %u is not multiple of 4.\n", ins->declaration.structured_resource.byte_stride);
     shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.structured_resource.register_space);
