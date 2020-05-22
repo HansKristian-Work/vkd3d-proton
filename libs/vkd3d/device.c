@@ -2488,7 +2488,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             data->TileBasedRenderer = FALSE;
 
             data->UMA = d3d12_device_is_uma(device, &coherent);
-            data->CacheCoherentUMA = data->UMA ? coherent : FALSE;
+            data->CacheCoherentUMA = data->UMA && coherent;
 
             TRACE("Tile based renderer %#x, UMA %#x, cache coherent UMA %#x.\n",
                     data->TileBasedRenderer, data->UMA, data->CacheCoherentUMA);
@@ -2711,6 +2711,37 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             data->HighestVersion = min(data->HighestVersion, D3D_ROOT_SIGNATURE_VERSION_1_1);
 
             TRACE("Root signature version %#x.\n", data->HighestVersion);
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_ARCHITECTURE1:
+        {
+            D3D12_FEATURE_DATA_ARCHITECTURE1 *data = feature_data;
+            bool coherent;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            if (data->NodeIndex)
+            {
+                FIXME("Multi-adapter not supported.\n");
+                return E_INVALIDARG;
+            }
+
+            WARN("Assuming device does not support tile based rendering.\n");
+            data->TileBasedRenderer = FALSE;
+
+            data->UMA = d3d12_device_is_uma(device, &coherent);
+            data->CacheCoherentUMA = data->UMA && coherent;
+
+            WARN("Assuming device does not have an isolated memory management unit.\n");
+            data->IsolatedMMU = FALSE;
+
+            TRACE("Tile based renderer %#x, UMA %#x, cache coherent UMA %#x, isolated MMU %#x.\n",
+                    data->TileBasedRenderer, data->UMA, data->CacheCoherentUMA, data->IsolatedMMU);
             return S_OK;
         }
 
