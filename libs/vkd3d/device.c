@@ -2768,6 +2768,26 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             return S_OK;
         }
 
+        case D3D12_FEATURE_SHADER_CACHE:
+        {
+            D3D12_FEATURE_DATA_SHADER_CACHE *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            /* FIXME: The d3d12 documentation states that
+             * D3D12_SHADER_CACHE_SUPPORT_SINGLE_PSO is always supported, but
+             * the CachedPSO field of D3D12_GRAPHICS_PIPELINE_STATE_DESC is
+             * ignored and GetCachedBlob() is a stub. */
+            data->SupportFlags = D3D12_SHADER_CACHE_SUPPORT_NONE;
+
+            TRACE("Shader cache support %#x.\n", data->SupportFlags);
+            return S_OK;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
