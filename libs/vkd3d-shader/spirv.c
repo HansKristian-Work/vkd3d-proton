@@ -7938,6 +7938,7 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
     SpvImageOperandsMask operands_mask = 0;
     unsigned int image_operand_count = 0;
     struct vkd3d_shader_image image;
+    unsigned int num_coordinates;
     uint32_t image_operands[3];
     DWORD coordinate_mask;
     bool is_sparse_op;
@@ -7947,6 +7948,10 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
     sampler = &src[2];
     vkd3d_dxbc_compiler_prepare_image(compiler, &image,
             &resource->reg, &sampler->reg, VKD3D_IMAGE_FLAG_SAMPLED);
+
+    /* Technically, we can always pass vec4 down to sample operations, but NV drivers currently
+     * have a bug here when using texture arrays. */
+    num_coordinates = image.resource_type_info->coordinate_component_count;
 
     if ((is_sparse_op = (instruction->dst_count > 1 && dst[1].reg.type != VKD3DSPR_NULL)))
         vkd3d_spirv_enable_capability(builder, SpvCapabilitySparseResidency);
@@ -8002,7 +8007,7 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
     }
 
     sampled_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
-    coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_ALL);
+    coordinate_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], (1u << num_coordinates) - 1u);
     result_type_id = is_sparse_op ? vkd3d_spirv_get_sparse_result_type(builder, sampled_type_id) : sampled_type_id;
     assert(image_operand_count <= ARRAY_SIZE(image_operands));
     val_id = vkd3d_spirv_build_op_image_sample(builder, op, result_type_id,
