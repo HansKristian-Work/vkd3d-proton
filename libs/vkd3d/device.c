@@ -2842,6 +2842,22 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             return S_OK;
         }
 
+        case D3D12_FEATURE_EXISTING_HEAPS:
+        {
+            D3D12_FEATURE_DATA_EXISTING_HEAPS *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            data->Supported = FALSE;
+
+            TRACE("Existing heaps %#x.\n", data->Supported);
+            return S_OK;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
