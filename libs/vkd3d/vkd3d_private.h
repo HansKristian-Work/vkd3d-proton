@@ -1133,6 +1133,7 @@ struct d3d12_device
     D3D12_FEATURE_DATA_D3D12_OPTIONS feature_options;
     D3D12_FEATURE_DATA_D3D12_OPTIONS1 feature_options1;
     D3D12_FEATURE_DATA_D3D12_OPTIONS2 feature_options2;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS3 feature_options3;
 
     struct vkd3d_vulkan_info vk_info;
 

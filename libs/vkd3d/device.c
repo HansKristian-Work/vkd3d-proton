@@ -1350,6 +1350,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     /* d3d12_command_list_SetSamplePositions() is not implemented. */
     device->feature_options2.ProgrammableSamplePositionsTier = D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_NOT_SUPPORTED;
 
+    device->feature_options3.CopyQueueTimestampQueriesSupported = FALSE;
+    device->feature_options3.CastingFullyTypedFormatSupported = FALSE;
+    device->feature_options3.WriteBufferImmediateSupportFlags = D3D12_COMMAND_LIST_SUPPORT_FLAG_NONE;
+    device->feature_options3.ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
+    device->feature_options3.BarycentricsSupported = FALSE;
+
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL, &count, NULL))) < 0)
     {
         ERR("Failed to enumerate device extensions, vr %d.\n", vr);
@@ -1603,6 +1609,8 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
         device->queue_family_indices[device->queue_family_count++] = transfer_family_index;
     else
         goto out_destroy_queues;
+
+    device->feature_options3.CopyQueueTimestampQueriesSupported = !!device->copy_queue->timestamp_bits;
 
     return S_OK;
 
@@ -2812,6 +2820,26 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
                     FIXME("Unhandled command list type %#x.\n", data->CommandListType);
                     return E_INVALIDARG;
             }
+        }
+
+        case D3D12_FEATURE_D3D12_OPTIONS3:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS3 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->feature_options3;
+
+            TRACE("Copy queue timestamp queries %#x.\n", data->CopyQueueTimestampQueriesSupported);
+            TRACE("Casting fully typed format %#x.\n", data->CastingFullyTypedFormatSupported);
+            TRACE("Write buffer immediate %#x.\n", data->WriteBufferImmediateSupportFlags);
+            TRACE("View instancing tier %#x.\n", data->ViewInstancingTier);
+            TRACE("Barycentrics %#x.\n", data->BarycentricsSupported);
+            return S_OK;
         }
 
         default:
