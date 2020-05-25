@@ -1362,6 +1362,10 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
      * VK_KHR_shader_float16_int8. */
     device->feature_options4.Native16BitShaderOpsSupported = FALSE;
 
+    device->feature_options5.SRVOnlyTiledResourceTier3 = FALSE;
+    device->feature_options5.RenderPassesTier = D3D12_RENDER_PASS_TIER_0;
+    device->feature_options5.RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL, &count, NULL))) < 0)
     {
         ERR("Failed to enumerate device extensions, vr %d.\n", vr);
@@ -2946,6 +2950,24 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
 
             TRACE("Cross node sharing tier %#x.\n", data->SharingTier);
             TRACE("Cross node shader atomics %#x.\n", data->AtomicShaderInstructions);
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_D3D12_OPTIONS5:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS5 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->feature_options5;
+
+            TRACE("SRV tiled resource tier 3 only %#x.\n", data->SRVOnlyTiledResourceTier3);
+            TRACE("Render pass tier %#x.\n", data->RenderPassesTier);
+            TRACE("Ray tracing tier %#x.\n", data->RaytracingTier);
             return S_OK;
         }
 
