@@ -2931,6 +2931,24 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             return S_OK;
         }
 
+        case D3D12_FEATURE_CROSS_NODE:
+        {
+            D3D12_FEATURE_DATA_CROSS_NODE *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            data->SharingTier = device->feature_options.CrossNodeSharingTier;
+            data->AtomicShaderInstructions = FALSE;
+
+            TRACE("Cross node sharing tier %#x.\n", data->SharingTier);
+            TRACE("Cross node shader atomics %#x.\n", data->AtomicShaderInstructions);
+            return S_OK;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
