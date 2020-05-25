@@ -1356,6 +1356,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     device->feature_options3.ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
     device->feature_options3.BarycentricsSupported = FALSE;
 
+    device->feature_options4.MSAA64KBAlignedTextureSupported = FALSE;
+    device->feature_options4.SharedResourceCompatibilityTier = D3D12_SHARED_RESOURCE_COMPATIBILITY_TIER_0;
+    /* An SM 6.2 feature. This would require features->shaderInt16 and
+     * VK_KHR_shader_float16_int8. */
+    device->feature_options4.Native16BitShaderOpsSupported = FALSE;
+
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL, &count, NULL))) < 0)
     {
         ERR("Failed to enumerate device extensions, vr %d.\n", vr);
@@ -1704,6 +1710,31 @@ static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
     return S_OK;
 }
 
+/* The 4 MiB alignment requirement for MSAA resources was lowered to 64KB on
+ * hardware that supports it. This is distinct from the small MSAA requirement
+ * which applies to resources of a total size of 4 MiB or less. */
+static bool d3d12_is_64k_msaa_supported(struct d3d12_device *device)
+{
+    D3D12_RESOURCE_ALLOCATION_INFO info;
+    D3D12_RESOURCE_DESC resource_desc;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Width = 1024;
+    resource_desc.Height = 1025;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.SampleDesc.Count = 4;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    /* FIXME: in some cases Vulkan requires 0x20000 or more for non-MSAA
+     * resources, which must have 0x10000 in their description, so we might
+     * reasonably return true here for 0x20000 or 0x40000. */
+    return SUCCEEDED(vkd3d_get_image_allocation_info(device, &resource_desc, &info))
+            && info.Alignment <= 0x10000;
+}
+
 static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         const struct vkd3d_device_create_info *create_info)
 {
@@ -1800,6 +1831,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         device->vk_procs.vkDestroyDevice(vk_device, NULL);
         return hr;
     }
+
+    device->feature_options4.MSAA64KBAlignedTextureSupported = d3d12_is_64k_msaa_supported(device);
 
     TRACE("Created Vulkan device %p.\n", vk_device);
 
@@ -2855,6 +2888,24 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
             data->Supported = FALSE;
 
             TRACE("Existing heaps %#x.\n", data->Supported);
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_D3D12_OPTIONS4:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS4 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->feature_options4;
+
+            TRACE("64 KiB aligned MSAA textures %#x.\n", data->MSAA64KBAlignedTextureSupported);
+            TRACE("Shared resource compatibility tier %#x.\n", data->SharedResourceCompatibilityTier);
+            TRACE("Native 16-bit shader ops %#x.\n", data->Native16BitShaderOpsSupported);
             return S_OK;
         }
 
