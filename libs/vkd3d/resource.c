@@ -5325,3 +5325,104 @@ void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
 
     memset(null_resources, 0, sizeof(*null_resources));
 }
+
+HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryRequirements memory_requirements;
+    VkBufferCreateInfo buffer_info;
+    VkImageCreateInfo image_info;
+    VkBuffer buffer;
+    VkImage image;
+    VkResult vr;
+
+    memset(&buffer_info, 0, sizeof(buffer_info));
+    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_info.size = 65536;
+    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT |
+            VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT |
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+
+    if ((vr = VK_CALL(vkCreateBuffer(device->vk_device, &buffer_info, NULL, &buffer))) < 0)
+    {
+        ERR("Failed to create dummy buffer");
+        return hresult_from_vk_result(vr);
+    }
+
+    VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, buffer, &memory_requirements));
+    VK_CALL(vkDestroyBuffer(device->vk_device, buffer, NULL));
+    info->buffer_type_mask = memory_requirements.memoryTypeBits;
+
+    memset(&image_info, 0, sizeof(image_info));
+    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info.imageType = VK_IMAGE_TYPE_2D;
+    image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+    image_info.extent.width = 16;
+    image_info.extent.height = 16;
+    image_info.extent.depth = 1;
+    image_info.mipLevels = 1;
+    image_info.arrayLayers = 1;
+    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_STORAGE_BIT;
+    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &image))) < 0)
+    {
+        ERR("Failed to create dummy sampled image");
+        return hresult_from_vk_result(vr);
+    }
+
+    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, image, &memory_requirements));
+    VK_CALL(vkDestroyImage(device->vk_device, image, NULL));
+    info->sampled_type_mask = memory_requirements.memoryTypeBits;
+
+    image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+    image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_STORAGE_BIT;
+
+    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &image))) < 0)
+    {
+        ERR("Failed to create dummy color image");
+        return hresult_from_vk_result(vr);
+    }
+
+    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, image, &memory_requirements));
+    VK_CALL(vkDestroyImage(device->vk_device, image, NULL));
+    info->rt_ds_type_mask = memory_requirements.memoryTypeBits;
+
+    image_info.format = VK_FORMAT_D32_SFLOAT_S8_UINT;
+    image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT;
+
+    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &image))) < 0)
+    {
+        ERR("Failed to create dummy depth-stencil image");
+        return hresult_from_vk_result(vr);
+    }
+
+    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, image, &memory_requirements));
+    VK_CALL(vkDestroyImage(device->vk_device, image, NULL));
+    info->rt_ds_type_mask &= memory_requirements.memoryTypeBits;
+
+    TRACE("Device supports buffers on memory types 0x%#x.\n", info->buffer_type_mask);
+    TRACE("Device supports textures on memory types 0x%#x.\n", info->sampled_type_mask);
+    TRACE("Device supports render targets on memory types 0x%#x.\n", info->rt_ds_type_mask);
+    return S_OK;
+}

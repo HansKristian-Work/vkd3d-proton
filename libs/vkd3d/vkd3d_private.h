@@ -1448,6 +1448,16 @@ struct vkd3d_format_compatibility_list
     VkFormat vk_formats[VKD3D_MAX_COMPATIBLE_FORMAT_COUNT];
 };
 
+struct vkd3d_memory_info
+{
+    uint32_t buffer_type_mask;
+    uint32_t sampled_type_mask;
+    uint32_t rt_ds_type_mask;
+};
+
+HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
+
 /* meta operations */
 struct vkd3d_clear_uav_args
 {
@@ -1680,6 +1690,7 @@ struct d3d12_device
     const struct vkd3d_format_compatibility_list *format_compatibility_lists;
     struct vkd3d_null_resources null_resources;
     struct vkd3d_bindless_state bindless_state;
+    struct vkd3d_memory_info memory_info;
     struct vkd3d_meta_ops meta_ops;
 };
 

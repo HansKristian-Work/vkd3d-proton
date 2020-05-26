@@ -4622,6 +4622,9 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_init_format_info(device)))
         goto out_stop_fence_worker;
 
+    if (FAILED(hr = vkd3d_memory_info_init(&device->memory_info, device)))
+        goto out_cleanup_format_info;
+
     if (FAILED(hr = vkd3d_init_null_resources(&device->null_resources, device)))
         goto out_cleanup_format_info;
 
