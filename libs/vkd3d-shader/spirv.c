@@ -2821,6 +2821,21 @@ static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compil
     return true;
 }
 
+static bool register_is_descriptor(const struct vkd3d_shader_register *reg)
+{
+    switch (reg->type)
+    {
+        case VKD3DSPR_SAMPLER:
+        case VKD3DSPR_RESOURCE:
+        case VKD3DSPR_CONSTBUFFER:
+        case VKD3DSPR_UAV:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
 static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, struct vkd3d_shader_register_info *register_info)
 {
@@ -2868,7 +2883,7 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
             FIXME("Relative addressing not implemented.\n");
 
         /* Handle arrayed registers, e.g. v[3][0]. */
-        if (reg->idx[1].offset != ~0u)
+        if (reg->idx[1].offset != ~0u && !register_is_descriptor(reg))
             indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[0]);
     }
 
