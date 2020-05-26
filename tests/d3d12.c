@@ -646,6 +646,18 @@ static void check_sub_resource_uvec4_(unsigned int line, ID3D12Resource *texture
             expected_value->x, expected_value->y, expected_value->z, expected_value->w, x, y);
 }
 
+#define check_buffer_uint(a, b, c, d, e) check_buffer_uint_(__LINE__, a, b, c, d, e)
+static void check_buffer_uint_(unsigned int line, ID3D12Resource *buffer,
+        ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list,
+        unsigned int expected, unsigned int max_diff)
+{
+    struct resource_readback rb;
+
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    check_readback_data_uint_(line, &rb, NULL, expected, max_diff);
+    release_resource_readback(&rb);
+}
+
 static bool broken_on_warp(bool condition)
 {
     return broken(use_warp_device && condition);
@@ -32811,6 +32823,205 @@ static void test_write_buffer_immediate(void)
     destroy_test_context(&context);
 }
 
+static void test_register_space(void)
+{
+    ID3D12Resource *input_buffers[6], *output_buffers[8];
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    unsigned int i;
+    HRESULT hr;
+
+    static const D3D12_DESCRIPTOR_RANGE descriptor_ranges[] =
+    {
+        {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 2, 0},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 1, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 1, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 2, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3, 1, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3, 2, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+
+        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 1, 1, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 1, 2, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 2, 1, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 2, 2, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 3, 1, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 3, 2, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 3, 4, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 3, 3, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+    };
+
+    static const D3D12_ROOT_PARAMETER root_parameters[] =
+    {
+        {D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
+                    .DescriptorTable = {ARRAY_SIZE(descriptor_ranges), descriptor_ranges}},
+        {D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS, .Constants = {1, 1, 1}},
+        {D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS, .Constants = {1, 2, 1}},
+    };
+
+    static const DWORD cs_code[] =
+    {
+#if 0
+        cbuffer cb1 : register(b1, space1)
+        {
+            uint c1;
+        }
+        cbuffer cb2 : register(b1, space2)
+        {
+            uint c2;
+        }
+
+        ByteAddressBuffer t1 : register(t1, space2);
+        ByteAddressBuffer t2 : register(t1, space1);
+
+        Buffer<uint> t3 : register(t2, space1);
+        Buffer<uint> t4 : register(t2, space2);
+
+        StructuredBuffer<uint> t5 : register(t3, space1);
+        StructuredBuffer<uint> t6 : register(t3, space2);
+
+        RWByteAddressBuffer u1 : register(u1, space1);
+        RWByteAddressBuffer u2 : register(u1, space2);
+        RWByteAddressBuffer u3 : register(u2, space1);
+        RWByteAddressBuffer u4 : register(u2, space2);
+
+        RWBuffer<uint> u5 : register(u3, space1);
+        RWBuffer<uint> u6 : register(u3, space2);
+
+        RWStructuredBuffer<uint> u7 : register(u3, space4);
+        RWStructuredBuffer<uint> u8 : register(u3, space3);
+
+        [numthreads(1, 1, 1)]
+        void main()
+        {
+            u1.Store(0, t1.Load(0));
+            u2.Store(0, t2.Load(0));
+            u3.Store(0, t3.Load(0));
+            u4.Store(0, t4.Load(0));
+            u5[0] = t5.Load(0);
+            u6[0] = t6.Load(0);
+            u7[0] = c1;
+            u8[0] = c2;
+        }
+#endif
+        0x43425844, 0x073b3de1, 0x527d26fc, 0xa46f417c, 0x4d9f338c, 0x00000001, 0x00000444, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000003f0, 0x00050051, 0x000000fc, 0x0100086a,
+        0x07000059, 0x00308e46, 0x00000000, 0x00000001, 0x00000001, 0x00000001, 0x00000001, 0x07000059,
+        0x00308e46, 0x00000001, 0x00000001, 0x00000001, 0x00000001, 0x00000002, 0x060000a1, 0x00307e46,
+        0x00000000, 0x00000001, 0x00000001, 0x00000001, 0x07000858, 0x00307e46, 0x00000001, 0x00000002,
+        0x00000002, 0x00004444, 0x00000001, 0x070000a2, 0x00307e46, 0x00000002, 0x00000003, 0x00000003,
+        0x00000004, 0x00000001, 0x060000a1, 0x00307e46, 0x00000003, 0x00000001, 0x00000001, 0x00000002,
+        0x07000858, 0x00307e46, 0x00000004, 0x00000002, 0x00000002, 0x00004444, 0x00000002, 0x070000a2,
+        0x00307e46, 0x00000005, 0x00000003, 0x00000003, 0x00000004, 0x00000002, 0x0600009d, 0x0031ee46,
+        0x00000000, 0x00000001, 0x00000001, 0x00000001, 0x0600009d, 0x0031ee46, 0x00000001, 0x00000002,
+        0x00000002, 0x00000001, 0x0700089c, 0x0031ee46, 0x00000002, 0x00000003, 0x00000003, 0x00004444,
+        0x00000001, 0x0600009d, 0x0031ee46, 0x00000003, 0x00000001, 0x00000001, 0x00000002, 0x0600009d,
+        0x0031ee46, 0x00000004, 0x00000002, 0x00000002, 0x00000002, 0x0700089c, 0x0031ee46, 0x00000005,
+        0x00000003, 0x00000003, 0x00004444, 0x00000002, 0x0700009e, 0x0031ee46, 0x00000006, 0x00000003,
+        0x00000003, 0x00000004, 0x00000003, 0x0700009e, 0x0031ee46, 0x00000007, 0x00000003, 0x00000003,
+        0x00000004, 0x00000004, 0x02000068, 0x00000001, 0x0400009b, 0x00000001, 0x00000001, 0x00000001,
+        0x080000a5, 0x00100012, 0x00000000, 0x00004001, 0x00000000, 0x00207006, 0x00000003, 0x00000001,
+        0x080000a6, 0x0021e012, 0x00000000, 0x00000001, 0x00004001, 0x00000000, 0x0010000a, 0x00000000,
+        0x080000a5, 0x00100012, 0x00000000, 0x00004001, 0x00000000, 0x00207006, 0x00000000, 0x00000001,
+        0x080000a6, 0x0021e012, 0x00000003, 0x00000001, 0x00004001, 0x00000000, 0x0010000a, 0x00000000,
+        0x0b00002d, 0x00100012, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x00207e46, 0x00000001, 0x00000002, 0x080000a6, 0x0021e012, 0x00000001, 0x00000002, 0x00004001,
+        0x00000000, 0x0010000a, 0x00000000, 0x0b00002d, 0x00100012, 0x00000000, 0x00004002, 0x00000000,
+        0x00000000, 0x00000000, 0x00000000, 0x00207e46, 0x00000004, 0x00000002, 0x080000a6, 0x0021e012,
+        0x00000004, 0x00000002, 0x00004001, 0x00000000, 0x0010000a, 0x00000000, 0x0a0000a7, 0x00100012,
+        0x00000000, 0x00004001, 0x00000000, 0x00004001, 0x00000000, 0x00207006, 0x00000002, 0x00000003,
+        0x0b0000a4, 0x0021e0f2, 0x00000002, 0x00000003, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x00100006, 0x00000000, 0x0a0000a7, 0x00100012, 0x00000000, 0x00004001, 0x00000000,
+        0x00004001, 0x00000000, 0x00207006, 0x00000005, 0x00000003, 0x0b0000a4, 0x0021e0f2, 0x00000005,
+        0x00000003, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00100006, 0x00000000,
+        0x0c0000a8, 0x0021e012, 0x00000007, 0x00000003, 0x00004001, 0x00000000, 0x00004001, 0x00000000,
+        0x0030800a, 0x00000000, 0x00000001, 0x00000000, 0x0c0000a8, 0x0021e012, 0x00000006, 0x00000003,
+        0x00004001, 0x00000000, 0x00004001, 0x00000000, 0x0030800a, 0x00000001, 0x00000001, 0x00000000,
+        0x0100003e,
+    };
+    static const uint32_t srv_data[] = {100, 200, 300, 400, 500, 600};
+
+    if (!init_compute_test_context(&context))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    memset(&root_signature_desc, 0, sizeof(root_signature_desc));
+    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
+    root_signature_desc.pParameters = root_parameters;
+    hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, ARRAY_SIZE(descriptor_ranges));
+
+    for (i = 0; i < ARRAY_SIZE(input_buffers); ++i)
+    {
+        input_buffers[i] = create_default_buffer(device, sizeof(uint32_t),
+                D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+        upload_buffer_data(input_buffers[i], 0, sizeof(srv_data[i]), &srv_data[i], queue, command_list);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, input_buffers[i],
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+        memset(&srv_desc, 0, sizeof(srv_desc));
+        srv_desc.Format = DXGI_FORMAT_R32_UINT;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.Buffer.FirstElement = 0;
+        srv_desc.Buffer.NumElements = 1;
+        ID3D12Device_CreateShaderResourceView(device, input_buffers[i], &srv_desc,
+                get_cpu_descriptor_handle(&context, heap, i));
+    }
+
+    for (i = 0; i < ARRAY_SIZE(output_buffers); ++i)
+    {
+        output_buffers[i] = create_default_buffer(device, sizeof(uint32_t),
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        memset(&uav_desc, 0, sizeof(uav_desc));
+        uav_desc.Format = DXGI_FORMAT_R32_UINT;
+        uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav_desc.Buffer.FirstElement = 0;
+        uav_desc.Buffer.NumElements = 1;
+        ID3D12Device_CreateUnorderedAccessView(device, output_buffers[i], NULL, &uav_desc,
+                get_cpu_descriptor_handle(&context, heap, ARRAY_SIZE(input_buffers) + i));
+    }
+
+    context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
+            shader_bytecode(cs_code, sizeof(cs_code)));
+
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list,
+            0, get_gpu_descriptor_handle(&context, heap, 0));
+    ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(command_list, 1, 700, 0);
+    ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(command_list, 2, 800, 0);
+
+    ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
+
+    for (i = 0; i < ARRAY_SIZE(output_buffers); ++i)
+    {
+        transition_sub_resource_state(command_list, output_buffers[i], 0,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_buffer_uint(output_buffers[i], queue, command_list, (i + 1) * 100, 0);
+        reset_command_list(command_list, context.allocator);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(input_buffers); ++i)
+        ID3D12Resource_Release(input_buffers[i]);
+    for (i = 0; i < ARRAY_SIZE(output_buffers); ++i)
+        ID3D12Resource_Release(output_buffers[i]);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     parse_args(argc, argv);
@@ -32975,4 +33186,5 @@ START_TEST(d3d12)
     run_test(test_conditional_rendering);
     run_test(test_bufinfo_instruction);
     run_test(test_write_buffer_immediate);
+    run_test(test_register_space);
 }
