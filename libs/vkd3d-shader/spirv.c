@@ -2029,6 +2029,7 @@ struct vkd3d_push_constant_buffer_binding
 {
     struct vkd3d_shader_register reg;
     struct vkd3d_shader_push_constant_buffer pc;
+    unsigned int size;
 };
 
 struct vkd3d_shader_phase
@@ -4892,7 +4893,7 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
     const SpvStorageClass storage_class = SpvStorageClassPushConstant;
     uint32_t vec4_id, length_id, struct_id, pointer_type_id, var_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    unsigned int i, j, count, reg_idx, cb_size;
+    unsigned int i, j, count, reg_idx;
     struct vkd3d_symbol reg_symbol;
     uint32_t *member_ids;
 
@@ -4918,8 +4919,7 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
         if (!cb->reg.type)
             continue;
 
-        cb_size = cb->reg.idx[1].offset;
-        length_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, cb_size);
+        length_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, cb->size);
         member_ids[j]  = vkd3d_spirv_build_op_type_array(builder, vec4_id, length_id);
         vkd3d_spirv_build_op_decorate1(builder, member_ids[j], SpvDecorationArrayStride, 16);
 
@@ -4979,6 +4979,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
          */
         unsigned int cb_size_in_bytes = cb->size * VKD3D_VEC4_SIZE * sizeof(uint32_t);
         push_cb->reg = *reg;
+        push_cb->size = cb->size;
         if (cb_size_in_bytes > push_cb->pc.size)
         {
             WARN("Constant buffer size %u exceeds push constant size %u.\n",
