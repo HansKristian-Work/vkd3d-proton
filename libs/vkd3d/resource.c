@@ -3947,7 +3947,7 @@ static HRESULT vkd3d_init_null_resources_data(struct vkd3d_null_resources *null_
 
     vr = VK_CALL(vkWaitForFences(device->vk_device, 1, &vk_fence, VK_FALSE, ~(uint64_t)0));
     if (vr != VK_SUCCESS)
-        WARN("Failed to wait fo fence, vr %d.\n", vr);
+        WARN("Failed to wait for fence, vr %d.\n", vr);
 
 done:
     VK_CALL(vkDestroyCommandPool(vk_device, vk_command_pool, NULL));
