@@ -138,6 +138,7 @@ struct vkd3d_shader_parameter
 struct vkd3d_shader_resource_binding
 {
     enum vkd3d_shader_descriptor_type type;
+    unsigned int register_space;
     unsigned int register_index;
     enum vkd3d_shader_visibility shader_visibility;
     unsigned int flags; /* vkd3d_shader_binding_flags */
@@ -159,6 +160,7 @@ struct vkd3d_shader_combined_resource_sampler
 
 struct vkd3d_shader_uav_counter_binding
 {
+    unsigned int register_space;
     unsigned int register_index; /* u# */
     enum vkd3d_shader_visibility shader_visibility;
 
@@ -168,6 +170,7 @@ struct vkd3d_shader_uav_counter_binding
 
 struct vkd3d_shader_push_constant_buffer
 {
+    unsigned int register_space;
     unsigned int register_index;
     enum vkd3d_shader_visibility shader_visibility;
 

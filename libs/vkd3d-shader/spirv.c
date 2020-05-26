@@ -2234,6 +2234,7 @@ static bool vkd3d_dxbc_compiler_check_shader_visibility(const struct vkd3d_dxbc_
 static struct vkd3d_push_constant_buffer_binding *vkd3d_dxbc_compiler_find_push_constant_buffer(
         const struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_constant_buffer *cb)
 {
+    unsigned int register_space = cb->register_space;
     unsigned int reg_idx = cb->register_index;
     unsigned int i;
 
@@ -2244,7 +2245,7 @@ static struct vkd3d_push_constant_buffer_binding *vkd3d_dxbc_compiler_find_push_
         if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->pc.shader_visibility))
             continue;
 
-        if (current->pc.register_index == reg_idx)
+        if (current->pc.register_space == register_space && current->pc.register_index == reg_idx)
             return current;
     }
 
@@ -2280,7 +2281,7 @@ static bool vkd3d_dxbc_compiler_has_combined_sampler(const struct vkd3d_dxbc_com
 }
 
 static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor_binding(
-        struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg,
+        struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg, unsigned int register_space,
         unsigned int reg_idx, enum vkd3d_shader_resource_type resource_type, bool is_uav_counter)
 {
     const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
@@ -2317,11 +2318,11 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
             if (current->offset)
                 FIXME("Atomic counter offsets are not supported yet.\n");
 
-            if (current->register_index == reg_idx)
+            if (current->register_space == register_space && current->register_index == reg_idx)
                 return current->binding;
         }
         if (shader_interface->uav_counter_count)
-            FIXME("Could not find descriptor binding for UAV counter %u.\n", reg_idx);
+            FIXME("Could not find descriptor binding for UAV counter %u, space %u.\n", reg_idx, register_space);
     }
     else if (descriptor_type != VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN)
     {
@@ -2335,12 +2336,13 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
             if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
                 continue;
 
-            if (current->type == descriptor_type && current->register_index == reg_idx)
+            if (current->type == descriptor_type && current->register_space == register_space
+                    && current->register_index == reg_idx)
                 return current->binding;
         }
         if (shader_interface->binding_count)
-            FIXME("Could not find binding for type %#x, register %u, shader type %#x.\n",
-                    descriptor_type, reg_idx, compiler->shader_type);
+            FIXME("Could not find binding for type %#x, space %u, register %u, shader type %#x.\n",
+                    descriptor_type, register_space, reg_idx, compiler->shader_type);
     }
 
     binding.set = 0;
@@ -2358,12 +2360,12 @@ static void vkd3d_dxbc_compiler_emit_descriptor_binding(struct vkd3d_dxbc_compil
 }
 
 static void vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(struct vkd3d_dxbc_compiler *compiler,
-        uint32_t variable_id, const struct vkd3d_shader_register *reg,
+        uint32_t variable_id, const struct vkd3d_shader_register *reg, unsigned int register_space,
         unsigned int register_index, enum vkd3d_shader_resource_type resource_type, bool is_uav_counter)
 {
     struct vkd3d_shader_descriptor_binding binding;
 
-    binding = vkd3d_dxbc_compiler_get_descriptor_binding(compiler, reg,
+    binding = vkd3d_dxbc_compiler_get_descriptor_binding(compiler, reg, register_space,
             register_index, resource_type, is_uav_counter);
     vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, variable_id, &binding);
 }
@@ -4984,9 +4986,6 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
 
     assert(!(instruction->flags & ~VKD3DSI_INDEXED_DYNAMIC));
 
-    if (cb->register_space)
-        FIXME("Unhandled register space %u.\n", cb->register_space);
-
     if ((push_cb = vkd3d_dxbc_compiler_find_push_constant_buffer(compiler, cb)))
     {
         /* Push constant buffers are handled in
@@ -5018,7 +5017,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
             pointer_type_id, storage_class, 0);
 
     vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
-            var_id, reg, cb->register_index, VKD3D_SHADER_RESOURCE_BUFFER, false);
+            var_id, reg, cb->register_space, cb->register_index, VKD3D_SHADER_RESOURCE_BUFFER, false);
 
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
@@ -5064,14 +5063,12 @@ static void vkd3d_dxbc_compiler_emit_dcl_immediate_constant_buffer(struct vkd3d_
 static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    const struct vkd3d_shader_register *reg = &instruction->declaration.sampler.src.reg;
+    const struct vkd3d_shader_sampler *sampler = &instruction->declaration.sampler;
     const SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_register *reg = &sampler->src.reg;
     uint32_t type_id, ptr_type_id, var_id;
     struct vkd3d_symbol reg_symbol;
-
-    if (instruction->declaration.sampler.register_space)
-        FIXME("Unhandled register space %u.\n", instruction->declaration.sampler.register_space);
 
     if (vkd3d_dxbc_compiler_has_combined_sampler(compiler, NULL, reg))
         return;
@@ -5082,7 +5079,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
             ptr_type_id, storage_class, 0);
 
     vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler, var_id, reg,
-            instruction->declaration.sampler.register_index, VKD3D_SHADER_RESOURCE_NONE, false);
+            sampler->register_space, sampler->register_index, VKD3D_SHADER_RESOURCE_NONE, false);
 
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
@@ -5213,7 +5210,7 @@ static void vkd3d_dxbc_compiler_emit_combined_sampler_declarations(struct vkd3d_
 }
 
 static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_register *reg, unsigned int register_index,
+        const struct vkd3d_shader_register *reg, unsigned int register_space, unsigned int register_index,
         enum vkd3d_shader_resource_type resource_type, enum vkd3d_data_type resource_data_type,
         unsigned int structure_stride, bool raw)
 {
@@ -5249,7 +5246,8 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
             ptr_type_id, storage_class, 0);
 
-    vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler, var_id, reg, register_index, resource_type, false);
+    vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler, var_id, reg,
+            register_space, register_index, resource_type, false);
 
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
@@ -5272,7 +5270,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
                 ptr_type_id, storage_class, 0);
 
         vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
-                counter_var_id, reg, register_index, resource_type, true);
+                counter_var_id, reg, register_space, register_index, resource_type, true);
 
         vkd3d_spirv_build_op_name(builder, counter_var_id, "u%u_counter", reg->idx[0].offset);
     }
@@ -5293,12 +5291,10 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *co
 {
     const struct vkd3d_shader_semantic *semantic = &instruction->declaration.semantic;
 
-    if (semantic->register_space)
-        FIXME("Unhandled register space %u.\n", semantic->register_space);
     if (instruction->flags)
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
-    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &semantic->reg.reg,
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &semantic->reg.reg, semantic->register_space,
             semantic->register_index, semantic->resource_type, semantic->resource_data_type, 0, false);
 }
 
@@ -5307,12 +5303,10 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource_raw(struct vkd3d_dxbc_compiler
 {
     const struct vkd3d_shader_raw_resource *resource = &instruction->declaration.raw_resource;
 
-    if (resource->register_space)
-        FIXME("Unhandled register space %u.\n", resource->register_space);
     if (instruction->flags)
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
-    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &resource->dst.reg,
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &resource->dst.reg, resource->register_space,
             resource->register_index, VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, 0, true);
 }
 
@@ -5323,12 +5317,10 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource_structured(struct vkd3d_dxbc_c
     const struct vkd3d_shader_register *reg = &resource->reg.reg;
     unsigned int stride = resource->byte_stride;
 
-    if (resource->register_space)
-        FIXME("Unhandled register space %u.\n", resource->register_space);
     if (instruction->flags)
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
-    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, reg,
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, reg, resource->register_space,
             resource->register_index, VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, stride / 4, false);
 }
 

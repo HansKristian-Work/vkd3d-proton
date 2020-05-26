@@ -510,6 +510,7 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
                 ? push_constants[0].stageFlags : stage_flags_from_visibility(p->ShaderVisibility);
         root_constant->offset = offset;
 
+        root_signature->root_constants[j].register_space = 0;
         root_signature->root_constants[j].register_index = p->u.Constants.ShaderRegister;
         root_signature->root_constants[j].shader_visibility
                 = vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility);
@@ -541,6 +542,7 @@ static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *
             = &root_signature->descriptor_mapping[context->descriptor_index++];
 
     mapping->type = descriptor_type;
+    mapping->register_space = 0;
     mapping->register_index = register_idx;
     mapping->shader_visibility = shader_visibility;
     mapping->flags = buffer_descriptor ? VKD3D_SHADER_BINDING_FLAG_BUFFER : VKD3D_SHADER_BINDING_FLAG_IMAGE;
@@ -1451,6 +1453,7 @@ static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipel
         if (!(shader_info->uav_counter_mask & (1u << i)))
             continue;
 
+        state->uav_counters[j].register_space = 0;
         state->uav_counters[j].register_index = i;
         state->uav_counters[j].shader_visibility = VKD3D_SHADER_VISIBILITY_COMPUTE;
         state->uav_counters[j].binding.set = context.set_index;
@@ -2910,6 +2913,7 @@ HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d
     set_binding.pImmutableSamplers = NULL;
 
     binding.type = VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
+    binding.register_space = 0;
     binding.register_index = 0;
     binding.shader_visibility = VKD3D_SHADER_VISIBILITY_COMPUTE;
     binding.binding.set = 0;
@@ -2919,6 +2923,7 @@ HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d
     push_constant_range.offset = 0;
     push_constant_range.size = sizeof(struct vkd3d_uav_clear_args);
 
+    push_constant.register_space = 0;
     push_constant.register_index = 0;
     push_constant.shader_visibility = VKD3D_SHADER_VISIBILITY_COMPUTE;
     push_constant.offset = 0;
