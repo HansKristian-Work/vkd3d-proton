@@ -151,6 +151,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_MAINTENANCE3, KHR_maintenance3),
     VK_EXTENSION(KHR_PUSH_DESCRIPTOR, KHR_push_descriptor),
     VK_EXTENSION(KHR_TIMELINE_SEMAPHORE, KHR_timeline_semaphore),
+    VK_EXTENSION(KHR_SHADER_FLOAT16_INT8, KHR_shader_float16_int8),
+    VK_EXTENSION(KHR_SHADER_SUBGROUP_EXTENDED_TYPES, KHR_shader_subgroup_extended_types),
     /* EXT extensions */
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
     VK_EXTENSION(EXT_CUSTOM_BORDER_COLOR, EXT_custom_border_color),
@@ -706,6 +708,7 @@ VkInstance vkd3d_instance_get_vk_instance(struct vkd3d_instance *instance)
 
 static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
 {
+    VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR *shader_subgroup_extended_types_features;
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDeviceSubgroupSizeControlPropertiesEXT *subgroup_size_control_properties;
     VkPhysicalDeviceInlineUniformBlockPropertiesEXT *inline_uniform_block_properties;
@@ -726,6 +729,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceCustomBorderColorFeaturesEXT *custom_border_color_features;
     VkPhysicalDeviceTimelineSemaphoreFeaturesKHR *timeline_semaphore_features;
     VkPhysicalDevicePushDescriptorPropertiesKHR *push_descriptor_properties;
+    VkPhysicalDeviceShaderFloat16Int8FeaturesKHR *float16_int8_features;
     VkPhysicalDeviceShaderCoreProperties2AMD *shader_core_properties2;
     VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
     VkPhysicalDeviceShaderCorePropertiesAMD *shader_core_properties;
@@ -763,6 +767,8 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     shader_core_properties2 = &info->shader_core_properties2;
     shader_sm_builtins_properties = &info->shader_sm_builtins_properties;
     sampler_filter_minmax_properties = &info->sampler_filter_minmax_properties;
+    float16_int8_features = &info->float16_int8_features;
+    shader_subgroup_extended_types_features = &info->subgroup_extended_types_features;
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
@@ -794,6 +800,19 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         maintenance3_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES;
         vk_prepend_struct(&info->properties2, maintenance3_properties);
+    }
+
+    if (vulkan_info->KHR_shader_float16_int8)
+    {
+        float16_int8_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT16_INT8_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, float16_int8_features);
+    }
+
+    if (vulkan_info->KHR_shader_subgroup_extended_types)
+    {
+        shader_subgroup_extended_types_features->sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, shader_subgroup_extended_types_features);
     }
 
     if (vulkan_info->EXT_conditional_rendering)
@@ -4362,8 +4381,7 @@ static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
     options4->MSAA64KBAlignedTextureSupported = FALSE;
     /* Shared resources not supported */
     options4->SharedResourceCompatibilityTier = D3D12_SHARED_RESOURCE_COMPATIBILITY_TIER_0;
-    /* Currently not supported */
-    options4->Native16BitShaderOpsSupported = FALSE;
+    options4->Native16BitShaderOpsSupported = device->device_info.float16_int8_features.shaderFloat16;
 }
 
 static void d3d12_device_caps_init_feature_options5(struct d3d12_device *device)
@@ -4440,11 +4458,47 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
         (physical_device_info->subgroup_properties.supportedOperations & required) == required &&
         (physical_device_info->subgroup_properties.supportedStages & required_stages) == required_stages)
     {
-        /* TODO: Add checks for all the other features which are required to implement SM 6.0.
-         * - 16-bit arithmetic / storage. Supporting FP16/INT16 properly might require improved SSBO alignment features.
+        /* SM 6.0 adds:
+         * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.0
+         * WaveOps, int64 (optional)
          */
         device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_0;
         TRACE("Enabling support for SM 6.0.\n");
+
+        /* SM 6.1 adds:
+         * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.1
+         * SV_ViewID (VK_KHR_multiview?), SV_Barycentrics
+         */
+
+        /* SM 6.2 adds:
+         * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.2
+         * FP16, Denorm modes (float controls extension)
+         */
+        if (device->device_info.float16_int8_features.shaderFloat16 &&
+            device->device_info.subgroup_extended_types_features.shaderSubgroupExtendedTypes)
+        {
+            /* These features are required by FidelityFX SSSR demo. */
+            device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_2;
+            TRACE("Enabling support for SM 6.2.\n");
+        }
+
+        /* SM 6.3 adds:
+         * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.3
+         * Ray tracing
+         */
+
+        /* SM 6.4 adds:
+         * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.4
+         * Integer dot products (8-bit)
+         * Mixed FP16 dot products
+         * Variable rate shading
+         * Library subobjects
+         */
+
+        /* SM 6.5 adds:
+         * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.5
+         * DXR 1.1, Sampler feedback, Mesh shaders, Amplification shaders, more wave ops.
+         */
     }
     else
     {

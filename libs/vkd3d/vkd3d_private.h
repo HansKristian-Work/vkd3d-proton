@@ -116,6 +116,8 @@ struct vkd3d_vulkan_info
     bool KHR_maintenance3;
     bool KHR_push_descriptor;
     bool KHR_timeline_semaphore;
+    bool KHR_shader_float16_int8;
+    bool KHR_shader_subgroup_extended_types;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_custom_border_color;
@@ -1602,6 +1604,8 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
     VkPhysicalDeviceCustomBorderColorFeaturesEXT custom_border_color_features;
     VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline_semaphore_features;
+    VkPhysicalDeviceFloat16Int8FeaturesKHR float16_int8_features;
+    VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR subgroup_extended_types_features;
 
     VkPhysicalDeviceFeatures2 features2;
 };
