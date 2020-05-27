@@ -2579,6 +2579,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs;
+    VkMemoryBarrier memory_barrier;
     VkResult vr;
 
     TRACE("iface %p.\n", iface);
@@ -2594,6 +2595,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     d3d12_command_list_end_current_render_pass(list, false);
     if (list->is_predicated)
         VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
+
+    // TODO We should emit a barrier between submissions,
+    // not between command lists within the same submission.
+    memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    memory_barrier.pNext = NULL;
+    memory_barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+    memory_barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            0, 1, &memory_barrier, 0, NULL, 0, NULL));
 
     if ((vr = VK_CALL(vkEndCommandBuffer(list->vk_command_buffer))) < 0)
     {
