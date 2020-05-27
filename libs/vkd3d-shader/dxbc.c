@@ -646,7 +646,7 @@ static void shader_sm4_read_dcl_constant_buffer(struct vkd3d_shader_instruction 
     if (opcode_token & VKD3D_SM4_INDEX_TYPE_MASK)
         ins->flags |= VKD3DSI_INDEXED_DYNAMIC;
 
-    ins->declaration.cb.size = ins->declaration.cb.src.reg.idx[1].offset;
+    ins->declaration.cb.size = ins->declaration.cb.src.reg.idx[2].offset;
     ins->declaration.cb.register_space = 0;
 
     if (shader_is_sm_5_1(priv))
@@ -1602,6 +1602,14 @@ static bool shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
                 FIXME("Unhandled immediate constant type %#x.\n", immconst_type);
                 break;
         }
+    }
+    else if (register_type == VKD3D_SM4_RT_CONSTBUFFER && order == 2)
+    {
+        /* SM5.1 places the buffer offset in idx[2]; earlier versions place it
+         * in idx[1]. Normalize to SM5.1. */
+        param->idx[2] = param->idx[1];
+        param->idx[1].rel_addr = NULL;
+        param->idx[1].offset = 0;
     }
 
     map_register(priv, param);

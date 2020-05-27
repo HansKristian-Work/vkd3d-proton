@@ -2832,7 +2832,7 @@ static void vkd3d_dxbc_compiler_emit_dereference_register(struct vkd3d_dxbc_comp
     {
         assert(!reg->idx[0].rel_addr);
         indexes[index_count++] = vkd3d_dxbc_compiler_get_constant_uint(compiler, register_info->member_idx);
-        indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[1]);
+        indexes[index_count++] = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[2]);
     }
     else if (reg->type == VKD3DSPR_IMMCONSTBUFFER)
     {
