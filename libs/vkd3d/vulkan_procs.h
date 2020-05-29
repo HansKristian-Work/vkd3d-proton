@@ -151,13 +151,16 @@ VK_DEVICE_PFN(vkFreeCommandBuffers)
 VK_DEVICE_PFN(vkFreeDescriptorSets)
 VK_DEVICE_PFN(vkFreeMemory)
 VK_DEVICE_PFN(vkGetBufferMemoryRequirements)
+VK_DEVICE_PFN(vkGetBufferMemoryRequirements2)
 VK_DEVICE_PFN(vkGetDescriptorSetLayoutSupport)
 VK_DEVICE_PFN(vkGetDeviceMemoryCommitment)
 VK_DEVICE_PFN(vkGetDeviceQueue)
 VK_DEVICE_PFN(vkGetEventStatus)
 VK_DEVICE_PFN(vkGetFenceStatus)
 VK_DEVICE_PFN(vkGetImageMemoryRequirements)
+VK_DEVICE_PFN(vkGetImageMemoryRequirements2)
 VK_DEVICE_PFN(vkGetImageSparseMemoryRequirements)
+VK_DEVICE_PFN(vkGetImageSparseMemoryRequirements2)
 VK_DEVICE_PFN(vkGetImageSubresourceLayout)
 VK_DEVICE_PFN(vkGetPipelineCacheData)
 VK_DEVICE_PFN(vkGetQueryPoolResults)
@@ -191,11 +194,6 @@ VK_DEVICE_EXT_PFN(vkSignalSemaphoreKHR)
 /* VK_KHR_draw_indirect_count */
 VK_DEVICE_EXT_PFN(vkCmdDrawIndirectCountKHR)
 VK_DEVICE_EXT_PFN(vkCmdDrawIndexedIndirectCountKHR)
-
-/* VK_KHR_get_memory_requirements2 */
-VK_DEVICE_EXT_PFN(vkGetBufferMemoryRequirements2KHR)
-VK_DEVICE_EXT_PFN(vkGetImageMemoryRequirements2KHR)
-VK_DEVICE_EXT_PFN(vkGetImageSparseMemoryRequirements2KHR)
 
 /* VK_KHR_push_descriptor */
 VK_DEVICE_EXT_PFN(vkCmdPushDescriptorSetKHR)
