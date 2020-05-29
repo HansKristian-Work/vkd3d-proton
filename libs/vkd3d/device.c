@@ -540,9 +540,17 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     if (vk_global_procs->vkEnumerateInstanceVersion)
         vk_global_procs->vkEnumerateInstanceVersion(&loader_version);
 
+    if (loader_version < VKD3D_MIN_API_VERSION)
+    {
+        ERR("Vulkan %u.%u not supported by loader.\n",
+                VK_VERSION_MAJOR(VKD3D_MIN_API_VERSION),
+                VK_VERSION_MINOR(VKD3D_MIN_API_VERSION));
+        return E_INVALIDARG;
+    }
+
     /* Do not opt-in to versions we don't need yet. */
-    if (loader_version > VK_API_VERSION_1_1)
-        loader_version = VK_API_VERSION_1_1;
+    if (loader_version > VKD3D_MAX_API_VERSION)
+        loader_version = VKD3D_MAX_API_VERSION;
 
     application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     application_info.pNext = NULL;
@@ -617,11 +625,9 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance->vk_instance = vk_instance;
     instance->instance_version = loader_version;
 
-    TRACE("Created Vulkan instance %p.\n", vk_instance);
-    if (loader_version == VK_API_VERSION_1_1)
-        TRACE("Created Vulkan 1.1 instance.\n");
-    else
-        TRACE("Created Vulkan 1.0 instance.\n");
+    TRACE("Created Vulkan instance %p, version %u.%u.\n", vk_instance,
+            VK_VERSION_MAJOR(loader_version),
+            VK_VERSION_MINOR(loader_version));
 
     instance->refcount = 1;
 

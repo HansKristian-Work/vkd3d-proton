@@ -64,6 +64,9 @@
 
 #define VKD3D_TILE_SIZE 65536
 
+#define VKD3D_MIN_API_VERSION VK_API_VERSION_1_1
+#define VKD3D_MAX_API_VERSION VK_API_VERSION_1_1
+
 struct d3d12_command_list;
 struct d3d12_device;
 struct d3d12_resource;
