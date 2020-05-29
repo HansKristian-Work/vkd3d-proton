@@ -142,7 +142,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_DRAW_INDIRECT_COUNT, KHR_draw_indirect_count),
     VK_EXTENSION(KHR_GET_MEMORY_REQUIREMENTS_2, KHR_get_memory_requirements2),
     VK_EXTENSION(KHR_IMAGE_FORMAT_LIST, KHR_image_format_list),
-    VK_EXTENSION(KHR_MAINTENANCE3, KHR_maintenance3),
     VK_EXTENSION(KHR_PUSH_DESCRIPTOR, KHR_push_descriptor),
     VK_EXTENSION(KHR_TIMELINE_SEMAPHORE, KHR_timeline_semaphore),
     VK_EXTENSION(KHR_SHADER_FLOAT16_INT8, KHR_shader_float16_int8),
@@ -776,6 +775,9 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     subgroup_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
     vk_prepend_struct(&info->properties2, subgroup_properties);
 
+    maintenance3_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES;
+    vk_prepend_struct(&info->properties2, maintenance3_properties);
+
     if (vulkan_info->KHR_buffer_device_address)
     {
         buffer_device_address_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
@@ -794,12 +796,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         push_descriptor_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR;
         vk_prepend_struct(&info->properties2, push_descriptor_properties);
-    }
-
-    if (vulkan_info->KHR_maintenance3)
-    {
-        maintenance3_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES;
-        vk_prepend_struct(&info->properties2, maintenance3_properties);
     }
 
     if (vulkan_info->KHR_shader_float16_int8)
