@@ -1557,6 +1557,12 @@ static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
         VK_CALL(vkGetPhysicalDeviceProperties(physical_devices[i], &device_properties));
         vkd3d_trace_physical_device_properties(&device_properties);
 
+        if (device_properties.apiVersion < VKD3D_MIN_API_VERSION)
+        {
+            WARN("Physical device %u does not support required Vulkan version, ignoring.\n", i);
+            continue;
+        }
+
         if (i == device_index)
             device = physical_devices[i];
 
@@ -1753,6 +1759,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     const struct vkd3d_optional_device_extensions_info *optional_extensions;
     struct vkd3d_device_queue_info device_queue_info;
+    VkPhysicalDeviceProperties device_properties;
     bool *user_extension_supported = NULL;
     VkPhysicalDevice physical_device;
     VkDeviceCreateInfo device_info;
@@ -1762,8 +1769,6 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     VkDevice vk_device;
     VkResult vr;
     HRESULT hr;
-    VkPhysicalDeviceProperties device_properties;
-    bool use_vulkan_11;
 
     TRACE("device %p, create_info %p.\n", device, create_info);
 
@@ -1776,9 +1781,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     device->vk_physical_device = physical_device;
 
     VK_CALL(vkGetPhysicalDeviceProperties(device->vk_physical_device, &device_properties));
-    use_vulkan_11 = device_properties.apiVersion >= VK_API_VERSION_1_1 &&
-                    device->vkd3d_instance->instance_version >= VK_API_VERSION_1_1;
-    device->api_version = use_vulkan_11 ? VK_API_VERSION_1_1 : VK_API_VERSION_1_0;
+    device->api_version = min(device_properties.apiVersion, VKD3D_MAX_API_VERSION);
 
     if (FAILED(hr = vkd3d_select_queues(device->vkd3d_instance, physical_device, &device_queue_info)))
         return hr;
