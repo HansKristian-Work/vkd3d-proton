@@ -37,25 +37,43 @@ static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *propertie
     return true;
 }
 
-static HRESULT vkd3d_select_memory_type(struct d3d12_device *device, uint32_t memory_type_mask,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, unsigned int *type_index)
+static uint32_t vkd3d_select_memory_types(struct d3d12_device *device, const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
 {
     const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
-    VkMemoryPropertyFlags flags;
-    unsigned int i;
+    uint32_t type_mask = (1 << memory_info->memoryTypeCount) - 1;
 
+    if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
+        type_mask &= device->memory_info.buffer_type_mask;
+
+    if (!(heap_flags & D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES))
+        type_mask &= device->memory_info.sampled_type_mask;
+
+    /* Render targets are not allowed on UPLOAD and READBACK heaps */
+    if (!(heap_flags & D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES) &&
+            heap_properties->Type != D3D12_HEAP_TYPE_UPLOAD &&
+            heap_properties->Type != D3D12_HEAP_TYPE_READBACK)
+        type_mask &= device->memory_info.rt_ds_type_mask;
+
+    if (!type_mask)
+        ERR("No memory type found for heap flags %#x.\n", heap_flags);
+
+    return type_mask;
+}
+
+static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D12_HEAP_PROPERTIES *heap_properties, VkMemoryPropertyFlags *type_flags)
+{
     switch (heap_properties->Type)
     {
         case D3D12_HEAP_TYPE_DEFAULT:
-            flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+            *type_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
             break;
 
         case D3D12_HEAP_TYPE_UPLOAD:
-            flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            *type_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
             break;
 
         case D3D12_HEAP_TYPE_READBACK:
-            flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+            *type_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
             break;
 
         case D3D12_HEAP_TYPE_CUSTOM:
@@ -70,13 +88,13 @@ static HRESULT vkd3d_select_memory_type(struct d3d12_device *device, uint32_t me
             switch (heap_properties->CPUPageProperty)
             {
                 case D3D12_CPU_PAGE_PROPERTY_WRITE_BACK:
-                    flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+                    *type_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
                     break;
                 case D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE:
-                    flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+                    *type_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
                     break;
                 case D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE:
-                    flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+                    *type_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
                     break;
                 case D3D12_CPU_PAGE_PROPERTY_UNKNOWN:
                 default:
@@ -89,6 +107,22 @@ static HRESULT vkd3d_select_memory_type(struct d3d12_device *device, uint32_t me
             WARN("Invalid heap type %#x.\n", heap_properties->Type);
             return E_INVALIDARG;
     }
+
+    return S_OK;
+}
+
+static HRESULT vkd3d_select_memory_type(struct d3d12_device *device, uint32_t memory_type_mask,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, unsigned int *type_index)
+{
+    const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
+    VkMemoryPropertyFlags flags;
+    unsigned int i;
+    HRESULT hr;
+
+    if (FAILED(hr = vkd3d_select_memory_flags(device, heap_properties, &flags)))
+        return hr;
+
+    memory_type_mask &= vkd3d_select_memory_types(device, heap_flags);
 
     for (i = 0; i < memory_info->memoryTypeCount; ++i)
     {
@@ -103,6 +137,63 @@ static HRESULT vkd3d_select_memory_type(struct d3d12_device *device, uint32_t me
     }
 
     return E_FAIL;
+}
+
+static HRESULT vkd3d_try_allocate_memory(struct d3d12_device *device,
+        VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
+        void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
+{
+    const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryAllocateInfo allocate_info;
+    VkResult vr;
+    uint32_t i;
+
+    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocate_info.pNext = pNext;
+    allocate_info.allocationSize = size;
+
+    for (i = 0; i < memory_info->memoryTypeCount; i++)
+    {
+        if (!(type_mask & (1u << i)))
+            continue;
+
+        if ((memory_info->memoryTypes[i].propertyFlags & type_flags) != type_flags)
+            continue;
+
+        allocate_info.memoryTypeIndex = i;
+
+        if ((vr = VK_CALL(vkAllocateMemory(device->vk_device,
+                &allocate_info, NULL, vk_memory))) == VK_SUCCESS)
+        {
+            if (vk_memory_type)
+                *vk_memory_type = i;
+
+            return S_OK;
+        }
+    }
+
+    return E_OUTOFMEMORY;
+}
+
+static HRESULT vkd3d_allocate_memory(struct d3d12_device *device,
+        VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
+        void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
+{
+    const VkMemoryPropertyFlags optional_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    HRESULT hr;
+
+    hr = vkd3d_try_allocate_memory(device, size, type_flags,
+            type_mask, pNext, vk_memory, vk_memory_type);
+
+    if (FAILED(hr) && (type_flags & optional_flags))
+    {
+        WARN("Memory allocation failed, falling back to system memory.\n");
+        hr = vkd3d_try_allocate_memory(device, size, type_flags & ~optional_flags,
+                type_mask, pNext, vk_memory, vk_memory_type);
+    }
+
+    return hr;
 }
 
 static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
