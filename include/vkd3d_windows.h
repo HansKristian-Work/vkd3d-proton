@@ -33,8 +33,11 @@
 
 #if !defined(_WIN32) || defined(__WIDL__)
 
-# if !defined(__WIDL__) && !defined(VKD3D_WIN32_WCHAR)
-#  include <wchar.h>
+# if !defined(__WIDL__)
+#  if !defined(VKD3D_WIN32_WCHAR)
+#   include <wchar.h>
+#  endif
+#  include <stdint.h>
 # endif
 
 # ifdef __GNUC__
@@ -79,12 +82,12 @@ typedef short INT16;
 typedef unsigned short UINT16;
 typedef int INT32;
 typedef unsigned int UINT32;
-# if defined(__x86_64__) || defined(__WIDL__)
-typedef long INT64;
-typedef unsigned long UINT64;
+# if defined(__WIDL__)
+typedef __int64 INT64;
+typedef unsigned __int64 UINT64;
 # else
-typedef long long DECLSPEC_ALIGN(8) INT64;
-typedef unsigned long long DECLSPEC_ALIGN(8) UINT64;
+typedef int64_t DECLSPEC_ALIGN(8) INT64;
+typedef uint64_t DECLSPEC_ALIGN(8) UINT64;
 # endif
 typedef long LONG_PTR;
 typedef unsigned long ULONG_PTR;
