@@ -6171,13 +6171,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 if (count_buffer)
                 {
                     VK_CALL(vkCmdDrawIndirectCountKHR(list->vk_command_buffer, arg_impl->u.vk_buffer,
-                            arg_buffer_offset, count_impl->u.vk_buffer, count_buffer_offset,
+                            arg_buffer_offset + arg_impl->heap_offset, count_impl->u.vk_buffer,
+                            count_buffer_offset + count_impl->heap_offset,
                             max_command_count, signature_desc->ByteStride));
                 }
                 else
                 {
                     VK_CALL(vkCmdDrawIndirect(list->vk_command_buffer, arg_impl->u.vk_buffer,
-                            arg_buffer_offset, max_command_count, signature_desc->ByteStride));
+                            arg_buffer_offset + arg_impl->heap_offset, max_command_count, signature_desc->ByteStride));
                 }
                 break;
 
@@ -6193,13 +6194,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 if (count_buffer)
                 {
                     VK_CALL(vkCmdDrawIndexedIndirectCountKHR(list->vk_command_buffer, arg_impl->u.vk_buffer,
-                            arg_buffer_offset, count_impl->u.vk_buffer, count_buffer_offset,
+                            arg_buffer_offset + arg_impl->heap_offset, count_impl->u.vk_buffer,
+                            count_buffer_offset + count_impl->heap_offset,
                             max_command_count, signature_desc->ByteStride));
                 }
                 else
                 {
                     VK_CALL(vkCmdDrawIndexedIndirect(list->vk_command_buffer, arg_impl->u.vk_buffer,
-                            arg_buffer_offset, max_command_count, signature_desc->ByteStride));
+                            arg_buffer_offset + arg_impl->heap_offset, max_command_count, signature_desc->ByteStride));
                 }
                 break;
 
@@ -6220,7 +6222,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 }
 
                 VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer,
-                        arg_impl->u.vk_buffer, arg_buffer_offset));
+                        arg_impl->u.vk_buffer, arg_buffer_offset + arg_impl->heap_offset));
                 break;
 
             default:
