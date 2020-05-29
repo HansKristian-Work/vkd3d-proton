@@ -134,12 +134,6 @@ static const struct vkd3d_optional_extension_info optional_instance_extensions[]
     VK_DEBUG_EXTENSION(EXT_DEBUG_REPORT, EXT_debug_report),
 };
 
-static const char * const required_device_extensions[] =
-{
-    VK_KHR_MAINTENANCE1_EXTENSION_NAME,
-    VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
-};
-
 static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 {
     /* KHR extensions */
@@ -1397,8 +1391,7 @@ static HRESULT vkd3d_init_device_extensions(struct d3d12_device *device,
         *user_extension_supported = NULL;
     }
 
-    *device_extension_count = vkd3d_check_extensions(vk_extensions, count,
-            required_device_extensions, ARRAY_SIZE(required_device_extensions),
+    *device_extension_count = vkd3d_check_extensions(vk_extensions, count, NULL, 0,
             optional_device_extensions, ARRAY_SIZE(optional_device_extensions),
             create_info->device_extensions, create_info->device_extension_count,
             optional_extensions ? optional_extensions->extensions : NULL,
@@ -1822,8 +1815,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     device_info.pQueueCreateInfos = device_queue_info.vk_queue_create_info;
     device_info.enabledLayerCount = 0;
     device_info.ppEnabledLayerNames = NULL;
-    device_info.enabledExtensionCount = vkd3d_enable_extensions(extensions,
-            required_device_extensions, ARRAY_SIZE(required_device_extensions),
+    device_info.enabledExtensionCount = vkd3d_enable_extensions(extensions, NULL, 0,
             optional_device_extensions, ARRAY_SIZE(optional_device_extensions),
             create_info->device_extensions, create_info->device_extension_count,
             optional_extensions ? optional_extensions->extensions : NULL,
