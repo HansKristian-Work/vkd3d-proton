@@ -2136,10 +2136,8 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
     VkMemoryRequirements memory_requirements;
     VkSparseMemoryBind *memory_binds = NULL;
     struct vkd3d_queue *vkd3d_queue = NULL;
-    D3D12_HEAP_PROPERTIES heap_properties;
     uint32_t sparse_requirement_count;
     VkQueue vk_queue = VK_NULL_HANDLE;
-    VkMemoryAllocateInfo memory_info;
     unsigned int i, j, k, bind_count;
     VkBindSparseInfo bind_info;
     VkDeviceSize metadata_size;
@@ -2193,21 +2191,8 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
 
     VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->u.vk_image, &memory_requirements));
 
-    memory_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    memory_info.pNext = NULL;
-    memory_info.allocationSize = metadata_size;
-
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-    if (FAILED(hr = vkd3d_select_memory_type(device, memory_requirements.memoryTypeBits,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &memory_info.memoryTypeIndex)))
-    {
-        ERR("Failed to find memory type for sparse metadata.\n");
-        goto cleanup;
-    }
-
-    if ((vr = VK_CALL(vkAllocateMemory(device->vk_device, &memory_info, NULL, &sparse->vk_metadata_memory))) < 0)
+    if ((vr = vkd3d_allocate_memory(device, metadata_size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            memory_requirements.memoryTypeBits, NULL, &sparse->vk_metadata_memory, NULL)))
     {
         ERR("Failed to allocate device memory for sparse metadata, vr %d.\n", vr);
         hr = hresult_from_vk_result(vr);
