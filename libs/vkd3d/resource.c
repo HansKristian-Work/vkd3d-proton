@@ -111,34 +111,6 @@ static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D1
     return S_OK;
 }
 
-static HRESULT vkd3d_select_memory_type(struct d3d12_device *device, uint32_t memory_type_mask,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, unsigned int *type_index)
-{
-    const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
-    VkMemoryPropertyFlags flags;
-    unsigned int i;
-    HRESULT hr;
-
-    if (FAILED(hr = vkd3d_select_memory_flags(device, heap_properties, &flags)))
-        return hr;
-
-    memory_type_mask &= vkd3d_select_memory_types(device, heap_flags);
-
-    for (i = 0; i < memory_info->memoryTypeCount; ++i)
-    {
-        if (!(memory_type_mask & (1u << i)))
-            continue;
-
-        if ((memory_info->memoryTypes[i].propertyFlags & flags) == flags)
-        {
-            *type_index = i;
-            return S_OK;
-        }
-    }
-
-    return E_FAIL;
-}
-
 static HRESULT vkd3d_try_allocate_memory(struct d3d12_device *device,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
         void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
