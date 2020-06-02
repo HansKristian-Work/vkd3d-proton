@@ -251,12 +251,13 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
         VkDeviceMemory *vk_memory, uint32_t *vk_memory_type, VkDeviceSize *vk_memory_size)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkMemoryDedicatedAllocateInfo *dedicated_allocation = NULL;
     VkMemoryDedicatedRequirements dedicated_requirements;
     VkMemoryDedicatedAllocateInfo dedicated_info;
     VkMemoryRequirements2 memory_requirements2;
     VkMemoryRequirements *memory_requirements;
     VkBufferMemoryRequirementsInfo2 info;
+    VkMemoryAllocateFlagsInfo flags_info;
+    VkMemoryPropertyFlags type_flags;
     VkResult vr;
     HRESULT hr;
 
@@ -274,18 +275,31 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
 
     VK_CALL(vkGetBufferMemoryRequirements2(device->vk_device, &info, &memory_requirements2));
 
+    if (heap_flags != D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS)
+        memory_requirements->memoryTypeBits &= vkd3d_select_memory_types(device, heap_properties, heap_flags);
+
+    flags_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+    flags_info.pNext = NULL;
+    flags_info.flags = 0;
+
+    if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
+        flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
+
     if (heap_flags == D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS && dedicated_requirements.prefersDedicatedAllocation)
     {
-        dedicated_allocation = &dedicated_info;
-
         dedicated_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
         dedicated_info.pNext = NULL;
         dedicated_info.image = VK_NULL_HANDLE;
         dedicated_info.buffer = vk_buffer;
+
+        flags_info.pNext = &dedicated_info;
     }
 
-    if (FAILED(hr = vkd3d_allocate_device_memory(device, heap_properties, heap_flags,
-            memory_requirements, dedicated_allocation, vk_memory, vk_memory_type)))
+    if (FAILED(hr = vkd3d_select_memory_flags(device, heap_properties, &type_flags)))
+        return hr;
+
+    if (FAILED(hr = vkd3d_allocate_memory(device, memory_requirements->size, type_flags,
+            memory_requirements->memoryTypeBits, &flags_info, vk_memory, vk_memory_type)))
         return hr;
 
     if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, vk_buffer, *vk_memory, 0))) < 0)
