@@ -2377,6 +2377,16 @@ static void test_create_placed_resource(void)
             &IID_ID3D12Resource, (void **)&resource);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
+    /* Textures are disallowed on ALLOW_ONLY_HEAPS */
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+    hr = ID3D12Device_CreatePlacedResource(device, heap, 0,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, &clear_value,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
     ID3D12Heap_Release(heap);
 
     for (i = 0; i < ARRAY_SIZE(invalid_buffer_desc_tests); ++i)
