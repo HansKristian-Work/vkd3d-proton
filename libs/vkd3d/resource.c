@@ -529,6 +529,26 @@ static HRESULT validate_heap_desc(const D3D12_HEAP_DESC *desc, const struct d3d1
     return S_OK;
 }
 
+static HRESULT validate_placed_resource_heap(struct d3d12_heap *heap, const D3D12_RESOURCE_DESC *resource_desc)
+{
+    D3D12_HEAP_FLAGS deny_flag;
+
+    if (resource_desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        deny_flag = D3D12_HEAP_FLAG_DENY_BUFFERS;
+    else if (resource_desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+        deny_flag = D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES;
+    else
+        deny_flag = D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES;
+
+    if (heap->desc.Flags & deny_flag)
+    {
+        WARN("Cannot create placed resource on heap that denies resource category %#x.\n", deny_flag);
+        return E_INVALIDARG;
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_resource_create(struct d3d12_device *device,
                                      const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
                                      const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
@@ -2600,6 +2620,9 @@ HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_h
 {
     struct d3d12_resource *object;
     HRESULT hr;
+
+    if (FAILED(hr = validate_placed_resource_heap(heap, desc)))
+        return hr;
 
     if (FAILED(hr = d3d12_resource_create(device, &heap->desc.Properties, heap->desc.Flags,
             desc, initial_state, optimized_clear_value, true, &object)))
