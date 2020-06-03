@@ -4264,6 +4264,29 @@ static D3D12_TILED_RESOURCES_TIER d3d12_device_determine_tiled_resources_tier(st
     return D3D12_TILED_RESOURCES_TIER_2;
 }
 
+static D3D12_RESOURCE_HEAP_TIER d3d12_device_determine_heap_tier(struct d3d12_device *device)
+{
+    const VkPhysicalDeviceLimits *limits = &device->device_info.properties2.properties.limits;
+    const VkPhysicalDeviceMemoryProperties *mem_properties = &device->memory_properties;
+    const struct vkd3d_memory_info *mem_info = &device->memory_info;
+    uint32_t i, host_visible_types = 0;
+
+    for (i = 0; i < mem_properties->memoryTypeCount; i++)
+    {
+        if (mem_properties->memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+            host_visible_types |= 1u << i;
+    }
+
+    // Heap Tier 2 requires us to be able to create a heap that supports all resource
+    // categories at the same time, except RT/DS textures on UPLOAD/READBACK heaps.
+    if (limits->bufferImageGranularity > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT ||
+            !(mem_info->buffer_type_mask & mem_info->sampled_type_mask & mem_info->rt_ds_type_mask) ||
+            !(mem_info->buffer_type_mask & mem_info->sampled_type_mask & host_visible_types))
+        return D3D12_RESOURCE_HEAP_TIER_1;
+
+    return D3D12_RESOURCE_HEAP_TIER_2;
+}
+
 static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -4287,7 +4310,7 @@ static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
     options->CrossNodeSharingTier = D3D12_CROSS_NODE_SHARING_TIER_NOT_SUPPORTED;
     options->CrossAdapterRowMajorTextureSupported = FALSE;
     options->VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation = vk_info->EXT_shader_viewport_index_layer;
-    options->ResourceHeapTier = D3D12_RESOURCE_HEAP_TIER_2;
+    options->ResourceHeapTier = d3d12_device_determine_heap_tier(device);
 }
 
 static void d3d12_device_caps_init_feature_options1(struct d3d12_device *device)
