@@ -651,7 +651,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
         if (d3d12_resource_is_buffer(resource))
         {
             hr = vkd3d_allocate_buffer_memory(device, resource->u.vk_buffer,
-                    &heap->desc.Properties, heap->desc.Flags,
+                    &heap->desc.Properties, heap->desc.Flags | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS,
                     &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
         }
         else
@@ -5251,7 +5251,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             &resource_desc, &null_resources->vk_buffer)))
         goto fail;
     if (FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_buffer,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_buffer_memory, NULL, NULL)))
+            &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &null_resources->vk_buffer_memory, NULL, NULL)))
         goto fail;
     if (!vkd3d_create_vk_buffer_view(device, null_resources->vk_buffer,
             vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
@@ -5265,7 +5265,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             &resource_desc, &null_resources->vk_storage_buffer)))
         goto fail;
     if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_storage_buffer,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_storage_buffer_memory, NULL, NULL)))
+            &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &null_resources->vk_storage_buffer_memory, NULL, NULL)))
         goto fail;
     if (!vkd3d_create_vk_buffer_view(device, null_resources->vk_storage_buffer,
             vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
