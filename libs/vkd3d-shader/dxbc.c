@@ -1538,30 +1538,19 @@ static bool shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
         }
         m = *(*ptr)++;
 
-        switch (m)
+        switch (m & 0xc0)
         {
-            case 0x41:
-                *modifier = VKD3DSPSM_NEG;
-                break;
-
-            case 0x81:
-                *modifier = VKD3DSPSM_ABS;
-                break;
-
-            case 0xc1:
-                *modifier = VKD3DSPSM_ABSNEG;
-                break;
-
-            case 0x20001:
-                param->modifier = VKD3DSPRM_NONUNIFORM;
-                *modifier = VKD3DSPSM_NONE;
-                break;
-
-            default:
-                FIXME("Skipping modifier 0x%08x.\n", m);
-                *modifier = VKD3DSPSM_NONE;
-                break;
+            case 0x00: *modifier = VKD3DSPSM_NONE; break;
+            case 0x40: *modifier = VKD3DSPSM_NEG; break;
+            case 0x80: *modifier = VKD3DSPSM_ABS; break;
+            case 0xc0: *modifier = VKD3DSPSM_ABSNEG; break;
         }
+
+        if (m & 0x20000)
+            param->modifier = VKD3DSPRM_NONUNIFORM;
+
+        if ((m &= ~(0x200c1)))
+            FIXME("Skipping modifier 0x%08x.\n", m);
     }
     else
     {
