@@ -1345,8 +1345,7 @@ struct d3d12_command_queue
     uint64_t drain_count;
     uint64_t queue_drain_count;
 
-    struct vkd3d_timeline_semaphore sparse_binding_wait;
-    struct vkd3d_timeline_semaphore sparse_binding_signal;
+    struct vkd3d_timeline_semaphore submit_timeline;
 
     struct vkd3d_private_store private_store;
 };
