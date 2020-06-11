@@ -117,7 +117,7 @@ struct vkd3d_shader_parameter_immediate_constant
     union
     {
         uint32_t u32;
-    } u;
+    };
 };
 
 struct vkd3d_shader_parameter_specialization_constant
@@ -134,7 +134,7 @@ struct vkd3d_shader_parameter
     {
         struct vkd3d_shader_parameter_immediate_constant immediate_constant;
         struct vkd3d_shader_parameter_specialization_constant specialization_constant;
-    } u;
+    };
 };
 
 #define VKD3D_SHADER_DESCRIPTOR_RANGE_UNBOUNDED (~0u)
@@ -426,7 +426,7 @@ struct vkd3d_root_parameter
         struct vkd3d_root_descriptor_table descriptor_table;
         struct vkd3d_root_constants constants;
         struct vkd3d_root_descriptor descriptor;
-    } u;
+    };
     enum vkd3d_shader_visibility shader_visibility;
 };
 
@@ -502,7 +502,7 @@ struct vkd3d_root_parameter1
         struct vkd3d_root_descriptor_table1 descriptor_table;
         struct vkd3d_root_constants constants;
         struct vkd3d_root_descriptor1 descriptor;
-    } u;
+    };
     enum vkd3d_shader_visibility shader_visibility;
 };
 
@@ -530,7 +530,7 @@ struct vkd3d_versioned_root_signature_desc
     {
         struct vkd3d_root_signature_desc v_1_0;
         struct vkd3d_root_signature_desc1 v_1_1;
-    } u;
+    };
 };
 
 /* FIXME: Add support for 64 UAV bind slots. */

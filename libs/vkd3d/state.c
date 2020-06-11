@@ -489,9 +489,9 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
         switch (p->ParameterType)
         {
             case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
-                for (j = 0; j < p->u.DescriptorTable.NumDescriptorRanges; ++j)
+                for (j = 0; j < p->DescriptorTable.NumDescriptorRanges; ++j)
                     if (FAILED(hr = d3d12_root_signature_info_count_descriptors(info,
-                            device, &p->u.DescriptorTable.pDescriptorRanges[j])))
+                            device, &p->DescriptorTable.pDescriptorRanges[j])))
                         return hr;
                 info->cost += 1;
                 break;
@@ -506,7 +506,7 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
 
             case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
                 info->root_constant_count += 1;
-                info->cost += p->u.Constants.Num32BitValues;
+                info->cost += p->Constants.Num32BitValues;
                 break;
 
             default:
@@ -544,16 +544,16 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
         root_signature->root_constant_mask |= 1ull << i;
 
         root_signature->parameters[i].parameter_type = p->ParameterType;
-        root_signature->parameters[i].u.constant.constant_index = push_constant_range->size / sizeof(uint32_t);
-        root_signature->parameters[i].u.constant.constant_count = p->u.Constants.Num32BitValues;
+        root_signature->parameters[i].constant.constant_index = push_constant_range->size / sizeof(uint32_t);
+        root_signature->parameters[i].constant.constant_count = p->Constants.Num32BitValues;
 
-        root_signature->root_constants[j].register_space = p->u.Constants.RegisterSpace;
-        root_signature->root_constants[j].register_index = p->u.Constants.ShaderRegister;
+        root_signature->root_constants[j].register_space = p->Constants.RegisterSpace;
+        root_signature->root_constants[j].register_index = p->Constants.ShaderRegister;
         root_signature->root_constants[j].shader_visibility = vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility);
         root_signature->root_constants[j].offset = push_constant_range->size;
-        root_signature->root_constants[j].size = p->u.Constants.Num32BitValues * sizeof(uint32_t);
+        root_signature->root_constants[j].size = p->Constants.Num32BitValues * sizeof(uint32_t);
 
-        push_constant_range->size += p->u.Constants.Num32BitValues * sizeof(uint32_t);
+        push_constant_range->size += p->Constants.Num32BitValues * sizeof(uint32_t);
 
         ++j;
     }
@@ -609,8 +609,8 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 
         root_signature->descriptor_table_mask |= 1ull << i;
 
-        table = &root_signature->parameters[i].u.descriptor_table;
-        range_count = p->u.DescriptorTable.NumDescriptorRanges;
+        table = &root_signature->parameters[i].descriptor_table;
+        range_count = p->DescriptorTable.NumDescriptorRanges;
         range_descriptor_offset = 0;
 
         root_signature->parameters[i].parameter_type = p->ParameterType;
@@ -623,7 +623,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 
         for (j = 0; j < range_count; ++j)
         {
-            const D3D12_DESCRIPTOR_RANGE *range = &p->u.DescriptorTable.pDescriptorRanges[j];
+            const D3D12_DESCRIPTOR_RANGE *range = &p->DescriptorTable.pDescriptorRanges[j];
 
             bool is_srv = range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
             bool is_uav = range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
@@ -795,8 +795,8 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
 
         binding = &root_signature->bindings[context->binding_index];
         binding->type = vkd3d_descriptor_type_from_d3d12_root_parameter_type(p->ParameterType);
-        binding->register_space = p->u.Descriptor.RegisterSpace;
-        binding->register_index = p->u.Descriptor.ShaderRegister;
+        binding->register_space = p->Descriptor.RegisterSpace;
+        binding->register_index = p->Descriptor.ShaderRegister;
         binding->register_count = 1;
         binding->descriptor_table = 0;  /* ignored */
         binding->descriptor_offset = 0; /* ignored */
@@ -807,8 +807,8 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
 
         param = &root_signature->parameters[i];
         param->parameter_type = p->ParameterType;
-        param->u.descriptor.binding = binding;
-        param->u.descriptor.packed_descriptor = context->packed_descriptor_index;
+        param->descriptor.binding = binding;
+        param->descriptor.packed_descriptor = context->packed_descriptor_index;
 
         context->packed_descriptor_index += 1;
         context->binding_index += 1;
@@ -1076,7 +1076,7 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
         return E_OUTOFMEMORY;
     }
 
-    hr = d3d12_root_signature_init(object, device, &root_signature_desc.d3d12.u.Desc_1_0);
+    hr = d3d12_root_signature_init(object, device, &root_signature_desc.d3d12.Desc_1_0);
     vkd3d_shader_free_root_signature(&root_signature_desc.vkd3d);
     if (FAILED(hr))
     {
@@ -1377,7 +1377,7 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_AddRef(ID3D12PipelineState *
 static void d3d12_pipeline_state_destroy_graphics(struct d3d12_pipeline_state *state,
         struct d3d12_device *device)
 {
-    struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_compiled_pipeline *current, *e;
     unsigned int i;
@@ -1411,7 +1411,7 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState 
         if (d3d12_pipeline_state_is_graphics(state))
             d3d12_pipeline_state_destroy_graphics(state, device);
         else if (d3d12_pipeline_state_is_compute(state))
-            VK_CALL(vkDestroyPipeline(device->vk_device, state->u.compute.vk_pipeline, NULL));
+            VK_CALL(vkDestroyPipeline(device->vk_device, state->compute.vk_pipeline, NULL));
 
         vkd3d_free(state);
 
@@ -1459,7 +1459,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetName(ID3D12PipelineStat
 
     if (d3d12_pipeline_state_is_compute(state))
     {
-        return vkd3d_set_vk_object_name(state->device, (uint64_t)state->u.compute.vk_pipeline,
+        return vkd3d_set_vk_object_name(state->device, (uint64_t)state->compute.vk_pipeline,
                 VK_OBJECT_TYPE_PIPELINE, name);
     }
 
@@ -1621,7 +1621,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
 
     if (FAILED(hr = vkd3d_create_compute_pipeline(device, &desc->cs, &shader_interface,
-            root_signature->vk_pipeline_layout, &state->u.compute.vk_pipeline)))
+            root_signature->vk_pipeline_layout, &state->compute.vk_pipeline)))
     {
         WARN("Failed to create Vulkan compute pipeline, hr %#x.\n", hr);
         return hr;
@@ -1629,7 +1629,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
 
     if (FAILED(hr = vkd3d_private_store_init(&state->private_store)))
     {
-        VK_CALL(vkDestroyPipeline(device->vk_device, state->u.compute.vk_pipeline, NULL));
+        VK_CALL(vkDestroyPipeline(device->vk_device, state->compute.vk_pipeline, NULL));
         return hr;
     }
 
@@ -2161,7 +2161,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
     unsigned int ps_output_swizzle[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-    struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const D3D12_STREAM_OUTPUT_DESC *so_desc = &desc->stream_output;
     VkVertexInputBindingDivisorDescriptionEXT *binding_divisor;
@@ -2332,7 +2332,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     ps_shader_parameters[0].name = VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT;
     ps_shader_parameters[0].type = VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT;
     ps_shader_parameters[0].data_type = VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32;
-    ps_shader_parameters[0].u.immediate_constant.u.u32 = sample_count;
+    ps_shader_parameters[0].immediate_constant.u32 = sample_count;
 
     ps_compile_args.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS;
     ps_compile_args.next = NULL;
@@ -2638,7 +2638,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 fail:
     for (i = 0; i < graphics->stage_count; ++i)
     {
-        VK_CALL(vkDestroyShaderModule(device->vk_device, state->u.graphics.stages[i].module, NULL));
+        VK_CALL(vkDestroyShaderModule(device->vk_device, state->graphics.stages[i].module, NULL));
     }
     vkd3d_shader_free_shader_signature(&input_signature);
 
@@ -2754,7 +2754,7 @@ static enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_
 static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(const struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, VkRenderPass *vk_render_pass)
 {
-    const struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
+    const struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     struct d3d12_device *device = state->device;
     VkPipeline vk_pipeline = VK_NULL_HANDLE;
     struct vkd3d_compiled_pipeline *current;
@@ -2786,7 +2786,7 @@ static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(const struct d3d12
 static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, VkPipeline vk_pipeline, VkRenderPass vk_render_pass)
 {
-    struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     struct vkd3d_compiled_pipeline *compiled_pipeline, *current;
     struct d3d12_device *device = state->device;
     int rc;
@@ -2827,7 +2827,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
 {
     VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
-    struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     VkPipelineVertexInputDivisorStateCreateInfoEXT input_divisor_info;
     VkPipelineTessellationStateCreateInfo tessellation_info;
     VkPipelineVertexInputStateCreateInfo input_desc;

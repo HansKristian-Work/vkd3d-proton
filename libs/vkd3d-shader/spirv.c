@@ -2131,7 +2131,7 @@ struct vkd3d_control_flow_info
         struct vkd3d_if_cf_info if_;
         struct vkd3d_loop_cf_info loop;
         struct vkd3d_switch_cf_info switch_;
-    } u;
+    };
 
     enum
     {
@@ -2813,7 +2813,7 @@ static uint32_t vkd3d_dxbc_compiler_alloc_spec_constant_id(struct vkd3d_dxbc_com
             const struct vkd3d_shader_parameter *current = &compile_args->parameters[i];
 
             if (current->type == VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT)
-                id = max(current->u.specialization_constant.id + 1, id);
+                id = max(current->specialization_constant.id + 1, id);
         }
 
         compiler->current_spec_constant_id = id;
@@ -2876,9 +2876,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_uint_shader_parameter(struct vkd3d_dxbc
     }
 
     if (parameter->type == VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT)
-        return vkd3d_dxbc_compiler_get_constant_uint(compiler, parameter->u.immediate_constant.u.u32);
+        return vkd3d_dxbc_compiler_get_constant_uint(compiler, parameter->immediate_constant.u32);
     if (parameter->type == VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT)
-        return vkd3d_dxbc_compiler_get_spec_constant(compiler, name, parameter->u.specialization_constant.id);
+        return vkd3d_dxbc_compiler_get_spec_constant(compiler, name, parameter->specialization_constant.id);
 
     FIXME("Unhandled parameter type %#x.\n", parameter->type);
 
@@ -3168,14 +3168,14 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_constant(struct vkd3d_dxbc_compile
     if (reg->immconst_type == VKD3D_IMMCONST_SCALAR)
     {
         for (i = 0; i < component_count; ++i)
-            values[i] = *reg->u.immconst_uint;
+            values[i] = *reg->immconst_uint;
     }
     else
     {
         for (i = 0, j = 0; i < VKD3D_VEC4_SIZE; ++i)
         {
             if (write_mask & (VKD3DSP_WRITEMASK_0 << i))
-                values[j++] = reg->u.immconst_uint[vkd3d_swizzle_get_component(swizzle, i)];
+                values[j++] = reg->immconst_uint[vkd3d_swizzle_get_component(swizzle, i)];
         }
     }
 
@@ -7313,14 +7313,14 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
             true_label = vkd3d_spirv_alloc_id(builder);
             merge_block_id = vkd3d_spirv_alloc_id(builder);
             vkd3d_spirv_build_op_selection_merge(builder, merge_block_id, SpvSelectionControlMaskNone);
-            cf_info->u.if_.stream_location = vkd3d_spirv_stream_current_location(&builder->function_stream);
+            cf_info->if_.stream_location = vkd3d_spirv_stream_current_location(&builder->function_stream);
             vkd3d_spirv_build_op_branch_conditional(builder, condition_id, true_label, merge_block_id);
 
             vkd3d_spirv_build_op_label(builder, true_label);
 
-            cf_info->u.if_.id = compiler->branch_id;
-            cf_info->u.if_.merge_block_id = merge_block_id;
-            cf_info->u.if_.else_block_id = 0;
+            cf_info->if_.id = compiler->branch_id;
+            cf_info->if_.merge_block_id = merge_block_id;
+            cf_info->if_.else_block_id = 0;
             cf_info->inside_block = true;
             cf_info->current_block = VKD3D_BLOCK_IF;
 
@@ -7334,14 +7334,14 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
             assert(cf_info->current_block == VKD3D_BLOCK_IF);
 
             if (cf_info->inside_block)
-                vkd3d_spirv_build_op_branch(builder, cf_info->u.if_.merge_block_id);
+                vkd3d_spirv_build_op_branch(builder, cf_info->if_.merge_block_id);
 
-            cf_info->u.if_.else_block_id = vkd3d_spirv_alloc_id(builder);
+            cf_info->if_.else_block_id = vkd3d_spirv_alloc_id(builder);
             vkd3d_spirv_as_op_branch_conditional(&builder->function_stream,
-                    cf_info->u.if_.stream_location)->false_label = cf_info->u.if_.else_block_id;
+                    cf_info->if_.stream_location)->false_label = cf_info->if_.else_block_id;
             vkd3d_spirv_build_op_name(builder,
-                    cf_info->u.if_.else_block_id, "branch%u_false", cf_info->u.if_.id);
-            vkd3d_spirv_build_op_label(builder, cf_info->u.if_.else_block_id);
+                    cf_info->if_.else_block_id, "branch%u_false", cf_info->if_.id);
+            vkd3d_spirv_build_op_label(builder, cf_info->if_.else_block_id);
             cf_info->inside_block = true;
             break;
 
@@ -7350,9 +7350,9 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
             assert(cf_info->current_block == VKD3D_BLOCK_IF);
 
             if (cf_info->inside_block)
-                vkd3d_spirv_build_op_branch(builder, cf_info->u.if_.merge_block_id);
+                vkd3d_spirv_build_op_branch(builder, cf_info->if_.merge_block_id);
 
-            vkd3d_spirv_build_op_label(builder, cf_info->u.if_.merge_block_id);
+            vkd3d_spirv_build_op_label(builder, cf_info->if_.merge_block_id);
 
             vkd3d_dxbc_compiler_pop_control_flow_level(compiler);
             break;
@@ -7373,9 +7373,9 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
 
             vkd3d_spirv_build_op_label(builder, loop_body_block_id);
 
-            cf_info->u.loop.header_block_id = loop_header_block_id;
-            cf_info->u.loop.continue_block_id = continue_block_id;
-            cf_info->u.loop.merge_block_id = merge_block_id;
+            cf_info->loop.header_block_id = loop_header_block_id;
+            cf_info->loop.continue_block_id = continue_block_id;
+            cf_info->loop.merge_block_id = merge_block_id;
             cf_info->current_block = VKD3D_BLOCK_LOOP;
 
             vkd3d_spirv_build_op_name(builder, loop_header_block_id, "loop%u_header", compiler->loop_id);
@@ -7389,11 +7389,11 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
             assert(compiler->control_flow_depth);
             assert(cf_info->current_block == VKD3D_BLOCK_LOOP);
 
-            vkd3d_spirv_build_op_branch(builder, cf_info->u.loop.continue_block_id);
+            vkd3d_spirv_build_op_branch(builder, cf_info->loop.continue_block_id);
 
-            vkd3d_spirv_build_op_label(builder, cf_info->u.loop.continue_block_id);
-            vkd3d_spirv_build_op_branch(builder, cf_info->u.loop.header_block_id);
-            vkd3d_spirv_build_op_label(builder, cf_info->u.loop.merge_block_id);
+            vkd3d_spirv_build_op_label(builder, cf_info->loop.continue_block_id);
+            vkd3d_spirv_build_op_branch(builder, cf_info->loop.header_block_id);
+            vkd3d_spirv_build_op_label(builder, cf_info->loop.merge_block_id);
 
             vkd3d_dxbc_compiler_pop_control_flow_level(compiler);
             break;
@@ -7409,14 +7409,14 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
 
             vkd3d_spirv_build_op_selection_merge(builder, merge_block_id, SpvSelectionControlMaskNone);
 
-            cf_info->u.switch_.id = compiler->switch_id;
-            cf_info->u.switch_.merge_block_id = merge_block_id;
-            cf_info->u.switch_.stream_location = vkd3d_spirv_stream_current_location(&builder->function_stream);
-            cf_info->u.switch_.selector_id = val_id;
-            cf_info->u.switch_.case_blocks = NULL;
-            cf_info->u.switch_.case_blocks_size = 0;
-            cf_info->u.switch_.case_block_count = 0;
-            cf_info->u.switch_.default_block_id = 0;
+            cf_info->switch_.id = compiler->switch_id;
+            cf_info->switch_.merge_block_id = merge_block_id;
+            cf_info->switch_.stream_location = vkd3d_spirv_stream_current_location(&builder->function_stream);
+            cf_info->switch_.selector_id = val_id;
+            cf_info->switch_.case_blocks = NULL;
+            cf_info->switch_.case_blocks_size = 0;
+            cf_info->switch_.case_block_count = 0;
+            cf_info->switch_.default_block_id = 0;
             cf_info->inside_block = false;
             cf_info->current_block = VKD3D_BLOCK_SWITCH;
 
@@ -7424,8 +7424,8 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
 
             ++compiler->switch_id;
 
-            if (!vkd3d_array_reserve((void **)&cf_info->u.switch_.case_blocks, &cf_info->u.switch_.case_blocks_size,
-                    10, sizeof(*cf_info->u.switch_.case_blocks)))
+            if (!vkd3d_array_reserve((void **)&cf_info->switch_.case_blocks, &cf_info->switch_.case_blocks_size,
+                    10, sizeof(*cf_info->switch_.case_blocks)))
                 return VKD3D_ERROR_OUT_OF_MEMORY;
 
             break;
@@ -7435,21 +7435,21 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
             assert(cf_info->current_block == VKD3D_BLOCK_SWITCH);
             assert(!cf_info->inside_block);
 
-            if (!cf_info->u.switch_.default_block_id)
-                cf_info->u.switch_.default_block_id = cf_info->u.switch_.merge_block_id;
+            if (!cf_info->switch_.default_block_id)
+                cf_info->switch_.default_block_id = cf_info->switch_.merge_block_id;
 
-            vkd3d_spirv_build_op_label(builder, cf_info->u.switch_.merge_block_id);
+            vkd3d_spirv_build_op_label(builder, cf_info->switch_.merge_block_id);
 
             /* The OpSwitch instruction is inserted when the endswitch
              * instruction is processed because we do not know the number
              * of case statments in advance.*/
-            vkd3d_spirv_begin_function_stream_insertion(builder, cf_info->u.switch_.stream_location);
-            vkd3d_spirv_build_op_switch(builder, cf_info->u.switch_.selector_id,
-                    cf_info->u.switch_.default_block_id, cf_info->u.switch_.case_blocks,
-                    cf_info->u.switch_.case_block_count);
+            vkd3d_spirv_begin_function_stream_insertion(builder, cf_info->switch_.stream_location);
+            vkd3d_spirv_build_op_switch(builder, cf_info->switch_.selector_id,
+                    cf_info->switch_.default_block_id, cf_info->switch_.case_blocks,
+                    cf_info->switch_.case_block_count);
             vkd3d_spirv_end_function_stream_insertion(builder);
 
-            vkd3d_free(cf_info->u.switch_.case_blocks);
+            vkd3d_free(cf_info->switch_.case_blocks);
             vkd3d_dxbc_compiler_pop_control_flow_level(compiler);
             break;
 
@@ -7461,38 +7461,38 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
             assert(cf_info->current_block == VKD3D_BLOCK_SWITCH);
 
             assert(src->swizzle == VKD3D_NO_SWIZZLE && src->reg.type == VKD3DSPR_IMMCONST);
-            value = *src->reg.u.immconst_uint;
+            value = *src->reg.immconst_uint;
 
-            if (!vkd3d_array_reserve((void **)&cf_info->u.switch_.case_blocks, &cf_info->u.switch_.case_blocks_size,
-                    2 * (cf_info->u.switch_.case_block_count + 1), sizeof(*cf_info->u.switch_.case_blocks)))
+            if (!vkd3d_array_reserve((void **)&cf_info->switch_.case_blocks, &cf_info->switch_.case_blocks_size,
+                    2 * (cf_info->switch_.case_block_count + 1), sizeof(*cf_info->switch_.case_blocks)))
                 return VKD3D_ERROR_OUT_OF_MEMORY;
 
             label_id = vkd3d_spirv_alloc_id(builder);
             if (cf_info->inside_block) /* fall-through */
                 vkd3d_spirv_build_op_branch(builder, label_id);
 
-            cf_info->u.switch_.case_blocks[2 * cf_info->u.switch_.case_block_count + 0] = value;
-            cf_info->u.switch_.case_blocks[2 * cf_info->u.switch_.case_block_count + 1] = label_id;
-            ++cf_info->u.switch_.case_block_count;
+            cf_info->switch_.case_blocks[2 * cf_info->switch_.case_block_count + 0] = value;
+            cf_info->switch_.case_blocks[2 * cf_info->switch_.case_block_count + 1] = label_id;
+            ++cf_info->switch_.case_block_count;
 
             vkd3d_spirv_build_op_label(builder, label_id);
             cf_info->inside_block = true;
-            vkd3d_spirv_build_op_name(builder, label_id, "switch%u_case%u", cf_info->u.switch_.id, value);
+            vkd3d_spirv_build_op_name(builder, label_id, "switch%u_case%u", cf_info->switch_.id, value);
             break;
         }
 
         case VKD3DSIH_DEFAULT:
             assert(compiler->control_flow_depth);
             assert(cf_info->current_block == VKD3D_BLOCK_SWITCH);
-            assert(!cf_info->u.switch_.default_block_id);
+            assert(!cf_info->switch_.default_block_id);
 
-            cf_info->u.switch_.default_block_id = vkd3d_spirv_alloc_id(builder);
+            cf_info->switch_.default_block_id = vkd3d_spirv_alloc_id(builder);
             if (cf_info->inside_block) /* fall-through */
-                vkd3d_spirv_build_op_branch(builder, cf_info->u.switch_.default_block_id);
+                vkd3d_spirv_build_op_branch(builder, cf_info->switch_.default_block_id);
 
-            vkd3d_spirv_build_op_label(builder, cf_info->u.switch_.default_block_id);
-            vkd3d_spirv_build_op_name(builder, cf_info->u.switch_.default_block_id,
-                    "switch%u_default", cf_info->u.switch_.id);
+            vkd3d_spirv_build_op_label(builder, cf_info->switch_.default_block_id);
+            vkd3d_spirv_build_op_name(builder, cf_info->switch_.default_block_id,
+                    "switch%u_default", cf_info->switch_.id);
             cf_info->inside_block = true;
             break;
 
@@ -7510,12 +7510,12 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
 
             if (breakable_cf_info->current_block == VKD3D_BLOCK_LOOP)
             {
-                vkd3d_spirv_build_op_branch(builder, breakable_cf_info->u.loop.merge_block_id);
+                vkd3d_spirv_build_op_branch(builder, breakable_cf_info->loop.merge_block_id);
             }
             else if (breakable_cf_info->current_block == VKD3D_BLOCK_SWITCH)
             {
                 assert(breakable_cf_info->inside_block);
-                vkd3d_spirv_build_op_branch(builder, breakable_cf_info->u.switch_.merge_block_id);
+                vkd3d_spirv_build_op_branch(builder, breakable_cf_info->switch_.merge_block_id);
             }
 
             cf_info->inside_block = false;
@@ -7535,7 +7535,7 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
             }
 
             merge_block_id = vkd3d_dxbc_compiler_emit_conditional_branch(compiler,
-                    instruction, loop_cf_info->u.loop.merge_block_id);
+                    instruction, loop_cf_info->loop.merge_block_id);
             vkd3d_spirv_build_op_label(builder, merge_block_id);
             break;
         }
@@ -7552,7 +7552,7 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
                 return VKD3D_ERROR_INVALID_SHADER;
             }
 
-            vkd3d_spirv_build_op_branch(builder, loop_cf_info->u.loop.continue_block_id);
+            vkd3d_spirv_build_op_branch(builder, loop_cf_info->loop.continue_block_id);
 
             cf_info->inside_block = false;
             break;
@@ -7569,7 +7569,7 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
             }
 
             merge_block_id = vkd3d_dxbc_compiler_emit_conditional_branch(compiler,
-                    instruction, loop_cf_info->u.loop.continue_block_id);
+                    instruction, loop_cf_info->loop.continue_block_id);
             vkd3d_spirv_build_op_label(builder, merge_block_id);
             break;
         }

@@ -155,7 +155,7 @@ static const D3D12_ROOT_SIGNATURE_DESC * STDMETHODCALLTYPE d3d12_root_signature_
     TRACE("iface %p.\n", iface);
 
     assert(deserializer->desc.d3d12.Version == D3D_ROOT_SIGNATURE_VERSION_1_0);
-    return &deserializer->desc.d3d12.u.Desc_1_0;
+    return &deserializer->desc.d3d12.Desc_1_0;
 }
 
 static const struct ID3D12RootSignatureDeserializerVtbl d3d12_root_signature_deserializer_vtbl =
@@ -449,7 +449,7 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
         *error_blob = NULL;
 
     vkd3d_desc.version = VKD3D_ROOT_SIGNATURE_VERSION_1_0;
-    vkd3d_desc.u.v_1_0 = *(const struct vkd3d_root_signature_desc *)desc;
+    vkd3d_desc.v_1_0 = *(const struct vkd3d_root_signature_desc *)desc;
     if ((ret = vkd3d_shader_serialize_root_signature(&vkd3d_desc, &dxbc)) < 0)
     {
         WARN("Failed to serialize root signature, vkd3d result %d.\n", ret);

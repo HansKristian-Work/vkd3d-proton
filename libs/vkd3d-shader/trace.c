@@ -970,15 +970,15 @@ static void shader_dump_register(struct vkd3d_string_buffer *buffer,
                 switch (reg->data_type)
                 {
                     case VKD3D_DATA_FLOAT:
-                        shader_addline(buffer, "%.8e", reg->u.immconst_float[0]);
+                        shader_addline(buffer, "%.8e", reg->immconst_float[0]);
                         break;
                     case VKD3D_DATA_INT:
-                        shader_addline(buffer, "%d", reg->u.immconst_uint[0]);
+                        shader_addline(buffer, "%d", reg->immconst_uint[0]);
                         break;
                     case VKD3D_DATA_RESOURCE:
                     case VKD3D_DATA_SAMPLER:
                     case VKD3D_DATA_UINT:
-                        shader_addline(buffer, "%u", reg->u.immconst_uint[0]);
+                        shader_addline(buffer, "%u", reg->immconst_uint[0]);
                         break;
                     default:
                         shader_addline(buffer, "<unhandled data type %#x>", reg->data_type);
@@ -991,20 +991,20 @@ static void shader_dump_register(struct vkd3d_string_buffer *buffer,
                 {
                     case VKD3D_DATA_FLOAT:
                         shader_addline(buffer, "%.8e, %.8e, %.8e, %.8e",
-                                reg->u.immconst_float[0], reg->u.immconst_float[1],
-                                reg->u.immconst_float[2], reg->u.immconst_float[3]);
+                                reg->immconst_float[0], reg->immconst_float[1],
+                                reg->immconst_float[2], reg->immconst_float[3]);
                         break;
                     case VKD3D_DATA_INT:
                         shader_addline(buffer, "%d, %d, %d, %d",
-                                reg->u.immconst_uint[0], reg->u.immconst_uint[1],
-                                reg->u.immconst_uint[2], reg->u.immconst_uint[3]);
+                                reg->immconst_uint[0], reg->immconst_uint[1],
+                                reg->immconst_uint[2], reg->immconst_uint[3]);
                         break;
                     case VKD3D_DATA_RESOURCE:
                     case VKD3D_DATA_SAMPLER:
                     case VKD3D_DATA_UINT:
                         shader_addline(buffer, "%u, %u, %u, %u",
-                                reg->u.immconst_uint[0], reg->u.immconst_uint[1],
-                                reg->u.immconst_uint[2], reg->u.immconst_uint[3]);
+                                reg->immconst_uint[0], reg->immconst_uint[1],
+                                reg->immconst_uint[2], reg->immconst_uint[3]);
                         break;
                     default:
                         shader_addline(buffer, "<unhandled data type %#x>", reg->data_type);
@@ -1056,7 +1056,7 @@ static void shader_dump_register(struct vkd3d_string_buffer *buffer,
         }
 
         if (reg->type == VKD3DSPR_FUNCTIONPOINTER)
-            shader_addline(buffer, "[%u]", reg->u.fp_body_idx);
+            shader_addline(buffer, "[%u]", reg->fp_body_idx);
     }
 }
 
@@ -1553,19 +1553,19 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
         case VKD3DSIH_DEF:
             shader_addline(buffer, "def c%u = %.8e, %.8e, %.8e, %.8e",
                     shader_get_float_offset(ins->dst[0].reg.type, ins->dst[0].reg.idx[0].offset),
-                    ins->src[0].reg.u.immconst_float[0], ins->src[0].reg.u.immconst_float[1],
-                    ins->src[0].reg.u.immconst_float[2], ins->src[0].reg.u.immconst_float[3]);
+                    ins->src[0].reg.immconst_float[0], ins->src[0].reg.immconst_float[1],
+                    ins->src[0].reg.immconst_float[2], ins->src[0].reg.immconst_float[3]);
             break;
 
         case VKD3DSIH_DEFI:
             shader_addline(buffer, "defi i%u = %d, %d, %d, %d", ins->dst[0].reg.idx[0].offset,
-                    ins->src[0].reg.u.immconst_uint[0], ins->src[0].reg.u.immconst_uint[1],
-                    ins->src[0].reg.u.immconst_uint[2], ins->src[0].reg.u.immconst_uint[3]);
+                    ins->src[0].reg.immconst_uint[0], ins->src[0].reg.immconst_uint[1],
+                    ins->src[0].reg.immconst_uint[2], ins->src[0].reg.immconst_uint[3]);
             break;
 
         case VKD3DSIH_DEFB:
             shader_addline(buffer, "defb b%u = %s",
-                    ins->dst[0].reg.idx[0].offset, ins->src[0].reg.u.immconst_uint[0] ? "true" : "false");
+                    ins->dst[0].reg.idx[0].offset, ins->src[0].reg.immconst_uint[0] ? "true" : "false");
             break;
 
         default:

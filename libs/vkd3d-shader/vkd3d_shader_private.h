@@ -45,7 +45,6 @@
 #ifndef __VKD3D_SHADER_PRIVATE_H
 #define __VKD3D_SHADER_PRIVATE_H
 
-#define NONAMELESSUNION
 #include "vkd3d_common.h"
 #include "vkd3d_memory.h"
 #include "vkd3d_shader.h"
@@ -589,7 +588,7 @@ struct vkd3d_shader_register
         DWORD immconst_uint[VKD3D_VEC4_SIZE];
         float immconst_float[VKD3D_VEC4_SIZE];
         unsigned fp_body_idx;
-    } u;
+    };
 };
 
 struct vkd3d_shader_dst_param

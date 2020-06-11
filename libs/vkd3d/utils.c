@@ -950,15 +950,15 @@ static HRESULT vkd3d_private_store_set_private_data(struct vkd3d_private_store *
         ptr = &data;
     }
 
-    if (!(d = vkd3d_malloc(offsetof(struct vkd3d_private_data, u.data[data_size]))))
+    if (!(d = vkd3d_malloc(offsetof(struct vkd3d_private_data, data[data_size]))))
         return E_OUTOFMEMORY;
 
     d->tag = *tag;
     d->size = data_size;
     d->is_object = is_object;
-    memcpy(d->u.data, ptr, data_size);
+    memcpy(d->data, ptr, data_size);
     if (is_object)
-        IUnknown_AddRef(d->u.object);
+        IUnknown_AddRef(d->object);
 
     if ((old_data = vkd3d_private_store_get_private_data(store, tag)))
         vkd3d_private_data_destroy(old_data);
@@ -1003,8 +1003,8 @@ HRESULT vkd3d_get_private_data(struct vkd3d_private_store *store,
     }
 
     if (data->is_object)
-        IUnknown_AddRef(data->u.object);
-    memcpy(out, data->u.data, data->size);
+        IUnknown_AddRef(data->object);
+    memcpy(out, data->data, data->size);
 
 done:
     pthread_mutex_unlock(&store->mutex);

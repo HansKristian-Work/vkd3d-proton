@@ -22,13 +22,8 @@
 
 /* Nameless unions */
 #ifndef __C89_NAMELESS
-# ifdef NONAMELESSUNION
-#  define __C89_NAMELESS
-#  define __C89_NAMELESSUNIONNAME u
-# else
 #  define __C89_NAMELESS
 #  define __C89_NAMELESSUNIONNAME
-# endif /* NONAMELESSUNION */
 #endif  /* __C89_NAMELESS */
 
 #if !defined(_WIN32) || defined(__WIDL__)
