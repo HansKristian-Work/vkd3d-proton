@@ -9974,7 +9974,7 @@ static void test_shader_instructions(void)
                 struct uvec4 src0;
                 struct uvec4 src1;
                 struct uvec4 src2;
-            } u;
+            };
             struct
             {
                 struct ivec4 src0;

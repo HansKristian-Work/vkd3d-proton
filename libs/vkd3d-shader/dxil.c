@@ -501,7 +501,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
                 bool spec_constant = argument->type == VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT;
                 const dxil_spv_option_rasterizer_sample_count helper =
                         { { DXIL_SPV_OPTION_RASTERIZER_SAMPLE_COUNT },
-                          spec_constant ? argument->u.specialization_constant.id : argument->u.immediate_constant.u.u32,
+                          spec_constant ? argument->specialization_constant.id : argument->immediate_constant.u32,
                           spec_constant ? DXIL_SPV_TRUE : DXIL_SPV_FALSE };
                 if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
                 {

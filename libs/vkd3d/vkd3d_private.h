@@ -20,7 +20,6 @@
 #define __VKD3D_PRIVATE_H
 
 #define COBJMACROS
-#define NONAMELESSUNION
 #define VK_NO_PROTOTYPES
 
 #include "vkd3d_common.h"
@@ -309,13 +308,13 @@ struct vkd3d_private_data
     {
         BYTE data[1];
         IUnknown *object;
-    } u;
+    };
 };
 
 static inline void vkd3d_private_data_destroy(struct vkd3d_private_data *data)
 {
     if (data->is_object)
-        IUnknown_Release(data->u.object);
+        IUnknown_Release(data->object);
     list_remove(&data->entry);
     vkd3d_free(data);
 }
@@ -438,7 +437,7 @@ struct d3d12_sparse_tile
     {
         struct d3d12_sparse_image_region image;
         struct d3d12_sparse_buffer_region buffer;
-    } u;
+    };
     VkDeviceMemory vk_memory;
     VkDeviceSize vk_offset;
 };
@@ -470,7 +469,7 @@ struct d3d12_resource
     {
         VkBuffer vk_buffer;
         VkImage vk_image;
-    } u;
+    };
     unsigned int flags;
 
     struct d3d12_heap *heap;
@@ -542,7 +541,7 @@ struct vkd3d_view
         VkBufferView vk_buffer_view;
         VkImageView vk_image_view;
         VkSampler vk_sampler;
-    } u;
+    };
     VkBufferView vk_counter_view;
     VkDeviceAddress vk_counter_address;
     const struct vkd3d_format *format;
@@ -596,7 +595,7 @@ struct d3d12_desc
     {
         VkDescriptorBufferInfo vk_cbv_info;
         struct vkd3d_view *view;
-    } u;
+    } info;
 };
 
 static inline struct d3d12_desc *d3d12_desc_from_cpu_handle(D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle)
@@ -807,7 +806,7 @@ struct d3d12_root_parameter
         struct d3d12_root_constant constant;
         struct d3d12_root_descriptor descriptor;
         struct d3d12_root_descriptor_table descriptor_table;
-    } u;
+    };
 };
 
 /* ID3D12RootSignature */
@@ -938,7 +937,7 @@ struct d3d12_pipeline_state
     {
         struct d3d12_graphics_pipeline_state graphics;
         struct d3d12_compute_pipeline_state compute;
-    } u;
+    };
     VkPipelineBindPoint vk_bind_point;
 
     struct d3d12_device *device;
@@ -960,7 +959,7 @@ static inline bool d3d12_pipeline_state_has_unknown_dsv_format(struct d3d12_pipe
 {
     if (d3d12_pipeline_state_is_graphics(state))
     {
-        struct d3d12_graphics_pipeline_state *graphics = &state->u.graphics;
+        struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
 
         return graphics->null_attachment_mask & dsv_attachment_mask(graphics);
     }
@@ -1311,7 +1310,7 @@ struct d3d12_command_queue_submission
         struct d3d12_command_queue_submission_signal signal;
         struct d3d12_command_queue_submission_execute execute;
         struct d3d12_command_queue_submission_bind_sparse bind_sparse;
-    } u;
+    };
 };
 
 struct vkd3d_timeline_semaphore

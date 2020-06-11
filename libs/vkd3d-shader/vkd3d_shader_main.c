@@ -372,7 +372,7 @@ static void vkd3d_shader_free_root_signature_v_1_0(struct vkd3d_root_signature_d
         const struct vkd3d_root_parameter *parameter = &root_signature->parameters[i];
 
         if (parameter->parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
-            vkd3d_free((void *)parameter->u.descriptor_table.descriptor_ranges);
+            vkd3d_free((void *)parameter->descriptor_table.descriptor_ranges);
     }
     vkd3d_free((void *)root_signature->parameters);
     vkd3d_free((void *)root_signature->static_samplers);
@@ -389,7 +389,7 @@ static void vkd3d_shader_free_root_signature_v_1_1(struct vkd3d_root_signature_d
         const struct vkd3d_root_parameter1 *parameter = &root_signature->parameters[i];
 
         if (parameter->parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
-            vkd3d_free((void *)parameter->u.descriptor_table.descriptor_ranges);
+            vkd3d_free((void *)parameter->descriptor_table.descriptor_ranges);
     }
     vkd3d_free((void *)root_signature->parameters);
     vkd3d_free((void *)root_signature->static_samplers);
@@ -401,11 +401,11 @@ void vkd3d_shader_free_root_signature(struct vkd3d_versioned_root_signature_desc
 {
     if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
     {
-        vkd3d_shader_free_root_signature_v_1_0(&desc->u.v_1_0);
+        vkd3d_shader_free_root_signature_v_1_0(&desc->v_1_0);
     }
     else if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_1)
     {
-        vkd3d_shader_free_root_signature_v_1_1(&desc->u.v_1_1);
+        vkd3d_shader_free_root_signature_v_1_1(&desc->v_1_1);
     }
     else if (desc->version)
     {

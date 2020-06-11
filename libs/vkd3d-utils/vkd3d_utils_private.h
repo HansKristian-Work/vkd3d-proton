@@ -20,7 +20,6 @@
 #define __VKD3D_UTILS_PRIVATE_H
 
 #define COBJMACROS
-#define NONAMELESSUNION
 #define VK_NO_PROTOTYPES
 
 #include "vkd3d_threads.h"
