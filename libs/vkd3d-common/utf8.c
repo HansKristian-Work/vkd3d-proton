@@ -103,14 +103,14 @@ static uint32_t vkd3d_utf16_read(const uint16_t **src)
     return 0x10000 + ((s[0] & 0x3ff) << 10) + (s[1] & 0x3ff);
 }
 
-static char *vkd3d_strdup_w16_utf8(const uint16_t *wstr)
+static char *vkd3d_strdup_w16_utf8(const uint16_t *wstr, size_t max_elements)
 {
     const uint16_t *src = wstr;
     size_t dst_size = 0;
     char *dst, *utf8;
     uint32_t c;
 
-    while (*src)
+    while ((!max_elements || ((src - wstr) < max_elements)) && *src)
     {
         if (!(c = vkd3d_utf16_read(&src)))
             continue;
@@ -123,7 +123,7 @@ static char *vkd3d_strdup_w16_utf8(const uint16_t *wstr)
 
     utf8 = dst;
     src = wstr;
-    while (*src)
+    while ((!max_elements || ((src - wstr) < max_elements)) && *src)
     {
         if (!(c = vkd3d_utf16_read(&src)))
             continue;
@@ -134,13 +134,13 @@ static char *vkd3d_strdup_w16_utf8(const uint16_t *wstr)
     return dst;
 }
 
-static char *vkd3d_strdup_w32_utf8(const uint32_t *wstr)
+static char *vkd3d_strdup_w32_utf8(const uint32_t *wstr, size_t max_elements)
 {
     const uint32_t *src = wstr;
     size_t dst_size = 0;
     char *dst, *utf8;
 
-    while (*src)
+    while ((!max_elements || ((src - wstr) < max_elements)) && *src)
         dst_size += vkd3d_utf8_len(*src++);
     ++dst_size;
 
@@ -149,16 +149,16 @@ static char *vkd3d_strdup_w32_utf8(const uint32_t *wstr)
 
     utf8 = dst;
     src = wstr;
-    while (*src)
+    while ((!max_elements || ((src - wstr) < max_elements)) && *src)
         vkd3d_utf8_append(&utf8, *src++);
     *utf8 = 0;
 
     return dst;
 }
 
-char *vkd3d_strdup_w_utf8(const WCHAR *wstr, size_t wchar_size)
+char *vkd3d_strdup_w_utf8(const WCHAR *wstr, size_t wchar_size, size_t max_elements)
 {
     if (wchar_size == 2)
-        return vkd3d_strdup_w16_utf8((const uint16_t *)wstr);
-    return vkd3d_strdup_w32_utf8((const uint32_t *)wstr);
+        return vkd3d_strdup_w16_utf8((const uint16_t *)wstr, max_elements);
+    return vkd3d_strdup_w32_utf8((const uint32_t *)wstr, max_elements);
 }
