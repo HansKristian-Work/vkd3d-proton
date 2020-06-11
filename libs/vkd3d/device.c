@@ -118,18 +118,15 @@ struct vkd3d_optional_extension_info
 {
     const char *extension_name;
     ptrdiff_t vulkan_info_offset;
-    bool is_debug_only;
 };
 
 #define VK_EXTENSION(name, member) \
         {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member)}
-#define VK_DEBUG_EXTENSION(name, member) \
-        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), true}
 
 static const struct vkd3d_optional_extension_info optional_instance_extensions[] =
 {
     /* EXT extensions */
-    VK_DEBUG_EXTENSION(EXT_DEBUG_REPORT, EXT_debug_report),
+    VK_EXTENSION(EXT_DEBUG_REPORT, EXT_debug_report),
 };
 
 static const struct vkd3d_optional_extension_info optional_device_extensions[] =
@@ -210,8 +207,7 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
         const struct vkd3d_optional_extension_info *optional_extensions, unsigned int optional_extension_count,
         const char * const *user_extensions, unsigned int user_extension_count,
         const char * const *optional_user_extensions, unsigned int optional_user_extension_count,
-        bool *user_extension_supported, struct vkd3d_vulkan_info *vulkan_info, const char *extension_type,
-        bool is_debug_enabled)
+        bool *user_extension_supported, struct vkd3d_vulkan_info *vulkan_info, const char *extension_type)
 {
     unsigned int extension_count = 0;
     unsigned int i;
@@ -229,13 +225,6 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
         const char *extension_name = optional_extensions[i].extension_name;
         ptrdiff_t offset = optional_extensions[i].vulkan_info_offset;
         bool *supported = (void *)((uintptr_t)vulkan_info + offset);
-
-        if (!is_debug_enabled && optional_extensions[i].is_debug_only)
-        {
-            *supported = false;
-            TRACE("Skipping debug-only extension %s.\n", debugstr_a(extension_name));
-            continue;
-        }
 
         if ((*supported = has_extension(extensions, count, extension_name)))
         {
@@ -377,8 +366,7 @@ static HRESULT vkd3d_init_instance_caps(struct vkd3d_instance *instance,
             create_info->instance_extensions, create_info->instance_extension_count,
             optional_extensions ? optional_extensions->extensions : NULL,
             optional_extensions ? optional_extensions->extension_count : 0,
-            *user_extension_supported, vulkan_info, "instance",
-            instance->config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG);
+            *user_extension_supported, vulkan_info, "instance");
 
     vkd3d_free(vk_extensions);
     return S_OK;
@@ -621,7 +609,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance->refcount = 1;
 
     instance->vk_debug_callback = VK_NULL_HANDLE;
-    if (instance->vk_info.EXT_debug_report)
+    if (instance->vk_info.EXT_debug_report && (instance->config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG))
         vkd3d_init_debug_report(instance);
 
     return S_OK;
@@ -1380,8 +1368,7 @@ static HRESULT vkd3d_init_device_extensions(struct d3d12_device *device,
             create_info->device_extensions, create_info->device_extension_count,
             optional_extensions ? optional_extensions->extensions : NULL,
             optional_extensions ? optional_extensions->extension_count : 0,
-            *user_extension_supported, vulkan_info, "device",
-            device->vkd3d_instance->config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG);
+            *user_extension_supported, vulkan_info, "device");
 
     if (get_spec_version(vk_extensions, count, VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME) < 3)
         vulkan_info->EXT_vertex_attribute_divisor = false;
