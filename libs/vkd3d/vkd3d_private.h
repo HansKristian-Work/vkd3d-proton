@@ -106,7 +106,7 @@ HRESULT hresult_from_vkd3d_result(int vkd3d_result) DECLSPEC_HIDDEN;
 struct vkd3d_vulkan_info
 {
     /* EXT instance extensions */
-    bool EXT_debug_report;
+    bool EXT_debug_utils;
 
     /* KHR device extensions */
     bool KHR_buffer_device_address;
@@ -119,7 +119,6 @@ struct vkd3d_vulkan_info
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_custom_border_color;
-    bool EXT_debug_marker;
     bool EXT_depth_clip_enable;
     bool EXT_descriptor_indexing;
     bool EXT_inline_uniform_block;
@@ -176,7 +175,7 @@ struct vkd3d_instance
 
     uint64_t config_flags;
 
-    VkDebugReportCallbackEXT vk_debug_callback;
+    VkDebugUtilsMessengerEXT vk_debug_callback;
 
     LONG refcount;
 };
@@ -1909,9 +1908,9 @@ extern const char vkd3d_build[];
 bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX]) DECLSPEC_HIDDEN;
 
 VkResult vkd3d_set_vk_object_name_utf8(struct d3d12_device *device, uint64_t vk_object,
-        VkDebugReportObjectTypeEXT vk_object_type, const char *name) DECLSPEC_HIDDEN;
+        VkObjectType vk_object_type, const char *name) DECLSPEC_HIDDEN;
 HRESULT vkd3d_set_vk_object_name(struct d3d12_device *device, uint64_t vk_object,
-        VkDebugReportObjectTypeEXT vk_object_type, const WCHAR *name) DECLSPEC_HIDDEN;
+        VkObjectType vk_object_type, const WCHAR *name) DECLSPEC_HIDDEN;
 
 static inline void vk_prepend_struct(void *header, void *structure)
 {

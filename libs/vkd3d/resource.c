@@ -442,7 +442,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_SetName(d3d12_heap_iface *iface, con
     TRACE("iface %p, name %s.\n", iface, debugstr_w(name, heap->device->wchar_size));
 
     return vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->vk_memory,
-            VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, name);
+            VK_OBJECT_TYPE_DEVICE_MEMORY, name);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_heap_GetDevice(d3d12_heap_iface *iface, REFIID iid, void **device)
@@ -1541,10 +1541,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(d3d12_resource_iface *if
 
     if (d3d12_resource_is_buffer(resource))
         return vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->u.vk_buffer,
-                VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, name);
+                VK_OBJECT_TYPE_BUFFER, name);
     else
         return vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->u.vk_image,
-                VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, name);
+                VK_OBJECT_TYPE_IMAGE, name);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_GetDevice(d3d12_resource_iface *iface, REFIID iid, void **device)
@@ -4906,7 +4906,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetName(ID3D12QueryHeap *iface
     TRACE("iface %p, name %s.\n", iface, debugstr_w(name, heap->device->wchar_size));
 
     return vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->vk_query_pool,
-            VK_DEBUG_REPORT_OBJECT_TYPE_QUERY_POOL_EXT, name);
+            VK_OBJECT_TYPE_QUERY_POOL, name);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_query_heap_GetDevice(ID3D12QueryHeap *iface, REFIID iid, void **device)
@@ -5325,31 +5325,31 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
 
     /* set Vulkan object names */
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_buffer,
-            VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, "NULL buffer");
+            VK_OBJECT_TYPE_BUFFER, "NULL buffer");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_buffer_view,
-            VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_VIEW_EXT, "NULL buffer view");
+            VK_OBJECT_TYPE_BUFFER_VIEW, "NULL buffer view");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_buffer_memory,
-            VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, "NULL memory");
+            VK_OBJECT_TYPE_DEVICE_MEMORY, "NULL memory");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_storage_buffer,
-            VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, "NULL UAV buffer");
+            VK_OBJECT_TYPE_BUFFER, "NULL UAV buffer");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_storage_buffer_view,
-            VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_VIEW_EXT, "NULL UAV buffer view");
+            VK_OBJECT_TYPE_BUFFER_VIEW, "NULL UAV buffer view");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_image,
-            VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, "NULL 2D SRV image");
+            VK_OBJECT_TYPE_IMAGE, "NULL 2D SRV image");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_image_view,
-            VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_VIEW_EXT, "NULL 2D SRV image view");
+            VK_OBJECT_TYPE_IMAGE_VIEW, "NULL 2D SRV image view");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_image_memory,
-            VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, "NULL 2D SRV memory");
+            VK_OBJECT_TYPE_DEVICE_MEMORY, "NULL 2D SRV memory");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_storage_image,
-            VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, "NULL 2D UAV image");
+            VK_OBJECT_TYPE_IMAGE, "NULL 2D UAV image");
     vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_storage_image_view,
-            VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_VIEW_EXT, "NULL 2D UAV image view");
+            VK_OBJECT_TYPE_IMAGE_VIEW, "NULL 2D UAV image view");
     if (!use_sparse_resources)
     {
         vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_storage_buffer_memory,
-                VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, "NULL UAV buffer memory");
+                VK_OBJECT_TYPE_DEVICE_MEMORY, "NULL UAV buffer memory");
         vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_storage_image_memory,
-                VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, "NULL 2D UAV memory");
+                VK_OBJECT_TYPE_DEVICE_MEMORY, "NULL 2D UAV memory");
     }
 
     return vkd3d_init_null_resources_data(null_resources, device);

@@ -126,7 +126,7 @@ struct vkd3d_optional_extension_info
 static const struct vkd3d_optional_extension_info optional_instance_extensions[] =
 {
     /* EXT extensions */
-    VK_EXTENSION(EXT_DEBUG_REPORT, EXT_debug_report),
+    VK_EXTENSION(EXT_DEBUG_UTILS, EXT_debug_utils),
 };
 
 static const struct vkd3d_optional_extension_info optional_device_extensions[] =
@@ -142,7 +142,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     /* EXT extensions */
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
     VK_EXTENSION(EXT_CUSTOM_BORDER_COLOR, EXT_custom_border_color),
-    VK_EXTENSION(EXT_DEBUG_MARKER, EXT_debug_marker),
     VK_EXTENSION(EXT_DEPTH_CLIP_ENABLE, EXT_depth_clip_enable),
     VK_EXTENSION(EXT_DESCRIPTOR_INDEXING, EXT_descriptor_indexing),
     VK_EXTENSION(EXT_INLINE_UNIFORM_BLOCK, EXT_inline_uniform_block),
@@ -409,28 +408,39 @@ static HRESULT vkd3d_init_vk_global_procs(struct vkd3d_instance *instance,
     return S_OK;
 }
 
-static VkBool32 VKAPI_PTR vkd3d_debug_report_callback(VkDebugReportFlagsEXT flags,
-        VkDebugReportObjectTypeEXT object_type, uint64_t object, size_t location,
-        int32_t message_code, const char *layer_prefix, const char *message, void *user_data)
+static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
+        VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
+        VkDebugUtilsMessageTypeFlagsEXT message_types,
+        const VkDebugUtilsMessengerCallbackDataEXT *callback_data,
+        void *userdata)
 {
-    FIXME("%s\n", debugstr_a(message));
+    if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+        ERR("%s\n", debugstr_a(callback_data->pMessage));
+    else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+        WARN("%s\n", debugstr_a(callback_data->pMessage));
+
+    (void)userdata;
+    (void)message_types;
     return VK_FALSE;
 }
 
-static void vkd3d_init_debug_report(struct vkd3d_instance *instance)
+static void vkd3d_init_debug_messenger_callback(struct vkd3d_instance *instance)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
-    VkDebugReportCallbackCreateInfoEXT callback_info;
+    VkDebugUtilsMessengerCreateInfoEXT callback_info;
     VkInstance vk_instance = instance->vk_instance;
-    VkDebugReportCallbackEXT callback;
+    VkDebugUtilsMessengerEXT callback;
     VkResult vr;
 
-    callback_info.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
+    callback_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
     callback_info.pNext = NULL;
-    callback_info.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT;
-    callback_info.pfnCallback = vkd3d_debug_report_callback;
+    callback_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
+                                    VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT;
+    callback_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
+    callback_info.pfnUserCallback = vkd3d_debug_messenger_callback;
     callback_info.pUserData = NULL;
-    if ((vr = VK_CALL(vkCreateDebugReportCallbackEXT(vk_instance, &callback_info, NULL, &callback)) < 0))
+    callback_info.flags = 0;
+    if ((vr = VK_CALL(vkCreateDebugUtilsMessengerEXT(vk_instance, &callback_info, NULL, &callback)) < 0))
     {
         WARN("Failed to create debug report callback, vr %d.\n", vr);
         return;
@@ -609,8 +619,8 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance->refcount = 1;
 
     instance->vk_debug_callback = VK_NULL_HANDLE;
-    if (instance->vk_info.EXT_debug_report && (instance->config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG))
-        vkd3d_init_debug_report(instance);
+    if (instance->vk_info.EXT_debug_utils && (instance->config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG))
+        vkd3d_init_debug_messenger_callback(instance);
 
     return S_OK;
 }
@@ -653,7 +663,7 @@ static void vkd3d_destroy_instance(struct vkd3d_instance *instance)
     VkInstance vk_instance = instance->vk_instance;
 
     if (instance->vk_debug_callback)
-        VK_CALL(vkDestroyDebugReportCallbackEXT(vk_instance, instance->vk_debug_callback, NULL));
+        VK_CALL(vkDestroyDebugUtilsMessengerEXT(vk_instance, instance->vk_debug_callback, NULL));
 
     VK_CALL(vkDestroyInstance(vk_instance, NULL));
 
@@ -2263,7 +2273,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_SetName(d3d12_device_iface *iface,
     TRACE("iface %p, name %s.\n", iface, debugstr_w(name, device->wchar_size));
 
     return vkd3d_set_vk_object_name(device, (uint64_t)(uintptr_t)device->vk_device,
-            VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT, name);
+            VK_OBJECT_TYPE_DEVICE, name);
 }
 
 static UINT STDMETHODCALLTYPE d3d12_device_GetNodeCount(d3d12_device_iface *iface)
