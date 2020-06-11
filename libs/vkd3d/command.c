@@ -6095,21 +6095,113 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
     }
 }
 
+static char *decode_pix_string(size_t wchar_size, UINT metadata, const void *data, size_t size)
+{
+    char *label_str;
+
+#define PIX_EVENT_UNICODE_VERSION 0
+#define PIX_EVENT_ANSI_VERSION 1
+#define PIX_EVENT_PIX3BLOB_VERSION 2
+    switch (metadata)
+    {
+    case PIX_EVENT_ANSI_VERSION:
+        /* Be defensive in case the string is not nul-terminated. */
+        label_str = vkd3d_malloc(size + 1);
+        if (!label_str)
+            return NULL;
+        memcpy(label_str, data, size);
+        label_str[size] = '\0';
+        break;
+
+    case PIX_EVENT_UNICODE_VERSION:
+        label_str = vkd3d_strdup_w_utf8(data, wchar_size, size / wchar_size);
+        if (!label_str)
+            return NULL;
+        break;
+
+    case PIX_EVENT_PIX3BLOB_VERSION:
+        FIXME("PIX3BLOB event format not supported.\n");
+        return NULL;
+
+    default:
+        FIXME("Unrecognized metadata format %u for BeginEvent.\n", metadata);
+        return NULL;
+    }
+
+    return label_str;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_SetMarker(d3d12_command_list_iface *iface,
         UINT metadata, const void *data, UINT size)
 {
-    FIXME_ONCE("iface %p, metadata %#x, data %p, size %u stub!\n", iface, metadata, data, size);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkDebugUtilsLabelEXT label;
+    char *label_str;
+    unsigned int i;
+
+    if (!list->device->vk_info.EXT_debug_utils)
+        return;
+
+    label_str = decode_pix_string(list->device->wchar_size, metadata, data, size);
+    if (!label_str)
+    {
+        FIXME("Failed to decode PIX debug event.\n");
+        return;
+    }
+
+    label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+    label.pNext = NULL;
+    label.pLabelName = label_str;
+    for (i = 0; i < 4; i++)
+        label.color[i] = 1.0f;
+
+    VK_CALL(vkCmdInsertDebugUtilsLabelEXT(list->vk_command_buffer, &label));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_BeginEvent(d3d12_command_list_iface *iface,
         UINT metadata, const void *data, UINT size)
 {
-    FIXME_ONCE("iface %p, metadata %#x, data %p, size %u stub!\n", iface, metadata, data, size);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkDebugUtilsLabelEXT label;
+    char *label_str;
+    unsigned int i;
+
+    TRACE("iface %p, metadata %u, data %p, size %u.\n",
+          iface, metadata, data, size);
+
+    if (!list->device->vk_info.EXT_debug_utils)
+        return;
+
+    label_str = decode_pix_string(list->device->wchar_size, metadata, data, size);
+    if (!label_str)
+    {
+        FIXME("Failed to decode PIX debug event.\n");
+        return;
+    }
+
+    label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+    label.pNext = NULL;
+    label.pLabelName = label_str;
+    for (i = 0; i < 4; i++)
+        label.color[i] = 1.0f;
+
+    VK_CALL(vkCmdBeginDebugUtilsLabelEXT(list->vk_command_buffer, &label));
+    vkd3d_free(label_str);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_EndEvent(d3d12_command_list_iface *iface)
 {
-    FIXME_ONCE("iface %p stub!\n", iface);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+
+    TRACE("iface %p.\n", iface);
+
+    if (!list->device->vk_info.EXT_debug_utils)
+        return;
+
+    VK_CALL(vkCmdEndDebugUtilsLabelEXT(list->vk_command_buffer));
 }
 
 STATIC_ASSERT(sizeof(VkDispatchIndirectCommand) == sizeof(D3D12_DISPATCH_ARGUMENTS));
