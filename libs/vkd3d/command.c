@@ -1463,7 +1463,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetName(ID3D12CommandAl
     TRACE("iface %p, name %s.\n", iface, debugstr_w(name, allocator->device->wchar_size));
 
     return vkd3d_set_vk_object_name(allocator->device, (uint64_t)allocator->vk_command_pool,
-            VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_POOL_EXT, name);
+            VK_OBJECT_TYPE_COMMAND_POOL, name);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_GetDevice(ID3D12CommandAllocator *iface, REFIID iid, void **device)
@@ -6654,7 +6654,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetName(ID3D12CommandQueue 
     }
 
     hr = vkd3d_set_vk_object_name(command_queue->device, (uint64_t)(uintptr_t)vk_queue,
-            VK_DEBUG_REPORT_OBJECT_TYPE_QUEUE_EXT, name);
+            VK_OBJECT_TYPE_QUEUE, name);
     vkd3d_queue_release(command_queue->vkd3d_queue);
     return hr;
 }

@@ -1049,24 +1049,24 @@ HRESULT vkd3d_set_private_data_interface(struct vkd3d_private_store *store,
 }
 
 VkResult vkd3d_set_vk_object_name_utf8(struct d3d12_device *device, uint64_t vk_object,
-        VkDebugReportObjectTypeEXT vk_object_type, const char *name)
+        VkObjectType vk_object_type, const char *name)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkDebugMarkerObjectNameInfoEXT info;
+    VkDebugUtilsObjectNameInfoEXT info;
 
-    if (!device->vk_info.EXT_debug_marker)
+    if (!device->vk_info.EXT_debug_utils)
         return VK_SUCCESS;
 
-    info.sType = VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_NAME_INFO_EXT;
+    info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
     info.pNext = NULL;
     info.objectType = vk_object_type;
-    info.object = vk_object;
+    info.objectHandle = vk_object;
     info.pObjectName = name;
-    return VK_CALL(vkDebugMarkerSetObjectNameEXT(device->vk_device, &info));
+    return VK_CALL(vkSetDebugUtilsObjectNameEXT(device->vk_device, &info));
 }
 
 HRESULT vkd3d_set_vk_object_name(struct d3d12_device *device, uint64_t vk_object,
-        VkDebugReportObjectTypeEXT vk_object_type, const WCHAR *name)
+        VkObjectType vk_object_type, const WCHAR *name)
 {
     char *name_utf8;
     VkResult vr;
@@ -1074,7 +1074,7 @@ HRESULT vkd3d_set_vk_object_name(struct d3d12_device *device, uint64_t vk_object
     if (!name)
         return E_INVALIDARG;
 
-    if (!device->vk_info.EXT_debug_marker)
+    if (!device->vk_info.EXT_debug_utils)
         return S_OK;
 
     if (!(name_utf8 = vkd3d_strdup_w_utf8(name, device->wchar_size)))

@@ -49,9 +49,9 @@ VK_INSTANCE_PFN(vkGetPhysicalDeviceSparseImageFormatProperties)
 VK_INSTANCE_PFN(vkGetPhysicalDeviceFeatures2)
 VK_INSTANCE_PFN(vkGetPhysicalDeviceProperties2)
 
-/* VK_EXT_debug_report */
-VK_INSTANCE_EXT_PFN(vkCreateDebugReportCallbackEXT)
-VK_INSTANCE_EXT_PFN(vkDestroyDebugReportCallbackEXT)
+/* VK_EXT_debug_utils */
+VK_INSTANCE_EXT_PFN(vkCreateDebugUtilsMessengerEXT)
+VK_INSTANCE_EXT_PFN(vkDestroyDebugUtilsMessengerEXT)
 
 /* Device functions (obtained by vkGetDeviceProcAddr). */
 VK_DEVICE_PFN(vkDestroyDevice) /* Load vkDestroyDevice() first. */
@@ -200,8 +200,8 @@ VK_DEVICE_EXT_PFN(vkCmdPushDescriptorSetKHR)
 VK_DEVICE_EXT_PFN(vkCmdBeginConditionalRenderingEXT)
 VK_DEVICE_EXT_PFN(vkCmdEndConditionalRenderingEXT)
 
-/* VK_EXT_debug_marker */
-VK_DEVICE_EXT_PFN(vkDebugMarkerSetObjectNameEXT)
+/* VK_EXT_debug_utils */
+VK_DEVICE_EXT_PFN(vkSetDebugUtilsObjectNameEXT)
 
 /* VK_EXT_transform_feedback */
 VK_DEVICE_EXT_PFN(vkCmdBeginQueryIndexedEXT)
