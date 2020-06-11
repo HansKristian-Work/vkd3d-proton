@@ -128,8 +128,6 @@ struct vkd3d_optional_extension_info
 
 static const struct vkd3d_optional_extension_info optional_instance_extensions[] =
 {
-    /* KHR extensions */
-    VK_EXTENSION(KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2, KHR_get_physical_device_properties2),
     /* EXT extensions */
     VK_DEBUG_EXTENSION(EXT_DEBUG_REPORT, EXT_debug_report),
 };
@@ -905,16 +903,8 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->properties2, shader_sm_builtins_properties);
     }
 
-    if (vulkan_info->KHR_get_physical_device_properties2)
-    {
-        VK_CALL(vkGetPhysicalDeviceFeatures2KHR(physical_device, &info->features2));
-        VK_CALL(vkGetPhysicalDeviceProperties2KHR(physical_device, &info->properties2));
-    }
-    else
-    {
-        VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &info->features2.features));
-        VK_CALL(vkGetPhysicalDeviceProperties(physical_device, &info->properties2.properties));
-    }
+    VK_CALL(vkGetPhysicalDeviceFeatures2(physical_device, &info->features2));
+    VK_CALL(vkGetPhysicalDeviceProperties2(physical_device, &info->properties2));
 }
 
 static void vkd3d_trace_physical_device_properties(const VkPhysicalDeviceProperties *properties)

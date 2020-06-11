@@ -105,8 +105,6 @@ HRESULT hresult_from_vkd3d_result(int vkd3d_result) DECLSPEC_HIDDEN;
 
 struct vkd3d_vulkan_info
 {
-    /* KHR instance extensions */
-    bool KHR_get_physical_device_properties2;
     /* EXT instance extensions */
     bool EXT_debug_report;
 
