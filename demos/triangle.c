@@ -393,7 +393,11 @@ static int cxt_main(void)
 }
 
 #ifdef _WIN32
-int wmain(void)
+int WINAPI WinMain(
+    HINSTANCE hInstance,
+    HINSTANCE hPrevInstance,
+    LPSTR lpCmdLine,
+    int nCmdShow)
 #else
 int main(void)
 #endif
