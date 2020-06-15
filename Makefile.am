@@ -25,7 +25,8 @@ vkd3d_public_headers = \
 	include/vkd3d_shader.h \
 	include/vkd3d_types.h \
 	include/vkd3d_utils.h \
-	include/vkd3d_windows.h
+	include/vkd3d_windows.h \
+	include/vkd3d_sonames.h
 
 vkd3d_demos_shaders = \
 	demos/gears.hlsl \
@@ -156,14 +157,14 @@ AM_DEFAULT_SOURCE_EXT = .c
 if BUILD_TESTS
 check_PROGRAMS = $(vkd3d_tests) $(vkd3d_cross_tests)
 TESTS = $(vkd3d_tests) $(vkd3d_cross_tests)
-tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@ @VULKAN_LIBS@
-tests_d3d12_invalid_usage_LDADD = $(LDADD) @VULKAN_LIBS@
-tests_vkd3d_api_LDADD = libvkd3d.la @VULKAN_LIBS@
+tests_d3d12_LDADD = $(LDADD) @PTHREAD_LIBS@
+tests_d3d12_invalid_usage_LDADD = $(LDADD)
+tests_vkd3d_api_LDADD = libvkd3d.la
 tests_vkd3d_shader_api_LDADD = libvkd3d-shader.la
 endif
 
 if BUILD_DEMOS
-DEMOS_LDADD = $(LDADD) libvkd3d-shader.la @XCB_LIBS@ @VULKAN_LIBS@
+DEMOS_LDADD = $(LDADD) libvkd3d-shader.la @XCB_LIBS@ @DL_LIBS@
 DEMOS_CFLAGS = $(AM_CFLAGS) @XCB_CFLAGS@
 noinst_PROGRAMS += $(vkd3d_demos)
 

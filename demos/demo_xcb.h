@@ -20,6 +20,7 @@
 #define VK_USE_PLATFORM_XCB_KHR
 #include <vkd3d.h>
 #include <vkd3d_utils.h>
+#include <vkd3d_sonames.h>
 #include <xcb/xcb_event.h>
 #include <xcb/xcb_icccm.h>
 #include <xcb/xcb_keysyms.h>
@@ -28,6 +29,24 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdbool.h>
+#include <dlfcn.h>
+
+#define SYMBOL(x) static PFN_vk##x x
+SYMBOL(CreateXcbSurfaceKHR);
+SYMBOL(GetPhysicalDeviceSurfaceSupportKHR);
+SYMBOL(GetPhysicalDeviceSurfaceCapabilitiesKHR);
+SYMBOL(GetPhysicalDeviceSurfaceFormatsKHR);
+SYMBOL(CreateSwapchainKHR);
+SYMBOL(CreateFence);
+SYMBOL(GetSwapchainImagesKHR);
+SYMBOL(AcquireNextImageKHR);
+SYMBOL(WaitForFences);
+SYMBOL(ResetFences);
+SYMBOL(DestroyFence);
+SYMBOL(DestroySurfaceKHR);
+SYMBOL(QueuePresentKHR);
+SYMBOL(DestroySwapchainKHR);
+#undef SYMBOL
 
 struct demo
 {
@@ -43,6 +62,7 @@ struct demo
 
     void *user_data;
     void (*idle_func)(struct demo *demo, void *user_data);
+
 };
 
 struct demo_window
@@ -69,6 +89,29 @@ struct demo_swapchain
     unsigned int buffer_count;
     ID3D12Resource *buffers[1];
 };
+
+static inline void init_symbols(VkInstance instance)
+{
+    PFN_vkGetInstanceProcAddr gpa;
+    void *handle = dlopen(SONAME_LIBVULKAN, RTLD_LAZY);
+    gpa = (PFN_vkGetInstanceProcAddr)dlsym(handle, "vkGetInstanceProcAddr");
+#define SYMBOL(x) x = (PFN_vk##x)gpa(instance, "vk" #x)
+    SYMBOL(CreateXcbSurfaceKHR);
+    SYMBOL(GetPhysicalDeviceSurfaceSupportKHR);
+    SYMBOL(GetPhysicalDeviceSurfaceCapabilitiesKHR);
+    SYMBOL(GetPhysicalDeviceSurfaceFormatsKHR);
+    SYMBOL(CreateSwapchainKHR);
+    SYMBOL(CreateFence);
+    SYMBOL(GetSwapchainImagesKHR);
+    SYMBOL(AcquireNextImageKHR);
+    SYMBOL(WaitForFences);
+    SYMBOL(ResetFences);
+    SYMBOL(DestroySurfaceKHR);
+    SYMBOL(DestroyFence);
+    SYMBOL(QueuePresentKHR);
+    SYMBOL(DestroySwapchainKHR);
+#undef SYMBOL
+}
 
 static inline xcb_atom_t demo_get_atom(xcb_connection_t *c, const char *name)
 {
@@ -339,23 +382,25 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     vk_physical_device = vkd3d_get_vk_physical_device(d3d12_device);
     vk_device = vkd3d_get_vk_device(d3d12_device);
 
+    init_symbols(vk_instance);
+
     surface_desc.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
     surface_desc.pNext = NULL;
     surface_desc.flags = 0;
     surface_desc.connection = window->demo->connection;
     surface_desc.window = window->window;
-    if (vkCreateXcbSurfaceKHR(vk_instance, &surface_desc, NULL, &vk_surface) < 0)
+    if (CreateXcbSurfaceKHR(vk_instance, &surface_desc, NULL, &vk_surface) < 0)
     {
         ID3D12Device_Release(d3d12_device);
         return NULL;
     }
 
     queue_family_index = vkd3d_get_vk_queue_family_index(command_queue);
-    if (vkGetPhysicalDeviceSurfaceSupportKHR(vk_physical_device,
+    if (GetPhysicalDeviceSurfaceSupportKHR(vk_physical_device,
             queue_family_index, vk_surface, &supported) < 0 || !supported)
         goto fail;
 
-    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, vk_surface, &surface_caps) < 0)
+    if (GetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, vk_surface, &surface_caps) < 0)
         goto fail;
 
     if ((surface_caps.maxImageCount && desc->buffer_count > surface_caps.maxImageCount)
@@ -365,11 +410,11 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
             || !(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR))
         goto fail;
 
-    if (vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, NULL) < 0
+    if (GetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, NULL) < 0
             || !format_count || !(formats = calloc(format_count, sizeof(*formats))))
         goto fail;
 
-    if (vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, formats) < 0)
+    if (GetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, formats) < 0)
     {
         free(formats);
         goto fail;
@@ -413,20 +458,20 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     vk_swapchain_desc.presentMode = VK_PRESENT_MODE_FIFO_KHR;
     vk_swapchain_desc.clipped = VK_TRUE;
     vk_swapchain_desc.oldSwapchain = VK_NULL_HANDLE;
-    if (vkCreateSwapchainKHR(vk_device, &vk_swapchain_desc, NULL, &vk_swapchain) < 0)
+    if (CreateSwapchainKHR(vk_device, &vk_swapchain_desc, NULL, &vk_swapchain) < 0)
         goto fail;
 
     fence_desc.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_desc.pNext = NULL;
     fence_desc.flags = 0;
-    if (vkCreateFence(vk_device, &fence_desc, NULL, &vk_fence) < 0)
+    if (CreateFence(vk_device, &fence_desc, NULL, &vk_fence) < 0)
         goto fail;
 
-    if (vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &image_count, NULL) < 0
+    if (GetSwapchainImagesKHR(vk_device, vk_swapchain, &image_count, NULL) < 0
             || !(vk_images = calloc(image_count, sizeof(*vk_images))))
         goto fail;
 
-    if (vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &image_count, vk_images) < 0)
+    if (GetSwapchainImagesKHR(vk_device, vk_swapchain, &image_count, vk_images) < 0)
     {
         free(vk_images);
         goto fail;
@@ -443,10 +488,10 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     swapchain->vk_instance = vk_instance;
     swapchain->vk_device = vk_device;
 
-    vkAcquireNextImageKHR(vk_device, vk_swapchain, UINT64_MAX,
+    AcquireNextImageKHR(vk_device, vk_swapchain, UINT64_MAX,
             VK_NULL_HANDLE, vk_fence, &swapchain->current_buffer);
-    vkWaitForFences(vk_device, 1, &vk_fence, VK_TRUE, UINT64_MAX);
-    vkResetFences(vk_device, 1, &vk_fence);
+    WaitForFences(vk_device, 1, &vk_fence, VK_TRUE, UINT64_MAX);
+    ResetFences(vk_device, 1, &vk_fence);
 
     resource_create_info.type = VKD3D_STRUCTURE_TYPE_IMAGE_RESOURCE_CREATE_INFO;
     resource_create_info.next = NULL;
@@ -487,10 +532,10 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
 
 fail:
     if (vk_fence != VK_NULL_HANDLE)
-        vkDestroyFence(vk_device, vk_fence, NULL);
+        DestroyFence(vk_device, vk_fence, NULL);
     if (vk_swapchain != VK_NULL_HANDLE)
-        vkDestroySwapchainKHR(vk_device, vk_swapchain, NULL);
-    vkDestroySurfaceKHR(vk_instance, vk_surface, NULL);
+        DestroySwapchainKHR(vk_device, vk_swapchain, NULL);
+    DestroySurfaceKHR(vk_instance, vk_surface, NULL);
     ID3D12Device_Release(d3d12_device);
     return NULL;
 }
@@ -525,13 +570,13 @@ static inline void demo_swapchain_present(struct demo_swapchain *swapchain)
     present_desc.pResults = NULL;
 
     vk_queue = vkd3d_acquire_vk_queue(swapchain->command_queue);
-    vkQueuePresentKHR(vk_queue, &present_desc);
+    QueuePresentKHR(vk_queue, &present_desc);
     vkd3d_release_vk_queue(swapchain->command_queue);
 
-    vkAcquireNextImageKHR(swapchain->vk_device, swapchain->vk_swapchain, UINT64_MAX,
+    AcquireNextImageKHR(swapchain->vk_device, swapchain->vk_swapchain, UINT64_MAX,
             VK_NULL_HANDLE, swapchain->vk_fence, &swapchain->current_buffer);
-    vkWaitForFences(swapchain->vk_device, 1, &swapchain->vk_fence, VK_TRUE, UINT64_MAX);
-    vkResetFences(swapchain->vk_device, 1, &swapchain->vk_fence);
+    WaitForFences(swapchain->vk_device, 1, &swapchain->vk_fence, VK_TRUE, UINT64_MAX);
+    ResetFences(swapchain->vk_device, 1, &swapchain->vk_fence);
 }
 
 static inline void demo_swapchain_destroy(struct demo_swapchain *swapchain)
@@ -543,9 +588,9 @@ static inline void demo_swapchain_destroy(struct demo_swapchain *swapchain)
     {
         ID3D12Resource_Release(swapchain->buffers[i]);
     }
-    vkDestroyFence(swapchain->vk_device, swapchain->vk_fence, NULL);
-    vkDestroySwapchainKHR(swapchain->vk_device, swapchain->vk_swapchain, NULL);
-    vkDestroySurfaceKHR(swapchain->vk_instance, swapchain->vk_surface, NULL);
+    DestroyFence(swapchain->vk_device, swapchain->vk_fence, NULL);
+    DestroySwapchainKHR(swapchain->vk_device, swapchain->vk_swapchain, NULL);
+    DestroySurfaceKHR(swapchain->vk_instance, swapchain->vk_surface, NULL);
     free(swapchain);
 }
 

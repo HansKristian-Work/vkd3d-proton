@@ -17,6 +17,7 @@
  */
 
 #include "vkd3d_private.h"
+#include "vkd3d_sonames.h"
 
 #ifdef HAVE_DLFCN_H
 #include <dlfcn.h>

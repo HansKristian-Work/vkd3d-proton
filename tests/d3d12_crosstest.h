@@ -58,6 +58,7 @@ typedef int HRESULT;
 # include "vkd3d_threads.h"
 # include "vkd3d.h"
 # include "vkd3d_utils.h"
+# include "vkd3d_sonames.h"
 #endif
 
 #if !defined(_WIN32)
@@ -418,7 +419,7 @@ static bool init_vulkan_loader(void)
         return true;
 
 #ifdef _WIN32
-    HMODULE mod = LoadLibrary(SONAME_LIBVULKAN);
+    HMODULE mod = LoadLibraryA(SONAME_LIBVULKAN);
     if (!mod)
         return false;
 
