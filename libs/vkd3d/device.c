@@ -544,7 +544,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     application_info.pNext = NULL;
     application_info.pApplicationName = NULL;
     application_info.applicationVersion = 0;
-    application_info.pEngineName = PACKAGE_NAME;
+    application_info.pEngineName = "vkd3d";
     application_info.engineVersion = vkd3d_get_vk_version();
     application_info.apiVersion = loader_version;
 
