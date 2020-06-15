@@ -174,42 +174,6 @@ static inline int ascii_strcasecmp(const char *a, const char *b)
     return c_a - c_b;
 }
 
-#ifndef _WIN32
-# if HAVE_SYNC_ADD_AND_FETCH
-static inline LONG InterlockedIncrement(LONG volatile *x)
-{
-    return __sync_add_and_fetch(x, 1);
-}
-# else
-#  error "InterlockedIncrement() not implemented for this platform"
-# endif  /* HAVE_SYNC_ADD_AND_FETCH */
-
-# if HAVE_SYNC_SUB_AND_FETCH
-static inline LONG InterlockedDecrement(LONG volatile *x)
-{
-    return __sync_sub_and_fetch(x, 1);
-}
-# else
-#  error "InterlockedDecrement() not implemented for this platform"
-# endif
-#endif  /* _WIN32 */
-
-#if HAVE_SYNC_ADD_AND_FETCH
-# define atomic_add_fetch(ptr, val) __sync_add_and_fetch(ptr, val)
-#elif defined(_MSC_VER)
-/* InterlockedAdd returns value after increment, like add_and_fetch. */
-# define atomic_add_fetch(ptr, val) InterlockedAdd(ptr, val)
-#else
-# error "atomic_add_fetch() not implemented for this platform"
-#endif  /* HAVE_SYNC_ADD_AND_FETCH */
-
-#ifdef HAVE_EXPLICIT_ATOMIC_LOADS
-/* Piggyback on stdatomic from spinlock.h */
-# define atomic_load_acquire(ptr) atomic_load_explicit(ptr, memory_order_acquire)
-#else
-# define atomic_load_acquire(ptr) atomic_add_fetch(ptr, 0)
-#endif
-
 static inline bool is_power_of_two(unsigned int x)
 {
     return x && !(x & (x -1));
