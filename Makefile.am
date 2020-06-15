@@ -102,6 +102,7 @@ libvkd3d_la_SOURCES = \
 	include/private/vkd3d_spinlock.h \
 	include/private/vkd3d_debug.h \
 	include/private/vkd3d_memory.h \
+	include/private/vkd3d_private.h \
 	include/private/vkd3d_utf8.h \
 	include/private/vkd3d_test.h \
 	include/vkd3d_d3d12.idl \
@@ -110,6 +111,7 @@ libvkd3d_la_SOURCES = \
 	libs/vkd3d/command.c \
 	libs/vkd3d/device.c \
 	libs/vkd3d/meta.c \
+	libs/vkd3d/platform.c \
 	libs/vkd3d/resource.c \
 	libs/vkd3d/state.c \
 	libs/vkd3d/utils.c \
