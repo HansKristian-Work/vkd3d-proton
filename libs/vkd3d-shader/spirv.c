@@ -2951,7 +2951,7 @@ struct vkd3d_shader_register_info
     const struct vkd3d_shader_resource_binding *cbv_binding;
 };
 
-static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compiler *compiler,
+static bool vkd3d_dxbc_compiler_find_register_info(const struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, struct vkd3d_shader_register_info *register_info)
 {
     struct vkd3d_symbol reg_symbol, *symbol;
@@ -2977,7 +2977,6 @@ static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compil
     vkd3d_symbol_make_register(&reg_symbol, reg);
     if (!(entry = rb_get(&compiler->symbol_table, &reg_symbol)))
     {
-        FIXME("Unrecognized register (%s).\n", debug_vkd3d_symbol(&reg_symbol));
         memset(register_info, 0, sizeof(*register_info));
         return false;
     }
@@ -2994,6 +2993,21 @@ static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compil
     register_info->cbv_binding = symbol->info.reg.cbv_binding;
 
     return true;
+}
+
+static bool vkd3d_dxbc_compiler_get_register_info(const struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg, struct vkd3d_shader_register_info *register_info)
+{
+    struct vkd3d_symbol reg_symbol;
+    bool result;
+
+    if (!(result = vkd3d_dxbc_compiler_find_register_info(compiler, reg, register_info)))
+    {
+        vkd3d_symbol_make_register(&reg_symbol, reg);
+        FIXME("Unrecognized register (%s).\n", debug_vkd3d_symbol(&reg_symbol));
+    }
+
+    return result;
 }
 
 static uint32_t vkd3d_dxbc_compiler_get_resource_index(struct vkd3d_dxbc_compiler *compiler,
@@ -6448,14 +6462,15 @@ static void vkd3d_dxbc_compiler_emit_default_control_point_phase(struct vkd3d_dx
 
         input_id = 0;
 
-        if (vkd3d_dxbc_compiler_get_register_info(compiler, &input_reg, &input_info))
+        if (vkd3d_dxbc_compiler_find_register_info(compiler, &input_reg, &input_info))
         {
             input_id = input_info.id;
 
             component_type = input_info.component_type;
             component_count = vkd3d_write_mask_component_count(input_info.write_mask);
         }
-        else {
+        else
+        {
             if ((input_builtin = get_spirv_builtin_for_sysval(compiler, vkd3d_siv_from_sysval(input->sysval_semantic))))
             {
                 component_type = input_builtin->component_type;
