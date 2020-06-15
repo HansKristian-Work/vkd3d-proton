@@ -4394,20 +4394,20 @@ static void test_cpu_signal_fence(void)
     value = ID3D12Fence_GetCompletedValue(fence);
     ok(value == 1, "Got unexpected value %"PRIu64".\n", value);
 
-    hr = ID3D12Fence_Signal(fence, 2);
+    hr = ID3D12Fence_Signal(fence, 10);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 2, "Got unexpected value %"PRIu64".\n", value);
+    ok(value == 10, "Got unexpected value %"PRIu64".\n", value);
 
-    hr = ID3D12Fence_Signal(fence, 3);
+    hr = ID3D12Fence_Signal(fence, 5);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 3, "Got unexpected value %"PRIu64".\n", value);
+    ok(value == 5, "Got unexpected value %"PRIu64".\n", value);
 
-    hr = ID3D12Fence_Signal(fence, 4);
+    hr = ID3D12Fence_Signal(fence, 0);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 4, "Got unexpected value %"PRIu64".\n", value);
+    ok(value == 0, "Got unexpected value %"PRIu64".\n", value);
 
     /* Basic tests with single event. */
     event1 = create_event();
@@ -4466,26 +4466,26 @@ static void test_cpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     /* Attach event to multiple values. */
-    hr = ID3D12Fence_Signal(fence, 100);
+    hr = ID3D12Fence_Signal(fence, 0);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 103, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 3, event1);
     ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 105, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 5, event1);
     ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 109, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 9, event1);
     ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 112, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 12, event1);
     ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 112, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 12, event1);
     ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     for (i = 1; i < 13; ++i)
     {
-        hr = ID3D12Fence_Signal(fence, 100 + i);
+        hr = ID3D12Fence_Signal(fence, i);
         ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
         if (i == 3 || i == 5 || i == 9 || i == 12)
         {
@@ -4497,10 +4497,10 @@ static void test_cpu_signal_fence(void)
     }
 
     /* Tests with 2 events. */
-    hr = ID3D12Fence_Signal(fence, 200);
+    hr = ID3D12Fence_Signal(fence, 0);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 200, "Got unexpected value %"PRIu64".\n", value);
+    ok(value == 0, "Got unexpected value %"PRIu64".\n", value);
 
     event2 = create_event();
     ok(event2, "Failed to create event.\n");
@@ -4509,26 +4509,26 @@ static void test_cpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 300, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 100, event1);
     ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 1000, event2);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, ~(uint64_t)0, event2);
     ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
 
-    hr = ID3D12Fence_Signal(fence, 250);
+    hr = ID3D12Fence_Signal(fence, 50);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_Signal(fence, 299);
+    hr = ID3D12Fence_Signal(fence, 99);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_Signal(fence, 300);
+    hr = ID3D12Fence_Signal(fence, 100);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
@@ -4537,28 +4537,28 @@ static void test_cpu_signal_fence(void)
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_Signal(fence, 301);
+    hr = ID3D12Fence_Signal(fence, 101);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_Signal(fence, 400);
+    hr = ID3D12Fence_Signal(fence, 0);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_Signal(fence, 500);
+    hr = ID3D12Fence_Signal(fence, 100);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_Signal(fence, 1000);
+    hr = ID3D12Fence_Signal(fence, ~(uint64_t)0);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -4567,13 +4567,13 @@ static void test_cpu_signal_fence(void)
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_Signal(fence, 1001);
+    hr = ID3D12Fence_Signal(fence, ~(uint64_t)0);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
-    hr = ID3D12Fence_Signal(fence, 1002);
+    hr = ID3D12Fence_Signal(fence, 0);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -4581,22 +4581,22 @@ static void test_cpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     /* Attach two events to the same value. */
-    hr = ID3D12Fence_Signal(fence, 2000);
+    hr = ID3D12Fence_Signal(fence, 0);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 2001, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 1, event1);
     ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 2001, event2);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 1, event2);
     ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
-    hr = ID3D12Fence_Signal(fence, 2003);
+    hr = ID3D12Fence_Signal(fence, 3);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
@@ -4608,22 +4608,22 @@ static void test_cpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     /* Test passing signaled event. */
-    hr = ID3D12Fence_Signal(fence, 3000);
+    hr = ID3D12Fence_Signal(fence, 20);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 3000, "Got unexpected value %"PRIu64".\n", value);
+    ok(value == 20, "Got unexpected value %"PRIu64".\n", value);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     signal_event(event1);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 4000, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 30, event1);
     ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_Signal(fence, 4000);
+    hr = ID3D12Fence_Signal(fence, 30);
     ok(SUCCEEDED(hr), "Failed to signal fence, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
@@ -4670,10 +4670,10 @@ static void test_gpu_signal_fence(void)
     value = ID3D12Fence_GetCompletedValue(fence);
     ok(value == 10, "Got unexpected value %"PRIu64".\n", value);
 
-    queue_signal(queue, fence, 20);
+    queue_signal(queue, fence, 0);
     wait_queue_idle(device, queue);
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 20, "Got unexpected value %"PRIu64".\n", value);
+    ok(value == 0, "Got unexpected value %"PRIu64".\n", value);
 
     /* Basic tests with single event. */
     event1 = create_event();
@@ -4681,54 +4681,54 @@ static void test_gpu_signal_fence(void)
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 30, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 5, event1);
     ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
-    queue_signal(queue, fence, 30);
+    queue_signal(queue, fence, 5);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 39, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 6, event1);
     ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
-    queue_signal(queue, fence, 40);
+    queue_signal(queue, fence, 7);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    queue_signal(queue, fence, 50);
+    queue_signal(queue, fence, 10);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     /* Attach one event to multiple values. */
-    queue_signal(queue, fence, 100);
+    queue_signal(queue, fence, 0);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 103, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 3, event1);
     ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 105, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 5, event1);
     ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 109, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 9, event1);
     ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 112, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 12, event1);
     ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 112, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 12, event1);
     ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     for (i = 1; i < 13; ++i)
     {
-        queue_signal(queue, fence, 100 + i);
+        queue_signal(queue, fence, i);
         wait_queue_idle(device, queue);
         if (i == 3 || i == 5 || i == 9 || i == 12)
         {
@@ -4740,10 +4740,10 @@ static void test_gpu_signal_fence(void)
     }
 
     /* Tests with 2 events. */
-    queue_signal(queue, fence, 200);
+    queue_signal(queue, fence, 0);
     wait_queue_idle(device, queue);
     value = ID3D12Fence_GetCompletedValue(fence);
-    ok(value == 200, "Got unexpected value %"PRIu64".\n", value);
+    ok(value == 0, "Got unexpected value %"PRIu64".\n", value);
 
     event2 = create_event();
     ok(event2, "Failed to create event.\n");
@@ -4752,26 +4752,26 @@ static void test_gpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 300, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 100, event1);
     ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 1000, event2);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, ~(uint64_t)0, event2);
     ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
 
-    queue_signal(queue, fence, 250);
+    queue_signal(queue, fence, 50);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    queue_signal(queue, fence, 299);
+    queue_signal(queue, fence, 99);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    queue_signal(queue, fence, 300);
+    queue_signal(queue, fence, 100);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
@@ -4780,28 +4780,28 @@ static void test_gpu_signal_fence(void)
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    queue_signal(queue, fence, 301);
+    queue_signal(queue, fence, 101);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    queue_signal(queue, fence, 400);
+    queue_signal(queue, fence, 0);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    queue_signal(queue, fence, 500);
+    queue_signal(queue, fence, 100);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    queue_signal(queue, fence, 1000);
+    queue_signal(queue, fence, ~(uint64_t)0);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -4810,13 +4810,13 @@ static void test_gpu_signal_fence(void)
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    queue_signal(queue, fence, 2000);
+    queue_signal(queue, fence, ~(uint64_t)0);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
-    queue_signal(queue, fence, 3000);
+    queue_signal(queue, fence, 0);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
@@ -4824,22 +4824,22 @@ static void test_gpu_signal_fence(void)
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
     /* Attach two events to the same value. */
-    queue_signal(queue, fence, 4000);
+    queue_signal(queue, fence, 0);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
 
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 4001, event1);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 1, event1);
     ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
-    hr = ID3D12Fence_SetEventOnCompletion(fence, 4001, event2);
+    hr = ID3D12Fence_SetEventOnCompletion(fence, 1, event2);
     ok(hr == S_OK, "Failed to set event on completion, hr %#x.\n", hr);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
     ret = wait_event(event2, 0);
     ok(ret == WAIT_TIMEOUT, "Got unexpected return value %#x.\n", ret);
-    queue_signal(queue, fence, 4003);
+    queue_signal(queue, fence, 3);
     wait_queue_idle(device, queue);
     ret = wait_event(event1, 0);
     ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
@@ -5027,7 +5027,11 @@ static void test_fence_values(void)
     ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     value = ID3D12Fence_GetCompletedValue(fence);
     ok(value == next_value, "Got value %#"PRIx64", expected %#"PRIx64".\n", value, next_value);
-
+    next_value = 0;
+    hr = ID3D12Fence_Signal(fence, next_value);
+    ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    value = ID3D12Fence_GetCompletedValue(fence);
+    ok(value == next_value, "Got value %#"PRIx64", expected %#"PRIx64".\n", value, next_value);
     ID3D12Fence_Release(fence);
 
     hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
@@ -5037,7 +5041,11 @@ static void test_fence_values(void)
     wait_queue_idle(device, queue);
     value = ID3D12Fence_GetCompletedValue(fence);
     ok(value == next_value, "Got value %#"PRIx64", expected %#"PRIx64".\n", value, next_value);
-
+    next_value = 0;
+    queue_signal(queue, fence, next_value);
+    wait_queue_idle(device, queue);
+    value = ID3D12Fence_GetCompletedValue(fence);
+    ok(value == next_value, "Got value %#"PRIx64", expected %#"PRIx64".\n", value, next_value);
     ID3D12Fence_Release(fence);
 
     ID3D12CommandQueue_Release(queue);
