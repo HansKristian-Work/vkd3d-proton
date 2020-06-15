@@ -378,6 +378,12 @@ struct d3d12_fence
 
     LONG pending_worker_operation_count;
 
+    VkSemaphore *queue_operation_semaphores;
+    uint64_t *queue_operation_timeline_values;
+    size_t queue_operation_semaphore_count;
+    size_t queue_operation_semaphore_size;
+    size_t queue_operation_timeline_value_size;
+
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
