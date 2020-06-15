@@ -902,6 +902,31 @@ bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX])
     return true;
 }
 
+#elif defined(_WIN32)
+
+bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX])
+{
+    char *name;
+    char exe_path[VKD3D_PATH_MAX];
+    GetModuleFileNameA(NULL, exe_path, VKD3D_PATH_MAX);
+
+    if ((name = strrchr(exe_path, '/')))
+    {
+        ++name;
+    }
+    else if ((name = strrchr(exe_path, '\\')))
+    {
+        ++name;
+    }
+    else
+    {
+        name = exe_path;
+    }
+
+    strncpy(program_name, name, VKD3D_PATH_MAX);
+    return true;
+}
+
 #else
 
 bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX])
