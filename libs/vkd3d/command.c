@@ -596,7 +596,7 @@ static bool d3d12_fence_can_signal_semaphore_locked(struct d3d12_fence *fence, u
 static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fence, uint64_t value)
 {
     struct d3d12_device *device = fence->device;
-    VkResult vr;
+    VkResult vr = VK_SUCCESS;
     int rc;
 
     if ((rc = pthread_mutex_lock(&fence->mutex)))
