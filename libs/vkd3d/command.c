@@ -561,13 +561,31 @@ static bool d3d12_fence_can_elide_wait_semaphore_locked(struct d3d12_fence *fenc
     return fence->value >= value;
 }
 
+static void d3d12_fence_wait_pending_queue_operations_locked(struct d3d12_fence *fence)
+{
+    VkSemaphoreWaitInfoKHR info;
+    struct d3d12_device *device = fence->device;
+    struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    if (fence->queue_operation_semaphore_count == 0)
+        return;
+
+    info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+    info.pNext = NULL;
+    info.pSemaphores = fence->queue_operation_semaphores;
+    info.pValues = fence->queue_operation_timeline_values;
+    info.semaphoreCount = fence->queue_operation_semaphore_count;
+
+    VK_CALL(vkWaitSemaphoresKHR(device->vk_device, &info, UINT64_MAX));
+}
+
 static bool d3d12_fence_can_signal_semaphore_locked(struct d3d12_fence *fence, uint64_t value)
 {
+    const struct vkd3d_vk_device_procs *vk_procs;
     struct d3d12_device *device = fence->device;
+    VkSemaphore new_semaphore;
     bool need_signal = false;
 
-    /* If we're attempting to async signal a fence with a value which is not monotonically increasing the payload value,
-     * warn about this case. Do not treat this as an error since it might work. */
     if (value > fence->pending_timeline_value)
     {
         /* Sanity check against the delta limit. Use the current fence value. */
@@ -579,24 +597,79 @@ static bool d3d12_fence_can_signal_semaphore_locked(struct d3d12_fence *fence, u
 
         need_signal = true;
     }
+    else if (value == fence->pending_timeline_value)
+    {
+        /* We know there is an in-flight signal which will signal the exact same value, don't bother signaling here. */
+        need_signal = false;
+    }
+    else if (value < fence->value)
+    {
+        TRACE("Fence %p is being signalled non-monotonically. Old pending value %"PRIu64", new pending value %"PRIu64". Creating new timeline semaphore!\n",
+              fence, fence->pending_timeline_value, value);
+        need_signal = false;
+
+        /* Now we know for sure we will need to create a new timeline semaphore.
+         * Similar to d3d12_fence_signal_cpu_timeline_semaphore, we block until all pending operations are done,
+         * then re-create the timeline. */
+        if (FAILED(vkd3d_create_timeline_semaphore(device, value, &new_semaphore)))
+        {
+            ERR("Failed to create new timeline semaphore.\n");
+            return false;
+        }
+
+        vk_procs = &device->vk_procs;
+        d3d12_fence_wait_pending_queue_operations_locked(fence);
+        VK_CALL(vkDestroySemaphore(device->vk_device, fence->timeline_semaphore, NULL));
+        fence->timeline_semaphore = new_semaphore;
+        fence->value = value;
+        fence->pending_timeline_value = 0;
+        d3d12_fence_update_pending_value_locked(fence, value);
+        /* Don't need to signal on GPU since we initialized the semaphore to the new value.
+         * We don't need to signal this value on GPU, since the previous timeline value was larger anyways. */
+    }
     else
     {
-        FIXME("Fence %p is being signalled non-monotonically. Old pending value %"PRIu64", new pending value %"PRIu64".\n",
-              fence, fence->pending_timeline_value, value);
-
         /* Mostly to be safe against weird, unknown use cases.
-         * The pending signal might be blocked by another fence,
-         * we'll base this on the actual, currently visible count value. */
-        need_signal = value > fence->value;
+         * The pending signal might be blocked by another fence.
+         * Just signal here. It is allowed to signal a fence as long as we monotonically
+         * increment at the time the semaphore actually signals. */
+        need_signal = true;
     }
 
     return need_signal;
 }
 
+static void d3d12_fence_set_queue_operation_completion_locked(struct d3d12_fence *fence, VkSemaphore semaphore, uint64_t value)
+{
+    /* The size of this array is bound on number of ID3D12CommandQueues we have, so it will not explode in size. */
+    unsigned int i;
+
+    for (i = 0; i < fence->queue_operation_semaphore_count; i++)
+    {
+        if (fence->queue_operation_semaphores[i] == semaphore)
+        {
+            fence->queue_operation_timeline_values[i] = value;
+            return;
+        }
+    }
+
+    vkd3d_array_reserve((void**)&fence->queue_operation_semaphores, &fence->queue_operation_semaphore_size,
+                        fence->queue_operation_semaphore_count + 1, sizeof(*fence->queue_operation_semaphores));
+    vkd3d_array_reserve((void**)&fence->queue_operation_timeline_values, &fence->queue_operation_timeline_value_size,
+                        fence->queue_operation_semaphore_count + 1, sizeof(*fence->queue_operation_timeline_values));
+
+    fence->queue_operation_semaphores[fence->queue_operation_semaphore_count] = semaphore;
+    fence->queue_operation_timeline_values[fence->queue_operation_semaphore_count] = value;
+    fence->queue_operation_semaphore_count++;
+}
+
 static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fence, uint64_t value)
 {
+    const struct vkd3d_vk_device_procs *vk_procs;
     struct d3d12_device *device = fence->device;
+    VkSemaphore new_semaphore;
     VkResult vr = VK_SUCCESS;
+    HRESULT hr;
     int rc;
 
     if ((rc = pthread_mutex_lock(&fence->mutex)))
@@ -627,8 +700,33 @@ static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fen
     }
     else if (value != fence->value)
     {
-        FIXME("Attempting to signal fence %p with 0x%"PRIx64", but value is currently 0x%"PRIx64", with a pending signaled to 0x%"PRIx64".\n",
+        vk_procs = &device->vk_procs;
+
+        if (FAILED(hr = vkd3d_create_timeline_semaphore(device, value, &new_semaphore)))
+        {
+            pthread_mutex_unlock(&fence->mutex);
+            return hr;
+        }
+
+        /* The host side is attempting to reset the fence by rewinding it.
+         * This used to be un-documented behavior, but apparently it is allowed on Windows 10 (but not 12on7).
+         * We cannot rewind timeline semaphores in Vulkan, so just create a new timeline instead.
+         * If there are pending submissions in flight which use the timeline, block until these operations resolve. */
+        TRACE("Attempting to signal fence %p with 0x%"PRIx64", but value is currently 0x%"PRIx64", with a pending signaled to 0x%"PRIx64". Creating a new timeline semaphore!\n",
               fence, value, fence->value, fence->pending_timeline_value);
+
+        /* Block until all queue operations on the semaphore resolve.
+         * This should always return immediately since rewind with pending semaphore operations is
+         * unpredictable/undefined in D3D12. The most common use-case (if this can be considered a common use-case ...)
+         * would be rewinding a fence after everything has gone idle. */
+        d3d12_fence_wait_pending_queue_operations_locked(fence);
+        VK_CALL(vkDestroySemaphore(device->vk_device, fence->timeline_semaphore, NULL));
+        fence->timeline_semaphore = new_semaphore;
+        fence->value = value;
+
+        /* The cond variable must always be signalled here, so reset pending timeline value to 0 first. */
+        fence->pending_timeline_value = 0;
+        d3d12_fence_update_pending_value_locked(fence, value);
         vr = VK_SUCCESS;
     }
 
@@ -715,6 +813,8 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_Release(d3d12_fence_iface *iface)
         d3d12_fence_destroy_vk_objects(fence);
 
         vkd3d_free(fence->events);
+        vkd3d_free(fence->queue_operation_semaphores);
+        vkd3d_free(fence->queue_operation_timeline_values);
         if ((rc = pthread_mutex_destroy(&fence->mutex)))
             ERR("Failed to destroy mutex, error %d.\n", rc);
         if ((rc = pthread_cond_destroy(&fence->cond)))
@@ -938,6 +1038,12 @@ static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *
     fence->events_size = 0;
     fence->event_count = 0;
     fence->pending_worker_operation_count = 0;
+
+    fence->queue_operation_timeline_values = NULL;
+    fence->queue_operation_semaphores = NULL;
+    fence->queue_operation_semaphore_size = 0;
+    fence->queue_operation_timeline_value_size = 0;
+    fence->queue_operation_semaphore_count = 0;
 
     if (FAILED(hr = vkd3d_private_store_init(&fence->private_store)))
     {
@@ -7177,7 +7283,6 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
         d3d12_fence_unlock(fence);
         return;
     }
-    d3d12_fence_unlock(fence);
 
     TRACE("queue %p, fence %p, value %#"PRIx64".\n", command_queue, fence, value);
 
@@ -7191,6 +7296,14 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
     wait_counts[1] = command_queue->submit_timeline.last_signaled;
     wait_semaphores[1] = command_queue->submit_timeline.vk_semaphore;
     signal_value = command_queue->submit_timeline.last_signaled + 1;
+
+    /* Mark the fence as having a pending timeline wait operation happening to it.
+     * Use the queue timelines to mark what we need to wait for to safely delete a semaphore. */
+    d3d12_fence_set_queue_operation_completion_locked(fence, command_queue->submit_timeline.vk_semaphore, signal_value);
+
+    /* We can unlock the fence here. The queue semaphore will not be signalled to signal_value
+     * until we have submitted, so the semaphore cannot be destroyed before the call to vkQueueSubmit. */
+    d3d12_fence_unlock(fence);
 
     assert(fence->timeline_semaphore);
     timeline_submit_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
@@ -7262,6 +7375,10 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
     signal_values[0] = value;
     signal_semaphores[1] = command_queue->submit_timeline.vk_semaphore;
     signal_values[1] = command_queue->submit_timeline.last_signaled + 1;
+
+    /* Mark the fence as having a pending timeline signal operation happening to it.
+     * Use the queue timelines to mark what we need to wait for to safely delete a semaphore. */
+    d3d12_fence_set_queue_operation_completion_locked(fence, command_queue->submit_timeline.vk_semaphore, signal_values[1]);
 
     /* Need to hold the fence lock while we're submitting, since another thread could come in and signal the semaphore
      * to a higher value before we call vkQueueSubmit, which creates a non-monotonically increasing value. */
