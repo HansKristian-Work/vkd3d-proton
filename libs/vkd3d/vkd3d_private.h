@@ -31,6 +31,7 @@
 #include "vkd3d.h"
 #include "vkd3d_shader.h"
 #include "vkd3d_threads.h"
+#include "vkd3d_platform.h"
 
 #include <assert.h>
 #include <inttypes.h>
@@ -1897,14 +1898,6 @@ HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
         const struct vkd3d_vk_instance_procs *parent_procs, VkDevice device) DECLSPEC_HIDDEN;
 
 extern const char vkd3d_build[];
-
-#ifdef _WIN32
-/* This value isn't really used for anything useful on Windows, just need some kind of value. */
-#define VKD3D_PATH_MAX _MAX_PATH
-#else
-#define VKD3D_PATH_MAX PATH_MAX
-#endif
-bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX]) DECLSPEC_HIDDEN;
 
 VkResult vkd3d_set_vk_object_name_utf8(struct d3d12_device *device, uint64_t vk_object,
         VkObjectType vk_object_type, const char *name) DECLSPEC_HIDDEN;
