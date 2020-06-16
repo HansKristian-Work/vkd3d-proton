@@ -42,7 +42,9 @@
 
 #define INITGUID
 #define _GNU_SOURCE
+#ifndef _WIN32
 #include <sys/time.h>
+#endif
 #include <assert.h>
 #include <stdio.h>
 #define _USE_MATH_DEFINES
@@ -269,15 +271,32 @@ static void cxg_update_mvp(struct cx_gears *cxg)
     memcpy(cxg->cb_data->normal_matrix, world, sizeof(cxg->cb_data->normal_matrix));
 }
 
+static double cxg_get_time(void)
+{
+#ifdef _WIN32
+    LARGE_INTEGER freq;
+    LARGE_INTEGER counter;
+
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&counter);
+
+    return ((double)counter.QuadPart) / (double)freq.QuadPart;
+#else
+    struct timeval tv;
+    double t;
+    gettimeofday(&tv, NULL);
+    t = tv.tv_sec + tv.tv_usec / 1000000.0;
+    return t;
+#endif
+}
+
 static void cxg_render_frame(struct cx_gears *cxg)
 {
-    static double t_prev = -1.0;
-    struct timeval tv;
+    static double t_prev = -1.0;    
     double dt, t;
     float a;
 
-    gettimeofday(&tv, NULL);
-    t = tv.tv_sec + tv.tv_usec / 1000000.0;
+    t = cxg_get_time();
     if (t_prev < 0.0)
         t_prev = t;
     dt = t - t_prev;
