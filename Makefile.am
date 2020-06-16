@@ -98,6 +98,7 @@ libvkd3d_shader_la_SOURCES += \
 endif
 
 libvkd3d_la_SOURCES = \
+	include/private/vkd3d_atomic.h \
 	include/private/vkd3d_common.h \
 	include/private/vkd3d_spinlock.h \
 	include/private/vkd3d_debug.h \
