@@ -24,6 +24,10 @@
 #include <stdbool.h>
 #include "vkd3d_atomic.h"
 
+#ifdef __SSE2__
+#include <emmintrin.h>
+#endif
+
 #define vkd3d_spinlock_try_lock(lock) \
     (!vkd3d_uint32_atomic_load_explicit(lock, memory_order_relaxed) && \
      !vkd3d_uint32_atomic_exchange_explicit(lock, 1u, memory_order_acquire))
@@ -45,7 +49,11 @@ static inline bool spinlock_try_acquire(spinlock_t *lock)
 static inline void spinlock_acquire(spinlock_t *lock)
 {
     while (!spinlock_try_acquire(lock))
+#ifdef __SSE2__
+        _mm_pause();
+#else
         continue;
+#endif
 }
 
 static inline void spinlock_release(spinlock_t *lock)
