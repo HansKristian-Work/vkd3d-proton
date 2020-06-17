@@ -797,7 +797,7 @@ struct d3d12_pipeline_state
     uint32_t set_index;
 
     struct vkd3d_shader_uav_counter_binding *uav_counters;
-    uint8_t uav_counter_mask;
+    unsigned int uav_counter_count;
 
     struct d3d12_device *device;
 

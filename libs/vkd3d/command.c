@@ -1862,7 +1862,7 @@ static void d3d12_command_list_invalidate_current_render_pass(struct d3d12_comma
 static void d3d12_command_list_invalidate_bindings(struct d3d12_command_list *list,
         struct d3d12_pipeline_state *state)
 {
-    if (state && state->uav_counter_mask)
+    if (state && state->uav_counter_count)
     {
         enum vkd3d_pipeline_bind_point bind_point = (enum vkd3d_pipeline_bind_point)state->vk_bind_point;
         list->pipeline_bindings[bind_point].uav_counters_dirty = true;
@@ -2680,7 +2680,7 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
             /* Track UAV counters. */
             if (range->descriptor_magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
             {
-                for (k = 0; k < vkd3d_popcount(state->uav_counter_mask); ++k)
+                for (k = 0; k < state->uav_counter_count; ++k)
                 {
                     if (state->uav_counters[k].register_index == register_idx)
                     {
@@ -2835,7 +2835,7 @@ static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_comma
     if (!state || !bindings->uav_counters_dirty)
         return;
 
-    uav_counter_count = vkd3d_popcount(state->uav_counter_mask);
+    uav_counter_count = state->uav_counter_count;
     assert(uav_counter_count <= ARRAY_SIZE(vk_descriptor_writes));
 
     vk_descriptor_set = d3d12_command_allocator_allocate_descriptor_set(list->allocator, state->vk_set_layout);
