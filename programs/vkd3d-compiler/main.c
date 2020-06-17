@@ -150,7 +150,7 @@ int main(int argc, char **argv)
 {
     struct vkd3d_shader_code dxbc, spirv;
     struct options options;
-    HRESULT hr;
+    int ret;
 
     if (!parse_command_line(argc, argv, &options))
     {
@@ -164,11 +164,11 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, options.compiler_options, NULL, NULL);
+    ret = vkd3d_shader_compile_dxbc(&dxbc, &spirv, options.compiler_options, NULL, NULL);
     vkd3d_shader_free_shader_code(&dxbc);
-    if (FAILED(hr))
+    if (ret < 0)
     {
-        fprintf(stderr, "Failed to compile DXBC shader, hr %#x.\n", hr);
+        fprintf(stderr, "Failed to compile DXBC shader, ret %d.\n", ret);
         return 1;
     }
 
