@@ -912,6 +912,7 @@ struct vkd3d_pipeline_bindings
 {
     const struct d3d12_root_signature *root_signature;
 
+    VkPipelineBindPoint vk_bind_point;
     VkDescriptorSet descriptor_set;
     bool in_use;
 
@@ -926,6 +927,13 @@ struct vkd3d_pipeline_bindings
     struct vkd3d_push_descriptor push_descriptors[D3D12_MAX_ROOT_COST / 2];
     uint32_t push_descriptor_dirty_mask;
     uint32_t push_descriptor_active_mask;
+};
+
+enum vkd3d_pipeline_bind_point
+{
+    VKD3D_PIPELINE_BIND_POINT_GRAPHICS = 0x0,
+    VKD3D_PIPELINE_BIND_POINT_COMPUTE = 0x1,
+    VKD3D_PIPELINE_BIND_POINT_COUNT = 0x2,
 };
 
 /* ID3D12CommandList */
@@ -961,7 +969,7 @@ struct d3d12_command_list
     VkPipeline current_pipeline;
     VkRenderPass pso_render_pass;
     VkRenderPass current_render_pass;
-    struct vkd3d_pipeline_bindings pipeline_bindings[VK_PIPELINE_BIND_POINT_RANGE_SIZE];
+    struct vkd3d_pipeline_bindings pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_COUNT];
 
     struct d3d12_pipeline_state *state;
 
