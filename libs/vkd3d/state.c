@@ -646,6 +646,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
             table->ranges[j].descriptor_count = range->NumDescriptors;
             table->ranges[j].binding = vk_binding;
             table->ranges[j].descriptor_magic = vkd3d_descriptor_magic_from_d3d12(range->RangeType);
+            table->ranges[j].register_space = range->RegisterSpace;
             table->ranges[j].base_register_idx = range->BaseShaderRegister;
         }
     }

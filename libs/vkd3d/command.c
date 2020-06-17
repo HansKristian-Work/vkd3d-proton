@@ -2682,7 +2682,8 @@ static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list
             {
                 for (k = 0; k < state->uav_counter_count; ++k)
                 {
-                    if (state->uav_counters[k].register_index == register_idx)
+                    if (state->uav_counters[k].register_space == range->register_space
+                            && state->uav_counters[k].register_index == register_idx)
                     {
                         VkBufferView vk_counter_view = descriptor->magic == VKD3D_DESCRIPTOR_MAGIC_UAV
                                 ? descriptor->u.view->vk_counter_view : VK_NULL_HANDLE;
