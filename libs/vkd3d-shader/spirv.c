@@ -2197,14 +2197,14 @@ static bool vkd3d_dxbc_compiler_is_opengl_target(const struct vkd3d_dxbc_compile
 }
 
 static bool vkd3d_dxbc_compiler_is_target_extension_supported(const struct vkd3d_dxbc_compiler *compiler,
-        enum vkd3d_shader_target_extension extension)
+        enum vkd3d_shader_spirv_extension extension)
 {
     const struct vkd3d_shader_spirv_target_info *info = compiler->spirv_target_info;
     unsigned int i;
 
-    for (i = 0; info && i < info->target_extension_count; ++i)
+    for (i = 0; info && i < info->extension_count; ++i)
     {
-        if (info->target_extensions[i] == extension)
+        if (info->extensions[i] == extension)
             return true;
     }
 
@@ -6660,7 +6660,7 @@ static void vkd3d_dxbc_compiler_emit_kill(struct vkd3d_dxbc_compiler *compiler,
     vkd3d_spirv_build_op_label(builder, target_id);
 
     if (vkd3d_dxbc_compiler_is_target_extension_supported(compiler,
-            VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION))
+            VKD3D_SHADER_SPIRV_EXTENSION_EXT_DEMOTE_TO_HELPER_INVOCATION))
     {
         vkd3d_spirv_enable_capability(builder, SpvCapabilityDemoteToHelperInvocationEXT);
         vkd3d_spirv_build_op_demote_to_helper_invocation(builder);

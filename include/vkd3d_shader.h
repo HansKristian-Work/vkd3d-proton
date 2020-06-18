@@ -227,11 +227,12 @@ enum vkd3d_shader_spirv_environment
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_SPIRV_ENVIRONMENT),
 };
 
-enum vkd3d_shader_target_extension
+enum vkd3d_shader_spirv_extension
 {
-    VKD3D_SHADER_TARGET_EXTENSION_NONE,
+    VKD3D_SHADER_SPIRV_EXTENSION_NONE,
+    VKD3D_SHADER_SPIRV_EXTENSION_EXT_DEMOTE_TO_HELPER_INVOCATION,
 
-    VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION,
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_SPIRV_EXTENSION),
 };
 
 struct vkd3d_shader_spirv_target_info
@@ -241,11 +242,11 @@ struct vkd3d_shader_spirv_target_info
 
     enum vkd3d_shader_spirv_environment environment;
 
-    unsigned int target_extension_count;
-    const enum vkd3d_shader_target_extension *target_extensions;
+    const enum vkd3d_shader_spirv_extension *extensions;
+    unsigned int extension_count;
 
-    unsigned int parameter_count;
     const struct vkd3d_shader_parameter *parameters;
+    unsigned int parameter_count;
 
     bool dual_source_blending;
     const unsigned int *output_swizzles;

@@ -122,7 +122,7 @@ struct vkd3d_vulkan_info
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
 
     unsigned int shader_extension_count;
-    enum vkd3d_shader_target_extension shader_extensions[VKD3D_MAX_SHADER_EXTENSIONS];
+    enum vkd3d_shader_spirv_extension shader_extensions[VKD3D_MAX_SHADER_EXTENSIONS];
 
     D3D_FEATURE_LEVEL max_feature_level;
 };

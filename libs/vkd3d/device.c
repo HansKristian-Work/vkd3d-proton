@@ -1447,7 +1447,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     if (vulkan_info->EXT_shader_demote_to_helper_invocation)
     {
         vulkan_info->shader_extension_count = 1;
-        vulkan_info->shader_extensions[0] = VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION;
+        vulkan_info->shader_extensions[0] = VKD3D_SHADER_SPIRV_EXTENSION_EXT_DEMOTE_TO_HELPER_INVOCATION;
     }
 
     /* Disable unused Vulkan features. */
