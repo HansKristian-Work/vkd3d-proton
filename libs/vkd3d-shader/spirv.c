@@ -8671,7 +8671,7 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_code *spirv)
 {
     const struct vkd3d_shader_spirv_target_info *info = compiler->spirv_target_info;
-    const struct vkd3d_shader_domain_shader_compile_arguments *ds_args;
+    const struct vkd3d_shader_spirv_domain_shader_target_info *ds_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_phase *phase;
 
@@ -8685,14 +8685,14 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
 
     if (compiler->shader_type == VKD3D_SHADER_TYPE_DOMAIN)
     {
-        if (info && (ds_args = vkd3d_find_struct(info->next, DOMAIN_SHADER_COMPILE_ARGUMENTS)))
+        if (info && (ds_info = vkd3d_find_struct(info->next, SPIRV_DOMAIN_SHADER_TARGET_INFO)))
         {
-            vkd3d_dxbc_compiler_emit_tessellator_output_primitive(compiler, ds_args->output_primitive);
-            vkd3d_dxbc_compiler_emit_tessellator_partitioning(compiler, ds_args->partitioning);
+            vkd3d_dxbc_compiler_emit_tessellator_output_primitive(compiler, ds_info->output_primitive);
+            vkd3d_dxbc_compiler_emit_tessellator_partitioning(compiler, ds_info->partitioning);
         }
         else if (vkd3d_dxbc_compiler_is_opengl_target(compiler))
         {
-            ERR("vkd3d_shader_domain_shader_compile_arguments are required for "
+            ERR("vkd3d_shader_spirv_domain_shader_target_info is required for "
                     "OpenGL tessellation evaluation shader.\n");
         }
     }

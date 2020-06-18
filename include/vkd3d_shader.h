@@ -32,9 +32,9 @@ enum vkd3d_shader_structure_type
     /* 1.2 */
     VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO,
+    VKD3D_SHADER_STRUCTURE_TYPE_SPIRV_DOMAIN_SHADER_TARGET_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_SPIRV_TARGET_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_TRANSFORM_FEEDBACK_INFO,
-    VKD3D_SHADER_STRUCTURE_TYPE_DOMAIN_SHADER_COMPILE_ARGUMENTS,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_STRUCTURE_TYPE),
 };
@@ -269,7 +269,7 @@ enum vkd3d_tessellator_partitioning
 };
 
 /* Extends vkd3d_shader_spirv_target_info. */
-struct vkd3d_shader_domain_shader_compile_arguments
+struct vkd3d_shader_spirv_domain_shader_target_info
 {
     enum vkd3d_shader_structure_type type;
     const void *next;
