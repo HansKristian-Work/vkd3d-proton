@@ -114,13 +114,13 @@ static int vkd3d_shader_validate_spirv_target_info(const struct vkd3d_shader_spi
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
-    switch (info->target)
+    switch (info->environment)
     {
-        case VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5:
-        case VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0:
+        case VKD3D_SHADER_SPIRV_ENVIRONMENT_OPENGL_4_5:
+        case VKD3D_SHADER_SPIRV_ENVIRONMENT_VULKAN_1_0:
             break;
         default:
-            WARN("Invalid shader target %#x.\n", info->target);
+            WARN("Invalid target environment %#x.\n", info->environment);
             return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 

@@ -2166,7 +2166,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     ps_target_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SPIRV_TARGET_INFO;
     ps_target_info.next = NULL;
-    ps_target_info.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
+    ps_target_info.environment = VKD3D_SHADER_SPIRV_ENVIRONMENT_VULKAN_1_0;
     ps_target_info.target_extensions = vk_info->shader_extensions;
     ps_target_info.target_extension_count = vk_info->shader_extension_count;
     ps_target_info.parameters = ps_shader_parameters;

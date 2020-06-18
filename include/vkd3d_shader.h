@@ -218,13 +218,13 @@ struct vkd3d_shader_transform_feedback_info
     unsigned int buffer_stride_count;
 };
 
-enum vkd3d_shader_target
+enum vkd3d_shader_spirv_environment
 {
-    VKD3D_SHADER_TARGET_NONE,
-    VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5,
-    VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0, /* default target */
+    VKD3D_SHADER_SPIRV_ENVIRONMENT_NONE,
+    VKD3D_SHADER_SPIRV_ENVIRONMENT_OPENGL_4_5,
+    VKD3D_SHADER_SPIRV_ENVIRONMENT_VULKAN_1_0, /* default target */
 
-    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_TARGET),
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_SPIRV_ENVIRONMENT),
 };
 
 enum vkd3d_shader_target_extension
@@ -239,7 +239,7 @@ struct vkd3d_shader_spirv_target_info
     enum vkd3d_shader_structure_type type;
     const void *next;
 
-    enum vkd3d_shader_target target;
+    enum vkd3d_shader_spirv_environment environment;
 
     unsigned int target_extension_count;
     const enum vkd3d_shader_target_extension *target_extensions;

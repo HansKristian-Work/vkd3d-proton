@@ -36,21 +36,21 @@
 #ifdef HAVE_SPIRV_TOOLS
 # include "spirv-tools/libspirv.h"
 
-static spv_target_env spv_target_env_from_vkd3d(enum vkd3d_shader_target target)
+static spv_target_env spv_target_env_from_vkd3d(enum vkd3d_shader_spirv_environment environment)
 {
-    switch (target)
+    switch (environment)
     {
-        case VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5:
+        case VKD3D_SHADER_SPIRV_ENVIRONMENT_OPENGL_4_5:
             return SPV_ENV_OPENGL_4_5;
-        case VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0:
+        case VKD3D_SHADER_SPIRV_ENVIRONMENT_VULKAN_1_0:
             return SPV_ENV_VULKAN_1_0;
         default:
-            ERR("Invalid shader target %#x.\n", target);
+            ERR("Invalid environment %#x.\n", environment);
             return SPV_ENV_VULKAN_1_0;
     }
 }
 
-static void vkd3d_spirv_dump(const struct vkd3d_shader_code *spirv, enum vkd3d_shader_target target)
+static void vkd3d_spirv_dump(const struct vkd3d_shader_code *spirv, enum vkd3d_shader_spirv_environment environment)
 {
     const static uint32_t options
             = SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES | SPV_BINARY_TO_TEXT_OPTION_INDENT;
@@ -59,7 +59,7 @@ static void vkd3d_spirv_dump(const struct vkd3d_shader_code *spirv, enum vkd3d_s
     spv_context context;
     spv_result_t ret;
 
-    context = spvContextCreate(spv_target_env_from_vkd3d(target));
+    context = spvContextCreate(spv_target_env_from_vkd3d(environment));
 
     if (!(ret = spvBinaryToText(context, spirv->code, spirv->size / sizeof(uint32_t),
             options, &text, &diagnostic)))
@@ -82,13 +82,14 @@ static void vkd3d_spirv_dump(const struct vkd3d_shader_code *spirv, enum vkd3d_s
     spvContextDestroy(context);
 }
 
-static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv, enum vkd3d_shader_target target)
+static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv,
+        enum vkd3d_shader_spirv_environment environment)
 {
     spv_diagnostic diagnostic = NULL;
     spv_context context;
     spv_result_t ret;
 
-    context = spvContextCreate(spv_target_env_from_vkd3d(target));
+    context = spvContextCreate(spv_target_env_from_vkd3d(environment));
 
     if ((ret = spvValidateBinary(context, spirv->code, spirv->size / sizeof(uint32_t),
             &diagnostic)))
@@ -103,8 +104,10 @@ static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv, enum vkd
 
 #else
 
-static void vkd3d_spirv_dump(const struct vkd3d_shader_code *spirv, enum vkd3d_shader_target target) {}
-static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv, enum vkd3d_shader_target target) {}
+static void vkd3d_spirv_dump(const struct vkd3d_shader_code *spirv,
+        enum vkd3d_shader_spirv_environment environment) {}
+static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv,
+        enum vkd3d_shader_spirv_environment environment) {}
 
 #endif  /* HAVE_SPIRV_TOOLS */
 
@@ -2180,16 +2183,17 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
     return compiler;
 }
 
-static enum vkd3d_shader_target vkd3d_dxbc_compiler_get_target(const struct vkd3d_dxbc_compiler *compiler)
+static enum vkd3d_shader_spirv_environment vkd3d_dxbc_compiler_get_target_environment(
+        const struct vkd3d_dxbc_compiler *compiler)
 {
     const struct vkd3d_shader_spirv_target_info *info = compiler->spirv_target_info;
 
-    return info ? info->target : VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
+    return info ? info->environment : VKD3D_SHADER_SPIRV_ENVIRONMENT_VULKAN_1_0;
 }
 
 static bool vkd3d_dxbc_compiler_is_opengl_target(const struct vkd3d_dxbc_compiler *compiler)
 {
-    return vkd3d_dxbc_compiler_get_target(compiler) == VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5;
+    return vkd3d_dxbc_compiler_get_target_environment(compiler) == VKD3D_SHADER_SPIRV_ENVIRONMENT_OPENGL_4_5;
 }
 
 static bool vkd3d_dxbc_compiler_is_target_extension_supported(const struct vkd3d_dxbc_compiler *compiler,
@@ -3544,12 +3548,12 @@ static const struct
 {
     enum vkd3d_shader_input_sysval_semantic sysval;
     struct vkd3d_spirv_builtin builtin;
-    enum vkd3d_shader_target target;
+    enum vkd3d_shader_spirv_environment environment;
 }
 vkd3d_system_value_builtins[] =
 {
-    {VKD3D_SIV_VERTEX_ID,   {VKD3D_TYPE_INT,   1, SpvBuiltInVertexId},   VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5},
-    {VKD3D_SIV_INSTANCE_ID, {VKD3D_TYPE_INT,   1, SpvBuiltInInstanceId}, VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5},
+    {VKD3D_SIV_VERTEX_ID,   {VKD3D_TYPE_INT,   1, SpvBuiltInVertexId},   VKD3D_SHADER_SPIRV_ENVIRONMENT_OPENGL_4_5},
+    {VKD3D_SIV_INSTANCE_ID, {VKD3D_TYPE_INT,   1, SpvBuiltInInstanceId}, VKD3D_SHADER_SPIRV_ENVIRONMENT_OPENGL_4_5},
 
     {VKD3D_SIV_POSITION,    {VKD3D_TYPE_FLOAT, 4, SpvBuiltInPosition}},
     {VKD3D_SIV_VERTEX_ID,   {VKD3D_TYPE_INT,   1, SpvBuiltInVertexIndex, sv_vertex_id_fixup}},
@@ -3632,7 +3636,7 @@ static void vkd3d_dxbc_compiler_emit_register_execution_mode(struct vkd3d_dxbc_c
 static const struct vkd3d_spirv_builtin *get_spirv_builtin_for_sysval(
         const struct vkd3d_dxbc_compiler *compiler, enum vkd3d_shader_input_sysval_semantic sysval)
 {
-    enum vkd3d_shader_target target;
+    enum vkd3d_shader_spirv_environment environment;
     unsigned int i;
 
     if (!sysval)
@@ -3642,12 +3646,12 @@ static const struct vkd3d_spirv_builtin *get_spirv_builtin_for_sysval(
     if (sysval == VKD3D_SIV_POSITION && compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL)
         return &vkd3d_pixel_shader_position_builtin;
 
-    target = vkd3d_dxbc_compiler_get_target(compiler);
+    environment = vkd3d_dxbc_compiler_get_target_environment(compiler);
     for (i = 0; i < ARRAY_SIZE(vkd3d_system_value_builtins); ++i)
     {
         if (vkd3d_system_value_builtins[i].sysval == sysval
-                && (!vkd3d_system_value_builtins[i].target
-                || vkd3d_system_value_builtins[i].target == target))
+                && (!vkd3d_system_value_builtins[i].environment
+                || vkd3d_system_value_builtins[i].environment == environment))
             return &vkd3d_system_value_builtins[i].builtin;
     }
 
@@ -8711,9 +8715,9 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
 
     if (TRACE_ON())
     {
-        enum vkd3d_shader_target target = vkd3d_dxbc_compiler_get_target(compiler);
-        vkd3d_spirv_dump(spirv, target);
-        vkd3d_spirv_validate(spirv, target);
+        enum vkd3d_shader_spirv_environment environment = vkd3d_dxbc_compiler_get_target_environment(compiler);
+        vkd3d_spirv_dump(spirv, environment);
+        vkd3d_spirv_validate(spirv, environment);
     }
 
     return VKD3D_OK;
