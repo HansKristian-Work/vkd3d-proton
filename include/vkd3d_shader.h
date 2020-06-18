@@ -31,8 +31,8 @@ enum vkd3d_shader_structure_type
 {
     /* 1.2 */
     VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO,
-    VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS,
     VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO,
+    VKD3D_SHADER_STRUCTURE_TYPE_SPIRV_TARGET_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_TRANSFORM_FEEDBACK_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_DOMAIN_SHADER_COMPILE_ARGUMENTS,
 
@@ -234,7 +234,7 @@ enum vkd3d_shader_target_extension
     VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION,
 };
 
-struct vkd3d_shader_compile_arguments
+struct vkd3d_shader_spirv_target_info
 {
     enum vkd3d_shader_structure_type type;
     const void *next;
@@ -268,7 +268,7 @@ enum vkd3d_tessellator_partitioning
     VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_EVEN = 4,
 };
 
-/* Extends vkd3d_shader_compile_arguments. */
+/* Extends vkd3d_shader_spirv_target_info. */
 struct vkd3d_shader_domain_shader_compile_arguments
 {
     enum vkd3d_shader_structure_type type;
@@ -635,7 +635,7 @@ struct vkd3d_shader_signature
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv, unsigned int compiler_options,
         const struct vkd3d_shader_interface_info *shader_interface_info,
-        const struct vkd3d_shader_compile_arguments *compile_args);
+        const struct vkd3d_shader_spirv_target_info *target_info);
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
 
 int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
@@ -667,7 +667,7 @@ void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature
 typedef int (*PFN_vkd3d_shader_compile_dxbc)(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv, unsigned int compiler_options,
         const struct vkd3d_shader_interface_info *shader_interface_info,
-        const struct vkd3d_shader_compile_arguments *compile_args);
+        const struct vkd3d_shader_spirv_target_info *target_info);
 typedef void (*PFN_vkd3d_shader_free_shader_code)(struct vkd3d_shader_code *code);
 
 typedef int (*PFN_vkd3d_shader_parse_root_signature)(const struct vkd3d_shader_code *dxbc,

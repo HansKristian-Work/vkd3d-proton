@@ -103,24 +103,24 @@ static void vkd3d_shader_parser_destroy(struct vkd3d_shader_parser *parser)
     free_shader_desc(&parser->shader_desc);
 }
 
-static int vkd3d_shader_validate_compile_args(const struct vkd3d_shader_compile_arguments *compile_args)
+static int vkd3d_shader_validate_spirv_target_info(const struct vkd3d_shader_spirv_target_info *info)
 {
-    if (!compile_args)
+    if (!info)
         return VKD3D_OK;
 
-    if (compile_args->type != VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS)
+    if (info->type != VKD3D_SHADER_STRUCTURE_TYPE_SPIRV_TARGET_INFO)
     {
-        WARN("Invalid structure type %#x.\n", compile_args->type);
+        WARN("Invalid structure type %#x.\n", info->type);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
-    switch (compile_args->target)
+    switch (info->target)
     {
         case VKD3D_SHADER_TARGET_SPIRV_OPENGL_4_5:
         case VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0:
             break;
         default:
-            WARN("Invalid shader target %#x.\n", compile_args->target);
+            WARN("Invalid shader target %#x.\n", info->target);
             return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
@@ -130,7 +130,7 @@ static int vkd3d_shader_validate_compile_args(const struct vkd3d_shader_compile_
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv, unsigned int compiler_options,
         const struct vkd3d_shader_interface_info *shader_interface_info,
-        const struct vkd3d_shader_compile_arguments *compile_args)
+        const struct vkd3d_shader_spirv_target_info *info)
 {
     struct vkd3d_shader_instruction instruction;
     struct vkd3d_dxbc_compiler *spirv_compiler;
@@ -138,8 +138,8 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     struct vkd3d_shader_parser parser;
     int ret;
 
-    TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, shader_interface_info %p, compile_args %p.\n",
-            dxbc->code, dxbc->size, spirv, compiler_options, shader_interface_info, compile_args);
+    TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, shader_interface_info %p, info %p.\n",
+            dxbc->code, dxbc->size, spirv, compiler_options, shader_interface_info, info);
 
     if (shader_interface_info && shader_interface_info->type != VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO)
     {
@@ -147,7 +147,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
-    if ((ret = vkd3d_shader_validate_compile_args(compile_args)) < 0)
+    if ((ret = vkd3d_shader_validate_spirv_target_info(info)) < 0)
         return ret;
 
     scan_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
@@ -164,7 +164,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         vkd3d_shader_trace(parser.data);
 
     if (!(spirv_compiler = vkd3d_dxbc_compiler_create(&parser.shader_version,
-            &parser.shader_desc, compiler_options, shader_interface_info, compile_args, &scan_info)))
+            &parser.shader_desc, compiler_options, shader_interface_info, info, &scan_info)))
     {
         ERR("Failed to create DXBC compiler.\n");
         vkd3d_shader_parser_destroy(&parser);

@@ -2078,7 +2078,7 @@ struct vkd3d_dxbc_compiler
 
     struct vkd3d_shader_interface_info shader_interface;
     struct vkd3d_push_constant_buffer_binding *push_constants;
-    const struct vkd3d_shader_compile_arguments *compile_args;
+    const struct vkd3d_shader_spirv_target_info *spirv_target_info;
 
     bool after_declarations_section;
     const struct vkd3d_shader_signature *input_signature;
@@ -2122,7 +2122,7 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
         const struct vkd3d_shader_desc *shader_desc, uint32_t compiler_options,
         const struct vkd3d_shader_interface_info *shader_interface,
-        const struct vkd3d_shader_compile_arguments *compile_args,
+        const struct vkd3d_shader_spirv_target_info *target_info,
         const struct vkd3d_shader_scan_info *scan_info)
 {
     const struct vkd3d_shader_signature *patch_constant_signature = &shader_desc->patch_constant_signature;
@@ -2171,7 +2171,7 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
                 compiler->push_constants[i].pc = shader_interface->push_constant_buffers[i];
         }
     }
-    compiler->compile_args = compile_args;
+    compiler->spirv_target_info = target_info;
 
     compiler->scan_info = scan_info;
 
@@ -2182,8 +2182,9 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
 
 static enum vkd3d_shader_target vkd3d_dxbc_compiler_get_target(const struct vkd3d_dxbc_compiler *compiler)
 {
-    const struct vkd3d_shader_compile_arguments *args = compiler->compile_args;
-    return args ? args->target : VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
+    const struct vkd3d_shader_spirv_target_info *info = compiler->spirv_target_info;
+
+    return info ? info->target : VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
 }
 
 static bool vkd3d_dxbc_compiler_is_opengl_target(const struct vkd3d_dxbc_compiler *compiler)
@@ -2194,12 +2195,12 @@ static bool vkd3d_dxbc_compiler_is_opengl_target(const struct vkd3d_dxbc_compile
 static bool vkd3d_dxbc_compiler_is_target_extension_supported(const struct vkd3d_dxbc_compiler *compiler,
         enum vkd3d_shader_target_extension extension)
 {
-    const struct vkd3d_shader_compile_arguments *args = compiler->compile_args;
+    const struct vkd3d_shader_spirv_target_info *info = compiler->spirv_target_info;
     unsigned int i;
 
-    for (i = 0; args && i < args->target_extension_count; ++i)
+    for (i = 0; info && i < info->target_extension_count; ++i)
     {
-        if (args->target_extensions[i] == extension)
+        if (info->target_extensions[i] == extension)
             return true;
     }
 
@@ -2594,13 +2595,13 @@ static uint32_t vkd3d_dxbc_compiler_emit_array_variable(struct vkd3d_dxbc_compil
 static const struct vkd3d_shader_parameter *vkd3d_dxbc_compiler_get_shader_parameter(
         struct vkd3d_dxbc_compiler *compiler, enum vkd3d_shader_parameter_name name)
 {
-    const struct vkd3d_shader_compile_arguments *compile_args = compiler->compile_args;
+    const struct vkd3d_shader_spirv_target_info *info = compiler->spirv_target_info;
     unsigned int i;
 
-    for (i = 0; compile_args && i < compile_args->parameter_count; ++i)
+    for (i = 0; info && i < info->parameter_count; ++i)
     {
-        if (compile_args->parameters[i].name == name)
-            return &compile_args->parameters[i];
+        if (info->parameters[i].name == name)
+            return &info->parameters[i];
     }
 
     return NULL;
@@ -2635,12 +2636,12 @@ static uint32_t vkd3d_dxbc_compiler_alloc_spec_constant_id(struct vkd3d_dxbc_com
 {
     if (!compiler->current_spec_constant_id)
     {
-        const struct vkd3d_shader_compile_arguments *compile_args = compiler->compile_args;
+        const struct vkd3d_shader_spirv_target_info *info = compiler->spirv_target_info;
         unsigned int i, id = 0;
 
-        for (i = 0; compiler->compile_args && i < compile_args->parameter_count; ++i)
+        for (i = 0; info && i < info->parameter_count; ++i)
         {
-            const struct vkd3d_shader_parameter *current = &compile_args->parameters[i];
+            const struct vkd3d_shader_parameter *current = &info->parameters[i];
 
             if (current->type == VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT)
                 id = max(current->u.specialization_constant.id + 1, id);
@@ -4206,21 +4207,20 @@ static unsigned int vkd3d_dxbc_compiler_get_output_variable_index(
 static unsigned int get_shader_output_swizzle(const struct vkd3d_dxbc_compiler *compiler,
         unsigned int register_idx)
 {
-    const struct vkd3d_shader_compile_arguments *compile_args;
+    const struct vkd3d_shader_spirv_target_info *info;
 
-    if (!(compile_args = compiler->compile_args))
+    if (!(info = compiler->spirv_target_info))
         return VKD3D_NO_SWIZZLE;
-    if (register_idx >= compile_args->output_swizzle_count)
+    if (register_idx >= info->output_swizzle_count)
         return VKD3D_NO_SWIZZLE;
-    return compile_args->output_swizzles[register_idx];
+    return info->output_swizzles[register_idx];
 }
 
 static bool is_dual_source_blending(const struct vkd3d_dxbc_compiler *compiler)
 {
-    const struct vkd3d_shader_compile_arguments *compile_args = compiler->compile_args;
+    const struct vkd3d_shader_spirv_target_info *info = compiler->spirv_target_info;
 
-    return compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL
-            && compile_args && compile_args->dual_source_blending;
+    return compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL && info && info->dual_source_blending;
 }
 
 static void calculate_clip_or_cull_distance_mask(const struct vkd3d_shader_signature_element *e,
@@ -8670,7 +8670,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
 int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_code *spirv)
 {
-    const struct vkd3d_shader_compile_arguments *compile_args = compiler->compile_args;
+    const struct vkd3d_shader_spirv_target_info *info = compiler->spirv_target_info;
     const struct vkd3d_shader_domain_shader_compile_arguments *ds_args;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_phase *phase;
@@ -8685,7 +8685,7 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
 
     if (compiler->shader_type == VKD3D_SHADER_TYPE_DOMAIN)
     {
-        if (compile_args && (ds_args = vkd3d_find_struct(compile_args->next, DOMAIN_SHADER_COMPILE_ARGUMENTS)))
+        if (info && (ds_args = vkd3d_find_struct(info->next, DOMAIN_SHADER_COMPILE_ARGUMENTS)))
         {
             vkd3d_dxbc_compiler_emit_tessellator_output_primitive(compiler, ds_args->output_primitive);
             vkd3d_dxbc_compiler_emit_tessellator_partitioning(compiler, ds_args->partitioning);

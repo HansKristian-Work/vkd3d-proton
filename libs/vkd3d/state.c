@@ -1327,7 +1327,7 @@ struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12Pipeline
 static HRESULT create_shader_stage(struct d3d12_device *device,
         struct VkPipelineShaderStageCreateInfo *stage_desc, enum VkShaderStageFlagBits stage,
         const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface_info *shader_interface,
-        const struct vkd3d_shader_compile_arguments *compile_args)
+        const struct vkd3d_shader_spirv_target_info *target_info)
 {
     struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -1347,7 +1347,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     shader_desc.pNext = NULL;
     shader_desc.flags = 0;
 
-    if ((ret = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, shader_interface, compile_args)) < 0)
+    if ((ret = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, shader_interface, target_info)) < 0)
     {
         WARN("Failed to compile shader, vkd3d result %d.\n", ret);
         return hresult_from_vkd3d_result(ret);
@@ -1990,12 +1990,12 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     const D3D12_STREAM_OUTPUT_DESC *so_desc = &desc->StreamOutput;
     VkVertexInputBindingDivisorDescriptionEXT *binding_divisor;
     const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
-    const struct vkd3d_shader_compile_arguments *compile_args;
     uint32_t instance_divisors[D3D12_VS_INPUT_REGISTER_COUNT];
+    const struct vkd3d_shader_spirv_target_info *target_info;
     uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
-    struct vkd3d_shader_compile_arguments ps_compile_args;
     struct vkd3d_shader_parameter ps_shader_parameters[1];
     struct vkd3d_shader_transform_feedback_info xfb_info;
+    struct vkd3d_shader_spirv_target_info ps_target_info;
     struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
     struct vkd3d_shader_signature input_signature;
@@ -2164,24 +2164,24 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     ps_shader_parameters[0].data_type = VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32;
     ps_shader_parameters[0].u.immediate_constant.u.u32 = sample_count;
 
-    ps_compile_args.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS;
-    ps_compile_args.next = NULL;
-    ps_compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
-    ps_compile_args.target_extension_count = vk_info->shader_extension_count;
-    ps_compile_args.target_extensions = vk_info->shader_extensions;
-    ps_compile_args.parameter_count = ARRAY_SIZE(ps_shader_parameters);
-    ps_compile_args.parameters = ps_shader_parameters;
-    ps_compile_args.dual_source_blending = is_dual_source_blending(&desc->BlendState.RenderTarget[0]);
-    ps_compile_args.output_swizzles = ps_output_swizzle;
-    ps_compile_args.output_swizzle_count = rt_count;
+    ps_target_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SPIRV_TARGET_INFO;
+    ps_target_info.next = NULL;
+    ps_target_info.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
+    ps_target_info.target_extensions = vk_info->shader_extensions;
+    ps_target_info.target_extension_count = vk_info->shader_extension_count;
+    ps_target_info.parameters = ps_shader_parameters;
+    ps_target_info.parameter_count = ARRAY_SIZE(ps_shader_parameters);
+    ps_target_info.dual_source_blending = is_dual_source_blending(&desc->BlendState.RenderTarget[0]);
+    ps_target_info.output_swizzles = ps_output_swizzle;
+    ps_target_info.output_swizzle_count = rt_count;
 
-    if (ps_compile_args.dual_source_blending && rt_count > 1)
+    if (ps_target_info.dual_source_blending && rt_count > 1)
     {
         WARN("Only one render target is allowed when dual source blending is used.\n");
         hr = E_INVALIDARG;
         goto fail;
     }
-    if (ps_compile_args.dual_source_blending && desc->BlendState.IndependentBlendEnable)
+    if (ps_target_info.dual_source_blending && desc->BlendState.IndependentBlendEnable)
     {
         for (i = 1; i < ARRAY_SIZE(desc->BlendState.RenderTarget); ++i)
         {
@@ -2259,7 +2259,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (shader_info.uav_counter_mask)
             FIXME("UAV counters not implemented for graphics pipelines.\n");
 
-        compile_args = NULL;
+        target_info = NULL;
         switch (shader_stages[i].stage)
         {
             case VK_SHADER_STAGE_VERTEX_BIT:
@@ -2284,7 +2284,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 break;
 
             case VK_SHADER_STAGE_FRAGMENT_BIT:
-                compile_args = &ps_compile_args;
+                target_info = &ps_target_info;
                 break;
 
             default:
@@ -2295,7 +2295,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         shader_interface.next = shader_stages[i].stage == xfb_stage ? &xfb_info : NULL;
 
         if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
-                shader_stages[i].stage, b, &shader_interface, compile_args)))
+                shader_stages[i].stage, b, &shader_interface, target_info)))
             goto fail;
 
         ++graphics->stage_count;
