@@ -141,7 +141,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, shader_interface_info %p, info %p.\n",
             dxbc->code, dxbc->size, spirv, compiler_options, shader_interface_info, info);
 
-    if (shader_interface_info && shader_interface_info->type != VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO)
+    if (shader_interface_info && shader_interface_info->type != VKD3D_SHADER_STRUCTURE_TYPE_INTERFACE_INFO)
     {
         WARN("Invalid structure type %#x.\n", shader_interface_info->type);
         return VKD3D_ERROR_INVALID_ARGUMENT;

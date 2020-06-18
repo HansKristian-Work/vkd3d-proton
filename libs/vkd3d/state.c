@@ -1521,7 +1521,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
         return hr;
     }
 
-    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
+    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_INTERFACE_INFO;
     shader_interface.next = NULL;
     shader_interface.bindings = root_signature->descriptor_mapping;
     shader_interface.binding_count = root_signature->descriptor_count;
@@ -2229,7 +2229,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             xfb_stage = VK_SHADER_STAGE_VERTEX_BIT;
     }
 
-    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
+    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_INTERFACE_INFO;
     shader_interface.next = NULL;
     shader_interface.bindings = root_signature->descriptor_mapping;
     shader_interface.binding_count = root_signature->descriptor_count;
@@ -2926,7 +2926,7 @@ HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d
         }
     }
 
-    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
+    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_INTERFACE_INFO;
     shader_interface.next = NULL;
     shader_interface.bindings = &binding;
     shader_interface.binding_count = 1;
