@@ -129,7 +129,6 @@ static int vkd3d_shader_validate_spirv_target_info(const struct vkd3d_shader_spi
 
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_compile_info *compile_info,
         struct vkd3d_shader_code *spirv, unsigned int compiler_options,
-        const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_spirv_target_info *info)
 {
     struct vkd3d_shader_instruction instruction;
@@ -138,18 +137,12 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_compile_info *compile_in
     struct vkd3d_shader_parser parser;
     int ret;
 
-    TRACE("compile_info %p, spirv %p, compiler_options %#x, shader_interface_info %p, info %p.\n",
-            compile_info, spirv, compiler_options, shader_interface_info, info);
+    TRACE("compile_info %p, spirv %p, compiler_options %#x, info %p.\n",
+            compile_info, spirv, compiler_options, info);
 
     if (compile_info->type != VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO)
     {
         WARN("Invalid compile_info structure type %#x.\n", compile_info->type);
-        return VKD3D_ERROR_INVALID_ARGUMENT;
-    }
-
-    if (shader_interface_info && shader_interface_info->type != VKD3D_SHADER_STRUCTURE_TYPE_INTERFACE_INFO)
-    {
-        WARN("Invalid structure type %#x.\n", shader_interface_info->type);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
@@ -170,7 +163,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_compile_info *compile_in
         vkd3d_shader_trace(parser.data);
 
     if (!(spirv_compiler = vkd3d_dxbc_compiler_create(&parser.shader_version,
-            &parser.shader_desc, compiler_options, shader_interface_info, info, &scan_info)))
+            &parser.shader_desc, compiler_options, compile_info, info, &scan_info)))
     {
         ERR("Failed to create DXBC compiler.\n");
         vkd3d_shader_parser_destroy(&parser);

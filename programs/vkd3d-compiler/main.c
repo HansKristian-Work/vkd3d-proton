@@ -168,7 +168,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    ret = vkd3d_shader_compile_dxbc(&info, &spirv, options.compiler_options, NULL, NULL);
+    ret = vkd3d_shader_compile_dxbc(&info, &spirv, options.compiler_options, NULL);
     vkd3d_shader_free_shader_code(&info.source);
     if (ret < 0)
     {

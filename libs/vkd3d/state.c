@@ -1348,11 +1348,11 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     shader_desc.flags = 0;
 
     compile_info.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO;
-    compile_info.next = NULL;
+    compile_info.next = shader_interface;
     compile_info.source.code = code->pShaderBytecode;
     compile_info.source.size = code->BytecodeLength;
 
-    if ((ret = vkd3d_shader_compile_dxbc(&compile_info, &spirv, 0, shader_interface, target_info)) < 0)
+    if ((ret = vkd3d_shader_compile_dxbc(&compile_info, &spirv, 0, target_info)) < 0)
     {
         WARN("Failed to compile shader, vkd3d result %d.\n", ret);
         return hresult_from_vkd3d_result(ret);

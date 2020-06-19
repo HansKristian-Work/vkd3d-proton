@@ -179,6 +179,7 @@ struct vkd3d_shader_push_constant_buffer
     unsigned int size;   /* in bytes */
 };
 
+/* Extends vkd3d_shader_compile_info. */
 struct vkd3d_shader_interface_info
 {
     enum vkd3d_shader_structure_type type;
@@ -644,7 +645,6 @@ struct vkd3d_shader_signature
 
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_compile_info *compile_info,
         struct vkd3d_shader_code *spirv, unsigned int compiler_options,
-        const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_spirv_target_info *target_info);
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
 
@@ -676,7 +676,6 @@ void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature
  */
 typedef int (*PFN_vkd3d_shader_compile_dxbc)(const struct vkd3d_shader_compile_info *compile_info,
         struct vkd3d_shader_code *spirv, unsigned int compiler_options,
-        const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_spirv_target_info *target_info);
 typedef void (*PFN_vkd3d_shader_free_shader_code)(struct vkd3d_shader_code *code);
 
