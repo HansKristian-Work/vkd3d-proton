@@ -103,8 +103,7 @@ static void vkd3d_shader_parser_destroy(struct vkd3d_shader_parser *parser)
     free_shader_desc(&parser->shader_desc);
 }
 
-int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_compile_info *compile_info,
-        struct vkd3d_shader_code *spirv, unsigned int compiler_options)
+int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_compile_info *compile_info, struct vkd3d_shader_code *spirv)
 {
     struct vkd3d_shader_instruction instruction;
     struct vkd3d_dxbc_compiler *spirv_compiler;
@@ -112,8 +111,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_compile_info *compile_in
     struct vkd3d_shader_parser parser;
     int ret;
 
-    TRACE("compile_info %p, spirv %p, compiler_options %#x.\n",
-            compile_info, spirv, compiler_options);
+    TRACE("compile_info %p, spirv %p.\n", compile_info, spirv);
 
     if (compile_info->type != VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO)
     {
@@ -135,7 +133,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_compile_info *compile_in
         vkd3d_shader_trace(parser.data);
 
     if (!(spirv_compiler = vkd3d_dxbc_compiler_create(&parser.shader_version,
-            &parser.shader_desc, compiler_options, compile_info, &scan_info)))
+            &parser.shader_desc, compile_info, &scan_info)))
     {
         ERR("Failed to create DXBC compiler.\n");
         vkd3d_shader_parser_destroy(&parser);

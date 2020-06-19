@@ -26,6 +26,8 @@
 #include "vkd3d_common.h"
 #include "vkd3d_shader.h"
 
+#define MAX_COMPILE_OPTIONS 1
+
 static bool read_shader(struct vkd3d_shader_code *shader, const char *filename)
 {
     struct stat st;
@@ -87,11 +89,11 @@ static bool write_shader(const struct vkd3d_shader_code *shader, const char *fil
 static const struct
 {
     const char *name;
-    enum vkd3d_shader_compiler_option compiler_option;
+    enum vkd3d_shader_compile_option_name compile_option;
 }
 compiler_options[] =
 {
-    {"--strip-debug", VKD3D_SHADER_STRIP_DEBUG},
+    {"--strip-debug", VKD3D_SHADER_COMPILE_OPTION_STRIP_DEBUG},
 };
 
 static void print_usage(const char *program_name)
@@ -108,8 +110,37 @@ struct options
 {
     const char *filename;
     const char *output_filename;
-    unsigned int compiler_options;
+    struct vkd3d_shader_compile_option compile_options[MAX_COMPILE_OPTIONS];
+    unsigned int compile_option_count;
 };
+
+static void add_compile_option(struct options *options,
+        enum vkd3d_shader_compile_option_name name, unsigned int value)
+{
+    struct vkd3d_shader_compile_option *o;
+    unsigned int i;
+
+    for (i = 0; i < options->compile_option_count; ++i)
+    {
+        o = &options->compile_options[i];
+
+        if (o->name == name)
+        {
+            o->value = value;
+            return;
+        }
+    }
+
+    if (options->compile_option_count >= ARRAY_SIZE(options->compile_options))
+    {
+        fprintf(stderr, "Ignoring option.\n");
+        return;
+    }
+
+    o = &options->compile_options[options->compile_option_count++];
+    o->name = name;
+    o->value = value;
+}
 
 static bool parse_command_line(int argc, char **argv, struct options *options)
 {
@@ -134,7 +165,7 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
         {
             if (!strcmp(argv[i], compiler_options[j].name))
             {
-                options->compiler_options |= compiler_options[j].compiler_option;
+                add_compile_option(options, compiler_options[j].compile_option, 1);
                 break;
             }
         }
@@ -161,6 +192,8 @@ int main(int argc, char **argv)
 
     info.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO;
     info.next = NULL;
+    info.options = options.compile_options;
+    info.option_count = options.compile_option_count;
 
     if (!read_shader(&info.source, options.filename))
     {
@@ -168,7 +201,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    ret = vkd3d_shader_compile_dxbc(&info, &spirv, options.compiler_options);
+    ret = vkd3d_shader_compile_dxbc(&info, &spirv);
     vkd3d_shader_free_shader_code(&info.source);
     if (ret < 0)
     {

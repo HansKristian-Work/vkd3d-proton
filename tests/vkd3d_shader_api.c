@@ -49,13 +49,20 @@ static void test_invalid_shaders(void)
         0x3f800000, 0x3f800000, 0x3f800000, 0x01000002, 0x01000015, 0x08000036, 0x001020f2, 0x00000000,
         0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
+    static const struct vkd3d_shader_compile_option option =
+    {
+        .name = VKD3D_SHADER_COMPILE_OPTION_STRIP_DEBUG,
+        .value = 1,
+    };
 
     info.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO;
     info.next = NULL;
     info.source.code = ps_break_code;
     info.source.size = sizeof(ps_break_code);
+    info.options = &option;
+    info.option_count = 1;
 
-    rc = vkd3d_shader_compile_dxbc(&info, &spirv, VKD3D_SHADER_STRIP_DEBUG);
+    rc = vkd3d_shader_compile_dxbc(&info, &spirv);
     ok(rc == VKD3D_ERROR_INVALID_SHADER, "Got unexpected error code %d.\n", rc);
 }
 
@@ -127,8 +134,10 @@ static void test_vkd3d_shader_pfns(void)
     compile_info.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO;
     compile_info.next = NULL;
     compile_info.source = vs;
+    compile_info.options = NULL;
+    compile_info.option_count = 0;
 
-    rc = pfn_vkd3d_shader_compile_dxbc(&compile_info, &spirv, 0);
+    rc = pfn_vkd3d_shader_compile_dxbc(&compile_info, &spirv);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
     pfn_vkd3d_shader_free_shader_code(&spirv);
 

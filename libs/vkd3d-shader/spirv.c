@@ -2062,7 +2062,7 @@ struct vkd3d_dxbc_compiler
 {
     struct vkd3d_spirv_builder spirv_builder;
 
-    uint32_t options;
+    bool strip_debug;
 
     struct rb_tree symbol_table;
     uint32_t temp_id;
@@ -2123,8 +2123,7 @@ static bool is_control_point_phase(const struct vkd3d_shader_phase *phase)
 static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler);
 
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
-        const struct vkd3d_shader_desc *shader_desc, uint32_t compiler_options,
-        const struct vkd3d_shader_compile_info *compile_info,
+        const struct vkd3d_shader_desc *shader_desc, const struct vkd3d_shader_compile_info *compile_info,
         const struct vkd3d_shader_scan_info *scan_info)
 {
     const struct vkd3d_shader_signature *patch_constant_signature = &shader_desc->patch_constant_signature;
@@ -2164,7 +2163,22 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
     }
 
     vkd3d_spirv_builder_init(&compiler->spirv_builder);
-    compiler->options = compiler_options;
+
+    for (i = 0; i < compile_info->option_count; ++i)
+    {
+        const struct vkd3d_shader_compile_option *option = &compile_info->options[i];
+
+        switch (option->name)
+        {
+            case VKD3D_SHADER_COMPILE_OPTION_STRIP_DEBUG:
+                compiler->strip_debug = !!option->value;
+                break;
+
+            default:
+                WARN("Ignoring unrecognised option %#x with value %#x.\n", option->name, option->value);
+                break;
+        }
+    }
 
     rb_init(&compiler->symbol_table, vkd3d_symbol_compare);
 
@@ -8723,7 +8737,7 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         vkd3d_dxbc_compiler_emit_shader_epilogue_function(compiler);
     }
 
-    if (compiler->options & VKD3D_SHADER_STRIP_DEBUG)
+    if (compiler->strip_debug)
         vkd3d_spirv_stream_clear(&builder->debug_stream);
 
     if (!vkd3d_spirv_compile_module(builder, spirv))

@@ -820,8 +820,7 @@ int shader_parse_input_signature(const void *dxbc, size_t dxbc_length,
 struct vkd3d_dxbc_compiler;
 
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
-        const struct vkd3d_shader_desc *shader_desc, uint32_t compiler_options,
-        const struct vkd3d_shader_compile_info *compile_info,
+        const struct vkd3d_shader_desc *shader_desc, const struct vkd3d_shader_compile_info *compile_info,
         const struct vkd3d_shader_scan_info *scan_info) DECLSPEC_HIDDEN;
 int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction) DECLSPEC_HIDDEN;
