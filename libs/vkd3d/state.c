@@ -1329,8 +1329,8 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
         const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface_info *shader_interface,
         const struct vkd3d_shader_spirv_target_info *target_info)
 {
-    struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_shader_compile_info compile_info;
     struct VkShaderModuleCreateInfo shader_desc;
     struct vkd3d_shader_code spirv = {0};
     VkResult vr;
@@ -1347,7 +1347,12 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     shader_desc.pNext = NULL;
     shader_desc.flags = 0;
 
-    if ((ret = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, shader_interface, target_info)) < 0)
+    compile_info.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO;
+    compile_info.next = NULL;
+    compile_info.source.code = code->pShaderBytecode;
+    compile_info.source.size = code->BytecodeLength;
+
+    if ((ret = vkd3d_shader_compile_dxbc(&compile_info, &spirv, 0, shader_interface, target_info)) < 0)
     {
         WARN("Failed to compile shader, vkd3d result %d.\n", ret);
         return hresult_from_vkd3d_result(ret);

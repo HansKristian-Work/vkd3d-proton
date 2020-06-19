@@ -127,7 +127,7 @@ static int vkd3d_shader_validate_spirv_target_info(const struct vkd3d_shader_spi
     return VKD3D_OK;
 }
 
-int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
+int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_compile_info *compile_info,
         struct vkd3d_shader_code *spirv, unsigned int compiler_options,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_spirv_target_info *info)
@@ -138,8 +138,14 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     struct vkd3d_shader_parser parser;
     int ret;
 
-    TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, shader_interface_info %p, info %p.\n",
-            dxbc->code, dxbc->size, spirv, compiler_options, shader_interface_info, info);
+    TRACE("compile_info %p, spirv %p, compiler_options %#x, shader_interface_info %p, info %p.\n",
+            compile_info, spirv, compiler_options, shader_interface_info, info);
+
+    if (compile_info->type != VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO)
+    {
+        WARN("Invalid compile_info structure type %#x.\n", compile_info->type);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
 
     if (shader_interface_info && shader_interface_info->type != VKD3D_SHADER_STRUCTURE_TYPE_INTERFACE_INFO)
     {
@@ -152,13 +158,13 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
 
     scan_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
     scan_info.next = NULL;
-    if ((ret = vkd3d_shader_scan_dxbc(dxbc, &scan_info)) < 0)
+    if ((ret = vkd3d_shader_scan_dxbc(&compile_info->source, &scan_info)) < 0)
         return ret;
 
-    if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
+    if ((ret = vkd3d_shader_parser_init(&parser, &compile_info->source)) < 0)
         return ret;
 
-    vkd3d_shader_dump_shader(parser.shader_version.type, dxbc);
+    vkd3d_shader_dump_shader(parser.shader_version.type, &compile_info->source);
 
     if (TRACE_ON())
         vkd3d_shader_trace(parser.data);

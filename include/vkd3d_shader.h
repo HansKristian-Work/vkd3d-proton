@@ -30,6 +30,7 @@ extern "C" {
 enum vkd3d_shader_structure_type
 {
     /* 1.2 */
+    VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_INTERFACE_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_SPIRV_DOMAIN_SHADER_TARGET_INFO,
@@ -216,6 +217,14 @@ struct vkd3d_shader_transform_feedback_info
     unsigned int element_count;
     const unsigned int *buffer_strides;
     unsigned int buffer_stride_count;
+};
+
+struct vkd3d_shader_compile_info
+{
+    enum vkd3d_shader_structure_type type;
+    const void *next;
+
+    struct vkd3d_shader_code source;
 };
 
 enum vkd3d_shader_spirv_environment
@@ -633,7 +642,7 @@ struct vkd3d_shader_signature
 
 #ifndef VKD3D_SHADER_NO_PROTOTYPES
 
-int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
+int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_compile_info *compile_info,
         struct vkd3d_shader_code *spirv, unsigned int compiler_options,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_spirv_target_info *target_info);
@@ -665,7 +674,7 @@ void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature
 /*
  * Function pointer typedefs for vkd3d-shader functions.
  */
-typedef int (*PFN_vkd3d_shader_compile_dxbc)(const struct vkd3d_shader_code *dxbc,
+typedef int (*PFN_vkd3d_shader_compile_dxbc)(const struct vkd3d_shader_compile_info *compile_info,
         struct vkd3d_shader_code *spirv, unsigned int compiler_options,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_spirv_target_info *target_info);

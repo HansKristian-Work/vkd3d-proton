@@ -148,7 +148,8 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
 
 int main(int argc, char **argv)
 {
-    struct vkd3d_shader_code dxbc, spirv;
+    struct vkd3d_shader_compile_info info;
+    struct vkd3d_shader_code spirv;
     struct options options;
     int ret;
 
@@ -158,14 +159,17 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (!read_shader(&dxbc, options.filename))
+    info.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO;
+    info.next = NULL;
+
+    if (!read_shader(&info.source, options.filename))
     {
         fprintf(stderr, "Failed to read DXBC shader.\n");
         return 1;
     }
 
-    ret = vkd3d_shader_compile_dxbc(&dxbc, &spirv, options.compiler_options, NULL, NULL);
-    vkd3d_shader_free_shader_code(&dxbc);
+    ret = vkd3d_shader_compile_dxbc(&info, &spirv, options.compiler_options, NULL, NULL);
+    vkd3d_shader_free_shader_code(&info.source);
     if (ret < 0)
     {
         fprintf(stderr, "Failed to compile DXBC shader, ret %d.\n", ret);
