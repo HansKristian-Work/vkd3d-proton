@@ -55,7 +55,7 @@ static void test_invalid_shaders(void)
     info.source.code = ps_break_code;
     info.source.size = sizeof(ps_break_code);
 
-    rc = vkd3d_shader_compile_dxbc(&info, &spirv, VKD3D_SHADER_STRIP_DEBUG, NULL);
+    rc = vkd3d_shader_compile_dxbc(&info, &spirv, VKD3D_SHADER_STRIP_DEBUG);
     ok(rc == VKD3D_ERROR_INVALID_SHADER, "Got unexpected error code %d.\n", rc);
 }
 
@@ -128,7 +128,7 @@ static void test_vkd3d_shader_pfns(void)
     compile_info.next = NULL;
     compile_info.source = vs;
 
-    rc = pfn_vkd3d_shader_compile_dxbc(&compile_info, &spirv, 0, NULL);
+    rc = pfn_vkd3d_shader_compile_dxbc(&compile_info, &spirv, 0);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
     pfn_vkd3d_shader_free_shader_code(&spirv);
 

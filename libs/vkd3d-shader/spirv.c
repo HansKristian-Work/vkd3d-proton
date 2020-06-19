@@ -2125,12 +2125,12 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
         const struct vkd3d_shader_desc *shader_desc, uint32_t compiler_options,
         const struct vkd3d_shader_compile_info *compile_info,
-        const struct vkd3d_shader_spirv_target_info *target_info,
         const struct vkd3d_shader_scan_info *scan_info)
 {
     const struct vkd3d_shader_signature *patch_constant_signature = &shader_desc->patch_constant_signature;
     const struct vkd3d_shader_signature *output_signature = &shader_desc->output_signature;
     const struct vkd3d_shader_interface_info *shader_interface;
+    const struct vkd3d_shader_spirv_target_info *target_info;
     struct vkd3d_dxbc_compiler *compiler;
     unsigned int max_element_count;
     unsigned int i;
@@ -2139,6 +2139,22 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
         return NULL;
 
     memset(compiler, 0, sizeof(*compiler));
+
+    if ((target_info = vkd3d_find_struct(compile_info->next, SPIRV_TARGET_INFO)))
+    {
+        switch (target_info->environment)
+        {
+            case VKD3D_SHADER_SPIRV_ENVIRONMENT_OPENGL_4_5:
+            case VKD3D_SHADER_SPIRV_ENVIRONMENT_VULKAN_1_0:
+                break;
+            default:
+                WARN("Invalid target environment %#x.\n", target_info->environment);
+                vkd3d_free(compiler);
+                return NULL;
+        }
+
+        compiler->spirv_target_info = target_info;
+    }
 
     max_element_count = max(output_signature->element_count, patch_constant_signature->element_count);
     if (!(compiler->output_info = vkd3d_calloc(max_element_count, sizeof(*compiler->output_info))))
@@ -2175,7 +2191,6 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
                 compiler->push_constants[i].pc = shader_interface->push_constant_buffers[i];
         }
     }
-    compiler->spirv_target_info = target_info;
 
     compiler->scan_info = scan_info;
 
