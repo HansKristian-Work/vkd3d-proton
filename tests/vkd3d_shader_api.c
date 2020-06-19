@@ -59,10 +59,11 @@ static void test_invalid_shaders(void)
     info.next = NULL;
     info.source.code = ps_break_code;
     info.source.size = sizeof(ps_break_code);
+    info.source_type = VKD3D_SHADER_SOURCE_DXBC_TPF;
     info.options = &option;
     info.option_count = 1;
 
-    rc = vkd3d_shader_compile_dxbc(&info, &spirv);
+    rc = vkd3d_shader_compile(&info, &spirv);
     ok(rc == VKD3D_ERROR_INVALID_SHADER, "Got unexpected error code %d.\n", rc);
 }
 
@@ -75,8 +76,8 @@ static void test_vkd3d_shader_pfns(void)
     PFN_vkd3d_shader_parse_root_signature pfn_vkd3d_shader_parse_root_signature;
     PFN_vkd3d_shader_free_root_signature pfn_vkd3d_shader_free_root_signature;
     PFN_vkd3d_shader_free_shader_code pfn_vkd3d_shader_free_shader_code;
-    PFN_vkd3d_shader_compile_dxbc pfn_vkd3d_shader_compile_dxbc;
     PFN_vkd3d_shader_scan_dxbc pfn_vkd3d_shader_scan_dxbc;
+    PFN_vkd3d_shader_compile pfn_vkd3d_shader_compile;
 
     struct vkd3d_versioned_root_signature_desc root_signature_desc;
     struct vkd3d_shader_signature_element *element;
@@ -115,8 +116,8 @@ static void test_vkd3d_shader_pfns(void)
     pfn_vkd3d_shader_parse_root_signature = vkd3d_shader_parse_root_signature;
     pfn_vkd3d_shader_free_root_signature = vkd3d_shader_free_root_signature;
     pfn_vkd3d_shader_free_shader_code = vkd3d_shader_free_shader_code;
-    pfn_vkd3d_shader_compile_dxbc = vkd3d_shader_compile_dxbc;
     pfn_vkd3d_shader_scan_dxbc = vkd3d_shader_scan_dxbc;
+    pfn_vkd3d_shader_compile = vkd3d_shader_compile;
 
     rc = pfn_vkd3d_shader_serialize_root_signature(&empty_rs_desc, &dxbc);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
@@ -134,10 +135,11 @@ static void test_vkd3d_shader_pfns(void)
     compile_info.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO;
     compile_info.next = NULL;
     compile_info.source = vs;
+    compile_info.source_type = VKD3D_SHADER_SOURCE_DXBC_TPF;
     compile_info.options = NULL;
     compile_info.option_count = 0;
 
-    rc = pfn_vkd3d_shader_compile_dxbc(&compile_info, &spirv);
+    rc = pfn_vkd3d_shader_compile(&compile_info, &spirv);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
     pfn_vkd3d_shader_free_shader_code(&spirv);
 

@@ -192,6 +192,7 @@ int main(int argc, char **argv)
 
     info.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO;
     info.next = NULL;
+    info.source_type = VKD3D_SHADER_SOURCE_DXBC_TPF;
     info.options = options.compile_options;
     info.option_count = options.compile_option_count;
 
@@ -201,7 +202,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    ret = vkd3d_shader_compile_dxbc(&info, &spirv);
+    ret = vkd3d_shader_compile(&info, &spirv);
     vkd3d_shader_free_shader_code(&info.source);
     if (ret < 0)
     {

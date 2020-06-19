@@ -103,7 +103,27 @@ static void vkd3d_shader_parser_destroy(struct vkd3d_shader_parser *parser)
     free_shader_desc(&parser->shader_desc);
 }
 
-int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_compile_info *compile_info, struct vkd3d_shader_code *spirv)
+static int vkd3d_shader_validate_compile_info(const struct vkd3d_shader_compile_info *compile_info)
+{
+    if (compile_info->type != VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO)
+    {
+        WARN("Invalid structure type %#x.\n", compile_info->type);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+
+    switch (compile_info->source_type)
+    {
+        case VKD3D_SHADER_SOURCE_DXBC_TPF:
+            break;
+        default:
+            WARN("Invalid shader source type %#x.\n", compile_info->source_type);
+            return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+
+    return VKD3D_OK;
+}
+
+int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info, struct vkd3d_shader_code *spirv)
 {
     struct vkd3d_shader_instruction instruction;
     struct vkd3d_dxbc_compiler *spirv_compiler;
@@ -113,11 +133,8 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_compile_info *compile_in
 
     TRACE("compile_info %p, spirv %p.\n", compile_info, spirv);
 
-    if (compile_info->type != VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO)
-    {
-        WARN("Invalid compile_info structure type %#x.\n", compile_info->type);
-        return VKD3D_ERROR_INVALID_ARGUMENT;
-    }
+    if ((ret = vkd3d_shader_validate_compile_info(compile_info)) < 0)
+        return ret;
 
     scan_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
     scan_info.next = NULL;
