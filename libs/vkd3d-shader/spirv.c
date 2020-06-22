@@ -23,16 +23,8 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-#ifdef HAVE_SPIRV_UNIFIED1_SPIRV_H
-# include "spirv/unified1/spirv.h"
-#else
-# include "vulkan/spirv.h"
-#endif  /* HAVE_SPIRV_UNIFIED1_SPIRV_H */
-#ifdef HAVE_SPIRV_UNIFIED1_GLSL_STD_450_H
-# include "spirv/unified1/GLSL.std.450.h"
-#else
-# include "vulkan/GLSL.std.450.h"
-#endif  /* HAVE_SPIRV_UNIFIED1_GLSL_STD_450_H */
+#include "spirv/unified1/spirv.h"
+#include "spirv/unified1/GLSL.std.450.h"
 
 #ifdef HAVE_SPIRV_TOOLS
 # include "spirv-tools/libspirv.h"

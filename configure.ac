@@ -58,27 +58,10 @@ VKD3D_CHECK_MINGW32_PROG([CROSSCC32], [CROSSTARGET32], [no])
 VKD3D_CHECK_MINGW64_PROG([CROSSCC64], [CROSSTARGET64], [no])
 
 dnl Check for headers
-AC_CHECK_HEADERS([dlfcn.h pthread.h \
-                  vulkan/vulkan.h \
-                  vulkan/spirv.h vulkan/GLSL.std.450.h \
-                  spirv/unified1/spirv.h spirv/unified1/GLSL.std.450.h])
+AC_CHECK_HEADERS([dlfcn.h pthread.h])
 AS_IF([test "x$ac_cv_header_pthread_h" != "xyes"], [AC_MSG_ERROR([pthread.h not found.])])
-AS_IF([test "x$ac_cv_header_vulkan_vulkan_h" != "xyes"], [AC_MSG_ERROR([vulkan.h not found.])])
-AS_IF([test "x$ac_cv_header_spirv_unified1_spirv_h" != "xyes" \
-       -a "x$ac_cv_header_vulkan_spirv_h" != "xyes"],
-      [AC_MSG_ERROR([spirv.h not found.])])
-AS_IF([test "x$ac_cv_header_spirv_unified1_GLSL_std_450_h" != "xyes" \
-       -a "x$ac_cv_header_vulkan_GLSL_std_450_h" != "xyes"],
-      [AC_MSG_ERROR([GLSL.std.450.h not found.])])
 
 VKD3D_CHECK_VULKAN_HEADER_VERSION([140], [AC_MSG_ERROR([Vulkan headers are too old, 1.2.140 is required.])])
-
-AC_CHECK_DECL([SpvCapabilityDemoteToHelperInvocationEXT],, [AC_MSG_ERROR([SPIR-V headers are too old.])], [
-#ifdef HAVE_SPIRV_UNIFIED1_SPIRV_H
-# include "spirv/unified1/spirv.h"
-#else
-# include "vulkan/spirv.h"
-#endif])
 
 AC_CHECK_DECLS([program_invocation_name],,,[#include <errno.h>])
 
