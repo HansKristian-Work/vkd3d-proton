@@ -19,13 +19,9 @@
 #ifndef __VKD3D_THREADS_H
 #define __VKD3D_THREADS_H
 
-#include "config.h"
 #include "vkd3d_memory.h"
 
-#if defined(HAVE_PTHREAD_H)
-#include <pthread.h>
-
-#elif defined(_WIN32) /* HAVE_PTHREAD_H */
+#if defined(_WIN32)
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -147,21 +143,20 @@ static inline int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *lock)
     return ret ? 0 : -1;
 }
 
-#else /* HAVE_PTHREAD_H */
-#error "Threads are not supported. Cannot build."
-#endif /* HAVE_PTHREAD_H */
-
 static inline void vkd3d_set_thread_name(const char *name)
 {
-#if defined(_MSC_VER)
     (void)name;
-#elif defined(HAVE_PTHREAD_SETNAME_NP_2)
-    pthread_setname_np(pthread_self(), name);
-#elif defined(HAVE_PTHREAD_SETNAME_NP_1)
-    pthread_setname_np(name);
-#else
-    (void)name;
-#endif
 }
+#elif defined(__linux__)
+#include <pthread.h>
+static inline void vkd3d_set_thread_name(const char *name)
+{
+    pthread_setname_np(pthread_self(), name);
+}
+#else
+#error "Threads are not supported. Cannot build."
+#endif
+
+
 
 #endif /* __VKD3D_THREADS_H */
