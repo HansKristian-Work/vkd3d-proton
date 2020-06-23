@@ -1,5 +1,5 @@
 ACLOCAL_AMFLAGS = -I m4
-AM_CFLAGS = @VKD3D_CFLAGS@
+AM_CFLAGS = @VKD3D_CFLAGS@ -DPACKAGE_VERSION=\"$(PACKAGE_VERSION)\" -D_GNU_SOURCE
 AM_CPPFLAGS = -I$(srcdir)/include -I$(srcdir)/include/dummy -I$(srcdir)/include/private -I$(srcdir)/subprojects/SPIRV-Headers/include -I$(srcdir)/subprojects/Vulkan-Headers/include
 AM_LDFLAGS = -no-undefined
 
