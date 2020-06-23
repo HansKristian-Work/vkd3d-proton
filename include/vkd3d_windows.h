@@ -155,7 +155,6 @@ extern "C++"
 typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 #endif  /* !defined(_WIN32) || defined(__WIDL__) */
 
-
 #ifndef _WIN32
 # include <stddef.h>
 # include <stdlib.h>

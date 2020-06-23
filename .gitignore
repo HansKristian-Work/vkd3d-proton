@@ -23,3 +23,6 @@ vkd3d-*.tar.xz
 .deps
 .dirstamp
 .libs
+build
+build.native
+build.cross
