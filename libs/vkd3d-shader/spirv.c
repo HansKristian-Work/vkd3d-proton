@@ -5623,7 +5623,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_tessellator_domain(struct vkd3d_dxbc_co
 }
 
 static void vkd3d_dxbc_compiler_emit_tessellator_output_primitive(struct vkd3d_dxbc_compiler *compiler,
-        enum vkd3d_tessellator_output_primitive primitive)
+        enum vkd3d_shader_tessellator_output_primitive primitive)
 {
     SpvExecutionMode mode;
 
@@ -5632,15 +5632,15 @@ static void vkd3d_dxbc_compiler_emit_tessellator_output_primitive(struct vkd3d_d
 
     switch (primitive)
     {
-        case VKD3D_TESSELLATOR_OUTPUT_POINT:
+        case VKD3D_SHADER_TESSELLATOR_OUTPUT_POINT:
             mode = SpvExecutionModePointMode;
             break;
-        case VKD3D_TESSELLATOR_OUTPUT_LINE:
+        case VKD3D_SHADER_TESSELLATOR_OUTPUT_LINE:
             return;
-        case VKD3D_TESSELLATOR_OUTPUT_TRIANGLE_CW:
+        case VKD3D_SHADER_TESSELLATOR_OUTPUT_TRIANGLE_CW:
             mode = SpvExecutionModeVertexOrderCw;
             break;
-        case VKD3D_TESSELLATOR_OUTPUT_TRIANGLE_CCW:
+        case VKD3D_SHADER_TESSELLATOR_OUTPUT_TRIANGLE_CCW:
             mode = SpvExecutionModeVertexOrderCcw;
             break;
         default:

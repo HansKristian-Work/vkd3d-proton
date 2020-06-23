@@ -501,20 +501,20 @@ static void shader_dump_tessellator_domain(struct vkd3d_string_buffer *buffer,
 }
 
 static void shader_dump_tessellator_output_primitive(struct vkd3d_string_buffer *buffer,
-        enum vkd3d_tessellator_output_primitive output_primitive)
+        enum vkd3d_shader_tessellator_output_primitive output_primitive)
 {
     switch (output_primitive)
     {
-        case VKD3D_TESSELLATOR_OUTPUT_POINT:
+        case VKD3D_SHADER_TESSELLATOR_OUTPUT_POINT:
             shader_addline(buffer, "point");
             break;
-        case VKD3D_TESSELLATOR_OUTPUT_LINE:
+        case VKD3D_SHADER_TESSELLATOR_OUTPUT_LINE:
             shader_addline(buffer, "line");
             break;
-        case VKD3D_TESSELLATOR_OUTPUT_TRIANGLE_CW:
+        case VKD3D_SHADER_TESSELLATOR_OUTPUT_TRIANGLE_CW:
             shader_addline(buffer, "triangle_cw");
             break;
-        case VKD3D_TESSELLATOR_OUTPUT_TRIANGLE_CCW:
+        case VKD3D_SHADER_TESSELLATOR_OUTPUT_TRIANGLE_CCW:
             shader_addline(buffer, "triangle_ccw");
             break;
         default:

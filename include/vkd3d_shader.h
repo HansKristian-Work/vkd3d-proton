@@ -292,12 +292,14 @@ struct vkd3d_shader_spirv_target_info
     unsigned int output_swizzle_count;
 };
 
-enum vkd3d_tessellator_output_primitive
+enum vkd3d_shader_tessellator_output_primitive
 {
-    VKD3D_TESSELLATOR_OUTPUT_POINT        = 1,
-    VKD3D_TESSELLATOR_OUTPUT_LINE         = 2,
-    VKD3D_TESSELLATOR_OUTPUT_TRIANGLE_CW  = 3,
-    VKD3D_TESSELLATOR_OUTPUT_TRIANGLE_CCW = 4,
+    VKD3D_SHADER_TESSELLATOR_OUTPUT_POINT        = 0x1,
+    VKD3D_SHADER_TESSELLATOR_OUTPUT_LINE         = 0x2,
+    VKD3D_SHADER_TESSELLATOR_OUTPUT_TRIANGLE_CW  = 0x3,
+    VKD3D_SHADER_TESSELLATOR_OUTPUT_TRIANGLE_CCW = 0x4,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_TESSELLATOR_OUTPUT_PRIMITIVE),
 };
 
 enum vkd3d_tessellator_partitioning
@@ -314,7 +316,7 @@ struct vkd3d_shader_spirv_domain_shader_target_info
     enum vkd3d_shader_structure_type type;
     const void *next;
 
-    enum vkd3d_tessellator_output_primitive output_primitive;
+    enum vkd3d_shader_tessellator_output_primitive output_primitive;
     enum vkd3d_tessellator_partitioning partitioning;
 };
 
