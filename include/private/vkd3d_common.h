@@ -19,7 +19,6 @@
 #ifndef __VKD3D_COMMON_H
 #define __VKD3D_COMMON_H
 
-#include "config.h"
 #include "vkd3d_windows.h"
 #include "vkd3d_spinlock.h"
 
