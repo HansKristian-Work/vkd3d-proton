@@ -120,10 +120,19 @@ static int vkd3d_shader_validate_compile_info(const struct vkd3d_shader_compile_
             return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
+    switch (compile_info->target_type)
+    {
+        case VKD3D_SHADER_TARGET_SPIRV_BINARY:
+            break;
+        default:
+            WARN("Invalid shader target type %#x.\n", compile_info->target_type);
+            return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+
     return VKD3D_OK;
 }
 
-int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info, struct vkd3d_shader_code *spirv)
+int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info, struct vkd3d_shader_code *out)
 {
     struct vkd3d_shader_instruction instruction;
     struct vkd3d_dxbc_compiler *spirv_compiler;
@@ -131,7 +140,7 @@ int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info, s
     struct vkd3d_shader_parser parser;
     int ret;
 
-    TRACE("compile_info %p, spirv %p.\n", compile_info, spirv);
+    TRACE("compile_info %p, out %p.\n", compile_info, out);
 
     if ((ret = vkd3d_shader_validate_compile_info(compile_info)) < 0)
         return ret;
@@ -174,7 +183,7 @@ int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info, s
     }
 
     if (ret >= 0)
-        ret = vkd3d_dxbc_compiler_generate_spirv(spirv_compiler, spirv);
+        ret = vkd3d_dxbc_compiler_generate_spirv(spirv_compiler, out);
 
     vkd3d_dxbc_compiler_destroy(spirv_compiler);
     vkd3d_shader_parser_destroy(&parser);

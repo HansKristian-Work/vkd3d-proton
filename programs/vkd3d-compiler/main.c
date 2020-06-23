@@ -193,6 +193,7 @@ int main(int argc, char **argv)
     info.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO;
     info.next = NULL;
     info.source_type = VKD3D_SHADER_SOURCE_DXBC_TPF;
+    info.target_type = VKD3D_SHADER_TARGET_SPIRV_BINARY;
     info.options = options.compile_options;
     info.option_count = options.compile_option_count;
 

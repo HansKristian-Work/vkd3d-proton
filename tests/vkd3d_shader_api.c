@@ -60,6 +60,7 @@ static void test_invalid_shaders(void)
     info.source.code = ps_break_code;
     info.source.size = sizeof(ps_break_code);
     info.source_type = VKD3D_SHADER_SOURCE_DXBC_TPF;
+    info.target_type = VKD3D_SHADER_TARGET_SPIRV_BINARY;
     info.options = &option;
     info.option_count = 1;
 
@@ -136,6 +137,7 @@ static void test_vkd3d_shader_pfns(void)
     compile_info.next = NULL;
     compile_info.source = vs;
     compile_info.source_type = VKD3D_SHADER_SOURCE_DXBC_TPF;
+    compile_info.target_type = VKD3D_SHADER_TARGET_SPIRV_BINARY;
     compile_info.options = NULL;
     compile_info.option_count = 0;
 

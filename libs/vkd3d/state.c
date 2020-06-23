@@ -1351,6 +1351,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     compile_info.source.code = code->pShaderBytecode;
     compile_info.source.size = code->BytecodeLength;
     compile_info.source_type = VKD3D_SHADER_SOURCE_DXBC_TPF;
+    compile_info.target_type = VKD3D_SHADER_TARGET_SPIRV_BINARY;
     compile_info.options = NULL;
     compile_info.option_count = 0;
 

@@ -234,6 +234,14 @@ enum vkd3d_shader_source_type
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_SOURCE_TYPE),
 };
 
+enum vkd3d_shader_target_type
+{
+    VKD3D_SHADER_TARGET_NONE,
+    VKD3D_SHADER_TARGET_SPIRV_BINARY,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_TARGET_TYPE),
+};
+
 struct vkd3d_shader_compile_info
 {
     enum vkd3d_shader_structure_type type;
@@ -242,6 +250,7 @@ struct vkd3d_shader_compile_info
     struct vkd3d_shader_code source;
 
     enum vkd3d_shader_source_type source_type;
+    enum vkd3d_shader_target_type target_type;
 
     const struct vkd3d_shader_compile_option *options;
     unsigned int option_count;
@@ -663,7 +672,7 @@ struct vkd3d_shader_signature
 
 #ifndef VKD3D_SHADER_NO_PROTOTYPES
 
-int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info, struct vkd3d_shader_code *spirv);
+int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info, struct vkd3d_shader_code *out);
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
 
 int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
@@ -693,7 +702,7 @@ void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature
  * Function pointer typedefs for vkd3d-shader functions.
  */
 typedef int (*PFN_vkd3d_shader_compile)(const struct vkd3d_shader_compile_info *compile_info,
-        struct vkd3d_shader_code *spirv);
+        struct vkd3d_shader_code *out);
 typedef void (*PFN_vkd3d_shader_free_shader_code)(struct vkd3d_shader_code *code);
 
 typedef int (*PFN_vkd3d_shader_parse_root_signature)(const struct vkd3d_shader_code *dxbc,
