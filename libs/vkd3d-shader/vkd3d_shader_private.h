@@ -774,7 +774,7 @@ struct vkd3d_shader_instruction
         struct vkd3d_shader_thread_group_size thread_group_size;
         enum vkd3d_tessellator_domain tessellator_domain;
         enum vkd3d_shader_tessellator_output_primitive tessellator_output_primitive;
-        enum vkd3d_tessellator_partitioning tessellator_partitioning;
+        enum vkd3d_shader_tessellator_partitioning tessellator_partitioning;
         float max_tessellation_factor;
         struct vkd3d_shader_index_range index_range;
         struct vkd3d_shader_indexable_temp indexable_temp;

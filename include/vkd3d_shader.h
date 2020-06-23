@@ -302,12 +302,14 @@ enum vkd3d_shader_tessellator_output_primitive
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_TESSELLATOR_OUTPUT_PRIMITIVE),
 };
 
-enum vkd3d_tessellator_partitioning
+enum vkd3d_shader_tessellator_partitioning
 {
-    VKD3D_TESSELLATOR_PARTITIONING_INTEGER         = 1,
-    VKD3D_TESSELLATOR_PARTITIONING_POW2            = 2,
-    VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_ODD  = 3,
-    VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_EVEN = 4,
+    VKD3D_SHADER_TESSELLATOR_PARTITIONING_INTEGER         = 0x1,
+    VKD3D_SHADER_TESSELLATOR_PARTITIONING_POW2            = 0x2,
+    VKD3D_SHADER_TESSELLATOR_PARTITIONING_FRACTIONAL_ODD  = 0x3,
+    VKD3D_SHADER_TESSELLATOR_PARTITIONING_FRACTIONAL_EVEN = 0x4,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_TESSELLATOR_PARTITIONING),
 };
 
 /* Extends vkd3d_shader_spirv_target_info. */
@@ -317,7 +319,7 @@ struct vkd3d_shader_spirv_domain_shader_target_info
     const void *next;
 
     enum vkd3d_shader_tessellator_output_primitive output_primitive;
-    enum vkd3d_tessellator_partitioning partitioning;
+    enum vkd3d_shader_tessellator_partitioning partitioning;
 };
 
 /* root signature 1.0 */

@@ -524,20 +524,20 @@ static void shader_dump_tessellator_output_primitive(struct vkd3d_string_buffer 
 }
 
 static void shader_dump_tessellator_partitioning(struct vkd3d_string_buffer *buffer,
-        enum vkd3d_tessellator_partitioning partitioning)
+        enum vkd3d_shader_tessellator_partitioning partitioning)
 {
     switch (partitioning)
     {
-        case VKD3D_TESSELLATOR_PARTITIONING_INTEGER:
+        case VKD3D_SHADER_TESSELLATOR_PARTITIONING_INTEGER:
             shader_addline(buffer, "integer");
             break;
-        case VKD3D_TESSELLATOR_PARTITIONING_POW2:
+        case VKD3D_SHADER_TESSELLATOR_PARTITIONING_POW2:
             shader_addline(buffer, "pow2");
             break;
-        case VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_ODD:
+        case VKD3D_SHADER_TESSELLATOR_PARTITIONING_FRACTIONAL_ODD:
             shader_addline(buffer, "fractional_odd");
             break;
-        case VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_EVEN:
+        case VKD3D_SHADER_TESSELLATOR_PARTITIONING_FRACTIONAL_EVEN:
             shader_addline(buffer, "fractional_even");
             break;
         default:

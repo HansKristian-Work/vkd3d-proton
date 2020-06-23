@@ -5652,7 +5652,7 @@ static void vkd3d_dxbc_compiler_emit_tessellator_output_primitive(struct vkd3d_d
 }
 
 static void vkd3d_dxbc_compiler_emit_tessellator_partitioning(struct vkd3d_dxbc_compiler *compiler,
-        enum vkd3d_tessellator_partitioning partitioning)
+        enum vkd3d_shader_tessellator_partitioning partitioning)
 {
     SpvExecutionMode mode;
 
@@ -5661,14 +5661,14 @@ static void vkd3d_dxbc_compiler_emit_tessellator_partitioning(struct vkd3d_dxbc_
 
     switch (partitioning)
     {
-        case VKD3D_TESSELLATOR_PARTITIONING_INTEGER:
-        case VKD3D_TESSELLATOR_PARTITIONING_POW2:
+        case VKD3D_SHADER_TESSELLATOR_PARTITIONING_INTEGER:
+        case VKD3D_SHADER_TESSELLATOR_PARTITIONING_POW2:
             mode = SpvExecutionModeSpacingEqual;
             break;
-        case VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_ODD:
+        case VKD3D_SHADER_TESSELLATOR_PARTITIONING_FRACTIONAL_ODD:
             mode = SpvExecutionModeSpacingFractionalOdd;
             break;
-        case VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_EVEN:
+        case VKD3D_SHADER_TESSELLATOR_PARTITIONING_FRACTIONAL_EVEN:
             mode = SpvExecutionModeSpacingFractionalEven;
             break;
         default:
