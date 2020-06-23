@@ -1,0 +1,9 @@
+[submodule "subprojects/dxil-spirv"]
+	path = subprojects/dxil-spirv
+	url = https://github.com/HansKristian-Work/dxil-spirv
+[submodule "subprojects/Vulkan-Headers"]
+	path = subprojects/Vulkan-Headers
+	url = https://github.com/KhronosGroup/Vulkan-Headers
+[submodule "subprojects/SPIRV-Headers"]
+	path = subprojects/SPIRV-Headers
+	url = https://github.com/KhronosGroup/SPIRV-Headers
