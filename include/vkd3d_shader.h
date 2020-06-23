@@ -279,6 +279,8 @@ struct vkd3d_shader_spirv_target_info
     enum vkd3d_shader_structure_type type;
     const void *next;
 
+    const char *entry_point; /* "main" if NULL. */
+
     enum vkd3d_shader_spirv_environment environment;
 
     const enum vkd3d_shader_spirv_extension *extensions;

@@ -1666,7 +1666,7 @@ static uint32_t vkd3d_spirv_get_type_id(struct vkd3d_spirv_builder *builder,
     }
 }
 
-static void vkd3d_spirv_builder_init(struct vkd3d_spirv_builder *builder)
+static void vkd3d_spirv_builder_init(struct vkd3d_spirv_builder *builder, const char *entry_point)
 {
     vkd3d_spirv_stream_init(&builder->debug_stream);
     vkd3d_spirv_stream_init(&builder->annotation_stream);
@@ -1682,7 +1682,7 @@ static void vkd3d_spirv_builder_init(struct vkd3d_spirv_builder *builder)
     rb_init(&builder->declarations, vkd3d_spirv_declaration_compare);
 
     builder->main_function_id = vkd3d_spirv_alloc_id(builder);
-    vkd3d_spirv_build_op_name(builder, builder->main_function_id, "main");
+    vkd3d_spirv_build_op_name(builder, builder->main_function_id, entry_point);
 }
 
 static void vkd3d_spirv_builder_begin_main_function(struct vkd3d_spirv_builder *builder)
@@ -1714,7 +1714,7 @@ static void vkd3d_spirv_builder_free(struct vkd3d_spirv_builder *builder)
 }
 
 static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
-        struct vkd3d_shader_code *spirv)
+        struct vkd3d_shader_code *spirv, const char *entry_point)
 {
     uint64_t capability_mask = builder->capability_mask;
     struct vkd3d_spirv_stream stream;
@@ -1754,7 +1754,7 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
     /* entry point declarations */
     vkd3d_spirv_build_op_memory_model(&stream, SpvAddressingModelLogical, SpvMemoryModelGLSL450);
     vkd3d_spirv_build_op_entry_point(&stream, builder->execution_model, builder->main_function_id,
-            "main", builder->iface, builder->iface_element_count);
+            entry_point, builder->iface, builder->iface_element_count);
 
     /* execution mode declarations */
     if (builder->invocation_count)
@@ -2122,6 +2122,13 @@ static bool is_control_point_phase(const struct vkd3d_shader_phase *phase)
 
 static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler);
 
+static const char *vkd3d_dxbc_compiler_get_entry_point_name(const struct vkd3d_dxbc_compiler *compiler)
+{
+    const struct vkd3d_shader_spirv_target_info *info = compiler->spirv_target_info;
+
+    return info && info->entry_point ? info->entry_point : "main";
+}
+
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
         const struct vkd3d_shader_desc *shader_desc, const struct vkd3d_shader_compile_info *compile_info,
         const struct vkd3d_shader_scan_info *scan_info)
@@ -2162,7 +2169,7 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
         return NULL;
     }
 
-    vkd3d_spirv_builder_init(&compiler->spirv_builder);
+    vkd3d_spirv_builder_init(&compiler->spirv_builder, vkd3d_dxbc_compiler_get_entry_point_name(compiler));
 
     for (i = 0; i < compile_info->option_count; ++i)
     {
@@ -8740,7 +8747,7 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
     if (compiler->strip_debug)
         vkd3d_spirv_stream_clear(&builder->debug_stream);
 
-    if (!vkd3d_spirv_compile_module(builder, spirv))
+    if (!vkd3d_spirv_compile_module(builder, spirv, vkd3d_dxbc_compiler_get_entry_point_name(compiler)))
         return VKD3D_ERROR;
 
     if (TRACE_ON())
