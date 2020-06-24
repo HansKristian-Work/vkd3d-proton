@@ -93,6 +93,20 @@ FORCEINLINE uint32_t vkd3d_atomic_uint32_exchange_explicit(uint32_t *target, uin
     return result;
 }
 
+FORCEINLINE uint32_t vkd3d_atomic_uint32_increment(uint32_t *target, vkd3d_memory_order order)
+{
+    uint32_t result;
+    vkd3d_atomic_choose_intrinsic(order, result, InterlockedIncrement, (LONG*)target);
+    return result;
+}
+
+FORCEINLINE uint32_t vkd3d_atomic_uint32_decrement(uint32_t *target, vkd3d_memory_order order)
+{
+    uint32_t result;
+    vkd3d_atomic_choose_intrinsic(order, result, InterlockedDecrement, (LONG*)target);
+    return result;
+}
+
 #elif defined(__GNUC__) || defined(__clang__)
 
 #define vkd3d_memory_order_relaxed __ATOMIC_RELAXED
@@ -105,12 +119,12 @@ FORCEINLINE uint32_t vkd3d_atomic_uint32_exchange_explicit(uint32_t *target, uin
 # define vkd3d_atomic_uint32_load_explicit(target, order)            __atomic_load_n(target, order)
 # define vkd3d_atomic_uint32_store_explicit(target, value, order)    __atomic_store_n(target, value, order)
 # define vkd3d_atomic_uint32_exchange_explicit(target, value, order) __atomic_exchange_n(target, value, order)
+# define vkd3d_atomic_uint32_increment(target, order)                __atomic_add_fetch(target, 1, order)
+# define vkd3d_atomic_uint32_decrement(target, order)                __atomic_sub_fetch(target, 1, order)
 
 # ifndef __MINGW32__
-/* Unfortunately only fetch_add is in stdatomic
- * so use the common GCC extensions for these. */
-#  define InterlockedIncrement(target) __atomic_add_fetch(target, 1, vkd3d_memory_order_seq_cst)
-#  define InterlockedDecrement(target) __atomic_sub_fetch(target, 1, vkd3d_memory_order_seq_cst)
+#  define InterlockedIncrement(target) vkd3d_atomic_uint32_increment(target, vkd3d_memory_order_seq_cst)
+#  define InterlockedDecrement(target) vkd3d_atomic_uint32_decrement(target, vkd3d_memory_order_seq_cst)
 # endif
 
 #else
