@@ -895,7 +895,9 @@ struct d3d12_graphics_pipeline_state
     VkVertexInputAttributeDescription attributes[D3D12_VS_INPUT_REGISTER_COUNT];
     VkVertexInputRate input_rates[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     VkVertexInputBindingDivisorDescriptionEXT instance_divisors[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    VkVertexInputBindingDescription attribute_bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     size_t instance_divisor_count;
+    size_t attribute_binding_count;
     size_t attribute_count;
 
     VkPipelineColorBlendAttachmentState blend_attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
@@ -1007,6 +1009,8 @@ struct d3d12_pipeline_state_desc
 HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
         const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
+        const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass) DECLSPEC_HIDDEN;
+VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass) DECLSPEC_HIDDEN;
 struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface) DECLSPEC_HIDDEN;
 
