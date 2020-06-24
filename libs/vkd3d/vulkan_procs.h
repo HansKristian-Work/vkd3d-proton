@@ -213,6 +213,12 @@ VK_DEVICE_EXT_PFN(vkCmdBindTransformFeedbackBuffersEXT)
 VK_DEVICE_EXT_PFN(vkCmdEndQueryIndexedEXT)
 VK_DEVICE_EXT_PFN(vkCmdEndTransformFeedbackEXT)
 
+/* VK_EXT_extended_dynamic_state */
+VK_DEVICE_EXT_PFN(vkCmdBindVertexBuffers2EXT)
+VK_DEVICE_EXT_PFN(vkCmdSetPrimitiveTopologyEXT)
+VK_DEVICE_EXT_PFN(vkCmdSetScissorWithCountEXT)
+VK_DEVICE_EXT_PFN(vkCmdSetViewportWithCountEXT)
+
 /* VK_KHR_surface */
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfacePresentModesKHR)
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfaceSupportKHR)

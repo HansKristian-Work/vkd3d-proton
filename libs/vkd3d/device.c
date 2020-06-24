@@ -90,6 +90,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_TEXEL_BUFFER_ALIGNMENT, EXT_texel_buffer_alignment),
     VK_EXTENSION(EXT_TRANSFORM_FEEDBACK, EXT_transform_feedback),
     VK_EXTENSION(EXT_VERTEX_ATTRIBUTE_DIVISOR, EXT_vertex_attribute_divisor),
+    VK_EXTENSION(EXT_EXTENDED_DYNAMIC_STATE, EXT_extended_dynamic_state),
     /* AMD extensions */
     VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES, AMD_shader_core_properties),
     VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES_2, AMD_shader_core_properties2),
@@ -642,6 +643,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDeviceSubgroupSizeControlPropertiesEXT *subgroup_size_control_properties;
     VkPhysicalDeviceInlineUniformBlockPropertiesEXT *inline_uniform_block_properties;
+    VkPhysicalDeviceExtendedDynamicStateFeaturesEXT *extended_dynamic_state_features;
     VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *buffer_device_address_features;
     VkPhysicalDeviceCustomBorderColorPropertiesEXT *custom_border_color_properties;
     VkPhysicalDeviceConditionalRenderingFeaturesEXT *conditional_rendering_features;
@@ -703,6 +705,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     shader_subgroup_extended_types_features = &info->subgroup_extended_types_features;
     robustness2_properties = &info->robustness2_properties;
     robustness2_features = &info->robustness2_features;
+    extended_dynamic_state_features = &info->extended_dynamic_state_features;
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
@@ -830,6 +833,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, vertex_divisor_features);
         vertex_divisor_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES_EXT;
         vk_prepend_struct(&info->properties2, vertex_divisor_properties);
+    }
+
+    if (vulkan_info->EXT_extended_dynamic_state)
+    {
+        extended_dynamic_state_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, extended_dynamic_state_features);
     }
 
     if (vulkan_info->AMD_shader_core_properties)

@@ -133,6 +133,7 @@ struct vkd3d_vulkan_info
     bool EXT_texel_buffer_alignment;
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
+    bool EXT_extended_dynamic_state;
     /* AMD device extensions */
     bool AMD_shader_core_properties;
     bool AMD_shader_core_properties2;
@@ -1636,6 +1637,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceFloat16Int8FeaturesKHR float16_int8_features;
     VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR subgroup_extended_types_features;
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features;
+    VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extended_dynamic_state_features;
 
     VkPhysicalDeviceFeatures2 features2;
 };
