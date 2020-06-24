@@ -899,6 +899,7 @@ struct d3d12_graphics_pipeline_state
     size_t instance_divisor_count;
     size_t attribute_binding_count;
     size_t attribute_count;
+    D3D12_PRIMITIVE_TOPOLOGY_TYPE primitive_topology_type;
 
     VkPipelineColorBlendAttachmentState blend_attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     unsigned int rt_count;
