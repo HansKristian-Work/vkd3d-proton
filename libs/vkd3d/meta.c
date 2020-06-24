@@ -251,6 +251,7 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
 
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = NULL;
+    pipeline_info.flags = 0;
     pipeline_info.stageCount = 0;
     pipeline_info.pStages = shader_stages;
     pipeline_info.pVertexInputState = &vi_state;
