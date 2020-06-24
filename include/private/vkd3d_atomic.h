@@ -98,9 +98,9 @@ FORCEINLINE uint32_t vkd3d_uint32_atomic_exchange_explicit(uint32_t *target, uin
 
 # include <stdatomic.h>
 
-# define vkd3d_uint32_atomic_load_explicit(target, order)            atomic_load_explicit(target, order)
-# define vkd3d_uint32_atomic_store_explicit(target, value, order)    atomic_store_explicit(target, value, order)
-# define vkd3d_uint32_atomic_exchange_explicit(target, value, order) atomic_exchange_explicit(target, value, order)
+# define vkd3d_uint32_atomic_load_explicit(target, order)            __atomic_load_n(target, order)
+# define vkd3d_uint32_atomic_store_explicit(target, value, order)    __atomic_store_n(target, value, order)
+# define vkd3d_uint32_atomic_exchange_explicit(target, value, order) __atomic_exchange_n(target, value, order)
 
 # ifndef __MINGW32__
 /* Unfortunately only fetch_add is in stdatomic
