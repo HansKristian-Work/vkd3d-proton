@@ -66,10 +66,12 @@ FORCEINLINE uint32_t vkd3d_uint32_atomic_exchange_explicit(uint32_t *target, uin
 # define vkd3d_uint32_atomic_store_explicit(target, value, order)    atomic_store_explicit(target, value, order)
 # define vkd3d_uint32_atomic_exchange_explicit(target, value, order) atomic_exchange_explicit(target, value, order)
 
+# ifndef __MINGW32__
 /* Unfortunately only fetch_add is in stdatomic
  * so use the common GCC extensions for these. */
-# define InterlockedIncrement(target) __atomic_add_fetch(target, 1, memory_order_seq_cst)
-# define InterlockedDecrement(target) __atomic_sub_fetch(target, 1, memory_order_seq_cst)
+#  define InterlockedIncrement(target) __atomic_add_fetch(target, 1, memory_order_seq_cst)
+#  define InterlockedDecrement(target) __atomic_sub_fetch(target, 1, memory_order_seq_cst)
+# endif
 
 #else
 
