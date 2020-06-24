@@ -2729,7 +2729,25 @@ static bool vkd3d_topology_can_restart(VkPrimitiveTopology topology)
     }
 }
 
-static enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_TOPOLOGY topology)
+static enum VkPrimitiveTopology vk_topology_from_d3d12_topology_type(D3D12_PRIMITIVE_TOPOLOGY_TYPE type)
+{
+    switch (type)
+    {
+        case D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE:
+            return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+        case D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE:
+            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        case D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT:
+            return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+        case D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH:
+            return VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
+        default:
+            ERR("Invalid primitive topology type #%x.\n", (unsigned)type);
+            return VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
+    }
+}
+
+enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_TOPOLOGY topology)
 {
     switch (topology)
     {
