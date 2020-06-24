@@ -41,7 +41,6 @@
  */
 
 #define INITGUID
-#define _GNU_SOURCE
 #ifndef _WIN32
 #include <sys/time.h>
 #endif
