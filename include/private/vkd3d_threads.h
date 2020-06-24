@@ -21,7 +21,7 @@
 
 #include "vkd3d_memory.h"
 
-#if defined(_WIN32)
+#if defined(_MSC_VER)
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -147,14 +147,12 @@ static inline void vkd3d_set_thread_name(const char *name)
 {
     (void)name;
 }
-#elif defined(__linux__)
+#else
 #include <pthread.h>
 static inline void vkd3d_set_thread_name(const char *name)
 {
     pthread_setname_np(pthread_self(), name);
 }
-#else
-#error "Threads are not supported. Cannot build."
 #endif
 
 
