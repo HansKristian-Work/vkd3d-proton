@@ -100,18 +100,10 @@ static inline unsigned int vkd3d_bitmask_tzcnt64(uint64_t mask)
     else
         return 64;
 #endif
-#elif defined (HAVE_BUILTIN_CTZLL)
+#elif defined(__GNUC__) || defined(__clang__)
     return mask ? __builtin_ctzll(mask) : 64;
 #else
-    uint64_t r = 63;
-    mask &= -mask; /* extract lowest set bit */
-    r -= (mask & 0x00000000FFFFFFFFull) ? 32 : 0;
-    r -= (mask & 0x0000FFFF0000FFFFull) ? 16 : 0;
-    r -= (mask & 0x00FF00FF00FF00FFull) ?  8 : 0;
-    r -= (mask & 0x0F0F0F0F0F0F0F0Full) ?  4 : 0;
-    r -= (mask & 0x3333333333333333ull) ?  2 : 0;
-    r -= (mask & 0x5555555555555555ull) ?  1 : 0;
-    return mask ? r : 64;
+    #error "No implementation for ctzll."
 #endif
 }
 
