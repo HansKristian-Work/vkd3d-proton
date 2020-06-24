@@ -22,6 +22,11 @@ idl_generator = generator(idl_compiler,
   output    : [ '@BASENAME@.h' ],
   arguments : [ '-h', '-o', '@OUTPUT@', '@INPUT@' ])
 
+glsl_compiler  = find_program('glslangValidator')
+glsl_generator = generator(glsl_compiler,
+  output    : [ '@BASENAME@.h' ],
+  arguments : [ '-V', '--vn', '@BASENAME@', '@INPUT@', '-o', '@OUTPUT@' ])
+
 threads_dep = dependency('threads')
 
 vkd3d_platform = target_machine.system()
