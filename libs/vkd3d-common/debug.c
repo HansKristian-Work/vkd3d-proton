@@ -31,8 +31,6 @@
 #define VKD3D_DEBUG_BUFFER_COUNT 64
 #define VKD3D_DEBUG_BUFFER_SIZE 512
 
-extern const char *vkd3d_dbg_env_name DECLSPEC_HIDDEN;
-
 static const char *debug_level_names[] =
 {
     /* VKD3D_DBG_LEVEL_NONE  */ "none",
@@ -51,7 +49,7 @@ enum vkd3d_dbg_level vkd3d_dbg_get_level(void)
     if (level != ~0u)
         return level;
 
-    if (!(vkd3d_debug = getenv(vkd3d_dbg_env_name)))
+    if (!(vkd3d_debug = getenv("VKD3D_DEBUG")))
         vkd3d_debug = "";
 
     for (i = 0; i < ARRAY_SIZE(debug_level_names); ++i)
