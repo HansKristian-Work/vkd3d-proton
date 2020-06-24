@@ -1,0 +1,20 @@
+#version 450
+
+layout(local_size_x = 128) in;
+
+layout(binding = 0)
+writeonly uniform imageBuffer dst;
+
+layout(push_constant)
+uniform u_info_t {
+  vec4 clear_value;
+  ivec2 dst_offset;
+  ivec2 dst_extent;
+} u_info;
+
+void main() {
+  int thread_id = int(gl_GlobalInvocationID.x);
+  
+  if (thread_id < u_info.dst_extent.x)
+    imageStore(dst, u_info.dst_offset.x + thread_id, u_info.clear_value);
+}
