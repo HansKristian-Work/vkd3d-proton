@@ -321,40 +321,40 @@ HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
     {
       { &meta_clear_uav_ops->clear_float.buffer,
         &meta_clear_uav_ops->vk_pipeline_layout_buffer,
-        SPIRV_CODE(cs_clear_uav_buffer_float_spv) },
+        SPIRV_CODE(cs_clear_uav_buffer_float) },
       { &meta_clear_uav_ops->clear_float.image_1d,
         &meta_clear_uav_ops->vk_pipeline_layout_image,
-        SPIRV_CODE(cs_clear_uav_image_1d_float_spv) },
+        SPIRV_CODE(cs_clear_uav_image_1d_float) },
       { &meta_clear_uav_ops->clear_float.image_1d_array,
         &meta_clear_uav_ops->vk_pipeline_layout_image,
-        SPIRV_CODE(cs_clear_uav_image_1d_array_float_spv) },
+        SPIRV_CODE(cs_clear_uav_image_1d_array_float) },
       { &meta_clear_uav_ops->clear_float.image_2d,
         &meta_clear_uav_ops->vk_pipeline_layout_image,
-        SPIRV_CODE(cs_clear_uav_image_2d_float_spv) },
+        SPIRV_CODE(cs_clear_uav_image_2d_float) },
       { &meta_clear_uav_ops->clear_float.image_2d_array,
         &meta_clear_uav_ops->vk_pipeline_layout_image,
-        SPIRV_CODE(cs_clear_uav_image_2d_array_float_spv) },
+        SPIRV_CODE(cs_clear_uav_image_2d_array_float) },
       { &meta_clear_uav_ops->clear_float.image_3d,
         &meta_clear_uav_ops->vk_pipeline_layout_image,
-        SPIRV_CODE(cs_clear_uav_image_3d_float_spv) },
+        SPIRV_CODE(cs_clear_uav_image_3d_float) },
       { &meta_clear_uav_ops->clear_uint.buffer,
         &meta_clear_uav_ops->vk_pipeline_layout_buffer,
-        SPIRV_CODE(cs_clear_uav_buffer_uint_spv) },
+        SPIRV_CODE(cs_clear_uav_buffer_uint) },
       { &meta_clear_uav_ops->clear_uint.image_1d,
         &meta_clear_uav_ops->vk_pipeline_layout_image,
-        SPIRV_CODE(cs_clear_uav_image_1d_uint_spv) },
+        SPIRV_CODE(cs_clear_uav_image_1d_uint) },
       { &meta_clear_uav_ops->clear_uint.image_1d_array,
         &meta_clear_uav_ops->vk_pipeline_layout_image,
-        SPIRV_CODE(cs_clear_uav_image_1d_array_uint_spv) },
+        SPIRV_CODE(cs_clear_uav_image_1d_array_uint) },
       { &meta_clear_uav_ops->clear_uint.image_2d,
         &meta_clear_uav_ops->vk_pipeline_layout_image,
-        SPIRV_CODE(cs_clear_uav_image_2d_uint_spv) },
+        SPIRV_CODE(cs_clear_uav_image_2d_uint) },
       { &meta_clear_uav_ops->clear_uint.image_2d_array,
         &meta_clear_uav_ops->vk_pipeline_layout_image,
-        SPIRV_CODE(cs_clear_uav_image_2d_array_uint_spv) },
+        SPIRV_CODE(cs_clear_uav_image_2d_array_uint) },
       { &meta_clear_uav_ops->clear_uint.image_3d,
         &meta_clear_uav_ops->vk_pipeline_layout_image,
-        SPIRV_CODE(cs_clear_uav_image_3d_uint_spv) },
+        SPIRV_CODE(cs_clear_uav_image_3d_uint) },
     };
 
     memset(meta_clear_uav_ops, 0, sizeof(*meta_clear_uav_ops));
@@ -553,7 +553,7 @@ HRESULT vkd3d_copy_image_ops_init(struct vkd3d_copy_image_ops *meta_copy_image_o
         goto fail;
     }
 
-    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_copy_image_float_spv), &meta_copy_image_ops->vk_fs_module)) < 0)
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_copy_image_float), &meta_copy_image_ops->vk_fs_module)) < 0)
     {
         ERR("Failed to create shader modules, vr %d.\n", vr);
         goto fail;
@@ -778,7 +778,7 @@ static HRESULT vkd3d_meta_ops_common_init(struct vkd3d_meta_ops_common *meta_ops
 
     if (device->vk_info.EXT_shader_viewport_index_layer)
     {
-        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(vs_fullscreen_layer_spv), &meta_ops_common->vk_module_fullscreen_vs)) < 0)
+        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(vs_fullscreen_layer), &meta_ops_common->vk_module_fullscreen_vs)) < 0)
         {
             ERR("Failed to create shader modules, vr %d.\n", vr);
             return hresult_from_vk_result(vr);
@@ -786,8 +786,8 @@ static HRESULT vkd3d_meta_ops_common_init(struct vkd3d_meta_ops_common *meta_ops
     }
     else
     {
-        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(vs_fullscreen_spv), &meta_ops_common->vk_module_fullscreen_vs)) < 0 ||
-            (vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(gs_fullscreen_spv), &meta_ops_common->vk_module_fullscreen_gs)) < 0)
+        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(vs_fullscreen), &meta_ops_common->vk_module_fullscreen_vs)) < 0 ||
+            (vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(gs_fullscreen), &meta_ops_common->vk_module_fullscreen_gs)) < 0)
         {
             ERR("Failed to create shader modules, vr %d.\n", vr);
             return hresult_from_vk_result(vr);
