@@ -67,14 +67,14 @@ FORCEINLINE void vkd3d_atomic_load_barrier(vkd3d_memory_order order)
         case vkd3d_memory_order_seq_cst: result = intrinsic          (__VA_ARGS__); break;  \
     }
 
-FORCEINLINE uint32_t vkd3d_uint32_atomic_load_explicit(uint32_t *target, vkd3d_memory_order order)
+FORCEINLINE uint32_t vkd3d_atomic_uint32_load_explicit(uint32_t *target, vkd3d_memory_order order)
 {
     uint32_t value = *((volatile uint32_t*)target);
     vkd3d_atomic_load_barrier(order);
     return value;
 }
 
-FORCEINLINE void vkd3d_uint32_atomic_store_explicit(uint32_t *target, uint32_t value, vkd3d_memory_order order)
+FORCEINLINE void vkd3d_atomic_uint32_store_explicit(uint32_t *target, uint32_t value, vkd3d_memory_order order)
 {
     switch (order)
     {
@@ -84,10 +84,9 @@ FORCEINLINE void vkd3d_uint32_atomic_store_explicit(uint32_t *target, uint32_t v
         case vkd3d_memory_order_seq_cst:
             (void) InterlockedExchange((LONG*) target, value);
     }
-    
 }
 
-FORCEINLINE uint32_t vkd3d_uint32_atomic_exchange_explicit(uint32_t *target, uint32_t value, vkd3d_memory_order order)
+FORCEINLINE uint32_t vkd3d_atomic_uint32_exchange_explicit(uint32_t *target, uint32_t value, vkd3d_memory_order order)
 {
     uint32_t result;
     vkd3d_atomic_choose_intrinsic(order, result, InterlockedExchange, (LONG*)target, value);
@@ -103,9 +102,9 @@ FORCEINLINE uint32_t vkd3d_uint32_atomic_exchange_explicit(uint32_t *target, uin
 #define vkd3d_memory_order_acq_rel __ATOMIC_ACQ_REL
 #define vkd3d_memory_order_seq_cst __ATOMIC_SEQ_CST 
 
-# define vkd3d_uint32_atomic_load_explicit(target, order)            __atomic_load_n(target, order)
-# define vkd3d_uint32_atomic_store_explicit(target, value, order)    __atomic_store_n(target, value, order)
-# define vkd3d_uint32_atomic_exchange_explicit(target, value, order) __atomic_exchange_n(target, value, order)
+# define vkd3d_atomic_uint32_load_explicit(target, order)            __atomic_load_n(target, order)
+# define vkd3d_atomic_uint32_store_explicit(target, value, order)    __atomic_store_n(target, value, order)
+# define vkd3d_atomic_uint32_exchange_explicit(target, value, order) __atomic_exchange_n(target, value, order)
 
 # ifndef __MINGW32__
 /* Unfortunately only fetch_add is in stdatomic
