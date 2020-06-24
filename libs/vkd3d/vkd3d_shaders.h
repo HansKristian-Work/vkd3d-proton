@@ -20,28 +20,6 @@
 #define __VKD3D_SPV_SHADERS_H
 
 const uint32_t cs_clear_uav_buffer_float_spv[] = {
-#if 0
-#version 450
-
-layout(local_size_x = 128) in;
-
-layout(binding = 0)
-writeonly uniform imageBuffer dst;
-
-layout(push_constant)
-uniform u_info_t {
-  vec4 clear_value;
-  ivec2 dst_offset;
-  ivec2 dst_extent;
-} u_info;
-
-void main() {
-  int thread_id = int(gl_GlobalInvocationID.x);
-  
-  if (thread_id < u_info.dst_extent.x)
-    imageStore(dst, u_info.dst_offset.x + thread_id, u_info.clear_value);
-}
-#endif
     0x07230203,0x00010000,0x00080007,0x00000031,0x00000000,0x00020011,0x00000001,0x00020011,
     0x0000002f,0x00020011,0x00000038,0x0006000b,0x00000001,0x4c534c47,0x6474732e,0x3035342e,
     0x00000000,0x0003000e,0x00000000,0x00000001,0x0006000f,0x00000005,0x00000004,0x6e69616d,
@@ -87,28 +65,6 @@ void main() {
 };
 
 const uint32_t cs_clear_uav_buffer_uint_spv[] = {
-#if 0
-#version 450
-
-layout(local_size_x = 128) in;
-
-layout(binding = 0)
-writeonly uniform uimageBuffer dst;
-
-layout(push_constant)
-uniform u_info_t {
-  uvec4 clear_value;
-  ivec2 dst_offset;
-  ivec2 dst_extent;
-} u_info;
-
-void main() {
-  int thread_id = int(gl_GlobalInvocationID.x);
-  
-  if (thread_id < u_info.dst_extent.x)
-    imageStore(dst, u_info.dst_offset.x + thread_id, u_info.clear_value);
-}
-#endif
     0x07230203,0x00010000,0x00080007,0x00000030,0x00000000,0x00020011,0x00000001,0x00020011,
     0x0000002f,0x00020011,0x00000038,0x0006000b,0x00000001,0x4c534c47,0x6474732e,0x3035342e,
     0x00000000,0x0003000e,0x00000000,0x00000001,0x0006000f,0x00000005,0x00000004,0x6e69616d,
@@ -153,28 +109,6 @@ void main() {
 };
 
 const uint32_t cs_clear_uav_image_1d_array_float_spv[] = {
-#if 0
-#version 450
-
-layout(local_size_x = 64) in;
-
-layout(binding = 0)
-writeonly uniform image1DArray dst;
-
-layout(push_constant)
-uniform u_info_t {
-  vec4 clear_value;
-  ivec2 dst_offset;
-  ivec2 dst_extent;
-} u_info;
-
-void main() {
-  ivec3 thread_id = ivec3(gl_GlobalInvocationID);
-  
-  if (thread_id.x < u_info.dst_extent.x)
-    imageStore(dst, ivec2(u_info.dst_offset.x + thread_id.x, thread_id.y), u_info.clear_value);
-}
-#endif
     0x07230203,0x00010000,0x00080007,0x00000036,0x00000000,0x00020011,0x00000001,0x00020011,
     0x0000002c,0x00020011,0x00000038,0x0006000b,0x00000001,0x4c534c47,0x6474732e,0x3035342e,
     0x00000000,0x0003000e,0x00000000,0x00000001,0x0006000f,0x00000005,0x00000004,0x6e69616d,
@@ -223,28 +157,6 @@ void main() {
 };
 
 const uint32_t cs_clear_uav_image_1d_array_uint_spv[] = {
-#if 0
-#version 450
-
-layout(local_size_x = 64) in;
-
-layout(binding = 0)
-writeonly uniform uimage1DArray dst;
-
-layout(push_constant)
-uniform u_info_t {
-  uvec4 clear_value;
-  ivec2 dst_offset;
-  ivec2 dst_extent;
-} u_info;
-
-void main() {
-  ivec3 thread_id = ivec3(gl_GlobalInvocationID);
-  
-  if (thread_id.x < u_info.dst_extent.x)
-    imageStore(dst, ivec2(u_info.dst_offset.x + thread_id.x, thread_id.y), u_info.clear_value);
-}
-#endif
     0x07230203,0x00010000,0x00080007,0x00000035,0x00000000,0x00020011,0x00000001,0x00020011,
     0x0000002c,0x00020011,0x00000038,0x0006000b,0x00000001,0x4c534c47,0x6474732e,0x3035342e,
     0x00000000,0x0003000e,0x00000000,0x00000001,0x0006000f,0x00000005,0x00000004,0x6e69616d,
@@ -292,28 +204,6 @@ void main() {
 };
 
 const uint32_t cs_clear_uav_image_1d_float_spv[] = {
-#if 0
-#version 450
-
-layout(local_size_x = 64) in;
-
-layout(binding = 0)
-writeonly uniform image1D dst;
-
-layout(push_constant)
-uniform u_info_t {
-  vec4 clear_value;
-  ivec2 dst_offset;
-  ivec2 dst_extent;
-} u_info;
-
-void main() {
-  ivec3 thread_id = ivec3(gl_GlobalInvocationID);
-  
-  if (thread_id.x < u_info.dst_extent.x)
-    imageStore(dst, u_info.dst_offset.x + thread_id.x, u_info.clear_value);
-}
-#endif
     0x07230203,0x00010000,0x00080007,0x00000033,0x00000000,0x00020011,0x00000001,0x00020011,
     0x0000002c,0x00020011,0x00000038,0x0006000b,0x00000001,0x4c534c47,0x6474732e,0x3035342e,
     0x00000000,0x0003000e,0x00000000,0x00000001,0x0006000f,0x00000005,0x00000004,0x6e69616d,
@@ -360,28 +250,6 @@ void main() {
 };
 
 const uint32_t cs_clear_uav_image_1d_uint_spv[] = {
-#if 0
-#version 450
-
-layout(local_size_x = 64) in;
-
-layout(binding = 0)
-writeonly uniform uimage1D dst;
-
-layout(push_constant)
-uniform u_info_t {
-  uvec4 clear_value;
-  ivec2 dst_offset;
-  ivec2 dst_extent;
-} u_info;
-
-void main() {
-  ivec3 thread_id = ivec3(gl_GlobalInvocationID);
-  
-  if (thread_id.x < u_info.dst_extent.x)
-    imageStore(dst, u_info.dst_offset.x + thread_id.x, u_info.clear_value);
-}
-#endif
     0x07230203,0x00010000,0x00080007,0x00000032,0x00000000,0x00020011,0x00000001,0x00020011,
     0x0000002c,0x00020011,0x00000038,0x0006000b,0x00000001,0x4c534c47,0x6474732e,0x3035342e,
     0x00000000,0x0003000e,0x00000000,0x00000001,0x0006000f,0x00000005,0x00000004,0x6e69616d,
@@ -427,28 +295,6 @@ void main() {
 };
 
 const uint32_t cs_clear_uav_image_2d_array_float_spv[] = {
-#if 0
-#version 450
-
-layout(local_size_x = 8, local_size_y = 8) in;
-
-layout(binding = 0)
-writeonly uniform image2DArray dst;
-
-layout(push_constant)
-uniform u_info_t {
-  vec4 clear_value;
-  ivec2 dst_offset;
-  ivec2 dst_extent;
-} u_info;
-
-void main() {
-  ivec3 thread_id = ivec3(gl_GlobalInvocationID);
-  
-  if (all(lessThan(thread_id.xy, u_info.dst_extent.xy)))
-    imageStore(dst, ivec3(u_info.dst_offset.xy + thread_id.xy, thread_id.z), u_info.clear_value);
-}
-#endif
     0x07230203,0x00010000,0x00080007,0x0000003a,0x00000000,0x00020011,0x00000001,0x00020011,
     0x00000038,0x0006000b,0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,
     0x00000000,0x00000001,0x0006000f,0x00000005,0x00000004,0x6e69616d,0x00000000,0x0000000d,
@@ -499,28 +345,6 @@ void main() {
 };
 
 const uint32_t cs_clear_uav_image_2d_array_uint_spv[] = {
-#if 0
-#version 450
-
-layout(local_size_x = 8, local_size_y = 8) in;
-
-layout(binding = 0)
-writeonly uniform uimage2DArray dst;
-
-layout(push_constant)
-uniform u_info_t {
-  uvec4 clear_value;
-  ivec2 dst_offset;
-  ivec2 dst_extent;
-} u_info;
-
-void main() {
-  ivec3 thread_id = ivec3(gl_GlobalInvocationID);
-  
-  if (all(lessThan(thread_id.xy, u_info.dst_extent.xy)))
-    imageStore(dst, ivec3(u_info.dst_offset.xy + thread_id.xy, thread_id.z), u_info.clear_value);
-}
-#endif
     0x07230203,0x00010000,0x00080007,0x00000039,0x00000000,0x00020011,0x00000001,0x00020011,
     0x00000038,0x0006000b,0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,
     0x00000000,0x00000001,0x0006000f,0x00000005,0x00000004,0x6e69616d,0x00000000,0x0000000d,
@@ -571,28 +395,6 @@ void main() {
 };
 
 const uint32_t cs_clear_uav_image_2d_float_spv[] = {
-#if 0
-#version 450
-
-layout(local_size_x = 8, local_size_y = 8) in;
-
-layout(binding = 0)
-writeonly uniform image2D dst;
-
-layout(push_constant)
-uniform u_info_t {
-  vec4 clear_value;
-  ivec2 dst_offset;
-  ivec2 dst_extent;
-} u_info;
-
-void main() {
-  ivec3 thread_id = ivec3(gl_GlobalInvocationID);
-  
-  if (all(lessThan(thread_id.xy, u_info.dst_extent.xy)))
-    imageStore(dst, u_info.dst_offset.xy + thread_id.xy, u_info.clear_value);
-}
-#endif
     0x07230203,0x00010000,0x00080007,0x00000033,0x00000000,0x00020011,0x00000001,0x00020011,
     0x00000038,0x0006000b,0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,
     0x00000000,0x00000001,0x0006000f,0x00000005,0x00000004,0x6e69616d,0x00000000,0x0000000d,
@@ -639,28 +441,6 @@ void main() {
 };
 
 const uint32_t cs_clear_uav_image_2d_uint_spv[] = {
-#if 0
-#version 450
-
-layout(local_size_x = 8, local_size_y = 8) in;
-
-layout(binding = 0)
-writeonly uniform uimage2D dst;
-
-layout(push_constant)
-uniform u_info_t {
-  uvec4 clear_value;
-  ivec2 dst_offset;
-  ivec2 dst_extent;
-} u_info;
-
-void main() {
-  ivec3 thread_id = ivec3(gl_GlobalInvocationID);
-  
-  if (all(lessThan(thread_id.xy, u_info.dst_extent.xy)))
-    imageStore(dst, u_info.dst_offset.xy + thread_id.xy, u_info.clear_value);
-}
-#endif
     0x07230203,0x00010000,0x00080007,0x00000032,0x00000000,0x00020011,0x00000001,0x00020011,
     0x00000038,0x0006000b,0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,
     0x00000000,0x00000001,0x0006000f,0x00000005,0x00000004,0x6e69616d,0x00000000,0x0000000d,
@@ -706,29 +486,6 @@ void main() {
 };
 
 const uint32_t cs_clear_uav_image_3d_float_spv[] = {
-#if 0
-#version 450
-
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
-
-layout(binding = 0)
-writeonly uniform image3D dst;
-
-layout(push_constant)
-uniform u_info_t {
-  vec4 clear_value;
-  ivec2 dst_offset;
-  ivec2 dst_extent;
-} u_info;
-
-void main() {
-  ivec3 thread_id = ivec3(gl_GlobalInvocationID);
-  
-  if (all(lessThan(thread_id.xy, u_info.dst_extent)))
-    imageStore(dst, ivec3(u_info.dst_offset.xy, 0) + thread_id.xyz, u_info.clear_value);
-}
-
-#endif
     0x07230203,0x00010000,0x00080007,0x00000035,0x00000000,0x00020011,0x00000001,0x00020011,
     0x00000038,0x0006000b,0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,
     0x00000000,0x00000001,0x0006000f,0x00000005,0x00000004,0x6e69616d,0x00000000,0x0000000d,
@@ -776,29 +533,6 @@ void main() {
 };
 
 const uint32_t cs_clear_uav_image_3d_uint_spv[] = {
-#if 0
-#version 450
-
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
-
-layout(binding = 0)
-writeonly uniform uimage3D dst;
-
-layout(push_constant)
-uniform u_info_t {
-  uvec4 clear_value;
-  ivec2 dst_offset;
-  ivec2 dst_extent;
-} u_info;
-
-void main() {
-  ivec3 thread_id = ivec3(gl_GlobalInvocationID);
-  
-  if (all(lessThan(thread_id.xy, u_info.dst_extent)))
-    imageStore(dst, ivec3(u_info.dst_offset.xy, 0) + thread_id.xyz, u_info.clear_value);
-}
-
-#endif
     0x07230203,0x00010000,0x00080007,0x00000034,0x00000000,0x00020011,0x00000001,0x00020011,
     0x00000038,0x0006000b,0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,
     0x00000000,0x00000001,0x0006000f,0x00000005,0x00000004,0x6e69616d,0x00000000,0x0000000d,
@@ -846,19 +580,6 @@ void main() {
 };
 
 const uint32_t vs_fullscreen_layer_spv[] = {
-#if 0
-#version 450
-
-#extension GL_ARB_shader_viewport_layer_array : enable
-
-void main() {
-  gl_Layer = gl_InstanceIndex;
-  gl_Position = vec4(
-    float(gl_VertexIndex & 1) * 4.0f - 1.0f,
-    float(gl_VertexIndex & 2) * 2.0f - 1.0f,
-    0.0f, 1.0f);
-}
-#endif
     0x07230203,0x00010000,0x00080008,0x00000029,0x00000000,0x00020011,0x00000001,0x00020011,
     0x00000002,0x00020011,0x00001486,0x000a000a,0x5f565053,0x5f545845,0x64616873,0x765f7265,
     0x70776569,0x5f74726f,0x65646e69,0x616c5f78,0x00726579,0x0006000b,0x00000001,0x4c534c47,
@@ -902,19 +623,6 @@ void main() {
 };
 
 const uint32_t vs_fullscreen_spv[] = {
-#if 0
-#version 450
-
-layout(location = 0) out int o_layer;
-
-void main() {
-  o_layer = gl_InstanceIndex;
-  gl_Position = vec4(
-    float(gl_VertexIndex & 1) * 4.0f - 1.0f,
-    float(gl_VertexIndex & 2) * 2.0f - 1.0f,
-    0.0f, 1.0f);
-}
-#endif
     0x07230203,0x00010000,0x00080008,0x00000029,0x00000000,0x00020011,0x00000001,0x0006000b,
     0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,0x00000000,0x00000001,
     0x0009000f,0x00000000,0x00000004,0x6e69616d,0x00000000,0x00000008,0x0000000a,0x00000013,
@@ -955,24 +663,6 @@ void main() {
 };
 
 const uint32_t gs_fullscreen_spv[] = {
-#if 0
-#version 450
-
-layout(triangles) in;
-layout(triangle_strip, max_vertices = 3) out;
-
-layout(location = 0) in int i_layer[3];
-
-void main() {
-  for (int i = 0; i < 3; i++) {
-    gl_Layer    = i_layer[i];
-    gl_Position = gl_in[i].gl_Position;
-    EmitVertex();
-  }
-
-  EndPrimitive();
-}
-#endif
     0x07230203,0x00010000,0x00080008,0x00000032,0x00000000,0x00020011,0x00000002,0x0006000b,
     0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,0x00000000,0x00000001,
     0x0009000f,0x00000003,0x00000004,0x6e69616d,0x00000000,0x00000014,0x00000019,0x00000024,
@@ -1031,37 +721,6 @@ void main() {
 #define VKD3D_META_COPY_MODE_MS (2)
 
 const uint32_t fs_copy_image_float_spv[] = {
-#if 0
-#version 450
-
-#extension GL_EXT_samplerless_texture_functions : enable
-
-#define MODE_1D 0
-#define MODE_2D 1
-#define MODE_MS 2
-
-layout(constant_id = 0) const uint c_mode = MODE_2D;
-
-layout(binding = 0) uniform texture1DArray tex_1d;
-layout(binding = 0) uniform texture2DArray tex_2d;
-layout(binding = 0) uniform texture2DMSArray tex_ms;
-
-layout(location = 0) out float o_color;
-
-layout(push_constant)
-uniform u_info_t {
-  ivec2 offset;
-} u_info;
-
-void main() {
-  ivec3 coord = ivec3(u_info.offset + ivec2(gl_FragCoord.xy), gl_Layer);
-  float value;
-  if (c_mode == MODE_1D) value = texelFetch(tex_1d, coord.xz, 0).r;
-  if (c_mode == MODE_2D) value = texelFetch(tex_2d, coord, 0).r;
-  if (c_mode == MODE_MS) value = texelFetch(tex_ms, coord, gl_SampleID).r;
-  gl_FragDepth = o_color = value;
-}
-#endif
     0x07230203,0x00010000,0x00080008,0x0000004e,0x00000000,0x00020011,0x00000001,0x00020011,
     0x00000002,0x00020011,0x00000023,0x00020011,0x0000002b,0x0006000b,0x00000001,0x4c534c47,
     0x6474732e,0x3035342e,0x00000000,0x0003000e,0x00000000,0x00000001,0x000a000f,0x00000004,
