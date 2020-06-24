@@ -34,7 +34,7 @@ if vkd3d_platform == 'linux'
   vkd3d_extra_libs = [ lib_dl, threads_dep ]
 elif vkd3d_platform == 'windows'
   lib_dxgi         = vkd3d_compiler.find_library('dxgi')
-  lib_d3d12        = vkd3d_compiler.find_library('d3d12')
+  lib_d3d12        = vkd3d_compiler.find_library('d3d12', required : false)
   vkd3d_extra_libs = [ threads_dep ]
 else
   error('Unknown platform')
@@ -67,6 +67,11 @@ if enable_tests
 endif
 
 if enable_extras
+  if not lib_d3d12.found()
+    lib_d3d12 = vkd3d_utils_dep
+    warning('No d3d12 lib, falling back to vkd3d_utils for extras...')
+  endif
+
   subdir('demos')
   subdir('programs')
 endif
