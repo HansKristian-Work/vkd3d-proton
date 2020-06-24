@@ -177,7 +177,7 @@ static void vkd3d_fence_worker_remove_fence(struct vkd3d_fence_worker *worker, s
     LONG count;
     int rc;
 
-    if (!(count = vkd3d_uint32_atomic_load_explicit(&fence->pending_worker_operation_count, memory_order_acquire)))
+    if (!(count = vkd3d_uint32_atomic_load_explicit(&fence->pending_worker_operation_count, vkd3d_memory_order_acquire)))
         return;
 
     WARN("Waiting for %u pending fence operations (fence %p).\n", count, fence);
@@ -188,7 +188,7 @@ static void vkd3d_fence_worker_remove_fence(struct vkd3d_fence_worker *worker, s
         return;
     }
 
-    while ((count = vkd3d_uint32_atomic_load_explicit(&fence->pending_worker_operation_count, memory_order_acquire)))
+    while ((count = vkd3d_uint32_atomic_load_explicit(&fence->pending_worker_operation_count, vkd3d_memory_order_acquire)))
     {
         TRACE("Still waiting for %u pending fence operations (fence %p).\n", count, fence);
 
@@ -313,7 +313,7 @@ static void *vkd3d_fence_worker_main(void *arg)
     {
         vkd3d_wait_for_gpu_timeline_semaphores(worker);
 
-        if (!worker->fence_count || vkd3d_uint32_atomic_load_explicit(&worker->enqueued_fence_count, memory_order_acquire))
+        if (!worker->fence_count || vkd3d_uint32_atomic_load_explicit(&worker->enqueued_fence_count, vkd3d_memory_order_acquire))
         {
             if ((rc = pthread_mutex_lock(&worker->mutex)))
             {
@@ -1603,7 +1603,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
         TRACE("Resetting command list %p.\n", list);
     }
 
-    if ((pending = vkd3d_uint32_atomic_load_explicit(&allocator->outstanding_submissions_count, memory_order_acquire)) != 0)
+    if ((pending = vkd3d_uint32_atomic_load_explicit(&allocator->outstanding_submissions_count, vkd3d_memory_order_acquire)) != 0)
     {
         /* HACK: There are currently command lists waiting to be submitted to the queue in the submission threads.
          * Buggy application, but work around this by not resetting the command pool this time.

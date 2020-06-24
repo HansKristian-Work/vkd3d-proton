@@ -27,27 +27,27 @@
 
 typedef enum
 {
-    memory_order_relaxed,
-    memory_order_consume,
-    memory_order_acquire,
-    memory_order_release,
-    memory_order_acq_rel,
-    memory_order_seq_cst,
-} memory_order;
+    vkd3d_memory_order_relaxed,
+    vkd3d_memory_order_consume,
+    vkd3d_memory_order_acquire,
+    vkd3d_memory_order_release,
+    vkd3d_memory_order_acq_rel,
+    vkd3d_memory_order_seq_cst,
+} vkd3d_memory_order;
 
 # define vkd3d_atomic_rw_barrier() _ReadWriteBarrier()
 
-FORCEINLINE void vkd3d_atomic_load_barrier(memory_order order)
+FORCEINLINE void vkd3d_atomic_load_barrier(vkd3d_memory_order order)
 {
     switch (order)
     {
-        case memory_order_consume:
-        case memory_order_acquire:
-        case memory_order_seq_cst:
+        case vkd3d_memory_order_consume:
+        case vkd3d_memory_order_acquire:
+        case vkd3d_memory_order_seq_cst:
             vkd3d_atomic_rw_barrier();
             break;
 
-        case memory_order_relaxed:
+        case vkd3d_memory_order_relaxed:
         default:
             break;
     }
@@ -56,38 +56,38 @@ FORCEINLINE void vkd3d_atomic_load_barrier(memory_order order)
 // Redefinitions for invalid memory orders...
 #define InterlockedExchangeRelease InterlockedExchange
 
-#define vkd3d_atomic_choose_intrinsic(order, result, intrinsic, ...)                        \
-    switch (order)                                                                          \
-    {                                                                                       \
-        case memory_order_relaxed: result = intrinsic##NoFence  (__VA_ARGS__); break;       \
-        case memory_order_consume:                                                          \
-        case memory_order_acquire: result = intrinsic##Acquire (__VA_ARGS__); break;        \
-        case memory_order_release: result = intrinsic##Release (__VA_ARGS__); break;        \
-        case memory_order_acq_rel:                                                          \
-        case memory_order_seq_cst: result = intrinsic          (__VA_ARGS__); break;        \
+#define vkd3d_atomic_choose_intrinsic(order, result, intrinsic, ...)                     \
+    switch (order)                                                                       \
+    {                                                                                    \
+        case vkd3d_memory_order_relaxed: result = intrinsic##NoFence  (__VA_ARGS__); break; \
+        case vkd3d_memory_order_consume:                                                    \
+        case vkd3d_memory_order_acquire: result = intrinsic##Acquire (__VA_ARGS__); break;  \
+        case vkd3d_memory_order_release: result = intrinsic##Release (__VA_ARGS__); break;  \
+        case vkd3d_memory_order_acq_rel:                                                    \
+        case vkd3d_memory_order_seq_cst: result = intrinsic          (__VA_ARGS__); break;  \
     }
 
-FORCEINLINE uint32_t vkd3d_uint32_atomic_load_explicit(uint32_t *target, memory_order order)
+FORCEINLINE uint32_t vkd3d_uint32_atomic_load_explicit(uint32_t *target, vkd3d_memory_order order)
 {
     uint32_t value = *((volatile uint32_t*)target);
     vkd3d_atomic_load_barrier(order);
     return value;
 }
 
-FORCEINLINE void vkd3d_uint32_atomic_store_explicit(uint32_t *target, uint32_t value, memory_order order)
+FORCEINLINE void vkd3d_uint32_atomic_store_explicit(uint32_t *target, uint32_t value, vkd3d_memory_order order)
 {
     switch (order)
     {
-        case memory_order_release: vkd3d_atomic_rw_barrier(); // fallthrough...
-        case memory_order_relaxed: *((volatile uint32_t*)target) = value; break;
+        case vkd3d_memory_order_release: vkd3d_atomic_rw_barrier(); // fallthrough...
+        case vkd3d_memory_order_relaxed: *((volatile uint32_t*)target) = value; break;
         default:
-        case memory_order_seq_cst:
+        case vkd3d_memory_order_seq_cst:
             (void) InterlockedExchange((LONG*) target, value);
     }
     
 }
 
-FORCEINLINE uint32_t vkd3d_uint32_atomic_exchange_explicit(uint32_t *target, uint32_t value, memory_order order)
+FORCEINLINE uint32_t vkd3d_uint32_atomic_exchange_explicit(uint32_t *target, uint32_t value, vkd3d_memory_order order)
 {
     uint32_t result;
     vkd3d_atomic_choose_intrinsic(order, result, InterlockedExchange, (LONG*)target, value);
@@ -96,7 +96,12 @@ FORCEINLINE uint32_t vkd3d_uint32_atomic_exchange_explicit(uint32_t *target, uin
 
 #elif defined(__GNUC__) || defined(__clang__)
 
-# include <stdatomic.h>
+#define vkd3d_memory_order_relaxed __ATOMIC_RELAXED
+#define vkd3d_memory_order_consume __ATOMIC_CONSUME
+#define vkd3d_memory_order_acquire __ATOMIC_ACQUIRE
+#define vkd3d_memory_order_release __ATOMIC_RELEASE
+#define vkd3d_memory_order_acq_rel __ATOMIC_ACQ_REL
+#define vkd3d_memory_order_seq_cst __ATOMIC_SEQ_CST 
 
 # define vkd3d_uint32_atomic_load_explicit(target, order)            __atomic_load_n(target, order)
 # define vkd3d_uint32_atomic_store_explicit(target, value, order)    __atomic_store_n(target, value, order)
@@ -105,8 +110,8 @@ FORCEINLINE uint32_t vkd3d_uint32_atomic_exchange_explicit(uint32_t *target, uin
 # ifndef __MINGW32__
 /* Unfortunately only fetch_add is in stdatomic
  * so use the common GCC extensions for these. */
-#  define InterlockedIncrement(target) __atomic_add_fetch(target, 1, memory_order_seq_cst)
-#  define InterlockedDecrement(target) __atomic_sub_fetch(target, 1, memory_order_seq_cst)
+#  define InterlockedIncrement(target) __atomic_add_fetch(target, 1, vkd3d_memory_order_seq_cst)
+#  define InterlockedDecrement(target) __atomic_sub_fetch(target, 1, vkd3d_memory_order_seq_cst)
 # endif
 
 #else
