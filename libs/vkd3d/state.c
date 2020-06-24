@@ -2492,6 +2492,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         goto fail;
 
     graphics->instance_divisor_count = 0;
+    graphics->attribute_binding_count = 0;
     for (i = 0, j = 0, mask = 0; i < graphics->attribute_count; ++i)
     {
         const D3D12_INPUT_ELEMENT_DESC *e = &desc->input_layout.pInputElementDescs[i];
@@ -2570,6 +2571,14 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             binding_divisor = &graphics->instance_divisors[graphics->instance_divisor_count++];
             binding_divisor->binding = e->InputSlot;
             binding_divisor->divisor = instance_divisor;
+        }
+
+        if (!(mask & (1u << e->InputSlot)))
+        {
+            VkVertexInputBindingDescription *binding = &graphics->attribute_bindings[graphics->attribute_binding_count++];
+            binding->binding = e->InputSlot;
+            binding->inputRate = input_rate;
+            binding->stride = 0; /* To be filled in later. */
         }
         mask |= 1u << e->InputSlot;
     }
@@ -2834,7 +2843,7 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
     return compiled_pipeline;
 }
 
-VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
+VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass)
 {
     VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
@@ -2847,7 +2856,6 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     struct d3d12_device *device = state->device;
     VkGraphicsPipelineCreateInfo pipeline_desc;
     VkPipelineViewportStateCreateInfo vp_desc;
-    struct vkd3d_pipeline_key pipeline_key;
     size_t binding_count = 0;
     VkPipeline vk_pipeline;
     unsigned int i;
@@ -2855,47 +2863,16 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     VkResult vr;
     HRESULT hr;
 
-    assert(d3d12_pipeline_state_is_graphics(state));
+    memcpy(bindings, graphics->attribute_bindings, graphics->attribute_binding_count * sizeof(*bindings));
 
-    memset(&pipeline_key, 0, sizeof(pipeline_key));
-    pipeline_key.topology = dyn_state->primitive_topology;
-    pipeline_key.viewport_count = max(dyn_state->viewport_count, 1);
-
-    for (i = 0, mask = 0; i < graphics->attribute_count; ++i)
-    {
-        struct VkVertexInputBindingDescription *b;
-        uint32_t binding;
-
-        binding = graphics->attributes[i].binding;
-        if (mask & (1u << binding))
-            continue;
-
-        if (binding_count == ARRAY_SIZE(bindings))
-        {
-            FIXME("Maximum binding count exceeded.\n");
-            break;
-        }
-
-        mask |= 1u << binding;
-        b = &bindings[binding_count];
-        b->binding = binding;
-        b->stride = dyn_state->vertex_strides[binding];
-        b->inputRate = graphics->input_rates[binding];
-
-        pipeline_key.strides[binding_count] = b->stride;
-
-        ++binding_count;
-    }
-
-    pipeline_key.dsv_format = dsv_format;
-
-    if ((vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, vk_render_pass)))
-        return vk_pipeline;
+    /* If not using extended dynamic state, set static vertex stride. */
+    for (i = 0; i < graphics->attribute_binding_count; i++)
+        bindings[i].stride = dyn_state->vertex_strides[bindings[i].binding];
 
     input_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     input_desc.pNext = NULL;
     input_desc.flags = 0;
-    input_desc.vertexBindingDescriptionCount = binding_count;
+    input_desc.vertexBindingDescriptionCount = graphics->attribute_binding_count;
     input_desc.pVertexBindingDescriptions = bindings;
     input_desc.vertexAttributeDescriptionCount = graphics->attribute_count;
     input_desc.pVertexAttributeDescriptions = graphics->attributes;
@@ -2925,9 +2902,9 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     vp_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
     vp_desc.pNext = NULL;
     vp_desc.flags = 0;
-    vp_desc.viewportCount = pipeline_key.viewport_count;
+    vp_desc.viewportCount = max(dyn_state->viewport_count, 1);
     vp_desc.pViewports = NULL;
-    vp_desc.scissorCount = pipeline_key.viewport_count;
+    vp_desc.scissorCount = max(dyn_state->viewport_count, 1);
     vp_desc.pScissors = NULL;
 
     pipeline_desc.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -2969,9 +2946,53 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         return VK_NULL_HANDLE;
     }
 
-    if (d3d12_pipeline_state_put_pipeline_to_cache(state, &pipeline_key, vk_pipeline, pipeline_desc.renderPass))
+    return vk_pipeline;
+}
+
+VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
+        const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+    struct d3d12_device *device = state->device;
+    struct vkd3d_pipeline_key pipeline_key;
+    size_t binding_count = 0;
+    VkPipeline vk_pipeline;
+    unsigned int i;
+    uint32_t mask;
+    VkResult vr;
+
+    assert(d3d12_pipeline_state_is_graphics(state));
+
+    memset(&pipeline_key, 0, sizeof(pipeline_key));
+    pipeline_key.topology = dyn_state->primitive_topology;
+    pipeline_key.viewport_count = max(dyn_state->viewport_count, 1);
+
+    for (i = 0, mask = 0; i < graphics->attribute_count; ++i)
+    {
+        uint32_t binding = graphics->attributes[i].binding;
+        if (mask & (1u << binding))
+            continue;
+
+        mask |= 1u << binding;
+        pipeline_key.strides[binding_count] = dyn_state->vertex_strides[binding];
+        ++binding_count;
+    }
+
+    pipeline_key.dsv_format = dsv_format;
+
+    if ((vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, vk_render_pass)))
         return vk_pipeline;
 
+    vk_pipeline = d3d12_pipeline_state_create_pipeline_variant(state, dyn_state, dsv_format, vk_render_pass);
+    if (!vk_pipeline)
+    {
+        ERR("Failed to create pipeline.\n");
+        return VK_NULL_HANDLE;
+    }
+
+    if (d3d12_pipeline_state_put_pipeline_to_cache(state, &pipeline_key, vk_pipeline, *vk_render_pass))
+        return vk_pipeline;
     /* Other thread compiled the pipeline before us. */
     VK_CALL(vkDestroyPipeline(device->vk_device, vk_pipeline, NULL));
     vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, vk_render_pass);
