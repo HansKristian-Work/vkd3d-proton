@@ -25,6 +25,14 @@
  * which leads to the "multiple storage classes in declaration
  * specifiers" compiler error.
  */
+#ifdef __MINGW32__
+#include <_mingw.h>
+# ifdef __MINGW64_VERSION_MAJOR
+#  undef __forceinline
+#  define __forceinline __inline__ __attribute__((__always_inline__,__gnu_inline__))
+# endif
+#endif
+
 #include <vkd3d_windows.h>
 #define WIDL_C_INLINE_WRAPPERS
 #define COBJMACROS
