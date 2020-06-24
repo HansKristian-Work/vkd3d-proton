@@ -2219,6 +2219,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     state->refcount = 1;
 
     graphics->stage_count = 0;
+    graphics->primitive_topology_type = desc->primitive_topology_type;
 
     memset(&input_signature, 0, sizeof(input_signature));
 
