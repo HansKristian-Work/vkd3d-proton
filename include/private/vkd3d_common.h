@@ -115,12 +115,54 @@ static inline unsigned int vkd3d_bitmask_tzcnt64(uint64_t mask)
 #endif
 }
 
+/* Returns 32 for mask == 0 */
+static inline unsigned int vkd3d_bitmask_tzcnt32(uint32_t mask)
+{
+#ifdef _MSC_VER
+    unsigned long result;
+    _BitScanForward(&result, mask) ? result : 32;
+    return result;
+#elif defined(__GNUC__) || defined(__clang__)
+    return mask ? __builtin_ctz(mask) : 32;
+#else
+    #error "No implementation for ctz."
+#endif
+}
+
 /* find least significant bit, then remove that bit from mask */
 static inline unsigned int vkd3d_bitmask_iter64(uint64_t* mask)
 {
     uint64_t cur_mask = *mask;
     *mask = cur_mask & (cur_mask - 1);
     return vkd3d_bitmask_tzcnt64(cur_mask);
+}
+
+struct vkd3d_bitmask_range
+{
+    unsigned int offset;
+    unsigned int count;
+};
+
+static inline struct vkd3d_bitmask_range vkd3d_bitmask_iter32_range(uint32_t *mask)
+{
+    struct vkd3d_bitmask_range range;
+    uint32_t tmp;
+
+    if (*mask == ~0u)
+    {
+        range.offset = 0;
+        range.count = 32;
+        *mask = 0u;
+    }
+    else
+    {
+        range.offset = vkd3d_bitmask_tzcnt32(*mask);
+        tmp = *mask >> range.offset;
+        range.count = vkd3d_bitmask_tzcnt32(~tmp);
+        *mask &= ~(((1u << range.count) - 1u) << range.offset);
+    }
+
+    return range;
 }
 
 /* Undefined for x == 0. */
