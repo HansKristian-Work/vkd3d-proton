@@ -58,8 +58,6 @@ FORCEINLINE uint32_t vkd3d_uint32_atomic_exchange_explicit(uint32_t *target, uin
     return oldValue;
 }
 
-#define _Atomic
-
 #elif defined(__GNUC__) || defined(__clang__)
 
 # include <stdatomic.h>
