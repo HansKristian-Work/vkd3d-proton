@@ -1937,6 +1937,8 @@ VkResult vkd3d_set_vk_object_name_utf8(struct d3d12_device *device, uint64_t vk_
 HRESULT vkd3d_set_vk_object_name(struct d3d12_device *device, uint64_t vk_object,
         VkObjectType vk_object_type, const WCHAR *name) DECLSPEC_HIDDEN;
 
+enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_TOPOLOGY topology) DECLSPEC_HIDDEN;
+
 static inline void vk_prepend_struct(void *header, void *structure)
 {
     VkBaseOutStructure *vk_header = header, *vk_structure = structure;
