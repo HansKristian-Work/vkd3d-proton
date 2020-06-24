@@ -2122,10 +2122,12 @@ static bool vk_blend_attachment_needs_blend_constants(const VkPipelineColorBlend
             vk_blend_factor_needs_blend_constants(attachment->dstAlphaBlendFactor));
 }
 
-static void d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_graphics_pipeline_state *graphics)
+static void d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_graphics_pipeline_state *graphics,
+        bool supports_extended_dynamic_state)
 {
+    VkPipelineDynamicStateCreateInfo *dynamic_desc_fallback = &graphics->dynamic_desc_fallback;
     VkPipelineDynamicStateCreateInfo *dynamic_desc = &graphics->dynamic_desc;
-    unsigned int i, j;
+    unsigned int i, count, count_fallback;
 
     static const struct
     {
@@ -2134,46 +2136,86 @@ static void d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_graphi
     }
     dynamic_state_list[] =
     {
-        { VKD3D_DYNAMIC_STATE_VIEWPORT,           VK_DYNAMIC_STATE_VIEWPORT           },
-        { VKD3D_DYNAMIC_STATE_SCISSOR,            VK_DYNAMIC_STATE_SCISSOR            },
-        { VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS,    VK_DYNAMIC_STATE_BLEND_CONSTANTS    },
-        { VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE,  VK_DYNAMIC_STATE_STENCIL_REFERENCE  },
-        { VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS,       VK_DYNAMIC_STATE_DEPTH_BOUNDS       },
+        { VKD3D_DYNAMIC_STATE_VIEWPORT,             VK_DYNAMIC_STATE_VIEWPORT },
+        { VKD3D_DYNAMIC_STATE_SCISSOR,              VK_DYNAMIC_STATE_SCISSOR },
+        { VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT,       VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT_EXT },
+        { VKD3D_DYNAMIC_STATE_SCISSOR_COUNT,        VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT_EXT },
+        { VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS,      VK_DYNAMIC_STATE_BLEND_CONSTANTS },
+        { VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE,    VK_DYNAMIC_STATE_STENCIL_REFERENCE },
+        { VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS,         VK_DYNAMIC_STATE_DEPTH_BOUNDS },
+        { VKD3D_DYNAMIC_STATE_TOPOLOGY,             VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY_EXT },
+        { VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE, VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE_EXT },
     };
 
+    graphics->dynamic_state_flags = 0;
+    graphics->dynamic_state_flags_fallback = 0;
+
     /* Enable dynamic states as necessary */
-    graphics->dynamic_state_flags = VKD3D_DYNAMIC_STATE_VIEWPORT | VKD3D_DYNAMIC_STATE_SCISSOR;
+    if (supports_extended_dynamic_state)
+    {
+        graphics->dynamic_state_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT | VKD3D_DYNAMIC_STATE_SCISSOR_COUNT;
+        graphics->dynamic_state_flags |= VKD3D_DYNAMIC_STATE_TOPOLOGY;
+    }
+    else
+        graphics->dynamic_state_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT | VKD3D_DYNAMIC_STATE_SCISSOR;
+
+    graphics->dynamic_state_flags_fallback |= VKD3D_DYNAMIC_STATE_VIEWPORT | VKD3D_DYNAMIC_STATE_SCISSOR;
+
+    if (graphics->vertex_buffer_mask)
+    {
+        graphics->dynamic_state_flags |= supports_extended_dynamic_state ?
+                                         VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE : VKD3D_DYNAMIC_STATE_VERTEX_BUFFER;
+        graphics->dynamic_state_flags_fallback |= VKD3D_DYNAMIC_STATE_VERTEX_BUFFER;
+    }
 
     if (graphics->ds_desc.stencilTestEnable)
+    {
         graphics->dynamic_state_flags |= VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE;
+        graphics->dynamic_state_flags_fallback |= VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE;
+    }
 
     if (graphics->ds_desc.depthBoundsTestEnable)
+    {
         graphics->dynamic_state_flags |= VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS;
+        graphics->dynamic_state_flags_fallback |= VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS;
+    }
 
     for (i = 0; i < graphics->rt_count; i++)
     {
         if (vk_blend_attachment_needs_blend_constants(&graphics->blend_attachments[i]))
+        {
             graphics->dynamic_state_flags |= VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS;
+            graphics->dynamic_state_flags_fallback |= VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS;
+        }
     }
 
     /* Build dynamic state create info */
-    for (i = 0, j = 0; i < ARRAY_SIZE(dynamic_state_list); i++)
+    for (i = 0, count = 0, count_fallback = 0; i < ARRAY_SIZE(dynamic_state_list); i++)
     {
         if (graphics->dynamic_state_flags & dynamic_state_list[i].flag)
-            graphics->dynamic_states[j++] = dynamic_state_list[i].vk_state;
+            graphics->dynamic_states[count++] = dynamic_state_list[i].vk_state;
+        if (graphics->dynamic_state_flags_fallback & dynamic_state_list[i].flag)
+            graphics->dynamic_states_fallback[count_fallback++] = dynamic_state_list[i].vk_state;
     }
 
     dynamic_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamic_desc->pNext = NULL;
     dynamic_desc->flags = 0;
-    dynamic_desc->dynamicStateCount = j;
+    dynamic_desc->dynamicStateCount = count;
     dynamic_desc->pDynamicStates = graphics->dynamic_states;
+
+    dynamic_desc_fallback->sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamic_desc_fallback->pNext = NULL;
+    dynamic_desc_fallback->flags = 0;
+    dynamic_desc_fallback->dynamicStateCount = count_fallback;
+    dynamic_desc_fallback->pDynamicStates = graphics->dynamic_states_fallback;
 }
 
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
+    bool have_attachment, is_dsv_format_unknown, supports_extended_dynamic_state;
     unsigned int ps_output_swizzle[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -2189,7 +2231,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
     struct vkd3d_shader_signature input_signature;
-    bool have_attachment, is_dsv_format_unknown;
     VkShaderStageFlagBits xfb_stage = 0;
     VkSampleCountFlagBits sample_count;
     const struct vkd3d_format *format;
@@ -2586,6 +2627,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         mask |= 1u << e->InputSlot;
     }
     graphics->attribute_count = j;
+    graphics->vertex_buffer_mask = mask;
     vkd3d_shader_free_shader_signature(&input_signature);
 
     switch (desc->strip_cut_value)
@@ -2637,26 +2679,36 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         goto fail;
     }
 
-    /* We defer creating the render pass for pipelines wth DSVFormat equal to
-     * DXGI_FORMAT_UNKNOWN. We take the actual DSV format from the bound DSV. */
-    if (is_dsv_format_unknown)
-        graphics->render_pass = VK_NULL_HANDLE;
+    /* TODO: There is no dynamic patch count, so we'll need to reflect the control point count to create pipeline early. */
+    supports_extended_dynamic_state = device->device_info.extended_dynamic_state_features.extendedDynamicState &&
+            desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+
+    d3d12_graphics_pipeline_state_init_dynamic_state(graphics, supports_extended_dynamic_state);
+
+    graphics->pipeline = VK_NULL_HANDLE;
+    graphics->root_signature = root_signature;
+    state->device = device;
+
+    if (supports_extended_dynamic_state)
+    {
+        /* If we have EXT_extended_dynamic_state, we can compile a pipeline right here.
+         * There are still some edge cases where we need to fall back to special pipelines, but that should be very rare. */
+        graphics->pipeline = d3d12_pipeline_state_create_pipeline_variant(state, NULL, graphics->dsv_format,
+                                                                          &graphics->render_pass);
+        if (!graphics->pipeline)
+            goto fail;
+    }
     else if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics,
             device, 0, &graphics->render_pass, &graphics->dsv_layout)))
         goto fail;
 
-    d3d12_graphics_pipeline_state_init_dynamic_state(graphics);
-
-    graphics->root_signature = root_signature;
-
     list_init(&graphics->compiled_fallback_pipelines);
-    graphics->pipeline = VK_NULL_HANDLE;
 
     if (FAILED(hr = vkd3d_private_store_init(&state->private_store)))
         goto fail;
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    d3d12_device_add_ref(state->device = device);
+    d3d12_device_add_ref(state->device);
 
     return S_OK;
 
@@ -2884,18 +2936,19 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     struct d3d12_device *device = state->device;
     VkGraphicsPipelineCreateInfo pipeline_desc;
     VkPipelineViewportStateCreateInfo vp_desc;
-    size_t binding_count = 0;
     VkPipeline vk_pipeline;
     unsigned int i;
-    uint32_t mask;
     VkResult vr;
     HRESULT hr;
 
     memcpy(bindings, graphics->attribute_bindings, graphics->attribute_binding_count * sizeof(*bindings));
 
-    /* If not using extended dynamic state, set static vertex stride. */
-    for (i = 0; i < graphics->attribute_binding_count; i++)
-        bindings[i].stride = dyn_state->vertex_strides[bindings[i].binding];
+    if (dyn_state)
+    {
+        /* If not using extended dynamic state, set static vertex stride. */
+        for (i = 0; i < graphics->attribute_binding_count; i++)
+            bindings[i].stride = dyn_state->vertex_strides[bindings[i].binding];
+    }
 
     input_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     input_desc.pNext = NULL;
@@ -2917,22 +2970,26 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     ia_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     ia_desc.pNext = NULL;
     ia_desc.flags = 0;
-    ia_desc.topology = vk_topology_from_d3d12_topology(dyn_state->primitive_topology);
+    ia_desc.topology = dyn_state ?
+            vk_topology_from_d3d12_topology(dyn_state->primitive_topology) :
+            vk_topology_from_d3d12_topology_type(graphics->primitive_topology_type);
     ia_desc.primitiveRestartEnable = graphics->index_buffer_strip_cut_value &&
-                                     vkd3d_topology_can_restart(ia_desc.topology);
+                                     (dyn_state ?
+                                      vkd3d_topology_can_restart(ia_desc.topology) :
+                                      vkd3d_topology_type_can_restart(graphics->primitive_topology_type));
 
     tessellation_info.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
     tessellation_info.pNext = NULL;
     tessellation_info.flags = 0;
     tessellation_info.patchControlPoints
-            = max(dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1, 1);
+            = dyn_state ? max(dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1, 1) : 0;
 
     vp_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
     vp_desc.pNext = NULL;
     vp_desc.flags = 0;
-    vp_desc.viewportCount = max(dyn_state->viewport_count, 1);
+    vp_desc.viewportCount = dyn_state ? max(dyn_state->viewport_count, 1) : 0;
     vp_desc.pViewports = NULL;
-    vp_desc.scissorCount = max(dyn_state->viewport_count, 1);
+    vp_desc.scissorCount = dyn_state ? max(dyn_state->viewport_count, 1) : 0;
     vp_desc.pScissors = NULL;
 
     pipeline_desc.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -2948,22 +3005,22 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     pipeline_desc.pMultisampleState = &graphics->ms_desc;
     pipeline_desc.pDepthStencilState = &graphics->ds_desc;
     pipeline_desc.pColorBlendState = &graphics->blend_desc;
-    pipeline_desc.pDynamicState = &graphics->dynamic_desc;
+    pipeline_desc.pDynamicState = dyn_state ? &graphics->dynamic_desc_fallback : &graphics->dynamic_desc;
     pipeline_desc.layout = graphics->root_signature->vk_pipeline_layout;
     pipeline_desc.subpass = 0;
     pipeline_desc.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_desc.basePipelineIndex = -1;
 
-    /* Create a render pass for pipelines with DXGI_FORMAT_UNKNOWN. */
-    if (!(pipeline_desc.renderPass = graphics->render_pass))
-    {
-        if (graphics->null_attachment_mask & dsv_attachment_mask(graphics))
-            TRACE("Compiling %p with DSV format %#x.\n", state, dsv_format);
+    pipeline_desc.renderPass = graphics->render_pass;
 
-        if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device, dsv_format,
-                &pipeline_desc.renderPass, &graphics->dsv_layout)))
-            return VK_NULL_HANDLE;
-    }
+    /* A workaround for SottR, which creates pipelines with DSV_UNKNOWN, but still insists on using a depth buffer.
+     * If we notice that the base pipeline's DSV format does not match the dynamic DSV format, we fall-back to create a new render pass. */
+    if (graphics->dsv_format != dsv_format && (graphics->null_attachment_mask & dsv_attachment_mask(graphics)))
+        TRACE("Compiling %p with fallback DSV format %#x.\n", state, dsv_format);
+
+    if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device, dsv_format,
+            &pipeline_desc.renderPass, &graphics->dsv_layout)))
+        return VK_NULL_HANDLE;
 
     *vk_render_pass = pipeline_desc.renderPass;
 
@@ -2977,6 +3034,22 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     return vk_pipeline;
 }
 
+VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
+        const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass)
+{
+    if (!state->graphics.pipeline)
+        return VK_NULL_HANDLE;
+
+    /* Unknown DSV format workaround. */
+    if (dsv_format != state->graphics.dsv_format)
+        return VK_NULL_HANDLE;
+
+    /* TODO: Validate vertex stride. */
+
+    *vk_render_pass = state->graphics.render_pass;
+    return state->graphics.pipeline;
+}
+
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass)
 {
@@ -2988,7 +3061,6 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     VkPipeline vk_pipeline;
     unsigned int i;
     uint32_t mask;
-    VkResult vr;
 
     assert(d3d12_pipeline_state_is_graphics(state));
 
@@ -3011,6 +3083,9 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
 
     if ((vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, vk_render_pass)))
         return vk_pipeline;
+
+    if (!device->device_info.extended_dynamic_state_features.extendedDynamicState)
+        FIXME("Extended dynamic state is supported, but compiling a fallback pipeline late!\n");
 
     vk_pipeline = d3d12_pipeline_state_create_pipeline_variant(state, dyn_state, dsv_format, vk_render_pass);
     if (!vk_pipeline)

@@ -876,15 +876,20 @@ struct d3d12_root_signature *unsafe_impl_from_ID3D12RootSignature(ID3D12RootSign
 int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *desc) DECLSPEC_HIDDEN;
 
-#define VKD3D_MAX_DYNAMIC_STATE_COUNT (5)
+#define VKD3D_MAX_DYNAMIC_STATE_COUNT (7)
 
 enum vkd3d_dynamic_state_flag
 {
-    VKD3D_DYNAMIC_STATE_VIEWPORT          = (1 << 0),
-    VKD3D_DYNAMIC_STATE_SCISSOR           = (1 << 1),
-    VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS   = (1 << 2),
-    VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE = (1 << 3),
-    VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS      = (1 << 4),
+    VKD3D_DYNAMIC_STATE_VIEWPORT             = (1 << 0),
+    VKD3D_DYNAMIC_STATE_SCISSOR              = (1 << 1),
+    VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS      = (1 << 2),
+    VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE    = (1 << 3),
+    VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS         = (1 << 4),
+    VKD3D_DYNAMIC_STATE_TOPOLOGY             = (1 << 5),
+    VKD3D_DYNAMIC_STATE_VERTEX_BUFFER        = (1 << 6),
+    VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT       = (1 << 7),
+    VKD3D_DYNAMIC_STATE_SCISSOR_COUNT        = (1 << 8),
+    VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE = (1 << 9),
 };
 
 struct d3d12_graphics_pipeline_state
@@ -900,6 +905,7 @@ struct d3d12_graphics_pipeline_state
     size_t attribute_binding_count;
     size_t attribute_count;
     D3D12_PRIMITIVE_TOPOLOGY_TYPE primitive_topology_type;
+    uint32_t vertex_buffer_mask;
 
     VkPipelineColorBlendAttachmentState blend_attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     unsigned int rt_count;
@@ -921,8 +927,11 @@ struct d3d12_graphics_pipeline_state
 
     VkDynamicState dynamic_states[VKD3D_MAX_DYNAMIC_STATE_COUNT];
     VkPipelineDynamicStateCreateInfo dynamic_desc;
+    VkDynamicState dynamic_states_fallback[VKD3D_MAX_DYNAMIC_STATE_COUNT];
+    VkPipelineDynamicStateCreateInfo dynamic_desc_fallback;
 
     uint32_t dynamic_state_flags; /* vkd3d_dynamic_state_flag */
+    uint32_t dynamic_state_flags_fallback; /* vkd3d_dynamic_state_flag */
 
     const struct d3d12_root_signature *root_signature;
 
@@ -1011,6 +1020,8 @@ struct d3d12_pipeline_state_desc
 HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
         const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
+        const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass) DECLSPEC_HIDDEN;
+VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass) DECLSPEC_HIDDEN;
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass) DECLSPEC_HIDDEN;
@@ -1157,7 +1168,10 @@ struct d3d12_deferred_descriptor_set_update
 
 struct vkd3d_dynamic_state
 {
+    uint32_t active_flags; /* vkd3d_dynamic_state_flags */
     uint32_t dirty_flags; /* vkd3d_dynamic_state_flags */
+    uint32_t dirty_vbos;
+    uint32_t dirty_vbo_strides;
 
     uint32_t viewport_count;
     VkViewport viewports[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
@@ -1169,8 +1183,13 @@ struct vkd3d_dynamic_state
     float min_depth_bounds;
     float max_depth_bounds;
 
-    uint32_t vertex_strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    VkBuffer vertex_buffers[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    VkDeviceSize vertex_offsets[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    VkDeviceSize vertex_sizes[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    VkDeviceSize vertex_strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+
     D3D12_PRIMITIVE_TOPOLOGY primitive_topology;
+    VkPrimitiveTopology vk_primitive_topology;
 };
 
 /* ID3D12CommandList */
@@ -1947,5 +1966,7 @@ static inline void vk_prepend_struct(void *header, void *structure)
     vk_structure->pNext = vk_header->pNext;
     vk_header->pNext = vk_structure;
 }
+
+#define VKD3D_NULL_BUFFER_SIZE 16
 
 #endif  /* __VKD3D_PRIVATE_H */

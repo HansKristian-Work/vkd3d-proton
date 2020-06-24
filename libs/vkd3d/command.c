@@ -1792,9 +1792,14 @@ static void d3d12_command_list_invalidate_current_framebuffer(struct d3d12_comma
     list->current_framebuffer = VK_NULL_HANDLE;
 }
 
-static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_list *list)
+static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_list *list, bool meta_shader)
 {
     list->current_pipeline = VK_NULL_HANDLE;
+
+    /* If we're binding a meta shader, invalidate everything.
+     * Next time we bind a user pipeline, we need to reapply all dynamic state. */
+    if (meta_shader)
+        list->dynamic_state.active_flags = 0;
 }
 
 static bool d3d12_command_list_create_framebuffer(struct d3d12_command_list *list, VkRenderPass render_pass,
@@ -2830,6 +2835,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->dynamic_state.max_depth_bounds = 1.0f;
 
     list->dynamic_state.primitive_topology = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
+    list->dynamic_state.vk_primitive_topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
 
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
     memset(list->descriptor_heaps, 0, sizeof(list->descriptor_heaps));
@@ -3020,6 +3026,7 @@ static bool d3d12_command_list_update_compute_pipeline(struct d3d12_command_list
 
     VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, list->state->compute.vk_pipeline));
     list->current_pipeline = list->state->compute.vk_pipeline;
+    list->dynamic_state.active_flags = 0;
 
     return true;
 }
@@ -3028,6 +3035,7 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkRenderPass vk_render_pass;
+    uint32_t new_active_flags;
     VkPipeline vk_pipeline;
     VkFormat dsv_format;
 
@@ -3042,9 +3050,19 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
 
     dsv_format = list->dsv.format ? list->dsv.format->vk_format : VK_FORMAT_UNDEFINED;
 
-    if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
+    /* Try to grab the pipeline we compiled ahead of time. If we cannot do so, fall back. */
+    if (!(vk_pipeline = d3d12_pipeline_state_get_pipeline(list->state,
             &list->dynamic_state, dsv_format, &vk_render_pass)))
-        return false;
+    {
+        if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
+                &list->dynamic_state, dsv_format,
+                &vk_render_pass)))
+            return false;
+
+        new_active_flags = list->state->graphics.dynamic_state_flags_fallback;
+    }
+    else
+        new_active_flags = list->state->graphics.dynamic_state_flags;
 
     /* The render pass cache ensures that we use the same Vulkan render pass
      * object for compatible render passes. */
@@ -3062,6 +3080,14 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
 
     VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, vk_pipeline));
     list->current_pipeline = vk_pipeline;
+
+    /* Reapply all dynamic states that were not dynamic in previously bound pipeline.
+     * If we didn't use to have dynamic vertex strides, but we then bind a pipeline with dynamic strides,
+     * we will need to rebind all VBOs. Mark dynamic stride as dirty in this case. */
+    if (new_active_flags & ~list->dynamic_state.active_flags & VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE)
+        list->dynamic_state.dirty_vbo_strides = ~0u;
+    list->dynamic_state.dirty_flags |= new_active_flags & ~list->dynamic_state.active_flags;
+    list->dynamic_state.active_flags = new_active_flags;
 
     return true;
 }
@@ -3691,17 +3717,29 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
+    struct vkd3d_bitmask_range range;
+    uint32_t update_vbos;
 
     /* Make sure we only update states that are dynamic in the pipeline */
-    dyn_state->dirty_flags &= list->state->graphics.dynamic_state_flags;
+    dyn_state->dirty_flags &= list->dynamic_state.active_flags;
 
-    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT)
+    {
+        VK_CALL(vkCmdSetViewportWithCountEXT(list->vk_command_buffer,
+                dyn_state->viewport_count, dyn_state->viewports));
+    }
+    else if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
     {
         VK_CALL(vkCmdSetViewport(list->vk_command_buffer,
                 0, dyn_state->viewport_count, dyn_state->viewports));
     }
 
-    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR_COUNT)
+    {
+        VK_CALL(vkCmdSetScissorWithCountEXT(list->vk_command_buffer,
+                dyn_state->viewport_count, dyn_state->scissors));
+    }
+    else if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
     {
         VK_CALL(vkCmdSetScissor(list->vk_command_buffer,
                 0, dyn_state->viewport_count, dyn_state->scissors));
@@ -3723,6 +3761,44 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
     {
         VK_CALL(vkCmdSetDepthBounds(list->vk_command_buffer,
                 dyn_state->min_depth_bounds, dyn_state->max_depth_bounds));
+    }
+
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_TOPOLOGY)
+    {
+        VK_CALL(vkCmdSetPrimitiveTopologyEXT(list->vk_command_buffer,
+                dyn_state->vk_primitive_topology));
+    }
+
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE)
+    {
+        update_vbos = (dyn_state->dirty_vbos | dyn_state->dirty_vbo_strides) & list->state->graphics.vertex_buffer_mask;
+        dyn_state->dirty_vbos &= ~update_vbos;
+        dyn_state->dirty_vbo_strides &= ~update_vbos;
+
+        while (update_vbos)
+        {
+            range = vkd3d_bitmask_iter32_range(&update_vbos);
+            VK_CALL(vkCmdBindVertexBuffers2EXT(list->vk_command_buffer,
+                    range.offset, range.count,
+                    dyn_state->vertex_buffers + range.offset,
+                    dyn_state->vertex_offsets + range.offset,
+                    dyn_state->vertex_sizes + range.offset,
+                    dyn_state->vertex_strides + range.offset));
+        }
+    }
+    else if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VERTEX_BUFFER)
+    {
+        update_vbos = dyn_state->dirty_vbos & list->state->graphics.vertex_buffer_mask;
+        dyn_state->dirty_vbos &= ~update_vbos;
+
+        while (update_vbos)
+        {
+            range = vkd3d_bitmask_iter32_range(&update_vbos);
+            VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer,
+                    range.offset, range.count,
+                    dyn_state->vertex_buffers + range.offset,
+                    dyn_state->vertex_offsets + range.offset));
+        }
     }
 
     dyn_state->dirty_flags = 0;
@@ -4150,7 +4226,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
             goto cleanup;
         }
 
-        d3d12_command_list_invalidate_current_pipeline(list);
+        d3d12_command_list_invalidate_current_pipeline(list, true);
         d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_GRAPHICS, true);
 
         memset(&dst_view_desc, 0, sizeof(dst_view_desc));
@@ -4810,7 +4886,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(d3d12_co
         return;
 
     dyn_state->primitive_topology = topology;
-    d3d12_command_list_invalidate_current_pipeline(list);
+    dyn_state->vk_primitive_topology = vk_topology_from_d3d12_topology(topology);
+    d3d12_command_list_invalidate_current_pipeline(list, false);
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_TOPOLOGY;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(d3d12_command_list_iface *iface,
@@ -4851,11 +4929,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(d3d12_command_li
     if (dyn_state->viewport_count != viewport_count)
     {
         dyn_state->viewport_count = viewport_count;
-        dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR;
-        d3d12_command_list_invalidate_current_pipeline(list);
+        dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR | VKD3D_DYNAMIC_STATE_SCISSOR_COUNT;
+        d3d12_command_list_invalidate_current_pipeline(list, false);
     }
 
-    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT;
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT | VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(d3d12_command_list_iface *iface,
@@ -4882,7 +4960,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(d3d12_command
         vk_rect->extent.height = rects[i].bottom - rects[i].top;
     }
 
-    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR;
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR | VKD3D_DYNAMIC_STATE_SCISSOR_COUNT;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetBlendFactor(d3d12_command_list_iface *iface,
@@ -4923,18 +5001,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
     if (list->state == state)
         return;
 
-    d3d12_command_list_invalidate_current_pipeline(list);
-
-    if (d3d12_pipeline_state_is_graphics(state))
-    {
-        uint32_t old_dynamic_state_flags = d3d12_pipeline_state_is_graphics(list->state)
-            ? list->state->graphics.dynamic_state_flags
-            : 0u;
-
-        /* Reapply all dynamic states that were not dynamic in previously bound pipeline */
-        list->dynamic_state.dirty_flags |= state->graphics.dynamic_state_flags & ~old_dynamic_state_flags;
-    }
-
+    d3d12_command_list_invalidate_current_pipeline(list, false);
     list->state = state;
 }
 
@@ -5617,18 +5684,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
-    VkDeviceSize offsets[ARRAY_SIZE(dyn_state->vertex_strides)];
-    VkBuffer buffers[ARRAY_SIZE(dyn_state->vertex_strides)];
     const struct vkd3d_null_resources *null_resources;
     struct vkd3d_gpu_va_allocator *gpu_va_allocator;
-    const struct vkd3d_vk_device_procs *vk_procs;
     struct d3d12_resource *resource;
+    uint32_t vbo_invalidate_mask;
     bool invalidate = false;
-    unsigned int i, stride;
+    unsigned int i;
 
     TRACE("iface %p, start_slot %u, view_count %u, views %p.\n", iface, start_slot, view_count, views);
 
-    vk_procs = &list->device->vk_procs;
     null_resources = &list->device->null_resources;
     gpu_va_allocator = &list->device->gpu_va_allocator;
 
@@ -5641,30 +5705,43 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
 
     for (i = 0; i < view_count; ++i)
     {
+        VkBuffer buffer;
+        VkDeviceSize offset;
+        VkDeviceSize size;
+        uint32_t stride;
+
         if (views[i].BufferLocation)
         {
             resource = vkd3d_gpu_va_allocator_dereference(gpu_va_allocator, views[i].BufferLocation);
-            buffers[i] = resource->vk_buffer;
-            offsets[i] = views[i].BufferLocation - resource->gpu_address;
+            buffer = resource->vk_buffer;
+            offset = views[i].BufferLocation - resource->gpu_address;
             stride = views[i].StrideInBytes;
+            size = views[i].SizeInBytes;
         }
         else
         {
             bool null_descriptors = list->device->device_info.robustness2_features.nullDescriptor;
-            buffers[i] = null_descriptors ? VK_NULL_HANDLE : null_resources->vk_buffer;
-            offsets[i] = 0;
-            stride = 0;
+            buffer = null_descriptors ? VK_NULL_HANDLE : null_resources->vk_buffer;
+            offset = 0;
+            size = null_descriptors ? 0 : VKD3D_NULL_BUFFER_SIZE;
+            stride = VKD3D_NULL_BUFFER_SIZE;
         }
 
         invalidate |= dyn_state->vertex_strides[start_slot + i] != stride;
         dyn_state->vertex_strides[start_slot + i] = stride;
+        dyn_state->vertex_buffers[start_slot + i] = buffer;
+        dyn_state->vertex_offsets[start_slot + i] = offset;
+        dyn_state->vertex_sizes[start_slot + i] = size;
     }
 
-    if (view_count)
-        VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer, start_slot, view_count, buffers, offsets));
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_VERTEX_BUFFER | VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE;
+
+    vbo_invalidate_mask = ((1u << view_count) - 1u) << start_slot;
+    dyn_state->dirty_vbos |= vbo_invalidate_mask;
+    dyn_state->dirty_vbo_strides |= vbo_invalidate_mask;
 
     if (invalidate)
-        d3d12_command_list_invalidate_current_pipeline(list);
+        d3d12_command_list_invalidate_current_pipeline(list, false);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(d3d12_command_list_iface *iface,
@@ -5822,7 +5899,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
     }
 
     if (prev_dsv_format != next_dsv_format && d3d12_pipeline_state_has_unknown_dsv_format(list->state))
-        d3d12_command_list_invalidate_current_pipeline(list);
+        d3d12_command_list_invalidate_current_pipeline(list, false);
 }
 
 static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list, struct d3d12_resource *resource,
@@ -5963,7 +6040,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     d3d12_command_list_track_resource_usage(list, resource);
     d3d12_command_list_end_current_render_pass(list, false);
 
-    d3d12_command_list_invalidate_current_pipeline(list);
+    d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
 
     if (!d3d12_command_allocator_add_view(list->allocator, view))
