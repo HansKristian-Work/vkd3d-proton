@@ -34,7 +34,7 @@
 
 #define vkd3d_spinlock_unlock(lock) vkd3d_uint32_atomic_store_explicit(lock, 0u, memory_order_release)
 
-typedef uint32_t spinlock_t;
+typedef _Atomic uint32_t spinlock_t;
 
 static inline void spinlock_init(spinlock_t *lock)
 {
