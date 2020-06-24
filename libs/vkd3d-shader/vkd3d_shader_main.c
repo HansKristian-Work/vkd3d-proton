@@ -20,8 +20,6 @@
 
 #include <stdio.h>
 
-VKD3D_DEBUG_ENV_NAME("VKD3D_SHADER_DEBUG");
-
 static void vkd3d_shader_dump_blob(const char *path, const char *prefix, const void *data, size_t size,
         unsigned int id, const char *ext)
 {
