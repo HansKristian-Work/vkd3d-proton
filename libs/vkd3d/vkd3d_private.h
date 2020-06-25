@@ -122,6 +122,7 @@ struct vkd3d_vulkan_info
     bool EXT_depth_clip_enable;
     bool EXT_descriptor_indexing;
     bool EXT_inline_uniform_block;
+    bool EXT_robustness2;
     bool EXT_sampler_filter_minmax;
     bool EXT_shader_demote_to_helper_invocation;
     bool EXT_shader_stencil_export;
@@ -1601,6 +1602,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderCoreProperties2AMD shader_core_properties2;
     VkPhysicalDeviceShaderSMBuiltinsPropertiesNV shader_sm_builtins_properties;
     VkPhysicalDeviceSamplerFilterMinmaxPropertiesEXT sampler_filter_minmax_properties;
+    VkPhysicalDeviceRobustness2PropertiesEXT robustness2_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
@@ -1618,6 +1620,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline_semaphore_features;
     VkPhysicalDeviceFloat16Int8FeaturesKHR float16_int8_features;
     VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR subgroup_extended_types_features;
+    VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features;
 
     VkPhysicalDeviceFeatures2 features2;
 };
