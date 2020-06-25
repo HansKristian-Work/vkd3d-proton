@@ -585,11 +585,41 @@ struct vkd3d_versioned_root_signature_desc
 /* FIXME: Add support for 64 UAV bind slots. */
 #define VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS 8
 
+enum vkd3d_shader_resource_type
+{
+    VKD3D_SHADER_RESOURCE_NONE              = 0x0,
+    VKD3D_SHADER_RESOURCE_BUFFER            = 0x1,
+    VKD3D_SHADER_RESOURCE_TEXTURE_1D        = 0x2,
+    VKD3D_SHADER_RESOURCE_TEXTURE_2D        = 0x3,
+    VKD3D_SHADER_RESOURCE_TEXTURE_2DMS      = 0x4,
+    VKD3D_SHADER_RESOURCE_TEXTURE_3D        = 0x5,
+    VKD3D_SHADER_RESOURCE_TEXTURE_CUBE      = 0x6,
+    VKD3D_SHADER_RESOURCE_TEXTURE_1DARRAY   = 0x7,
+    VKD3D_SHADER_RESOURCE_TEXTURE_2DARRAY   = 0x8,
+    VKD3D_SHADER_RESOURCE_TEXTURE_2DMSARRAY = 0x9,
+    VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY = 0xa,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_RESOURCE_TYPE),
+};
+
+enum vkd3d_shader_resource_data_type
+{
+    VKD3D_SHADER_RESOURCE_DATA_UNORM = 0x1,
+    VKD3D_SHADER_RESOURCE_DATA_SNORM = 0x2,
+    VKD3D_SHADER_RESOURCE_DATA_INT   = 0x3,
+    VKD3D_SHADER_RESOURCE_DATA_UINT  = 0x4,
+    VKD3D_SHADER_RESOURCE_DATA_FLOAT = 0x5,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_RESOURCE_DATA_TYPE),
+};
+
 struct vkd3d_shader_descriptor_info
 {
     enum vkd3d_shader_descriptor_type type;
     unsigned int register_space;
     unsigned int register_index;
+    enum vkd3d_shader_resource_type resource_type;
+    enum vkd3d_shader_resource_data_type resource_data_type;
     unsigned int count;
 };
 

@@ -229,7 +229,8 @@ static void vkd3d_shader_scan_record_uav_counter(struct vkd3d_shader_scan_info *
 }
 
 static bool vkd3d_shader_scan_add_descriptor(struct vkd3d_shader_scan_context *context,
-        enum vkd3d_shader_descriptor_type type, unsigned int register_space, unsigned int register_index)
+        enum vkd3d_shader_descriptor_type type, unsigned int register_space, unsigned int register_index,
+        enum vkd3d_shader_resource_type resource_type, enum vkd3d_shader_resource_data_type resource_data_type)
 {
     struct vkd3d_shader_scan_info *scan_info = context->scan_info;
     struct vkd3d_shader_descriptor_info *d;
@@ -245,6 +246,8 @@ static bool vkd3d_shader_scan_add_descriptor(struct vkd3d_shader_scan_context *c
     d->type = type;
     d->register_space = register_space;
     d->register_index = register_index;
+    d->resource_type = resource_type;
+    d->resource_data_type = resource_data_type;
     d->count = 1;
     ++scan_info->descriptor_count;
 
@@ -256,8 +259,8 @@ static void vkd3d_shader_scan_constant_buffer_declaration(struct vkd3d_shader_sc
 {
     const struct vkd3d_shader_constant_buffer *cb = &instruction->declaration.cb;
 
-    vkd3d_shader_scan_add_descriptor(context, VKD3D_SHADER_DESCRIPTOR_TYPE_CBV,
-            cb->register_space, cb->register_index);
+    vkd3d_shader_scan_add_descriptor(context, VKD3D_SHADER_DESCRIPTOR_TYPE_CBV, cb->register_space,
+            cb->register_index, VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_SHADER_RESOURCE_DATA_UINT);
 }
 
 static void vkd3d_shader_scan_input_declaration(struct vkd3d_shader_scan_info *scan_info,
@@ -282,21 +285,45 @@ static void vkd3d_shader_scan_sampler_declaration(struct vkd3d_shader_scan_conte
         scan_info->sampler_comparison_mode_mask |= 1u << sampler_index;
     }
 
-    vkd3d_shader_scan_add_descriptor(context, VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER,
-            sampler->register_space, sampler->register_index);
+    vkd3d_shader_scan_add_descriptor(context, VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, sampler->register_space,
+            sampler->register_index, VKD3D_SHADER_RESOURCE_NONE, VKD3D_SHADER_RESOURCE_DATA_UINT);
 }
 
 static void vkd3d_shader_scan_resource_declaration(struct vkd3d_shader_scan_context *context,
         const struct vkd3d_shader_instruction *instruction)
 {
     const struct vkd3d_shader_semantic *semantic = &instruction->declaration.semantic;
+    enum vkd3d_shader_resource_data_type resource_data_type;
     enum vkd3d_shader_descriptor_type type;
 
     if (semantic->reg.reg.type == VKD3DSPR_UAV)
         type = VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
     else
         type = VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
-    vkd3d_shader_scan_add_descriptor(context, type, semantic->register_space, semantic->register_index);
+    switch (semantic->resource_data_type)
+    {
+        case VKD3D_DATA_UNORM:
+            resource_data_type = VKD3D_SHADER_RESOURCE_DATA_UNORM;
+            break;
+        case VKD3D_DATA_SNORM:
+            resource_data_type = VKD3D_SHADER_RESOURCE_DATA_SNORM;
+            break;
+        case VKD3D_DATA_INT:
+            resource_data_type = VKD3D_SHADER_RESOURCE_DATA_INT;
+            break;
+        case VKD3D_DATA_UINT:
+            resource_data_type = VKD3D_SHADER_RESOURCE_DATA_UINT;
+            break;
+        case VKD3D_DATA_FLOAT:
+            resource_data_type = VKD3D_SHADER_RESOURCE_DATA_FLOAT;
+            break;
+        default:
+            ERR("Invalid resource data type %#x.\n", semantic->resource_data_type);
+            resource_data_type = VKD3D_SHADER_RESOURCE_DATA_FLOAT;
+            break;
+    }
+    vkd3d_shader_scan_add_descriptor(context, type, semantic->register_space,
+            semantic->register_index, semantic->resource_type, resource_data_type);
 }
 
 static void vkd3d_shader_scan_resource_declaration_raw(struct vkd3d_shader_scan_context *context,
@@ -309,7 +336,8 @@ static void vkd3d_shader_scan_resource_declaration_raw(struct vkd3d_shader_scan_
         type = VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
     else
         type = VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
-    vkd3d_shader_scan_add_descriptor(context, type, resource->register_space, resource->register_index);
+    vkd3d_shader_scan_add_descriptor(context, type, resource->register_space,
+            resource->register_index, VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_SHADER_RESOURCE_DATA_UINT);
 }
 
 static void vkd3d_shader_scan_resource_declaration_structured(struct vkd3d_shader_scan_context *context,
@@ -322,7 +350,8 @@ static void vkd3d_shader_scan_resource_declaration_structured(struct vkd3d_shade
         type = VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
     else
         type = VKD3D_SHADER_DESCRIPTOR_TYPE_SRV;
-    vkd3d_shader_scan_add_descriptor(context, type, resource->register_space, resource->register_index);
+    vkd3d_shader_scan_add_descriptor(context, type, resource->register_space,
+            resource->register_index, VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_SHADER_RESOURCE_DATA_UINT);
 }
 
 static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_context *context,
