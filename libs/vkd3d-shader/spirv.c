@@ -1863,6 +1863,8 @@ struct vkd3d_symbol_register_data
 
 struct vkd3d_symbol_resource_data
 {
+    unsigned int register_space;
+    unsigned int register_index;
     enum vkd3d_component_type sampled_type;
     uint32_t type_id;
     const struct vkd3d_spirv_resource_type *resource_type_info;
@@ -5186,18 +5188,23 @@ static const struct vkd3d_shader_descriptor_info *vkd3d_dxbc_compiler_get_descri
 }
 
 static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_register *reg, const struct vkd3d_spirv_resource_type *resource_type_info,
-        enum vkd3d_component_type data_type, bool raw_structured, uint32_t depth)
+        const struct vkd3d_shader_register *reg, unsigned int register_space, unsigned int register_index,
+        const struct vkd3d_spirv_resource_type *resource_type_info, enum vkd3d_component_type data_type,
+        bool raw_structured, uint32_t depth)
 {
-    const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_descriptor_info *d;
     uint32_t sampled_type_id;
     SpvImageFormat format;
 
     format = SpvImageFormatUnknown;
-    if (reg->type == VKD3DSPR_UAV
-            && (raw_structured || (scan_info->uav_read_mask & (1u << reg->idx[0].offset))))
-        format = image_format_for_image_read(data_type);
+    if (reg->type == VKD3DSPR_UAV)
+    {
+        d = vkd3d_dxbc_compiler_get_descriptor_info(compiler,
+                VKD3D_SHADER_DESCRIPTOR_TYPE_UAV, register_space, register_index);
+        if (raw_structured || (d->flags & VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_UAV_READ))
+            format = image_format_for_image_read(data_type);
+    }
 
     sampled_type_id = vkd3d_spirv_get_type_id(builder, data_type, 1);
     return vkd3d_spirv_get_op_type_image(builder, sampled_type_id, resource_type_info->dim,
@@ -5206,16 +5213,15 @@ static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler
 }
 
 static void vkd3d_dxbc_compiler_emit_combined_sampler_declarations(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_register *resource, enum vkd3d_shader_resource_type resource_type,
-        enum vkd3d_component_type sampled_type, unsigned int structure_stride, bool raw,
-        const struct vkd3d_spirv_resource_type *resource_type_info)
+        const struct vkd3d_shader_register *resource, unsigned int resource_space, unsigned int resource_index,
+        enum vkd3d_shader_resource_type resource_type, enum vkd3d_component_type sampled_type,
+        unsigned int structure_stride, bool raw, const struct vkd3d_spirv_resource_type *resource_type_info)
 {
     const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
     const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
     const SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_combined_resource_sampler *current;
-    const unsigned int resource_index = resource->idx[0].offset;
     uint32_t image_type_id, type_id, ptr_type_id, var_id;
     enum vkd3d_shader_binding_flag resource_type_flag;
     struct vkd3d_symbol symbol;
@@ -5241,8 +5247,8 @@ static void vkd3d_dxbc_compiler_emit_combined_sampler_declarations(struct vkd3d_
         depth = current->sampler_index != VKD3D_DUMMY_SAMPLER_INDEX
                 && scan_info->sampler_comparison_mode_mask & (1u << current->sampler_index);
 
-        image_type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler,
-                resource, resource_type_info, sampled_type, structure_stride || raw, depth);
+        image_type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler, resource, resource_space,
+                resource_index, resource_type_info, sampled_type, structure_stride || raw, depth);
         type_id = vkd3d_spirv_get_op_type_sampled_image(builder, image_type_id);
 
         ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id);
@@ -5258,6 +5264,8 @@ static void vkd3d_dxbc_compiler_emit_combined_sampler_declarations(struct vkd3d_
 
         vkd3d_symbol_make_combined_sampler(&symbol, resource_index, current->sampler_index);
         symbol.id = var_id;
+        symbol.info.resource.register_space = resource_space;
+        symbol.info.resource.register_index = resource_index;
         symbol.info.resource.sampled_type = sampled_type;
         symbol.info.resource.type_id = image_type_id;
         symbol.info.resource.resource_type_info = resource_type_info;
@@ -5274,7 +5282,6 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
         unsigned int structure_stride, bool raw)
 {
     uint32_t counter_type_id, type_id, ptr_type_id, var_id, counter_var_id = 0;
-    const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     const struct vkd3d_spirv_resource_type *resource_type_info;
@@ -5294,13 +5301,13 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
 
     if (vkd3d_dxbc_compiler_has_combined_sampler(compiler, reg, NULL))
     {
-        vkd3d_dxbc_compiler_emit_combined_sampler_declarations(compiler,
-                reg, resource_type, sampled_type, structure_stride, raw, resource_type_info);
+        vkd3d_dxbc_compiler_emit_combined_sampler_declarations(compiler, reg, register_space,
+                register_index, resource_type, sampled_type, structure_stride, raw, resource_type_info);
         return;
     }
 
-    type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler,
-            reg, resource_type_info, sampled_type, structure_stride || raw, 0);
+    type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler, reg, register_space,
+            register_index, resource_type_info, sampled_type, structure_stride || raw, 0);
     ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id);
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
             ptr_type_id, storage_class, 0);
@@ -5310,15 +5317,16 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
 
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 
-    if (is_uav && !(scan_info->uav_read_mask & (1u << reg->idx[0].offset)))
-        vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
-
     if (is_uav)
     {
         const struct vkd3d_shader_descriptor_info *d;
 
         d = vkd3d_dxbc_compiler_get_descriptor_info(compiler,
                 VKD3D_SHADER_DESCRIPTOR_TYPE_UAV, register_space, register_index);
+
+        if (!(d->flags & VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_UAV_READ))
+            vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
+
         if (d->flags & VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_UAV_COUNTER)
         {
             assert(structure_stride); /* counters are valid only for structured buffers */
@@ -5343,6 +5351,8 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
 
     vkd3d_symbol_make_resource(&resource_symbol, reg);
     resource_symbol.id = var_id;
+    resource_symbol.info.resource.register_space = register_space;
+    resource_symbol.info.resource.register_index = register_index;
     resource_symbol.info.resource.sampled_type = sampled_type;
     resource_symbol.info.resource.type_id = type_id;
     resource_symbol.info.resource.resource_type_info = resource_type_info;
@@ -7237,9 +7247,9 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
     image->image_id = load ? vkd3d_spirv_build_op_load(builder,
             image->image_type_id, image->id, SpvMemoryAccessMaskNone) : 0;
 
-    image->image_type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler,
-            resource_reg, image->resource_type_info, image->sampled_type,
-            image->structure_stride || image->raw, depth_comparison);
+    image->image_type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler, resource_reg,
+            symbol->info.resource.register_space, symbol->info.resource.register_index, image->resource_type_info,
+            image->sampled_type, image->structure_stride || image->raw, depth_comparison);
 
     if (sampled)
     {

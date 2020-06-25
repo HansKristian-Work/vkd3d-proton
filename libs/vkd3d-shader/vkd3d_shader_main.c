@@ -22,8 +22,6 @@
 
 VKD3D_DEBUG_ENV_NAME("VKD3D_SHADER_DEBUG");
 
-STATIC_ASSERT(MEMBER_SIZE(struct vkd3d_shader_scan_info, uav_read_mask) * CHAR_BIT >= VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
-
 static void vkd3d_shader_dump_blob(const char *path, const char *prefix, const void *data, size_t size)
 {
     static int shader_id = 0;
@@ -228,11 +226,13 @@ static bool vkd3d_shader_instruction_is_uav_read(const struct vkd3d_shader_instr
             || (handler_idx == VKD3DSIH_LD_STRUCTURED && instruction->src[2].reg.type == VKD3DSPR_UAV);
 }
 
-static void vkd3d_shader_scan_record_uav_read(struct vkd3d_shader_scan_info *scan_info,
+static void vkd3d_shader_scan_record_uav_read(struct vkd3d_shader_scan_context *context,
         const struct vkd3d_shader_register *reg)
 {
-    assert(reg->idx[0].offset < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
-    scan_info->uav_read_mask |= 1u << reg->idx[0].offset;
+    struct vkd3d_shader_descriptor_info *d;
+
+    d = vkd3d_shader_scan_get_uav_descriptor_info(context, reg->idx[0].offset);
+    d->flags |= VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_UAV_READ;
 }
 
 static bool vkd3d_shader_instruction_is_uav_counter(const struct vkd3d_shader_instruction *instruction)
@@ -441,12 +441,12 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_context *cont
         for (i = 0; i < instruction->dst_count; ++i)
         {
             if (instruction->dst[i].reg.type == VKD3DSPR_UAV)
-                vkd3d_shader_scan_record_uav_read(context->scan_info, &instruction->dst[i].reg);
+                vkd3d_shader_scan_record_uav_read(context, &instruction->dst[i].reg);
         }
         for (i = 0; i < instruction->src_count; ++i)
         {
             if (instruction->src[i].reg.type == VKD3DSPR_UAV)
-                vkd3d_shader_scan_record_uav_read(context->scan_info, &instruction->src[i].reg);
+                vkd3d_shader_scan_record_uav_read(context, &instruction->src[i].reg);
         }
     }
 
