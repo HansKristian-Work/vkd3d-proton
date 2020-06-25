@@ -5218,12 +5218,12 @@ static void vkd3d_dxbc_compiler_emit_combined_sampler_declarations(struct vkd3d_
         unsigned int structure_stride, bool raw, const struct vkd3d_spirv_resource_type *resource_type_info)
 {
     const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
-    const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
     const SpvStorageClass storage_class = SpvStorageClassUniformConstant;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_combined_resource_sampler *current;
     uint32_t image_type_id, type_id, ptr_type_id, var_id;
     enum vkd3d_shader_binding_flag resource_type_flag;
+    const struct vkd3d_shader_descriptor_info *d;
     struct vkd3d_symbol symbol;
     unsigned int i;
     bool depth;
@@ -5244,8 +5244,10 @@ static void vkd3d_dxbc_compiler_emit_combined_sampler_declarations(struct vkd3d_
         if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
             continue;
 
+        d = vkd3d_dxbc_compiler_get_descriptor_info(compiler,
+                VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, 0, current->sampler_index);
         depth = current->sampler_index != VKD3D_DUMMY_SAMPLER_INDEX
-                && scan_info->sampler_comparison_mode_mask & (1u << current->sampler_index);
+                && (d->flags & VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_SAMPLER_COMPARISON_MODE);
 
         image_type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler, resource, resource_space,
                 resource_index, resource_type_info, sampled_type, structure_stride || raw, depth);
