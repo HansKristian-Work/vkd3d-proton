@@ -79,6 +79,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_DEPTH_CLIP_ENABLE, EXT_depth_clip_enable),
     VK_EXTENSION(EXT_DESCRIPTOR_INDEXING, EXT_descriptor_indexing),
     VK_EXTENSION(EXT_INLINE_UNIFORM_BLOCK, EXT_inline_uniform_block),
+    VK_EXTENSION(EXT_ROBUSTNESS_2, EXT_robustness2),
     VK_EXTENSION(EXT_SAMPLER_FILTER_MINMAX, EXT_sampler_filter_minmax),
     VK_EXTENSION(EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION, EXT_shader_demote_to_helper_invocation),
     VK_EXTENSION(EXT_SHADER_STENCIL_EXPORT, EXT_shader_stencil_export),
@@ -659,10 +660,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceShaderFloat16Int8FeaturesKHR *float16_int8_features;
     VkPhysicalDeviceShaderCoreProperties2AMD *shader_core_properties2;
     VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
+    VkPhysicalDeviceRobustness2PropertiesEXT *robustness2_properties;
     VkPhysicalDeviceShaderCorePropertiesAMD *shader_core_properties;
     VkPhysicalDeviceMaintenance3Properties *maintenance3_properties;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT *xfb_properties;
     VkPhysicalDevice physical_device = device->vk_physical_device;
+    VkPhysicalDeviceRobustness2FeaturesEXT *robustness2_features;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT *xfb_features;
     VkPhysicalDeviceSubgroupProperties *subgroup_properties;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
@@ -696,6 +699,8 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     sampler_filter_minmax_properties = &info->sampler_filter_minmax_properties;
     float16_int8_features = &info->float16_int8_features;
     shader_subgroup_extended_types_features = &info->subgroup_extended_types_features;
+    robustness2_properties = &info->robustness2_properties;
+    robustness2_features = &info->robustness2_features;
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
@@ -773,6 +778,14 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, inline_uniform_block_features);
         inline_uniform_block_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_PROPERTIES_EXT;
         vk_prepend_struct(&info->properties2, inline_uniform_block_properties);
+    }
+
+    if (vulkan_info->EXT_robustness2)
+    {
+        robustness2_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, robustness2_features);
+        robustness2_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, robustness2_properties);
     }
 
     if (vulkan_info->EXT_sampler_filter_minmax)
@@ -1390,6 +1403,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     {
         WARN("Disabling robust buffer access for the update after bind feature.\n");
         features->robustBufferAccess = VK_FALSE;
+        physical_device_info->robustness2_features.robustBufferAccess2 = VK_FALSE;
     }
 
     vulkan_info->supports_volatile_packed_descriptors = false;
