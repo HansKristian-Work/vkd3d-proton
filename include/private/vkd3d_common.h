@@ -129,6 +129,13 @@ static inline unsigned int vkd3d_bitmask_iter64(uint64_t* mask)
     return vkd3d_bitmask_tzcnt64(cur_mask);
 }
 
+static inline unsigned int vkd3d_bitmask_iter32(uint32_t *mask)
+{
+    uint32_t cur_mask = *mask;
+    *mask = cur_mask & (cur_mask - 1);
+    return vkd3d_bitmask_tzcnt32(cur_mask);
+}
+
 struct vkd3d_bitmask_range
 {
     unsigned int offset;
