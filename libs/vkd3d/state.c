@@ -1528,6 +1528,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
         WARN("Failed to create descriptor set layout for UAV counters, hr %#x.\n", hr);
         return hr;
     }
+    vkd3d_shader_free_scan_info(&shader_info);
 
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_INTERFACE_INFO;
     shader_interface.next = NULL;
@@ -2267,6 +2268,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         }
         if (shader_info.uav_counter_mask)
             FIXME("UAV counters not implemented for graphics pipelines.\n");
+        vkd3d_shader_free_scan_info(&shader_info);
 
         target_info = NULL;
         switch (shader_stages[i].stage)

@@ -585,10 +585,21 @@ struct vkd3d_versioned_root_signature_desc
 /* FIXME: Add support for 64 UAV bind slots. */
 #define VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS 8
 
+struct vkd3d_shader_descriptor_info
+{
+    enum vkd3d_shader_descriptor_type type;
+    unsigned int register_space;
+    unsigned int register_index;
+    unsigned int count;
+};
+
 struct vkd3d_shader_scan_info
 {
     enum vkd3d_shader_structure_type type;
     void *next;
+
+    struct vkd3d_shader_descriptor_info *descriptors;
+    unsigned int descriptor_count;
 
     unsigned int uav_read_mask;    /* VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS */
     unsigned int uav_counter_mask; /* VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS */
@@ -694,6 +705,7 @@ int vkd3d_shader_convert_root_signature(struct vkd3d_versioned_root_signature_de
 
 int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_scan_info *scan_info);
+void vkd3d_shader_free_scan_info(struct vkd3d_shader_scan_info *scan_info);
 
 int vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_signature *signature);
@@ -723,6 +735,7 @@ typedef int (*PFN_vkd3d_shader_convert_root_signature)(struct vkd3d_versioned_ro
 
 typedef int (*PFN_vkd3d_shader_scan_dxbc)(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_scan_info *scan_info);
+typedef void (*PFN_vkd3d_shader_free_scan_info)(struct vkd3d_shader_scan_info *scan_info);
 
 typedef int (*PFN_vkd3d_shader_parse_input_signature)(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_signature *signature);
