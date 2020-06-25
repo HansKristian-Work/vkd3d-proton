@@ -309,6 +309,49 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_info *scan_in
         vkd3d_shader_scan_record_uav_counter(scan_info, &instruction->src[0].reg);
 }
 
+int vkd3d_shader_scan_patch_vertex_count(const struct vkd3d_shader_code *dxbc,
+        unsigned int *patch_vertex_count)
+{
+    struct vkd3d_shader_instruction instruction;
+    struct vkd3d_shader_parser parser;
+    int ret;
+
+    if (shader_is_dxil(dxbc->code, dxbc->size))
+    {
+        /* TODO */
+        *patch_vertex_count = 0;
+        return VKD3D_OK;
+    }
+    else
+    {
+        if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
+            return ret;
+
+        *patch_vertex_count = 0;
+
+        while (!shader_sm4_is_end(parser.data, &parser.ptr))
+        {
+            shader_sm4_read_instruction(parser.data, &parser.ptr, &instruction);
+
+            if (instruction.handler_idx == VKD3DSIH_INVALID)
+            {
+                WARN("Encountered unrecognized or invalid instruction.\n");
+                vkd3d_shader_parser_destroy(&parser);
+                return VKD3D_ERROR_INVALID_ARGUMENT;
+            }
+
+            if (instruction.handler_idx == VKD3DSIH_DCL_INPUT_CONTROL_POINT_COUNT)
+            {
+                *patch_vertex_count = instruction.declaration.count;
+                break;
+            }
+        }
+
+        vkd3d_shader_parser_destroy(&parser);
+        return VKD3D_OK;
+    }
+}
+
 int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_scan_info *scan_info)
 {

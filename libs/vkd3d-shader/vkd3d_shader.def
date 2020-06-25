@@ -11,3 +11,4 @@ EXPORTS
     vkd3d_shader_scan_dxbc
     vkd3d_shader_serialize_root_signature
     vkd3d_shader_supports_dxil
+    vkd3d_shader_scan_patch_vertex_count
