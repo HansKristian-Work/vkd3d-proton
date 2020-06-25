@@ -2537,6 +2537,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     graphics->instance_divisor_count = 0;
     graphics->attribute_binding_count = 0;
+    memset(graphics->minimum_vertex_buffer_dynamic_stride, 0, sizeof(graphics->minimum_vertex_buffer_dynamic_stride));
+
     for (i = 0, j = 0, mask = 0; i < graphics->attribute_count; ++i)
     {
         const D3D12_INPUT_ELEMENT_DESC *e = &desc->input_layout.pInputElementDescs[i];
@@ -2571,6 +2573,11 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             graphics->attributes[j].offset = e->AlignedByteOffset;
         else
             graphics->attributes[j].offset = aligned_offsets[i];
+
+        graphics->minimum_vertex_buffer_dynamic_stride[e->InputSlot] =
+                max(graphics->minimum_vertex_buffer_dynamic_stride[e->InputSlot],
+                    graphics->attributes[j].offset + format->byte_count);
+
         ++j;
 
         switch (e->InputSlotClass)
@@ -3037,14 +3044,26 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass)
 {
-    if (!state->graphics.pipeline)
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+    uint32_t vertex_mask = graphics->vertex_buffer_mask;
+    unsigned int slot;
+
+    if (!graphics->pipeline)
         return VK_NULL_HANDLE;
 
     /* Unknown DSV format workaround. */
-    if (dsv_format != state->graphics.dsv_format)
+    if (dsv_format != graphics->dsv_format)
         return VK_NULL_HANDLE;
 
-    /* TODO: Validate vertex stride. */
+    while (vertex_mask)
+    {
+        slot = vkd3d_bitmask_iter32(&vertex_mask);
+        /* The vertex buffer stride must be larger than any attribute offset + format size which accesses a buffer binding.
+         * This is somewhat awkward, since D3D12 does not have this restriction, although the validation layers do warn about this.
+         * There might also be similar fallback paths on certain native drivers, who knows ... */
+        if (dyn_state->vertex_strides[slot] < graphics->minimum_vertex_buffer_dynamic_stride[slot])
+            return VK_NULL_HANDLE;
+    }
 
     *vk_render_pass = state->graphics.render_pass;
     return state->graphics.pipeline;
