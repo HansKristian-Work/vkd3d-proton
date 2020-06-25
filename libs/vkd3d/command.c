@@ -5456,7 +5456,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
         }
         else
         {
-            buffers[i] = null_resources->vk_buffer;
+            bool null_descriptors = list->device->device_info.robustness2_features.nullDescriptor;
+            buffers[i] = null_descriptors ? VK_NULL_HANDLE : null_resources->vk_buffer;
             offsets[i] = 0;
             stride = 0;
         }
