@@ -26,79 +26,6 @@
 #include "spirv/unified1/spirv.h"
 #include "spirv/unified1/GLSL.std.450.h"
 
-#ifdef HAVE_SPIRV_TOOLS
-# include "spirv-tools/libspirv.h"
-
-static spv_target_env spv_target_env_from_vkd3d(enum vkd3d_shader_target target)
-{
-    switch (target)
-    {
-        case VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0:
-            return SPV_ENV_VULKAN_1_0;
-        default:
-            ERR("Invalid shader target %#x.\n", target);
-            return SPV_ENV_VULKAN_1_0;
-    }
-}
-
-static void vkd3d_spirv_dump(const struct vkd3d_shader_code *spirv, enum vkd3d_shader_target target)
-{
-    const static uint32_t options
-            = SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES | SPV_BINARY_TO_TEXT_OPTION_INDENT;
-    spv_diagnostic diagnostic = NULL;
-    spv_text text = NULL;
-    spv_context context;
-    spv_result_t ret;
-
-    context = spvContextCreate(spv_target_env_from_vkd3d(target));
-
-    if (!(ret = spvBinaryToText(context, spirv->code, spirv->size / sizeof(uint32_t),
-            options, &text, &diagnostic)))
-    {
-        const char *str, *current = text->str;
-        while ((str = strchr(current, '\n')))
-        {
-            TRACE("%.*s\n", (int)(str - current), current);
-            current = str + 1;
-        }
-    }
-    else
-    {
-        FIXME("Failed to convert SPIR-V binary to text, ret %d.\n", ret);
-        FIXME("Diagnostic message: %s.\n", debugstr_a(diagnostic->error));
-    }
-
-    spvTextDestroy(text);
-    spvDiagnosticDestroy(diagnostic);
-    spvContextDestroy(context);
-}
-
-static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv, enum vkd3d_shader_target target)
-{
-    spv_diagnostic diagnostic = NULL;
-    spv_context context;
-    spv_result_t ret;
-
-    context = spvContextCreate(spv_target_env_from_vkd3d(target));
-
-    if ((ret = spvValidateBinary(context, spirv->code, spirv->size / sizeof(uint32_t),
-            &diagnostic)))
-    {
-        FIXME("Failed to validate SPIR-V binary, ret %d.\n", ret);
-        FIXME("Diagnostic message: %s.\n", debugstr_a(diagnostic->error));
-    }
-
-    spvDiagnosticDestroy(diagnostic);
-    spvContextDestroy(context);
-}
-
-#else
-
-static void vkd3d_spirv_dump(const struct vkd3d_shader_code *spirv, enum vkd3d_shader_target target) {}
-static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv, enum vkd3d_shader_target target) {}
-
-#endif  /* HAVE_SPIRV_TOOLS */
-
 static enum vkd3d_shader_input_sysval_semantic vkd3d_siv_from_sysval_indexed(enum vkd3d_sysval_semantic sysval,
         unsigned int index)
 {
@@ -9531,13 +9458,6 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
 
     if (!vkd3d_spirv_compile_module(builder, spirv))
         return VKD3D_ERROR;
-
-    if (TRACE_ON())
-    {
-        enum vkd3d_shader_target target = vkd3d_dxbc_compiler_get_target(compiler);
-        vkd3d_spirv_dump(spirv, target);
-        vkd3d_spirv_validate(spirv, target);
-    }
 
     return VKD3D_OK;
 }
