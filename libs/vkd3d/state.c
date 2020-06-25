@@ -2466,6 +2466,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
     shader_interface.push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
 
+    graphics->patch_vertex_count = 0;
+
     for (i = 0; i < ARRAY_SIZE(shader_stages); ++i)
     {
         const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
@@ -2486,6 +2488,12 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 break;
 
             case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
+                if ((ret = vkd3d_shader_scan_patch_vertex_count(&dxbc, &graphics->patch_vertex_count)) < 0)
+                {
+                    hr = hresult_from_vkd3d_result(ret);
+                    goto fail;
+                }
+                /* fallthrough */
             case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
                 if (desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH)
                 {
@@ -2686,9 +2694,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         goto fail;
     }
 
-    /* TODO: There is no dynamic patch count, so we'll need to reflect the control point count to create pipeline early. */
     supports_extended_dynamic_state = device->device_info.extended_dynamic_state_features.extendedDynamicState &&
-            desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+            (desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH || graphics->patch_vertex_count != 0);
 
     d3d12_graphics_pipeline_state_init_dynamic_state(graphics, supports_extended_dynamic_state);
 
@@ -2988,8 +2995,9 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     tessellation_info.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
     tessellation_info.pNext = NULL;
     tessellation_info.flags = 0;
-    tessellation_info.patchControlPoints
-            = dyn_state ? max(dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1, 1) : 0;
+    tessellation_info.patchControlPoints = dyn_state ?
+            max(dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1, 1) :
+            graphics->patch_vertex_count;
 
     vp_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
     vp_desc.pNext = NULL;
@@ -3064,6 +3072,11 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         if (dyn_state->vertex_strides[slot] < graphics->minimum_vertex_buffer_dynamic_stride[slot])
             return VK_NULL_HANDLE;
     }
+
+    /* It should be illegal to use different patch size for topology compared to pipeline, but be safe here. */
+    if (dyn_state->vk_primitive_topology == VK_PRIMITIVE_TOPOLOGY_PATCH_LIST &&
+        (dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1) != graphics->patch_vertex_count)
+        return VK_NULL_HANDLE;
 
     *vk_render_pass = state->graphics.render_pass;
     return state->graphics.pipeline;
