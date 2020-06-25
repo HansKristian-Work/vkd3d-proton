@@ -3334,9 +3334,14 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
         buffer_info->offset = desc->BufferLocation - resource->gpu_address;
         buffer_info->range = min(desc->SizeInBytes, resource->desc.Width - buffer_info->offset);
     }
+    else if (device->device_info.robustness2_features.nullDescriptor)
+    {
+        buffer_info->buffer = VK_NULL_HANDLE;
+        buffer_info->offset = 0;
+        buffer_info->range = 0;
+    }
     else
     {
-        /* NULL descriptor */
         buffer_info->buffer = device->null_resources.vk_buffer;
         buffer_info->offset = 0;
         buffer_info->range = VKD3D_NULL_BUFFER_SIZE;
