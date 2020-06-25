@@ -613,6 +613,13 @@ enum vkd3d_shader_resource_data_type
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_RESOURCE_DATA_TYPE),
 };
 
+enum vkd3d_shader_descriptor_info_flag
+{
+    VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_UAV_COUNTER = 0x00000001,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_DESCRIPTOR_INFO_FLAG),
+};
+
 struct vkd3d_shader_descriptor_info
 {
     enum vkd3d_shader_descriptor_type type;
@@ -620,6 +627,7 @@ struct vkd3d_shader_descriptor_info
     unsigned int register_index;
     enum vkd3d_shader_resource_type resource_type;
     enum vkd3d_shader_resource_data_type resource_data_type;
+    unsigned int flags; /* vkd3d_shader_descriptor_info_flag */
     unsigned int count;
 };
 
@@ -632,7 +640,6 @@ struct vkd3d_shader_scan_info
     unsigned int descriptor_count;
 
     unsigned int uav_read_mask;    /* VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS */
-    unsigned int uav_counter_mask; /* VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS */
     unsigned int sampler_comparison_mode_mask; /* 16 */
     bool use_vocp;
 };

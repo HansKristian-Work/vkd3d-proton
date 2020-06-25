@@ -5167,6 +5167,24 @@ static SpvImageFormat image_format_for_image_read(enum vkd3d_component_type data
     }
 }
 
+static const struct vkd3d_shader_descriptor_info *vkd3d_dxbc_compiler_get_descriptor_info(
+        struct vkd3d_dxbc_compiler *compiler, enum vkd3d_shader_descriptor_type type,
+        unsigned int register_space, unsigned int register_index)
+{
+    const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
+    const struct vkd3d_shader_descriptor_info *d;
+    unsigned int i;
+
+    for (i = 0; i < scan_info->descriptor_count; ++i)
+    {
+        d = &scan_info->descriptors[i];
+        if (d->type == type && d->register_space == register_space && d->register_index == register_index)
+            return d;
+    }
+
+    return NULL;
+}
+
 static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, const struct vkd3d_spirv_resource_type *resource_type_info,
         enum vkd3d_component_type data_type, bool raw_structured, uint32_t depth)
@@ -5295,25 +5313,32 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     if (is_uav && !(scan_info->uav_read_mask & (1u << reg->idx[0].offset)))
         vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
 
-    if (is_uav && (scan_info->uav_counter_mask & (1u << reg->idx[0].offset)))
+    if (is_uav)
     {
-        assert(structure_stride); /* counters are valid only for structured buffers */
+        const struct vkd3d_shader_descriptor_info *d;
 
-        if (vkd3d_dxbc_compiler_is_opengl_target(compiler))
+        d = vkd3d_dxbc_compiler_get_descriptor_info(compiler,
+                VKD3D_SHADER_DESCRIPTOR_TYPE_UAV, register_space, register_index);
+        if (d->flags & VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_UAV_COUNTER)
         {
-            vkd3d_spirv_enable_capability(builder, SpvCapabilityAtomicStorage);
-            storage_class = SpvStorageClassAtomicCounter;
-            counter_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-            ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, counter_type_id);
+            assert(structure_stride); /* counters are valid only for structured buffers */
+
+            if (vkd3d_dxbc_compiler_is_opengl_target(compiler))
+            {
+                vkd3d_spirv_enable_capability(builder, SpvCapabilityAtomicStorage);
+                storage_class = SpvStorageClassAtomicCounter;
+                counter_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+                ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, counter_type_id);
+            }
+
+            counter_var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
+                    ptr_type_id, storage_class, 0);
+
+            vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
+                    counter_var_id, reg, register_space, register_index, resource_type, true);
+
+            vkd3d_spirv_build_op_name(builder, counter_var_id, "u%u_counter", reg->idx[0].offset);
         }
-
-        counter_var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
-                ptr_type_id, storage_class, 0);
-
-        vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
-                counter_var_id, reg, register_space, register_index, resource_type, true);
-
-        vkd3d_spirv_build_op_name(builder, counter_var_id, "u%u_counter", reg->idx[0].offset);
     }
 
     vkd3d_symbol_make_resource(&resource_symbol, reg);

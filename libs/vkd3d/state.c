@@ -1413,11 +1413,20 @@ static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipel
     struct vkd3d_descriptor_set_context context;
     VkDescriptorSetLayoutBinding *binding_desc;
     VkDescriptorSetLayout set_layouts[3];
-    unsigned int uav_counter_count;
+    unsigned int uav_counter_count = 0;
     unsigned int i, j;
     HRESULT hr;
 
-    if (!(uav_counter_count = vkd3d_popcount(shader_info->uav_counter_mask)))
+    for (i = 0; i < shader_info->descriptor_count; ++i)
+    {
+        const struct vkd3d_shader_descriptor_info *d = &shader_info->descriptors[i];
+
+        if (d->type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV
+                && (d->flags & VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_UAV_COUNTER))
+            ++uav_counter_count;
+    }
+
+    if (!uav_counter_count)
         return S_OK;
 
     if (!(binding_desc = vkd3d_calloc(uav_counter_count, sizeof(*binding_desc))))
@@ -1435,20 +1444,22 @@ static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipel
     if (root_signature->vk_set_layout)
         set_layouts[context.set_index++] = root_signature->vk_set_layout;
 
-    for (i = 0, j = 0; i < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS; ++i)
+    for (i = 0, j = 0; i < shader_info->descriptor_count; ++i)
     {
-        if (!(shader_info->uav_counter_mask & (1u << i)))
+        const struct vkd3d_shader_descriptor_info *d = &shader_info->descriptors[i];
+
+        if (d->type != VKD3D_SHADER_DESCRIPTOR_TYPE_UAV
+                || !(d->flags & VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_UAV_COUNTER))
             continue;
 
-        state->uav_counters[j].register_space = 0;
-        state->uav_counters[j].register_index = i;
+        state->uav_counters[j].register_space = d->register_space;
+        state->uav_counters[j].register_index = d->register_index;
         state->uav_counters[j].shader_visibility = VKD3D_SHADER_VISIBILITY_COMPUTE;
         state->uav_counters[j].binding.set = context.set_index;
         state->uav_counters[j].binding.binding = context.descriptor_binding;
 
-        /* FIXME: For graphics pipeline we have to take the shader visibility
-         * into account.
-         */
+        /* FIXME: For the graphics pipeline we have to take the shader
+         * visibility into account. */
         binding_desc[j].binding = context.descriptor_binding;
         binding_desc[j].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
         binding_desc[j].descriptorCount = 1;
@@ -2266,8 +2277,17 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             hr = hresult_from_vkd3d_result(ret);
             goto fail;
         }
-        if (shader_info.uav_counter_mask)
-            FIXME("UAV counters not implemented for graphics pipelines.\n");
+        for (j = 0; j < shader_info.descriptor_count; ++j)
+        {
+            const struct vkd3d_shader_descriptor_info *d = &shader_info.descriptors[j];
+
+            if (d->type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV
+                    && (d->flags & VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_UAV_COUNTER))
+            {
+                FIXME("UAV counters not implemented for graphics pipelines.\n");
+                break;
+            }
+        }
         vkd3d_shader_free_scan_info(&shader_info);
 
         target_info = NULL;
