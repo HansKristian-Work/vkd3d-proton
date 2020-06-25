@@ -3278,33 +3278,26 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
     bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
 }
 
-static bool vk_write_descriptor_set_from_root_descriptor(VkWriteDescriptorSet *vk_descriptor_write,
-        const struct d3d12_root_parameter *root_parameter, VkDescriptorSet vk_descriptor_set,
-        const union vkd3d_descriptor_info *descriptors)
+static bool vk_write_descriptor_set_from_root_descriptor(struct d3d12_command_list *list,
+        VkWriteDescriptorSet *vk_descriptor_write, const struct d3d12_root_parameter *root_parameter,
+        VkDescriptorSet vk_descriptor_set, const union vkd3d_descriptor_info *descriptors)
 {
-    const union vkd3d_descriptor_info *descriptor;
-
-    descriptor = &descriptors[root_parameter->descriptor.packed_descriptor];
+    const union vkd3d_descriptor_info *descriptor = &descriptors[root_parameter->descriptor.packed_descriptor];
+    bool is_defined;
 
     switch (root_parameter->parameter_type)
     {
         case D3D12_ROOT_PARAMETER_TYPE_CBV:
             vk_descriptor_write->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-
-            if (!descriptor->buffer.buffer)
-                return false;
+            is_defined = !!descriptor->buffer.buffer;
             break;
         case D3D12_ROOT_PARAMETER_TYPE_SRV:
             vk_descriptor_write->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-
-            if (!descriptor->buffer_view)
-                return false;
+            is_defined = !!descriptor->buffer_view;
             break;
         case D3D12_ROOT_PARAMETER_TYPE_UAV:
             vk_descriptor_write->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-
-            if (!descriptor->buffer_view)
-                return false;
+            is_defined = !!descriptor->buffer_view;
             break;
         default:
             ERR("Invalid root descriptor %#x.\n", root_parameter->parameter_type);
@@ -3320,7 +3313,7 @@ static bool vk_write_descriptor_set_from_root_descriptor(VkWriteDescriptorSet *v
     vk_descriptor_write->pImageInfo = NULL;
     vk_descriptor_write->pBufferInfo = &descriptor->buffer;
     vk_descriptor_write->pTexelBufferView = &descriptor->buffer_view;
-    return true;
+    return is_defined || list->device->device_info.robustness2_features.nullDescriptor;
 }
 
 static bool vk_write_descriptor_set_and_inline_uniform_block(VkWriteDescriptorSet *vk_descriptor_write,
@@ -3506,8 +3499,9 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
         root_parameter_index = vkd3d_bitmask_iter64(&bindings->root_descriptor_dirty_mask);
         root_parameter = root_signature_get_root_descriptor(root_signature, root_parameter_index);
 
-        if (!vk_write_descriptor_set_from_root_descriptor(&descriptor_writes[descriptor_write_count],
-                root_parameter, descriptor_set, bindings->root_descriptors))
+        if (!vk_write_descriptor_set_from_root_descriptor(list,
+                &descriptor_writes[descriptor_write_count], root_parameter,
+                descriptor_set, bindings->root_descriptors))
             continue;
 
         descriptor_write_count += 1;
@@ -5250,9 +5244,11 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
     union vkd3d_descriptor_info *descriptor;
     struct d3d12_resource *resource;
     VkBufferView vk_buffer_view;
+    bool null_descriptors;
 
     root_parameter = root_signature_get_root_descriptor(root_signature, index);
     descriptor = &bindings->root_descriptors[root_parameter->descriptor.packed_descriptor];
+    null_descriptors = list->device->device_info.robustness2_features.nullDescriptor;
 
     if (root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV)
     {
@@ -5263,6 +5259,12 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
             descriptor->buffer.offset = gpu_address - resource->gpu_address;
             descriptor->buffer.range = min(resource->desc.Width - descriptor->buffer.offset,
                     vk_info->device_limits.maxUniformBufferRange);
+        }
+        else if (null_descriptors)
+        {
+            descriptor->buffer.buffer = VK_NULL_HANDLE;
+            descriptor->buffer.offset = 0;
+            descriptor->buffer.range = 0;
         }
         else
         {
@@ -5289,6 +5291,10 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
             }
 
             descriptor->buffer_view = vk_buffer_view;
+        }
+        else if (null_descriptors)
+        {
+            descriptor->buffer_view = VK_NULL_HANDLE;
         }
         else
         {
