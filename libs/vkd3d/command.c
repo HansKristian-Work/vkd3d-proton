@@ -3016,15 +3016,26 @@ static bool vkd3d_descriptor_info_from_d3d12_desc(struct d3d12_device *device,
             if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_IMAGE)
                     && (desc->info.view->type == VKD3D_VIEW_TYPE_IMAGE))
             {
-                vk_descriptor->image.imageView = desc->info.view->vk_image_view;
-                vk_descriptor->image.sampler = VK_NULL_HANDLE;
-                vk_descriptor->image.imageLayout = desc->info.view->info.texture.vk_layout;
+                if (desc->info.view)
+                {
+                    vk_descriptor->image.imageView = desc->info.view->vk_image_view;
+                    vk_descriptor->image.sampler = VK_NULL_HANDLE;
+                    vk_descriptor->image.imageLayout = desc->info.view->info.texture.vk_layout;
+                }
+                else
+                {
+                    vk_descriptor->image.imageView = VK_NULL_HANDLE;
+                    vk_descriptor->image.sampler = VK_NULL_HANDLE;
+                    vk_descriptor->image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                }
                 return true;
             }
             else if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_BUFFER)
                     && (desc->info.view->type == VKD3D_VIEW_TYPE_BUFFER))
             {
-                vk_descriptor->buffer_view = desc->info.view->vk_buffer_view;
+                vk_descriptor->buffer_view = desc->info.view
+                        ? desc->info.view->vk_buffer_view
+                        : VK_NULL_HANDLE;
                 return true;
             }
             break;
@@ -3036,21 +3047,34 @@ static bool vkd3d_descriptor_info_from_d3d12_desc(struct d3d12_device *device,
             if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_IMAGE)
                     && (desc->info.view->type == VKD3D_VIEW_TYPE_IMAGE))
             {
-                vk_descriptor->image.imageView = desc->info.view->vk_image_view;
-                vk_descriptor->image.sampler = VK_NULL_HANDLE;
-                vk_descriptor->image.imageLayout = desc->info.view->info.texture.vk_layout;
+                if (desc->info.view)
+                {
+                    vk_descriptor->image.imageView = desc->info.view->vk_image_view;
+                    vk_descriptor->image.sampler = VK_NULL_HANDLE;
+                    vk_descriptor->image.imageLayout = desc->info.view->info.texture.vk_layout;
+                }
+                else
+                {
+                    vk_descriptor->image.imageView = VK_NULL_HANDLE;
+                    vk_descriptor->image.sampler = VK_NULL_HANDLE;
+                    vk_descriptor->image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                }
                 return true;
             }
             else if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_BUFFER)
                     && (desc->info.view->type == VKD3D_VIEW_TYPE_BUFFER))
             {
-                vk_descriptor->buffer_view = desc->info.view->vk_buffer_view;
+                vk_descriptor->buffer_view = desc->info.view
+                        ? desc->info.view->vk_buffer_view
+                        : VK_NULL_HANDLE;
                 return true;
             }
             else if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_COUNTER)
                     && desc->info.view->vk_counter_view)
             {
-                vk_descriptor->buffer_view = desc->info.view->vk_counter_view;
+                vk_descriptor->buffer_view = desc->info.view
+                        ? desc->info.view->vk_counter_view
+                        : VK_NULL_HANDLE;
                 return true;
             }
             break;
