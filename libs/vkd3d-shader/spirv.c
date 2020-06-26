@@ -1690,8 +1690,8 @@ struct vkd3d_spirv_extension_info
 {
     enum vkd3d_spirv_extension extension;
     const char* name;
-}
-static const vkd3d_spirv_extensions[] =
+};
+static const struct vkd3d_spirv_extension_info vkd3d_spirv_extensions[] =
 {
     {VKD3D_SPV_KHR_PHYSICAL_STORAGE_BUFFER,     "SPV_KHR_physical_storage_buffer"},
     {VKD3D_SPV_KHR_SHADER_DRAW_PARAMETERS,      "SPV_KHR_shader_draw_parameters"},
@@ -1705,8 +1705,8 @@ struct vkd3d_spirv_capability_extension_mapping
 {
     SpvCapability capability;
     enum vkd3d_spirv_extension extension;
-}
-static const vkd3d_spirv_capability_extensions[] =
+};
+static const struct vkd3d_spirv_capability_extension_mapping vkd3d_spirv_capability_extensions[] =
 {
     {SpvCapabilityPhysicalStorageBufferAddresses,         VKD3D_SPV_KHR_PHYSICAL_STORAGE_BUFFER},
     {SpvCapabilityDrawParameters,                         VKD3D_SPV_KHR_SHADER_DRAW_PARAMETERS},
