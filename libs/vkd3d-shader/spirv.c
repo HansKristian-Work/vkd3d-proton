@@ -36,9 +36,9 @@ static enum vkd3d_shader_input_sysval_semantic vkd3d_siv_from_sysval_indexed(enu
         case VKD3D_SV_POSITION:
             return VKD3D_SIV_POSITION;
         case VKD3D_SV_CLIP_DISTANCE:
-            return VKD3D_SV_CLIP_DISTANCE;
+            return VKD3D_SIV_CLIP_DISTANCE;
         case VKD3D_SV_CULL_DISTANCE:
-            return VKD3D_SV_CULL_DISTANCE;
+            return VKD3D_SIV_CULL_DISTANCE;
         case VKD3D_SV_TESS_FACTOR_QUADEDGE:
             return VKD3D_SIV_QUAD_U0_TESS_FACTOR + index;
         case VKD3D_SV_TESS_FACTOR_QUADINT:
