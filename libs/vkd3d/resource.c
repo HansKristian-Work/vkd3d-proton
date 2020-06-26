@@ -2352,13 +2352,13 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
             region->extent.height = min(block_extent.height, mip_extent.height - region->offset.y);
             region->extent.depth = min(block_extent.depth, mip_extent.depth - region->offset.z);
 
-            if (++tile_offset.x == sparse->tilings[subresource].WidthInTiles)
+            if (++tile_offset.x == (int32_t)sparse->tilings[subresource].WidthInTiles)
             {
                 tile_offset.x = 0;
-                if (++tile_offset.y == sparse->tilings[subresource].HeightInTiles)
+                if (++tile_offset.y == (int32_t)sparse->tilings[subresource].HeightInTiles)
                 {
                     tile_offset.y = 0;
-                    if (++tile_offset.z == sparse->tilings[subresource].DepthInTiles)
+                    if (++tile_offset.z == (int32_t)sparse->tilings[subresource].DepthInTiles)
                     {
                         tile_offset.z = 0;
 
