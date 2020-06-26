@@ -3377,7 +3377,7 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
 {
     struct vkd3d_null_resources *null_resources = &device->null_resources;
     struct vkd3d_texture_view_desc vkd3d_desc;
-    struct vkd3d_view *view;
+    struct vkd3d_view *view = NULL;
     VkImage vk_image;
 
     if (!desc)
@@ -3386,54 +3386,58 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
         return;
     }
 
-    switch (desc->ViewDimension)
+    if (desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER)
     {
-        case D3D12_SRV_DIMENSION_BUFFER:
-            WARN("Creating NULL buffer SRV %#x.\n", desc->Format);
-
-            if (vkd3d_create_buffer_view(device, null_resources->vk_buffer,
+        if (!device->device_info.robustness2_features.nullDescriptor)
+        {
+            if (!vkd3d_create_buffer_view(device, null_resources->vk_buffer,
                     vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
                     0, VKD3D_NULL_BUFFER_SIZE, &view))
+                return;
+        }
+
+        descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+    }
+    else
+    {
+        if (!device->device_info.robustness2_features.nullDescriptor)
+        {
+            switch (desc->ViewDimension)
             {
-                descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
-                descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-                descriptor->info.view = view;
+                case D3D12_SRV_DIMENSION_TEXTURE2D:
+                    vk_image = null_resources->vk_2d_image;
+                    vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
+                    break;
+                case D3D12_SRV_DIMENSION_TEXTURE2DARRAY:
+                    vk_image = null_resources->vk_2d_image;
+                    vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+                    break;
+
+                default:
+                    FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
+                    return;
             }
-            return;
 
-        case D3D12_SRV_DIMENSION_TEXTURE2D:
-            vk_image = null_resources->vk_2d_image;
-            vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
-            break;
-        case D3D12_SRV_DIMENSION_TEXTURE2DARRAY:
-            vk_image = null_resources->vk_2d_image;
-            vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-            break;
+            vkd3d_desc.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            vkd3d_desc.format = vkd3d_get_format(device, VKD3D_NULL_SRV_FORMAT, false);
+            vkd3d_desc.miplevel_idx = 0;
+            vkd3d_desc.miplevel_count = 1;
+            vkd3d_desc.layer_idx = 0;
+            vkd3d_desc.layer_count = 1;
+            vkd3d_desc.components.r = VK_COMPONENT_SWIZZLE_ZERO;
+            vkd3d_desc.components.g = VK_COMPONENT_SWIZZLE_ZERO;
+            vkd3d_desc.components.b = VK_COMPONENT_SWIZZLE_ZERO;
+            vkd3d_desc.components.a = VK_COMPONENT_SWIZZLE_ZERO;
+            vkd3d_desc.allowed_swizzle = true;
 
-        default:
-            FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
-            return;
+            if (!vkd3d_create_texture_view(device, vk_image, &vkd3d_desc, &view))
+                return;
+        }
+
+        descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     }
 
-    WARN("Creating NULL SRV %#x.\n", desc->ViewDimension);
-
-    vkd3d_desc.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    vkd3d_desc.format = vkd3d_get_format(device, VKD3D_NULL_SRV_FORMAT, false);
-    vkd3d_desc.miplevel_idx = 0;
-    vkd3d_desc.miplevel_count = 1;
-    vkd3d_desc.layer_idx = 0;
-    vkd3d_desc.layer_count = 1;
-    vkd3d_desc.components.r = VK_COMPONENT_SWIZZLE_ZERO;
-    vkd3d_desc.components.g = VK_COMPONENT_SWIZZLE_ZERO;
-    vkd3d_desc.components.b = VK_COMPONENT_SWIZZLE_ZERO;
-    vkd3d_desc.components.a = VK_COMPONENT_SWIZZLE_ZERO;
-    vkd3d_desc.allowed_swizzle = true;
-
-    if (!vkd3d_create_texture_view(device, vk_image, &vkd3d_desc, &view))
-        return;
-
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
-    descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     descriptor->info.view = view;
 }
 
