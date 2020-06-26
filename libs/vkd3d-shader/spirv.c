@@ -7874,7 +7874,7 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
     unsigned int image_operand_count = 0;
     struct vkd3d_shader_image image;
     unsigned int num_coordinates;
-    uint32_t image_operands[3];
+    uint32_t image_operands[4];
     DWORD coordinate_mask;
     bool is_sparse_op;
     SpvOp op;
