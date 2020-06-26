@@ -5757,7 +5757,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
         if (counter_binding && (counter_binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
         {
             global_binding = vkd3d_dxbc_compiler_get_global_binding(compiler,
-                    VKD3D_DATA_UAV, VKD3D_SHADER_RESOURCE_NONE, VKD3D_DATA_UINT,
+                    VKD3D_DATA_UAV, VKD3D_SHADER_RESOURCE_NONE, VKD3D_TYPE_UINT,
                     SpvStorageClassUniform, counter_binding, SpvImageFormatUnknown, 0);
 
             counter_type_id = global_binding->type_id;
