@@ -8,7 +8,7 @@ vkd3d_shader_src = [
 ]
 
 vkd3d_shader_lib = static_library('vkd3d-shader', vkd3d_shader_src, vkd3d_headers,
-  dependencies        : [ vkd3d_common_dep ] + dxil_spirv_deps,
+  dependencies        : [ vkd3d_common_dep, dxil_spirv_dep ],
   include_directories : vkd3d_private_includes,
   override_options    : [ 'c_std='+vkd3d_c_std ])
 
