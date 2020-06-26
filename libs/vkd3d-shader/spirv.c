@@ -3170,7 +3170,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_constant_buffer(struct vkd3d_dxbc_
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t type_id, ptr_type_id, ptr_id, val_id, last_index;
-    uint32_t indexes[4], component_ids[4];
+    uint32_t indexes[5], component_ids[4];
     unsigned int i, j, component_count;
 
     assert(!reg->idx[0].rel_addr);
