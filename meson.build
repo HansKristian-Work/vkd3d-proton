@@ -57,17 +57,8 @@ vkd3d_version = vcs_tag(
   input   : 'vkd3d_version.c.in',
   output  : 'vkd3d_version.c')
 
-cmake = import('cmake')
-dxil_spirv = cmake.subproject('dxil-spirv', cmake_options: ['-DDXIL_SPIRV_CLI=OFF'] )
-dxil_spirv_deps = [
-  dxil_spirv.dependency('dxil-spirv-c-static'),
-  dxil_spirv.dependency('dxil-converter'),
-  dxil_spirv.dependency('dxil-debug'),
-  dxil_spirv.dependency('spirv-module'),
-  dxil_spirv.dependency('glslang-spirv-builder'),
-  dxil_spirv.dependency('llvm-bc'),
-  dxil_spirv.dependency('bc-decoder'),
-]
+dxil_spirv = subproject('dxil-spirv')
+dxil_spirv_dep = dxil_spirv.get_variable('dxil_spirv_dep')
 
 subdir('include')
 subdir('libs')
