@@ -1,4 +1,6 @@
-project('vkd3d', ['c'], version : '1.1', meson_version : '>= 0.51')
+project('vkd3d', ['c'], version : '1.1', meson_version : '>= 0.51', default_options : [
+  'warning_level=2',
+])
 
 cpu_family = target_machine.cpu_family()
 
