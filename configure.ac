@@ -9,8 +9,6 @@ AC_ARG_VAR([WIDL], [widl IDL compiler])
 AC_ARG_VAR([CROSSCC32], [32-bit Windows cross compiler])
 AC_ARG_VAR([CROSSCC64], [64-bit Windows cross compiler])
 AC_ARG_WITH([xcb], AS_HELP_STRING([--with-xcb], [Build with XCB library (default: test)]))
-AC_ARG_WITH([spirv-tools], AS_HELP_STRING([--with-spirv-tools],
-                                          [Build with SPIRV-Tools library (default: disabled)]))
 AC_ARG_WITH([dxil-spirv], AS_HELP_STRING([--with-dxil-spirv],
                                          [Build with dxil-spirv library for DXIL support (default: enabled)]))
 AC_ARG_ENABLE([demos],
@@ -78,11 +76,6 @@ AC_CHECK_LIB([dl], [dlopen],
 AC_ARG_VAR([PTHREAD_LIBS], [linker flags for pthreads])
 VKD3D_CHECK_PTHREAD
 
-AS_IF([test "x$with_spirv_tools" = "xyes"],
-      [PKG_CHECK_MODULES([SPIRV_TOOLS], [SPIRV-Tools-shared],
-      [AC_DEFINE([HAVE_SPIRV_TOOLS], [1], [Define to 1 if you have SPIRV-Tools.])])],
-      [with_spirv_tools=no])
-
 HAVE_XCB=no
 AS_IF([test "x$with_xcb" != "xno"],
       [PKG_CHECK_MODULES([XCB], [xcb xcb-keysyms],
@@ -129,7 +122,6 @@ AS_ECHO(["
   widl: ${WIDL}
 
   Have XCB: ${HAVE_XCB}
-  Have SPIRV-Tools: ${with_spirv_tools}
   Have dxil-spirv: ${HAVE_DXIL_SPV}
 
   Building demos: ${enable_demos}

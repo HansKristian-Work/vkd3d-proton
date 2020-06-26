@@ -85,9 +85,9 @@ libvkd3d_shader_la_SOURCES = \
 	libs/vkd3d-shader/vkd3d_shader.map \
 	libs/vkd3d-shader/vkd3d_shader_main.c \
 	libs/vkd3d-shader/vkd3d_shader_private.h
-libvkd3d_shader_la_CFLAGS = $(AM_CFLAGS) @SPIRV_TOOLS_CFLAGS@ @dxil_spirv_c_shared_CFLAGS@
+libvkd3d_shader_la_CFLAGS = $(AM_CFLAGS) @dxil_spirv_c_shared_CFLAGS@
 libvkd3d_shader_la_LDFLAGS = $(AM_LDFLAGS) -version-info 1:0:0
-libvkd3d_shader_la_LIBADD = libvkd3d-common.la @SPIRV_TOOLS_LIBS@ @dxil_spirv_c_shared_LIBS@
+libvkd3d_shader_la_LIBADD = libvkd3d-common.la @dxil_spirv_c_shared_LIBS@
 if HAVE_LD_VERSION_SCRIPT
 libvkd3d_shader_la_LDFLAGS += -Wl,--version-script=$(srcdir)/libs/vkd3d-shader/vkd3d_shader.map
 EXTRA_libvkd3d_shader_la_DEPENDENCIES = $(srcdir)/libs/vkd3d-shader/vkd3d_shader.map
