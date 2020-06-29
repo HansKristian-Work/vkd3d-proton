@@ -1,0 +1,9 @@
+vkd3d:
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+  script:
+    - ./package-release.sh release build --no-package
+  artifacts:
+    name: "vkd3d-${CI_COMMIT_REF_NAME}.${CI_COMMIT_SHA}"
+    paths:
+    - build/vkd3d-release
