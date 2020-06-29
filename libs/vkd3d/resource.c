@@ -2803,10 +2803,9 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
     descriptor_index = d3d12_desc_heap_offset(dst);
 
     /* update UAV counter address */
-    if (dst->heap->uav_counters.data)
+    if (dst->magic == VKD3D_DESCRIPTOR_MAGIC_UAV && dst->heap->uav_counters.data)
     {
-        dst->heap->uav_counters.data[descriptor_index] =
-            ((dst->magic & VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW) && dst->info.view)
+        dst->heap->uav_counters.data[descriptor_index] = dst->info.view
                 ? dst->info.view->vk_counter_address : 0;
     }
 
