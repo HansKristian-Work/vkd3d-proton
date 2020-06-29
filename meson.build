@@ -47,7 +47,9 @@ add_project_arguments(vkd3d_compiler.get_supported_arguments([
     '-Wno-format',
     '-Wno-discarded-qualifiers',
     '-Wno-incompatible-pointer-types',
-    '-Wno-missing-braces']),
+    '-Wno-missing-braces',
+    '-Wno-missing-field-initializers',
+    '-Wno-unused-parameter']),
   language : 'c')
 
 vkd3d_version = vcs_tag(
