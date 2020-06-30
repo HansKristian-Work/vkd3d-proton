@@ -2106,6 +2106,7 @@ struct vkd3d_dxbc_compiler
     const struct vkd3d_shader_scan_info *scan_info;
     unsigned int input_control_point_count;
     unsigned int output_control_point_count;
+    bool use_vocp;
 
     unsigned int shader_phase_count;
     struct vkd3d_shader_phase *shader_phases;
@@ -5456,6 +5457,9 @@ static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compi
         vkd3d_dxbc_compiler_emit_input(compiler, dst, VKD3D_SIV_NONE, VKD3DSIM_NONE);
     else
         vkd3d_dxbc_compiler_emit_input_register(compiler, dst);
+
+    if (dst->reg.type == VKD3DSPR_OUTCONTROLPOINT)
+        compiler->use_vocp = true;
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_input_ps(struct vkd3d_dxbc_compiler *compiler,
@@ -5987,7 +5991,6 @@ static void vkd3d_dxbc_compiler_emit_hull_shader_barrier(struct vkd3d_dxbc_compi
 
 static void vkd3d_dxbc_compiler_emit_hull_shader_main(struct vkd3d_dxbc_compiler *compiler)
 {
-    const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_phase *control_point_phase, *phase;
     uint32_t phase_instance_id;
@@ -6003,7 +6006,7 @@ static void vkd3d_dxbc_compiler_emit_hull_shader_main(struct vkd3d_dxbc_compiler
     else
         vkd3d_dxbc_compiler_emit_default_control_point_phase(compiler);
 
-    if (scan_info->use_vocp)
+    if (compiler->use_vocp)
         vkd3d_dxbc_compiler_emit_hull_shader_barrier(compiler);
 
     for (i = 0; i < compiler->shader_phase_count; ++i)

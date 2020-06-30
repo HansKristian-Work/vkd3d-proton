@@ -640,8 +640,6 @@ struct vkd3d_shader_scan_info
 
     struct vkd3d_shader_descriptor_info *descriptors;
     unsigned int descriptor_count;
-
-    bool use_vocp;
 };
 
 enum vkd3d_component_type

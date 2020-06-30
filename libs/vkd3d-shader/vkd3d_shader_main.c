@@ -305,15 +305,6 @@ static void vkd3d_shader_scan_constant_buffer_declaration(struct vkd3d_shader_sc
             cb->register_index, VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_SHADER_RESOURCE_DATA_UINT, 0);
 }
 
-static void vkd3d_shader_scan_input_declaration(struct vkd3d_shader_scan_info *scan_info,
-        const struct vkd3d_shader_instruction *instruction)
-{
-    const struct vkd3d_shader_dst_param *dst = &instruction->declaration.dst;
-
-    if (dst->reg.type == VKD3DSPR_OUTCONTROLPOINT)
-        scan_info->use_vocp = true;
-}
-
 static void vkd3d_shader_scan_sampler_declaration(struct vkd3d_shader_scan_context *context,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -411,9 +402,6 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_context *cont
     {
         case VKD3DSIH_DCL_CONSTANT_BUFFER:
             vkd3d_shader_scan_constant_buffer_declaration(context, instruction);
-            break;
-        case VKD3DSIH_DCL_INPUT:
-            vkd3d_shader_scan_input_declaration(context->scan_info, instruction);
             break;
         case VKD3DSIH_DCL_SAMPLER:
             vkd3d_shader_scan_sampler_declaration(context, instruction);
