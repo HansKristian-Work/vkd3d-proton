@@ -58,9 +58,16 @@ static HRESULT signal_event(HANDLE event)
     return S_OK;
 }
 
+static const struct vkd3d_application_info instance_default_application_info =
+{
+    .type = VKD3D_STRUCTURE_TYPE_APPLICATION_INFO,
+    .api_version = VKD3D_API_VERSION_1_2,
+};
+
 static const struct vkd3d_instance_create_info instance_default_create_info =
 {
     .type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+    .next = &instance_default_application_info,
     .wchar_size = sizeof(WCHAR),
     .pfn_signal_event = signal_event,
 };
@@ -1078,6 +1085,7 @@ static void test_application_info(void)
     app_info.engine_version = 0;
     app_info.application_name = NULL;
     app_info.application_version = 0;
+    app_info.api_version = VKD3D_API_VERSION_1_0;
 
     create_info = instance_default_create_info;
     create_info.next = &app_info;

@@ -2,6 +2,7 @@ VKD3D_1_0
 {
 global:
     D3D12CreateDevice;
+    D3D12CreateDeviceVKD3D;
     D3D12CreateRootSignatureDeserializer;
     D3D12CreateVersionedRootSignatureDeserializer;
     D3D12GetDebugInterface;

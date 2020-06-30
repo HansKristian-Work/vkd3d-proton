@@ -55,6 +55,7 @@ typedef int HRESULT;
 #ifdef _WIN32
 # include "vkd3d_dxgi1_4.h"
 #else
+# define VKD3D_UTILS_API_VERSION VKD3D_API_VERSION_1_2
 # include <pthread.h>
 # include "vkd3d.h"
 # include "vkd3d_utils.h"

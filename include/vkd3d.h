@@ -51,6 +51,13 @@ enum vkd3d_structure_type
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_STRUCTURE_TYPE),
 };
 
+enum vkd3d_api_version
+{
+    VKD3D_API_VERSION_1_0,
+    VKD3D_API_VERSION_1_1,
+    VKD3D_API_VERSION_1_2,
+};
+
 typedef HRESULT (*PFN_vkd3d_signal_event)(HANDLE event);
 
 typedef void * (*PFN_vkd3d_thread)(void *data);
@@ -98,6 +105,8 @@ struct vkd3d_application_info
 
     const char *engine_name; /* "vkd3d" if NULL */
     uint32_t engine_version; /* vkd3d version if engine_name is NULL */
+
+    enum vkd3d_api_version api_version;
 };
 
 struct vkd3d_device_create_info

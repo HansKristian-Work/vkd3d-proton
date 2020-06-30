@@ -17,6 +17,7 @@
  */
 
 #include "vkd3d_utils_private.h"
+#undef D3D12CreateDevice
 
 VKD3D_DEBUG_ENV_NAME("VKD3D_DEBUG");
 
@@ -27,8 +28,8 @@ HRESULT WINAPI D3D12GetDebugInterface(REFIID iid, void **debug)
     return E_NOTIMPL;
 }
 
-HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
-        D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
+HRESULT WINAPI D3D12CreateDeviceVKD3D(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level,
+        REFIID iid, void **device, enum vkd3d_api_version api_version)
 {
     struct vkd3d_optional_instance_extensions_info optional_extensions_info;
     struct vkd3d_instance_create_info instance_create_info;
@@ -47,15 +48,21 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
     {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
     };
+    struct vkd3d_application_info application_info =
+    {
+        .type = VKD3D_STRUCTURE_TYPE_APPLICATION_INFO,
+        .api_version = api_version,
+    };
 
-    TRACE("adapter %p, minimum_feature_level %#x, iid %s, device %p.\n",
-            adapter, minimum_feature_level, debugstr_guid(iid), device);
+    TRACE("adapter %p, minimum_feature_level %#x, iid %s, device %p, api_version %#x.\n",
+            adapter, minimum_feature_level, debugstr_guid(iid), device, api_version);
 
     if (adapter)
         FIXME("Ignoring adapter %p.\n", adapter);
 
     memset(&optional_extensions_info, 0, sizeof(optional_extensions_info));
     optional_extensions_info.type = VKD3D_STRUCTURE_TYPE_OPTIONAL_INSTANCE_EXTENSIONS_INFO;
+    optional_extensions_info.next = &application_info;
     optional_extensions_info.extensions = optional_instance_extensions;
     optional_extensions_info.extension_count = ARRAY_SIZE(optional_instance_extensions);
 
@@ -76,6 +83,12 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
     device_create_info.device_extension_count = ARRAY_SIZE(device_extensions);
 
     return vkd3d_create_device(&device_create_info, iid, device);
+}
+
+HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
+        D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
+{
+    return D3D12CreateDeviceVKD3D(adapter, minimum_feature_level, iid, device, VKD3D_API_VERSION_1_0);
 }
 
 HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T data_size,

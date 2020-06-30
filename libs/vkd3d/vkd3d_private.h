@@ -147,6 +147,7 @@ struct vkd3d_instance
     void *libvulkan;
 
     uint64_t config_flags;
+    enum vkd3d_api_version api_version;
 
     VkDebugReportCallbackEXT vk_debug_callback;
 

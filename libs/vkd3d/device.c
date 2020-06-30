@@ -506,16 +506,21 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     application_info.pEngineName = PACKAGE_NAME;
     application_info.engineVersion = vkd3d_get_vk_version();
     application_info.apiVersion = VK_API_VERSION_1_0;
+    instance->api_version = VKD3D_API_VERSION_1_0;
 
     if ((vkd3d_application_info = vkd3d_find_struct(create_info->next, APPLICATION_INFO)))
     {
-        application_info.pApplicationName = vkd3d_application_info->application_name;
+        if (vkd3d_application_info->application_name)
+            application_info.pApplicationName = vkd3d_application_info->application_name;
+        else if (vkd3d_get_program_name(application_name))
+            application_info.pApplicationName = application_name;
         application_info.applicationVersion = vkd3d_application_info->application_version;
         if (vkd3d_application_info->engine_name)
         {
             application_info.pEngineName = vkd3d_application_info->engine_name;
             application_info.engineVersion = vkd3d_application_info->engine_version;
         }
+        instance->api_version = vkd3d_application_info->api_version;
     }
     else if (vkd3d_get_program_name(application_name))
     {
@@ -523,6 +528,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     }
 
     TRACE("Application: %s.\n", debugstr_a(application_info.pApplicationName));
+    TRACE("vkd3d API version: %u.\n", instance->api_version);
 
     if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
     {
