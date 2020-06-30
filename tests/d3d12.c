@@ -32825,7 +32825,7 @@ static void test_write_buffer_immediate(void)
 
 static void test_register_space(void)
 {
-    ID3D12Resource *input_buffers[6], *output_buffers[8];
+    ID3D12Resource *input_buffers[6], *output_buffers[8], *counter_buffers[2];
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
@@ -32834,6 +32834,7 @@ static void test_register_space(void)
     ID3D12DescriptorHeap *heap;
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
+    uint32_t counter;
     unsigned int i;
     HRESULT hr;
 
@@ -32907,11 +32908,13 @@ static void test_register_space(void)
             u6[0] = t6.Load(0);
             u7[0] = c1;
             u8[0] = c2;
+            u7.IncrementCounter();
+            u8.DecrementCounter();
         }
 #endif
-        0x43425844, 0x073b3de1, 0x527d26fc, 0xa46f417c, 0x4d9f338c, 0x00000001, 0x00000444, 0x00000003,
+        0x43425844, 0x2a87323a, 0x4f83d345, 0x707e5d14, 0xdf41ce4a, 0x00000001, 0x00000474, 0x00000003,
         0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
-        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000003f0, 0x00050051, 0x000000fc, 0x0100086a,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000420, 0x00050051, 0x00000108, 0x0100086a,
         0x07000059, 0x00308e46, 0x00000000, 0x00000001, 0x00000001, 0x00000001, 0x00000001, 0x07000059,
         0x00308e46, 0x00000001, 0x00000001, 0x00000001, 0x00000001, 0x00000002, 0x060000a1, 0x00307e46,
         0x00000000, 0x00000001, 0x00000001, 0x00000001, 0x07000858, 0x00307e46, 0x00000001, 0x00000002,
@@ -32923,8 +32926,8 @@ static void test_register_space(void)
         0x00000002, 0x00000001, 0x0700089c, 0x0031ee46, 0x00000002, 0x00000003, 0x00000003, 0x00004444,
         0x00000001, 0x0600009d, 0x0031ee46, 0x00000003, 0x00000001, 0x00000001, 0x00000002, 0x0600009d,
         0x0031ee46, 0x00000004, 0x00000002, 0x00000002, 0x00000002, 0x0700089c, 0x0031ee46, 0x00000005,
-        0x00000003, 0x00000003, 0x00004444, 0x00000002, 0x0700009e, 0x0031ee46, 0x00000006, 0x00000003,
-        0x00000003, 0x00000004, 0x00000003, 0x0700009e, 0x0031ee46, 0x00000007, 0x00000003, 0x00000003,
+        0x00000003, 0x00000003, 0x00004444, 0x00000002, 0x0780009e, 0x0031ee46, 0x00000006, 0x00000003,
+        0x00000003, 0x00000004, 0x00000003, 0x0780009e, 0x0031ee46, 0x00000007, 0x00000003, 0x00000003,
         0x00000004, 0x00000004, 0x02000068, 0x00000001, 0x0400009b, 0x00000001, 0x00000001, 0x00000001,
         0x080000a5, 0x00100012, 0x00000000, 0x00004001, 0x00000000, 0x00207006, 0x00000003, 0x00000001,
         0x080000a6, 0x0021e012, 0x00000000, 0x00000001, 0x00004001, 0x00000000, 0x0010000a, 0x00000000,
@@ -32943,7 +32946,8 @@ static void test_register_space(void)
         0x0c0000a8, 0x0021e012, 0x00000007, 0x00000003, 0x00004001, 0x00000000, 0x00004001, 0x00000000,
         0x0030800a, 0x00000000, 0x00000001, 0x00000000, 0x0c0000a8, 0x0021e012, 0x00000006, 0x00000003,
         0x00004001, 0x00000000, 0x00004001, 0x00000000, 0x0030800a, 0x00000001, 0x00000001, 0x00000000,
-        0x0100003e,
+        0x060000b2, 0x00100012, 0x00000000, 0x0021e000, 0x00000007, 0x00000003, 0x060000b3, 0x00100012,
+        0x00000000, 0x0021e000, 0x00000006, 0x00000003, 0x0100003e,
     };
     static const uint32_t srv_data[] = {100, 200, 300, 400, 500, 600};
 
@@ -32980,18 +32984,37 @@ static void test_register_space(void)
                 get_cpu_descriptor_handle(&context, heap, i));
     }
 
+    for (i = 0; i < ARRAY_SIZE(counter_buffers); ++i)
+    {
+        counter_buffers[i] = create_default_buffer(device, sizeof(uint32_t),
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+        counter = 2;
+        upload_buffer_data(counter_buffers[i], 0, sizeof(counter), &counter, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+        transition_sub_resource_state(command_list, counter_buffers[i], 0,
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
+
     for (i = 0; i < ARRAY_SIZE(output_buffers); ++i)
     {
         output_buffers[i] = create_default_buffer(device, sizeof(uint32_t),
                 D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
         memset(&uav_desc, 0, sizeof(uav_desc));
-        uav_desc.Format = DXGI_FORMAT_R32_UINT;
         uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
         uav_desc.Buffer.FirstElement = 0;
         uav_desc.Buffer.NumElements = 1;
-        ID3D12Device_CreateUnorderedAccessView(device, output_buffers[i], NULL, &uav_desc,
-                get_cpu_descriptor_handle(&context, heap, ARRAY_SIZE(input_buffers) + i));
+        if (i < 6)
+        {
+            uav_desc.Format = DXGI_FORMAT_R32_UINT;
+        }
+        else
+        {
+            uav_desc.Format = DXGI_FORMAT_UNKNOWN;
+            uav_desc.Buffer.StructureByteStride = sizeof(uint32_t);
+        }
+        ID3D12Device_CreateUnorderedAccessView(device, output_buffers[i], i >= 6 ? counter_buffers[i - 6] : NULL,
+                &uav_desc, get_cpu_descriptor_handle(&context, heap, ARRAY_SIZE(input_buffers) + i));
     }
 
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
@@ -33014,10 +33037,17 @@ static void test_register_space(void)
         reset_command_list(command_list, context.allocator);
     }
 
+    counter = read_uav_counter(&context, counter_buffers[0], 0);
+    ok(counter == 3, "Got unexpected value %d.\n", counter);
+    counter = read_uav_counter(&context, counter_buffers[1], 0);
+    ok(counter == 1, "Got unexpected value %d.\n", counter);
+
     for (i = 0; i < ARRAY_SIZE(input_buffers); ++i)
         ID3D12Resource_Release(input_buffers[i]);
     for (i = 0; i < ARRAY_SIZE(output_buffers); ++i)
         ID3D12Resource_Release(output_buffers[i]);
+    for (i = 0; i < ARRAY_SIZE(counter_buffers); ++i)
+        ID3D12Resource_Release(counter_buffers[i]);
     ID3D12DescriptorHeap_Release(heap);
     destroy_test_context(&context);
 }
