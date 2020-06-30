@@ -990,9 +990,10 @@ HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
 {
     memset(procs, 0, sizeof(*procs));
 
-#define VK_INSTANCE_PFN   COPY_PARENT_PFN
-#define VK_DEVICE_PFN     LOAD_DEVICE_PFN
-#define VK_DEVICE_EXT_PFN LOAD_DEVICE_OPTIONAL_PFN
+#define VK_INSTANCE_PFN       COPY_PARENT_PFN
+#define VK_INSTANCE_EXT_PFN   COPY_PARENT_PFN
+#define VK_DEVICE_PFN         LOAD_DEVICE_PFN
+#define VK_DEVICE_EXT_PFN     LOAD_DEVICE_OPTIONAL_PFN
 #include "vulkan_procs.h"
 
     TRACE("Loaded procs for VkDevice %p.\n", device);
