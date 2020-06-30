@@ -2766,6 +2766,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
 
             TRACE("Root signature requested %#x.\n", data->HighestVersion);
             data->HighestVersion = min(data->HighestVersion, D3D_ROOT_SIGNATURE_VERSION_1_1);
+            if (device->vkd3d_instance->api_version < VKD3D_API_VERSION_1_2)
+                data->HighestVersion = min(data->HighestVersion, D3D_ROOT_SIGNATURE_VERSION_1_0);
 
             TRACE("Root signature version %#x.\n", data->HighestVersion);
             return S_OK;

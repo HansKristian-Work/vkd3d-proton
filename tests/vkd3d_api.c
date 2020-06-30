@@ -1073,11 +1073,27 @@ static void test_formats(void)
 
 static void test_application_info(void)
 {
+    D3D12_FEATURE_DATA_ROOT_SIGNATURE root_signature;
     struct vkd3d_instance_create_info create_info;
+    struct vkd3d_device_create_info device_info;
     struct vkd3d_application_info app_info;
     struct vkd3d_instance *instance;
+    ID3D12Device *device;
+    unsigned int i;
     ULONG refcount;
     HRESULT hr;
+
+    static const struct
+    {
+        enum vkd3d_api_version api_version;
+        D3D_ROOT_SIGNATURE_VERSION rs_version;
+    }
+    root_signature_versions[] =
+    {
+        {VKD3D_API_VERSION_1_0, D3D_ROOT_SIGNATURE_VERSION_1_0},
+        {VKD3D_API_VERSION_1_1, D3D_ROOT_SIGNATURE_VERSION_1_0},
+        {VKD3D_API_VERSION_1_2, D3D_ROOT_SIGNATURE_VERSION_1_1},
+    };
 
     app_info.type = VKD3D_STRUCTURE_TYPE_APPLICATION_INFO;
     app_info.next = NULL;
@@ -1113,6 +1129,44 @@ static void test_application_info(void)
     ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
     refcount = vkd3d_instance_decref(instance);
     ok(!refcount, "Instance has %u references left.\n", refcount);
+
+    device_info = device_default_create_info;
+    device_info.instance_create_info = &create_info;
+    for (i = 0; i < ARRAY_SIZE(root_signature_versions); ++i)
+    {
+        app_info.api_version = root_signature_versions[i].api_version;
+        hr = vkd3d_create_device(&device_info, &IID_ID3D12Device, (void **)&device);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        root_signature.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+        hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ROOT_SIGNATURE,
+                &root_signature, sizeof(root_signature));
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(root_signature.HighestVersion == D3D_ROOT_SIGNATURE_VERSION_1_0,
+                "Got unexpected root signature feature version %#x.\n", root_signature.HighestVersion);
+
+        root_signature.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+        hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ROOT_SIGNATURE,
+                &root_signature, sizeof(root_signature));
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(root_signature.HighestVersion == root_signature_versions[i].rs_version,
+                "Got unexpected root signature feature version %#x.\n", root_signature.HighestVersion);
+
+        ID3D12Device_Release(device);
+    }
+
+    create_info.next = NULL;
+    hr = vkd3d_create_device(&device_info, &IID_ID3D12Device, (void **)&device);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    root_signature.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ROOT_SIGNATURE,
+            &root_signature, sizeof(root_signature));
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(root_signature.HighestVersion == D3D_ROOT_SIGNATURE_VERSION_1_0,
+            "Got unexpected root signature feature version %#x.\n", root_signature.HighestVersion);
+
+    ID3D12Device_Release(device);
 }
 
 static bool have_d3d12_device(void)
