@@ -594,6 +594,7 @@ static void shader_sm4_read_dcl_resource(struct vkd3d_shader_instruction *ins,
         DWORD opcode, DWORD opcode_token, const DWORD *tokens, unsigned int token_count,
         struct vkd3d_sm4_data *priv)
 {
+    struct vkd3d_shader_semantic *semantic = &ins->declaration.semantic;
     enum vkd3d_sm4_resource_type resource_type;
     const DWORD *end = &tokens[token_count];
     enum vkd3d_sm4_data_type data_type;
@@ -604,15 +605,15 @@ static void shader_sm4_read_dcl_resource(struct vkd3d_shader_instruction *ins,
     if (!resource_type || (resource_type >= ARRAY_SIZE(resource_type_table)))
     {
         FIXME("Unhandled resource type %#x.\n", resource_type);
-        ins->declaration.semantic.resource_type = VKD3D_SHADER_RESOURCE_NONE;
+        semantic->resource_type = VKD3D_SHADER_RESOURCE_NONE;
     }
     else
     {
-        ins->declaration.semantic.resource_type = resource_type_table[resource_type];
+        semantic->resource_type = resource_type_table[resource_type];
     }
     reg_data_type = opcode == VKD3D_SM4_OP_DCL_RESOURCE ? VKD3D_DATA_RESOURCE : VKD3D_DATA_UAV;
-    shader_sm4_read_dst_param(priv, &tokens, end, reg_data_type, &ins->declaration.semantic.reg);
-    ins->declaration.semantic.register_index = shader_sm4_map_resource_idx(&ins->declaration.semantic.reg.reg, priv);
+    shader_sm4_read_dst_param(priv, &tokens, end, reg_data_type, &semantic->resource.reg);
+    semantic->resource.register_index = shader_sm4_map_resource_idx(&semantic->resource.reg.reg, priv);
 
     components = *tokens++;
     if ((components & 0xfff0) != (components & 0xf) * 0x1110)
@@ -622,17 +623,17 @@ static void shader_sm4_read_dcl_resource(struct vkd3d_shader_instruction *ins,
     if (!data_type || (data_type >= ARRAY_SIZE(data_type_table)))
     {
         FIXME("Unhandled data type %#x.\n", data_type);
-        ins->declaration.semantic.resource_data_type = VKD3D_DATA_FLOAT;
+        semantic->resource_data_type = VKD3D_DATA_FLOAT;
     }
     else
     {
-        ins->declaration.semantic.resource_data_type = data_type_table[data_type];
+        semantic->resource_data_type = data_type_table[data_type];
     }
 
     if (reg_data_type == VKD3D_DATA_UAV)
         ins->flags = (opcode_token & VKD3D_SM5_UAV_FLAGS_MASK) >> VKD3D_SM5_UAV_FLAGS_SHIFT;
 
-    shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.semantic.register_space);
+    shader_sm4_read_register_space(priv, &tokens, end, &semantic->resource.register_space);
 }
 
 static void shader_sm4_read_dcl_constant_buffer(struct vkd3d_shader_instruction *ins,
@@ -869,29 +870,29 @@ static void shader_sm5_read_dcl_uav_raw(struct vkd3d_shader_instruction *ins,
         DWORD opcode, DWORD opcode_token, const DWORD *tokens, unsigned int token_count,
         struct vkd3d_sm4_data *priv)
 {
+    struct vkd3d_shader_raw_resource *resource = &ins->declaration.raw_resource;
     const DWORD *end = &tokens[token_count];
 
-    shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_UAV, &ins->declaration.raw_resource.dst);
-    ins->declaration.raw_resource.register_index = shader_sm4_map_resource_idx(
-            &ins->declaration.raw_resource.dst.reg, priv);
+    shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_UAV, &resource->resource.reg);
+    resource->resource.register_index = shader_sm4_map_resource_idx(&resource->resource.reg.reg, priv);
     ins->flags = (opcode_token & VKD3D_SM5_UAV_FLAGS_MASK) >> VKD3D_SM5_UAV_FLAGS_SHIFT;
-    shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.raw_resource.register_space);
+    shader_sm4_read_register_space(priv, &tokens, end, &resource->resource.register_space);
 }
 
 static void shader_sm5_read_dcl_uav_structured(struct vkd3d_shader_instruction *ins,
         DWORD opcode, DWORD opcode_token, const DWORD *tokens, unsigned int token_count,
         struct vkd3d_sm4_data *priv)
 {
+    struct vkd3d_shader_structured_resource *resource = &ins->declaration.structured_resource;
     const DWORD *end = &tokens[token_count];
 
-    shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_UAV, &ins->declaration.structured_resource.reg);
-    ins->declaration.structured_resource.register_index = shader_sm4_map_resource_idx(
-            &ins->declaration.structured_resource.reg.reg, priv);
+    shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_UAV, &resource->resource.reg);
+    resource->resource.register_index = shader_sm4_map_resource_idx(&resource->resource.reg.reg, priv);
     ins->flags = (opcode_token & VKD3D_SM5_UAV_FLAGS_MASK) >> VKD3D_SM5_UAV_FLAGS_SHIFT;
-    ins->declaration.structured_resource.byte_stride = *tokens++;
-    if (ins->declaration.structured_resource.byte_stride % 4)
-        FIXME("Byte stride %u is not multiple of 4.\n", ins->declaration.structured_resource.byte_stride);
-    shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.structured_resource.register_space);
+    resource->byte_stride = *tokens++;
+    if (resource->byte_stride % 4)
+        FIXME("Byte stride %u is not multiple of 4.\n", resource->byte_stride);
+    shader_sm4_read_register_space(priv, &tokens, end, &resource->resource.register_space);
 }
 
 static void shader_sm5_read_dcl_tgsm_raw(struct vkd3d_shader_instruction *ins,
@@ -920,26 +921,27 @@ static void shader_sm5_read_dcl_resource_structured(struct vkd3d_shader_instruct
         DWORD opcode, DWORD opcode_token, const DWORD *tokens, unsigned int token_count,
         struct vkd3d_sm4_data *priv)
 {
+    struct vkd3d_shader_structured_resource *resource = &ins->declaration.structured_resource;
     const DWORD *end = &tokens[token_count];
 
-    shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_RESOURCE, &ins->declaration.structured_resource.reg);
-    ins->declaration.structured_resource.register_index = shader_sm4_map_resource_idx(
-            &ins->declaration.structured_resource.reg.reg, priv);
-    ins->declaration.structured_resource.byte_stride = *tokens++;
-    if (ins->declaration.structured_resource.byte_stride % 4)
-        FIXME("Byte stride %u is not multiple of 4.\n", ins->declaration.structured_resource.byte_stride);
-    shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.structured_resource.register_space);
+    shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_RESOURCE, &resource->resource.reg);
+    resource->resource.register_index = shader_sm4_map_resource_idx(&resource->resource.reg.reg, priv);
+    resource->byte_stride = *tokens++;
+    if (resource->byte_stride % 4)
+        FIXME("Byte stride %u is not multiple of 4.\n", resource->byte_stride);
+    shader_sm4_read_register_space(priv, &tokens, end, &resource->resource.register_space);
 }
 
 static void shader_sm5_read_dcl_resource_raw(struct vkd3d_shader_instruction *ins,
         DWORD opcode, DWORD opcode_token, const DWORD *tokens, unsigned int token_count,
         struct vkd3d_sm4_data *priv)
 {
+    struct vkd3d_shader_raw_resource *resource = &ins->declaration.raw_resource;
     const DWORD *end = &tokens[token_count];
 
-    shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_RESOURCE, &ins->declaration.dst);
-    ins->declaration.raw_resource.register_index = shader_sm4_map_resource_idx(&ins->declaration.dst.reg, priv);
-    shader_sm4_read_register_space(priv, &tokens, end, &ins->declaration.raw_resource.register_space);
+    shader_sm4_read_dst_param(priv, &tokens, end, VKD3D_DATA_RESOURCE, &resource->resource.reg);
+    resource->resource.register_index = shader_sm4_map_resource_idx(&resource->resource.reg.reg, priv);
+    shader_sm4_read_register_space(priv, &tokens, end, &resource->resource.register_space);
 }
 
 static void shader_sm5_read_sync(struct vkd3d_shader_instruction *ins,

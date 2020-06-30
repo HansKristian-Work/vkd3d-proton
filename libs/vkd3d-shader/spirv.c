@@ -5280,14 +5280,16 @@ static void vkd3d_dxbc_compiler_emit_combined_sampler_declarations(struct vkd3d_
 }
 
 static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_register *reg, unsigned int register_space, unsigned int register_index,
-        enum vkd3d_shader_resource_type resource_type, enum vkd3d_data_type resource_data_type,
-        unsigned int structure_stride, bool raw)
+        const struct vkd3d_shader_resource *resource, enum vkd3d_shader_resource_type resource_type,
+        enum vkd3d_data_type resource_data_type, unsigned int structure_stride, bool raw)
 {
     uint32_t counter_type_id, type_id, ptr_type_id, var_id, counter_var_id = 0;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     SpvStorageClass storage_class = SpvStorageClassUniformConstant;
+    const struct vkd3d_shader_register *reg = &resource->reg.reg;
     const struct vkd3d_spirv_resource_type *resource_type_info;
+    unsigned int register_space = resource->register_space;
+    unsigned int register_index = resource->register_index;
     enum vkd3d_component_type sampled_type;
     struct vkd3d_symbol resource_symbol;
     bool is_uav;
@@ -5373,8 +5375,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *co
     if (instruction->flags)
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
-    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &semantic->reg.reg, semantic->register_space,
-            semantic->register_index, semantic->resource_type, semantic->resource_data_type, 0, false);
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &semantic->resource,
+            semantic->resource_type, semantic->resource_data_type, 0, false);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_resource_raw(struct vkd3d_dxbc_compiler *compiler,
@@ -5385,22 +5387,21 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource_raw(struct vkd3d_dxbc_compiler
     if (instruction->flags)
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
-    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &resource->dst.reg, resource->register_space,
-            resource->register_index, VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, 0, true);
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &resource->resource,
+            VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, 0, true);
 }
 
 static void vkd3d_dxbc_compiler_emit_dcl_resource_structured(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     const struct vkd3d_shader_structured_resource *resource = &instruction->declaration.structured_resource;
-    const struct vkd3d_shader_register *reg = &resource->reg.reg;
     unsigned int stride = resource->byte_stride;
 
     if (instruction->flags)
         FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
 
-    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, reg, resource->register_space,
-            resource->register_index, VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, stride / 4, false);
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &resource->resource,
+            VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, stride / 4, false);
 }
 
 static void vkd3d_dxbc_compiler_emit_workgroup_memory(struct vkd3d_dxbc_compiler *compiler,

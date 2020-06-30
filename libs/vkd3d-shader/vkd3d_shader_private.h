@@ -574,6 +574,13 @@ struct vkd3d_shader_index_range
     unsigned int register_count;
 };
 
+struct vkd3d_shader_resource
+{
+    struct vkd3d_shader_dst_param reg;
+    unsigned int register_space;
+    unsigned int register_index;
+};
+
 enum vkd3d_decl_usage
 {
     VKD3D_DECL_USAGE_POSITION             = 0,
@@ -598,8 +605,7 @@ struct vkd3d_shader_semantic
     unsigned int usage_idx;
     enum vkd3d_shader_resource_type resource_type;
     enum vkd3d_data_type resource_data_type;
-    struct vkd3d_shader_dst_param reg;
-    unsigned int register_space, register_index;
+    struct vkd3d_shader_resource resource;
 };
 
 enum vkd3d_shader_input_sysval_semantic
@@ -659,15 +665,13 @@ struct vkd3d_shader_constant_buffer
 
 struct vkd3d_shader_structured_resource
 {
-    struct vkd3d_shader_dst_param reg;
+    struct vkd3d_shader_resource resource;
     unsigned int byte_stride;
-    unsigned int register_space, register_index;
 };
 
 struct vkd3d_shader_raw_resource
 {
-    struct vkd3d_shader_dst_param dst;
-    unsigned int register_space, register_index;
+    struct vkd3d_shader_resource resource;
 };
 
 struct vkd3d_shader_tgsm
