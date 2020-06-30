@@ -582,9 +582,6 @@ struct vkd3d_versioned_root_signature_desc
     } u;
 };
 
-/* FIXME: Add support for 64 UAV bind slots. */
-#define VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS 8
-
 enum vkd3d_shader_resource_type
 {
     VKD3D_SHADER_RESOURCE_NONE              = 0x0,

@@ -1865,7 +1865,11 @@ static void d3d12_command_list_invalidate_bindings(struct d3d12_command_list *li
     if (state && state->uav_counter_count)
     {
         enum vkd3d_pipeline_bind_point bind_point = (enum vkd3d_pipeline_bind_point)state->vk_bind_point;
-        list->pipeline_bindings[bind_point].uav_counters_dirty = true;
+        struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+
+        vkd3d_array_reserve((void **)&bindings->vk_uav_counter_views, &bindings->vk_uav_counter_views_size,
+                state->uav_counter_count, sizeof(*bindings->vk_uav_counter_views));
+        bindings->uav_counters_dirty = true;
     }
 }
 
@@ -2190,6 +2194,11 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_AddRef(ID3D12GraphicsCommandLi
     return refcount;
 }
 
+static void vkd3d_pipeline_bindings_cleanup(struct vkd3d_pipeline_bindings *bindings)
+{
+    vkd3d_free(bindings->vk_uav_counter_views);
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(ID3D12GraphicsCommandList2 *iface)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList2(iface);
@@ -2206,6 +2215,9 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(ID3D12GraphicsCommandL
         /* When command pool is destroyed, all command buffers are implicitly freed. */
         if (list->allocator)
             d3d12_command_allocator_free_command_buffer(list->allocator, list);
+
+        vkd3d_pipeline_bindings_cleanup(&list->pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_COMPUTE]);
+        vkd3d_pipeline_bindings_cleanup(&list->pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_GRAPHICS]);
 
         vkd3d_free(list);
 
@@ -2341,6 +2353,8 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->pso_render_pass = VK_NULL_HANDLE;
     list->current_render_pass = VK_NULL_HANDLE;
 
+    vkd3d_pipeline_bindings_cleanup(&list->pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_COMPUTE]);
+    vkd3d_pipeline_bindings_cleanup(&list->pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_GRAPHICS]);
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
     list->pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_GRAPHICS].vk_bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
     list->pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_COMPUTE].vk_bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
@@ -2824,11 +2838,11 @@ done:
 static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_command_list *list,
         enum vkd3d_pipeline_bind_point bind_point)
 {
-    VkWriteDescriptorSet vk_descriptor_writes[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS];
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct d3d12_pipeline_state *state = list->state;
     VkDevice vk_device = list->device->vk_device;
+    VkWriteDescriptorSet *vk_descriptor_writes;
     VkDescriptorSet vk_descriptor_set;
     unsigned int uav_counter_count;
     unsigned int i;
@@ -2837,11 +2851,10 @@ static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_comma
         return;
 
     uav_counter_count = state->uav_counter_count;
-    assert(uav_counter_count <= ARRAY_SIZE(vk_descriptor_writes));
-
-    vk_descriptor_set = d3d12_command_allocator_allocate_descriptor_set(list->allocator, state->vk_set_layout);
-    if (!vk_descriptor_set)
+    if (!(vk_descriptor_writes = vkd3d_calloc(uav_counter_count, sizeof(*vk_descriptor_writes))))
         return;
+    if (!(vk_descriptor_set = d3d12_command_allocator_allocate_descriptor_set(list->allocator, state->vk_set_layout)))
+        goto done;
 
     for (i = 0; i < uav_counter_count; ++i)
     {
@@ -2868,6 +2881,9 @@ static void d3d12_command_list_update_uav_counter_descriptors(struct d3d12_comma
             state->vk_pipeline_layout, state->set_index, 1, &vk_descriptor_set, 0, NULL));
 
     bindings->uav_counters_dirty = false;
+
+done:
+    vkd3d_free(vk_descriptor_writes);
 }
 
 static void d3d12_command_list_update_descriptors(struct d3d12_command_list *list,
@@ -5619,6 +5635,8 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
 
     if (SUCCEEDED(hr = d3d12_command_allocator_allocate_command_buffer(allocator, list)))
     {
+        list->pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_GRAPHICS].vk_uav_counter_views = NULL;
+        list->pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_COMPUTE].vk_uav_counter_views = NULL;
         d3d12_command_list_reset_state(list, initial_pipeline_state);
     }
     else

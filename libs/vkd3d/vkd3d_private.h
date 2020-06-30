@@ -921,7 +921,8 @@ struct vkd3d_pipeline_bindings
     uint64_t descriptor_table_dirty_mask;
     uint64_t descriptor_table_active_mask;
 
-    VkBufferView vk_uav_counter_views[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS];
+    VkBufferView *vk_uav_counter_views;
+    size_t vk_uav_counter_views_size;
     bool uav_counters_dirty;
 
     /* Needed when VK_KHR_push_descriptor is not available. */
