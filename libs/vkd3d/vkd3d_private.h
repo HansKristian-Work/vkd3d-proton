@@ -92,9 +92,10 @@ struct vkd3d_vk_instance_procs
 
 struct vkd3d_vk_device_procs
 {
-#define VK_INSTANCE_PFN   DECLARE_VK_PFN
-#define VK_DEVICE_PFN     DECLARE_VK_PFN
-#define VK_DEVICE_EXT_PFN DECLARE_VK_PFN
+#define VK_INSTANCE_PFN     DECLARE_VK_PFN
+#define VK_INSTANCE_EXT_PFN DECLARE_VK_PFN
+#define VK_DEVICE_PFN       DECLARE_VK_PFN
+#define VK_DEVICE_EXT_PFN   DECLARE_VK_PFN
 #include "vulkan_procs.h"
 };
 #undef DECLARE_VK_PFN
@@ -1886,6 +1887,7 @@ bool is_write_resource_state(D3D12_RESOURCE_STATES state) DECLSPEC_HIDDEN;
 HRESULT return_interface(void *iface, REFIID iface_iid,
         REFIID requested_iid, void **object) DECLSPEC_HIDDEN;
 
+const char *debug_dxgi_format(DXGI_FORMAT format) DECLSPEC_HIDDEN;
 const char *debug_d3d12_box(const D3D12_BOX *box) DECLSPEC_HIDDEN;
 const char *debug_d3d12_shader_component_mapping(unsigned int mapping) DECLSPEC_HIDDEN;
 const char *debug_vk_extent_3d(VkExtent3D extent) DECLSPEC_HIDDEN;
