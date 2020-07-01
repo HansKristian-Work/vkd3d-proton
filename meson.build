@@ -71,9 +71,11 @@ if enable_tests
 endif
 
 if enable_extras
-  lib_m            = vkd3d_compiler.find_library('m')
-  lib_xcb          = vkd3d_compiler.find_library('xcb')
-  lib_xcbkeysyms   = vkd3d_compiler.find_library('xcb-keysyms')
+  if vkd3d_platform == 'linux'
+    lib_m            = vkd3d_compiler.find_library('m')
+    lib_xcb          = vkd3d_compiler.find_library('xcb')
+    lib_xcbkeysyms   = vkd3d_compiler.find_library('xcb-keysyms')
+  endif
 
   if not lib_d3d12.found()
     lib_d3d12 = vkd3d_utils_dep
