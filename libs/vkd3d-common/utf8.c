@@ -103,15 +103,15 @@ static uint32_t vkd3d_utf16_read(const uint16_t **src)
     return 0x10000 + ((s[0] & 0x3ff) << 10) + (s[1] & 0x3ff);
 }
 
-static inline bool vkd3d_string_should_loop_u16(size_t max_elements, const uint16_t* src, const uint16_t* wstr)
+static inline bool vkd3d_string_should_loop_u16(ptrdiff_t max_elements, const uint16_t* src, const uint16_t* wstr)
 {
-    uintptr_t cursor_pos = ((uintptr_t)src) - (uintptr_t)wstr;
+    ptrdiff_t cursor_pos = src - wstr;
     return (!max_elements || cursor_pos < max_elements) && *src;
 }
 
-static inline bool vkd3d_string_should_loop_u32(size_t max_elements, const uint32_t* src, const uint32_t* wstr)
+static inline bool vkd3d_string_should_loop_u32(ptrdiff_t max_elements, const uint32_t* src, const uint32_t* wstr)
 {
-    uintptr_t cursor_pos = ((uintptr_t)src) - (uintptr_t)wstr;
+    uintptr_t cursor_pos = src - wstr;
     return (!max_elements || cursor_pos < max_elements) && *src;
 }
 
