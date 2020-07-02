@@ -149,6 +149,17 @@ static HRESULT d3d12_get_output_from_window(IDXGIFactory *factory, HWND window, 
     return DXGI_ERROR_NOT_FOUND;
 }
 
+struct d3d12_swapchain_state
+{
+    struct DXGI_MODE_DESC original_mode, d3d_mode;
+    RECT original_window_rect;
+
+    /* Window styles to restore when switching fullscreen mode. */
+    LONG style;
+    LONG exstyle;
+    HWND device_window;
+};
+
 struct d3d12_swapchain
 {
     IDXGISwapChain3 IDXGISwapChain3_iface;
@@ -179,6 +190,7 @@ struct d3d12_swapchain
     IDXGIOutput *target;
     DXGI_SWAP_CHAIN_DESC1 desc;
     DXGI_SWAP_CHAIN_FULLSCREEN_DESC fullscreen_desc;
+    struct d3d12_swapchain_state state;
 
     ID3D12Fence *frame_latency_fence;
     HANDLE frame_latency_event;
@@ -207,16 +219,358 @@ static inline struct ID3D12CommandQueue* d3d12_swapchain_queue_iface(struct d3d1
     return &swapchain->command_queue->ID3D12CommandQueue_iface;
 }
 
-static HRESULT d3d12_swapchain_set_display_mode(struct d3d12_swapchain *swapchain,
-        IDXGIOutput* output, DXGI_MODE_DESC *mode)
+DXGI_FORMAT format_for_depth(DWORD depth)
 {
-    FIXME("TODO");
+    switch (depth)
+    {
+        case 8:  return DXGI_FORMAT_P8;
+        case 16: return DXGI_FORMAT_B5G6R5_UNORM;
+        case 24: return DXGI_FORMAT_B8G8R8X8_UNORM;
+        case 32: return DXGI_FORMAT_B8G8R8X8_UNORM;
+        default: return DXGI_FORMAT_UNKNOWN;
+    }
+}
+
+DWORD depth_for_format(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_B4G4R4A4_UNORM:
+        case DXGI_FORMAT_B5G6R5_UNORM:
+            return 16;
+
+        default:
+            WARN("Unknown format depth. Returning 32.");
+        case DXGI_FORMAT_R8G8B8A8_UNORM:
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+        case DXGI_FORMAT_B8G8R8A8_UNORM:
+        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+        case DXGI_FORMAT_B8G8R8X8_UNORM:
+        case DXGI_FORMAT_R10G10B10A2_UNORM:
+        case DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM:
+            return 32;
+
+        case DXGI_FORMAT_R16G16B16A16_FLOAT:
+            return 64;
+
+    }
+}
+
+static HRESULT d3d12_output_set_display_mode(IDXGIOutput *output, DXGI_MODE_DESC *mode)
+{
+    DXGI_OUTPUT_DESC desc;
+    DEVMODEW new_mode, current_mode;
+    DXGI_FORMAT new_format;
+    LONG ret;
+
+    TRACE("output %p, mode %p.\n", output, mode);
+
+    IDXGIOutput_GetDesc(output, &desc);
+
+    memset(&new_mode, 0, sizeof(new_mode));
+    new_mode.dmSize = sizeof(new_mode);
+    memset(&current_mode, 0, sizeof(current_mode));
+    current_mode.dmSize = sizeof(current_mode);
+    if (mode)
+    {
+        new_mode.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
+        new_mode.dmBitsPerPel = depth_for_format(mode->Format);
+        new_mode.dmPelsWidth = mode->Width;
+        new_mode.dmPelsHeight = mode->Height;
+
+        new_mode.dmDisplayFrequency = 0;
+        if (mode->RefreshRate.Numerator && mode->RefreshRate.Denominator)
+        {
+            new_mode.dmDisplayFrequency = mode->RefreshRate.Numerator / mode->RefreshRate.Denominator;
+            new_mode.dmFields |= DM_DISPLAYFREQUENCY;
+        }
+
+        if (mode->ScanlineOrdering != DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED)
+        {
+            new_mode.dmFields |= DM_DISPLAYFLAGS;
+            if (mode->ScanlineOrdering == DXGI_MODE_SCANLINE_ORDER_UPPER_FIELD_FIRST)
+                new_mode.dmDisplayFlags |= DM_INTERLACED;
+            else if (mode->ScanlineOrdering == DXGI_MODE_SCANLINE_ORDER_LOWER_FIELD_FIRST)
+            {
+                ERR("Interlacing mode not supported.");
+                return DXGI_ERROR_NOT_CURRENTLY_AVAILABLE;
+            }
+                
+        }
+        new_format = mode->Format;
+    }
+    else
+    {
+        if (!EnumDisplaySettingsW(desc.DeviceName, ENUM_REGISTRY_SETTINGS, &new_mode))
+        {
+            ERR("Failed to read mode from registry.\n");
+            return DXGI_ERROR_NOT_CURRENTLY_AVAILABLE;
+        }
+        new_format = format_for_depth(new_mode.dmBitsPerPel);
+    }
+
+    /* Only change the mode if necessary. */
+    if (!EnumDisplaySettingsW(desc.DeviceName, ENUM_CURRENT_SETTINGS, &current_mode))
+    {
+        ERR("Failed to get current display mode.\n");
+    }
+    else if (current_mode.dmPelsWidth == new_mode.dmPelsWidth
+            && current_mode.dmPelsHeight == new_mode.dmPelsHeight
+            && current_mode.dmBitsPerPel == new_mode.dmBitsPerPel
+            && (current_mode.dmDisplayFrequency == new_mode.dmDisplayFrequency
+            || !(new_mode.dmFields & DM_DISPLAYFREQUENCY))
+            && (current_mode.dmDisplayFlags == new_mode.dmDisplayFlags
+            || !(new_mode.dmFields & DM_DISPLAYFLAGS)))
+    {
+        TRACE("Skipping redundant mode setting call.\n");
+        return S_OK;
+    }
+
+    ret = ChangeDisplaySettingsExW(desc.DeviceName, &new_mode, NULL, CDS_FULLSCREEN, NULL);
+    if (ret != DISP_CHANGE_SUCCESSFUL)
+    {
+        if (new_mode.dmFields & DM_DISPLAYFREQUENCY)
+        {
+            WARN("ChangeDisplaySettingsExW failed, trying without the refresh rate.\n");
+            new_mode.dmFields &= ~DM_DISPLAYFREQUENCY;
+            new_mode.dmDisplayFrequency = 0;
+            ret = ChangeDisplaySettingsExW(desc.DeviceName, &new_mode, NULL, CDS_FULLSCREEN, NULL);
+        }
+        if (ret != DISP_CHANGE_SUCCESSFUL)
+            return DXGI_ERROR_NOT_CURRENTLY_AVAILABLE;
+    }
+
     return S_OK;
 }
 
-static HRESULT d3d12_swapchain_set_fullscreen(struct d3d12_swapchain *swapchain)
+static HRESULT d3d12_output_get_display_mode(IDXGIOutput* output, DXGI_MODE_DESC* mode)
 {
-    FIXME("TODO!");
+    DXGI_OUTPUT_DESC desc;
+    DEVMODEW m;
+
+    IDXGIOutput_GetDesc(output, &desc);
+
+    memset(&m, 0, sizeof(m));
+    m.dmSize = sizeof(m);
+
+    EnumDisplaySettingsExW(desc.DeviceName, ENUM_CURRENT_SETTINGS, &m, 0);
+    mode->Width = m.dmPelsWidth;
+    mode->Height = m.dmPelsHeight;
+    mode->RefreshRate.Numerator = 60000;
+    mode->RefreshRate.Denominator = 1000;
+    if (m.dmFields & DM_DISPLAYFREQUENCY)
+        mode->RefreshRate.Numerator = m.dmDisplayFrequency * 1000;
+    mode->Format = format_for_depth(m.dmBitsPerPel);
+
+    if (!(m.dmFields & DM_DISPLAYFLAGS))
+        mode->ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
+    else if (m.dmDisplayFlags & DM_INTERLACED)
+        mode->ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UPPER_FIELD_FIRST;
+    else
+        mode->ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_PROGRESSIVE;
+
+    return S_OK;
+}
+
+
+static HRESULT d3d12_swapchain_set_display_mode(struct d3d12_swapchain *swapchain,
+        IDXGIOutput* output, DXGI_MODE_DESC *mode)
+{
+    DXGI_MODE_DESC matching_mode;
+    HRESULT hr;
+    if (FAILED(hr = IDXGIOutput_FindClosestMatchingMode(output, mode, &matching_mode, NULL)))
+    {
+        WARN("Failed to find closest matching mode, hr %#x.\n", hr);
+        return hr;
+    }
+
+    if (output != swapchain->target)
+    {
+        if (FAILED(hr = d3d12_output_set_display_mode(swapchain->target, &swapchain->state.original_mode)))
+        {
+            WARN("Failed to set display mode, hr %#x.\n", hr);
+            return hr;
+        }
+
+        if (FAILED(hr = d3d12_output_get_display_mode(output, &swapchain->state.original_mode)))
+        {
+            WARN("Failed to get current display mode, hr %#x.\n", hr);
+            return hr;
+        }
+    }
+
+    if (FAILED(hr = d3d12_output_set_display_mode(output, mode)))
+    {
+        WARN("Failed to set display mode, hr %#x.\n", hr);
+        return DXGI_ERROR_INVALID_CALL;
+    }
+
+    return S_OK;
+}
+
+static LONG fullscreen_style(LONG style)
+{
+    /* Make sure the window is managed, otherwise we won't get keyboard input. */
+    style |= WS_POPUP | WS_SYSMENU;
+    style &= ~(WS_CAPTION | WS_THICKFRAME);
+
+    return style;
+}
+
+static LONG fullscreen_exstyle(LONG exstyle)
+{
+    /* Filter out window decorations. */
+    exstyle &= ~(WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE);
+
+    return exstyle;
+}
+
+void d3d12_swapchain_state_restore_from_fullscreen(struct d3d12_swapchain *swapchain,
+        HWND window, const RECT *window_rect)
+{
+    unsigned int window_pos_flags = SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE;
+    LONG style, exstyle;
+    RECT rect = {0};
+
+    if (!swapchain->state.style && !swapchain->state.exstyle)
+        return;
+
+    style = GetWindowLongW(window, GWL_STYLE);
+    exstyle = GetWindowLongW(window, GWL_EXSTYLE);
+
+    swapchain->state.style ^= (swapchain->state.style ^ style) & WS_VISIBLE;
+    swapchain->state.exstyle ^= (swapchain->state.exstyle ^ exstyle) & WS_EX_TOPMOST;
+
+    TRACE("Restoring window style of window %p to %08x, %08x.\n",
+            window, swapchain->state.style, swapchain->state.exstyle);
+
+    if (style == fullscreen_style(swapchain->state.style) &&
+        exstyle == fullscreen_exstyle(swapchain->state.exstyle))
+    {
+        SetWindowLongW(window, GWL_STYLE, swapchain->state.style);
+        SetWindowLongW(window, GWL_EXSTYLE, swapchain->state.exstyle);
+    }
+
+    if (window_rect)
+        rect = *window_rect;
+    else
+        window_pos_flags |= (SWP_NOMOVE | SWP_NOSIZE);
+    SetWindowPos(window, 0, rect.left, rect.top,
+            rect.right - rect.left, rect.bottom - rect.top, window_pos_flags);
+
+    /* Delete the old values. */
+    swapchain->state.style = 0;
+    swapchain->state.exstyle = 0;
+}
+
+HRESULT d3d12_swapchain_state_setup_fullscreen(struct d3d12_swapchain* swapchain,
+    HWND window, int x, int y, int width, int height)
+{
+    LONG style, exstyle;
+
+    TRACE("Setting up window %p for fullscreen mode.\n", window);
+
+    if (!IsWindow(window))
+    {
+        WARN("%p is not a valid window.\n", window);
+        return DXGI_ERROR_NOT_CURRENTLY_AVAILABLE;;
+    }
+
+    if (swapchain->state.style || swapchain->state.exstyle)
+    {
+        ERR("Changing the window style for window %p, but another style (%08x, %08x) is already stored.\n",
+            window, swapchain->state.style, swapchain->state.exstyle);
+    }
+
+    swapchain->state.style = GetWindowLongW(window, GWL_STYLE);
+    swapchain->state.exstyle = GetWindowLongW(window, GWL_EXSTYLE);
+
+    style = fullscreen_style(swapchain->state.style);
+    exstyle = fullscreen_exstyle(swapchain->state.exstyle);
+
+    TRACE("Old style was %08x, %08x, setting to %08x, %08x.\n",
+        swapchain->state.style, swapchain->state.exstyle, style, exstyle);
+
+    SetWindowLongW(window, GWL_STYLE, style);
+    SetWindowLongW(window, GWL_EXSTYLE, exstyle);
+    SetWindowPos(window, HWND_TOPMOST, x, y, width, height,
+        SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOACTIVATE);
+
+    return S_OK;
+}
+
+static HRESULT d3d12_swapchain_set_fullscreen(struct d3d12_swapchain *swapchain, IDXGIOutput *target, BOOL originally_windowed)
+{
+    DXGI_MODE_DESC actual_mode;
+    DXGI_OUTPUT_DESC output_desc;
+    HRESULT hr;
+
+    TRACE("swapchain %p, swapchain_desc %p, mode %p.\n");
+
+    if (swapchain->desc.Flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH)
+    {
+        if (!swapchain->fullscreen_desc.Windowed)
+        {
+            actual_mode.Width = swapchain->desc.Width;
+            actual_mode.Height = swapchain->desc.Height;
+            actual_mode.RefreshRate = swapchain->fullscreen_desc.RefreshRate;
+            actual_mode.Format = swapchain->desc.Format;
+            actual_mode.ScanlineOrdering = swapchain->fullscreen_desc.ScanlineOrdering;
+            actual_mode.Scaling = swapchain->fullscreen_desc.Scaling;
+        }
+        else
+        {
+            actual_mode = swapchain->state.original_mode;
+        }
+
+        if (FAILED(hr = d3d12_swapchain_set_display_mode(swapchain, target,
+                &actual_mode)))
+            return hr;
+    }
+    else
+    {
+        if (FAILED(hr = d3d12_output_get_display_mode(target, &actual_mode)))
+        {
+            ERR("Failed to get display mode, hr %#x.\n", hr);
+            return DXGI_ERROR_INVALID_CALL;
+        }
+    }
+
+    if (!swapchain->fullscreen_desc.Windowed)
+    {
+        unsigned int width = actual_mode.Width;
+        unsigned int height = actual_mode.Height;
+
+        if (FAILED(hr = IDXGIOutput_GetDesc(target, &output_desc)))
+        {
+            ERR("Failed to get output description, hr %#x.\n", hr);
+            return hr;
+        }
+
+        if (originally_windowed)
+        {
+            /* Switch from windowed to fullscreen */
+            if (FAILED(hr = d3d12_swapchain_state_setup_fullscreen(swapchain, swapchain->window,
+                    output_desc.DesktopCoordinates.left, output_desc.DesktopCoordinates.top, width, height)))
+                return hr;
+        }
+        else
+        {
+            HWND window = swapchain->window;
+
+            /* Fullscreen -> fullscreen mode change */
+            MoveWindow(window, output_desc.DesktopCoordinates.left, output_desc.DesktopCoordinates.top, width,
+                    height, TRUE);
+            ShowWindow(window, SW_SHOW);
+        }
+        swapchain->state.d3d_mode = actual_mode;
+    }
+    else if (!originally_windowed)
+    {
+        /* Fullscreen -> windowed switch */
+        d3d12_swapchain_state_restore_from_fullscreen(swapchain, swapchain->window, &swapchain->state.original_window_rect);
+    }
+
     return S_OK;
 }
 
@@ -425,11 +779,14 @@ static BOOL d3d12_swapchain_has_user_images(struct d3d12_swapchain *swapchain)
 
 static HRESULT d3d12_swapchain_create_user_buffers(struct d3d12_swapchain *swapchain, VkFormat vk_format)
 {
-    UINT i;
-    HRESULT hr;
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
     struct d3d12_resource* object;
+    HRESULT hr;
+    UINT i;
+
+    if (d3d12_swapchain_has_user_images(swapchain))
+        return S_OK;
 
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
     heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
@@ -795,6 +1152,7 @@ static void d3d12_swapchain_destroy_buffers(struct d3d12_swapchain *swapchain, B
         {
             vkd3d_resource_decref(swapchain->buffers[i]);
             swapchain->buffers[i] = NULL;
+            swapchain->vk_images[i] = NULL;
         }
     }
 
@@ -988,7 +1346,6 @@ static void d3d12_swapchain_destroy(struct d3d12_swapchain *swapchain)
     if (swapchain->frame_latency_fence)
         ID3D12Fence_Release(swapchain->frame_latency_fence);
 
-    ID3D12CommandQueue_Release(d3d12_swapchain_queue_iface(swapchain));
 
     vkd3d_private_store_destroy(&swapchain->private_store);
 
@@ -1007,6 +1364,8 @@ static void d3d12_swapchain_destroy(struct d3d12_swapchain *swapchain)
     }
 
     d3d12_device_release(d3d12_swapchain_device(swapchain));
+
+    ID3D12CommandQueue_Release(d3d12_swapchain_queue_iface(swapchain));
 
     if (swapchain->factory)
         IDXGIFactory_Release(swapchain->factory);
@@ -1324,6 +1683,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetFullscreenState(IDXGISwapCha
         BOOL fullscreen, IDXGIOutput *target)
 {
     struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain3(iface);
+    BOOL original_state;
     HRESULT hr;
 
     TRACE("iface %p, fullscreen %#x, target %p.\n", iface, fullscreen, target);
@@ -1333,6 +1693,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetFullscreenState(IDXGISwapCha
         WARN("Invalid call.\n");
         return DXGI_ERROR_INVALID_CALL;
     }
+
+    /* no-op */
+    if (!fullscreen == swapchain->fullscreen_desc.Windowed)
+        return S_OK;
 
     if (target)
     {
@@ -1344,12 +1708,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetFullscreenState(IDXGISwapCha
         return hr;
     }
 
-    hr = d3d12_swapchain_set_fullscreen(swapchain);
-
-    if (FAILED(hr))
-        goto fail;
-
+    original_state = swapchain->fullscreen_desc.Windowed;
     swapchain->fullscreen_desc.Windowed = !fullscreen;
+    hr = d3d12_swapchain_set_fullscreen(swapchain, target, original_state);
+
+    if (FAILED(hr)) {
+        swapchain->fullscreen_desc.Windowed = original_state;
+        goto fail;
+    }
+
     if (!fullscreen)
     {
         IDXGIOutput_Release(target);
@@ -1876,7 +2243,8 @@ static CONST_VTBL struct IDXGISwapChain3Vtbl d3d12_swapchain_vtbl =
 
 static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFactory *factory,
         struct d3d12_command_queue *queue, HWND window,
-        const DXGI_SWAP_CHAIN_DESC1 *swapchain_desc, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC *fullscreen_desc)
+        const DXGI_SWAP_CHAIN_DESC1 *swapchain_desc, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC *fullscreen_desc,
+        IDXGIOutput *output)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &queue->device->vk_procs;
     VkWin32SurfaceCreateInfoKHR surface_desc;
@@ -1886,7 +2254,7 @@ static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFact
     VkSurfaceKHR vk_surface;
     VkInstance vk_instance;
     IDXGIAdapter *adapter;
-    IDXGIOutput *output;
+    IDXGIOutput *target = NULL;
     VkBool32 supported;
     VkDevice vk_device;
     VkFence vk_fence;
@@ -1922,12 +2290,47 @@ static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFact
     if (FAILED(hr = IUnknown_QueryInterface(queue->device->parent, &IID_IDXGIAdapter, (void **)&adapter)))
         return hr;
 
-    if (FAILED(hr = d3d12_get_output_from_window((IDXGIFactory *)factory, window, &output)))
+    if (!output)
     {
-        WARN("Failed to get output from window %p, hr %#x.\n", window, hr);
+        if (FAILED(hr = d3d12_get_output_from_window((IDXGIFactory*)factory, window, &target)))
+        {
+            WARN("Failed to get output from window %p, hr %#x.\n", window, hr);
+
+            if (FAILED(hr = IDXGIAdapter_EnumOutputs(adapter, 0, &target)))
+            {
+                IDXGIAdapter_Release(adapter);
+                return hr;
+            }
+
+            FIXME("Using the primary output for the device window that is on a non-primary output.\n");
+        }
     }
+    else
+        target = output;
+
+    if (FAILED(hr = d3d12_output_get_display_mode(target, &swapchain->state.original_mode)))
+    {
+        ERR("Failed to get current display mode, hr %#x.\n", hr);
+        return hr;
+    }
+
+    if (!swapchain->fullscreen_desc.Windowed)
+    {
+        swapchain->state.d3d_mode.Width = swapchain->desc.Width;
+        swapchain->state.d3d_mode.Height = swapchain->desc.Height;
+        swapchain->state.d3d_mode.Format = swapchain->desc.Format;
+        swapchain->state.d3d_mode.RefreshRate = swapchain->fullscreen_desc.RefreshRate;
+        swapchain->state.d3d_mode.ScanlineOrdering = swapchain->fullscreen_desc.ScanlineOrdering;
+    }
+    else
+    {
+        swapchain->state.d3d_mode = swapchain->state.original_mode;
+    }
+
+    GetWindowRect(window, &swapchain->state.original_window_rect);
+
     IDXGIAdapter_Release(adapter);
-    IDXGIOutput_Release(output);
+
     if (FAILED(hr))
         return hr;
 
@@ -1939,15 +2342,6 @@ static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFact
         FIXME("Ignoring alpha mode %#x.\n", swapchain_desc->AlphaMode);
     if (swapchain_desc->Flags & ~(DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT))
         FIXME("Ignoring swapchain flags %#x.\n", swapchain_desc->Flags);
-
-    if (fullscreen_desc->RefreshRate.Numerator || fullscreen_desc->RefreshRate.Denominator)
-        FIXME("Ignoring refresh rate.\n");
-    if (fullscreen_desc->ScanlineOrdering)
-        FIXME("Unhandled scanline ordering %#x.\n", fullscreen_desc->ScanlineOrdering);
-    if (fullscreen_desc->Scaling)
-        FIXME("Unhandled mode scaling %#x.\n", fullscreen_desc->Scaling);
-    if (!fullscreen_desc->Windowed)
-        FIXME("Fullscreen not supported yet.\n");
 
     vk_instance = queue->device->vkd3d_instance->vk_instance;
     vk_physical_device = queue->device->vk_physical_device;
@@ -2029,12 +2423,21 @@ static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFact
 
     IDXGIFactory_AddRef(swapchain->factory = factory);
 
+    if (FAILED(hr = d3d12_swapchain_set_fullscreen(swapchain, target, TRUE)))
+    {
+        WARN("Failed to go fullscreen.\n");
+        return hr;
+    }
+
+    if (!output && target)
+        IDXGIOutput_Release(target);
+
     return S_OK;
 }
 
 static HRESULT d3d12_swapchain_create(IDXGIFactory *factory, struct d3d12_command_queue *queue, HWND window,
         const DXGI_SWAP_CHAIN_DESC1 *swapchain_desc, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC *fullscreen_desc,
-        IDXGISwapChain1 **swapchain)
+        IDXGIOutput *output, IDXGISwapChain1 **swapchain)
 {
     DXGI_SWAP_CHAIN_FULLSCREEN_DESC default_fullscreen_desc;
     struct d3d12_swapchain *object;
@@ -2053,7 +2456,7 @@ static HRESULT d3d12_swapchain_create(IDXGIFactory *factory, struct d3d12_comman
     if (!(object = vkd3d_calloc(1, sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    hr = d3d12_swapchain_init(object, factory, queue, window, swapchain_desc, fullscreen_desc);
+    hr = d3d12_swapchain_init(object, factory, queue, window, swapchain_desc, fullscreen_desc, output);
 
     if (FAILED(hr))
     {
@@ -2115,7 +2518,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_factory_CreateSwapChainForHwnd(
     TRACE("iface %p, factory %p, window %p, swapchain_desc %p, fullscreen_desc %p, output %p, swapchain %p\n",
         iface, factory, window, swapchain_desc, fullscreen_desc, output, swapchain);
 
-    hr = d3d12_swapchain_create(factory, swapchain_factory->queue, window, swapchain_desc, fullscreen_desc, swapchain);
+    hr = d3d12_swapchain_create(factory, swapchain_factory->queue, window, swapchain_desc, fullscreen_desc, output, swapchain);
 
     return hr;
 }
