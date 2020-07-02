@@ -32,6 +32,7 @@
 enum
 {
     OPTION_HELP = CHAR_MAX + 1,
+    OPTION_OUTPUT,
     OPTION_STRIP_DEBUG,
     OPTION_VERSION,
 };
@@ -100,7 +101,7 @@ static void print_usage(const char *program_name)
         "[options...] file\n"
         "Options:\n"
         "  -h, --help           Display this information and exit.\n"
-        "  -o <file>            Write the output to <file>.\n"
+        "  -o, --output=<file>  Write the output to <file>.\n"
         "  --strip-debug        Strip debug information from the output.\n"
         "  -V, --version        Display version information and exit.\n"
         "  --                   Stop option processing. Any subsequent argument is\n"
@@ -153,10 +154,11 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
 
     static struct option long_options[] =
     {
-        {"help",        no_argument, NULL, OPTION_HELP},
-        {"strip-debug", no_argument, NULL, OPTION_STRIP_DEBUG},
-        {"version",     no_argument, NULL, OPTION_VERSION},
-        {NULL,          0,           NULL, 0},
+        {"help",        no_argument,       NULL, OPTION_HELP},
+        {"output",      required_argument, NULL, OPTION_OUTPUT},
+        {"strip-debug", no_argument,       NULL, OPTION_STRIP_DEBUG},
+        {"version",     no_argument,       NULL, OPTION_VERSION},
+        {NULL,          0,                 NULL, 0},
     };
 
     memset(options, 0, sizeof(*options));
@@ -168,6 +170,7 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
 
         switch (option)
         {
+            case OPTION_OUTPUT:
             case 'o':
                 options->output_filename = optarg;
                 break;
