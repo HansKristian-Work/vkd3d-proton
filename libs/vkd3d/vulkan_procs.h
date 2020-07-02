@@ -213,6 +213,26 @@ VK_DEVICE_EXT_PFN(vkCmdBindTransformFeedbackBuffersEXT)
 VK_DEVICE_EXT_PFN(vkCmdEndQueryIndexedEXT)
 VK_DEVICE_EXT_PFN(vkCmdEndTransformFeedbackEXT)
 
+/* VK_KHR_surface */
+VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfacePresentModesKHR)
+VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfaceSupportKHR)
+VK_INSTANCE_EXT_PFN(vkDestroySurfaceKHR)
+VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfaceFormatsKHR)
+VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfaceCapabilitiesKHR)
+
+/* VK_KHR_win32_surface */
+#ifdef VK_KHR_win32_surface
+VK_INSTANCE_EXT_PFN(vkCreateWin32SurfaceKHR)
+VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceWin32PresentationSupportKHR)
+#endif
+
+/* VK_KHR_swapchain */
+VK_DEVICE_EXT_PFN(vkCreateSwapchainKHR)
+VK_DEVICE_EXT_PFN(vkDestroySwapchainKHR)
+VK_DEVICE_EXT_PFN(vkGetSwapchainImagesKHR)
+VK_DEVICE_EXT_PFN(vkAcquireNextImageKHR)
+VK_DEVICE_EXT_PFN(vkQueuePresentKHR)
+
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN

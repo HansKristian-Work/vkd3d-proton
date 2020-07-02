@@ -27,6 +27,9 @@
 #endif  /* VKD3D_NO_WIN32_TYPES */
 
 #ifndef VKD3D_NO_VULKAN_H
+# ifdef _WIN32
+#  define VK_USE_PLATFORM_WIN32_KHR
+# endif
 # include <vulkan/vulkan.h>
 #endif  /* VKD3D_NO_VULKAN_H */
 
