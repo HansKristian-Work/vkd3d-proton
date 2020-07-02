@@ -32,6 +32,7 @@
 #include "vkd3d_shader.h"
 #include "vkd3d_threads.h"
 #include "vkd3d_platform.h"
+#include "vkd3d_swapchain_factory.h"
 
 #include <assert.h>
 #include <inttypes.h>
@@ -70,6 +71,7 @@
 struct d3d12_command_list;
 struct d3d12_device;
 struct d3d12_resource;
+typedef interface IWineDXGISwapChainFactory IWineDXGISwapChainFactory;
 
 struct vkd3d_bindless_set_info;
 struct vkd3d_dynamic_state;
@@ -1328,6 +1330,15 @@ struct vkd3d_timeline_semaphore
     uint64_t last_signaled;
 };
 
+/* IWineDXGISwapChainFactory */
+struct d3d12_swapchain_factory
+{
+    IWineDXGISwapChainFactory IWineDXGISwapChainFactory_iface;
+    struct d3d12_command_queue *queue;
+};
+
+HRESULT d3d12_swapchain_factory_init(struct d3d12_command_queue *queue, struct d3d12_swapchain_factory *factory) DECLSPEC_HIDDEN;
+
 /* ID3D12CommandQueue */
 struct d3d12_command_queue
 {
@@ -1353,6 +1364,10 @@ struct d3d12_command_queue
     struct vkd3d_timeline_semaphore submit_timeline;
 
     struct vkd3d_private_store private_store;
+
+#ifdef VKD3D_BUILD_STANDALONE_D3D12
+    struct d3d12_swapchain_factory swapchain_factory;
+#endif
 };
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
