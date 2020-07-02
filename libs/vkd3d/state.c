@@ -2695,7 +2695,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
 
     supports_extended_dynamic_state = device->device_info.extended_dynamic_state_features.extendedDynamicState &&
-            (desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH || graphics->patch_vertex_count != 0);
+            (desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH || graphics->patch_vertex_count != 0) &&
+            desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
 
     d3d12_graphics_pipeline_state_init_dynamic_state(graphics, supports_extended_dynamic_state);
 
