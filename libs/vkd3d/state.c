@@ -2372,10 +2372,10 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         }
         else if ((format = vkd3d_get_format(device, desc->dsv_format, true)))
         {
-            if (!(format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
+            if (format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+                graphics->dsv_format = format->vk_format;
+            else
                 FIXME("Format %#x is not depth/stencil format.\n", format->dxgi_format);
-
-            graphics->dsv_format = format->vk_format;
         }
         else
         {
