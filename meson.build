@@ -5,15 +5,25 @@ project('vkd3d', ['c'], version : '1.1', meson_version : '>= 0.51', default_opti
 cpu_family = target_machine.cpu_family()
 
 vkd3d_compiler = meson.get_compiler('c')
+vkd3d_msvc     = vkd3d_compiler.get_id() == 'msvc'
 vkd3d_c_std    = 'c99'
 vkd3d_platform = target_machine.system()
 
 enable_tests             = get_option('enable_tests')
 enable_extras            = get_option('enable_extras')
+enable_standalone_d3d12  = get_option('enable_standalone_d3d12')
+
+if vkd3d_platform != 'windows' and enable_standalone_d3d12
+  error('Standalone D3D12 is only supported on Windows.')
+endif
 
 add_project_arguments('-DHAVE_DXIL_SPV', language : 'c')
 add_project_arguments('-D_GNU_SOURCE',   language : 'c')
 add_project_arguments('-DPACKAGE_VERSION="' + meson.project_version() + '"',   language : 'c')
+
+if enable_standalone_d3d12
+  add_project_arguments('-DVKD3D_BUILD_STANDALONE_D3D12', language : 'c')
+endif
 
 vkd3d_external_includes = [ './subprojects/Vulkan-Headers/include', './subprojects/SPIRV-Headers/include' ]
 vkd3d_public_includes   = [ './include' ] + vkd3d_external_includes
@@ -74,7 +84,9 @@ if enable_extras
     lib_xcbkeysyms   = vkd3d_compiler.find_library('xcb-keysyms')
   endif
 
-  if not lib_d3d12.found()
+  if enable_standalone_d3d12
+    lib_d3d12 = d3d12_dep
+  elif not lib_d3d12.found()
     lib_d3d12 = vkd3d_utils_dep
     warning('No d3d12 lib, falling back to vkd3d_utils for extras...')
   endif
