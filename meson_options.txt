@@ -1,2 +1,3 @@
-option('enable_tests',  type : 'boolean', value : false)
-option('enable_extras', type : 'boolean', value : false)
+option('enable_tests',            type : 'boolean', value : false)
+option('enable_extras',           type : 'boolean', value : false)
+option('enable_standalone_d3d12', type : 'boolean', value : false)
