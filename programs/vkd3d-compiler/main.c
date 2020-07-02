@@ -33,6 +33,7 @@ enum
 {
     OPTION_HELP = CHAR_MAX + 1,
     OPTION_STRIP_DEBUG,
+    OPTION_VERSION,
 };
 
 static bool read_shader(struct vkd3d_shader_code *shader, const char *filename)
@@ -101,6 +102,7 @@ static void print_usage(const char *program_name)
         "  -h, --help           Display this information and exit.\n"
         "  -o <file>            Write the output to <file>.\n"
         "  --strip-debug        Strip debug information from the output.\n"
+        "  -V, --version        Display version information and exit.\n"
         "  --                   Stop option processing. Any subsequent argument is\n"
         "                       interpreted as a filename.\n";
 
@@ -111,6 +113,7 @@ struct options
 {
     const char *filename;
     const char *output_filename;
+    bool print_version;
 
     struct vkd3d_shader_compile_option compile_options[MAX_COMPILE_OPTIONS];
     unsigned int compile_option_count;
@@ -152,6 +155,7 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
     {
         {"help",        no_argument, NULL, OPTION_HELP},
         {"strip-debug", no_argument, NULL, OPTION_STRIP_DEBUG},
+        {"version",     no_argument, NULL, OPTION_VERSION},
         {NULL,          0,           NULL, 0},
     };
 
@@ -159,7 +163,7 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
 
     for (;;)
     {
-        if ((option = getopt_long(argc, argv, "ho:", long_options, NULL)) == -1)
+        if ((option = getopt_long(argc, argv, "ho:V", long_options, NULL)) == -1)
             break;
 
         switch (option)
@@ -171,6 +175,11 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
             case OPTION_STRIP_DEBUG:
                 add_compile_option(options, VKD3D_SHADER_COMPILE_OPTION_STRIP_DEBUG, 1);
                 break;
+
+            case OPTION_VERSION:
+            case 'V':
+                options->print_version = true;
+                return true;
 
             default:
                 return false;
@@ -196,6 +205,12 @@ int main(int argc, char **argv)
     {
         print_usage(argv[0]);
         return 1;
+    }
+
+    if (options.print_version)
+    {
+        fprintf(stdout, "vkd3d shader compiler version " PACKAGE_VERSION "\n");
+        return 0;
     }
 
     info.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO;
