@@ -22,11 +22,17 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <getopt.h>
 
 #include "vkd3d_common.h"
 #include "vkd3d_shader.h"
 
 #define MAX_COMPILE_OPTIONS 1
+
+enum
+{
+    OPTION_STRIP_DEBUG = CHAR_MAX + 1,
+};
 
 static bool read_shader(struct vkd3d_shader_code *shader, const char *filename)
 {
@@ -86,23 +92,15 @@ static bool write_shader(const struct vkd3d_shader_code *shader, const char *fil
     return true;
 }
 
-static const struct
-{
-    const char *name;
-    enum vkd3d_shader_compile_option_name compile_option;
-}
-compiler_options[] =
-{
-    {"--strip-debug", VKD3D_SHADER_COMPILE_OPTION_STRIP_DEBUG},
-};
-
 static void print_usage(const char *program_name)
 {
     static const char usage[] =
         "[options...] file\n"
         "Options:\n"
         "  -o <file>            Write the output to <file>.\n"
-        "  --strip-debug        Strip debug information from the output.\n";
+        "  --strip-debug        Strip debug information from the output.\n"
+        "  --                   Stop option processing. Any subsequent argument is\n"
+        "                       interpreted as a filename.\n";
 
     fprintf(stderr, "Usage: %s %s", program_name, usage);
 }
@@ -145,36 +143,41 @@ static void add_compile_option(struct options *options,
 
 static bool parse_command_line(int argc, char **argv, struct options *options)
 {
-    unsigned int i, j;
+    int option;
 
-    if (argc < 2)
-        return false;
+    static struct option long_options[] =
+    {
+        {"strip-debug", no_argument, NULL, OPTION_STRIP_DEBUG},
+        {NULL,          0,           NULL, 0},
+    };
 
     memset(options, 0, sizeof(*options));
 
-    for (i = 1; i < argc - 1; ++i)
+    for (;;)
     {
-        if (!strcmp(argv[i], "-o"))
-        {
-            if (i + 1 >= argc - 1)
-                return false;
-            options->output_filename = argv[++i];
-            continue;
-        }
+        if ((option = getopt_long(argc, argv, "o:", long_options, NULL)) == -1)
+            break;
 
-        for (j = 0; j < ARRAY_SIZE(compiler_options); ++j)
+        switch (option)
         {
-            if (!strcmp(argv[i], compiler_options[j].name))
-            {
-                add_compile_option(options, compiler_options[j].compile_option, 1);
+            case 'o':
+                options->output_filename = optarg;
                 break;
-            }
+
+            case OPTION_STRIP_DEBUG:
+                add_compile_option(options, VKD3D_SHADER_COMPILE_OPTION_STRIP_DEBUG, 1);
+                break;
+
+            default:
+                return false;
         }
-        if (j == ARRAY_SIZE(compiler_options))
-            return false;
     }
 
+    if (optind >= argc)
+        return false;
+
     options->filename = argv[argc - 1];
+
     return true;
 }
 
