@@ -98,12 +98,13 @@ compiler_options[] =
 
 static void print_usage(const char *program_name)
 {
-    unsigned int i;
+    static const char usage[] =
+        "[options...] file\n"
+        "Options:\n"
+        "  -o <file>            Write the output to <file>.\n"
+        "  --strip-debug        Strip debug information from the output.\n";
 
-    fprintf(stderr, "usage: %s", program_name);
-    for (i = 0; i < ARRAY_SIZE(compiler_options); ++i)
-        fprintf(stderr, " [%s]", compiler_options[i].name);
-    fprintf(stderr, " [-o <out_spirv_filename>] <dxbc_filename>\n");
+    fprintf(stderr, "Usage: %s %s", program_name, usage);
 }
 
 struct options
