@@ -16,21 +16,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-/* Hack for MinGW-w64 headers.
- *
- * We want to use WIDL C inline wrappers because some methods
- * in D3D12 interfaces return aggregate objects. Unfortunately,
- * WIDL C inline wrappers are broken when used with MinGW-w64
- * headers because FORCEINLINE expands to extern inline
- * which leads to the "multiple storage classes in declaration
- * specifiers" compiler error.
- */
-#ifdef __MINGW32__
-#include <_mingw.h>
-# ifdef __MINGW64_VERSION_MAJOR
-#  undef __forceinline
-#  define __forceinline __inline__ __attribute__((__always_inline__,__gnu_inline__))
-# endif
+#ifdef _WIN32
+# include <vkd3d_win32.h>
 #endif
 
 #include <vkd3d_windows.h>

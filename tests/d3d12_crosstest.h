@@ -19,23 +19,8 @@
 #ifndef __VKD3D_D3D12_CROSSTEST_H
 #define __VKD3D_D3D12_CROSSTEST_H
 
-/* Hack for MinGW-w64 headers.
- *
- * We want to use WIDL C inline wrappers because some methods
- * in D3D12 interfaces return aggregate objects. Unfortunately,
- * WIDL C inline wrappers are broken when used with MinGW-w64
- * headers because FORCEINLINE expands to extern inline
- * which leads to the "multiple storage classes in declaration
- * specifiers" compiler error.
- */
-#ifdef __MINGW32__
-#include <_mingw.h>
-# ifdef __MINGW64_VERSION_MAJOR
-#  undef __forceinline
-#  define __forceinline __inline__ __attribute__((__always_inline__,__gnu_inline__))
-# endif
-# define _HRESULT_DEFINED
-typedef int HRESULT;
+#ifdef _WIN32
+# include <vkd3d_win32.h>
 #endif
 
 #define COBJMACROS
@@ -51,9 +36,7 @@ typedef int HRESULT;
 #include <math.h>
 #include <time.h>
 
-#if defined(_WIN32) && !defined(VKD3D_FORCE_UTILS_WRAPPER)
-# include "vkd3d_dxgi1_4.h"
-#else
+#if !defined(_WIN32) || defined(VKD3D_FORCE_UTILS_WRAPPER)
 # include "vkd3d_threads.h"
 # include "vkd3d.h"
 # include "vkd3d_utils.h"
