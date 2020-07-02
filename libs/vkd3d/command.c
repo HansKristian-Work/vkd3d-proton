@@ -18,6 +18,7 @@
  */
 
 #include "vkd3d_private.h"
+#include "vkd3d_swapchain_factory.h"
 
 static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t value);
 static void d3d12_command_queue_add_submission(struct d3d12_command_queue *queue,
@@ -6792,6 +6793,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12Comman
         return S_OK;
     }
 
+#ifdef VKD3D_BUILD_STANDALONE_D3D12
+    if (IsEqualGUID(riid, &IID_IWineDXGISwapChainFactory))
+    {
+        struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
+        IWineDXGISwapChainFactory_AddRef(&command_queue->swapchain_factory.IWineDXGISwapChainFactory_iface);
+        *object = &command_queue->swapchain_factory;
+        return S_OK;
+    }
+#endif
+
     WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(riid));
 
     *object = NULL;
@@ -7863,10 +7874,17 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     if (FAILED(hr = vkd3d_private_store_init(&queue->private_store)))
         goto fail_private_store;
 
+#ifdef VKD3D_BUILD_STANDALONE_D3D12
+    if (FAILED(hr = d3d12_swapchain_factory_init(queue, &queue->swapchain_factory)))
+        goto fail_swapchain_factory;
+#endif
+
     d3d12_device_add_ref(queue->device = device);
 
     return S_OK;
 
+fail_swapchain_factory:
+    vkd3d_private_store_destroy(&queue->private_store);
 fail_private_store:
     d3d12_command_queue_submit_stop(queue);
     pthread_join(queue->submission_thread, NULL);
