@@ -103,7 +103,13 @@ static uint32_t vkd3d_utf16_read(const uint16_t **src)
     return 0x10000 + ((s[0] & 0x3ff) << 10) + (s[1] & 0x3ff);
 }
 
-static inline bool vkd3d_string_should_loop(size_t max_elements, const uint16_t* src, const uint16_t* wstr)
+static inline bool vkd3d_string_should_loop_u16(size_t max_elements, const uint16_t* src, const uint16_t* wstr)
+{
+    uintptr_t cursor_pos = ((uintptr_t)src) - (uintptr_t)wstr;
+    return (!max_elements || cursor_pos < max_elements) && *src;
+}
+
+static inline bool vkd3d_string_should_loop_u32(size_t max_elements, const uint32_t* src, const uint32_t* wstr)
 {
     uintptr_t cursor_pos = ((uintptr_t)src) - (uintptr_t)wstr;
     return (!max_elements || cursor_pos < max_elements) && *src;
@@ -116,7 +122,7 @@ static char *vkd3d_strdup_w16_utf8(const uint16_t *wstr, size_t max_elements)
     char *dst, *utf8;
     uint32_t c;
 
-    while (vkd3d_string_should_loop(max_elements, src, wstr))
+    while (vkd3d_string_should_loop_u16(max_elements, src, wstr))
     {
         if (!(c = vkd3d_utf16_read(&src)))
             continue;
@@ -129,7 +135,7 @@ static char *vkd3d_strdup_w16_utf8(const uint16_t *wstr, size_t max_elements)
 
     utf8 = dst;
     src = wstr;
-    while (vkd3d_string_should_loop(max_elements, src, wstr))
+    while (vkd3d_string_should_loop_u16(max_elements, src, wstr))
     {
         if (!(c = vkd3d_utf16_read(&src)))
             continue;
@@ -146,7 +152,7 @@ static char *vkd3d_strdup_w32_utf8(const uint32_t *wstr, size_t max_elements)
     size_t dst_size = 0;
     char *dst, *utf8;
 
-    while (vkd3d_string_should_loop(max_elements, src, wstr))
+    while (vkd3d_string_should_loop_u32(max_elements, src, wstr))
         dst_size += vkd3d_utf8_len(*src++);
     ++dst_size;
 
@@ -155,7 +161,7 @@ static char *vkd3d_strdup_w32_utf8(const uint32_t *wstr, size_t max_elements)
 
     utf8 = dst;
     src = wstr;
-    while (vkd3d_string_should_loop(max_elements, src, wstr))
+    while (vkd3d_string_should_loop_u32(max_elements, src, wstr))
         vkd3d_utf8_append(&utf8, *src++);
     *utf8 = 0;
 
