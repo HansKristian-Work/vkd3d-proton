@@ -1431,7 +1431,7 @@ static uint32_t vkd3d_spirv_build_op_image_sample_dref(struct vkd3d_spirv_builde
     if (op == SpvOpImageSampleDrefExplicitLod)
         assert(image_operands_mask & (SpvImageOperandsLodMask | SpvImageOperandsGradMask));
     else
-        assert(op == SpvOpImageSampleDrefImplicitLod || SpvOpImageSparseSampleDrefImplicitLod);
+        assert(op == SpvOpImageSampleDrefImplicitLod || op == SpvOpImageSparseSampleDrefImplicitLod);
 
     return vkd3d_spirv_build_image_instruction(builder, op, result_type,
             operands, ARRAY_SIZE(operands), image_operands_mask, image_operands, image_operand_count);
