@@ -42,7 +42,7 @@ static void vkd3d_shader_dump_blob(const char *path, const char *prefix, const v
 
 void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader)
 {
-    static int shader_id = 0;
+    static LONG shader_id = 0;
     static bool enabled = true;
     const char *path;
 
@@ -61,7 +61,7 @@ void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct vkd3d_sh
 
 void vkd3d_shader_dump_spirv_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader)
 {
-    static int shader_id = 0;
+    static LONG shader_id = 0;
     static bool enabled = true;
     const char *path;
 
