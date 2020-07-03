@@ -1726,23 +1726,23 @@ struct d3d12_device *unsafe_impl_from_ID3D12Device(d3d12_device_iface *iface) DE
 
 static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, REFIID iid, void **object)
 {
-    return ID3D12Device_QueryInterface(&device->ID3D12Device_iface, iid, object);
+    return ID3D12Device6_QueryInterface(&device->ID3D12Device_iface, iid, object);
 }
 
 static inline ULONG d3d12_device_add_ref(struct d3d12_device *device)
 {
-    return ID3D12Device_AddRef(&device->ID3D12Device_iface);
+    return ID3D12Device6_AddRef(&device->ID3D12Device_iface);
 }
 
 static inline ULONG d3d12_device_release(struct d3d12_device *device)
 {
-    return ID3D12Device_Release(&device->ID3D12Device_iface);
+    return ID3D12Device6_Release(&device->ID3D12Device_iface);
 }
 
 static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(struct d3d12_device *device,
         D3D12_DESCRIPTOR_HEAP_TYPE descriptor_type)
 {
-    return ID3D12Device_GetDescriptorHandleIncrementSize(&device->ID3D12Device_iface, descriptor_type);
+    return ID3D12Device6_GetDescriptorHandleIncrementSize(&device->ID3D12Device_iface, descriptor_type);
 }
 
 /* ID3DBlob */
