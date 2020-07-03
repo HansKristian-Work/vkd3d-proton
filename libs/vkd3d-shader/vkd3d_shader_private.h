@@ -559,7 +559,7 @@ struct vkd3d_shader_version
 struct vkd3d_shader_immediate_constant_buffer
 {
     unsigned int vec4_count;
-    DWORD data[MAX_IMMEDIATE_CONSTANT_BUFFER_SIZE];
+    uint32_t data[MAX_IMMEDIATE_CONSTANT_BUFFER_SIZE];
 };
 
 struct vkd3d_shader_indexable_temp
@@ -585,7 +585,7 @@ struct vkd3d_shader_register
     enum vkd3d_immconst_type immconst_type;
     union
     {
-        DWORD immconst_uint[VKD3D_VEC4_SIZE];
+        uint32_t immconst_uint[VKD3D_VEC4_SIZE];
         float immconst_float[VKD3D_VEC4_SIZE];
         unsigned fp_body_idx;
     };
