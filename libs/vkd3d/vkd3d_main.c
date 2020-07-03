@@ -156,7 +156,7 @@ static const D3D12_ROOT_SIGNATURE_DESC * STDMETHODCALLTYPE d3d12_root_signature_
     return &deserializer->desc.d3d12.Desc_1_0;
 }
 
-static const struct ID3D12RootSignatureDeserializerVtbl d3d12_root_signature_deserializer_vtbl =
+static CONST_VTBL struct ID3D12RootSignatureDeserializerVtbl d3d12_root_signature_deserializer_vtbl =
 {
     /* IUnknown methods */
     d3d12_root_signature_deserializer_QueryInterface,
@@ -367,7 +367,7 @@ d3d12_versioned_root_signature_deserializer_GetUnconvertedRootSignatureDesc(ID3D
     return &deserializer->desc.d3d12;
 }
 
-static const struct ID3D12VersionedRootSignatureDeserializerVtbl d3d12_versioned_root_signature_deserializer_vtbl =
+static CONST_VTBL struct ID3D12VersionedRootSignatureDeserializerVtbl d3d12_versioned_root_signature_deserializer_vtbl =
 {
     /* IUnknown methods */
     d3d12_versioned_root_signature_deserializer_QueryInterface,

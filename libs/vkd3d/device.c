@@ -4083,7 +4083,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_SetBackgroundProcessingMode(d3d12_
     return E_NOTIMPL;
 }
 
-static const struct ID3D12Device6Vtbl d3d12_device_vtbl =
+static CONST_VTBL struct ID3D12Device6Vtbl d3d12_device_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,

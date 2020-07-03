@@ -144,7 +144,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_root_signature_GetDevice(ID3D12RootSignat
     return d3d12_device_query_interface(root_signature->device, iid, device);
 }
 
-static const struct ID3D12RootSignatureVtbl d3d12_root_signature_vtbl =
+static CONST_VTBL struct ID3D12RootSignatureVtbl d3d12_root_signature_vtbl =
 {
     /* IUnknown methods */
     d3d12_root_signature_QueryInterface,
@@ -1494,7 +1494,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetCachedBlob(ID3D12Pipeli
     return S_OK;
 }
 
-static const struct ID3D12PipelineStateVtbl d3d12_pipeline_state_vtbl =
+static CONST_VTBL struct ID3D12PipelineStateVtbl d3d12_pipeline_state_vtbl =
 {
     /* IUnknown methods */
     d3d12_pipeline_state_QueryInterface,
@@ -3345,7 +3345,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadPipeline(d3d12_pipel
     return E_INVALIDARG;
 }
 
-static const struct ID3D12PipelineLibrary1Vtbl d3d12_pipeline_library_vtbl =
+static CONST_VTBL struct ID3D12PipelineLibrary1Vtbl d3d12_pipeline_library_vtbl =
 {
     /* IUnknown methods */
     d3d12_pipeline_library_QueryInterface,

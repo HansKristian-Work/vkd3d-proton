@@ -963,7 +963,7 @@ static D3D12_FENCE_FLAGS STDMETHODCALLTYPE d3d12_fence_GetCreationFlags(d3d12_fe
     return fence->d3d12_flags;
 }
 
-static const struct ID3D12Fence1Vtbl d3d12_fence_vtbl =
+static CONST_VTBL struct ID3D12Fence1Vtbl d3d12_fence_vtbl =
 {
     /* IUnknown methods */
     d3d12_fence_QueryInterface,
@@ -1641,7 +1641,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
     return S_OK;
 }
 
-static const struct ID3D12CommandAllocatorVtbl d3d12_command_allocator_vtbl =
+static CONST_VTBL struct ID3D12CommandAllocatorVtbl d3d12_command_allocator_vtbl =
 {
     /* IUnknown methods */
     d3d12_command_allocator_QueryInterface,
@@ -6610,7 +6610,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_com
     FIXME("iface %p, image %p stub!\n", iface, image);
 }
 
-static const struct ID3D12GraphicsCommandList5Vtbl d3d12_command_list_vtbl =
+static CONST_VTBL struct ID3D12GraphicsCommandList5Vtbl d3d12_command_list_vtbl =
 {
     /* IUnknown methods */
     d3d12_command_list_QueryInterface,
@@ -7254,7 +7254,7 @@ static D3D12_COMMAND_QUEUE_DESC * STDMETHODCALLTYPE d3d12_command_queue_GetDesc(
     return desc;
 }
 
-static const struct ID3D12CommandQueueVtbl d3d12_command_queue_vtbl =
+static CONST_VTBL struct ID3D12CommandQueueVtbl d3d12_command_queue_vtbl =
 {
     /* IUnknown methods */
     d3d12_command_queue_QueryInterface,
@@ -8033,7 +8033,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_signature_GetDevice(ID3D12Command
     return d3d12_device_query_interface(signature->device, iid, device);
 }
 
-static const struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl =
+static CONST_VTBL struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl =
 {
     /* IUnknown methods */
     d3d12_command_signature_QueryInterface,

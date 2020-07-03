@@ -473,7 +473,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_GetProtectedResourceSession(d3d12_he
     return E_NOTIMPL;
 }
 
-static const struct ID3D12Heap1Vtbl d3d12_heap_vtbl =
+static CONST_VTBL struct ID3D12Heap1Vtbl d3d12_heap_vtbl =
 {
     /* IUnknown methods */
     d3d12_heap_QueryInterface,
@@ -1921,7 +1921,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_GetProtectedResourceSession(d3d1
     return E_NOTIMPL;
 }
 
-static const struct ID3D12Resource1Vtbl d3d12_resource_vtbl =
+static CONST_VTBL struct ID3D12Resource1Vtbl d3d12_resource_vtbl =
 {
     /* IUnknown methods */
     d3d12_resource_QueryInterface,
@@ -4501,7 +4501,7 @@ static D3D12_GPU_DESCRIPTOR_HANDLE * STDMETHODCALLTYPE d3d12_descriptor_heap_Get
     return descriptor;
 }
 
-static const struct ID3D12DescriptorHeapVtbl d3d12_descriptor_heap_vtbl =
+static CONST_VTBL struct ID3D12DescriptorHeapVtbl d3d12_descriptor_heap_vtbl =
 {
     /* IUnknown methods */
     d3d12_descriptor_heap_QueryInterface,
@@ -4942,7 +4942,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_query_heap_GetDevice(ID3D12QueryHeap *ifa
     return d3d12_device_query_interface(heap->device, iid, device);
 }
 
-static const struct ID3D12QueryHeapVtbl d3d12_query_heap_vtbl =
+static CONST_VTBL struct ID3D12QueryHeapVtbl d3d12_query_heap_vtbl =
 {
     /* IUnknown methods */
     d3d12_query_heap_QueryInterface,

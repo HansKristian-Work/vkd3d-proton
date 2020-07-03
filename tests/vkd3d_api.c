@@ -629,7 +629,7 @@ static ULONG STDMETHODCALLTYPE parent_Release(IUnknown *iface)
     return InterlockedDecrement(&parent->refcount);
 }
 
-static const struct IUnknownVtbl parent_vtbl =
+static CONST_VTBL struct IUnknownVtbl parent_vtbl =
 {
     parent_QueryInterface,
     parent_AddRef,

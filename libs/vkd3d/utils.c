@@ -1111,7 +1111,7 @@ static SIZE_T STDMETHODCALLTYPE d3d_blob_GetBufferSize(ID3DBlob *iface)
     return blob->size;
 }
 
-static const struct ID3D10BlobVtbl d3d_blob_vtbl =
+static CONST_VTBL struct ID3D10BlobVtbl d3d_blob_vtbl =
 {
     /* IUnknown methods */
     d3d_blob_QueryInterface,
