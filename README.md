@@ -1,5 +1,7 @@
 # VKD3D
 
+**Fork of VKD3D:** *The original project is available at: https://source.winehq.org/git/vkd3d.git/*
+
 VKD3D is a 3D graphics library built on top of Vulkan. It has an API very
 similar, but not identical, to Direct3D 12.
 
