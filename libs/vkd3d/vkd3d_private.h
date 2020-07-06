@@ -1025,6 +1025,10 @@ struct vkd3d_pipeline_key
     uint32_t viewport_count;
     uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     VkFormat dsv_format;
+
+    bool dynamic_stride;
+    bool dynamic_viewport;
+    bool dynamic_topology;
 };
 
 HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
