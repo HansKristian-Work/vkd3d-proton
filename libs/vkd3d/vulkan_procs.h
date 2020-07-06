@@ -196,6 +196,10 @@ VK_DEVICE_EXT_PFN(vkCmdDrawIndexedIndirectCountKHR)
 /* VK_KHR_push_descriptor */
 VK_DEVICE_EXT_PFN(vkCmdPushDescriptorSetKHR)
 
+/* VK_EXT_calibrated_timestamps */
+VK_DEVICE_EXT_PFN(vkGetCalibratedTimestampsEXT)
+VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceCalibrateableTimeDomainsEXT)
+
 /* VK_EXT_conditional_rendering */
 VK_DEVICE_EXT_PFN(vkCmdBeginConditionalRenderingEXT)
 VK_DEVICE_EXT_PFN(vkCmdEndConditionalRenderingEXT)
