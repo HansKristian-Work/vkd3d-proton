@@ -3058,7 +3058,12 @@ static bool d3d12_pipeline_state_can_use_dynamic_stride(struct d3d12_pipeline_st
          * This is somewhat awkward, since D3D12 does not have this restriction, although the validation layers do warn about this.
          * There might also be similar fallback paths on certain native drivers, who knows ... */
         if (dyn_state->vertex_strides[slot] < graphics->minimum_vertex_buffer_dynamic_stride[slot])
+        {
+            TRACE("Stride for slot %u is %u bytes, but need at least %u.\n", slot,
+                  (unsigned int)dyn_state->vertex_strides[slot],
+                  graphics->minimum_vertex_buffer_dynamic_stride[slot]);
             return false;
+        }
     }
 
     return true;
@@ -3074,15 +3079,30 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
 
     /* Unknown DSV format workaround. */
     if (dsv_format != graphics->dsv_format)
+    {
+        TRACE("DSV format mismatch, expected %u, got %u, buggy application!\n",
+              graphics->dsv_format, dsv_format);
         return VK_NULL_HANDLE;
+    }
 
     if (!d3d12_pipeline_state_can_use_dynamic_stride(state, dyn_state))
+    {
+        TRACE("Cannot use dynamic stride, falling back ...\n");
         return VK_NULL_HANDLE;
+    }
 
     /* It should be illegal to use different patch size for topology compared to pipeline, but be safe here. */
     if (dyn_state->vk_primitive_topology == VK_PRIMITIVE_TOPOLOGY_PATCH_LIST &&
         (dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1) != graphics->patch_vertex_count)
+    {
+        if (graphics->patch_vertex_count)
+        {
+            TRACE("Mismatch in tessellation control points, expected %u, but got %u.\n",
+                  graphics->patch_vertex_count,
+                  dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1);
+        }
         return VK_NULL_HANDLE;
+    }
 
     *vk_render_pass = state->graphics.render_pass;
     return state->graphics.pipeline;
