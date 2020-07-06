@@ -20,7 +20,7 @@ Backwards compatibility with the vkd3d standalone API is not a goal of this proj
 
 To clone the repo you should run:
 ```
-git clone --recursive https://github.com/HansKristian-Work/vkd3d
+git clone --recursive https://github.com/HansKristian-Work/vkd3d-proton
 ```
 in order to pull in all the submodules which are needed for building.
 
