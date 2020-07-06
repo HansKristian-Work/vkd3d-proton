@@ -2788,14 +2788,16 @@ static bool vkd3d_topology_can_restart(VkPrimitiveTopology topology)
     }
 }
 
-static enum VkPrimitiveTopology vk_topology_from_d3d12_topology_type(D3D12_PRIMITIVE_TOPOLOGY_TYPE type)
+static enum VkPrimitiveTopology vk_topology_from_d3d12_topology_type(D3D12_PRIMITIVE_TOPOLOGY_TYPE type, bool restart)
 {
+    /* Technically shouldn't need to know restart state here, but there is a VU banning use of primitiveRestartEnable
+     * with list types. Using a strip type is harmless and is likely to dodge driver bugs. */
     switch (type)
     {
         case D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE:
-            return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+            return restart ? VK_PRIMITIVE_TOPOLOGY_LINE_STRIP : VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
         case D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE:
-            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            return restart ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         case D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT:
             return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
         case D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH:
@@ -2979,7 +2981,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     ia_desc.flags = 0;
     ia_desc.topology = dyn_state ?
             vk_topology_from_d3d12_topology(dyn_state->primitive_topology) :
-            vk_topology_from_d3d12_topology_type(graphics->primitive_topology_type);
+            vk_topology_from_d3d12_topology_type(graphics->primitive_topology_type, !!graphics->index_buffer_strip_cut_value);
     ia_desc.primitiveRestartEnable = graphics->index_buffer_strip_cut_value &&
                                      (dyn_state ?
                                       vkd3d_topology_can_restart(ia_desc.topology) :
