@@ -7671,10 +7671,72 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetTimestampFrequency(ID3D1
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetClockCalibration(ID3D12CommandQueue *iface,
         UINT64 *gpu_timestamp, UINT64 *cpu_timestamp)
 {
-    FIXME("iface %p, gpu_timestamp %p, cpu_timestamp %p stub!\n",
+    struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
+    struct d3d12_device *device = command_queue->device;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkCalibratedTimestampInfoEXT timestamp_infos[2], *timestamp_info;
+    uint64_t qpc_begin, qpc_end, max_deviation, timestamps[2];
+    uint32_t count = 0;
+    VkResult vr;
+
+    TRACE("iface %p, gpu_timestamp %p, cpu_timestamp %p.\n",
             iface, gpu_timestamp, cpu_timestamp);
 
-    return E_NOTIMPL;
+    if (!command_queue->vkd3d_queue->timestamp_bits)
+    {
+        WARN("Timestamp queries not supported.\n");
+        return E_FAIL;
+    }
+
+#ifdef _WIN32
+    if (!(device->device_info.time_domains & VKD3D_TIME_DOMAIN_DEVICE))
+    {
+        FIXME("Calibrated timestamps not supported by device.\n");
+        *gpu_timestamp = 0;
+        *cpu_timestamp = 0;
+        return S_OK;
+    }
+
+    timestamp_info = &timestamp_infos[count++];
+    timestamp_info->sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
+    timestamp_info->pNext = NULL;
+    timestamp_info->timeDomain = VK_TIME_DOMAIN_DEVICE_EXT;
+
+    if (device->device_info.time_domains & VKD3D_TIME_DOMAIN_QPC)
+    {
+        timestamp_info = &timestamp_infos[count++];
+        timestamp_info->sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
+        timestamp_info->pNext = NULL;
+        timestamp_info->timeDomain = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
+    }
+    else
+    {
+        FIXME_ONCE("QPC domain not supported by device, timestamp calibration may be inaccurate.\n");
+        QueryPerformanceCounter(&qpc_begin);
+    }
+
+    if ((vr = VK_CALL(vkGetCalibratedTimestampsEXT(device->vk_device,
+            2, timestamp_infos, timestamps, &max_deviation))) < 0)
+    {
+        ERR("Querying calibrated timestamps failed, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    if (!(device->device_info.time_domains & VKD3D_TIME_DOMAIN_QPC))
+    {
+        QueryPerformanceCounter(&qpc_end);
+        timestamps[1] = qpc_begin + (qpc_end - qpc_begin) / 2;
+    }
+
+    *gpu_timestamp = timestamps[0];
+    *cpu_timestamp = timestamps[1];
+    return S_OK;
+#else
+    FIXME("Calibrated timestamps not supported.\n");
+    *gpu_timestamp = 0;
+    *cpu_timestamp = 0;
+    return S_OK;
+#endif
 }
 
 static D3D12_COMMAND_QUEUE_DESC * STDMETHODCALLTYPE d3d12_command_queue_GetDesc(ID3D12CommandQueue *iface,
