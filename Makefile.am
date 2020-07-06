@@ -13,7 +13,8 @@ widl_headers = \
 	include/vkd3d_dxgi1_4.h \
 	include/vkd3d_dxgibase.h \
 	include/vkd3d_dxgiformat.h \
-	include/vkd3d_dxgitype.h
+	include/vkd3d_dxgitype.h \
+	include/vkd3d_swapchain_factory.h
 
 vkd3d_public_headers = \
 	include/vkd3d.h \
