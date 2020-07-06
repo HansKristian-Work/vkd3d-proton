@@ -1,7 +1,18 @@
-# VKD3D
+# VKD3D-Proton
 
-VKD3D is a 3D graphics library built on top of Vulkan. It has an API very
-similar, but not identical, to Direct3D 12.
+VKD3D-Proton is a fork of VKD3D, which aims to implement the full Direct3D 12 API on top of Vulkan.
+The project serves as the development effort for Direct3D 12 support in [Proton](https://github.com/ValveSoftware/Proton).
+
+## Upstream
+
+The original project is available at [WineHQ](https://source.winehq.org/git/vkd3d.git/).
+
+## Priorities
+
+Performance and compatibility are important targets, at the expense of compatibility with older drivers and systems.
+Modern Vulkan extensions and features are aggressively made use of to improve performance and compatibility.
+It is recommended to use the very latest drivers you can get your hands on for the best experience.
+Backwards compatibility with the vkd3d standalone API is not a goal of this project.
 
 ------
 
