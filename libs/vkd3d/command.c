@@ -7883,8 +7883,10 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
 
     return S_OK;
 
+#ifdef VKD3D_BUILD_STANDALONE_D3D12
 fail_swapchain_factory:
     vkd3d_private_store_destroy(&queue->private_store);
+#endif
 fail_private_store:
     d3d12_command_queue_submit_stop(queue);
     pthread_join(queue->submission_thread, NULL);

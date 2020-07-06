@@ -111,7 +111,7 @@ static inline bool vkd3d_string_should_loop_u16(ptrdiff_t max_elements, const ui
 
 static inline bool vkd3d_string_should_loop_u32(ptrdiff_t max_elements, const uint32_t* src, const uint32_t* wstr)
 {
-    uintptr_t cursor_pos = src - wstr;
+    ptrdiff_t cursor_pos = src - wstr;
     return (!max_elements || cursor_pos < max_elements) && *src;
 }
 
