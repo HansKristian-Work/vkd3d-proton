@@ -384,7 +384,7 @@ static HRESULT d3d12_swapchain_set_display_mode(struct d3d12_swapchain *swapchai
         return hr;
     }
 
-    if (output != swapchain->target)
+    if (output != swapchain->target && swapchain->target)
     {
         if (FAILED(hr = d3d12_output_set_display_mode(swapchain->target, &swapchain->state.original_mode)))
         {
@@ -2244,7 +2244,7 @@ static CONST_VTBL struct IDXGISwapChain3Vtbl d3d12_swapchain_vtbl =
 static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFactory *factory,
         struct d3d12_command_queue *queue, HWND window,
         const DXGI_SWAP_CHAIN_DESC1 *swapchain_desc, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC *fullscreen_desc,
-        IDXGIOutput *output)
+        IDXGIOutput *restrict_output_to_target)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &queue->device->vk_procs;
     VkWin32SurfaceCreateInfoKHR surface_desc;
@@ -2254,7 +2254,7 @@ static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFact
     VkSurfaceKHR vk_surface;
     VkInstance vk_instance;
     IDXGIAdapter *adapter;
-    IDXGIOutput *target = NULL;
+    IDXGIOutput *target;
     VkBool32 supported;
     VkDevice vk_device;
     VkFence vk_fence;
@@ -2290,23 +2290,18 @@ static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFact
     if (FAILED(hr = IUnknown_QueryInterface(queue->device->parent, &IID_IDXGIAdapter, (void **)&adapter)))
         return hr;
 
-    if (!output)
+    if (FAILED(hr = d3d12_get_output_from_window((IDXGIFactory*)factory, window, &target)))
     {
-        if (FAILED(hr = d3d12_get_output_from_window((IDXGIFactory*)factory, window, &target)))
+        WARN("Failed to get output from window %p, hr %#x.\n", window, hr);
+
+        if (FAILED(hr = IDXGIAdapter_EnumOutputs(adapter, 0, &target)))
         {
-            WARN("Failed to get output from window %p, hr %#x.\n", window, hr);
-
-            if (FAILED(hr = IDXGIAdapter_EnumOutputs(adapter, 0, &target)))
-            {
-                IDXGIAdapter_Release(adapter);
-                return hr;
-            }
-
-            FIXME("Using the primary output for the device window that is on a non-primary output.\n");
+            IDXGIAdapter_Release(adapter);
+            return hr;
         }
+
+        FIXME("Using the primary output for the device window that is on a non-primary output.\n");
     }
-    else
-        target = output;
 
     if (FAILED(hr = d3d12_output_get_display_mode(target, &swapchain->state.original_mode)))
     {
@@ -2421,23 +2416,25 @@ static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFact
         }
     }
 
-    IDXGIFactory_AddRef(swapchain->factory = factory);
-
     if (FAILED(hr = d3d12_swapchain_set_fullscreen(swapchain, target, TRUE)))
     {
-        WARN("Failed to go fullscreen.\n");
+        ERR("Failed to enter fullscreen.");
         return hr;
     }
 
-    if (!output && target)
+    if (!swapchain->fullscreen_desc.Windowed)
+        swapchain->target = target;
+    else
         IDXGIOutput_Release(target);
+
+    IDXGIFactory_AddRef(swapchain->factory = factory);
 
     return S_OK;
 }
 
 static HRESULT d3d12_swapchain_create(IDXGIFactory *factory, struct d3d12_command_queue *queue, HWND window,
         const DXGI_SWAP_CHAIN_DESC1 *swapchain_desc, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC *fullscreen_desc,
-        IDXGIOutput *output, IDXGISwapChain1 **swapchain)
+        IDXGIOutput *restrict_to_output, IDXGISwapChain1 **swapchain)
 {
     DXGI_SWAP_CHAIN_FULLSCREEN_DESC default_fullscreen_desc;
     struct d3d12_swapchain *object;
@@ -2456,7 +2453,7 @@ static HRESULT d3d12_swapchain_create(IDXGIFactory *factory, struct d3d12_comman
     if (!(object = vkd3d_calloc(1, sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    hr = d3d12_swapchain_init(object, factory, queue, window, swapchain_desc, fullscreen_desc, output);
+    hr = d3d12_swapchain_init(object, factory, queue, window, swapchain_desc, fullscreen_desc, restrict_to_output);
 
     if (FAILED(hr))
     {
