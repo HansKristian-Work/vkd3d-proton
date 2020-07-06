@@ -3052,17 +3052,13 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
 
     /* Try to grab the pipeline we compiled ahead of time. If we cannot do so, fall back. */
     if (!(vk_pipeline = d3d12_pipeline_state_get_pipeline(list->state,
-            &list->dynamic_state, dsv_format, &vk_render_pass)))
+            &list->dynamic_state, dsv_format, &vk_render_pass, &new_active_flags)))
     {
         if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
                 &list->dynamic_state, dsv_format,
-                &vk_render_pass)))
+                &vk_render_pass, &new_active_flags)))
             return false;
-
-        new_active_flags = list->state->graphics.dynamic_state_flags_fallback;
     }
-    else
-        new_active_flags = list->state->graphics.dynamic_state_flags;
 
     /* The render pass cache ensures that we use the same Vulkan render pass
      * object for compatible render passes. */

@@ -927,13 +927,7 @@ struct d3d12_graphics_pipeline_state
     VkPipelineRasterizationDepthClipStateCreateInfoEXT rs_depth_clip_info;
     VkPipelineRasterizationStateStreamCreateInfoEXT rs_stream_info;
 
-    VkDynamicState dynamic_states[VKD3D_MAX_DYNAMIC_STATE_COUNT];
-    VkPipelineDynamicStateCreateInfo dynamic_desc;
-    VkDynamicState dynamic_states_fallback[VKD3D_MAX_DYNAMIC_STATE_COUNT];
-    VkPipelineDynamicStateCreateInfo dynamic_desc_fallback;
-
     uint32_t dynamic_state_flags; /* vkd3d_dynamic_state_flag */
-    uint32_t dynamic_state_flags_fallback; /* vkd3d_dynamic_state_flag */
 
     const struct d3d12_root_signature *root_signature;
 
@@ -1034,11 +1028,14 @@ struct vkd3d_pipeline_key
 HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
         const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass) DECLSPEC_HIDDEN;
+        const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format,
+        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags) DECLSPEC_HIDDEN;
 VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass) DECLSPEC_HIDDEN;
+        const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format,
+        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags) DECLSPEC_HIDDEN;
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass) DECLSPEC_HIDDEN;
+        const struct vkd3d_pipeline_key *key, VkFormat dsv_format,
+        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags) DECLSPEC_HIDDEN;
 struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface) DECLSPEC_HIDDEN;
 
 /* ID3D12PipelineLibrary */
