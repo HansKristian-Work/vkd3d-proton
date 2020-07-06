@@ -3050,19 +3050,12 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     return vk_pipeline;
 }
 
-VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass)
+static bool d3d12_pipeline_state_can_use_dynamic_stride(struct d3d12_pipeline_state *state,
+        const struct vkd3d_dynamic_state *dyn_state)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     uint32_t vertex_mask = graphics->vertex_buffer_mask;
     unsigned int slot;
-
-    if (!graphics->pipeline)
-        return VK_NULL_HANDLE;
-
-    /* Unknown DSV format workaround. */
-    if (dsv_format != graphics->dsv_format)
-        return VK_NULL_HANDLE;
 
     while (vertex_mask)
     {
@@ -3071,8 +3064,26 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
          * This is somewhat awkward, since D3D12 does not have this restriction, although the validation layers do warn about this.
          * There might also be similar fallback paths on certain native drivers, who knows ... */
         if (dyn_state->vertex_strides[slot] < graphics->minimum_vertex_buffer_dynamic_stride[slot])
-            return VK_NULL_HANDLE;
+            return false;
     }
+
+    return true;
+}
+
+VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
+        const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass)
+{
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+
+    if (!graphics->pipeline)
+        return VK_NULL_HANDLE;
+
+    /* Unknown DSV format workaround. */
+    if (dsv_format != graphics->dsv_format)
+        return VK_NULL_HANDLE;
+
+    if (!d3d12_pipeline_state_can_use_dynamic_stride(state, dyn_state))
+        return VK_NULL_HANDLE;
 
     /* It should be illegal to use different patch size for topology compared to pipeline, but be safe here. */
     if (dyn_state->vk_primitive_topology == VK_PRIMITIVE_TOPOLOGY_PATCH_LIST &&
