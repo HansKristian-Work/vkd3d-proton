@@ -1019,6 +1019,14 @@ struct d3d12_pipeline_state_desc
     D3D12_PIPELINE_STATE_FLAGS flags;
 };
 
+struct vkd3d_pipeline_key
+{
+    D3D12_PRIMITIVE_TOPOLOGY topology;
+    uint32_t viewport_count;
+    uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    VkFormat dsv_format;
+};
+
 HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
         const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,

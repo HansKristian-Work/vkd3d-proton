@@ -1332,14 +1332,6 @@ void vkd3d_render_pass_cache_cleanup(struct vkd3d_render_pass_cache *cache,
     cache->render_passes = NULL;
 }
 
-struct vkd3d_pipeline_key
-{
-    D3D12_PRIMITIVE_TOPOLOGY topology;
-    uint32_t viewport_count;
-    uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
-    VkFormat dsv_format;
-};
-
 struct vkd3d_compiled_pipeline
 {
     struct list entry;
