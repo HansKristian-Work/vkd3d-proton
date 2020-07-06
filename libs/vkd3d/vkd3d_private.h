@@ -119,6 +119,7 @@ struct vkd3d_vulkan_info
     bool KHR_shader_float16_int8;
     bool KHR_shader_subgroup_extended_types;
     /* EXT device extensions */
+    bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
     bool EXT_custom_border_color;
     bool EXT_depth_clip_enable;
@@ -1646,6 +1647,12 @@ VkImageViewType vkd3d_meta_get_copy_image_view_type(D3D12_RESOURCE_DIMENSION dim
 const struct vkd3d_format *vkd3d_meta_get_copy_image_attachment_format(struct vkd3d_meta_ops *meta_ops,
         const struct vkd3d_format *dst_format, const struct vkd3d_format *src_format) DECLSPEC_HIDDEN;
 
+enum vkd3d_time_domain_flag
+{
+    VKD3D_TIME_DOMAIN_DEVICE = 0x00000001u,
+    VKD3D_TIME_DOMAIN_QPC    = 0x00000002u,
+};
+
 struct vkd3d_physical_device_info
 {
     /* properties */
@@ -1686,6 +1693,9 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extended_dynamic_state_features;
 
     VkPhysicalDeviceFeatures2 features2;
+
+    /* others, for extensions that have no feature bits */
+    uint32_t time_domains;  /* vkd3d_time_domain_flag */
 };
 
 struct d3d12_caps
