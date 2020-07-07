@@ -23,6 +23,16 @@
 #include "vkd3d_atomic.h"
 #include "vkd3d_debug.h"
 
+/* We need to specify the __declspec(dllexport) attribute
+ * on MinGW because otherwise the stdcall aliases/fixups
+ * don't get exported.
+ */
+#if defined(_MSC_VER)
+  #define DLLEXPORT
+#else
+  #define DLLEXPORT __declspec(dllexport)
+#endif
+
 static spinlock_t library_spinlock = { 0 };
 static HMODULE vulkan_module = NULL;
 
@@ -41,7 +51,7 @@ static PFN_vkGetInstanceProcAddr load_vulkan(void)
     return NULL;
 }
 
-HRESULT WINAPI D3D12GetDebugInterface(REFIID iid, void **debug)
+HRESULT WINAPI DLLEXPORT D3D12GetDebugInterface(REFIID iid, void **debug)
 {
     TRACE("iid %s, debug %p.\n", debugstr_guid(iid), debug);
 
@@ -49,7 +59,7 @@ HRESULT WINAPI D3D12GetDebugInterface(REFIID iid, void **debug)
     return DXGI_ERROR_SDK_COMPONENT_MISSING;
 }
 
-HRESULT WINAPI D3D12EnableExperimentalFeatures(UINT feature_count,
+HRESULT WINAPI DLLEXPORT D3D12EnableExperimentalFeatures(UINT feature_count,
         const IID *iids, void *configurations, UINT *configurations_sizes)
 {
     FIXME("feature_count %u, iids %p, configurations %p, configurations_sizes %p stub!\n",
@@ -268,7 +278,7 @@ done:
     return vk_physical_device;
 }
 
-HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level,
+HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level,
         REFIID iid, void **device)
 {
     struct vkd3d_optional_instance_extensions_info optional_extensions_info;
@@ -353,7 +363,7 @@ done:
     return hr;
 }
 
-HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T data_size,
+HRESULT WINAPI DLLEXPORT D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer)
 {
     TRACE("data %p, data_size %lu, iid %s, deserializer %p.\n",
@@ -362,7 +372,7 @@ HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T dat
     return vkd3d_create_root_signature_deserializer(data, data_size, iid, deserializer);
 }
 
-HRESULT WINAPI D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc,
+HRESULT WINAPI DLLEXPORT D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob)
 {
     TRACE("root_signature_desc %p, version %#x, blob %p, error_blob %p.\n",
@@ -371,7 +381,7 @@ HRESULT WINAPI D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *root
     return vkd3d_serialize_root_signature(root_signature_desc, version, blob, error_blob);
 }
 
-HRESULT WINAPI D3D12CreateVersionedRootSignatureDeserializer(const void *data, SIZE_T data_size,
+HRESULT WINAPI DLLEXPORT D3D12CreateVersionedRootSignatureDeserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer)
 {
     TRACE("data %p, data_size %lu, iid %s, deserializer %p.\n",
@@ -380,7 +390,7 @@ HRESULT WINAPI D3D12CreateVersionedRootSignatureDeserializer(const void *data, S
     return vkd3d_create_versioned_root_signature_deserializer(data, data_size, iid, deserializer);
 }
 
-HRESULT WINAPI D3D12SerializeVersionedRootSignature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
+HRESULT WINAPI DLLEXPORT D3D12SerializeVersionedRootSignature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
         ID3DBlob **blob, ID3DBlob **error_blob)
 {
     TRACE("desc %p, blob %p, error_blob %p.\n", desc, blob, error_blob);
