@@ -1,0 +1,13 @@
+LIBRARY vkd3d-utils
+EXPORTS
+    D3D12CreateDevice@16
+    D3D12CreateRootSignatureDeserializer@16
+    D3D12CreateVersionedRootSignatureDeserializer@16
+    D3D12GetDebugInterface@8
+    D3D12SerializeRootSignature@16
+    D3D12SerializeVersionedRootSignature@12
+    vkd3d_create_event
+    vkd3d_destroy_event
+    vkd3d_signal_event
+    vkd3d_wait_event
+
