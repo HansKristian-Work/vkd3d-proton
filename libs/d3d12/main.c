@@ -118,7 +118,7 @@ static HRESULT d3d12_get_adapter(IDXGIAdapter **dxgi_adapter, IUnknown *adapter)
 
     if (!adapter)
     {
-        if (FAILED(hr = CreateDXGIFactory2(0, &IID_IDXGIFactory4, (void **)&factory)))
+        if (FAILED(hr = CreateDXGIFactory1(&IID_IDXGIFactory4, (void **)&factory)))
         {
             WARN("Failed to create DXGI factory, hr %#x.\n", hr);
             goto done;
