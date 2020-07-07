@@ -62,6 +62,13 @@ add_project_arguments(vkd3d_compiler.get_supported_arguments([
     '-Wno-unused-parameter']),
   language : 'c')
 
+if cpu_family == 'x86'
+  add_global_link_arguments(vkd3d_compiler.get_supported_link_arguments([
+      '-Wl,--add-stdcall-alias',
+      '-Wl,--enable-stdcall-fixup']),
+    language : [ 'c', 'cpp' ])
+endif
+
 vkd3d_version = vcs_tag(
   command : ['git', 'describe', '--dirty=+'],
   input   : 'vkd3d_version.c.in',
