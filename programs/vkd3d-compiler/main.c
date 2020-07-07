@@ -21,7 +21,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+
+#ifndef _MSC_VER
 #include <unistd.h>
+#endif
 
 #include "vkd3d_common.h"
 #include "vkd3d_shader.h"
