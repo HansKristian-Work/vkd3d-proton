@@ -3,9 +3,9 @@ LIBRARY d3d12.dll
 EXPORTS
     D3D12CreateDevice @101
     D3D12GetDebugInterface @102
-    D3D12CreateRootSignatureDeserializer @106
-    D3D12SerializeRootSignature @107
+    D3D12CreateRootSignatureDeserializer @107
     D3D12CreateVersionedRootSignatureDeserializer @108
 
     D3D12EnableExperimentalFeatures @110
+    D3D12SerializeRootSignature @115
     D3D12SerializeVersionedRootSignature @116
