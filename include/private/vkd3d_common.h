@@ -87,8 +87,19 @@ static inline unsigned int vkd3d_bitmask_tzcnt64(uint64_t mask)
 {
 #ifdef _MSC_VER
     unsigned long result;
-    _BitScanForward64(&result, mask) ? result : 64;
-    return result;
+#ifdef _WIN64
+    return _BitScanForward64(&result, mask) ? result : 64;
+#else
+    uint32_t lower, upper;
+    lower = (uint32_t)mask;
+    upper = (uint32_t)(mask >> 32);
+    if (_BitScanForward(&result, lower))
+        return result;
+    else if (_BitScanForward(&result, upper))
+        return result + 32;
+    else
+        return 64;
+#endif
 #elif defined (HAVE_BUILTIN_CTZLL)
     return mask ? __builtin_ctzll(mask) : 64;
 #else
