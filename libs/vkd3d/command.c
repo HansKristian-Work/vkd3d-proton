@@ -7251,7 +7251,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetClockCalibration(ID3D12C
     FIXME("iface %p, gpu_timestamp %p, cpu_timestamp %p stub!\n",
             iface, gpu_timestamp, cpu_timestamp);
 
-    return E_NOTIMPL;
+    /* The proper implementation here will use VK_EXT_calibrated_timestamps.
+     * Another fallback method here would be submitting a dummy command buffer which writes a timestamp.
+     * We can sample the CPU timer when the command buffer completes execution.
+     * For now, we need to return S_OK here, otherwise UE4 applications crash. */
+
+    *gpu_timestamp = 0;
+    *cpu_timestamp = 0;
+    return S_OK;
 }
 
 static D3D12_COMMAND_QUEUE_DESC * STDMETHODCALLTYPE d3d12_command_queue_GetDesc(ID3D12CommandQueue *iface,
