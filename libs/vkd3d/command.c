@@ -2467,7 +2467,10 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
     if (state_mask == D3D12_RESOURCE_STATE_COMMON)
     {
         *stages |= VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        *access |= VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        if (d3d12_resource_is_buffer(resource))
+            *access |= vk_access_flags_all_possible_for_buffer(device, vk_queue_flags, true);
+        else
+            *access |= vk_access_flags_all_possible_for_image(device, resource->desc.Flags, vk_queue_flags, true);
         return;
     }
 
