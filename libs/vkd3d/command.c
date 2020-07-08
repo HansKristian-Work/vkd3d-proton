@@ -2322,7 +2322,7 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
      * no draw got executed after the clear operation. */
     d3d12_command_list_flush_deferred_clears(list);
 
-    list->render_pass_suspended = suspend && list->current_render_pass;
+    list->render_pass_suspended = suspend && (list->current_render_pass || list->render_pass_suspended);
     list->current_render_pass = VK_NULL_HANDLE;
 
     if (list->xfb_enabled)
