@@ -44639,6 +44639,160 @@ static void test_texture_feedback_instructions_dxil(void)
     test_texture_feedback_instructions(true);
 }
 
+static void test_aliasing_barrier(void)
+{
+    /* This test mostly serves to verify that validation is clean,
+     * and that we don't crash on weird inputs. There is no particular output we expect to see. */
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS opts;
+    D3D12_RESOURCE_BARRIER barriers[256];
+    ID3D12Resource *placed_textures[3];
+    ID3D12Resource *committed_texture;
+    ID3D12Resource *placed_buffers[3];
+    D3D12_RESOURCE_DESC texture_desc;
+    ID3D12Resource *committed_buffer;
+    struct test_context_desc desc;
+    struct test_context context;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12CommandQueue *queue;
+    bool supports_heap_tier_2;
+    ID3D12Heap *buffer_heap;
+    ID3D12Heap *texture_heap;
+    ID3D12Heap *common_heap;
+    ID3D12Device *device;
+    unsigned int i;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    committed_texture = create_default_texture(context.device, 1, 1, DXGI_FORMAT_R32_SINT,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+    committed_buffer = create_default_buffer(device, 1,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS, &opts, sizeof(opts));
+    supports_heap_tier_2 = opts.ResourceHeapTier >= D3D12_RESOURCE_HEAP_TIER_2;
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.SizeInBytes = 1024 * 1024;
+
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void**)&buffer_heap);
+    ok(hr == S_OK, "Failed to create buffer heap hr #%u.\n", hr);
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
+    hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&texture_heap);
+    ok(hr == S_OK, "Failed to create buffer heap hr #%u.\n", hr);
+
+    if (supports_heap_tier_2)
+    {
+        heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES;
+        hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&common_heap);
+        ok(hr == S_OK, "Failed to create buffer heap hr #%u.\n", hr);
+    }
+    else
+        common_heap = NULL;
+
+    texture_desc.Format = DXGI_FORMAT_R32_SINT;
+    texture_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    texture_desc.Width = 1;
+    texture_desc.Height = 1;
+    texture_desc.DepthOrArraySize = 1;
+    texture_desc.MipLevels = 1;
+    texture_desc.SampleDesc.Count = 1;
+    texture_desc.SampleDesc.Quality = 0;
+    texture_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    texture_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    for (i = 0; i < 2; i++)
+    {
+        placed_buffers[i] = create_placed_buffer(device, buffer_heap, 0, 1, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+        hr = ID3D12Device_CreatePlacedResource(device, texture_heap, 0, &texture_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&placed_textures[i]);
+        ok(hr == S_OK, "Failed to create placed resource. hr = #%u.\n", hr);
+    }
+
+    placed_buffers[2] = create_placed_buffer(device, supports_heap_tier_2 ? common_heap : buffer_heap, 0, 1, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+    hr = ID3D12Device_CreatePlacedResource(device, supports_heap_tier_2 ? common_heap : texture_heap, 0, &texture_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&placed_textures[2]);
+    ok(hr == S_OK, "Failed to create placed resource. hr = #%u.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(barriers); i++)
+    {
+        barriers[i].Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+        barriers[i].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    }
+
+    /* Full barrier */
+    barriers[0].Aliasing.pResourceBefore = NULL;
+    barriers[0].Aliasing.pResourceAfter = NULL;
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, barriers);
+
+    /* NULL to buffer */
+    barriers[0].Aliasing.pResourceBefore = NULL;
+    barriers[0].Aliasing.pResourceAfter = placed_buffers[0];
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, barriers);
+
+    /* NULL to image */
+    barriers[0].Aliasing.pResourceBefore = NULL;
+    barriers[0].Aliasing.pResourceAfter = placed_textures[0];
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, barriers);
+
+    /* buffer to NULL */
+    barriers[0].Aliasing.pResourceBefore = placed_buffers[0];
+    barriers[0].Aliasing.pResourceAfter = NULL;
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, barriers);
+
+    /* NULL to image */
+    barriers[0].Aliasing.pResourceBefore = placed_textures[0];
+    barriers[0].Aliasing.pResourceAfter = NULL;
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, barriers);
+
+    /* buffer to buffer */
+    barriers[0].Aliasing.pResourceBefore = placed_buffers[0];
+    barriers[0].Aliasing.pResourceAfter = placed_buffers[1];
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, barriers);
+
+    /* image to image */
+    barriers[0].Aliasing.pResourceBefore = placed_textures[0];
+    barriers[0].Aliasing.pResourceAfter = placed_textures[1];
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, barriers);
+
+    /* buffer to image */
+    if (supports_heap_tier_2)
+    {
+        barriers[0].Aliasing.pResourceBefore = placed_buffers[2];
+        barriers[0].Aliasing.pResourceAfter = placed_textures[2];
+        ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, barriers);
+    }
+
+    /* Test spamming lots of redundant image barriers. */
+    for (i = 0; i < ARRAY_SIZE(barriers); i++)
+    {
+        barriers[i].Aliasing.pResourceBefore = NULL;
+        barriers[i].Aliasing.pResourceAfter = placed_textures[i % 3];
+    }
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, ARRAY_SIZE(barriers), barriers);
+
+    ID3D12Resource_Release(committed_texture);
+    ID3D12Resource_Release(committed_buffer);
+    for (i = 0; i < 3; i++)
+    {
+        ID3D12Resource_Release(placed_textures[i]);
+        ID3D12Resource_Release(placed_buffers[i]);
+    }
+    ID3D12Heap_Release(buffer_heap);
+    ID3D12Heap_Release(texture_heap);
+    if (common_heap)
+        ID3D12Heap_Release(common_heap);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -44856,4 +45010,5 @@ START_TEST(d3d12)
     run_test(test_buffer_feedback_instructions_dxil);
     run_test(test_texture_feedback_instructions_sm51);
     run_test(test_texture_feedback_instructions_dxil);
+    run_test(test_aliasing_barrier);
 }
