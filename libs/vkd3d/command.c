@@ -2092,6 +2092,7 @@ static void d3d12_command_list_clear_attachment_deferred(struct d3d12_command_li
      * depth-only clear does not override a stencil-only clear. */
     clear_state->attachment_mask |= 1u << attachment_idx;
     attachment->aspect_mask |= clear_aspects;
+    attachment->discard_mask &= ~clear_aspects;
 
     if (clear_aspects & VK_IMAGE_ASPECT_COLOR_BIT)
         attachment->value.color = clear_value->color;
@@ -2121,6 +2122,7 @@ static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list 
 
 static bool d3d12_command_list_has_render_pass_dsv_clear(struct d3d12_command_list *list)
 {
+    struct vkd3d_clear_attachment *clear_attachment = &list->clear_state.attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     VkImageAspectFlags clear_aspects, write_aspects;
 
     if (!d3d12_pipeline_state_is_graphics(list->state))
@@ -2135,13 +2137,14 @@ static bool d3d12_command_list_has_render_pass_dsv_clear(struct d3d12_command_li
     /* If any of the aspects to clear are read-only in the render
      * pass, we have to perform the DSV clear in a separate pass. */
     write_aspects = vk_writable_aspects_from_image_layout(list->dsv_layout);
-    clear_aspects = list->clear_state.attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT].aspect_mask;
+    clear_aspects = clear_attachment->aspect_mask | clear_attachment->discard_mask;
     return (write_aspects & clear_aspects) == clear_aspects;
 }
 
 static void d3d12_command_list_emit_deferred_clear(struct d3d12_command_list *list, unsigned int attachment_idx)
 {
     struct vkd3d_clear_attachment *clear_attachment = &list->clear_state.attachments[attachment_idx];
+    VkImageSubresourceLayers vk_subresource_layers;
     struct d3d12_resource *resource;
     struct vkd3d_view *view;
 
@@ -2158,18 +2161,24 @@ static void d3d12_command_list_emit_deferred_clear(struct d3d12_command_list *li
 
     if (list->current_render_pass)
     {
-        d3d12_command_list_clear_attachment_inline(list, resource,
-                view, attachment_idx, clear_attachment->aspect_mask,
-                &clear_attachment->value, 0, NULL);
+        if (clear_attachment->aspect_mask)
+        {
+            d3d12_command_list_clear_attachment_inline(list, resource,
+                    view, attachment_idx, clear_attachment->aspect_mask,
+                    &clear_attachment->value, 0, NULL);
+        }
     }
     else
     {
-        d3d12_command_list_clear_attachment_pass(list, resource, view,
-                clear_attachment->aspect_mask, &clear_attachment->value,
-                0, NULL);
+        if (clear_attachment->aspect_mask)
+        {
+            d3d12_command_list_clear_attachment_pass(list, resource, view,
+                    clear_attachment->aspect_mask, &clear_attachment->value, 0, NULL);
+        }
     }
 
     clear_attachment->aspect_mask = 0;
+    clear_attachment->discard_mask = 0;
 }
 
 static void d3d12_command_list_emit_render_pass_clears(struct d3d12_command_list *list, bool invert_mask)

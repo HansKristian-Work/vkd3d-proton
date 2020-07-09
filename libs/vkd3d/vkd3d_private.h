@@ -1209,6 +1209,7 @@ typedef ID3D12GraphicsCommandList5 d3d12_command_list_iface;
 struct vkd3d_clear_attachment
 {
     VkImageAspectFlags aspect_mask;
+    VkImageAspectFlags discard_mask;
     VkClearValue value;
 };
 
