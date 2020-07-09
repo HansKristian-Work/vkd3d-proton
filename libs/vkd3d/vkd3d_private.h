@@ -1246,7 +1246,15 @@ struct d3d12_command_list
     bool render_pass_suspended;
 
     VkFramebuffer current_framebuffer;
+
+    /* This is VK_NULL_HANDLE when we are no longer sure which pipeline to bind,
+     * if this is NULL, we might need to lookup a pipeline key in order to bind the correct pipeline. */
     VkPipeline current_pipeline;
+
+    /* This is the actual pipeline which is bound to the pipeline. This lets us elide
+     * possible calls to vkCmdBindPipeline and avoids invalidating dynamic state. */
+    VkPipeline command_buffer_pipeline;
+
     VkRenderPass pso_render_pass;
     VkRenderPass current_render_pass;
     VkBuffer uav_counter_address_buffer;
