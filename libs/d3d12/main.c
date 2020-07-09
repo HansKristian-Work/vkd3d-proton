@@ -18,6 +18,8 @@
  *
  */
 
+#define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
+
 #define VK_NO_PROTOTYPES
 #include "vkd3d_win32.h"
 #include "vkd3d_atomic.h"

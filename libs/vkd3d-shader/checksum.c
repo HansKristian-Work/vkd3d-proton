@@ -33,6 +33,8 @@
  * will fill a supplied 16-byte array with the digest.
  */
 
+#define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_SHADER
+
 #include "vkd3d_shader_private.h"
 
 #define DXBC_CHECKSUM_BLOCK_SIZE 64

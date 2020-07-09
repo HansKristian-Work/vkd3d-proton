@@ -17,6 +17,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
+
 #include <float.h>
 
 #include "vkd3d_private.h"

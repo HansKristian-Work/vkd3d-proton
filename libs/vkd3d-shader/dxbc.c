@@ -17,6 +17,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_SHADER
+
 #include "vkd3d_shader_private.h"
 
 #define VKD3D_SM4_INSTRUCTION_MODIFIER        (0x1u << 31)
