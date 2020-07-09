@@ -3790,10 +3790,22 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
         while (update_vbos)
         {
             range = vkd3d_bitmask_iter32_range(&update_vbos);
-            VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer,
-                    range.offset, range.count,
-                    dyn_state->vertex_buffers + range.offset,
-                    dyn_state->vertex_offsets + range.offset));
+            if (list->device->device_info.extended_dynamic_state_features.extendedDynamicState)
+            {
+                VK_CALL(vkCmdBindVertexBuffers2EXT(list->vk_command_buffer,
+                        range.offset, range.count,
+                        dyn_state->vertex_buffers + range.offset,
+                        dyn_state->vertex_offsets + range.offset,
+                        dyn_state->vertex_sizes + range.offset,
+                        NULL));
+            }
+            else
+            {
+                VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer,
+                        range.offset, range.count,
+                        dyn_state->vertex_buffers + range.offset,
+                        dyn_state->vertex_offsets + range.offset));
+            }
         }
     }
 
