@@ -1960,6 +1960,32 @@ struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface)
     return unsafe_impl_from_ID3D12Resource1((ID3D12Resource1 *)iface);
 }
 
+VkImageSubresource d3d12_resource_get_vk_subresource(const struct d3d12_resource *resource, uint32_t subresource_idx, bool all_aspects)
+{
+    const struct vkd3d_format *format = vkd3d_format_from_d3d12_resource_desc(resource->device, &resource->desc, 0);
+    uint32_t layer_count = d3d12_resource_desc_get_layer_count(&resource->desc);
+    VkImageSubresource subresource;
+
+    subresource.aspectMask = format->vk_aspect_mask;
+    subresource.mipLevel = subresource_idx % resource->desc.MipLevels;
+    subresource.arrayLayer = (subresource_idx / resource->desc.MipLevels) % layer_count;
+
+    if (!all_aspects)
+    {
+        /* For all formats we currently handle, the n-th aspect bit in Vulkan
+         * corresponds to the n-th plane in D3D12, so isolate the respective
+         * bit in the aspect mask. */
+        uint32_t i, plane_idx = subresource_idx / d3d12_resource_desc_get_sub_resource_count(&resource->desc);
+
+        for (i = 0; i < plane_idx; i++)
+            subresource.aspectMask &= (subresource.aspectMask - 1);
+
+        subresource.aspectMask &= -subresource.aspectMask;
+    }
+
+    return subresource;
+}
+
 static void d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
 {
     unsigned int unknown_flags = flags & ~(D3D12_RESOURCE_FLAG_NONE
