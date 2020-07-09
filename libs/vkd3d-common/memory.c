@@ -17,6 +17,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
+
 #include "vkd3d_memory.h"
 
 bool vkd3d_array_reserve(void **elements, size_t *capacity, size_t element_count, size_t element_size)

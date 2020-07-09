@@ -16,6 +16,7 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_COUNT
 #include "vkd3d_debug.h"
 
 #include <assert.h>
@@ -33,44 +34,54 @@
 
 static const char *debug_level_names[] =
 {
-    /* VKD3D_DBG_LEVEL_NONE  */ "none",
-    /* VKD3D_DBG_LEVEL_ERR   */ "err",
-    /* VKD3D_DBG_LEVEL_FIXME */ "fixme",
-    /* VKD3D_DBG_LEVEL_WARN  */ "warn",
-    /* VKD3D_DBG_LEVEL_TRACE */ "trace",
+    /* VKD3D_DBG_LEVEL_UNKNOWN */ NULL,
+    /* VKD3D_DBG_LEVEL_NONE    */ "none",
+    /* VKD3D_DBG_LEVEL_ERR     */ "err",
+    /* VKD3D_DBG_LEVEL_FIXME   */ "fixme",
+    /* VKD3D_DBG_LEVEL_WARN    */ "warn",
+    /* VKD3D_DBG_LEVEL_TRACE   */ "trace",
 };
 
-enum vkd3d_dbg_level vkd3d_dbg_get_level(void)
+static const char *env_for_channel[] =
 {
-    static unsigned int level = ~0u;
+    /* VKD3D_DBG_CHANNEL_API    */ "VKD3D_DEBUG",
+    /* VKD3D_DBG_CHANNEL_SHADER */ "VKD3D_SHADER_DEBUG",
+};
+
+enum vkd3d_dbg_level vkd3d_dbg_get_level(enum vkd3d_dbg_channel channel)
+{
+    static unsigned int level[VKD3D_DBG_CHANNEL_COUNT] = { 0 };
     const char *vkd3d_debug;
     unsigned int i;
 
-    if (level != ~0u)
-        return level;
+    if (channel >= VKD3D_DBG_CHANNEL_COUNT)
+        return VKD3D_DBG_LEVEL_FIXME;
 
-    if (!(vkd3d_debug = getenv("VKD3D_DEBUG")))
+    if (level[channel] != 0)
+        return level[channel];
+
+    if (!(vkd3d_debug = getenv(env_for_channel[channel])))
         vkd3d_debug = "";
 
-    for (i = 0; i < ARRAY_SIZE(debug_level_names); ++i)
+    for (i = 1; i < ARRAY_SIZE(debug_level_names); ++i)
     {
         if (!strcmp(debug_level_names[i], vkd3d_debug))
         {
-            level = i;
-            return level;
+            level[channel] = i;
+            return level[channel];
         }
     }
 
     /* Default debug level. */
-    level = VKD3D_DBG_LEVEL_FIXME;
-    return level;
+    level[channel] = VKD3D_DBG_LEVEL_FIXME;
+    return level[channel];
 }
 
-void vkd3d_dbg_printf(enum vkd3d_dbg_level level, const char *function, const char *fmt, ...)
+void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level, const char *function, const char *fmt, ...)
 {
     va_list args;
 
-    if (vkd3d_dbg_get_level() < level)
+    if (vkd3d_dbg_get_level(channel) < level)
         return;
 
     assert(level < ARRAY_SIZE(debug_level_names));

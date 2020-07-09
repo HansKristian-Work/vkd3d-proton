@@ -37,6 +37,7 @@
 
 enum vkd3d_dbg_level
 {
+    VKD3D_DBG_LEVEL_UNKNOWN,
     VKD3D_DBG_LEVEL_NONE,
     VKD3D_DBG_LEVEL_ERR,
     VKD3D_DBG_LEVEL_FIXME,
@@ -44,10 +45,21 @@ enum vkd3d_dbg_level
     VKD3D_DBG_LEVEL_TRACE,
 };
 
-enum vkd3d_dbg_level vkd3d_dbg_get_level(void) DECLSPEC_HIDDEN;
+#ifndef VKD3D_DBG_CHANNEL
+#error Must define VKD3D_DBG_CHANNEL to either VKD3D_DBG_CHANNEL_API or SHADER to use vkd3d_debug.h
+#endif
 
-void vkd3d_dbg_printf(enum vkd3d_dbg_level level, const char *function,
-        const char *fmt, ...) VKD3D_PRINTF_FUNC(3, 4) DECLSPEC_HIDDEN;
+enum vkd3d_dbg_channel
+{
+    VKD3D_DBG_CHANNEL_API,
+    VKD3D_DBG_CHANNEL_SHADER,
+    VKD3D_DBG_CHANNEL_COUNT
+};
+
+enum vkd3d_dbg_level vkd3d_dbg_get_level(enum vkd3d_dbg_channel channel) DECLSPEC_HIDDEN;
+
+void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level, const char *function,
+        const char *fmt, ...) VKD3D_PRINTF_FUNC(4, 5) DECLSPEC_HIDDEN;
 
 const char *vkd3d_dbg_sprintf(const char *fmt, ...) VKD3D_PRINTF_FUNC(1, 2) DECLSPEC_HIDDEN;
 const char *vkd3d_dbg_vsprintf(const char *fmt, va_list args) DECLSPEC_HIDDEN;
@@ -56,19 +68,21 @@ const char *debugstr_w(const WCHAR *wstr, size_t wchar_size) DECLSPEC_HIDDEN;
 
 #define VKD3D_DBG_LOG(level) \
         do { \
+        const enum vkd3d_dbg_channel vkd3d_dbg_channel = VKD3D_DBG_CHANNEL; \
         const enum vkd3d_dbg_level vkd3d_dbg_level = VKD3D_DBG_LEVEL_##level; \
         VKD3D_DBG_PRINTF
 
 #define VKD3D_DBG_LOG_ONCE(first_time_level, level) \
         do { \
         static bool vkd3d_dbg_next_time; \
+        const enum vkd3d_dbg_channel vkd3d_dbg_channel = VKD3D_DBG_CHANNEL; \
         const enum vkd3d_dbg_level vkd3d_dbg_level = vkd3d_dbg_next_time \
         ? VKD3D_DBG_LEVEL_##level : VKD3D_DBG_LEVEL_##first_time_level; \
         vkd3d_dbg_next_time = true; \
         VKD3D_DBG_PRINTF
 
 #define VKD3D_DBG_PRINTF(...) \
-        vkd3d_dbg_printf(vkd3d_dbg_level, __FUNCTION__, __VA_ARGS__); } while (0)
+        vkd3d_dbg_printf(vkd3d_dbg_channel, vkd3d_dbg_level, __FUNCTION__, __VA_ARGS__); } while (0)
 
 #ifndef TRACE
 #define TRACE VKD3D_DBG_LOG(TRACE)
@@ -85,7 +99,7 @@ const char *debugstr_w(const WCHAR *wstr, size_t wchar_size) DECLSPEC_HIDDEN;
 #define ERR   VKD3D_DBG_LOG(ERR)
 
 #ifndef TRACE_ON
-#define TRACE_ON() (vkd3d_dbg_get_level() == VKD3D_DBG_LEVEL_TRACE)
+#define TRACE_ON() (vkd3d_dbg_get_level(VKD3D_DBG_CHANNEL) == VKD3D_DBG_LEVEL_TRACE)
 #endif
 
 #define FIXME_ONCE VKD3D_DBG_LOG_ONCE(FIXME, WARN)
