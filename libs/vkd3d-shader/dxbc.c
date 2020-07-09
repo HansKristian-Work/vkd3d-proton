@@ -1727,7 +1727,7 @@ static bool shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD *
 static bool shader_sm4_read_dst_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
         enum vkd3d_data_type data_type, struct vkd3d_shader_dst_param *dst_param)
 {
-    enum vkd3d_shader_src_modifier modifier;
+    enum vkd3d_shader_src_modifier modifier = VKD3DSPSM_NONE;
     DWORD token;
 
     if (*ptr >= end)

@@ -241,6 +241,8 @@ DWORD depth_for_format(DXGI_FORMAT format)
 
         default:
             WARN("Unknown format depth. Returning 32.");
+            return 32;
+
         case DXGI_FORMAT_R8G8B8A8_UNORM:
         case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
         case DXGI_FORMAT_B8G8R8A8_UNORM:
@@ -260,7 +262,6 @@ static HRESULT d3d12_output_set_display_mode(IDXGIOutput *output, DXGI_MODE_DESC
 {
     DXGI_OUTPUT_DESC desc;
     DEVMODEW new_mode, current_mode;
-    DXGI_FORMAT new_format;
     LONG ret;
 
     TRACE("output %p, mode %p.\n", output, mode);
@@ -297,7 +298,6 @@ static HRESULT d3d12_output_set_display_mode(IDXGIOutput *output, DXGI_MODE_DESC
             }
                 
         }
-        new_format = mode->Format;
     }
     else
     {
@@ -306,7 +306,6 @@ static HRESULT d3d12_output_set_display_mode(IDXGIOutput *output, DXGI_MODE_DESC
             ERR("Failed to read mode from registry.\n");
             return DXGI_ERROR_NOT_CURRENTLY_AVAILABLE;
         }
-        new_format = format_for_depth(new_mode.dmBitsPerPel);
     }
 
     /* Only change the mode if necessary. */
@@ -1695,7 +1694,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetFullscreenState(IDXGISwapCha
     }
 
     /* no-op */
-    if (!fullscreen == swapchain->fullscreen_desc.Windowed)
+    if (fullscreen != swapchain->fullscreen_desc.Windowed)
         return S_OK;
 
     if (target)
