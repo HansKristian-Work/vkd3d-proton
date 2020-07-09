@@ -1799,7 +1799,11 @@ static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_
     /* If we're binding a meta shader, invalidate everything.
      * Next time we bind a user pipeline, we need to reapply all dynamic state. */
     if (meta_shader)
+    {
         list->dynamic_state.active_flags = 0;
+        /* For meta shaders, just pretend we never bound anything since we don't do tracking for these pipeline binds. */
+        list->command_buffer_pipeline = VK_NULL_HANDLE;
+    }
 }
 
 static bool d3d12_command_list_create_framebuffer(struct d3d12_command_list *list, VkRenderPass render_pass,
@@ -2821,6 +2825,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 
     list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;
+    list->command_buffer_pipeline = VK_NULL_HANDLE;
     list->pso_render_pass = VK_NULL_HANDLE;
     list->current_render_pass = VK_NULL_HANDLE;
     list->uav_counter_address_buffer = VK_NULL_HANDLE;
@@ -3024,7 +3029,12 @@ static bool d3d12_command_list_update_compute_pipeline(struct d3d12_command_list
         return false;
     }
 
-    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, list->state->compute.vk_pipeline));
+    if (list->command_buffer_pipeline != list->state->compute.vk_pipeline)
+    {
+        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point,
+                list->state->compute.vk_pipeline));
+        list->command_buffer_pipeline = list->state->compute.vk_pipeline;
+    }
     list->current_pipeline = list->state->compute.vk_pipeline;
     list->dynamic_state.active_flags = 0;
 
@@ -3074,17 +3084,21 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
         list->dsv_layout = list->state->graphics.dsv_layout;
     }
 
-    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, vk_pipeline));
-    list->current_pipeline = vk_pipeline;
+    if (list->command_buffer_pipeline != vk_pipeline)
+    {
+        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, vk_pipeline));
 
-    /* Reapply all dynamic states that were not dynamic in previously bound pipeline.
-     * If we didn't use to have dynamic vertex strides, but we then bind a pipeline with dynamic strides,
-     * we will need to rebind all VBOs. Mark dynamic stride as dirty in this case. */
-    if (new_active_flags & ~list->dynamic_state.active_flags & VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE)
-        list->dynamic_state.dirty_vbo_strides = ~0u;
-    list->dynamic_state.dirty_flags |= new_active_flags & ~list->dynamic_state.active_flags;
+        /* Reapply all dynamic states that were not dynamic in previously bound pipeline.
+         * If we didn't use to have dynamic vertex strides, but we then bind a pipeline with dynamic strides,
+         * we will need to rebind all VBOs. Mark dynamic stride as dirty in this case. */
+        if (new_active_flags & ~list->dynamic_state.active_flags & VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE)
+            list->dynamic_state.dirty_vbo_strides = ~0u;
+        list->dynamic_state.dirty_flags |= new_active_flags & ~list->dynamic_state.active_flags;
+        list->command_buffer_pipeline = vk_pipeline;
+    }
+
     list->dynamic_state.active_flags = new_active_flags;
-
+    list->current_pipeline = vk_pipeline;
     return true;
 }
 
