@@ -1809,13 +1809,13 @@ static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_
 static bool d3d12_command_list_create_framebuffer(struct d3d12_command_list *list, VkRenderPass render_pass,
         uint32_t view_count, const VkImageView *views, VkExtent3D extent, VkFramebuffer *vk_framebuffer);
 
-static D3D12_RECT d3d12_get_view_rect(struct d3d12_resource *resource, struct vkd3d_view *view)
+static D3D12_RECT d3d12_get_image_rect(struct d3d12_resource *resource, unsigned int mip_level)
 {
     D3D12_RECT rect;
     rect.left = 0;
     rect.top = 0;
-    rect.right = d3d12_resource_desc_get_width(&resource->desc, view->info.texture.miplevel_idx);
-    rect.bottom = d3d12_resource_desc_get_height(&resource->desc, view->info.texture.miplevel_idx);
+    rect.right = d3d12_resource_desc_get_width(&resource->desc, mip_level);
+    rect.bottom = d3d12_resource_desc_get_height(&resource->desc, mip_level);
     return rect;
 }
 
@@ -1902,7 +1902,7 @@ static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list
 
     if (!rect_count)
     {
-        full_rect = d3d12_get_view_rect(resource, view);
+        full_rect = d3d12_get_image_rect(resource, view->info.texture.miplevel_idx);
         rect_count = 1;
         rects = &full_rect;
     }
@@ -5944,7 +5944,7 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
 
     /* If one of the clear rectangles covers the entire image, we
      * may be able to use a fast path and re-initialize the image */
-    full_rect = d3d12_get_view_rect(resource, view);
+    full_rect = d3d12_get_image_rect(resource, view->info.texture.miplevel_idx);
     full_clear = !rect_count;
 
     for (i = 0; i < rect_count && !full_clear; i++)
