@@ -24,6 +24,7 @@
 #include "vkd3d_win32.h"
 #include "vkd3d_atomic.h"
 #include "vkd3d_debug.h"
+#include "vkd3d_threads.h"
 
 /* We need to specify the __declspec(dllexport) attribute
  * on MinGW because otherwise the stdcall aliases/fixups
@@ -35,22 +36,22 @@
   #define DLLEXPORT __declspec(dllexport)
 #endif
 
-static spinlock_t library_spinlock = { 0 };
+static pthread_once_t library_once = PTHREAD_ONCE_INIT;
 static HMODULE vulkan_module = NULL;
+
+static void load_vulkan_once(void)
+{
+    if (!vulkan_module)
+        vulkan_module = LoadLibraryA("vulkan-1.dll");
+}
 
 static PFN_vkGetInstanceProcAddr load_vulkan(void)
 {
-    spinlock_acquire(&library_spinlock);
-
-    if (!vulkan_module)
-        vulkan_module = LoadLibraryA("vulkan-1.dll");
-
-    spinlock_release(&library_spinlock);
-
+    pthread_once(&library_once, load_vulkan_once);
     if (vulkan_module)
         return (void *)GetProcAddress(vulkan_module, "vkGetInstanceProcAddr");
-
-    return NULL;
+    else
+        return NULL;
 }
 
 HRESULT WINAPI DLLEXPORT D3D12GetDebugInterface(REFIID iid, void **debug)
