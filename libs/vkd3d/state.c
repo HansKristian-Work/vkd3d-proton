@@ -1953,9 +1953,10 @@ static HRESULT compute_input_layout_offsets(const struct d3d12_device *device,
 static unsigned int vkd3d_get_rt_format_swizzle(const struct vkd3d_format *format)
 {
     if (format->dxgi_format == DXGI_FORMAT_A8_UNORM)
-        return VKD3D_SWIZZLE(VKD3D_SWIZZLE_W, VKD3D_SWIZZLE_X, VKD3D_SWIZZLE_Y, VKD3D_SWIZZLE_Z);
+        return VKD3D_SHADER_SWIZZLE(VKD3D_SHADER_SWIZZLE_W, VKD3D_SHADER_SWIZZLE_X,
+                VKD3D_SHADER_SWIZZLE_Y, VKD3D_SHADER_SWIZZLE_Z);
 
-    return VKD3D_NO_SWIZZLE;
+    return VKD3D_SHADER_NO_SWIZZLE;
 }
 
 STATIC_ASSERT(sizeof(struct vkd3d_shader_transform_feedback_element) == sizeof(D3D12_SO_DECLARATION_ENTRY));
@@ -2102,7 +2103,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (desc->RTVFormats[i] == DXGI_FORMAT_UNKNOWN)
         {
             graphics->null_attachment_mask |= 1u << i;
-            ps_output_swizzle[i] = VKD3D_NO_SWIZZLE;
+            ps_output_swizzle[i] = VKD3D_SHADER_NO_SWIZZLE;
             graphics->rtv_formats[i] = VK_FORMAT_UNDEFINED;
         }
         else if ((format = vkd3d_get_format(device, desc->RTVFormats[i], false)))

@@ -1124,13 +1124,13 @@ static void shader_dump_src_param(struct vkd3d_string_buffer *buffer,
         default:                  shader_addline(buffer, "_unknown_modifier(%#x)", src_modifier);
     }
 
-    if (swizzle != VKD3D_NO_SWIZZLE)
+    if (swizzle != VKD3D_SHADER_NO_SWIZZLE)
     {
         static const char swizzle_chars[] = "xyzw";
-        DWORD swizzle_x = (swizzle >> VKD3D_SWIZZLE_SHIFT(0)) & VKD3D_SWIZZLE_MASK;
-        DWORD swizzle_y = (swizzle >> VKD3D_SWIZZLE_SHIFT(1)) & VKD3D_SWIZZLE_MASK;
-        DWORD swizzle_z = (swizzle >> VKD3D_SWIZZLE_SHIFT(2)) & VKD3D_SWIZZLE_MASK;
-        DWORD swizzle_w = (swizzle >> VKD3D_SWIZZLE_SHIFT(3)) & VKD3D_SWIZZLE_MASK;
+        DWORD swizzle_x = (swizzle >> VKD3D_SHADER_SWIZZLE_SHIFT(0)) & VKD3D_SHADER_SWIZZLE_MASK;
+        DWORD swizzle_y = (swizzle >> VKD3D_SHADER_SWIZZLE_SHIFT(1)) & VKD3D_SHADER_SWIZZLE_MASK;
+        DWORD swizzle_z = (swizzle >> VKD3D_SHADER_SWIZZLE_SHIFT(2)) & VKD3D_SHADER_SWIZZLE_MASK;
+        DWORD swizzle_w = (swizzle >> VKD3D_SHADER_SWIZZLE_SHIFT(3)) & VKD3D_SHADER_SWIZZLE_MASK;
 
         if (swizzle_x == swizzle_y
                 && swizzle_x == swizzle_z

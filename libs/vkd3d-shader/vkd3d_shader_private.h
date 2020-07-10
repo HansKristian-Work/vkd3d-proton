@@ -886,7 +886,7 @@ static inline unsigned int vkd3d_write_mask_from_component_count(unsigned int co
 static inline unsigned int vkd3d_swizzle_get_component(DWORD swizzle,
         unsigned int idx)
 {
-    return (swizzle >> VKD3D_SWIZZLE_SHIFT(idx)) & VKD3D_SWIZZLE_MASK;
+    return (swizzle >> VKD3D_SHADER_SWIZZLE_SHIFT(idx)) & VKD3D_SHADER_SWIZZLE_MASK;
 }
 
 static inline unsigned int vkd3d_compact_swizzle(unsigned int swizzle, unsigned int write_mask)
@@ -897,7 +897,7 @@ static inline unsigned int vkd3d_compact_swizzle(unsigned int swizzle, unsigned 
     {
         if (write_mask & (VKD3DSP_WRITEMASK_0 << i))
         {
-            compacted_swizzle <<= VKD3D_SWIZZLE_SHIFT(1);
+            compacted_swizzle <<= VKD3D_SHADER_SWIZZLE_SHIFT(1);
             compacted_swizzle |= vkd3d_swizzle_get_component(swizzle, i);
         }
     }
