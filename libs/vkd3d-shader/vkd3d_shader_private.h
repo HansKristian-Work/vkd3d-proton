@@ -819,7 +819,7 @@ void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler) DECLSPEC_
 
 void vkd3d_compute_dxbc_checksum(const void *dxbc, size_t size, uint32_t checksum[4]) DECLSPEC_HIDDEN;
 
-static inline enum vkd3d_component_type vkd3d_component_type_from_data_type(
+static inline enum vkd3d_shader_component_type vkd3d_component_type_from_data_type(
         enum vkd3d_data_type data_type)
 {
     switch (data_type)
@@ -827,27 +827,27 @@ static inline enum vkd3d_component_type vkd3d_component_type_from_data_type(
         case VKD3D_DATA_FLOAT:
         case VKD3D_DATA_UNORM:
         case VKD3D_DATA_SNORM:
-            return VKD3D_TYPE_FLOAT;
+            return VKD3D_SHADER_COMPONENT_FLOAT;
         case VKD3D_DATA_UINT:
-            return VKD3D_TYPE_UINT;
+            return VKD3D_SHADER_COMPONENT_UINT;
         case VKD3D_DATA_INT:
-            return VKD3D_TYPE_INT;
+            return VKD3D_SHADER_COMPONENT_INT;
         default:
             FIXME("Unhandled data type %#x.\n", data_type);
-            return VKD3D_TYPE_UINT;
+            return VKD3D_SHADER_COMPONENT_UINT;
     }
 }
 
 static inline enum vkd3d_data_type vkd3d_data_type_from_component_type(
-        enum vkd3d_component_type component_type)
+        enum vkd3d_shader_component_type component_type)
 {
     switch (component_type)
     {
-        case VKD3D_TYPE_FLOAT:
+        case VKD3D_SHADER_COMPONENT_FLOAT:
             return VKD3D_DATA_FLOAT;
-        case VKD3D_TYPE_UINT:
+        case VKD3D_SHADER_COMPONENT_UINT:
             return VKD3D_DATA_UINT;
-        case VKD3D_TYPE_INT:
+        case VKD3D_SHADER_COMPONENT_INT:
             return VKD3D_DATA_INT;
         default:
             FIXME("Unhandled component type %#x.\n", component_type);

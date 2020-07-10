@@ -639,16 +639,15 @@ struct vkd3d_shader_scan_info
     unsigned int descriptor_count;
 };
 
-enum vkd3d_component_type
+enum vkd3d_shader_component_type
 {
-    VKD3D_TYPE_VOID    = 0,
-    VKD3D_TYPE_UINT    = 1,
-    VKD3D_TYPE_INT     = 2,
-    VKD3D_TYPE_FLOAT   = 3,
-    VKD3D_TYPE_BOOL,
-    VKD3D_TYPE_COUNT,
+    VKD3D_SHADER_COMPONENT_VOID     = 0x0,
+    VKD3D_SHADER_COMPONENT_UINT     = 0x1,
+    VKD3D_SHADER_COMPONENT_INT      = 0x2,
+    VKD3D_SHADER_COMPONENT_FLOAT    = 0x3,
+    VKD3D_SHADER_COMPONENT_BOOL     = 0x4,
 
-    VKD3D_FORCE_32_BIT_ENUM(VKD3D_COMPONENT_TYPE),
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_COMPONENT_TYPE),
 };
 
 enum vkd3d_sysval_semantic
@@ -689,7 +688,7 @@ struct vkd3d_shader_signature_element
     unsigned int semantic_index;
     unsigned int stream_index;
     enum vkd3d_sysval_semantic sysval_semantic;
-    enum vkd3d_component_type component_type;
+    enum vkd3d_shader_component_type component_type;
     unsigned int register_index;
     unsigned int mask;
     enum vkd3d_shader_minimum_precision min_precision;
