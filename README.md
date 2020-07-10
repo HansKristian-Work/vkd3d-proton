@@ -84,6 +84,7 @@ commas or semicolons.
    libvkd3d. Accepts the following values: none, err, fixme, warn, trace.
  - `VKD3D_SHADER_DEBUG` - controls the debug level for log messages produced by
    libvkd3d-shader. See `VKD3D_DEBUG` for accepted values.
+ - `VKD3D_LOG_FILE` - If set, redirects `VKD3D_DEBUG` logging output to a file instead.
  - `VKD3D_VULKAN_DEVICE` - a zero-based device index. Use to force the selected
    Vulkan device.
  - `VKD3D_DISABLE_EXTENSIONS` - a list of Vulkan extensions that libvkd3d should
