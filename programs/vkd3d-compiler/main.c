@@ -104,6 +104,8 @@ static void print_usage(const char *program_name)
         "  -o, --output=<file>  Write the output to <file>.\n"
         "  --strip-debug        Strip debug information from the output.\n"
         "  -V, --version        Display version information and exit.\n"
+        "  -x <type>            Specify the type of the source. Valid values are\n"
+        "                       'dxbc-tpf' and 'none'.\n"
         "  --                   Stop option processing. Any subsequent argument is\n"
         "                       interpreted as a filename.\n";
 
@@ -114,6 +116,7 @@ struct options
 {
     const char *filename;
     const char *output_filename;
+    enum vkd3d_shader_source_type source_type;
     bool print_version;
 
     struct vkd3d_shader_compile_option compile_options[MAX_COMPILE_OPTIONS];
@@ -148,6 +151,14 @@ static void add_compile_option(struct options *options,
     o->value = value;
 }
 
+static enum vkd3d_shader_source_type parse_source_type(const char *source)
+{
+    if (!strcmp(source, "dxbc-tpf") || !strcmp(source, "none"))
+        return VKD3D_SHADER_SOURCE_DXBC_TPF;
+
+    return VKD3D_SHADER_SOURCE_NONE;
+}
+
 static bool parse_command_line(int argc, char **argv, struct options *options)
 {
     int option;
@@ -162,10 +173,11 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
     };
 
     memset(options, 0, sizeof(*options));
+    options->source_type = VKD3D_SHADER_SOURCE_DXBC_TPF;
 
     for (;;)
     {
-        if ((option = getopt_long(argc, argv, "ho:V", long_options, NULL)) == -1)
+        if ((option = getopt_long(argc, argv, "ho:Vx:", long_options, NULL)) == -1)
             break;
 
         switch (option)
@@ -183,6 +195,14 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
             case 'V':
                 options->print_version = true;
                 return true;
+
+            case 'x':
+                if ((options->source_type = parse_source_type(optarg)) == VKD3D_SHADER_SOURCE_NONE)
+                {
+                    fprintf(stderr, "Invalid source type '%s' specified.\n", optarg);
+                    return false;
+                }
+                break;
 
             default:
                 return false;
@@ -218,7 +238,7 @@ int main(int argc, char **argv)
 
     info.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO;
     info.next = NULL;
-    info.source_type = VKD3D_SHADER_SOURCE_DXBC_TPF;
+    info.source_type = options.source_type;
     info.target_type = VKD3D_SHADER_TARGET_SPIRV_BINARY;
     info.options = options.compile_options;
     info.option_count = options.compile_option_count;
