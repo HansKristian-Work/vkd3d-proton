@@ -90,6 +90,7 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level
     va_start(args, fmt);
     vfprintf(stderr, fmt, args);
     va_end(args);
+    fflush(stderr);
 }
 
 static char *get_buffer(void)
