@@ -18,6 +18,7 @@
 
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_COUNT
 #include "vkd3d_debug.h"
+#include "vkd3d_threads.h"
 
 #include <assert.h>
 #include <ctype.h>
@@ -48,33 +49,46 @@ static const char *env_for_channel[] =
     /* VKD3D_DBG_CHANNEL_SHADER */ "VKD3D_SHADER_DEBUG",
 };
 
-enum vkd3d_dbg_level vkd3d_dbg_get_level(enum vkd3d_dbg_channel channel)
+static unsigned int vkd3d_dbg_level[VKD3D_DBG_CHANNEL_COUNT];
+static spinlock_t vkd3d_dbg_initialized;
+static pthread_once_t vkd3d_dbg_once = PTHREAD_ONCE_INIT;
+
+static void vkd3d_dbg_init_once(void)
 {
-    static unsigned int level[VKD3D_DBG_CHANNEL_COUNT] = { 0 };
     const char *vkd3d_debug;
-    unsigned int i;
+    unsigned int channel, i;
 
-    if (channel >= VKD3D_DBG_CHANNEL_COUNT)
-        return VKD3D_DBG_LEVEL_FIXME;
-
-    if (level[channel] != 0)
-        return level[channel];
-
-    if (!(vkd3d_debug = getenv(env_for_channel[channel])))
-        vkd3d_debug = "";
-
-    for (i = 1; i < ARRAY_SIZE(debug_level_names); ++i)
+    for (channel = 0; channel < VKD3D_DBG_CHANNEL_COUNT; channel++)
     {
-        if (!strcmp(debug_level_names[i], vkd3d_debug))
-        {
-            level[channel] = i;
-            return level[channel];
-        }
+        if (!(vkd3d_debug = getenv(env_for_channel[channel])))
+            vkd3d_debug = "";
+
+        for (i = 1; i < ARRAY_SIZE(debug_level_names); ++i)
+            if (!strcmp(debug_level_names[i], vkd3d_debug))
+                vkd3d_dbg_level[channel] = i;
+
+        /* Default debug level. */
+        if (vkd3d_dbg_level[channel] == VKD3D_DBG_LEVEL_UNKNOWN)
+            vkd3d_dbg_level[channel] = VKD3D_DBG_LEVEL_FIXME;
     }
 
-    /* Default debug level. */
-    level[channel] = VKD3D_DBG_LEVEL_FIXME;
-    return level[channel];
+    vkd3d_atomic_uint32_store_explicit(&vkd3d_dbg_initialized, 1, vkd3d_memory_order_release);
+}
+
+static inline void vkd3d_dbg_init(void)
+{
+    /* Early out since we're going to be spamming calls to vkd3d_dbg_init() for every trace call. */
+    if (!vkd3d_atomic_uint32_load_explicit(&vkd3d_dbg_initialized, vkd3d_memory_order_acquire))
+        pthread_once(&vkd3d_dbg_once, vkd3d_dbg_init_once);
+}
+
+enum vkd3d_dbg_level vkd3d_dbg_get_level(enum vkd3d_dbg_channel channel)
+{
+    vkd3d_dbg_init();
+    if (channel >= VKD3D_DBG_CHANNEL_COUNT)
+        return VKD3D_DBG_LEVEL_FIXME;
+    assert(vkd3d_dbg_level[channel] != VKD3D_DBG_LEVEL_UNKNOWN);
+    return vkd3d_dbg_level[channel];
 }
 
 void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level, const char *function, const char *fmt, ...)
