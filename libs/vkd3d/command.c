@@ -1857,8 +1857,8 @@ static VkImageAspectFlags vk_writable_aspects_from_image_layout(VkImageLayout vk
     }
 }
 
-static int d3d12_command_list_find_attachment(struct d3d12_command_list *list,
-        const struct d3d12_resource *resource, const struct vkd3d_view *view)
+static int d3d12_command_list_find_attachment_view(struct d3d12_command_list *list,
+        const struct d3d12_resource *resource, const VkImageSubresourceLayers *subresource)
 {
     unsigned int i;
 
@@ -1866,9 +1866,9 @@ static int d3d12_command_list_find_attachment(struct d3d12_command_list *list,
     {
         const struct vkd3d_view *dsv = list->dsv.view;
 
-        if (dsv->info.texture.miplevel_idx == view->info.texture.miplevel_idx &&
-                dsv->info.texture.layer_idx == view->info.texture.layer_idx &&
-                dsv->info.texture.layer_count == view->info.texture.layer_count)
+        if (dsv->info.texture.miplevel_idx == subresource->mipLevel &&
+                dsv->info.texture.layer_idx == subresource->baseArrayLayer &&
+                dsv->info.texture.layer_count == subresource->layerCount)
             return D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT;
     }
     else
@@ -1880,14 +1880,21 @@ static int d3d12_command_list_find_attachment(struct d3d12_command_list *list,
             if (list->rtvs[i].resource != resource)
                 continue;
 
-            if (rtv->info.texture.miplevel_idx == view->info.texture.miplevel_idx &&
-                    rtv->info.texture.layer_idx == view->info.texture.layer_idx &&
-                    rtv->info.texture.layer_count == view->info.texture.layer_count)
+            if (rtv->info.texture.miplevel_idx == subresource->mipLevel &&
+                    rtv->info.texture.layer_idx == subresource->baseArrayLayer &&
+                    rtv->info.texture.layer_count == subresource->layerCount)
                 return i;
         }
     }
 
     return -1;
+}
+
+static int d3d12_command_list_find_attachment(struct d3d12_command_list *list,
+        const struct d3d12_resource *resource, const struct vkd3d_view *view)
+{
+    VkImageSubresourceLayers subresource = vk_subresource_layers_from_view(view);
+    return d3d12_command_list_find_attachment_view(list, resource, &subresource);
 }
 
 static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list *list, struct d3d12_resource *resource,
