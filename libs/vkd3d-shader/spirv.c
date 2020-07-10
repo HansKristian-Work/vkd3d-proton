@@ -132,30 +132,30 @@ static const void *vkd3d_find_struct_(const struct vkd3d_struct *chain,
     return NULL;
 }
 
-static enum vkd3d_shader_input_sysval_semantic vkd3d_siv_from_sysval_indexed(enum vkd3d_sysval_semantic sysval,
+static enum vkd3d_shader_input_sysval_semantic vkd3d_siv_from_sysval_indexed(enum vkd3d_shader_sysval_semantic sysval,
         unsigned int index)
 {
     switch (sysval)
     {
-        case VKD3D_SV_NONE:
+        case VKD3D_SHADER_SV_NONE:
             return VKD3D_SIV_NONE;
-        case VKD3D_SV_POSITION:
+        case VKD3D_SHADER_SV_POSITION:
             return VKD3D_SIV_POSITION;
-        case VKD3D_SV_CLIP_DISTANCE:
+        case VKD3D_SHADER_SV_CLIP_DISTANCE:
             return VKD3D_SIV_CLIP_DISTANCE;
-        case VKD3D_SV_CULL_DISTANCE:
+        case VKD3D_SHADER_SV_CULL_DISTANCE:
             return VKD3D_SIV_CULL_DISTANCE;
-        case VKD3D_SV_TESS_FACTOR_QUADEDGE:
+        case VKD3D_SHADER_SV_TESS_FACTOR_QUADEDGE:
             return VKD3D_SIV_QUAD_U0_TESS_FACTOR + index;
-        case VKD3D_SV_TESS_FACTOR_QUADINT:
+        case VKD3D_SHADER_SV_TESS_FACTOR_QUADINT:
             return VKD3D_SIV_QUAD_U_INNER_TESS_FACTOR + index;
-        case VKD3D_SV_TESS_FACTOR_TRIEDGE:
+        case VKD3D_SHADER_SV_TESS_FACTOR_TRIEDGE:
             return VKD3D_SIV_TRIANGLE_U_TESS_FACTOR + index;
-        case VKD3D_SV_TESS_FACTOR_TRIINT:
+        case VKD3D_SHADER_SV_TESS_FACTOR_TRIINT:
             return VKD3D_SIV_TRIANGLE_INNER_TESS_FACTOR;
-        case VKD3D_SV_TESS_FACTOR_LINEDET:
+        case VKD3D_SHADER_SV_TESS_FACTOR_LINEDET:
             return VKD3D_SIV_LINE_DETAIL_TESS_FACTOR;
-        case VKD3D_SV_TESS_FACTOR_LINEDEN:
+        case VKD3D_SHADER_SV_TESS_FACTOR_LINEDEN:
             return VKD3D_SIV_LINE_DENSITY_TESS_FACTOR;
         default:
             FIXME("Unhandled sysval %#x, index %u.\n", sysval, index);
@@ -163,7 +163,7 @@ static enum vkd3d_shader_input_sysval_semantic vkd3d_siv_from_sysval_indexed(enu
     }
 }
 
-static enum vkd3d_shader_input_sysval_semantic vkd3d_siv_from_sysval(enum vkd3d_sysval_semantic sysval)
+static enum vkd3d_shader_input_sysval_semantic vkd3d_siv_from_sysval(enum vkd3d_shader_sysval_semantic sysval)
 {
       return vkd3d_siv_from_sysval_indexed(sysval, 0);
 }
@@ -4325,11 +4325,11 @@ static void vkd3d_dxbc_compiler_emit_shader_signature_outputs(struct vkd3d_dxbc_
 
         switch (e->sysval_semantic)
         {
-            case VKD3D_SV_CLIP_DISTANCE:
+            case VKD3D_SHADER_SV_CLIP_DISTANCE:
                 calculate_clip_or_cull_distance_mask(e, &clip_distance_mask);
                 break;
 
-            case VKD3D_SV_CULL_DISTANCE:
+            case VKD3D_SHADER_SV_CULL_DISTANCE:
                 calculate_clip_or_cull_distance_mask(e, &cull_distance_mask);
                 break;
 
@@ -4360,13 +4360,13 @@ static void vkd3d_dxbc_compiler_emit_shader_signature_outputs(struct vkd3d_dxbc_
 
         switch (e->sysval_semantic)
         {
-            case VKD3D_SV_CLIP_DISTANCE:
+            case VKD3D_SHADER_SV_CLIP_DISTANCE:
                 compiler->output_info[i].id = clip_distance_id;
                 compiler->output_info[i].component_type = VKD3D_SHADER_COMPONENT_FLOAT;
                 compiler->output_info[i].array_element_mask = clip_distance_mask;
                 break;
 
-            case VKD3D_SV_CULL_DISTANCE:
+            case VKD3D_SHADER_SV_CULL_DISTANCE:
                 compiler->output_info[i].id = cull_distance_id;
                 compiler->output_info[i].component_type = VKD3D_SHADER_COMPONENT_FLOAT;
                 compiler->output_info[i].array_element_mask = cull_distance_mask;

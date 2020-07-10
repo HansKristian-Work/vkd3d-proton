@@ -650,27 +650,27 @@ enum vkd3d_shader_component_type
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_COMPONENT_TYPE),
 };
 
-enum vkd3d_sysval_semantic
+enum vkd3d_shader_sysval_semantic
 {
-    VKD3D_SV_NONE                      = 0,
-    VKD3D_SV_POSITION                  = 1,
-    VKD3D_SV_CLIP_DISTANCE             = 2,
-    VKD3D_SV_CULL_DISTANCE             = 3,
-    VKD3D_SV_RENDER_TARGET_ARRAY_INDEX = 4,
-    VKD3D_SV_VIEWPORT_ARRAY_INDEX      = 5,
-    VKD3D_SV_VERTEX_ID                 = 6,
-    VKD3D_SV_PRIMITIVE_ID              = 7,
-    VKD3D_SV_INSTANCE_ID               = 8,
-    VKD3D_SV_IS_FRONT_FACE             = 9,
-    VKD3D_SV_SAMPLE_INDEX              = 10,
-    VKD3D_SV_TESS_FACTOR_QUADEDGE      = 11,
-    VKD3D_SV_TESS_FACTOR_QUADINT       = 12,
-    VKD3D_SV_TESS_FACTOR_TRIEDGE       = 13,
-    VKD3D_SV_TESS_FACTOR_TRIINT        = 14,
-    VKD3D_SV_TESS_FACTOR_LINEDET       = 15,
-    VKD3D_SV_TESS_FACTOR_LINEDEN       = 16,
+    VKD3D_SHADER_SV_NONE                      = 0x00,
+    VKD3D_SHADER_SV_POSITION                  = 0x01,
+    VKD3D_SHADER_SV_CLIP_DISTANCE             = 0x02,
+    VKD3D_SHADER_SV_CULL_DISTANCE             = 0x03,
+    VKD3D_SHADER_SV_RENDER_TARGET_ARRAY_INDEX = 0x04,
+    VKD3D_SHADER_SV_VIEWPORT_ARRAY_INDEX      = 0x05,
+    VKD3D_SHADER_SV_VERTEX_ID                 = 0x06,
+    VKD3D_SHADER_SV_PRIMITIVE_ID              = 0x07,
+    VKD3D_SHADER_SV_INSTANCE_ID               = 0x08,
+    VKD3D_SHADER_SV_IS_FRONT_FACE             = 0x09,
+    VKD3D_SHADER_SV_SAMPLE_INDEX              = 0x0a,
+    VKD3D_SHADER_SV_TESS_FACTOR_QUADEDGE      = 0x0b,
+    VKD3D_SHADER_SV_TESS_FACTOR_QUADINT       = 0x0c,
+    VKD3D_SHADER_SV_TESS_FACTOR_TRIEDGE       = 0x0d,
+    VKD3D_SHADER_SV_TESS_FACTOR_TRIINT        = 0x0e,
+    VKD3D_SHADER_SV_TESS_FACTOR_LINEDET       = 0x0f,
+    VKD3D_SHADER_SV_TESS_FACTOR_LINEDEN       = 0x10,
 
-    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SYSVAL_SEMANTIC),
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_SYSVAL_SEMANTIC),
 };
 
 enum vkd3d_shader_minimum_precision
@@ -687,7 +687,7 @@ struct vkd3d_shader_signature_element
     const char *semantic_name;
     unsigned int semantic_index;
     unsigned int stream_index;
-    enum vkd3d_sysval_semantic sysval_semantic;
+    enum vkd3d_shader_sysval_semantic sysval_semantic;
     enum vkd3d_shader_component_type component_type;
     unsigned int register_index;
     unsigned int mask;
