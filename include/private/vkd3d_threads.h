@@ -147,12 +147,30 @@ static inline void vkd3d_set_thread_name(const char *name)
 {
     (void)name;
 }
+
+typedef INIT_ONCE pthread_once_t;
+#define PTHREAD_ONCE_INIT INIT_ONCE_STATIC_INIT
+
+static inline BOOL CALLBACK pthread_once_wrapper(PINIT_ONCE once, PVOID parameter, PVOID *context)
+{
+    (void)once;
+    (void)context;
+    void (*func)(void) = parameter;
+    func();
+    return TRUE;
+}
+
+static inline void pthread_once(pthread_once_t *once, void (*func)(void))
+{
+    InitOnceExecuteOnce(once, pthread_once_wrapper, func, NULL);
+}
 #else
 #include <pthread.h>
 static inline void vkd3d_set_thread_name(const char *name)
 {
     pthread_setname_np(pthread_self(), name);
 }
+#define PTHREAD_ONCE_CALLBACK
 #endif
 
 
