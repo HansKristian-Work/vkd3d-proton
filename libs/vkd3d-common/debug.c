@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdio.h>
 
 #define VKD3D_DEBUG_BUFFER_COUNT 64
 #define VKD3D_DEBUG_BUFFER_SIZE 512
@@ -52,6 +53,7 @@ static const char *env_for_channel[] =
 static unsigned int vkd3d_dbg_level[VKD3D_DBG_CHANNEL_COUNT];
 static spinlock_t vkd3d_dbg_initialized;
 static pthread_once_t vkd3d_dbg_once = PTHREAD_ONCE_INIT;
+static FILE *vkd3d_log_file;
 
 static void vkd3d_dbg_init_once(void)
 {
@@ -70,6 +72,16 @@ static void vkd3d_dbg_init_once(void)
         /* Default debug level. */
         if (vkd3d_dbg_level[channel] == VKD3D_DBG_LEVEL_UNKNOWN)
             vkd3d_dbg_level[channel] = VKD3D_DBG_LEVEL_FIXME;
+    }
+
+    if ((vkd3d_debug = getenv("VKD3D_LOG_FILE")))
+    {
+        vkd3d_log_file = fopen(vkd3d_debug, "w");
+        if (!vkd3d_log_file)
+        {
+            fprintf(stderr, "Failed to open log file: %s!\n", vkd3d_debug);
+            fflush(stderr);
+        }
     }
 
     vkd3d_atomic_uint32_store_explicit(&vkd3d_dbg_initialized, 1, vkd3d_memory_order_release);
@@ -93,18 +105,23 @@ enum vkd3d_dbg_level vkd3d_dbg_get_level(enum vkd3d_dbg_channel channel)
 
 void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level, const char *function, const char *fmt, ...)
 {
+    static spinlock_t spin;
     va_list args;
+    FILE *log_file;
 
     if (vkd3d_dbg_get_level(channel) < level)
         return;
 
+    log_file = vkd3d_log_file ? vkd3d_log_file : stderr;
     assert(level < ARRAY_SIZE(debug_level_names));
 
-    fprintf(stderr, "%s:%s: ", debug_level_names[level], function);
     va_start(args, fmt);
-    vfprintf(stderr, fmt, args);
+    spinlock_acquire(&spin);
+    fprintf(log_file, "%s:%s: ", debug_level_names[level], function);
+    vfprintf(log_file, fmt, args);
+    spinlock_release(&spin);
     va_end(args);
-    fflush(stderr);
+    fflush(log_file);
 }
 
 static char *get_buffer(void)
