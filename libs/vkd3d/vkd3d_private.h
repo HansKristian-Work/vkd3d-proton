@@ -71,7 +71,6 @@
 struct d3d12_command_list;
 struct d3d12_device;
 struct d3d12_resource;
-typedef interface IWineDXGISwapChainFactory IWineDXGISwapChainFactory;
 
 struct vkd3d_bindless_set_info;
 struct vkd3d_dynamic_state;
