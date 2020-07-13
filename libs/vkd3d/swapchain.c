@@ -162,7 +162,7 @@ struct d3d12_swapchain_state
     HWND device_window;
 };
 
-typedef IDXGISwapChain3 dxgi_swapchain_iface;
+typedef IDXGISwapChain4 dxgi_swapchain_iface;
 
 struct d3d12_swapchain
 {
@@ -1314,9 +1314,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_QueryInterface(dxgi_swapchain_i
             || IsEqualGUID(iid, &IID_IDXGISwapChain)
             || IsEqualGUID(iid, &IID_IDXGISwapChain1)
             || IsEqualGUID(iid, &IID_IDXGISwapChain2)
-            || IsEqualGUID(iid, &IID_IDXGISwapChain3))
+            || IsEqualGUID(iid, &IID_IDXGISwapChain3)
+            || IsEqualGUID(iid, &IID_IDXGISwapChain4))
     {
-        IDXGISwapChain3_AddRef(iface);
+        IDXGISwapChain4_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -1705,7 +1706,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetFullscreenState(dxgi_swapcha
     {
         IDXGIOutput_AddRef(target);
     }
-    else if (FAILED(hr = IDXGISwapChain3_GetContainingOutput(iface, &target)))
+    else if (FAILED(hr = IDXGISwapChain4_GetContainingOutput(iface, &target)))
     {
         WARN("Failed to get target output for swapchain, hr %#x.\n", hr);
         return hr;
@@ -2193,7 +2194,33 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_ResizeBuffers1(dxgi_swapchain_i
     return d3d12_swapchain_resize_buffers(swapchain, buffer_count, width, height, format, flags);
 }
 
-static CONST_VTBL struct IDXGISwapChain3Vtbl d3d12_swapchain_vtbl =
+static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetHDRMetaData(dxgi_swapchain_iface *iface,
+        DXGI_HDR_METADATA_TYPE type, UINT size, void *metadata)
+{
+    FIXME("iface %p, type %u, size %u, metadata %p semi-stub!", iface, type, size, metadata);
+
+    if (size && !metadata)
+      return E_INVALIDARG;
+
+    switch (type)
+    {
+        case DXGI_HDR_METADATA_TYPE_NONE:
+            return S_OK;
+
+        case DXGI_HDR_METADATA_TYPE_HDR10:
+            if (size != sizeof(DXGI_HDR_METADATA_HDR10))
+                return E_INVALIDARG;
+
+            /* For some reason this always seems to succeed on Windows */
+            return S_OK;
+
+        default:
+            FIXME("Unsupported HDR metadata type %u.\n", type);
+            return E_INVALIDARG;
+    }
+}
+
+static CONST_VTBL struct IDXGISwapChain4Vtbl d3d12_swapchain_vtbl =
 {
     /* IUnknown methods */
     d3d12_swapchain_QueryInterface,
@@ -2242,6 +2269,8 @@ static CONST_VTBL struct IDXGISwapChain3Vtbl d3d12_swapchain_vtbl =
     d3d12_swapchain_CheckColorSpaceSupport,
     d3d12_swapchain_SetColorSpace1,
     d3d12_swapchain_ResizeBuffers1,
+    /* IDXGISwapChain4 methods */
+    d3d12_swapchain_SetHDRMetaData,
 };
 
 static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFactory *factory,
