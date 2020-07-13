@@ -341,6 +341,13 @@ static HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
     struct VkPipelineLayoutCreateInfo pipeline_layout_info;
     VkResult vr;
 
+    if (set_layout_count > device->vk_info.device_limits.maxBoundDescriptorSets)
+    {
+        ERR("Root signature requires %u descriptor sets, but device only supports %u.\n",
+            set_layout_count, device->vk_info.device_limits.maxBoundDescriptorSets);
+        return E_INVALIDARG;
+    }
+
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipeline_layout_info.pNext = NULL;
     pipeline_layout_info.flags = 0;
@@ -972,6 +979,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
     if (root_signature->vk_sampler_descriptor_layout)
     {
+        assert(context.vk_set < VKD3D_MAX_DESCRIPTOR_SETS);
         set_layouts[context.vk_set] = root_signature->vk_sampler_descriptor_layout;
         root_signature->sampler_descriptor_set = context.vk_set;
 
@@ -1012,6 +1020,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
     if (root_signature->vk_root_descriptor_layout)
     {
+        assert(context.vk_set < VKD3D_MAX_DESCRIPTOR_SETS);
         set_layouts[context.vk_set] = root_signature->vk_root_descriptor_layout;
         root_signature->root_descriptor_set = context.vk_set;
 
@@ -1026,6 +1035,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
     if (root_signature->vk_packed_descriptor_layout)
     {
+        assert(context.vk_set < VKD3D_MAX_DESCRIPTOR_SETS);
         root_signature->packed_descriptor_set = context.vk_set;
         set_layouts[context.vk_set] = root_signature->vk_packed_descriptor_layout;
         context.vk_set += 1;
