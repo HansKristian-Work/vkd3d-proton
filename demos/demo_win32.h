@@ -199,12 +199,12 @@ static inline bool demo_init(struct demo *demo, void *user_data)
     wc.cbClsExtra = 0;
     wc.cbWndExtra = 0;
     wc.hInstance = GetModuleHandle(NULL);
-    wc.hIcon = LoadIconW(NULL, IDI_APPLICATION);
-    wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+    wc.hIcon = LoadIconA(NULL, IDI_APPLICATION);
+    wc.hCursor = LoadCursorA(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
     wc.lpszMenuName = NULL;
     wc.lpszClassName = DEMO_WINDOW_CLASS_NAME;
-    wc.hIconSm = LoadIconW(NULL, IDI_WINLOGO);
+    wc.hIconSm = LoadIconA(NULL, IDI_WINLOGO);
     if (!RegisterClassExW(&wc))
         return false;
 

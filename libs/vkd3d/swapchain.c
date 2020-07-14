@@ -902,8 +902,8 @@ static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *sw
     blit.dstOffsets[0].z = 0;
     if (swapchain->desc.Scaling == DXGI_SCALING_NONE)
     {
-        blit.srcOffsets[1].x = min(swapchain->vk_swapchain_width, blit.srcOffsets[1].x);
-        blit.srcOffsets[1].y = min(swapchain->vk_swapchain_height, blit.srcOffsets[1].y);
+        blit.srcOffsets[1].x = min((int)swapchain->vk_swapchain_width, blit.srcOffsets[1].x);
+        blit.srcOffsets[1].y = min((int)swapchain->vk_swapchain_height, blit.srcOffsets[1].y);
         blit.dstOffsets[1].x = blit.srcOffsets[1].x;
         blit.dstOffsets[1].y = blit.srcOffsets[1].y;
     }
@@ -1155,7 +1155,7 @@ static void d3d12_swapchain_destroy_buffers(struct d3d12_swapchain *swapchain, B
         {
             vkd3d_resource_decref(swapchain->buffers[i]);
             swapchain->buffers[i] = NULL;
-            swapchain->vk_images[i] = NULL;
+            swapchain->vk_images[i] = VK_NULL_HANDLE;
         }
     }
 

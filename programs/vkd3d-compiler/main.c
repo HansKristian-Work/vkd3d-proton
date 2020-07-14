@@ -112,7 +112,8 @@ struct options
 
 static bool parse_command_line(int argc, char **argv, struct options *options)
 {
-    unsigned int i, j;
+    unsigned int j;
+    int i;
 
     if (argc < 2)
         return false;

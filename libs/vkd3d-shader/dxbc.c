@@ -1937,11 +1937,13 @@ static void read_dword(const char **ptr, DWORD *d)
     *ptr += sizeof(*d);
 }
 
-static void read_uint32(const char **ptr, uint32_t *u)
+static void read_uint32_(const char **ptr, void *u)
 {
-    memcpy(u, *ptr, sizeof(*u));
-    *ptr += sizeof(*u);
+    memcpy(u, *ptr, sizeof(uint32_t));
+    *ptr += sizeof(uint32_t);
 }
+
+#define read_uint32(ptr, u) do { STATIC_ASSERT(sizeof(*(u)) == sizeof(uint32_t)); read_uint32_(ptr, u); } while(0)
 
 static void read_float(const char **ptr, float *f)
 {

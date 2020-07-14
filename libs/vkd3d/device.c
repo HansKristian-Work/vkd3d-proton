@@ -528,7 +528,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     vkd3d_free(user_extension_supported);
 
     vr = vk_global_procs->vkCreateInstance(&instance_info, NULL, &vk_instance);
-    vkd3d_free(extensions);
+    vkd3d_free((void *)extensions);
     if (vr < 0)
     {
         ERR("Failed to create Vulkan instance, vr %d.\n", vr);
@@ -1766,7 +1766,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     vkd3d_free(user_extension_supported);
 
     vr = VK_CALL(vkCreateDevice(physical_device, &device_info, NULL, &vk_device));
-    vkd3d_free(extensions);
+    vkd3d_free((void *)extensions);
     if (vr < 0)
     {
         ERR("Failed to create Vulkan device, vr %d.\n", vr);

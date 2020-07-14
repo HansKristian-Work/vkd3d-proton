@@ -50,7 +50,7 @@ struct ivec4
     int x, y, z, w;
 };
 
-static bool compare_float(float f, float g, unsigned int ulps)
+static bool compare_float(float f, float g, int ulps)
 {
     int x, y;
     union
@@ -88,17 +88,17 @@ static bool compare_uvec4(const struct uvec4* v1, const struct uvec4 *v2)
     return v1->x == v2->x && v1->y == v2->y && v1->z == v2->z && v1->w == v2->w;
 }
 
-static bool compare_uint8(uint8_t a, uint8_t b, unsigned int max_diff)
+static bool compare_uint8(uint8_t a, uint8_t b, int max_diff)
 {
     return abs(a - b) <= max_diff;
 }
 
-static bool compare_uint16(uint16_t a, uint16_t b, unsigned int max_diff)
+static bool compare_uint16(uint16_t a, uint16_t b, int max_diff)
 {
     return abs(a - b) <= max_diff;
 }
 
-static bool compare_uint64(uint64_t a, uint64_t b, unsigned int max_diff)
+static bool compare_uint64(uint64_t a, uint64_t b, int max_diff)
 {
     return llabs(a - b) <= max_diff;
 }
@@ -426,7 +426,7 @@ static void check_readback_data_float_(unsigned int line, struct resource_readba
         const RECT *rect, float expected, unsigned int max_diff)
 {
     RECT r = {0, 0, rb->width, rb->height};
-    unsigned int x = 0, y;
+    int x = 0, y;
     bool all_match = true;
     float got = 0;
 
@@ -467,7 +467,7 @@ static void check_readback_data_uint8_(unsigned int line, struct resource_readba
         const RECT *rect, uint8_t expected, unsigned int max_diff)
 {
     RECT r = {0, 0, rb->width, rb->height};
-    unsigned int x = 0, y;
+    int x = 0, y;
     bool all_match = true;
     uint8_t got = 0;
 
@@ -508,7 +508,7 @@ static void check_readback_data_uint16_(unsigned int line, struct resource_readb
         const RECT *rect, uint16_t expected, unsigned int max_diff)
 {
     RECT r = {0, 0, rb->width, rb->height};
-    unsigned int x = 0, y;
+    int x = 0, y;
     bool all_match = true;
     uint16_t got = 0;
 
@@ -549,7 +549,7 @@ static void check_readback_data_uint64_(unsigned int line, struct resource_readb
         const RECT *rect, uint64_t expected, unsigned int max_diff)
 {
     RECT r = {0, 0, rb->width, rb->height};
-    unsigned int x = 0, y;
+    int x = 0, y;
     bool all_match = true;
     uint64_t got = 0;
 
@@ -1881,14 +1881,14 @@ static void test_create_committed_resource(void)
 
     /* A texture cannot be created on a UPLOAD heap. */
     heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
-    resource = (void *)0xdeadbeef;
+    resource = (void *)(uintptr_t)0xdeadbeef;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
             &IID_ID3D12Resource, (void **)&resource);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
     ok(!resource, "Got unexpected pointer %p.\n", resource);
 
-    resource = (void *)0xdeadbeef;
+    resource = (void *)(uintptr_t)0xdeadbeef;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
             &IID_ID3D12Device, (void **)&resource);
@@ -2157,7 +2157,7 @@ static void test_create_heap(void)
     hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
-    heap = (void *)0xdeadbeef;
+    heap = (void *)(uintptr_t)0xdeadbeef;
     desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES | D3D12_HEAP_FLAG_ALLOW_DISPLAY;
     hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
@@ -3981,7 +3981,7 @@ static void test_object_interface(void)
         hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, NULL);
         ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
         size = sizeof(ptr) * 2;
-        ptr = (IUnknown *)0xdeadbeef;
+        ptr = (IUnknown *)(uintptr_t)0xdeadbeef;
         hr = ID3D12Object_GetPrivateData(object, &test_guid, &size, &ptr);
         ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
         ok(!ptr, "Got unexpected pointer %p.\n", ptr);
@@ -4039,7 +4039,7 @@ static void test_object_interface(void)
         IUnknown_Release(ptr);
         --expected_refcount;
 
-        ptr = (IUnknown *)0xdeadbeef;
+        ptr = (IUnknown *)(uintptr_t)0xdeadbeef;
         size = 1;
         hr = ID3D12Object_GetPrivateData(object, &test_guid, &size, NULL);
         ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
@@ -4056,12 +4056,12 @@ static void test_object_interface(void)
         hr = ID3D12Object_GetPrivateData(object, &test_guid, &size, &ptr);
         ok(hr == DXGI_ERROR_MORE_DATA, "Got unexpected hr %#x.\n", hr);
         ok(size == sizeof(object), "Got unexpected size %u.\n", size);
-        ok(ptr == (IUnknown *)0xdeadbeef, "Got unexpected pointer %p.\n", ptr);
+        ok(ptr == (IUnknown *)(uintptr_t)0xdeadbeef, "Got unexpected pointer %p.\n", ptr);
         size = 1;
         hr = ID3D12Object_GetPrivateData(object, &test_guid2, &size, &ptr);
         ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", hr);
         ok(!size, "Got unexpected size %u.\n", size);
-        ok(ptr == (IUnknown *)0xdeadbeef, "Got unexpected pointer %p.\n", ptr);
+        ok(ptr == (IUnknown *)(uintptr_t)0xdeadbeef, "Got unexpected pointer %p.\n", ptr);
 
         if (IsEqualGUID(tests[i], &IID_ID3D12Device))
         {
@@ -5610,7 +5610,7 @@ static void test_clear_unordered_access_view_image(void)
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     ID3D12DescriptorHeap *cpu_heap, *gpu_heap;
     ID3D12GraphicsCommandList *command_list;
-    unsigned int i, j, d, p, x, y, z, layer;
+    unsigned int i, j, d, p, z, layer;
     D3D12_HEAP_PROPERTIES heap_properties;
     unsigned int image_size, image_depth;
     D3D12_RESOURCE_DESC resource_desc;
@@ -5623,6 +5623,7 @@ static void test_clear_unordered_access_view_image(void)
     ID3D12Device *device;
     UINT clear_value[4];
     HRESULT hr;
+    int x, y;
 
 #define IMAGE_SIZE 16
     static const struct
@@ -7766,10 +7767,10 @@ static void test_map_resource(void)
     ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
 
     /* Resources on a DEFAULT heap cannot be mapped. */
-    data = (void *)0xdeadbeef;
+    data = (void *)(uintptr_t)0xdeadbeef;
     hr = ID3D12Resource_Map(resource, 0, NULL, &data);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
-    ok(data == (void *)0xdeadbeef, "Pointer was modified %p.\n", data);
+    ok(data == (void *)(uintptr_t)0xdeadbeef, "Pointer was modified %p.\n", data);
 
     ID3D12Resource_Release(resource);
 
@@ -7786,10 +7787,10 @@ static void test_map_resource(void)
     else
     {
         /* The data pointer must be NULL for the UNKNOWN layout. */
-        data = (void *)0xdeadbeef;
+        data = (void *)(uintptr_t)0xdeadbeef;
         hr = ID3D12Resource_Map(resource, 0, NULL, &data);
         ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
-        ok(data == (void *)0xdeadbeef, "Pointer was modified %p.\n", data);
+        ok(data == (void *)(uintptr_t)0xdeadbeef, "Pointer was modified %p.\n", data);
 
         /* Texture on custom heaps can be mapped, but the address doesn't get disclosed to applications */
         hr = ID3D12Resource_Map(resource, 0, NULL, NULL);
@@ -7812,10 +7813,10 @@ static void test_map_resource(void)
     ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
 
     /* Resources on a DEFAULT heap cannot be mapped. */
-    data = (void *)0xdeadbeef;
+    data = (void *)(uintptr_t)0xdeadbeef;
     hr = ID3D12Resource_Map(resource, 0, NULL, &data);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
-    ok(data == (void *)0xdeadbeef, "Pointer was modified %p.\n", data);
+    ok(data == (void *)(uintptr_t)0xdeadbeef, "Pointer was modified %p.\n", data);
 
     ID3D12Resource_Release(resource);
 
@@ -7831,10 +7832,10 @@ static void test_map_resource(void)
     ok(data, "Got NULL pointer.\n");
     ID3D12Resource_Unmap(resource, 0, NULL);
 
-    data = (void *)0xdeadbeef;
+    data = (void *)(uintptr_t)0xdeadbeef;
     hr = ID3D12Resource_Map(resource, 1, NULL, &data);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
-    ok(data == (void *)0xdeadbeef, "Pointer was modified %p.\n", data);
+    ok(data == (void *)(uintptr_t)0xdeadbeef, "Pointer was modified %p.\n", data);
 
     data = NULL;
     hr = ID3D12Resource_Map(resource, 0, NULL, &data);
@@ -11873,7 +11874,7 @@ static void check_root_signature_serialization_(unsigned int line, const D3D12_S
     if (!bytecode->BytecodeLength)
         return;
 
-    error_blob = (ID3DBlob *)0xdeadbeef;
+    error_blob = (ID3DBlob *)(uintptr_t)0xdeadbeef;
     hr = D3D12SerializeRootSignature(desc, D3D_ROOT_SIGNATURE_VERSION_1_0, &blob, &error_blob);
     ok_(line)(hr == S_OK, "Failed to serialize root signature, hr %#x.\n", hr);
     ok_(line)(!error_blob, "Got unexpected error blob %p.\n", error_blob);
@@ -11907,7 +11908,7 @@ static void check_root_signature_serialization1_(unsigned int line, const D3D12_
     versioned_desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
     versioned_desc.Desc_1_1 = *desc;
 
-    error_blob = (ID3DBlob *)0xdeadbeef;
+    error_blob = (ID3DBlob *)(uintptr_t)0xdeadbeef;
     hr = pfn_D3D12SerializeVersionedRootSignature(&versioned_desc, &blob, &error_blob);
     ok_(line)(hr == S_OK, "Failed to serialize root signature, hr %#x.\n", hr);
     ok_(line)(!error_blob, "Got unexpected error blob %p.\n", error_blob);
@@ -12519,10 +12520,10 @@ static void test_root_signature_byte_code(void)
         check_root_signature_deserialization(&t->code, t->desc, t->desc1);
         check_root_signature_serialization(&t->code, t->desc);
 
-        blob = (ID3DBlob *)0xdeadbeef;
+        blob = (ID3DBlob *)(uintptr_t)0xdeadbeef;
         hr = D3D12SerializeRootSignature(t->desc, D3D_ROOT_SIGNATURE_VERSION_1_1, &blob, NULL);
         ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
-        ok(blob == (ID3DBlob *)0xdeadbeef, "Got unexpected blob %p.\n", blob);
+        ok(blob == (ID3DBlob *)(uintptr_t)0xdeadbeef, "Got unexpected blob %p.\n", blob);
 
         if (!pfn_D3D12CreateVersionedRootSignatureDeserializer)
             continue;
@@ -30905,8 +30906,6 @@ static void test_tessellation_read_tesslevel(void)
     }
 
     release_resource_readback(&rb);
-
-done:
     ID3D12Resource_Release(so_buffer);
     destroy_test_context(&context);
 }
@@ -42022,9 +42021,9 @@ static void test_update_tile_mappings(void)
         ID3D12Device_CreateUnorderedAccessView(context.device, resource, NULL, &uav_desc, get_cpu_descriptor_handle(&context, cpu_heap, 1 + i));
         ID3D12Device_CreateUnorderedAccessView(context.device, resource, NULL, &uav_desc, get_cpu_descriptor_handle(&context, gpu_heap, 1 + i));
 
-        for (y = 0; y < max(1, tilings[i].HeightInTiles); y++)
+        for (y = 0; y < max(1u, tilings[i].HeightInTiles); y++)
         {
-            for (x = 0; x < max(1, tilings[i].WidthInTiles); x++)
+            for (x = 0; x < max(1u, tilings[i].WidthInTiles); x++)
             {
                 UINT clear_value[4] = { 0, 0, 0, 0 };
                 D3D12_RECT clear_rect;
