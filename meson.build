@@ -59,7 +59,15 @@ endif
 add_project_arguments(vkd3d_compiler.get_supported_arguments([
     '-Wno-format',
     '-Wno-missing-field-initializers',
-    '-Wno-unused-parameter']),
+    '-Wno-unused-parameter',
+    '/wd4244', # Narrowing conversion
+    '/wd4101', # Unreferenced local variable
+    '/wd4267', # Another narrowing conversion
+    '/wd4996', # Secure no warnings
+    '/wd4334', # Result of 32-bit shift cast to 64-bit
+    '/wd4146', # Unary minus on unsigned
+    '/wd4305', # Truncation from double to float
+    ]),
   language : 'c')
 
 if cpu_family == 'x86'
