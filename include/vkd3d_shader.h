@@ -503,12 +503,14 @@ struct vkd3d_root_signature_desc
 };
 
 /* root signature 1.1 */
-enum vkd3d_root_descriptor_flags
+enum vkd3d_shader_root_descriptor_flags
 {
-    VKD3D_ROOT_DESCRIPTOR_FLAG_NONE = 0x0,
-    VKD3D_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE = 0x2,
-    VKD3D_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE = 0x4,
-    VKD3D_ROOT_DESCRIPTOR_FLAG_DATA_STATIC = 0x8,
+    VKD3D_SHADER_ROOT_DESCRIPTOR_FLAG_NONE                             = 0x0,
+    VKD3D_SHADER_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE                    = 0x2,
+    VKD3D_SHADER_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE = 0x4,
+    VKD3D_SHADER_ROOT_DESCRIPTOR_FLAG_DATA_STATIC                      = 0x8,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_ROOT_DESCRIPTOR_FLAGS),
 };
 
 enum vkd3d_shader_descriptor_range_flags
@@ -542,7 +544,7 @@ struct vkd3d_root_descriptor1
 {
     unsigned int shader_register;
     unsigned int register_space;
-    enum vkd3d_root_descriptor_flags flags;
+    enum vkd3d_shader_root_descriptor_flags flags;
 };
 
 struct vkd3d_root_parameter1
