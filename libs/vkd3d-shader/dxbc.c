@@ -2253,7 +2253,7 @@ static int shader_parse_descriptor_ranges(struct root_signature_parser_context *
     return VKD3D_OK;
 }
 
-static void shader_validate_descriptor_range1(const struct vkd3d_descriptor_range1 *range)
+static void shader_validate_descriptor_range1(const struct vkd3d_shader_descriptor_range1 *range)
 {
     unsigned int unknown_flags = range->flags & ~(VKD3D_SHADER_DESCRIPTOR_RANGE_FLAG_NONE
             | VKD3D_SHADER_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE
@@ -2266,7 +2266,7 @@ static void shader_validate_descriptor_range1(const struct vkd3d_descriptor_rang
 }
 
 static int shader_parse_descriptor_ranges1(struct root_signature_parser_context *context,
-        unsigned int offset, unsigned int count, struct vkd3d_descriptor_range1 *ranges)
+        unsigned int offset, unsigned int count, struct vkd3d_shader_descriptor_range1 *ranges)
 {
     const char *ptr;
     unsigned int i;
@@ -2329,7 +2329,7 @@ static int shader_parse_descriptor_table(struct root_signature_parser_context *c
 static int shader_parse_descriptor_table1(struct root_signature_parser_context *context,
         unsigned int offset, struct vkd3d_root_descriptor_table1 *table)
 {
-    struct vkd3d_descriptor_range1 *ranges;
+    struct vkd3d_shader_descriptor_range1 *ranges;
     unsigned int count;
     const char *ptr;
 
@@ -2832,7 +2832,7 @@ static int shader_write_descriptor_ranges(struct root_signature_writer_context *
 static int shader_write_descriptor_ranges1(struct root_signature_writer_context *context,
         const struct vkd3d_root_descriptor_table1 *table)
 {
-    const struct vkd3d_descriptor_range1 *ranges = table->descriptor_ranges;
+    const struct vkd3d_shader_descriptor_range1 *ranges = table->descriptor_ranges;
     unsigned int i;
 
     for (i = 0; i < table->descriptor_range_count; ++i)
@@ -3080,7 +3080,7 @@ static int validate_descriptor_table_v_1_1(const struct vkd3d_root_descriptor_ta
 
     for (i = 0; i < descriptor_table->descriptor_range_count; ++i)
     {
-        const struct vkd3d_descriptor_range1 *r = &descriptor_table->descriptor_ranges[i];
+        const struct vkd3d_shader_descriptor_range1 *r = &descriptor_table->descriptor_ranges[i];
 
         if (r->range_type == VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE_SRV
                 || r->range_type == VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE_UAV
@@ -3200,7 +3200,7 @@ static void free_descriptor_ranges(const struct vkd3d_root_parameter *parameters
 static int convert_root_parameters_to_v_1_0(struct vkd3d_root_parameter *dst,
         const struct vkd3d_root_parameter1 *src, unsigned int count)
 {
-    const struct vkd3d_descriptor_range1 *ranges1;
+    const struct vkd3d_shader_descriptor_range1 *ranges1;
     struct vkd3d_shader_descriptor_range *ranges;
     unsigned int i, j;
     int ret;
@@ -3320,7 +3320,7 @@ static int convert_root_parameters_to_v_1_1(struct vkd3d_root_parameter1 *dst,
         const struct vkd3d_root_parameter *src, unsigned int count)
 {
     const struct vkd3d_shader_descriptor_range *ranges;
-    struct vkd3d_descriptor_range1 *ranges1;
+    struct vkd3d_shader_descriptor_range1 *ranges1;
     unsigned int i, j;
     int ret;
 
