@@ -428,7 +428,7 @@ enum vkd3d_shader_descriptor_range_type
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE),
 };
 
-struct vkd3d_descriptor_range
+struct vkd3d_shader_descriptor_range
 {
     enum vkd3d_shader_descriptor_range_type range_type;
     unsigned int descriptor_count;
@@ -440,7 +440,7 @@ struct vkd3d_descriptor_range
 struct vkd3d_root_descriptor_table
 {
     unsigned int descriptor_range_count;
-    const struct vkd3d_descriptor_range *descriptor_ranges;
+    const struct vkd3d_shader_descriptor_range *descriptor_ranges;
 };
 
 struct vkd3d_root_constants
