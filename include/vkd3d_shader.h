@@ -456,20 +456,20 @@ struct vkd3d_root_descriptor
     unsigned int register_space;
 };
 
-enum vkd3d_root_parameter_type
+enum vkd3d_shader_root_parameter_type
 {
-    VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE = 0,
-    VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS = 1,
-    VKD3D_ROOT_PARAMETER_TYPE_CBV = 2,
-    VKD3D_ROOT_PARAMETER_TYPE_SRV = 3,
-    VKD3D_ROOT_PARAMETER_TYPE_UAV = 4,
+    VKD3D_SHADER_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE = 0x0,
+    VKD3D_SHADER_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS  = 0x1,
+    VKD3D_SHADER_ROOT_PARAMETER_TYPE_CBV              = 0x2,
+    VKD3D_SHADER_ROOT_PARAMETER_TYPE_SRV              = 0x3,
+    VKD3D_SHADER_ROOT_PARAMETER_TYPE_UAV              = 0x4,
 
-    VKD3D_FORCE_32_BIT_ENUM(VKD3D_ROOT_PARAMETER_TYPE),
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_ROOT_PARAMETER_TYPE),
 };
 
 struct vkd3d_root_parameter
 {
-    enum vkd3d_root_parameter_type parameter_type;
+    enum vkd3d_shader_root_parameter_type parameter_type;
     union
     {
         struct vkd3d_root_descriptor_table descriptor_table;
@@ -549,7 +549,7 @@ struct vkd3d_root_descriptor1
 
 struct vkd3d_root_parameter1
 {
-    enum vkd3d_root_parameter_type parameter_type;
+    enum vkd3d_shader_root_parameter_type parameter_type;
     union
     {
         struct vkd3d_root_descriptor_table1 descriptor_table;

@@ -2456,15 +2456,15 @@ static int shader_parse_root_parameters(struct root_signature_parser_context *co
 
         switch (parameters[i].parameter_type)
         {
-            case VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
                 ret = shader_parse_descriptor_table(context, offset, &parameters[i].u.descriptor_table);
                 break;
-            case VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
                 ret = shader_parse_root_constants(context, offset, &parameters[i].u.constants);
                 break;
-            case VKD3D_ROOT_PARAMETER_TYPE_CBV:
-            case VKD3D_ROOT_PARAMETER_TYPE_SRV:
-            case VKD3D_ROOT_PARAMETER_TYPE_UAV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_CBV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_SRV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_UAV:
                 ret = shader_parse_root_descriptor(context, offset, &parameters[i].u.descriptor);
                 break;
             default:
@@ -2504,15 +2504,15 @@ static int shader_parse_root_parameters1(struct root_signature_parser_context *c
 
         switch (parameters[i].parameter_type)
         {
-            case VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
                 ret = shader_parse_descriptor_table1(context, offset, &parameters[i].u.descriptor_table);
                 break;
-            case VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
                 ret = shader_parse_root_constants(context, offset, &parameters[i].u.constants);
                 break;
-            case VKD3D_ROOT_PARAMETER_TYPE_CBV:
-            case VKD3D_ROOT_PARAMETER_TYPE_SRV:
-            case VKD3D_ROOT_PARAMETER_TYPE_UAV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_CBV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_SRV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_UAV:
                 ret = shader_parse_root_descriptor1(context, offset, &parameters[i].u.descriptor);
                 break;
             default:
@@ -2678,7 +2678,7 @@ static unsigned int versioned_root_signature_get_parameter_count(const struct vk
         return desc->u.v_1_1.parameter_count;
 }
 
-static enum vkd3d_root_parameter_type versioned_root_signature_get_parameter_type(
+static enum vkd3d_shader_root_parameter_type versioned_root_signature_get_parameter_type(
         const struct vkd3d_versioned_root_signature_desc *desc, unsigned int i)
 {
     if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
@@ -2938,18 +2938,18 @@ static int shader_write_root_parameters(struct root_signature_writer_context *co
 
         switch (versioned_root_signature_get_parameter_type(desc, i))
         {
-            case VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
                 if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
                     ret = shader_write_descriptor_table(context, &desc->u.v_1_0.parameters[i].u.descriptor_table);
                 else
                     ret = shader_write_descriptor_table1(context, &desc->u.v_1_1.parameters[i].u.descriptor_table);
                 break;
-            case VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
                 ret = shader_write_root_constants(context, versioned_root_signature_get_root_constants(desc, i));
                 break;
-            case VKD3D_ROOT_PARAMETER_TYPE_CBV:
-            case VKD3D_ROOT_PARAMETER_TYPE_SRV:
-            case VKD3D_ROOT_PARAMETER_TYPE_UAV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_CBV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_SRV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_UAV:
                 if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
                     ret = shader_write_root_descriptor(context, &desc->u.v_1_0.parameters[i].u.descriptor);
                 else
@@ -3115,10 +3115,10 @@ static int validate_root_signature_desc(const struct vkd3d_versioned_root_signat
 
     for (i = 0; i < versioned_root_signature_get_parameter_count(desc); ++i)
     {
-        enum vkd3d_root_parameter_type type;
+        enum vkd3d_shader_root_parameter_type type;
 
         type = versioned_root_signature_get_parameter_type(desc, i);
-        if (type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+        if (type == VKD3D_SHADER_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
         {
             if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
                 ret = validate_descriptor_table_v_1_0(&desc->u.v_1_0.parameters[i].u.descriptor_table);
@@ -3192,7 +3192,7 @@ static void free_descriptor_ranges(const struct vkd3d_root_parameter *parameters
     {
         const struct vkd3d_root_parameter *p = &parameters[i];
 
-        if (p->parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+        if (p->parameter_type == VKD3D_SHADER_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
             vkd3d_free((void *)p->u.descriptor_table.descriptor_ranges);
     }
 }
@@ -3213,7 +3213,7 @@ static int convert_root_parameters_to_v_1_0(struct vkd3d_root_parameter *dst,
         p->parameter_type = p1->parameter_type;
         switch (p->parameter_type)
         {
-            case VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
                 ranges = NULL;
                 if ((p->u.descriptor_table.descriptor_range_count = p1->u.descriptor_table.descriptor_range_count))
                 {
@@ -3234,12 +3234,12 @@ static int convert_root_parameters_to_v_1_0(struct vkd3d_root_parameter *dst,
                     ranges[j].descriptor_table_offset = ranges1[j].descriptor_table_offset;
                 }
                 break;
-            case VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
                 p->u.constants = p1->u.constants;
                 break;
-            case VKD3D_ROOT_PARAMETER_TYPE_CBV:
-            case VKD3D_ROOT_PARAMETER_TYPE_SRV:
-            case VKD3D_ROOT_PARAMETER_TYPE_UAV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_CBV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_SRV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_UAV:
                 p->u.descriptor.shader_register = p1->u.descriptor.shader_register;
                 p->u.descriptor.register_space = p1->u.descriptor.register_space;
                 break;
@@ -3311,7 +3311,7 @@ static void free_descriptor_ranges1(const struct vkd3d_root_parameter1 *paramete
     {
         const struct vkd3d_root_parameter1 *p = &parameters[i];
 
-        if (p->parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+        if (p->parameter_type == VKD3D_SHADER_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
             vkd3d_free((void *)p->u.descriptor_table.descriptor_ranges);
     }
 }
@@ -3332,7 +3332,7 @@ static int convert_root_parameters_to_v_1_1(struct vkd3d_root_parameter1 *dst,
         p1->parameter_type = p->parameter_type;
         switch (p1->parameter_type)
         {
-            case VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
                 ranges1 = NULL;
                 if ((p1->u.descriptor_table.descriptor_range_count = p->u.descriptor_table.descriptor_range_count))
                 {
@@ -3354,12 +3354,12 @@ static int convert_root_parameters_to_v_1_1(struct vkd3d_root_parameter1 *dst,
                     ranges1[j].descriptor_table_offset = ranges[j].descriptor_table_offset;
                 }
                 break;
-            case VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
                 p1->u.constants = p->u.constants;
                 break;
-            case VKD3D_ROOT_PARAMETER_TYPE_CBV:
-            case VKD3D_ROOT_PARAMETER_TYPE_SRV:
-            case VKD3D_ROOT_PARAMETER_TYPE_UAV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_CBV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_SRV:
+            case VKD3D_SHADER_ROOT_PARAMETER_TYPE_UAV:
                 p1->u.descriptor.shader_register = p->u.descriptor.shader_register;
                 p1->u.descriptor.register_space = p->u.descriptor.register_space;
                 p1->u.descriptor.flags = VKD3D_ROOT_SIGNATURE_1_0_ROOT_DESCRIPTOR_FLAGS;

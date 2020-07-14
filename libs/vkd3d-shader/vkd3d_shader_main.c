@@ -486,7 +486,7 @@ static void vkd3d_shader_free_root_signature_v_1_0(struct vkd3d_root_signature_d
     {
         const struct vkd3d_root_parameter *parameter = &root_signature->parameters[i];
 
-        if (parameter->parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+        if (parameter->parameter_type == VKD3D_SHADER_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
             vkd3d_free((void *)parameter->u.descriptor_table.descriptor_ranges);
     }
     vkd3d_free((void *)root_signature->parameters);
@@ -503,7 +503,7 @@ static void vkd3d_shader_free_root_signature_v_1_1(struct vkd3d_root_signature_d
     {
         const struct vkd3d_root_parameter1 *parameter = &root_signature->parameters[i];
 
-        if (parameter->parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+        if (parameter->parameter_type == VKD3D_SHADER_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
             vkd3d_free((void *)parameter->u.descriptor_table.descriptor_ranges);
     }
     vkd3d_free((void *)root_signature->parameters);
