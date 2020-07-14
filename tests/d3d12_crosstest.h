@@ -676,7 +676,7 @@ static inline bool is_depth_clip_enable_supported(ID3D12Device *device)
 
 static void parse_args(int argc, char **argv)
 {
-    unsigned int i;
+    int i;
 
     for (i = 1; i < argc; ++i)
     {
@@ -692,7 +692,7 @@ static void enable_d3d12_debug_layer(int argc, char **argv)
     bool enable_debug_layer = false, enable_gpu_based_validation = false;
     ID3D12Debug1 *debug1;
     ID3D12Debug *debug;
-    unsigned int i;
+    int i;
 
     for (i = 1; i < argc; ++i)
     {
