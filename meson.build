@@ -1,4 +1,4 @@
-project('vkd3d', ['c'], version : '1.1', meson_version : '>= 0.51', default_options : [
+project('vkd3d', ['c'], version : '1.1', meson_version : '>= 0.49', default_options : [
   'warning_level=2',
 ])
 
