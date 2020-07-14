@@ -511,13 +511,15 @@ enum vkd3d_root_descriptor_flags
     VKD3D_ROOT_DESCRIPTOR_FLAG_DATA_STATIC = 0x8,
 };
 
-enum vkd3d_descriptor_range_flags
+enum vkd3d_shader_descriptor_range_flags
 {
-    VKD3D_DESCRIPTOR_RANGE_FLAG_NONE = 0x0,
-    VKD3D_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE = 0x1,
-    VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE = 0x2,
-    VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE = 0x4,
-    VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_STATIC = 0x8,
+    VKD3D_SHADER_DESCRIPTOR_RANGE_FLAG_NONE                             = 0x0,
+    VKD3D_SHADER_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE             = 0x1,
+    VKD3D_SHADER_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE                    = 0x2,
+    VKD3D_SHADER_DESCRIPTOR_RANGE_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE = 0x4,
+    VKD3D_SHADER_DESCRIPTOR_RANGE_FLAG_DATA_STATIC                      = 0x8,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_DESCRIPTOR_RANGE_FLAGS),
 };
 
 struct vkd3d_descriptor_range1
@@ -526,7 +528,7 @@ struct vkd3d_descriptor_range1
     unsigned int descriptor_count;
     unsigned int base_shader_register;
     unsigned int register_space;
-    enum vkd3d_descriptor_range_flags flags;
+    enum vkd3d_shader_descriptor_range_flags flags;
     unsigned int descriptor_table_offset;
 };
 

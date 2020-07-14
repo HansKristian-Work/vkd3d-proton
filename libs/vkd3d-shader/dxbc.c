@@ -2214,7 +2214,7 @@ int shader_extract_from_dxbc(const void *dxbc, size_t dxbc_length,
 #define VKD3D_ROOT_SIGNATURE_1_0_ROOT_DESCRIPTOR_FLAGS VKD3D_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE
 
 #define VKD3D_ROOT_SIGNATURE_1_0_DESCRIPTOR_RANGE_FLAGS \
-        (VKD3D_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE | VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE)
+        (VKD3D_SHADER_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE | VKD3D_SHADER_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE)
 
 struct root_signature_parser_context
 {
@@ -2255,11 +2255,11 @@ static int shader_parse_descriptor_ranges(struct root_signature_parser_context *
 
 static void shader_validate_descriptor_range1(const struct vkd3d_descriptor_range1 *range)
 {
-    unsigned int unknown_flags = range->flags & ~(VKD3D_DESCRIPTOR_RANGE_FLAG_NONE
-            | VKD3D_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE
-            | VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE
-            | VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE
-            | VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+    unsigned int unknown_flags = range->flags & ~(VKD3D_SHADER_DESCRIPTOR_RANGE_FLAG_NONE
+            | VKD3D_SHADER_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE
+            | VKD3D_SHADER_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE
+            | VKD3D_SHADER_DESCRIPTOR_RANGE_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE
+            | VKD3D_SHADER_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
 
     if (unknown_flags)
         FIXME("Unknown descriptor range flags %#x.\n", unknown_flags);
