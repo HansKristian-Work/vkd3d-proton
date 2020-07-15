@@ -2111,6 +2111,67 @@ static void d3d12_command_list_clear_attachment_deferred(struct d3d12_command_li
         attachment->value.depthStencil.stencil = clear_value->depthStencil.stencil;
 }
 
+static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, const VkImageSubresourceLayers *subresource, bool is_bound)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct vkd3d_format *format;
+    VkImageMemoryBarrier barrier;
+    VkPipelineStageFlags stages;
+    VkAccessFlags access;
+    VkImageLayout layout;
+
+    /* Ignore read access bits since reads will be undefined anyway */
+    if (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)
+    {
+        stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        access = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        layout = is_bound ? d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) : resource->common_layout;
+    }
+    else if (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
+    {
+        stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        layout = is_bound && list->dsv_layout ? list->dsv_layout : resource->common_layout;
+    }
+    else
+    {
+        ERR("Unsupported resource flags %#x.\n", resource->desc.Flags);
+        return;
+    }
+
+    /* Transitioning only one aspect of a depth-stencil image is not allowed */
+    format = vkd3d_format_from_d3d12_resource_desc(list->device, &resource->desc, 0);
+
+    if (format->vk_aspect_mask != subresource->aspectMask)
+        return;
+
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.pNext = NULL;
+    barrier.srcAccessMask = access;
+    barrier.dstAccessMask = access;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = layout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = resource->vk_image;
+    barrier.subresourceRange = vk_subresource_range_from_layers(subresource);
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+        stages, stages, 0, 0, NULL, 0, NULL, 1, &barrier));
+}
+
+static void d3d12_command_list_discard_attachment_deferred(struct d3d12_command_list *list,
+        uint32_t attachment_idx, VkImageAspectFlags discard_aspects)
+{
+    struct vkd3d_clear_state *clear_state = &list->clear_state;
+    struct vkd3d_clear_attachment *attachment = &clear_state->attachments[attachment_idx];
+
+    clear_state->attachment_mask |= 1u << attachment_idx;
+    attachment->aspect_mask &= ~discard_aspects;
+    attachment->discard_mask |= discard_aspects;
+}
+
 static bool d3d12_command_list_has_render_pass_rtv_clear(struct d3d12_command_list *list, unsigned int attachment_idx)
 {
     const struct d3d12_graphics_pipeline_state *graphics;
@@ -2181,6 +2242,14 @@ static void d3d12_command_list_emit_deferred_clear(struct d3d12_command_list *li
         {
             d3d12_command_list_clear_attachment_pass(list, resource, view,
                     clear_attachment->aspect_mask, &clear_attachment->value, 0, NULL);
+        }
+
+        if (clear_attachment->discard_mask)
+        {
+            vk_subresource_layers = vk_subresource_layers_from_view(view);
+
+            d3d12_command_list_discard_attachment_barrier(list, resource,
+                    &vk_subresource_layers, list->render_pass_suspended);
         }
     }
 
@@ -6287,7 +6356,77 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
 static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_list_iface *iface,
         ID3D12Resource *resource, const D3D12_DISCARD_REGION *region)
 {
-    FIXME_ONCE("iface %p, resource %p, region %p stub!\n", iface, resource, region);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_resource *texture = unsafe_impl_from_ID3D12Resource(resource);
+    VkImageSubresourceLayers vk_subresource_layers;
+    VkImageSubresource vk_subresource;
+    D3D12_RECT full_rect;
+    int attachment_idx;
+    bool full_discard;
+    unsigned int i;
+
+    TRACE("iface %p, resource %p, region %p.\n", iface, resource, region);
+
+    /* This method is only supported on DIRECT and COMPUTE queues,
+     * but we only implement it for render targets, so ignore it
+     * on compute. */
+    if (list->type != D3D12_COMMAND_LIST_TYPE_DIRECT)
+    {
+        WARN("Not supported for queue type %d.\n", list->type);
+        return;
+    }
+
+    /* Ignore buffers */
+    if (!d3d12_resource_is_texture(texture))
+        return;
+
+    /* D3D12 requires that the texture is either in render target
+     * state or in depth-stencil state depending on usage flags */
+    if (!(texture->desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)))
+    {
+        WARN("Not supported for resource %p.\n", resource);
+        return;
+    }
+
+    /* We can't meaningfully discard sub-regions of an image. If rects
+     * are specified, all specified subresources must have the same
+     * dimensions, so just base this off the first subresource */
+    if (!(full_discard = !region->NumRects))
+    {
+        vk_subresource = d3d12_resource_get_vk_subresource(texture, region->FirstSubresource, false);
+        full_rect = d3d12_get_image_rect(texture, vk_subresource.mipLevel);
+
+        for (i = 0; i < region->NumRects && !full_discard; i++)
+            full_discard = !memcmp(&region->pRects[i], &full_rect, sizeof(full_rect));
+    }
+
+    if (!full_discard)
+        return;
+
+    for (i = region->FirstSubresource; i < region->FirstSubresource + region->NumSubresources; i++)
+    {
+        vk_subresource = d3d12_resource_get_vk_subresource(texture, i, false);
+        vk_subresource_layers = vk_subresource_layers_from_subresource(&vk_subresource);
+        attachment_idx = d3d12_command_list_find_attachment_view(list, texture, &vk_subresource_layers);
+
+        if (attachment_idx < 0)
+        {
+            /* Image is not currently bound as an attachment */
+            d3d12_command_list_end_current_render_pass(list, false);
+            d3d12_command_list_discard_attachment_barrier(list, texture, &vk_subresource_layers, false);
+        }
+        else if (list->current_render_pass || list->render_pass_suspended)
+        {
+            /* Image is bound and the render pass is active */
+            d3d12_command_list_end_current_render_pass(list, true);
+            d3d12_command_list_discard_attachment_barrier(list, texture, &vk_subresource_layers, true);
+        }
+        else
+        {
+            /* Image is bound, but the render pass is not active */
+            d3d12_command_list_discard_attachment_deferred(list, attachment_idx, vk_subresource.aspectMask);
+        }
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_iface *iface,
