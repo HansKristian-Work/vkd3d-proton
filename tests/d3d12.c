@@ -44795,6 +44795,81 @@ static void test_aliasing_barrier(void)
     destroy_test_context(&context);
 }
 
+static void test_discard_resource(void)
+{
+    ID3D12DescriptorHeap *dsv_heap, *rtv_heap;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv;
+    D3D12_DISCARD_REGION region;
+    struct test_context context;
+    ID3D12Device *device;
+    ID3D12Resource *rt;
+    HRESULT hr;
+
+    const float clear_color[] = { 1.0f, 0.0f, 0.0f, 0.0f };
+
+    if (!init_test_context(&context, NULL))
+        return;
+    device = context.device;
+    command_list = context.list;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 16;
+    resource_desc.Height = 16;
+    resource_desc.DepthOrArraySize = 2;
+    resource_desc.MipLevels = 1;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&rt);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+
+    region.NumRects = 0;
+    region.pRects = NULL;
+    region.FirstSubresource = 0;
+    region.NumSubresources = 2;
+
+    ID3D12GraphicsCommandList_DiscardResource(context.list, rt, &region);
+
+    rtv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    rtv = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap);
+
+    ID3D12Device_CreateRenderTargetView(device, rt, NULL, rtv);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, false, NULL);
+    ID3D12GraphicsCommandList_DiscardResource(context.list, rt, &region);
+
+    /* Just make sure we don't have validation errors */
+    hr = ID3D12GraphicsCommandList_Close(context.list);
+    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
+    hr = ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+    ok(hr == S_OK, "Failed to reset command list, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, false, NULL);
+    ID3D12GraphicsCommandList_DiscardResource(context.list, rt, &region);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv, clear_color, 0, NULL);
+
+    region.FirstSubresource = 1;
+    region.NumSubresources = 1;
+    ID3D12GraphicsCommandList_DiscardResource(context.list, rt, &region);
+
+    /* Ensure that the clear gets executed properly for subresource 0 */
+    check_sub_resource_uint(rt, 0, context.queue, context.list, 0x000000ffu, 0);
+
+    ID3D12Resource_Release(rt);
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -45013,4 +45088,5 @@ START_TEST(d3d12)
     run_test(test_texture_feedback_instructions_sm51);
     run_test(test_texture_feedback_instructions_dxil);
     run_test(test_aliasing_barrier);
+    run_test(test_discard_resource);
 }
