@@ -367,15 +367,15 @@ enum vkd3d_shader_filter
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_FILTER),
 };
 
-enum vkd3d_texture_address_mode
+enum vkd3d_shader_texture_address_mode
 {
-    VKD3D_TEXTURE_ADDRESS_MODE_WRAP = 1,
-    VKD3D_TEXTURE_ADDRESS_MODE_MIRROR = 2,
-    VKD3D_TEXTURE_ADDRESS_MODE_CLAMP = 3,
-    VKD3D_TEXTURE_ADDRESS_MODE_BORDER = 4,
-    VKD3D_TEXTURE_ADDRESS_MODE_MIRROR_ONCE = 5,
+    VKD3D_SHADER_TEXTURE_ADDRESS_MODE_WRAP        = 0x1,
+    VKD3D_SHADER_TEXTURE_ADDRESS_MODE_MIRROR      = 0x2,
+    VKD3D_SHADER_TEXTURE_ADDRESS_MODE_CLAMP       = 0x3,
+    VKD3D_SHADER_TEXTURE_ADDRESS_MODE_BORDER      = 0x4,
+    VKD3D_SHADER_TEXTURE_ADDRESS_MODE_MIRROR_ONCE = 0x5,
 
-    VKD3D_FORCE_32_BIT_ENUM(VKD3D_TEXTURE_ADDRESS_MODE),
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_TEXTURE_ADDRESS_MODE),
 };
 
 enum vkd3d_comparison_func
@@ -404,9 +404,9 @@ enum vkd3d_static_border_color
 struct vkd3d_static_sampler_desc
 {
     enum vkd3d_shader_filter filter;
-    enum vkd3d_texture_address_mode address_u;
-    enum vkd3d_texture_address_mode address_v;
-    enum vkd3d_texture_address_mode address_w;
+    enum vkd3d_shader_texture_address_mode address_u;
+    enum vkd3d_shader_texture_address_mode address_v;
+    enum vkd3d_shader_texture_address_mode address_w;
     float mip_lod_bias;
     unsigned int max_anisotropy;
     enum vkd3d_comparison_func comparison_func;
