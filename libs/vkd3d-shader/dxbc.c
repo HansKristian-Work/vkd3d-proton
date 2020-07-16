@@ -2300,7 +2300,7 @@ static int shader_parse_descriptor_ranges1(struct root_signature_parser_context 
 }
 
 static int shader_parse_descriptor_table(struct root_signature_parser_context *context,
-        unsigned int offset, struct vkd3d_root_descriptor_table *table)
+        unsigned int offset, struct vkd3d_shader_root_descriptor_table *table)
 {
     struct vkd3d_shader_descriptor_range *ranges;
     unsigned int count;
@@ -2807,7 +2807,7 @@ static int shader_write_root_signature_header(struct root_signature_writer_conte
 }
 
 static int shader_write_descriptor_ranges(struct root_signature_writer_context *context,
-        const struct vkd3d_root_descriptor_table *table)
+        const struct vkd3d_shader_root_descriptor_table *table)
 {
     const struct vkd3d_shader_descriptor_range *ranges = table->descriptor_ranges;
     unsigned int i;
@@ -2855,7 +2855,7 @@ static int shader_write_descriptor_ranges1(struct root_signature_writer_context 
 }
 
 static int shader_write_descriptor_table(struct root_signature_writer_context *context,
-        const struct vkd3d_root_descriptor_table *table)
+        const struct vkd3d_shader_root_descriptor_table *table)
 {
     if (!write_dword(context, table->descriptor_range_count))
         return VKD3D_ERROR_OUT_OF_MEMORY;
@@ -3036,7 +3036,7 @@ static int shader_write_root_signature(struct root_signature_writer_context *con
     return shader_write_static_samplers(context, desc);
 }
 
-static int validate_descriptor_table_v_1_0(const struct vkd3d_root_descriptor_table *descriptor_table)
+static int validate_descriptor_table_v_1_0(const struct vkd3d_shader_root_descriptor_table *descriptor_table)
 {
     bool have_srv_uav_cbv = false;
     bool have_sampler = false;

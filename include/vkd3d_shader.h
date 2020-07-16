@@ -437,7 +437,7 @@ struct vkd3d_shader_descriptor_range
     unsigned int descriptor_table_offset;
 };
 
-struct vkd3d_root_descriptor_table
+struct vkd3d_shader_root_descriptor_table
 {
     unsigned int descriptor_range_count;
     const struct vkd3d_shader_descriptor_range *descriptor_ranges;
@@ -472,7 +472,7 @@ struct vkd3d_root_parameter
     enum vkd3d_shader_root_parameter_type parameter_type;
     union
     {
-        struct vkd3d_root_descriptor_table descriptor_table;
+        struct vkd3d_shader_root_descriptor_table descriptor_table;
         struct vkd3d_root_constants constants;
         struct vkd3d_root_descriptor descriptor;
     } u;
