@@ -31,6 +31,7 @@ in order to pull in all the submodules which are needed for building.
   - On Windows this may be substituted for [Strawberry Perl](http://strawberryperl.com/) as it ships `widl` and is easy to find and install -- although this dependency may be eliminated in the future.
 - [Meson](http://mesonbuild.com/) build system (at least version 0.51)
 - [glslang](https://github.com/KhronosGroup/glslang) compiler
+- [Mingw-w64](http://mingw-w64.org/) compiler and headers (at least version 7.0) [for cross-builds for d3d12.dll which are default]
 
 ### Building:
 #### The simple way
@@ -41,6 +42,8 @@ Inside the VKD3D directory, run:
 
 This will create a folder `vkd3d-master` in `/your/target/directory`, which contains both 32-bit and 64-bit versions of VKD3D, which can be set up in the same way as the release versions as noted above.
 
+If you want to build natively (ie. for `libvkd3d.so`), pass `--native` to the build script. This option will make it build using your system's compilers.
+
 In order to preserve the build directories for development, pass `--dev-build` to the script. This option implies `--no-package`. After making changes to the source code, you can then do the following to rebuild VKD3D:
 ```
 # change to build.86 for 32-bit
@@ -48,7 +51,20 @@ cd /your/target/directory/build.64
 ninja install
 ```
 
-#### Compiling manually
+#### Compiling manually (cross for d3d12.dll, default)
+```
+# 64-bit build.
+meson --cross-file build-win64.txt -Denable_standalone_d3d12=True --buildtype release --prefix /your/vkd3d/directory build.64
+cd build.64
+ninja install
+
+# 32-bit build
+meson --cross-file build-win32.txt -Denable_standalone_d3d12=True  --buildtype release --prefix /your/vkd3d/directory build.86
+cd build.86
+ninja install
+```
+
+#### Compiling manually (native)
 ```
 # 64-bit build.
 meson --buildtype release --prefix /your/vkd3d/directory build.64
