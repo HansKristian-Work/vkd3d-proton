@@ -44869,6 +44869,29 @@ static void test_discard_resource(void)
     destroy_test_context(&context);
 }
 
+static void test_clock_calibration(void)
+{
+    uint64_t cpu_times[2], gpu_times[2];
+    struct test_context context;
+    HRESULT hr;
+
+    if (!init_test_context(&context, NULL))
+        return;
+
+    hr = ID3D12CommandQueue_GetClockCalibration(context.queue, &gpu_times[0], &cpu_times[0]);
+    ok(hr == S_OK, "Failed retrieve calibrated timestamps, hr %#x.\n", hr);
+
+    vkd3d_sleep(100);
+
+    hr = ID3D12CommandQueue_GetClockCalibration(context.queue, &gpu_times[1], &cpu_times[1]);
+    ok(hr == S_OK, "Failed retrieve calibrated timestamps, hr %#x.\n", hr);
+
+    ok(gpu_times[1] > gpu_times[0], "Inconsistent GPU timestamps.\n");
+    ok(cpu_times[1] > cpu_times[0], "Inconsistent CPU timestamps.\n");
+
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -45088,4 +45111,5 @@ START_TEST(d3d12)
     run_test(test_texture_feedback_instructions_dxil);
     run_test(test_aliasing_barrier);
     run_test(test_discard_resource);
+    run_test(test_clock_calibration);
 }
