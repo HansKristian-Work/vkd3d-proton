@@ -45,6 +45,7 @@
 
 #if !defined(_WIN32)
 #include <dlfcn.h>
+#include <unistd.h>
 #endif
 
 #include "d3d12_test_utils.h"
@@ -107,6 +108,19 @@ static inline void destroy_event(HANDLE event)
 }
 
 #define get_d3d12_pfn(name) (name)
+#endif
+
+#if defined(_WIN32)
+static inline void vkd3d_sleep(unsigned int ms)
+{
+    Sleep(ms);
+}
+
+#else
+static inline void vkd3d_sleep(unsigned int ms)
+{
+    usleep(1000 * ms);
+}
 #endif
 
 typedef void (*thread_main_pfn)(void *data);
