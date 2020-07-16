@@ -5,7 +5,7 @@ set -e
 shopt -s extglob
 
 if [ -z "$1" ] || [ -z "$2" ]; then
-  echo "Usage: $0 version destdir [--no-package] [--dev-build]"
+  echo "Usage: $0 version destdir [--native] [--no-package] [--dev-build]"
   exit 1
 fi
 
@@ -23,11 +23,15 @@ shift 2
 
 opt_nopackage=0
 opt_devbuild=0
+opt_native=0
 
 crossfile="build-win"
 
 while [ $# -gt 0 ]; do
   case "$1" in
+  "--native")
+    opt_native=1
+    ;;
   "--no-package")
     opt_nopackage=1
     ;;
@@ -57,6 +61,12 @@ function build_arch {
   ninja install
 
   if [ $opt_devbuild -eq 0 ]; then
+    if [ $opt_native -eq 0 ]; then
+        # get rid of some useless .a files
+        rm "$VKD3D_BUILD_DIR/x$1/"*.!(dll)
+        # get rid of vkd3d-utils.dll
+        rm "$VKD3D_BUILD_DIR/x$1/libvkd3d-utils.dll"
+    fi
     rm -R "$VKD3D_BUILD_DIR/build.$1"
   fi
 }
@@ -67,8 +77,13 @@ function package {
   rm -R "vkd3d-$VKD3D_VERSION"
 }
 
-build_arch 64
-build_arch 86 "--cross-file x86-linux-gnu"
+if [ $opt_native -eq 0 ]; then
+  build_arch 64 "--cross-file build-win64.txt -Denable_standalone_d3d12=True"
+  build_arch 86 "--cross-file build-win32.txt -Denable_standalone_d3d12=True"
+else
+  build_arch 64
+  build_arch 86 "--cross-file x86-linux-gnu"
+fi
 
 if [ $opt_nopackage -eq 0 ]; then
   package
