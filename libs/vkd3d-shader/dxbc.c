@@ -2376,7 +2376,7 @@ static int shader_parse_root_constants(struct root_signature_parser_context *con
 }
 
 static int shader_parse_root_descriptor(struct root_signature_parser_context *context,
-        unsigned int offset, struct vkd3d_root_descriptor *descriptor)
+        unsigned int offset, struct vkd3d_shader_root_descriptor *descriptor)
 {
     const char *ptr;
 
@@ -2890,7 +2890,7 @@ static int shader_write_root_constants(struct root_signature_writer_context *con
 }
 
 static int shader_write_root_descriptor(struct root_signature_writer_context *context,
-        const struct vkd3d_root_descriptor *descriptor)
+        const struct vkd3d_shader_root_descriptor *descriptor)
 {
     if (!write_dword(context, descriptor->shader_register))
         return VKD3D_ERROR_OUT_OF_MEMORY;
