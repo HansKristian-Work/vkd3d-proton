@@ -2354,7 +2354,7 @@ static int shader_parse_descriptor_table1(struct root_signature_parser_context *
 }
 
 static int shader_parse_root_constants(struct root_signature_parser_context *context,
-        unsigned int offset, struct vkd3d_root_constants *constants)
+        unsigned int offset, struct vkd3d_shader_root_constants *constants)
 {
     const char *ptr;
 
@@ -2696,7 +2696,7 @@ static enum vkd3d_shader_visibility versioned_root_signature_get_parameter_shade
         return desc->u.v_1_1.parameters[i].shader_visibility;
 }
 
-static const struct vkd3d_root_constants *versioned_root_signature_get_root_constants(
+static const struct vkd3d_shader_root_constants *versioned_root_signature_get_root_constants(
         const struct vkd3d_versioned_root_signature_desc *desc, unsigned int i)
 {
     if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
@@ -2877,7 +2877,7 @@ static int shader_write_descriptor_table1(struct root_signature_writer_context *
 }
 
 static int shader_write_root_constants(struct root_signature_writer_context *context,
-        const struct vkd3d_root_constants *constants)
+        const struct vkd3d_shader_root_constants *constants)
 {
     if (!write_dword(context, constants->shader_register))
         return VKD3D_ERROR_OUT_OF_MEMORY;
