@@ -378,18 +378,18 @@ enum vkd3d_shader_texture_address_mode
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_TEXTURE_ADDRESS_MODE),
 };
 
-enum vkd3d_comparison_func
+enum vkd3d_shader_comparison_func
 {
-    VKD3D_COMPARISON_FUNC_NEVER = 1,
-    VKD3D_COMPARISON_FUNC_LESS = 2,
-    VKD3D_COMPARISON_FUNC_EQUAL = 3,
-    VKD3D_COMPARISON_FUNC_LESS_EQUAL = 4,
-    VKD3D_COMPARISON_FUNC_GREATER = 5,
-    VKD3D_COMPARISON_FUNC_NOT_EQUAL = 6,
-    VKD3D_COMPARISON_FUNC_GREATER_EQUAL = 7,
-    VKD3D_COMPARISON_FUNC_ALWAYS = 8,
+    VKD3D_SHADER_COMPARISON_FUNC_NEVER         = 0x1,
+    VKD3D_SHADER_COMPARISON_FUNC_LESS          = 0x2,
+    VKD3D_SHADER_COMPARISON_FUNC_EQUAL         = 0x3,
+    VKD3D_SHADER_COMPARISON_FUNC_LESS_EQUAL    = 0x4,
+    VKD3D_SHADER_COMPARISON_FUNC_GREATER       = 0x5,
+    VKD3D_SHADER_COMPARISON_FUNC_NOT_EQUAL     = 0x6,
+    VKD3D_SHADER_COMPARISON_FUNC_GREATER_EQUAL = 0x7,
+    VKD3D_SHADER_COMPARISON_FUNC_ALWAYS        = 0x8,
 
-    VKD3D_FORCE_32_BIT_ENUM(VKD3D_COMPARISON_FUNC),
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_COMPARISON_FUNC),
 };
 
 enum vkd3d_static_border_color
@@ -409,7 +409,7 @@ struct vkd3d_static_sampler_desc
     enum vkd3d_shader_texture_address_mode address_w;
     float mip_lod_bias;
     unsigned int max_anisotropy;
-    enum vkd3d_comparison_func comparison_func;
+    enum vkd3d_shader_comparison_func comparison_func;
     enum vkd3d_static_border_color border_color;
     float min_lod;
     float max_lod;
