@@ -4239,6 +4239,10 @@ static CONST_VTBL struct ID3D12Device6Vtbl d3d12_device_vtbl =
     d3d12_device_SetBackgroundProcessingMode,
 };
 
+#ifdef VKD3D_ENABLE_PROFILING
+#include "device_profiled.h"
+#endif
+
 static D3D12_RESOURCE_BINDING_TIER d3d12_device_determine_resource_binding_tier(struct d3d12_device *device)
 {
     const uint32_t tier_2_required_flags = VKD3D_BINDLESS_SRV | VKD3D_BINDLESS_SAMPLER;
@@ -4619,7 +4623,14 @@ struct d3d12_device *unsafe_impl_from_ID3D12Device(d3d12_device_iface *iface)
 {
     if (!iface)
         return NULL;
+
+#ifdef VKD3D_ENABLE_PROFILING
+    assert(iface->lpVtbl == &d3d12_device_vtbl ||
+           iface->lpVtbl == &d3d12_device_vtbl_profiled);
+#else
     assert(iface->lpVtbl == &d3d12_device_vtbl);
+#endif
+
     return impl_from_ID3D12Device(iface);
 }
 
@@ -4629,7 +4640,15 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     const struct vkd3d_vk_device_procs *vk_procs;
     HRESULT hr;
 
+#ifdef VKD3D_ENABLE_PROFILING
+    if (vkd3d_uses_profiling())
+        device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl_profiled;
+    else
+        device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl;
+#else
     device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl;
+#endif
+
     device->refcount = 1;
 
     vkd3d_instance_incref(device->vkd3d_instance = instance);
