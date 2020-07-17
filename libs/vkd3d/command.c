@@ -7127,11 +7127,20 @@ static CONST_VTBL struct ID3D12GraphicsCommandList5Vtbl d3d12_command_list_vtbl 
     d3d12_command_list_RSSetShadingRateImage,
 };
 
+#ifdef VKD3D_ENABLE_PROFILING
+#include "command_list_profiled.h"
+#endif
+
 static struct d3d12_command_list *unsafe_impl_from_ID3D12CommandList(ID3D12CommandList *iface)
 {
     if (!iface)
         return NULL;
+#ifdef VKD3D_ENABLE_PROFILING
+    assert(iface->lpVtbl == (struct ID3D12CommandListVtbl *)&d3d12_command_list_vtbl ||
+           iface->lpVtbl == (struct ID3D12CommandListVtbl *)&d3d12_command_list_vtbl_profiled);
+#else
     assert(iface->lpVtbl == (struct ID3D12CommandListVtbl *)&d3d12_command_list_vtbl);
+#endif
     return CONTAINING_RECORD(iface, struct d3d12_command_list, ID3D12GraphicsCommandList_iface);
 }
 
@@ -7142,7 +7151,16 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     HRESULT hr;
 
     memset(list, 0, sizeof(*list));
+
+#ifdef VKD3D_ENABLE_PROFILING
+    if (vkd3d_uses_profiling())
+        list->ID3D12GraphicsCommandList_iface.lpVtbl = &d3d12_command_list_vtbl_profiled;
+    else
+        list->ID3D12GraphicsCommandList_iface.lpVtbl = &d3d12_command_list_vtbl;
+#else
     list->ID3D12GraphicsCommandList_iface.lpVtbl = &d3d12_command_list_vtbl;
+#endif
+
     list->refcount = 1;
 
     list->type = type;
