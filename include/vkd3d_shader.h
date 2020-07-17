@@ -540,7 +540,7 @@ struct vkd3d_shader_root_descriptor_table1
     const struct vkd3d_shader_descriptor_range1 *descriptor_ranges;
 };
 
-struct vkd3d_root_descriptor1
+struct vkd3d_shader_root_descriptor1
 {
     unsigned int shader_register;
     unsigned int register_space;
@@ -554,7 +554,7 @@ struct vkd3d_root_parameter1
     {
         struct vkd3d_shader_root_descriptor_table1 descriptor_table;
         struct vkd3d_shader_root_constants constants;
-        struct vkd3d_root_descriptor1 descriptor;
+        struct vkd3d_shader_root_descriptor1 descriptor;
     } u;
     enum vkd3d_shader_visibility shader_visibility;
 };

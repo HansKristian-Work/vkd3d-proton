@@ -2396,7 +2396,7 @@ static int shader_parse_root_descriptor(struct root_signature_parser_context *co
     return VKD3D_OK;
 }
 
-static void shader_validate_root_descriptor1(const struct vkd3d_root_descriptor1 *descriptor)
+static void shader_validate_root_descriptor1(const struct vkd3d_shader_root_descriptor1 *descriptor)
 {
     unsigned int unknown_flags = descriptor->flags & ~(VKD3D_SHADER_ROOT_DESCRIPTOR_FLAG_NONE
             | VKD3D_SHADER_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE
@@ -2408,7 +2408,7 @@ static void shader_validate_root_descriptor1(const struct vkd3d_root_descriptor1
 }
 
 static int shader_parse_root_descriptor1(struct root_signature_parser_context *context,
-        unsigned int offset, struct vkd3d_root_descriptor1 *descriptor)
+        unsigned int offset, struct vkd3d_shader_root_descriptor1 *descriptor)
 {
     const char *ptr;
 
@@ -2901,7 +2901,7 @@ static int shader_write_root_descriptor(struct root_signature_writer_context *co
 }
 
 static int shader_write_root_descriptor1(struct root_signature_writer_context *context,
-        const struct vkd3d_root_descriptor1 *descriptor)
+        const struct vkd3d_shader_root_descriptor1 *descriptor)
 {
     if (!write_dword(context, descriptor->shader_register))
         return VKD3D_ERROR_OUT_OF_MEMORY;
