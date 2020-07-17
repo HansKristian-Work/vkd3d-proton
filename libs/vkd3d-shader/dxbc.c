@@ -2549,7 +2549,7 @@ static int shader_parse_static_samplers(struct root_signature_parser_context *co
         read_float(&ptr, &sampler_descs[i].mip_lod_bias);
         read_dword(&ptr, &sampler_descs[i].max_anisotropy);
         read_dword(&ptr, &sampler_descs[i].comparison_func);
-        read_dword(&ptr, &sampler_descs[i].border_color);
+        read_dword(&ptr, &sampler_descs[i].border_colour);
         read_float(&ptr, &sampler_descs[i].min_lod);
         read_float(&ptr, &sampler_descs[i].max_lod);
         read_dword(&ptr, &sampler_descs[i].shader_register);
@@ -2989,7 +2989,7 @@ static int shader_write_static_samplers(struct root_signature_writer_context *co
             return VKD3D_ERROR_OUT_OF_MEMORY;
         if (!write_dword(context, samplers[i].comparison_func))
             return VKD3D_ERROR_OUT_OF_MEMORY;
-        if (!write_dword(context, samplers[i].border_color))
+        if (!write_dword(context, samplers[i].border_colour))
             return VKD3D_ERROR_OUT_OF_MEMORY;
         if (!write_float(context, samplers[i].min_lod))
             return VKD3D_ERROR_OUT_OF_MEMORY;

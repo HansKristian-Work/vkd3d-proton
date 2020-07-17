@@ -392,13 +392,13 @@ enum vkd3d_shader_comparison_func
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_COMPARISON_FUNC),
 };
 
-enum vkd3d_static_border_color
+enum vkd3d_shader_static_border_colour
 {
-    VKD3D_STATIC_BORDER_COLOR_TRANSPARENT_BLACK = 0,
-    VKD3D_STATIC_BORDER_COLOR_OPAQUE_BLACK = 1,
-    VKD3D_STATIC_BORDER_COLOR_OPAQUE_WHITE = 2,
+    VKD3D_SHADER_STATIC_BORDER_COLOUR_TRANSPARENT_BLACK = 0x0,
+    VKD3D_SHADER_STATIC_BORDER_COLOUR_OPAQUE_BLACK      = 0x1,
+    VKD3D_SHADER_STATIC_BORDER_COLOUR_OPAQUE_WHITE      = 0x2,
 
-    VKD3D_FORCE_32_BIT_ENUM(VKD3D_STATIC_BORDER_COLOR),
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_STATIC_BORDER_COLOUR),
 };
 
 struct vkd3d_static_sampler_desc
@@ -410,7 +410,7 @@ struct vkd3d_static_sampler_desc
     float mip_lod_bias;
     unsigned int max_anisotropy;
     enum vkd3d_shader_comparison_func comparison_func;
-    enum vkd3d_static_border_color border_color;
+    enum vkd3d_shader_static_border_colour border_colour;
     float min_lod;
     float max_lod;
     unsigned int shader_register;
