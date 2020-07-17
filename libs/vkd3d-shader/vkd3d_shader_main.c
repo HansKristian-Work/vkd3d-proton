@@ -484,7 +484,7 @@ static void vkd3d_shader_free_root_signature_v_1_0(struct vkd3d_root_signature_d
 
     for (i = 0; i < root_signature->parameter_count; ++i)
     {
-        const struct vkd3d_root_parameter *parameter = &root_signature->parameters[i];
+        const struct vkd3d_shader_root_parameter *parameter = &root_signature->parameters[i];
 
         if (parameter->parameter_type == VKD3D_SHADER_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
             vkd3d_free((void *)parameter->u.descriptor_table.descriptor_ranges);

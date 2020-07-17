@@ -467,7 +467,7 @@ enum vkd3d_shader_root_parameter_type
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_ROOT_PARAMETER_TYPE),
 };
 
-struct vkd3d_root_parameter
+struct vkd3d_shader_root_parameter
 {
     enum vkd3d_shader_root_parameter_type parameter_type;
     union
@@ -496,7 +496,7 @@ enum vkd3d_root_signature_flags
 struct vkd3d_root_signature_desc
 {
     unsigned int parameter_count;
-    const struct vkd3d_root_parameter *parameters;
+    const struct vkd3d_shader_root_parameter *parameters;
     unsigned int static_sampler_count;
     const struct vkd3d_static_sampler_desc *static_samplers;
     enum vkd3d_root_signature_flags flags;
