@@ -8259,6 +8259,9 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
     struct d3d12_command_queue_submission submission;
     struct d3d12_command_queue *queue = userdata;
     unsigned int i;
+    VKD3D_REGION_DECL(queue_wait);
+    VKD3D_REGION_DECL(queue_signal);
+    VKD3D_REGION_DECL(queue_execute);
 
     vkd3d_set_thread_name("vkd3d_queue");
 
@@ -8279,20 +8282,26 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             return NULL;
 
         case VKD3D_SUBMISSION_WAIT:
+            VKD3D_REGION_BEGIN(queue_wait);
             d3d12_command_queue_wait(queue, submission.wait.fence, submission.wait.value);
+            VKD3D_REGION_END(queue_wait);
             break;
 
         case VKD3D_SUBMISSION_SIGNAL:
+            VKD3D_REGION_BEGIN(queue_signal);
             d3d12_command_queue_signal(queue, submission.signal.fence, submission.signal.value);
+            VKD3D_REGION_END(queue_signal);
             break;
 
         case VKD3D_SUBMISSION_EXECUTE:
+            VKD3D_REGION_BEGIN(queue_execute);
             d3d12_command_queue_execute(queue, submission.execute.cmd, submission.execute.count);
             vkd3d_free(submission.execute.cmd);
             /* TODO: The correct place to do this would be in a fence handler, but this is good enough for now. */
             for (i = 0; i < submission.execute.count; i++)
                 InterlockedDecrement(submission.execute.outstanding_submissions_count[i]);
             vkd3d_free(submission.execute.outstanding_submissions_count);
+            VKD3D_REGION_END(queue_execute);
             break;
 
         case VKD3D_SUBMISSION_BIND_SPARSE:
@@ -8434,11 +8443,19 @@ uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue)
 
 VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue)
 {
-    struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
+    struct d3d12_command_queue *d3d12_queue;
+    VkQueue vk_queue;
+
     /* For external users of the Vulkan queue, we must ensure that the queue is drained so that submissions happen in
      * desired order. */
+    VKD3D_REGION_DECL(acquire_vk_queue);
+    VKD3D_REGION_BEGIN(acquire_vk_queue);
+    d3d12_queue = impl_from_ID3D12CommandQueue(queue);
     d3d12_command_queue_acquire_serialized(d3d12_queue);
-    return vkd3d_queue_acquire(d3d12_queue->vkd3d_queue);
+    vk_queue = vkd3d_queue_acquire(d3d12_queue->vkd3d_queue);
+    VKD3D_REGION_END(acquire_vk_queue);
+
+    return vk_queue;
 }
 
 void vkd3d_release_vk_queue(ID3D12CommandQueue *queue)
