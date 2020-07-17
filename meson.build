@@ -12,6 +12,7 @@ vkd3d_platform = target_machine.system()
 enable_tests             = get_option('enable_tests')
 enable_extras            = get_option('enable_extras')
 enable_standalone_d3d12  = get_option('enable_standalone_d3d12')
+enable_profiling         = get_option('enable_profiling')
 
 if vkd3d_platform != 'windows' and enable_standalone_d3d12
   error('Standalone D3D12 is only supported on Windows.')
@@ -23,6 +24,10 @@ add_project_arguments('-DPACKAGE_VERSION="' + meson.project_version() + '"',   l
 
 if enable_standalone_d3d12
   add_project_arguments('-DVKD3D_BUILD_STANDALONE_D3D12', language : 'c')
+endif
+
+if enable_profiling
+  add_project_arguments('-DVKD3D_ENABLE_PROFILING', language : 'c')
 endif
 
 vkd3d_external_includes = [ './subprojects/Vulkan-Headers/include', './subprojects/SPIRV-Headers/include' ]
