@@ -21,6 +21,7 @@
 
 #include "vkd3d_windows.h"
 #include "vkd3d_spinlock.h"
+#include "vkd3d_profiling.h"
 
 #include <ctype.h>
 #include <stdint.h>
