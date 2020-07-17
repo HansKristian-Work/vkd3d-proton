@@ -115,4 +115,12 @@ commas or semicolons.
    platform controls the behavior of todo(), todo_if(), bug_if() and broken()
    conditions in tests.
  - `VKD3D_TEST_BUG` - set to 0 to disable bug_if() conditions in tests.
+ - `VKD3D_PROFILE_PATH` - If profiling is enabled in the build, a profiling block is
+   emitted to `${VKD3D_PROFILE_PATH}.${pid}`.
 
+## CPU profiling (development)
+
+Pass `-Denable_profiling=true` to Meson to enable a profiled build. With a profiled build, use `VKD3D_PROFILE_PATH` environment variable.
+The profiling dumps out a binary blob which can be analyzed with `programs/vkd3d-profile.py`.
+The profile is a trivial system which records number of iterations and total ticks (ns) spent.
+It is easy to instrument parts of code you are working on optimizing.
