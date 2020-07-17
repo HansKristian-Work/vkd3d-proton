@@ -3226,25 +3226,16 @@ static void STDMETHODCALLTYPE d3d12_device_CreateSampler(d3d12_device_iface *ifa
     d3d12_desc_write_atomic(d3d12_desc_from_cpu_handle(descriptor), &tmp, device);
 }
 
-static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(d3d12_device_iface *iface,
+static inline void d3d12_device_copy_descriptors(struct d3d12_device *device,
         UINT dst_descriptor_range_count, const D3D12_CPU_DESCRIPTOR_HANDLE *dst_descriptor_range_offsets,
         const UINT *dst_descriptor_range_sizes,
         UINT src_descriptor_range_count, const D3D12_CPU_DESCRIPTOR_HANDLE *src_descriptor_range_offsets,
         const UINT *src_descriptor_range_sizes,
         D3D12_DESCRIPTOR_HEAP_TYPE descriptor_heap_type)
 {
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
     unsigned int dst_range_idx, dst_idx, src_range_idx, src_idx;
     unsigned int dst_range_size, src_range_size;
     struct d3d12_desc *dst, *src;
-
-    TRACE("iface %p, dst_descriptor_range_count %u, dst_descriptor_range_offsets %p, "
-            "dst_descriptor_range_sizes %p, src_descriptor_range_count %u, "
-            "src_descriptor_range_offsets %p, src_descriptor_range_sizes %p, "
-            "descriptor_heap_type %#x.\n",
-            iface, dst_descriptor_range_count, dst_descriptor_range_offsets,
-            dst_descriptor_range_sizes, src_descriptor_range_count, src_descriptor_range_offsets,
-            src_descriptor_range_sizes, descriptor_heap_type);
 
     if (descriptor_heap_type != D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV
             && descriptor_heap_type != D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
@@ -3279,6 +3270,29 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(d3d12_device_iface *i
     }
 }
 
+static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors(d3d12_device_iface *iface,
+        UINT dst_descriptor_range_count, const D3D12_CPU_DESCRIPTOR_HANDLE *dst_descriptor_range_offsets,
+        const UINT *dst_descriptor_range_sizes,
+        UINT src_descriptor_range_count, const D3D12_CPU_DESCRIPTOR_HANDLE *src_descriptor_range_offsets,
+        const UINT *src_descriptor_range_sizes,
+        D3D12_DESCRIPTOR_HEAP_TYPE descriptor_heap_type)
+{
+    TRACE("iface %p, dst_descriptor_range_count %u, dst_descriptor_range_offsets %p, "
+            "dst_descriptor_range_sizes %p, src_descriptor_range_count %u, "
+            "src_descriptor_range_offsets %p, src_descriptor_range_sizes %p, "
+            "descriptor_heap_type %#x.\n",
+            iface, dst_descriptor_range_count, dst_descriptor_range_offsets,
+            dst_descriptor_range_sizes, src_descriptor_range_count, src_descriptor_range_offsets,
+            src_descriptor_range_sizes, descriptor_heap_type);
+
+    d3d12_device_copy_descriptors(impl_from_ID3D12Device(iface),
+            dst_descriptor_range_count, dst_descriptor_range_offsets,
+            dst_descriptor_range_sizes,
+            src_descriptor_range_count, src_descriptor_range_offsets,
+            src_descriptor_range_sizes,
+            descriptor_heap_type);
+}
+
 static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple(d3d12_device_iface *iface,
         UINT descriptor_count, const D3D12_CPU_DESCRIPTOR_HANDLE dst_descriptor_range_offset,
         const D3D12_CPU_DESCRIPTOR_HANDLE src_descriptor_range_offset,
@@ -3289,8 +3303,10 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple(d3d12_device_if
             iface, descriptor_count, dst_descriptor_range_offset.ptr, src_descriptor_range_offset.ptr,
             descriptor_heap_type);
 
-    d3d12_device_CopyDescriptors(iface, 1, &dst_descriptor_range_offset, &descriptor_count,
-            1, &src_descriptor_range_offset, &descriptor_count, descriptor_heap_type);
+    d3d12_device_copy_descriptors(impl_from_ID3D12Device(iface),
+            1, &dst_descriptor_range_offset, &descriptor_count,
+            1, &src_descriptor_range_offset, &descriptor_count,
+            descriptor_heap_type);
 }
 
 static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo1(d3d12_device_iface *iface,
