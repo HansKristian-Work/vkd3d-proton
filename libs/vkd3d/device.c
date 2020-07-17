@@ -572,6 +572,8 @@ HRESULT vkd3d_create_instance(const struct vkd3d_instance_create_info *create_in
 
     TRACE("create_info %p, instance %p.\n", create_info, instance);
 
+    vkd3d_init_profiling();
+
     if (!create_info || !instance)
         return E_INVALIDARG;
     if (create_info->type != VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO)
