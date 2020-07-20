@@ -711,7 +711,9 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
                     binding.register_count = range->NumDescriptors;
                     binding.descriptor_offset = range_descriptor_offset;
                     binding.binding = root_signature->uav_counter_binding;
-                    binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_COUNTER;
+                    binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS |
+                            VKD3D_SHADER_BINDING_FLAG_RAW_VA |
+                            VKD3D_SHADER_BINDING_FLAG_COUNTER;
 
                     table->first_binding[table->binding_count++] = binding;
                 }
