@@ -479,18 +479,18 @@ struct vkd3d_shader_root_parameter
     enum vkd3d_shader_visibility shader_visibility;
 };
 
-enum vkd3d_root_signature_flags
+enum vkd3d_shader_root_signature_flags
 {
-    VKD3D_ROOT_SIGNATURE_FLAG_NONE = 0x0,
-    VKD3D_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT = 0x1,
-    VKD3D_ROOT_SIGNATURE_FLAG_DENY_VERTEX_SHADER_ROOT_ACCESS = 0x2,
-    VKD3D_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS = 0x4,
-    VKD3D_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS = 0x8,
-    VKD3D_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS = 0x10,
-    VKD3D_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS = 0x20,
-    VKD3D_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT = 0x40,
+    VKD3D_SHADER_ROOT_SIGNATURE_FLAG_NONE                               = 0x00,
+    VKD3D_SHADER_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT = 0x01,
+    VKD3D_SHADER_ROOT_SIGNATURE_FLAG_DENY_VERTEX_SHADER_ROOT_ACCESS     = 0x02,
+    VKD3D_SHADER_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS       = 0x04,
+    VKD3D_SHADER_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS     = 0x08,
+    VKD3D_SHADER_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS   = 0x10,
+    VKD3D_SHADER_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS      = 0x20,
+    VKD3D_SHADER_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT                = 0x40,
 
-    VKD3D_FORCE_32_BIT_ENUM(VKD3D_ROOT_SIGNATURE_FLAGS),
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_ROOT_SIGNATURE_FLAGS),
 };
 
 struct vkd3d_root_signature_desc
@@ -499,7 +499,7 @@ struct vkd3d_root_signature_desc
     const struct vkd3d_shader_root_parameter *parameters;
     unsigned int static_sampler_count;
     const struct vkd3d_shader_static_sampler_desc *static_samplers;
-    enum vkd3d_root_signature_flags flags;
+    enum vkd3d_shader_root_signature_flags flags;
 };
 
 /* root signature 1.1 */
@@ -565,7 +565,7 @@ struct vkd3d_root_signature_desc1
     const struct vkd3d_root_parameter1 *parameters;
     unsigned int static_sampler_count;
     const struct vkd3d_shader_static_sampler_desc *static_samplers;
-    enum vkd3d_root_signature_flags flags;
+    enum vkd3d_shader_root_signature_flags flags;
 };
 
 enum vkd3d_root_signature_version
