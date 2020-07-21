@@ -493,7 +493,7 @@ enum vkd3d_shader_root_signature_flags
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_ROOT_SIGNATURE_FLAGS),
 };
 
-struct vkd3d_root_signature_desc
+struct vkd3d_shader_root_signature_desc
 {
     unsigned int parameter_count;
     const struct vkd3d_shader_root_parameter *parameters;
@@ -581,7 +581,7 @@ struct vkd3d_versioned_root_signature_desc
     enum vkd3d_shader_root_signature_version version;
     union
     {
-        struct vkd3d_root_signature_desc v_1_0;
+        struct vkd3d_shader_root_signature_desc v_1_0;
         struct vkd3d_root_signature_desc1 v_1_1;
     } u;
 };

@@ -92,7 +92,7 @@ struct d3d12_root_signature_deserializer
     } desc;
 };
 
-STATIC_ASSERT(sizeof(D3D12_ROOT_SIGNATURE_DESC) == sizeof(struct vkd3d_root_signature_desc));
+STATIC_ASSERT(sizeof(D3D12_ROOT_SIGNATURE_DESC) == sizeof(struct vkd3d_shader_root_signature_desc));
 
 static struct d3d12_root_signature_deserializer *impl_from_ID3D12RootSignatureDeserializer(
         ID3D12RootSignatureDeserializer *iface)
@@ -564,7 +564,7 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
         *error_blob = NULL;
 
     vkd3d_desc.version = VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_0;
-    vkd3d_desc.u.v_1_0 = *(const struct vkd3d_root_signature_desc *)desc;
+    vkd3d_desc.u.v_1_0 = *(const struct vkd3d_shader_root_signature_desc *)desc;
     if ((ret = vkd3d_shader_serialize_root_signature(&vkd3d_desc, &dxbc)) < 0)
     {
         WARN("Failed to serialize root signature, vkd3d result %d.\n", ret);

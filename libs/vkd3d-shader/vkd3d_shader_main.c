@@ -478,7 +478,7 @@ void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *shader_code)
     vkd3d_free((void *)shader_code->code);
 }
 
-static void vkd3d_shader_free_root_signature_v_1_0(struct vkd3d_root_signature_desc *root_signature)
+static void vkd3d_shader_free_root_signature_v_1_0(struct vkd3d_shader_root_signature_desc *root_signature)
 {
     unsigned int i;
 
