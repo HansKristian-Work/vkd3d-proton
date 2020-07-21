@@ -2528,7 +2528,7 @@ static int shader_parse_root_parameters1(struct root_signature_parser_context *c
 }
 
 static int shader_parse_static_samplers(struct root_signature_parser_context *context,
-        unsigned int offset, unsigned int count, struct vkd3d_static_sampler_desc *sampler_descs)
+        unsigned int offset, unsigned int count, struct vkd3d_shader_static_sampler_desc *sampler_descs)
 {
     const char *ptr;
     unsigned int i;
@@ -2629,7 +2629,7 @@ static int shader_parse_root_signature(const char *data, unsigned int data_size,
     v_1_0->static_sampler_count = count;
     if (v_1_0->static_sampler_count)
     {
-        struct vkd3d_static_sampler_desc *samplers;
+        struct vkd3d_shader_static_sampler_desc *samplers;
         if (!(samplers = vkd3d_calloc(v_1_0->static_sampler_count, sizeof(*samplers))))
             return VKD3D_ERROR_OUT_OF_MEMORY;
         v_1_0->static_samplers = samplers;
@@ -2713,7 +2713,7 @@ static unsigned int versioned_root_signature_get_static_sampler_count(const stru
         return desc->u.v_1_1.static_sampler_count;
 }
 
-static const struct vkd3d_static_sampler_desc *versioned_root_signature_get_static_samplers(
+static const struct vkd3d_shader_static_sampler_desc *versioned_root_signature_get_static_samplers(
         const struct vkd3d_versioned_root_signature_desc *desc)
 {
     if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
@@ -2970,7 +2970,7 @@ static int shader_write_root_parameters(struct root_signature_writer_context *co
 static int shader_write_static_samplers(struct root_signature_writer_context *context,
         const struct vkd3d_versioned_root_signature_desc *desc)
 {
-    const struct vkd3d_static_sampler_desc *samplers = versioned_root_signature_get_static_samplers(desc);
+    const struct vkd3d_shader_static_sampler_desc *samplers = versioned_root_signature_get_static_samplers(desc);
     unsigned int i;
 
     for (i = 0; i < versioned_root_signature_get_static_sampler_count(desc); ++i)
@@ -3264,8 +3264,8 @@ static int convert_root_signature_to_v1_0(struct vkd3d_versioned_root_signature_
 {
     const struct vkd3d_root_signature_desc1 *src_desc = &src->u.v_1_1;
     struct vkd3d_root_signature_desc *dst_desc = &dst->u.v_1_0;
+    struct vkd3d_shader_static_sampler_desc *samplers = NULL;
     struct vkd3d_shader_root_parameter *parameters = NULL;
-    struct vkd3d_static_sampler_desc *samplers = NULL;
     int ret;
 
     if ((dst_desc->parameter_count = src_desc->parameter_count))
@@ -3385,7 +3385,7 @@ static int convert_root_signature_to_v1_1(struct vkd3d_versioned_root_signature_
 {
     const struct vkd3d_root_signature_desc *src_desc = &src->u.v_1_0;
     struct vkd3d_root_signature_desc1 *dst_desc = &dst->u.v_1_1;
-    struct vkd3d_static_sampler_desc *samplers = NULL;
+    struct vkd3d_shader_static_sampler_desc *samplers = NULL;
     struct vkd3d_root_parameter1 *parameters = NULL;
     int ret;
 

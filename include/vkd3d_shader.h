@@ -401,7 +401,7 @@ enum vkd3d_shader_static_border_colour
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_STATIC_BORDER_COLOUR),
 };
 
-struct vkd3d_static_sampler_desc
+struct vkd3d_shader_static_sampler_desc
 {
     enum vkd3d_shader_filter filter;
     enum vkd3d_shader_texture_address_mode address_u;
@@ -498,7 +498,7 @@ struct vkd3d_root_signature_desc
     unsigned int parameter_count;
     const struct vkd3d_shader_root_parameter *parameters;
     unsigned int static_sampler_count;
-    const struct vkd3d_static_sampler_desc *static_samplers;
+    const struct vkd3d_shader_static_sampler_desc *static_samplers;
     enum vkd3d_root_signature_flags flags;
 };
 
@@ -564,7 +564,7 @@ struct vkd3d_root_signature_desc1
     unsigned int parameter_count;
     const struct vkd3d_root_parameter1 *parameters;
     unsigned int static_sampler_count;
-    const struct vkd3d_static_sampler_desc *static_samplers;
+    const struct vkd3d_shader_static_sampler_desc *static_samplers;
     enum vkd3d_root_signature_flags flags;
 };
 
