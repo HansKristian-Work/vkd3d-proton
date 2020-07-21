@@ -2480,7 +2480,7 @@ static int shader_parse_root_parameters(struct root_signature_parser_context *co
 }
 
 static int shader_parse_root_parameters1(struct root_signature_parser_context *context,
-        DWORD offset, DWORD count, struct vkd3d_root_parameter1 *parameters)
+        DWORD offset, DWORD count, struct vkd3d_shader_root_parameter1 *parameters)
 {
     const char *ptr;
     unsigned int i;
@@ -2613,7 +2613,7 @@ static int shader_parse_root_signature(const char *data, unsigned int data_size,
         v_1_1->parameter_count = count;
         if (v_1_1->parameter_count)
         {
-            struct vkd3d_root_parameter1 *parameters;
+            struct vkd3d_shader_root_parameter1 *parameters;
             if (!(parameters = vkd3d_calloc(v_1_1->parameter_count, sizeof(*parameters))))
                 return VKD3D_ERROR_OUT_OF_MEMORY;
             v_1_1->parameters = parameters;
@@ -3198,7 +3198,7 @@ static void free_descriptor_ranges(const struct vkd3d_shader_root_parameter *par
 }
 
 static int convert_root_parameters_to_v_1_0(struct vkd3d_shader_root_parameter *dst,
-        const struct vkd3d_root_parameter1 *src, unsigned int count)
+        const struct vkd3d_shader_root_parameter1 *src, unsigned int count)
 {
     const struct vkd3d_shader_descriptor_range1 *ranges1;
     struct vkd3d_shader_descriptor_range *ranges;
@@ -3207,7 +3207,7 @@ static int convert_root_parameters_to_v_1_0(struct vkd3d_shader_root_parameter *
 
     for (i = 0; i < count; ++i)
     {
-        const struct vkd3d_root_parameter1 *p1 = &src[i];
+        const struct vkd3d_shader_root_parameter1 *p1 = &src[i];
         struct vkd3d_shader_root_parameter *p = &dst[i];
 
         p->parameter_type = p1->parameter_type;
@@ -3300,7 +3300,7 @@ fail:
     return ret;
 }
 
-static void free_descriptor_ranges1(const struct vkd3d_root_parameter1 *parameters, unsigned int count)
+static void free_descriptor_ranges1(const struct vkd3d_shader_root_parameter1 *parameters, unsigned int count)
 {
     unsigned int i;
 
@@ -3309,14 +3309,14 @@ static void free_descriptor_ranges1(const struct vkd3d_root_parameter1 *paramete
 
     for (i = 0; i < count; ++i)
     {
-        const struct vkd3d_root_parameter1 *p = &parameters[i];
+        const struct vkd3d_shader_root_parameter1 *p = &parameters[i];
 
         if (p->parameter_type == VKD3D_SHADER_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
             vkd3d_free((void *)p->u.descriptor_table.descriptor_ranges);
     }
 }
 
-static int convert_root_parameters_to_v_1_1(struct vkd3d_root_parameter1 *dst,
+static int convert_root_parameters_to_v_1_1(struct vkd3d_shader_root_parameter1 *dst,
         const struct vkd3d_shader_root_parameter *src, unsigned int count)
 {
     const struct vkd3d_shader_descriptor_range *ranges;
@@ -3327,7 +3327,7 @@ static int convert_root_parameters_to_v_1_1(struct vkd3d_root_parameter1 *dst,
     for (i = 0; i < count; ++i)
     {
         const struct vkd3d_shader_root_parameter *p = &src[i];
-        struct vkd3d_root_parameter1 *p1 = &dst[i];
+        struct vkd3d_shader_root_parameter1 *p1 = &dst[i];
 
         p1->parameter_type = p->parameter_type;
         switch (p1->parameter_type)
@@ -3386,7 +3386,7 @@ static int convert_root_signature_to_v1_1(struct vkd3d_versioned_root_signature_
     const struct vkd3d_root_signature_desc *src_desc = &src->u.v_1_0;
     struct vkd3d_root_signature_desc1 *dst_desc = &dst->u.v_1_1;
     struct vkd3d_shader_static_sampler_desc *samplers = NULL;
-    struct vkd3d_root_parameter1 *parameters = NULL;
+    struct vkd3d_shader_root_parameter1 *parameters = NULL;
     int ret;
 
     if ((dst_desc->parameter_count = src_desc->parameter_count))
