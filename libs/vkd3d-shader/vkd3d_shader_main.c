@@ -514,11 +514,11 @@ static void vkd3d_shader_free_root_signature_v_1_1(struct vkd3d_root_signature_d
 
 void vkd3d_shader_free_root_signature(struct vkd3d_versioned_root_signature_desc *desc)
 {
-    if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
+    if (desc->version == VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_0)
     {
         vkd3d_shader_free_root_signature_v_1_0(&desc->u.v_1_0);
     }
-    else if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_1)
+    else if (desc->version == VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_1)
     {
         vkd3d_shader_free_root_signature_v_1_1(&desc->u.v_1_1);
     }

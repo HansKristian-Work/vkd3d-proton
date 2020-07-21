@@ -90,7 +90,7 @@ static void test_vkd3d_shader_pfns(void)
 
     static const struct vkd3d_versioned_root_signature_desc empty_rs_desc =
     {
-        .version = VKD3D_ROOT_SIGNATURE_VERSION_1_0,
+        .version = VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_0,
     };
     static const DWORD vs_code[] =
     {

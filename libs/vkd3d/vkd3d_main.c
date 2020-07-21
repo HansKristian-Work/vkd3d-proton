@@ -180,15 +180,15 @@ int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
         return ret;
     }
 
-    if (desc.version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
+    if (desc.version == VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_0)
     {
         *out_desc = desc;
     }
     else
     {
-        enum vkd3d_root_signature_version version = desc.version;
+        enum vkd3d_shader_root_signature_version version = desc.version;
 
-        ret = vkd3d_shader_convert_root_signature(&converted_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_0, &desc);
+        ret = vkd3d_shader_convert_root_signature(&converted_desc, VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_0, &desc);
         vkd3d_shader_free_root_signature(&desc);
         if (ret < 0)
         {
@@ -309,14 +309,15 @@ static ULONG STDMETHODCALLTYPE d3d12_versioned_root_signature_deserializer_Relea
     return refcount;
 }
 
-static enum vkd3d_root_signature_version vkd3d_root_signature_version_from_d3d12(D3D_ROOT_SIGNATURE_VERSION version)
+static enum vkd3d_shader_root_signature_version vkd3d_root_signature_version_from_d3d12(
+        D3D_ROOT_SIGNATURE_VERSION version)
 {
     switch (version)
     {
         case D3D_ROOT_SIGNATURE_VERSION_1_0:
-            return VKD3D_ROOT_SIGNATURE_VERSION_1_0;
+            return VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_0;
         case D3D_ROOT_SIGNATURE_VERSION_1_1:
-            return VKD3D_ROOT_SIGNATURE_VERSION_1_1;
+            return VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_1;
         default:
             WARN("Unknown root signature version %#x.\n", version);
             return 0;
@@ -562,7 +563,7 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
     if (error_blob)
         *error_blob = NULL;
 
-    vkd3d_desc.version = VKD3D_ROOT_SIGNATURE_VERSION_1_0;
+    vkd3d_desc.version = VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_0;
     vkd3d_desc.u.v_1_0 = *(const struct vkd3d_root_signature_desc *)desc;
     if ((ret = vkd3d_shader_serialize_root_signature(&vkd3d_desc, &dxbc)) < 0)
     {
