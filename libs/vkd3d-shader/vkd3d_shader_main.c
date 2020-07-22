@@ -495,7 +495,7 @@ static void vkd3d_shader_free_root_signature_v_1_0(struct vkd3d_shader_root_sign
     memset(root_signature, 0, sizeof(*root_signature));
 }
 
-static void vkd3d_shader_free_root_signature_v_1_1(struct vkd3d_root_signature_desc1 *root_signature)
+static void vkd3d_shader_free_root_signature_v_1_1(struct vkd3d_shader_root_signature_desc1 *root_signature)
 {
     unsigned int i;
 

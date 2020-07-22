@@ -2606,7 +2606,7 @@ static int shader_parse_root_signature(const char *data, unsigned int data_size,
     }
     else
     {
-        struct vkd3d_root_signature_desc1 *v_1_1 = &desc->u.v_1_1;
+        struct vkd3d_shader_root_signature_desc1 *v_1_1 = &desc->u.v_1_1;
 
         assert(version == VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_1);
 
@@ -3262,7 +3262,7 @@ fail:
 static int convert_root_signature_to_v1_0(struct vkd3d_versioned_root_signature_desc *dst,
         const struct vkd3d_versioned_root_signature_desc *src)
 {
-    const struct vkd3d_root_signature_desc1 *src_desc = &src->u.v_1_1;
+    const struct vkd3d_shader_root_signature_desc1 *src_desc = &src->u.v_1_1;
     struct vkd3d_shader_root_signature_desc *dst_desc = &dst->u.v_1_0;
     struct vkd3d_shader_static_sampler_desc *samplers = NULL;
     struct vkd3d_shader_root_parameter *parameters = NULL;
@@ -3384,7 +3384,7 @@ static int convert_root_signature_to_v1_1(struct vkd3d_versioned_root_signature_
         const struct vkd3d_versioned_root_signature_desc *src)
 {
     const struct vkd3d_shader_root_signature_desc *src_desc = &src->u.v_1_0;
-    struct vkd3d_root_signature_desc1 *dst_desc = &dst->u.v_1_1;
+    struct vkd3d_shader_root_signature_desc1 *dst_desc = &dst->u.v_1_1;
     struct vkd3d_shader_static_sampler_desc *samplers = NULL;
     struct vkd3d_shader_root_parameter1 *parameters = NULL;
     int ret;

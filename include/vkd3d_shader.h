@@ -559,7 +559,7 @@ struct vkd3d_shader_root_parameter1
     enum vkd3d_shader_visibility shader_visibility;
 };
 
-struct vkd3d_root_signature_desc1
+struct vkd3d_shader_root_signature_desc1
 {
     unsigned int parameter_count;
     const struct vkd3d_shader_root_parameter1 *parameters;
@@ -582,7 +582,7 @@ struct vkd3d_versioned_root_signature_desc
     union
     {
         struct vkd3d_shader_root_signature_desc v_1_0;
-        struct vkd3d_root_signature_desc1 v_1_1;
+        struct vkd3d_shader_root_signature_desc1 v_1_1;
     } u;
 };
 
