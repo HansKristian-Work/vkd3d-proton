@@ -2821,19 +2821,41 @@ static bool vk_descriptor_type_is_buffer(VkDescriptorType type)
 static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &dst->heap->device->vk_procs;
+    VkWriteDescriptorSet vk_writes[2], *vk_write;
     union vkd3d_descriptor_info descriptor_info;
     unsigned int descriptor_index, set_index;
     VkDescriptorSet vk_descriptor_set;
-    VkWriteDescriptorSet vk_write;
+    uint32_t write_count = 0;
     bool is_buffer;
 
     descriptor_index = d3d12_desc_heap_offset(dst);
 
     /* update UAV counter address */
-    if (dst->magic == VKD3D_DESCRIPTOR_MAGIC_UAV && dst->heap->uav_counters.data)
+    if (dst->magic == VKD3D_DESCRIPTOR_MAGIC_UAV)
     {
-        dst->heap->uav_counters.data[descriptor_index] = dst->info.view
-                ? dst->info.view->vk_counter_address : 0;
+        set_index = d3d12_descriptor_heap_uav_counter_set_index();
+
+        if (dst->heap->uav_counters.data)
+        {
+            dst->heap->uav_counters.data[descriptor_index] = dst->info.view
+                    ? dst->info.view->vk_counter_address : 0;
+        }
+        else if ((vk_descriptor_set = dst->heap->vk_descriptor_sets[set_index]))
+        {
+            VkBufferView buffer_view = dst->info.view ? dst->info.view->vk_counter_view : VK_NULL_HANDLE;
+
+            vk_write = &vk_writes[write_count++];
+            vk_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            vk_write->pNext = NULL;
+            vk_write->dstSet = vk_descriptor_set;
+            vk_write->dstBinding = 0;
+            vk_write->dstArrayElement = descriptor_index;
+            vk_write->descriptorCount = 1;
+            vk_write->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+            vk_write->pImageInfo = NULL;
+            vk_write->pBufferInfo = NULL;
+            vk_write->pTexelBufferView = &buffer_view;
+        }
     }
 
     /* update the actual descriptor */
@@ -2865,18 +2887,19 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
         memset(&descriptor_info, 0, sizeof(descriptor_info));
     }
 
-    vk_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    vk_write.pNext = NULL;
-    vk_write.dstSet = vk_descriptor_set;
-    vk_write.dstBinding = 0;
-    vk_write.dstArrayElement = descriptor_index;
-    vk_write.descriptorCount = 1;
-    vk_write.descriptorType = dst->vk_descriptor_type;
-    vk_write.pImageInfo = &descriptor_info.image;
-    vk_write.pBufferInfo = &descriptor_info.buffer;
-    vk_write.pTexelBufferView = &descriptor_info.buffer_view;
+    vk_write = &vk_writes[write_count++];
+    vk_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    vk_write->pNext = NULL;
+    vk_write->dstSet = vk_descriptor_set;
+    vk_write->dstBinding = 0;
+    vk_write->dstArrayElement = descriptor_index;
+    vk_write->descriptorCount = 1;
+    vk_write->descriptorType = dst->vk_descriptor_type;
+    vk_write->pImageInfo = &descriptor_info.image;
+    vk_write->pBufferInfo = &descriptor_info.buffer;
+    vk_write->pTexelBufferView = &descriptor_info.buffer_view;
 
-    VK_CALL(vkUpdateDescriptorSets(dst->heap->device->vk_device, 1, &vk_write, 0, NULL));
+    VK_CALL(vkUpdateDescriptorSets(dst->heap->device->vk_device, write_count, vk_writes, 0, NULL));
 }
 
 static inline void d3d12_desc_write(struct d3d12_desc *dst, const struct d3d12_desc *src,
