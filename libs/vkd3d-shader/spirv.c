@@ -5615,6 +5615,19 @@ static void vkd3d_dxbc_compiler_emit_dcl_input_primitive(struct vkd3d_dxbc_compi
     vkd3d_dxbc_compiler_emit_execution_mode(compiler, mode, NULL, 0);
 }
 
+static void vkd3d_dxbc_compiler_emit_point_size(struct vkd3d_dxbc_compiler *compiler)
+{
+    static const struct vkd3d_spirv_builtin point_size = {VKD3D_SHADER_COMPONENT_FLOAT, 1, SpvBuiltInPointSize};
+
+    /* Set the point size. Point sprites are not supported in d3d10+, but
+     * point primitives can still be used with e.g. stream output. Vulkan
+     * requires the point size to always be explicitly defined when outputting
+     * points. */
+    vkd3d_spirv_build_op_store(&compiler->spirv_builder,
+            vkd3d_dxbc_compiler_emit_builtin_variable(compiler, &point_size, SpvStorageClassOutput, 0),
+            vkd3d_dxbc_compiler_get_constant_float(compiler, 1.0f), SpvMemoryAccessMaskNone);
+}
+
 static void vkd3d_dxbc_compiler_emit_dcl_output_topology(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -5625,6 +5638,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_output_topology(struct vkd3d_dxbc_compi
     {
         case VKD3D_PT_POINTLIST:
             mode = SpvExecutionModeOutputPoints;
+            vkd3d_dxbc_compiler_emit_point_size(compiler);
             break;
         case VKD3D_PT_LINESTRIP:
             mode = SpvExecutionModeOutputLineStrip;
@@ -8406,6 +8420,10 @@ static void vkd3d_dxbc_compiler_emit_cut_stream(struct vkd3d_dxbc_compiler *comp
 static void vkd3d_dxbc_compiler_emit_main_prolog(struct vkd3d_dxbc_compiler *compiler)
 {
     vkd3d_dxbc_compiler_emit_push_constant_buffers(compiler);
+
+    if (compiler->xfb_info && compiler->xfb_info->element_count
+            && compiler->shader_type != VKD3D_SHADER_TYPE_GEOMETRY)
+        vkd3d_dxbc_compiler_emit_point_size(compiler);
 }
 
 static bool is_dcl_instruction(enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx)
