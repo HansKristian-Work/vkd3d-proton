@@ -58,7 +58,7 @@
 #define VKD3D_MAX_SHADER_STAGES           5u
 #define VKD3D_MAX_VK_SYNC_OBJECTS         4u
 
-#define VKD3D_MAX_DESCRIPTOR_SETS 9u
+#define VKD3D_MAX_DESCRIPTOR_SETS 10u
 #define VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS 6u
 
 #define VKD3D_PIPELINE_BIND_POINT_COUNT 2u
@@ -730,6 +730,11 @@ static inline unsigned int d3d12_descriptor_heap_srv_set_index(bool is_buffer)
 static inline unsigned int d3d12_descriptor_heap_uav_set_index(bool is_buffer)
 {
     return 3 + (is_buffer ? 0 : 1);
+}
+
+static inline unsigned int d3d12_descriptor_heap_uav_counter_set_index()
+{
+    return 5;
 }
 
 static inline uint32_t d3d12_desc_heap_offset(const struct d3d12_desc *dst)

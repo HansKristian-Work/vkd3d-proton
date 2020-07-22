@@ -3228,7 +3228,7 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     VkResult vr;
 
     set_info->vk_descriptor_type = vk_descriptor_type_from_d3d12_range_type(bindless_state,
-            range_type, binding_flag & VKD3D_SHADER_BINDING_FLAG_BUFFER);
+            range_type, !!(binding_flag & (VKD3D_SHADER_BINDING_FLAG_BUFFER | VKD3D_SHADER_BINDING_FLAG_COUNTER)));
     set_info->heap_type = d3d12_descriptor_heap_type_from_range_type(range_type);
     set_info->range_type = range_type;
     set_info->binding_flag = binding_flag;
@@ -3350,6 +3350,13 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
             FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
                 D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
             goto fail;
+
+        if (!(bindless_state->flags & VKD3D_BINDLESS_UAV_COUNTER))
+        {
+            if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+                    D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_COUNTER)))
+                goto fail;
+        }
     }
 
     return S_OK;

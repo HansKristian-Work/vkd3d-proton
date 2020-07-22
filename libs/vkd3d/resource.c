@@ -4827,8 +4827,9 @@ unsigned int d3d12_descriptor_heap_set_index_from_binding(const struct vkd3d_bin
                     set->binding_flag & VKD3D_SHADER_BINDING_FLAG_BUFFER);
 
         case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-            return d3d12_descriptor_heap_uav_set_index(
-                    set->binding_flag & VKD3D_SHADER_BINDING_FLAG_BUFFER);
+            return set->binding_flag & VKD3D_SHADER_BINDING_FLAG_COUNTER
+                    ? d3d12_descriptor_heap_uav_counter_set_index()
+                    : d3d12_descriptor_heap_uav_set_index(set->binding_flag & VKD3D_SHADER_BINDING_FLAG_BUFFER);
 
         default:
             WARN("Unhandled descriptor range type %d.\n", set->range_type);
