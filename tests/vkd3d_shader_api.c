@@ -80,7 +80,7 @@ static void test_vkd3d_shader_pfns(void)
     PFN_vkd3d_shader_scan_dxbc pfn_vkd3d_shader_scan_dxbc;
     PFN_vkd3d_shader_compile pfn_vkd3d_shader_compile;
 
-    struct vkd3d_versioned_root_signature_desc root_signature_desc;
+    struct vkd3d_shader_versioned_root_signature_desc root_signature_desc;
     struct vkd3d_shader_signature_element *element;
     struct vkd3d_shader_compile_info compile_info;
     struct vkd3d_shader_scan_info scan_info;
@@ -88,7 +88,7 @@ static void test_vkd3d_shader_pfns(void)
     struct vkd3d_shader_code dxbc, spirv;
     int rc;
 
-    static const struct vkd3d_versioned_root_signature_desc empty_rs_desc =
+    static const struct vkd3d_shader_versioned_root_signature_desc empty_rs_desc =
     {
         .version = VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_0,
     };

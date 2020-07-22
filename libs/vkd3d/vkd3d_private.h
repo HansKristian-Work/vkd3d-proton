@@ -735,7 +735,7 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device, const void *byt
 struct d3d12_root_signature *unsafe_impl_from_ID3D12RootSignature(ID3D12RootSignature *iface) DECLSPEC_HIDDEN;
 
 int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_versioned_root_signature_desc *desc) DECLSPEC_HIDDEN;
+        struct vkd3d_shader_versioned_root_signature_desc *desc) DECLSPEC_HIDDEN;
 
 struct d3d12_graphics_pipeline_state
 {

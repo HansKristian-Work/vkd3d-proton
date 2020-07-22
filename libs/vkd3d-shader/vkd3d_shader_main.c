@@ -512,7 +512,7 @@ static void vkd3d_shader_free_root_signature_v_1_1(struct vkd3d_shader_root_sign
     memset(root_signature, 0, sizeof(*root_signature));
 }
 
-void vkd3d_shader_free_root_signature(struct vkd3d_versioned_root_signature_desc *desc)
+void vkd3d_shader_free_root_signature(struct vkd3d_shader_versioned_root_signature_desc *desc)
 {
     if (desc->version == VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_0)
     {

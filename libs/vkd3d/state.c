@@ -899,7 +899,7 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
     union
     {
         D3D12_VERSIONED_ROOT_SIGNATURE_DESC d3d12;
-        struct vkd3d_versioned_root_signature_desc vkd3d;
+        struct vkd3d_shader_versioned_root_signature_desc vkd3d;
     } root_signature_desc;
     struct d3d12_root_signature *object;
     HRESULT hr;
