@@ -7689,11 +7689,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetTimestampFrequency(ID3D1
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetClockCalibration(ID3D12CommandQueue *iface,
         UINT64 *gpu_timestamp, UINT64 *cpu_timestamp)
 {
+#ifdef _WIN32
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     struct d3d12_device *device = command_queue->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkCalibratedTimestampInfoEXT timestamp_infos[2], *timestamp_info;
-    uint64_t qpc_begin, qpc_end, max_deviation, timestamps[2];
+    uint64_t max_deviation, timestamps[2];
+    LARGE_INTEGER qpc_begin, qpc_end;
     uint32_t count = 0;
     VkResult vr;
 
@@ -7706,7 +7708,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetClockCalibration(ID3D12C
         return E_FAIL;
     }
 
-#ifdef _WIN32
     if (!(device->device_info.time_domains & VKD3D_TIME_DOMAIN_DEVICE))
     {
         FIXME("Calibrated timestamps not supported by device.\n");
@@ -7743,7 +7744,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetClockCalibration(ID3D12C
     if (!(device->device_info.time_domains & VKD3D_TIME_DOMAIN_QPC))
     {
         QueryPerformanceCounter(&qpc_end);
-        timestamps[1] = qpc_begin + (qpc_end - qpc_begin) / 2;
+        timestamps[1] = qpc_begin.QuadPart + (qpc_end.QuadPart - qpc_begin.QuadPart) / 2;
     }
 
     *gpu_timestamp = timestamps[0];
