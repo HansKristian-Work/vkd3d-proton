@@ -153,7 +153,7 @@ struct vkd3d_shader_resource_binding
     struct vkd3d_shader_descriptor_binding binding;
 };
 
-#define VKD3D_DUMMY_SAMPLER_INDEX ~0u
+#define VKD3D_SHADER_DUMMY_SAMPLER_INDEX ~0u
 
 struct vkd3d_shader_combined_resource_sampler
 {

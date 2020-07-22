@@ -5250,7 +5250,7 @@ static void vkd3d_dxbc_compiler_emit_combined_sampler_declarations(struct vkd3d_
 
         d = vkd3d_dxbc_compiler_get_descriptor_info(compiler,
                 VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, 0, current->sampler_index);
-        depth = current->sampler_index != VKD3D_DUMMY_SAMPLER_INDEX
+        depth = current->sampler_index != VKD3D_SHADER_DUMMY_SAMPLER_INDEX
                 && (d->flags & VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_SAMPLER_COMPARISON_MODE);
 
         image_type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler, resource, resource_space,
@@ -5263,7 +5263,7 @@ static void vkd3d_dxbc_compiler_emit_combined_sampler_declarations(struct vkd3d_
 
         vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, &current->binding);
 
-        if (current->sampler_index == VKD3D_DUMMY_SAMPLER_INDEX)
+        if (current->sampler_index == VKD3D_SHADER_DUMMY_SAMPLER_INDEX)
             vkd3d_spirv_build_op_name(builder, var_id, "t%u_dummy_sampler", resource_index);
         else
             vkd3d_spirv_build_op_name(builder, var_id, "t%u_s%u", resource_index, current->sampler_index);
@@ -7210,7 +7210,7 @@ static const struct vkd3d_symbol *vkd3d_dxbc_compiler_find_combined_sampler(stru
         return NULL;
 
     resource_index = resource_reg->idx[0].offset;
-    sampler_index = sampler_reg ? sampler_reg->idx[0].offset : VKD3D_DUMMY_SAMPLER_INDEX;
+    sampler_index = sampler_reg ? sampler_reg->idx[0].offset : VKD3D_SHADER_DUMMY_SAMPLER_INDEX;
 
     vkd3d_symbol_make_combined_sampler(&key, resource_index, sampler_index);
     if ((entry = rb_get(&compiler->symbol_table, &key)))
