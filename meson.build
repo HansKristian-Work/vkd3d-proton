@@ -90,18 +90,16 @@ vkd3d_version = vcs_tag(
 dxil_spirv = subproject('dxil-spirv')
 dxil_spirv_dep = dxil_spirv.get_variable('dxil_spirv_dep')
 
+subdir('include')
+subdir('libs')
+
 if vkd3d_platform == 'linux'
   pkg = import('pkgconfig')
-  vkd3d = library('vkd3d')
-  pkg.generate(vkd3d, filebase : 'libvkd3d', subdirs : 'vkd3d', description : 'The VKD3D 3D Graphics Library')
-  vkd3dutils = library('vkd3d-utils')
-  pkg.generate(vkd3dutils, filebase : 'libvkd3d-utils', subdirs : 'vkd3d', description : 'The VKD3D 3D Graphics Utility Library')
+  pkg.generate(vkd3d_lib, filebase : 'libvkd3d', subdirs : 'vkd3d', description : 'The VKD3D 3D Graphics Library')
+  pkg.generate(vkd3d_utils_lib, filebase : 'libvkd3d-utils', subdirs : 'vkd3d', description : 'The VKD3D 3D Graphics Utility Library')
 
   install_headers('include/vkd3d.h', 'include/vkd3d_sonames.h', 'include/vkd3d_types.h', 'include/vkd3d_utils.h', 'include/vkd3d_win32.h', 'include/vkd3d_windows.h', subdir : 'vkd3d')
 endif
-
-subdir('include')
-subdir('libs')
 
 if enable_tests
   subdir('tests')
