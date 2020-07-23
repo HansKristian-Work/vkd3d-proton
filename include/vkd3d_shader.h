@@ -248,6 +248,16 @@ enum vkd3d_shader_target_type
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_TARGET_TYPE),
 };
 
+enum vkd3d_shader_log_level
+{
+    VKD3D_SHADER_LOG_NONE,
+    VKD3D_SHADER_LOG_ERROR,
+    VKD3D_SHADER_LOG_WARNING,
+    VKD3D_SHADER_LOG_INFO,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_LOG_LEVEL),
+};
+
 struct vkd3d_shader_compile_info
 {
     enum vkd3d_shader_structure_type type;
@@ -260,6 +270,9 @@ struct vkd3d_shader_compile_info
 
     const struct vkd3d_shader_compile_option *options;
     unsigned int option_count;
+
+    enum vkd3d_shader_log_level log_level;
+    const char *source_name;
 };
 
 enum vkd3d_shader_spirv_environment
@@ -733,7 +746,9 @@ struct vkd3d_shader_signature
 
 #ifndef VKD3D_SHADER_NO_PROTOTYPES
 
-int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info, struct vkd3d_shader_code *out);
+int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info,
+        struct vkd3d_shader_code *out, char **messages);
+void vkd3d_shader_free_messages(char *messages);
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
 
 int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
@@ -748,7 +763,7 @@ int vkd3d_shader_convert_root_signature(struct vkd3d_shader_versioned_root_signa
         enum vkd3d_shader_root_signature_version version, const struct vkd3d_shader_versioned_root_signature_desc *src);
 
 int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_scan_info *scan_info);
+        struct vkd3d_shader_scan_info *scan_info, char **messages);
 void vkd3d_shader_free_scan_info(struct vkd3d_shader_scan_info *scan_info);
 
 int vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
@@ -764,7 +779,8 @@ void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature
  * Function pointer typedefs for vkd3d-shader functions.
  */
 typedef int (*PFN_vkd3d_shader_compile)(const struct vkd3d_shader_compile_info *compile_info,
-        struct vkd3d_shader_code *out);
+        struct vkd3d_shader_code *out, char **messages);
+typedef void (*PFN_vkd3d_shader_free_messages)(char *messages);
 typedef void (*PFN_vkd3d_shader_free_shader_code)(struct vkd3d_shader_code *code);
 
 typedef int (*PFN_vkd3d_shader_parse_root_signature)(const struct vkd3d_shader_code *dxbc,
@@ -778,7 +794,7 @@ typedef int (*PFN_vkd3d_shader_convert_root_signature)(struct vkd3d_shader_versi
         enum vkd3d_shader_root_signature_version version, const struct vkd3d_shader_versioned_root_signature_desc *src);
 
 typedef int (*PFN_vkd3d_shader_scan_dxbc)(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_scan_info *scan_info);
+        struct vkd3d_shader_scan_info *scan_info, char **messages);
 typedef void (*PFN_vkd3d_shader_free_scan_info)(struct vkd3d_shader_scan_info *scan_info);
 
 typedef int (*PFN_vkd3d_shader_parse_input_signature)(const struct vkd3d_shader_code *dxbc,

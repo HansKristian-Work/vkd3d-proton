@@ -1354,8 +1354,10 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     compile_info.target_type = VKD3D_SHADER_TARGET_SPIRV_BINARY;
     compile_info.options = NULL;
     compile_info.option_count = 0;
+    compile_info.log_level = VKD3D_SHADER_LOG_NONE;
+    compile_info.source_name = NULL;
 
-    if ((ret = vkd3d_shader_compile(&compile_info, &spirv)) < 0)
+    if ((ret = vkd3d_shader_compile(&compile_info, &spirv, NULL)) < 0)
     {
         WARN("Failed to compile shader, vkd3d result %d.\n", ret);
         return hresult_from_vkd3d_result(ret);
@@ -1527,7 +1529,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     dxbc.size = desc->CS.BytecodeLength;
     shader_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
     shader_info.next = NULL;
-    if ((ret = vkd3d_shader_scan_dxbc(&dxbc, &shader_info)) < 0)
+    if ((ret = vkd3d_shader_scan_dxbc(&dxbc, &shader_info, NULL)) < 0)
     {
         WARN("Failed to scan shader bytecode, vkd3d result %d.\n", ret);
         return hresult_from_vkd3d_result(ret);
@@ -2271,7 +2273,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (!b->pShaderBytecode)
             continue;
 
-        if ((ret = vkd3d_shader_scan_dxbc(&dxbc, &shader_info)) < 0)
+        if ((ret = vkd3d_shader_scan_dxbc(&dxbc, &shader_info, NULL)) < 0)
         {
             WARN("Failed to scan shader bytecode, stage %#x, vkd3d result %d.\n",
                     shader_stages[i].stage, ret);

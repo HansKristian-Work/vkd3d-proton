@@ -22,6 +22,129 @@
 
 VKD3D_DEBUG_ENV_NAME("VKD3D_SHADER_DEBUG");
 
+static void vkd3d_string_buffer_clear(struct vkd3d_string_buffer *buffer)
+{
+    buffer->buffer[0] = '\0';
+    buffer->content_size = 0;
+}
+
+bool vkd3d_string_buffer_init(struct vkd3d_string_buffer *buffer)
+{
+    buffer->buffer_size = 32;
+    if (!(buffer->buffer = vkd3d_malloc(buffer->buffer_size)))
+    {
+        ERR("Failed to allocate shader buffer memory.\n");
+        return false;
+    }
+
+    vkd3d_string_buffer_clear(buffer);
+    return true;
+}
+
+void vkd3d_string_buffer_cleanup(struct vkd3d_string_buffer *buffer)
+{
+    vkd3d_free(buffer->buffer);
+}
+
+static bool vkd3d_string_buffer_resize(struct vkd3d_string_buffer *buffer, int rc)
+{
+    unsigned int new_buffer_size = buffer->buffer_size * 2;
+    char *new_buffer;
+
+    while (rc > 0 && (unsigned int)rc >= new_buffer_size - buffer->content_size)
+        new_buffer_size *= 2;
+    if (!(new_buffer = vkd3d_realloc(buffer->buffer, new_buffer_size)))
+    {
+        ERR("Failed to grow buffer.\n");
+        buffer->buffer[buffer->content_size] = '\0';
+        return false;
+    }
+    buffer->buffer = new_buffer;
+    buffer->buffer_size = new_buffer_size;
+    return true;
+}
+
+int vkd3d_string_buffer_vprintf(struct vkd3d_string_buffer *buffer, const char *format, va_list args)
+{
+    unsigned int rem;
+    va_list a;
+    int rc;
+
+    for (;;)
+    {
+        rem = buffer->buffer_size - buffer->content_size;
+        va_copy(a, args);
+        rc = vsnprintf(&buffer->buffer[buffer->content_size], rem, format, a);
+        va_end(a);
+        if (rc >= 0 && (unsigned int)rc < rem)
+        {
+            buffer->content_size += rc;
+            return 0;
+        }
+
+        if (!vkd3d_string_buffer_resize(buffer, rc))
+            return -1;
+    }
+}
+
+static int VKD3D_PRINTF_FUNC(2, 3) vkd3d_string_buffer_printf(struct vkd3d_string_buffer *buffer,
+        const char *format, ...)
+{
+    va_list args;
+    int ret;
+
+    va_start(args, format);
+    ret = vkd3d_string_buffer_vprintf(buffer, format, args);
+    va_end(args);
+
+    return ret;
+}
+
+bool vkd3d_shader_message_context_init(struct vkd3d_shader_message_context *context,
+        enum vkd3d_shader_log_level log_level, const char *source_name)
+{
+    context->log_level = log_level;
+    context->source_name = source_name ? source_name : "<anonymous>";
+    context->line = 0;
+    context->column = 0;
+
+    return vkd3d_string_buffer_init(&context->messages);
+}
+
+void vkd3d_shader_message_context_cleanup(struct vkd3d_shader_message_context *context)
+{
+    vkd3d_string_buffer_cleanup(&context->messages);
+}
+
+static char *vkd3d_shader_message_context_copy_messages(struct vkd3d_shader_message_context *context)
+{
+    char *messages;
+
+    if ((messages = vkd3d_malloc(context->messages.content_size)))
+        memcpy(messages, context->messages.buffer, context->messages.content_size);
+
+    return messages;
+}
+
+void vkd3d_shader_error(struct vkd3d_shader_message_context *context,
+        enum vkd3d_shader_error error, const char *format, ...)
+{
+    va_list args;
+
+    if (context->log_level < VKD3D_SHADER_LOG_ERROR)
+        return;
+
+    if (context->line)
+        vkd3d_string_buffer_printf(&context->messages, "%s:%u:%u: E%04u: ",
+                context->source_name, context->line, context->column, error);
+    else
+        vkd3d_string_buffer_printf(&context->messages, "%s: E%04u: ", context->source_name, error);
+    va_start(args, format);
+    vkd3d_string_buffer_vprintf(&context->messages, format, args);
+    va_end(args);
+    vkd3d_string_buffer_printf(&context->messages, "\n");
+}
+
 static void vkd3d_shader_dump_blob(const char *path, const char *prefix, const void *data, size_t size)
 {
     static int shader_id = 0;
@@ -71,12 +194,12 @@ struct vkd3d_shader_parser
 };
 
 static int vkd3d_shader_parser_init(struct vkd3d_shader_parser *parser,
-        const struct vkd3d_shader_code *dxbc)
+        const struct vkd3d_shader_code *dxbc, struct vkd3d_shader_message_context *message_context)
 {
     struct vkd3d_shader_desc *shader_desc = &parser->shader_desc;
     int ret;
 
-    if ((ret = shader_extract_from_dxbc(dxbc->code, dxbc->size, shader_desc)) < 0)
+    if ((ret = shader_extract_from_dxbc(dxbc->code, dxbc->size, message_context, shader_desc)) < 0)
     {
         WARN("Failed to extract shader, vkd3d result %d.\n", ret);
         return ret;
@@ -129,25 +252,45 @@ static int vkd3d_shader_validate_compile_info(const struct vkd3d_shader_compile_
     return VKD3D_OK;
 }
 
-int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info, struct vkd3d_shader_code *out)
+void vkd3d_shader_free_messages(char *messages)
 {
+    vkd3d_free(messages);
+}
+
+int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info,
+        struct vkd3d_shader_code *out, char **messages)
+{
+    struct vkd3d_shader_message_context message_context;
     struct vkd3d_shader_instruction instruction;
     struct vkd3d_dxbc_compiler *spirv_compiler;
     struct vkd3d_shader_scan_info scan_info;
     struct vkd3d_shader_parser parser;
     int ret;
 
-    TRACE("compile_info %p, out %p.\n", compile_info, out);
+    TRACE("compile_info %p, out %p, messages %p.\n", compile_info, out, messages);
+
+    if (messages)
+        *messages = NULL;
 
     if ((ret = vkd3d_shader_validate_compile_info(compile_info)) < 0)
         return ret;
 
     scan_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
     scan_info.next = NULL;
-    if ((ret = vkd3d_shader_scan_dxbc(&compile_info->source, &scan_info)) < 0)
+    if ((ret = vkd3d_shader_scan_dxbc(&compile_info->source, &scan_info, messages)) < 0)
         return ret;
 
-    if ((ret = vkd3d_shader_parser_init(&parser, &compile_info->source)) < 0)
+    if (!vkd3d_shader_message_context_init(&message_context, compile_info->log_level, compile_info->source_name))
+        return VKD3D_ERROR;
+    ret = vkd3d_shader_parser_init(&parser, &compile_info->source, &message_context);
+    if (messages)
+    {
+        vkd3d_shader_free_messages(*messages);
+        if (!(*messages = vkd3d_shader_message_context_copy_messages(&message_context)))
+            ret = VKD3D_ERROR_OUT_OF_MEMORY;
+    }
+    vkd3d_shader_message_context_cleanup(&message_context);
+    if (ret < 0)
         return ret;
 
     vkd3d_shader_dump_shader(parser.shader_version.type, &compile_info->source);
@@ -418,14 +561,18 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_context *cont
 }
 
 int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_scan_info *scan_info)
+        struct vkd3d_shader_scan_info *scan_info, char **messages)
 {
+    struct vkd3d_shader_message_context message_context;
     struct vkd3d_shader_instruction instruction;
     struct vkd3d_shader_scan_context context;
     struct vkd3d_shader_parser parser;
     int ret;
 
-    TRACE("dxbc {%p, %zu}, scan_info %p.\n", dxbc->code, dxbc->size, scan_info);
+    TRACE("dxbc {%p, %zu}, scan_info %p, messages %p.\n", dxbc->code, dxbc->size, scan_info, messages);
+
+    if (messages)
+        *messages = NULL;
 
     if (scan_info->type != VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO)
     {
@@ -433,7 +580,13 @@ int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
-    if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
+    if (!vkd3d_shader_message_context_init(&message_context, VKD3D_SHADER_LOG_INFO, NULL))
+        return VKD3D_ERROR;
+    ret = vkd3d_shader_parser_init(&parser, dxbc, &message_context);
+    if (messages && !(*messages = vkd3d_shader_message_context_copy_messages(&message_context)))
+        ret = VKD3D_ERROR_OUT_OF_MEMORY;
+    vkd3d_shader_message_context_cleanup(&message_context);
+    if (ret < 0)
         return ret;
 
     memset(scan_info, 0, sizeof(*scan_info));

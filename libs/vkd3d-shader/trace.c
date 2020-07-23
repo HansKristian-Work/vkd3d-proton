@@ -26,14 +26,6 @@
 
 #include <stdio.h>
 
-struct vkd3d_string_buffer
-{
-    struct list entry;
-    char *buffer;
-    unsigned int buffer_size;
-    unsigned int content_size;
-};
-
 static const char * const shader_opcode_names[] =
 {
     /* VKD3DSIH_ABS                              */ "abs",
@@ -308,77 +300,16 @@ shader_input_sysval_semantic_names[] =
     {VKD3D_SIV_LINE_DENSITY_TESS_FACTOR,   "finalLineDensityTessFactor"},
 };
 
-static void string_buffer_clear(struct vkd3d_string_buffer *buffer)
-{
-    buffer->buffer[0] = '\0';
-    buffer->content_size = 0;
-}
-
-static bool string_buffer_init(struct vkd3d_string_buffer *buffer)
-{
-    buffer->buffer_size = 32;
-    if (!(buffer->buffer = vkd3d_malloc(buffer->buffer_size)))
-    {
-        ERR("Failed to allocate shader buffer memory.\n");
-        return false;
-    }
-
-    string_buffer_clear(buffer);
-    return true;
-}
-
-static void string_buffer_free(struct vkd3d_string_buffer *buffer)
-{
-    vkd3d_free(buffer->buffer);
-}
-
-static bool string_buffer_resize(struct vkd3d_string_buffer *buffer, int rc)
-{
-    unsigned int new_buffer_size = buffer->buffer_size * 2;
-    char *new_buffer;
-
-    while (rc > 0 && (unsigned int)rc >= new_buffer_size - buffer->content_size)
-        new_buffer_size *= 2;
-    if (!(new_buffer = vkd3d_realloc(buffer->buffer, new_buffer_size)))
-    {
-        ERR("Failed to grow buffer.\n");
-        buffer->buffer[buffer->content_size] = '\0';
-        return false;
-    }
-    buffer->buffer = new_buffer;
-    buffer->buffer_size = new_buffer_size;
-    return true;
-}
-
-static int shader_vaddline(struct vkd3d_string_buffer *buffer, const char *format, va_list args)
-{
-    unsigned int rem;
-    int rc;
-
-    rem = buffer->buffer_size - buffer->content_size;
-    rc = vsnprintf(&buffer->buffer[buffer->content_size], rem, format, args);
-    if (rc < 0 || (unsigned int)rc >= rem)
-        return rc;
-
-    buffer->content_size += rc;
-    return 0;
-}
-
-static int shader_addline(struct vkd3d_string_buffer *buffer, const char *format, ...)
+static int VKD3D_PRINTF_FUNC(2, 3) shader_addline(struct vkd3d_string_buffer *buffer, const char *format, ...)
 {
     va_list args;
     int ret;
 
-    for (;;)
-    {
-        va_start(args, format);
-        ret = shader_vaddline(buffer, format, args);
-        va_end(args);
-        if (!ret)
-            return ret;
-        if (!string_buffer_resize(buffer, ret))
-            return -1;
-    }
+    va_start(args, format);
+    ret = vkd3d_string_buffer_vprintf(buffer, format, args);
+    va_end(args);
+
+    return ret;
 }
 
 /* Convert floating point offset relative to a register file to an absolute
@@ -1617,7 +1548,7 @@ void vkd3d_shader_trace(void *data)
     const char *p, *q;
     const DWORD *ptr;
 
-    if (!string_buffer_init(&buffer))
+    if (!vkd3d_string_buffer_init(&buffer))
     {
         ERR("Failed to initialize string buffer.\n");
         return;
@@ -1651,5 +1582,5 @@ void vkd3d_shader_trace(void *data)
         TRACE("    %.*s", (int)(q - p), p);
     }
 
-    string_buffer_free(&buffer);
+    vkd3d_string_buffer_cleanup(&buffer);
 }

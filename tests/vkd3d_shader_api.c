@@ -63,8 +63,10 @@ static void test_invalid_shaders(void)
     info.target_type = VKD3D_SHADER_TARGET_SPIRV_BINARY;
     info.options = &option;
     info.option_count = 1;
+    info.log_level = VKD3D_SHADER_LOG_NONE;
+    info.source_name = NULL;
 
-    rc = vkd3d_shader_compile(&info, &spirv);
+    rc = vkd3d_shader_compile(&info, &spirv, NULL);
     ok(rc == VKD3D_ERROR_INVALID_SHADER, "Got unexpected error code %d.\n", rc);
 }
 
@@ -140,14 +142,16 @@ static void test_vkd3d_shader_pfns(void)
     compile_info.target_type = VKD3D_SHADER_TARGET_SPIRV_BINARY;
     compile_info.options = NULL;
     compile_info.option_count = 0;
+    compile_info.log_level = VKD3D_SHADER_LOG_NONE;
+    compile_info.source_name = NULL;
 
-    rc = pfn_vkd3d_shader_compile(&compile_info, &spirv);
+    rc = pfn_vkd3d_shader_compile(&compile_info, &spirv, NULL);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
     pfn_vkd3d_shader_free_shader_code(&spirv);
 
     memset(&scan_info, 0, sizeof(scan_info));
     scan_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
-    rc = pfn_vkd3d_shader_scan_dxbc(&vs, &scan_info);
+    rc = pfn_vkd3d_shader_scan_dxbc(&vs, &scan_info, NULL);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
 }
 

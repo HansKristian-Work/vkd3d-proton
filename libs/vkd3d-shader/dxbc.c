@@ -1941,7 +1941,7 @@ static const char *shader_get_string(const char *data, size_t data_size, DWORD o
     return data + offset;
 }
 
-static int parse_dxbc(const char *data, size_t data_size,
+static int parse_dxbc(const char *data, size_t data_size, struct vkd3d_shader_message_context *message_context,
         int (*chunk_handler)(const char *data, DWORD data_size, DWORD tag, void *ctx), void *ctx)
 {
     const char *ptr = data;
@@ -1955,6 +1955,8 @@ static int parse_dxbc(const char *data, size_t data_size,
     if (data_size < VKD3D_DXBC_HEADER_SIZE)
     {
         WARN("Invalid data size %zu.\n", data_size);
+        vkd3d_shader_error(message_context, VKD3D_SHADER_ERROR_DXBC_INVALID_SIZE,
+                "DXBC size %zu is smaller than the DXBC header size.", data_size);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
@@ -2110,11 +2112,16 @@ static int isgn_handler(const char *data, DWORD data_size, DWORD tag, void *ctx)
 int shader_parse_input_signature(const void *dxbc, size_t dxbc_length,
         struct vkd3d_shader_signature *signature)
 {
+    struct vkd3d_shader_message_context message_context;
     int ret;
 
     memset(signature, 0, sizeof(*signature));
-    if ((ret = parse_dxbc(dxbc, dxbc_length, isgn_handler, signature)) < 0)
+    if (!vkd3d_shader_message_context_init(&message_context, VKD3D_SHADER_LOG_NONE, NULL))
+        return VKD3D_ERROR;
+    if ((ret = parse_dxbc(dxbc, dxbc_length, &message_context, isgn_handler, signature)) < 0)
         ERR("Failed to parse input signature.\n");
+    vkd3d_shader_message_context_cleanup(&message_context);
+
     return ret;
 }
 
@@ -2187,7 +2194,7 @@ void free_shader_desc(struct vkd3d_shader_desc *desc)
 }
 
 int shader_extract_from_dxbc(const void *dxbc, size_t dxbc_length,
-        struct vkd3d_shader_desc *desc)
+        struct vkd3d_shader_message_context *message_context, struct vkd3d_shader_desc *desc)
 {
     int ret;
 
@@ -2197,13 +2204,13 @@ int shader_extract_from_dxbc(const void *dxbc, size_t dxbc_length,
     memset(&desc->output_signature, 0, sizeof(desc->output_signature));
     memset(&desc->patch_constant_signature, 0, sizeof(desc->patch_constant_signature));
 
-    ret = parse_dxbc(dxbc, dxbc_length, shdr_handler, desc);
+    ret = parse_dxbc(dxbc, dxbc_length, message_context, shdr_handler, desc);
     if (!desc->byte_code)
         ret = VKD3D_ERROR_INVALID_ARGUMENT;
 
     if (ret < 0)
     {
-        FIXME("Failed to parse shader, vkd3d result %d.\n", ret);
+        WARN("Failed to parse shader, vkd3d result %d.\n", ret);
         free_shader_desc(desc);
     }
 
@@ -2656,18 +2663,20 @@ static int rts0_handler(const char *data, DWORD data_size, DWORD tag, void *cont
 int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_versioned_root_signature_desc *root_signature)
 {
+    struct vkd3d_shader_message_context message_context;
     int ret;
 
     TRACE("dxbc {%p, %zu}, root_signature %p.\n", dxbc->code, dxbc->size, root_signature);
 
     memset(root_signature, 0, sizeof(*root_signature));
-    if ((ret = parse_dxbc(dxbc->code, dxbc->size, rts0_handler, root_signature)) < 0)
-    {
+    if (!vkd3d_shader_message_context_init(&message_context, VKD3D_SHADER_LOG_NONE, NULL))
+        return VKD3D_ERROR;
+    ret = parse_dxbc(dxbc->code, dxbc->size, &message_context, rts0_handler, root_signature);
+    vkd3d_shader_message_context_cleanup(&message_context);
+    if (ret < 0)
         vkd3d_shader_free_root_signature(root_signature);
-        return ret;
-    }
 
-    return VKD3D_OK;
+    return ret;
 }
 
 static unsigned int versioned_root_signature_get_parameter_count(

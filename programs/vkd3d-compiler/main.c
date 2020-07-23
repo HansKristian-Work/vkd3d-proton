@@ -222,6 +222,7 @@ int main(int argc, char **argv)
     struct vkd3d_shader_compile_info info;
     struct vkd3d_shader_code spirv;
     struct options options;
+    char *messages;
     int ret;
 
     if (!parse_command_line(argc, argv, &options))
@@ -242,6 +243,8 @@ int main(int argc, char **argv)
     info.target_type = VKD3D_SHADER_TARGET_SPIRV_BINARY;
     info.options = options.compile_options;
     info.option_count = options.compile_option_count;
+    info.log_level = VKD3D_SHADER_LOG_INFO;
+    info.source_name = options.filename;
 
     if (!read_shader(&info.source, options.filename))
     {
@@ -249,7 +252,10 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    ret = vkd3d_shader_compile(&info, &spirv);
+    ret = vkd3d_shader_compile(&info, &spirv, &messages);
+    if (messages)
+        fputs(messages, stderr);
+    vkd3d_shader_free_messages(messages);
     vkd3d_shader_free_shader_code(&info.source);
     if (ret < 0)
     {

@@ -59,6 +59,11 @@
 
 #define VKD3D_VEC4_SIZE 4
 
+enum vkd3d_shader_error
+{
+    VKD3D_SHADER_ERROR_DXBC_INVALID_SIZE         = 1,
+};
+
 enum VKD3D_SHADER_INSTRUCTION_HANDLER
 {
     VKD3DSIH_ABS,
@@ -799,8 +804,33 @@ void shader_sm4_read_instruction(void *data, const DWORD **ptr,
         struct vkd3d_shader_instruction *ins) DECLSPEC_HIDDEN;
 bool shader_sm4_is_end(void *data, const DWORD **ptr) DECLSPEC_HIDDEN;
 
+struct vkd3d_string_buffer
+{
+    char *buffer;
+    unsigned int buffer_size;
+    unsigned int content_size;
+};
+
+void vkd3d_string_buffer_cleanup(struct vkd3d_string_buffer *buffer) DECLSPEC_HIDDEN;
+bool vkd3d_string_buffer_init(struct vkd3d_string_buffer *buffer) DECLSPEC_HIDDEN;
+int vkd3d_string_buffer_vprintf(struct vkd3d_string_buffer *buffer, const char *format, va_list args) DECLSPEC_HIDDEN;
+
+struct vkd3d_shader_message_context
+{
+    enum vkd3d_shader_log_level log_level;
+    const char *source_name;
+    unsigned int line, column;
+    struct vkd3d_string_buffer messages;
+};
+
+void vkd3d_shader_message_context_cleanup(struct vkd3d_shader_message_context *context) DECLSPEC_HIDDEN;
+bool vkd3d_shader_message_context_init(struct vkd3d_shader_message_context *context,
+        enum vkd3d_shader_log_level log_level, const char *source_name) DECLSPEC_HIDDEN;
+void vkd3d_shader_error(struct vkd3d_shader_message_context *context, enum vkd3d_shader_error error,
+        const char *format, ...) VKD3D_PRINTF_FUNC(3, 4) DECLSPEC_HIDDEN;
+
 int shader_extract_from_dxbc(const void *dxbc, size_t dxbc_length,
-        struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
+        struct vkd3d_shader_message_context *message_context, struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
 void free_shader_desc(struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
 
 int shader_parse_input_signature(const void *dxbc, size_t dxbc_length,
