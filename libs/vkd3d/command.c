@@ -2464,7 +2464,7 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
     if (bindings->root_signature->descriptor_table_count)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
 
-    if (bindings->root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_BINDLESS_UAV_COUNTERS)
+    if (bindings->root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_RAW_VA_UAV_COUNTERS)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_UAV_COUNTER_BINDING;
 
     bindings->root_descriptor_dirty_mask = bindings->root_signature->root_descriptor_mask;
@@ -3661,7 +3661,7 @@ static bool vk_write_descriptor_set_from_uav_counter_binding(struct d3d12_comman
 
     bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_UAV_COUNTER_BINDING;
 
-    if (!list->uav_counter_address_buffer || !(root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_BINDLESS_UAV_COUNTERS))
+    if (!list->uav_counter_address_buffer || !(root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_RAW_VA_UAV_COUNTERS))
         return false;
 
     vk_buffer_info->buffer = list->uav_counter_address_buffer;
@@ -5446,7 +5446,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_comman
         bindings->descriptor_heap_dirty_mask = dirty_mask;
 
         if (dirty_uav_counters && bindings->root_signature &&
-                (bindings->root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_BINDLESS_UAV_COUNTERS))
+                (bindings->root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_RAW_VA_UAV_COUNTERS))
             bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_UAV_COUNTER_BINDING;
     }
 }
