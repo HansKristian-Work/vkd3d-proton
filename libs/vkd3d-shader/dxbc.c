@@ -1992,6 +1992,8 @@ static int parse_dxbc(const char *data, size_t data_size, struct vkd3d_shader_me
     if (version != 0x00000001)
     {
         WARN("Got unexpected DXBC version %#x.\n", version);
+        vkd3d_shader_error(message_context, VKD3D_SHADER_ERROR_DXBC_INVALID_VERSION,
+                "DXBC version %#x is not supported.", version);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
