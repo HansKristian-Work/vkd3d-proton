@@ -1966,6 +1966,7 @@ static int parse_dxbc(const char *data, size_t data_size, struct vkd3d_shader_me
     if (tag != TAG_DXBC)
     {
         WARN("Wrong tag.\n");
+        vkd3d_shader_error(message_context, VKD3D_SHADER_ERROR_DXBC_INVALID_MAGIC, "Invalid DXBC magic.");
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
