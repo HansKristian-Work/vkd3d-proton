@@ -3766,7 +3766,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
         assert(d3d12_resource_is_buffer(counter_resource));
         assert(desc->Buffer.StructureByteStride);
 
-        if (device->bindless_state.flags & VKD3D_BINDLESS_UAV_COUNTER)
+        if (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER)
         {
             VkDeviceAddress address = vkd3d_get_buffer_device_address(device, counter_resource->vk_buffer);
 
@@ -4728,7 +4728,7 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
         }
 
         if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
-                (device->bindless_state.flags & VKD3D_BINDLESS_UAV_COUNTER))
+                (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER))
         {
             if (FAILED(hr = d3d12_descriptor_heap_create_uav_counter_buffer(descriptor_heap,
                     &descriptor_heap->uav_counters)))

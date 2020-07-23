@@ -792,7 +792,7 @@ enum vkd3d_root_signature_flag
 {
     VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS       = 0x00000001u,
     VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK   = 0x00000002u,
-    VKD3D_ROOT_SIGNATURE_USE_BINDLESS_UAV_COUNTERS  = 0x00000004u,
+    VKD3D_ROOT_SIGNATURE_USE_RAW_VA_UAV_COUNTERS    = 0x00000004u,
 };
 
 struct d3d12_root_descriptor_table
@@ -1475,7 +1475,7 @@ enum vkd3d_bindless_flags
     VKD3D_BINDLESS_CBV          = (1u << 1),
     VKD3D_BINDLESS_SRV          = (1u << 2),
     VKD3D_BINDLESS_UAV          = (1u << 3),
-    VKD3D_BINDLESS_UAV_COUNTER  = (1u << 4),
+    VKD3D_RAW_VA_UAV_COUNTER    = (1u << 4),
     VKD3D_BINDLESS_CBV_AS_SSBO  = (1u << 5),
 };
 
