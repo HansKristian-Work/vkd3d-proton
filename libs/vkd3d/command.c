@@ -6358,12 +6358,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *texture = unsafe_impl_from_ID3D12Resource(resource);
+    unsigned int i, first_subresource, subresource_count;
     VkImageSubresourceLayers vk_subresource_layers;
     VkImageSubresource vk_subresource;
     D3D12_RECT full_rect;
     int attachment_idx;
     bool full_discard;
-    unsigned int i;
 
     TRACE("iface %p, resource %p, region %p.\n", iface, resource, region);
 
@@ -6388,12 +6388,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
         return;
     }
 
+    /* Assume that pRegion == NULL means that we should discard
+     * the entire resource. This does not seem to be documented. */
+    if (region)
+    {
+        first_subresource = region->FirstSubresource;
+        subresource_count = region->NumSubresources;
+    }
+    else
+    {
+        first_subresource = 0;
+        subresource_count = d3d12_resource_desc_get_sub_resource_count(&texture->desc);
+    }
+
     /* We can't meaningfully discard sub-regions of an image. If rects
      * are specified, all specified subresources must have the same
      * dimensions, so just base this off the first subresource */
-    if (!(full_discard = !region->NumRects))
+    if (!(full_discard = (!region || !region->NumRects)))
     {
-        vk_subresource = d3d12_resource_get_vk_subresource(texture, region->FirstSubresource, false);
+        vk_subresource = d3d12_resource_get_vk_subresource(texture, first_subresource, false);
         full_rect = d3d12_get_image_rect(texture, vk_subresource.mipLevel);
 
         for (i = 0; i < region->NumRects && !full_discard; i++)
@@ -6403,7 +6416,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     if (!full_discard)
         return;
 
-    for (i = region->FirstSubresource; i < region->FirstSubresource + region->NumSubresources; i++)
+    for (i = first_subresource; i < first_subresource + subresource_count; i++)
     {
         vk_subresource = d3d12_resource_get_vk_subresource(texture, i, false);
         vk_subresource_layers = vk_subresource_layers_from_subresource(&vk_subresource);
