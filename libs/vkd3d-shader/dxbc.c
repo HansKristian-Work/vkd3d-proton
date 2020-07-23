@@ -2015,6 +2015,8 @@ static int parse_dxbc(const char *data, size_t data_size, struct vkd3d_shader_me
         if (chunk_offset >= data_size || !require_space(chunk_offset, 2, sizeof(DWORD), data_size))
         {
             WARN("Invalid chunk offset %#x (data size %zu).\n", chunk_offset, data_size);
+            vkd3d_shader_error(message_context, VKD3D_SHADER_ERROR_DXBC_INVALID_CHUNK_OFFSET,
+                    "DXBC chunk %u has invalid offset %#x (data size %#zx).", i, chunk_offset, data_size);
             return VKD3D_ERROR_INVALID_ARGUMENT;
         }
 
@@ -2027,6 +2029,9 @@ static int parse_dxbc(const char *data, size_t data_size, struct vkd3d_shader_me
         {
             WARN("Invalid chunk size %#x (data size %zu, chunk offset %#x).\n",
                     chunk_size, data_size, chunk_offset);
+            vkd3d_shader_error(message_context, VKD3D_SHADER_ERROR_DXBC_INVALID_CHUNK_SIZE,
+                    "DXBC chunk %u has invalid size %#x (data size %#zx, chunk offset %#x).",
+                    i, chunk_offset, data_size, chunk_offset);
             return VKD3D_ERROR_INVALID_ARGUMENT;
         }
 
