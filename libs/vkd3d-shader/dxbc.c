@@ -1944,6 +1944,7 @@ static const char *shader_get_string(const char *data, size_t data_size, DWORD o
 static int parse_dxbc(const char *data, size_t data_size, struct vkd3d_shader_message_context *message_context,
         int (*chunk_handler)(const char *data, DWORD data_size, DWORD tag, void *ctx), void *ctx)
 {
+    uint32_t checksum[4], calculated_checksum[4];
     const char *ptr = data;
     int ret = VKD3D_OK;
     DWORD chunk_count;
@@ -1970,8 +1971,21 @@ static int parse_dxbc(const char *data, size_t data_size, struct vkd3d_shader_me
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
-    WARN("Ignoring DXBC checksum.\n");
-    skip_dword_unknown(&ptr, 4);
+    read_dword(&ptr, &checksum[0]);
+    read_dword(&ptr, &checksum[1]);
+    read_dword(&ptr, &checksum[2]);
+    read_dword(&ptr, &checksum[3]);
+    vkd3d_compute_dxbc_checksum(data, data_size, calculated_checksum);
+    if (memcmp(checksum, calculated_checksum, sizeof(checksum)))
+    {
+        WARN("Checksum {0x%08x, 0x%08x, 0x%08x, 0x%08x} does not match "
+                "calculated checksum {0x%08x, 0x%08x, 0x%08x, 0x%08x}.\n",
+                checksum[0], checksum[1], checksum[2], checksum[3],
+                calculated_checksum[0], calculated_checksum[1],
+                calculated_checksum[2], calculated_checksum[3]);
+        vkd3d_shader_error(message_context, VKD3D_SHADER_ERROR_DXBC_INVALID_CHECKSUM, "Invalid DXBC checksum.");
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
 
     read_dword(&ptr, &version);
     TRACE("version: %#x.\n", version);
