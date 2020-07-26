@@ -9,6 +9,9 @@ vkd3d_msvc     = vkd3d_compiler.get_id() == 'msvc'
 vkd3d_c_std    = 'c99'
 vkd3d_platform = target_machine.system()
 
+vkd3d_bits     = cpu_family == 'x86' ? '32' : '64'
+vkd3d_arch_arg = '-m@0@'.format(vkd3d_bits)
+
 enable_tests             = get_option('enable_tests')
 enable_extras            = get_option('enable_extras')
 enable_standalone_d3d12  = get_option('enable_standalone_d3d12')
@@ -39,14 +42,8 @@ vkd3d_public_includes   = include_directories(vkd3d_public_includes)
 vkd3d_private_includes  = include_directories(vkd3d_private_includes)
 
 idl_compiler  = find_program('widl')
-idl_generator = generator(idl_compiler,
-  output    : [ '@BASENAME@.h' ],
-  arguments : [ '-h', '-o', '@OUTPUT@', '@INPUT@' ])
-
-glsl_compiler  = find_program('glslangValidator')
-glsl_generator = generator(glsl_compiler,
-  output    : [ '@BASENAME@.h' ],
-  arguments : [ '-V', '--vn', '@BASENAME@', '@INPUT@', '-o', '@OUTPUT@' ])
+glsl_compiler = find_program('glslangValidator')
+def_compiler  = find_program('winebuild')
 
 threads_dep = dependency('threads')
 lib_d3d12   = vkd3d_compiler.find_library('d3d12', required : false)
@@ -100,6 +97,7 @@ if vkd3d_platform == 'linux'
   install_headers('include/vkd3d.h', 'include/vkd3d_sonames.h', 'include/vkd3d_types.h', 'include/vkd3d_utils.h', 'include/vkd3d_win32.h', 'include/vkd3d_windows.h', subdir : 'vkd3d')
 endif
 
+subdir('crosslibs')
 subdir('include')
 subdir('libs')
 

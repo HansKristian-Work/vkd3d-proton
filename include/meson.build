@@ -12,4 +12,13 @@ vkd3d_idl = [
   'vkd3d_swapchain_factory.idl',
 ]
 
-vkd3d_headers = idl_generator.process(vkd3d_idl)
+vkd3d_idl_h = []
+
+foreach header : vkd3d_idl
+  vkd3d_idl_h += custom_target( '@0@.target'.format(header),
+    input: header,
+    output: '@BASENAME@.h',
+    command: [ idl_compiler, vkd3d_arch_arg, '-h', '-o', '@OUTPUT@', '@INPUT@' ],
+    build_by_default: true,
+    install: false)
+endforeach

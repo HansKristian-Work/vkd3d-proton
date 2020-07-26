@@ -1,23 +1,4 @@
-vkd3d_shaders =[
-  'shaders/cs_clear_uav_buffer_float.comp',
-  'shaders/cs_clear_uav_buffer_uint.comp',
-  'shaders/cs_clear_uav_image_1d_array_float.comp',
-  'shaders/cs_clear_uav_image_1d_array_uint.comp',
-  'shaders/cs_clear_uav_image_1d_float.comp',
-  'shaders/cs_clear_uav_image_1d_uint.comp',
-  'shaders/cs_clear_uav_image_2d_array_float.comp',
-  'shaders/cs_clear_uav_image_2d_array_uint.comp',
-  'shaders/cs_clear_uav_image_2d_float.comp',
-  'shaders/cs_clear_uav_image_2d_uint.comp',
-  'shaders/cs_clear_uav_image_3d_float.comp',
-  'shaders/cs_clear_uav_image_3d_uint.comp',
-
-  'shaders/fs_copy_image_float.frag',
-
-  'shaders/gs_fullscreen.geom',
-  'shaders/vs_fullscreen.vert',
-  'shaders/vs_fullscreen_layer.vert',
-]
+subdir('shaders')
 
 vkd3d_src = [
   'command.c',
@@ -35,17 +16,19 @@ if enable_standalone_d3d12
 endif
 
 if not enable_standalone_d3d12
-  vkd3d_lib = shared_library('vkd3d', vkd3d_src, glsl_generator.process(vkd3d_shaders), vkd3d_version, vkd3d_headers,
+  vkd3d_lib = shared_library('vkd3d', vkd3d_src, vkd3d_version,
     dependencies        : [ vkd3d_common_dep, vkd3d_shader_dep ] + vkd3d_extra_libs,
     include_directories : vkd3d_private_includes,
     install             : true,
     vs_module_defs      : 'vkd3d.def',
     version             : '1.1.0',
+    sources             : [ vkd3d_idl_h, vkd3d_shaders_h ],
     override_options    : [ 'c_std='+vkd3d_c_std ])
 else
-  vkd3d_lib = static_library('vkd3d', vkd3d_src, glsl_generator.process(vkd3d_shaders), vkd3d_version, vkd3d_headers,
+  vkd3d_lib = static_library('vkd3d', vkd3d_src, vkd3d_version,
     dependencies        : [ vkd3d_common_dep, vkd3d_shader_dep ] + vkd3d_extra_libs,
     include_directories : vkd3d_private_includes,
+    sources             : [ vkd3d_idl_h, vkd3d_shaders_h ],
     override_options    : [ 'c_std='+vkd3d_c_std ])
 endif
 

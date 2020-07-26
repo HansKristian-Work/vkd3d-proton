@@ -2,11 +2,12 @@ vkd3d_utils_src = [
   'vkd3d_utils_main.c',
 ]
 
-vkd3d_utils_lib = shared_library('vkd3d-utils', vkd3d_utils_src, vkd3d_headers,
+vkd3d_utils_lib = shared_library('vkd3d-utils', vkd3d_utils_src,
   dependencies        : vkd3d_dep,
   include_directories : vkd3d_private_includes,
   install             : true,
   vs_module_defs      : 'vkd3d_utils.def',
+  sources             : vkd3d_idl_h,
   override_options    : [ 'c_std='+vkd3d_c_std ])
 
 vkd3d_utils_dep = declare_dependency(
