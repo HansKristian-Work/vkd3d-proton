@@ -42,7 +42,7 @@ static void vkd3d_shader_dump_blob(const char *path, const char *prefix, const v
     }
 }
 
-void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader)
+void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader, const char *ext)
 {
     static LONG shader_id = 0;
     static bool enabled = true;
@@ -58,7 +58,7 @@ void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct vkd3d_sh
     }
 
     vkd3d_shader_dump_blob(path, shader_get_type_prefix(type), shader->code, shader->size,
-                           InterlockedIncrement(&shader_id) - 1, "dxbc");
+                           InterlockedIncrement(&shader_id) - 1, ext);
 }
 
 void vkd3d_shader_dump_spirv_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader)
@@ -183,7 +183,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
         return ret;
 
-    vkd3d_shader_dump_shader(parser.shader_version.type, dxbc);
+    vkd3d_shader_dump_shader(parser.shader_version.type, dxbc, "dxbc");
 
     if (TRACE_ON())
         vkd3d_shader_trace(parser.data);

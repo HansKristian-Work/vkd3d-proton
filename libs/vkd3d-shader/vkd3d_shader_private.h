@@ -862,7 +862,7 @@ void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler) DECLSPEC_
 void vkd3d_compute_dxbc_checksum(const void *dxbc, size_t size, uint32_t checksum[4]) DECLSPEC_HIDDEN;
 
 void vkd3d_shader_dump_spirv_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader);
-void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader);
+void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader, const char *ext);
 
 static inline enum vkd3d_component_type vkd3d_component_type_from_data_type(
         enum vkd3d_data_type data_type)
