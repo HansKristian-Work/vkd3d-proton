@@ -386,7 +386,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
             goto end;
     }
 
-    vkd3d_shader_dump_shader(shader_type, dxbc);
+    vkd3d_shader_dump_shader(shader_type, dxbc, "dxil");
 
     if (dxil_spv_create_converter(blob, &converter) != DXIL_SPV_SUCCESS)
     {
