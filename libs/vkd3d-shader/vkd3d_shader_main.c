@@ -308,6 +308,7 @@ int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info,
     if (!vkd3d_shader_message_context_init(&message_context, compile_info->log_level, compile_info->source_name))
         return VKD3D_ERROR;
     ret = vkd3d_shader_parser_init(&parser, &compile_info->source, &message_context);
+    vkd3d_shader_message_context_trace_messages(&message_context);
     if (messages)
     {
         vkd3d_shader_free_messages(*messages);
