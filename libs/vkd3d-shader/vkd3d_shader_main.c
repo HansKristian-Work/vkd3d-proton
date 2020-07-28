@@ -120,8 +120,8 @@ static char *vkd3d_shader_message_context_copy_messages(struct vkd3d_shader_mess
 {
     char *messages;
 
-    if ((messages = vkd3d_malloc(context->messages.content_size)))
-        memcpy(messages, context->messages.buffer, context->messages.content_size);
+    if ((messages = vkd3d_malloc(context->messages.content_size + 1)))
+        memcpy(messages, context->messages.buffer, context->messages.content_size + 1);
 
     return messages;
 }
