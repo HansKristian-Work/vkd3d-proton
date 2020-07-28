@@ -295,9 +295,6 @@ int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info,
 
     vkd3d_shader_dump_shader(parser.shader_version.type, &compile_info->source);
 
-    if (TRACE_ON())
-        vkd3d_shader_trace(parser.data);
-
     if (!(spirv_compiler = vkd3d_dxbc_compiler_create(&parser.shader_version,
             &parser.shader_desc, compile_info, &scan_info)))
     {
@@ -588,6 +585,9 @@ int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
     vkd3d_shader_message_context_cleanup(&message_context);
     if (ret < 0)
         return ret;
+
+    if (TRACE_ON())
+        vkd3d_shader_trace(parser.data);
 
     memset(scan_info, 0, sizeof(*scan_info));
 
