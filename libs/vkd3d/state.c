@@ -2953,14 +2953,14 @@ HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d
 
         if (FAILED(hr = vkd3d_create_descriptor_set_layout(device, 0, 1, &set_binding, set_layouts[i].set_layout)))
         {
-            ERR("Failed to create descriptor set layout %u, hr %#x.", i, hr);
+            ERR("Failed to create descriptor set layout %u, hr %#x.\n", i, hr);
             goto fail;
         }
 
         if (FAILED(hr = vkd3d_create_pipeline_layout(device, 1, set_layouts[i].set_layout,
                 1, &push_constant_range, set_layouts[i].pipeline_layout)))
         {
-            ERR("Failed to create pipeline layout %u, hr %#x.", i, hr);
+            ERR("Failed to create pipeline layout %u, hr %#x.\n", i, hr);
             goto fail;
         }
     }
@@ -2986,7 +2986,7 @@ HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d
         if (FAILED(hr = vkd3d_create_compute_pipeline(device, &pipelines[i].code, &shader_interface,
                 *pipelines[i].pipeline_layout, pipelines[i].pipeline)))
         {
-            ERR("Failed to create compute pipeline %u, hr %#x.", i, hr);
+            ERR("Failed to create compute pipeline %u, hr %#x.\n", i, hr);
             goto fail;
         }
     }
