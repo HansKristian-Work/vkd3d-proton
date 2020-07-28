@@ -100,6 +100,23 @@ static int VKD3D_PRINTF_FUNC(2, 3) vkd3d_string_buffer_printf(struct vkd3d_strin
     return ret;
 }
 
+static void vkd3d_string_buffer_trace_(const struct vkd3d_string_buffer *buffer, const char *function)
+{
+    const char *p, *q;
+
+    if (!TRACE_ON())
+        return;
+
+    for (p = buffer->buffer; *p; p = q)
+    {
+        if (!(q = strstr(p, "\n")))
+            q = p + strlen(p);
+        else
+            ++q;
+        vkd3d_dbg_printf(VKD3D_DBG_LEVEL_TRACE, function, "%.*s", (int)(q - p), p);
+    }
+}
+
 bool vkd3d_shader_message_context_init(struct vkd3d_shader_message_context *context,
         enum vkd3d_shader_log_level log_level, const char *source_name)
 {
@@ -114,6 +131,14 @@ bool vkd3d_shader_message_context_init(struct vkd3d_shader_message_context *cont
 void vkd3d_shader_message_context_cleanup(struct vkd3d_shader_message_context *context)
 {
     vkd3d_string_buffer_cleanup(&context->messages);
+}
+
+#define vkd3d_shader_message_context_trace_messages(context) \
+        vkd3d_shader_message_context_trace_messages_(context, __FUNCTION__)
+static void vkd3d_shader_message_context_trace_messages_(const struct vkd3d_shader_message_context *context,
+        const char *function)
+{
+    vkd3d_string_buffer_trace_(&context->messages, function);
 }
 
 static char *vkd3d_shader_message_context_copy_messages(struct vkd3d_shader_message_context *context)
@@ -580,6 +605,7 @@ int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
     if (!vkd3d_shader_message_context_init(&message_context, VKD3D_SHADER_LOG_INFO, NULL))
         return VKD3D_ERROR;
     ret = vkd3d_shader_parser_init(&parser, dxbc, &message_context);
+    vkd3d_shader_message_context_trace_messages(&message_context);
     if (messages && !(*messages = vkd3d_shader_message_context_copy_messages(&message_context)))
         ret = VKD3D_ERROR_OUT_OF_MEMORY;
     vkd3d_shader_message_context_cleanup(&message_context);
