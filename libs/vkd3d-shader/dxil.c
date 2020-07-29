@@ -346,6 +346,8 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         const struct vkd3d_shader_compile_arguments *compiler_args)
 {
     const struct vkd3d_shader_transform_feedback_info *xfb_info;
+    unsigned int non_raw_va_binding_count = 0;
+    unsigned int raw_va_binding_count = 0;
     unsigned int root_constant_words = 0;
     dxil_spv_converter converter = NULL;
     enum vkd3d_shader_type shader_type;
@@ -439,20 +441,35 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 
     for (i = 0; i < shader_interface_info->binding_count; i++)
     {
-        /* Bindless UAV counters are implemented as physical storage buffer pointers. */
-        if ((shader_interface_info->bindings[i].flags & (VKD3D_SHADER_BINDING_FLAG_COUNTER | VKD3D_SHADER_BINDING_FLAG_BINDLESS)) ==
+        /* Bindless UAV counters are implemented as physical storage buffer pointers.
+         * For simplicity, dxil-spirv only accepts either fully RAW VA, or all non-raw VA. */
+        if ((shader_interface_info->bindings[i].flags &
+             (VKD3D_SHADER_BINDING_FLAG_COUNTER | VKD3D_SHADER_BINDING_FLAG_BINDLESS)) ==
             (VKD3D_SHADER_BINDING_FLAG_COUNTER | VKD3D_SHADER_BINDING_FLAG_BINDLESS))
         {
-            static const struct dxil_spv_option_physical_storage_buffer helper =
-                    { { DXIL_SPV_OPTION_PHYSICAL_STORAGE_BUFFER },
-                      DXIL_SPV_TRUE };
-            if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-            {
-                ERR("dxil-spirv does not support PHYSICAL_STORAGE_BUFFER.\n");
-                ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                goto end;
-            }
-            break;
+            if (shader_interface_info->bindings[i].flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA)
+                raw_va_binding_count++;
+            else
+                non_raw_va_binding_count++;
+        }
+    }
+
+    if (raw_va_binding_count && non_raw_va_binding_count)
+    {
+        ERR("dxil-spirv currently cannot mix and match bindless UAV counters with RAW VA and texel buffer.\n");
+        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+        goto end;
+    }
+
+    {
+        const struct dxil_spv_option_physical_storage_buffer helper =
+                { { DXIL_SPV_OPTION_PHYSICAL_STORAGE_BUFFER },
+                  raw_va_binding_count ? DXIL_SPV_TRUE : DXIL_SPV_FALSE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support PHYSICAL_STORAGE_BUFFER.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
         }
     }
 
