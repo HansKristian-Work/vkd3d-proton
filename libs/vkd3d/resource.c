@@ -2825,6 +2825,7 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
     union vkd3d_descriptor_info descriptor_info;
     unsigned int descriptor_index, set_index;
     VkDescriptorSet vk_descriptor_set;
+    VkBufferView counter_buffer_view;
     uint32_t write_count = 0;
     bool is_buffer;
 
@@ -2842,7 +2843,7 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
         }
         else if ((vk_descriptor_set = dst->heap->vk_descriptor_sets[set_index]))
         {
-            VkBufferView buffer_view = dst->info.view ? dst->info.view->vk_counter_view : VK_NULL_HANDLE;
+            counter_buffer_view = dst->info.view ? dst->info.view->vk_counter_view : VK_NULL_HANDLE;
 
             vk_write = &vk_writes[write_count++];
             vk_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2854,7 +2855,7 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
             vk_write->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
             vk_write->pImageInfo = NULL;
             vk_write->pBufferInfo = NULL;
-            vk_write->pTexelBufferView = &buffer_view;
+            vk_write->pTexelBufferView = &counter_buffer_view;
         }
     }
 
