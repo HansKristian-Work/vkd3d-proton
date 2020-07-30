@@ -3,6 +3,7 @@ c = 'i686-w64-mingw32-gcc'
 cpp = 'i686-w64-mingw32-g++'
 ar = 'i686-w64-mingw32-ar'
 strip = 'i686-w64-mingw32-strip'
+widl = 'i686-w64-mingw32-widl'
 
 [properties]
 c_args=['-msse', '-msse2']
