@@ -2845,17 +2845,20 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
         {
             counter_buffer_view = dst->info.view ? dst->info.view->vk_counter_view : VK_NULL_HANDLE;
 
-            vk_write = &vk_writes[write_count++];
-            vk_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            vk_write->pNext = NULL;
-            vk_write->dstSet = vk_descriptor_set;
-            vk_write->dstBinding = 0;
-            vk_write->dstArrayElement = descriptor_index;
-            vk_write->descriptorCount = 1;
-            vk_write->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-            vk_write->pImageInfo = NULL;
-            vk_write->pBufferInfo = NULL;
-            vk_write->pTexelBufferView = &counter_buffer_view;
+            if (counter_buffer_view)
+            {
+                vk_write = &vk_writes[write_count++];
+                vk_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                vk_write->pNext = NULL;
+                vk_write->dstSet = vk_descriptor_set;
+                vk_write->dstBinding = 0;
+                vk_write->dstArrayElement = descriptor_index;
+                vk_write->descriptorCount = 1;
+                vk_write->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+                vk_write->pImageInfo = NULL;
+                vk_write->pBufferInfo = NULL;
+                vk_write->pTexelBufferView = &counter_buffer_view;
+            }
         }
     }
 
@@ -3787,6 +3790,8 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
             }
         }
     }
+    else if (!device->device_info.robustness2_features.nullDescriptor)
+        view->vk_counter_view = device->null_resources.vk_storage_buffer_view;
 }
 
 static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
