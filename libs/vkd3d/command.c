@@ -1284,12 +1284,7 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
 
         pool_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         pool_desc.pNext = &inline_uniform_desc;
-        /* For a correct implementation of RS 1.0 we need to update packed descriptor sets late rather than on draw.
-         * If device does not support descriptor indexing, we must update on draw and pray applications don't rely on RS 1.0
-         * guarantees. */
-        pool_desc.flags = pool_type == VKD3D_DESCRIPTOR_POOL_TYPE_VOLATILE &&
-                          allocator->device->vk_info.supports_volatile_packed_descriptors ?
-                          VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT : 0;
+        pool_desc.flags = 0;
         pool_desc.maxSets = 512;
         pool_desc.poolSizeCount = ARRAY_SIZE(pool_sizes);
         pool_desc.pPoolSizes = pool_sizes;
@@ -1299,11 +1294,9 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
             /* Only allocate for samplers. */
             pool_desc.poolSizeCount = 1;
         }
-        else if (pool_type == VKD3D_DESCRIPTOR_POOL_TYPE_VOLATILE ||
-                 !device->vk_info.EXT_inline_uniform_block ||
-                 device->vk_info.device_limits.maxPushConstantsSize >= (D3D12_MAX_ROOT_COST * sizeof(uint32_t)))
+        else if (!device->vk_info.EXT_inline_uniform_block ||
+                device->vk_info.device_limits.maxPushConstantsSize >= (D3D12_MAX_ROOT_COST * sizeof(uint32_t)))
         {
-            /* We don't use volatile inline uniform block descriptors. */
             pool_desc.pNext = NULL;
             pool_desc.poolSizeCount -= 1;
         }
