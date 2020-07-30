@@ -7771,6 +7771,13 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
 
         if (sampler_reg->modifier == VKD3DSPRM_NONUNIFORM)
             vkd3d_dxbc_compiler_decorate_nonuniform(compiler, sampler_id);
+
+        /* To be strict against Vulkan spec, the sampled image itself needs to be marked as NonUniform. */
+        if ((image->image_id && resource_reg->modifier == VKD3DSPRM_NONUNIFORM) ||
+            sampler_reg->modifier == VKD3DSPRM_NONUNIFORM)
+        {
+            vkd3d_dxbc_compiler_decorate_nonuniform(compiler, image->sampled_image_id);
+        }
     }
     else
     {
@@ -8512,6 +8519,10 @@ static void vkd3d_dxbc_compiler_emit_uav_counter_instruction(struct vkd3d_dxbc_c
 
         pointer_id = vkd3d_spirv_build_op_image_texel_pointer(builder,
                 ctr_ptr_type_id, image_ptr, zero_id, zero_id);
+
+        /* Need to mark the pointer argument itself as non-uniform. */
+        if (src->reg.modifier == VKD3DSPRM_NONUNIFORM)
+            vkd3d_dxbc_compiler_decorate_nonuniform(compiler, pointer_id);
     }
     else
     {
