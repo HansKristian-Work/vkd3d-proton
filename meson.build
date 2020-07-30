@@ -83,7 +83,7 @@ if cpu_family == 'x86'
 endif
 
 vkd3d_version = vcs_tag(
-  command : ['git', 'describe', '--dirty=+'],
+  command : ['git', 'describe', '--always', '--dirty=+'],
   input   : 'vkd3d_version.c.in',
   output  : 'vkd3d_version.c')
 
