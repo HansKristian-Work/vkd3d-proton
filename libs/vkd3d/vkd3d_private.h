@@ -1134,9 +1134,8 @@ struct d3d12_command_allocator *unsafe_impl_from_ID3D12CommandAllocator(ID3D12Co
 enum vkd3d_pipeline_dirty_flag
 {
     VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET       = 0x00000001u,
-    VKD3D_PIPELINE_DIRTY_PACKED_DESCRIPTOR_SET    = 0x00000002u,
-    VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS = 0x00000004u,
-    VKD3D_PIPELINE_DIRTY_UAV_COUNTER_BINDING      = 0x00000008u,
+    VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS = 0x00000002u,
+    VKD3D_PIPELINE_DIRTY_UAV_COUNTER_BINDING      = 0x00000004u,
 };
 
 union vkd3d_descriptor_info
@@ -1144,15 +1143,6 @@ union vkd3d_descriptor_info
     VkBufferView buffer_view;
     VkDescriptorBufferInfo buffer;
     VkDescriptorImageInfo image;
-};
-
-struct vkd3d_descriptor_updates
-{
-    VkWriteDescriptorSet *descriptor_writes;
-    size_t descriptor_writes_size;
-
-    union vkd3d_descriptor_info *descriptors;
-    size_t descriptors_size;
 };
 
 struct vkd3d_pipeline_bindings
@@ -1173,15 +1163,6 @@ struct vkd3d_pipeline_bindings
 
     uint32_t root_constants[D3D12_MAX_ROOT_COST];
     uint64_t root_constant_dirty_mask;
-};
-
-struct d3d12_deferred_descriptor_set_update
-{
-    VkDescriptorSet descriptor_set;
-    const struct d3d12_root_signature *root_signature;
-    const struct d3d12_desc *base_descriptor;
-    struct vkd3d_descriptor_updates *updates;
-    unsigned int root_parameter_index;
 };
 
 struct vkd3d_dynamic_state
@@ -1268,7 +1249,6 @@ struct d3d12_command_list
     VkBuffer uav_counter_address_buffer;
     struct vkd3d_dynamic_state dynamic_state;
     struct vkd3d_pipeline_bindings pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_COUNT];
-    struct vkd3d_descriptor_updates packed_descriptors[VKD3D_PIPELINE_BIND_POINT_COUNT];
 
     VkDescriptorSet descriptor_heaps[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
 

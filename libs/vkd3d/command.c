@@ -2458,9 +2458,6 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
     if (bindings->static_sampler_set)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET;
 
-    if (bindings->root_signature->vk_packed_descriptor_layout)
-        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_PACKED_DESCRIPTOR_SET;
-
     if (bindings->root_signature->descriptor_table_count)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
 
@@ -2760,7 +2757,6 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_ifa
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     ULONG refcount = InterlockedDecrement(&list->refcount);
-    unsigned int i;
 
     TRACE("%p decreasing refcount to %u.\n", list, refcount);
 
@@ -2774,12 +2770,6 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_ifa
         if (list->allocator)
             d3d12_command_allocator_free_command_buffer(list->allocator, list);
 
-        for (i = 0; i < ARRAY_SIZE(list->packed_descriptors); i++)
-        {
-            struct vkd3d_descriptor_updates *updates = &list->packed_descriptors[i];
-            vkd3d_free(updates->descriptors);
-            vkd3d_free(updates->descriptor_writes);
-        }
         vkd3d_free(list);
 
         d3d12_device_release(device);
@@ -3187,277 +3177,6 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     return true;
 }
 
-static bool vkd3d_descriptor_info_from_d3d12_desc(struct d3d12_device *device,
-        const struct d3d12_desc *desc, const struct vkd3d_shader_resource_binding *binding,
-        union vkd3d_descriptor_info *vk_descriptor)
-{
-    switch (binding->type)
-    {
-        case VKD3D_SHADER_DESCRIPTOR_TYPE_CBV:
-            if (desc->magic != VKD3D_DESCRIPTOR_MAGIC_CBV)
-                return false;
-
-            vk_descriptor->buffer = desc->info.vk_cbv_info;
-            return true;
-
-        case VKD3D_SHADER_DESCRIPTOR_TYPE_SRV:
-            if (desc->magic != VKD3D_DESCRIPTOR_MAGIC_SRV)
-                return false;
-
-            if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_IMAGE)
-                    && (desc->info.view->type == VKD3D_VIEW_TYPE_IMAGE))
-            {
-                if (desc->info.view)
-                {
-                    vk_descriptor->image.imageView = desc->info.view->vk_image_view;
-                    vk_descriptor->image.sampler = VK_NULL_HANDLE;
-                    vk_descriptor->image.imageLayout = desc->info.view->info.texture.vk_layout;
-                }
-                else
-                {
-                    vk_descriptor->image.imageView = VK_NULL_HANDLE;
-                    vk_descriptor->image.sampler = VK_NULL_HANDLE;
-                    vk_descriptor->image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-                }
-                return true;
-            }
-            else if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_BUFFER)
-                    && (desc->info.view->type == VKD3D_VIEW_TYPE_BUFFER))
-            {
-                vk_descriptor->buffer_view = desc->info.view
-                        ? desc->info.view->vk_buffer_view
-                        : VK_NULL_HANDLE;
-                return true;
-            }
-            break;
-
-        case VKD3D_SHADER_DESCRIPTOR_TYPE_UAV:
-            if (desc->magic != VKD3D_DESCRIPTOR_MAGIC_UAV)
-                return false;
-
-            if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_IMAGE)
-                    && (desc->info.view->type == VKD3D_VIEW_TYPE_IMAGE))
-            {
-                if (desc->info.view)
-                {
-                    vk_descriptor->image.imageView = desc->info.view->vk_image_view;
-                    vk_descriptor->image.sampler = VK_NULL_HANDLE;
-                    vk_descriptor->image.imageLayout = desc->info.view->info.texture.vk_layout;
-                }
-                else
-                {
-                    vk_descriptor->image.imageView = VK_NULL_HANDLE;
-                    vk_descriptor->image.sampler = VK_NULL_HANDLE;
-                    vk_descriptor->image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-                }
-                return true;
-            }
-            else if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_BUFFER)
-                    && (desc->info.view->type == VKD3D_VIEW_TYPE_BUFFER))
-            {
-                vk_descriptor->buffer_view = desc->info.view
-                        ? desc->info.view->vk_buffer_view
-                        : VK_NULL_HANDLE;
-                return true;
-            }
-            else if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_COUNTER)
-                    && desc->info.view->vk_counter_view)
-            {
-                vk_descriptor->buffer_view = desc->info.view
-                        ? desc->info.view->vk_counter_view
-                        : VK_NULL_HANDLE;
-                return true;
-            }
-            break;
-
-        case VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER:
-            if (desc->magic != VKD3D_DESCRIPTOR_MAGIC_SAMPLER)
-                return false;
-
-            vk_descriptor->image.sampler = desc->info.view->vk_sampler;
-            vk_descriptor->image.imageView = VK_NULL_HANDLE;
-            vk_descriptor->image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            return true;
-
-        default:
-            ERR("Unhandled descriptor type %d.\n", binding->type);
-    }
-
-    return false;
-}
-
-static bool vkd3d_descriptor_updates_reserve_arrays(struct vkd3d_descriptor_updates *updates,
-        unsigned int descriptor_count)
-{
-    /* This should grow over time to the point where no further allocations are necessary */
-    if (!vkd3d_array_reserve((void **)&updates->descriptors, &updates->descriptors_size,
-            descriptor_count, sizeof(*updates->descriptors)))
-        return false;
-
-    if (!vkd3d_array_reserve((void **)&updates->descriptor_writes, &updates->descriptor_writes_size,
-            descriptor_count, sizeof(*updates->descriptor_writes)))
-        return false;
-
-    return true;
-}
-
-static void vk_write_descriptor_set_for_descriptor_info(VkDescriptorSet vk_descriptor_set, uint32_t vk_binding,
-        VkDescriptorType vk_descriptor_type, union vkd3d_descriptor_info *vk_descriptor, VkWriteDescriptorSet *vk_write)
-{
-    vk_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    vk_write->pNext = NULL;
-    vk_write->dstSet = vk_descriptor_set;
-    vk_write->dstBinding = vk_binding;
-    vk_write->dstArrayElement = 0;
-    vk_write->descriptorCount = 1;
-    vk_write->descriptorType = vk_descriptor_type;
-    vk_write->pImageInfo = &vk_descriptor->image;
-    vk_write->pBufferInfo = &vk_descriptor->buffer;
-    vk_write->pTexelBufferView = &vk_descriptor->buffer_view;
-}
-
-static void d3d12_command_list_update_descriptor_table(struct d3d12_command_list *list,
-        VkDescriptorSet descriptor_set,
-        struct vkd3d_descriptor_updates *updates,
-        const struct d3d12_root_signature *root_signature,
-        const struct d3d12_desc *base_descriptor,
-        unsigned int root_parameter_index)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    const struct d3d12_root_descriptor_table *table;
-    union vkd3d_descriptor_info *vk_descriptor;
-    unsigned int write_count = 0;
-    unsigned int i, j;
-
-    table = root_signature_get_descriptor_table(root_signature, root_parameter_index);
-    vk_descriptor = &updates->descriptors[table->first_packed_descriptor];
-
-    for (i = 0; i < table->binding_count; i++)
-    {
-        const struct vkd3d_shader_resource_binding *binding = &table->first_binding[i];
-
-        if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
-            continue;
-
-        for (j = 0; j < binding->register_count; j++)
-        {
-            const struct d3d12_desc *desc = &base_descriptor[binding->descriptor_offset + j];
-
-            /* Skip invalid descriptors */
-            if (vkd3d_descriptor_info_from_d3d12_desc(list->device, desc, binding, vk_descriptor))
-            {
-                vk_write_descriptor_set_for_descriptor_info(descriptor_set, binding->binding.binding,
-                                                            desc->vk_descriptor_type, vk_descriptor,
-                                                            &updates->descriptor_writes[write_count++]);
-            }
-
-            vk_descriptor++;
-        }
-    }
-
-    if (write_count)
-    {
-        VK_CALL(vkUpdateDescriptorSets(list->device->vk_device,
-                write_count, updates->descriptor_writes, 0, NULL));
-    }
-}
-
-static void d3d12_deferred_descriptor_set_update_resolve(struct d3d12_command_list *list,
-        const struct d3d12_deferred_descriptor_set_update *update)
-{
-    d3d12_command_list_update_descriptor_table(list,
-            update->descriptor_set,
-            update->updates,
-            update->root_signature,
-            update->base_descriptor,
-            update->root_parameter_index);
-}
-
-static void d3d12_command_list_defer_update_descriptor_table(struct d3d12_command_list *list,
-                                                             VkDescriptorSet descriptor_set,
-                                                             struct vkd3d_descriptor_updates *updates,
-                                                             const struct d3d12_root_signature *root_signature,
-                                                             const struct d3d12_desc *base_descriptor,
-                                                             unsigned int root_parameter_index)
-{
-    struct d3d12_deferred_descriptor_set_update *update;
-
-    if (!vkd3d_array_reserve((void **)&list->descriptor_updates, &list->descriptor_updates_size,
-                             list->descriptor_updates_count + 1, sizeof(*list->descriptor_updates)))
-    {
-        ERR("Failed to allocate space for deferred descriptor set update!\n");
-        return;
-    }
-
-    update = &list->descriptor_updates[list->descriptor_updates_count++];
-    update->descriptor_set = descriptor_set;
-    update->root_signature = root_signature;
-    update->root_parameter_index = root_parameter_index;
-    update->base_descriptor = base_descriptor;
-    update->updates = updates;
-}
-
-static void d3d12_command_list_update_packed_descriptors(struct d3d12_command_list *list,
-        VkPipelineBindPoint bind_point)
-{
-    bool deferred_update = list->device->vk_info.supports_volatile_packed_descriptors;
-    struct vkd3d_descriptor_updates *updates = &list->packed_descriptors[bind_point];
-    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
-    const struct d3d12_root_signature *root_signature = bindings->root_signature;
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
-    const struct d3d12_desc *base_descriptor;
-    unsigned int root_parameter_index;
-    uint64_t descriptor_table_mask;
-
-    /* Reserves the array for worst case. */
-    if (!vkd3d_descriptor_updates_reserve_arrays(updates, root_signature->packed_descriptor_count))
-    {
-        ERR("Failed to resize descriptor update arrays.\n");
-        return;
-    }
-
-    /* Update packed descriptor set for all active descriptor tables */
-    assert(root_signature->vk_packed_descriptor_layout);
-    descriptor_table_mask = root_signature->descriptor_table_mask & bindings->descriptor_table_active_mask;
-
-    descriptor_set = d3d12_command_allocator_allocate_descriptor_set(
-            list->allocator, root_signature->vk_packed_descriptor_layout, VKD3D_DESCRIPTOR_POOL_TYPE_VOLATILE);
-
-    while (descriptor_table_mask)
-    {
-        root_parameter_index = vkd3d_bitmask_iter64(&descriptor_table_mask);
-        base_descriptor = d3d12_desc_from_gpu_handle(bindings->descriptor_tables[root_parameter_index]);
-
-        if (deferred_update)
-        {
-            /* If we have EXT_descriptor_indexing we implement RS 1.0 correctly by deferring the descriptor
-             * set update until submit time. */
-            d3d12_command_list_defer_update_descriptor_table(list,
-                    descriptor_set, updates,
-                    root_signature, base_descriptor,
-                    root_parameter_index);
-        }
-        else
-        {
-            /* Fallback, we update the descriptor set here.
-             * Will work in most cases, but it's not a correct implementation of RS 1.0.
-             * TODO: Use this path if application uses RS 1.1 STATIC descriptors for all entries in a table. */
-            d3d12_command_list_update_descriptor_table(list,
-                    descriptor_set, updates,
-                    root_signature, base_descriptor,
-                    root_parameter_index);
-        }
-    }
-
-    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
-            root_signature->vk_pipeline_layout,
-            root_signature->packed_descriptor_set,
-            1, &descriptor_set, 0, NULL));
-
-    bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_PACKED_DESCRIPTOR_SET;
-}
-
 static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point)
 {
@@ -3772,9 +3491,6 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
 
     if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET)
         d3d12_command_list_update_static_samplers(list, bind_point);
-
-    if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_PACKED_DESCRIPTOR_SET)
-        d3d12_command_list_update_packed_descriptors(list, bind_point);
 
     if (rs->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
     {
@@ -5510,9 +5226,6 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
 
     if (root_signature->descriptor_table_count)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
-
-    if (table->flags & VKD3D_ROOT_DESCRIPTOR_TABLE_HAS_PACKED_DESCRIPTORS)
-        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_PACKED_DESCRIPTOR_SET;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable(d3d12_command_list_iface *iface,
@@ -7581,7 +7294,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     struct d3d12_command_list *cmd_list;
     VkCommandBuffer *buffers;
     LONG **outstanding;
-    unsigned int i, j;
+    unsigned int i;
 
     TRACE("iface %p, command_list_count %u, command_lists %p.\n",
             iface, command_list_count, command_lists);
@@ -7613,8 +7326,6 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         outstanding[i] = cmd_list->outstanding_submissions_count;
         InterlockedIncrement(outstanding[i]);
 
-        for (j = 0; j < cmd_list->descriptor_updates_count; j++)
-            d3d12_deferred_descriptor_set_update_resolve(cmd_list, &cmd_list->descriptor_updates[j]);
         buffers[i] = cmd_list->vk_command_buffer;
     }
 
