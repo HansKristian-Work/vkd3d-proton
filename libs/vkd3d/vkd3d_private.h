@@ -80,6 +80,7 @@ struct vkd3d_vk_global_procs
     PFN_vkCreateInstance vkCreateInstance;
     PFN_vkEnumerateInstanceVersion vkEnumerateInstanceVersion;
     PFN_vkEnumerateInstanceExtensionProperties vkEnumerateInstanceExtensionProperties;
+    PFN_vkEnumerateInstanceLayerProperties vkEnumerateInstanceLayerProperties;
     PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
 };
 
