@@ -2132,17 +2132,13 @@ static int isgn_handler(const char *data, DWORD data_size, DWORD tag, void *ctx)
 }
 
 int shader_parse_input_signature(const void *dxbc, size_t dxbc_length,
-        struct vkd3d_shader_signature *signature)
+        struct vkd3d_shader_message_context *message_context, struct vkd3d_shader_signature *signature)
 {
-    struct vkd3d_shader_message_context message_context;
     int ret;
 
     memset(signature, 0, sizeof(*signature));
-    if (!vkd3d_shader_message_context_init(&message_context, VKD3D_SHADER_LOG_NONE, NULL))
-        return VKD3D_ERROR;
-    if ((ret = parse_dxbc(dxbc, dxbc_length, &message_context, isgn_handler, signature)) < 0)
+    if ((ret = parse_dxbc(dxbc, dxbc_length, message_context, isgn_handler, signature)) < 0)
         ERR("Failed to parse input signature.\n");
-    vkd3d_shader_message_context_cleanup(&message_context);
 
     return ret;
 }

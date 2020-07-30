@@ -134,7 +134,7 @@ static void test_vkd3d_shader_pfns(void)
     pfn_vkd3d_shader_free_root_signature(&root_signature_desc);
     pfn_vkd3d_shader_free_shader_code(&dxbc);
 
-    rc = pfn_vkd3d_shader_parse_input_signature(&vs, &signature);
+    rc = pfn_vkd3d_shader_parse_input_signature(&vs, &signature, NULL);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
     element = pfn_vkd3d_shader_find_signature_element(&signature, "position", 0, 0);
     ok(element, "Could not find shader signature element.\n");

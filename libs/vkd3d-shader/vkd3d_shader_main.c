@@ -971,11 +971,26 @@ void vkd3d_shader_free_root_signature(struct vkd3d_shader_versioned_root_signatu
 }
 
 int vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_signature *signature)
+        struct vkd3d_shader_signature *signature, char **messages)
 {
-    TRACE("dxbc {%p, %zu}, signature %p.\n", dxbc->code, dxbc->size, signature);
+    struct vkd3d_shader_message_context message_context;
+    int ret;
 
-    return shader_parse_input_signature(dxbc->code, dxbc->size, signature);
+    TRACE("dxbc {%p, %zu}, signature %p, messages %p.\n", dxbc->code, dxbc->size, signature, messages);
+
+    if (messages)
+        *messages = NULL;
+    if (!vkd3d_shader_message_context_init(&message_context, VKD3D_SHADER_LOG_INFO, NULL))
+        return VKD3D_ERROR;
+
+    ret = shader_parse_input_signature(dxbc->code, dxbc->size, &message_context, signature);
+    vkd3d_shader_message_context_trace_messages(&message_context);
+    if (messages && !(*messages = vkd3d_shader_message_context_copy_messages(&message_context)))
+        ret = VKD3D_ERROR_OUT_OF_MEMORY;
+
+    vkd3d_shader_message_context_cleanup(&message_context);
+
+    return ret;
 }
 
 struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(

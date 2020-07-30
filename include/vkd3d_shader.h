@@ -767,7 +767,7 @@ int vkd3d_shader_scan(const struct vkd3d_shader_compile_info *compile_info, char
 void vkd3d_shader_free_scan_descriptor_info(struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info);
 
 int vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_signature *signature);
+        struct vkd3d_shader_signature *signature, char **messages);
 struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
         const struct vkd3d_shader_signature *signature, const char *semantic_name,
         unsigned int semantic_index, unsigned int stream_index);
@@ -798,7 +798,7 @@ typedef void (*PFN_vkd3d_shader_free_scan_descriptor_info)(
         struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info);
 
 typedef int (*PFN_vkd3d_shader_parse_input_signature)(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_signature *signature);
+        struct vkd3d_shader_signature *signature, char **messages);
 typedef struct vkd3d_shader_signature_element * (*PFN_vkd3d_shader_find_signature_element)(
         const struct vkd3d_shader_signature *signature, const char *semantic_name,
         unsigned int semantic_index, unsigned int stream_index);

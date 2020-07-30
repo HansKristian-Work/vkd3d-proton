@@ -2316,7 +2316,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         switch (shader_stages[i].stage)
         {
             case VK_SHADER_STAGE_VERTEX_BIT:
-                if ((ret = vkd3d_shader_parse_input_signature(&dxbc, &input_signature)) < 0)
+                if ((ret = vkd3d_shader_parse_input_signature(&dxbc, &input_signature, NULL)) < 0)
                 {
                     hr = hresult_from_vkd3d_result(ret);
                     goto fail;

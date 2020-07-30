@@ -840,7 +840,7 @@ int shader_extract_from_dxbc(const void *dxbc, size_t dxbc_length,
 void free_shader_desc(struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
 
 int shader_parse_input_signature(const void *dxbc, size_t dxbc_length,
-        struct vkd3d_shader_signature *signature) DECLSPEC_HIDDEN;
+        struct vkd3d_shader_message_context *message_context, struct vkd3d_shader_signature *signature) DECLSPEC_HIDDEN;
 
 struct vkd3d_dxbc_compiler;
 
