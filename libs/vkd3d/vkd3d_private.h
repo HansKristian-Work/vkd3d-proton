@@ -783,11 +783,6 @@ static inline void d3d12_query_heap_mark_result_as_available(struct d3d12_query_
     heap->availability_mask[index] |= (uint64_t)1 << shift;
 }
 
-enum vkd3d_root_descriptor_table_flag
-{
-    VKD3D_ROOT_DESCRIPTOR_TABLE_HAS_PACKED_DESCRIPTORS = 0x00000001u,
-};
-
 enum vkd3d_root_signature_flag
 {
     VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS       = 0x00000001u,
@@ -799,8 +794,6 @@ struct d3d12_root_descriptor_table
 {
     uint32_t table_index;
     uint32_t binding_count;
-    uint32_t first_packed_descriptor;
-    uint32_t flags; /* vkd3d_root_descriptor_table_flag */
     struct vkd3d_shader_resource_binding *first_binding;
 };
 
@@ -835,14 +828,12 @@ struct d3d12_root_signature
 
     VkPipelineLayout vk_pipeline_layout;
     VkDescriptorSetLayout vk_sampler_descriptor_layout;
-    VkDescriptorSetLayout vk_packed_descriptor_layout;
     VkDescriptorSetLayout vk_root_descriptor_layout;
 
     struct d3d12_root_parameter *parameters;
     unsigned int parameter_count;
 
     uint32_t sampler_descriptor_set;
-    uint32_t packed_descriptor_set;
     uint32_t root_descriptor_set;
 
     uint64_t descriptor_table_mask;
@@ -857,8 +848,6 @@ struct d3d12_root_signature
 
     unsigned int root_constant_count;
     struct vkd3d_shader_push_constant_buffer *root_constants;
-
-    unsigned int packed_descriptor_count;
 
     /* Use one global push constant range */
     VkPushConstantRange push_constant_range;
