@@ -1467,27 +1467,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         physical_device_info->robustness2_features.robustBufferAccess2 = VK_FALSE;
     }
 
-    vulkan_info->supports_volatile_packed_descriptors = false;
-    if (vulkan_info->EXT_descriptor_indexing && descriptor_indexing)
-    {
-        /* To support VOLATILE descriptors we must support update after bind on all relevant
-         * descriptor types.
-         * TODO: Consider falling back to StorageBuffer if UniformBuffer is not supported. */
-        if (descriptor_indexing->descriptorBindingUniformBufferUpdateAfterBind &&
-            descriptor_indexing->descriptorBindingStorageImageUpdateAfterBind &&
-            descriptor_indexing->descriptorBindingStorageTexelBufferUpdateAfterBind &&
-            descriptor_indexing->descriptorBindingSampledImageUpdateAfterBind &&
-            descriptor_indexing->descriptorBindingUniformTexelBufferUpdateAfterBind)
-        {
-            TRACE("Enabling support for Root Signature 1.0 VOLATILE descriptor semantics.\n");
-            vulkan_info->supports_volatile_packed_descriptors = true;
-        }
-        else
-        {
-            WARN("Disabling support for Root Signature 1.0 VOLATILE descriptor semantics.\n");
-        }
-    }
-
     if (!vulkan_info->KHR_timeline_semaphore)
     {
         ERR("Timeline semaphores are not supported by this implementation. This is required for correct operation.\n");

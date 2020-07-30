@@ -154,8 +154,6 @@ struct vkd3d_vulkan_info
 
     unsigned int shader_extension_count;
     enum vkd3d_shader_target_extension shader_extensions[VKD3D_MAX_SHADER_EXTENSIONS];
-
-    bool supports_volatile_packed_descriptors;
 };
 
 enum vkd3d_config_flags
@@ -1070,7 +1068,6 @@ struct d3d12_descriptor_pool_cache
 enum vkd3d_descriptor_pool_types
 {
     VKD3D_DESCRIPTOR_POOL_TYPE_STATIC = 0,
-    VKD3D_DESCRIPTOR_POOL_TYPE_VOLATILE,
     VKD3D_DESCRIPTOR_POOL_TYPE_IMMUTABLE_SAMPLER,
     VKD3D_DESCRIPTOR_POOL_TYPE_COUNT
 };
