@@ -27,11 +27,11 @@ in order to pull in all the submodules which are needed for building.
 ## Building VKD3D
 
 ### Requirements:
-- [wine](https://www.winehq.org/) (for `widl`)
+- [wine](https://www.winehq.org/) (for `widl`) [for native builds]
   - On Windows this may be substituted for [Strawberry Perl](http://strawberryperl.com/) as it ships `widl` and is easy to find and install -- although this dependency may be eliminated in the future.
 - [Meson](http://mesonbuild.com/) build system (at least version 0.51)
 - [glslang](https://github.com/KhronosGroup/glslang) compiler
-- [Mingw-w64](http://mingw-w64.org/) compiler and headers (at least version 7.0) [for cross-builds for d3d12.dll which are default]
+- [Mingw-w64](http://mingw-w64.org/) compiler, headers and tools (at least version 7.0) [for cross-builds for d3d12.dll which are default]
 
 ### Building:
 #### The simple way
