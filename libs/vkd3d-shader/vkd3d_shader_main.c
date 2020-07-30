@@ -359,6 +359,22 @@ struct vkd3d_shader_scan_context
     struct vkd3d_shader_scan_info *scan_info;
     size_t descriptors_size;
 
+    struct vkd3d_shader_message_context message_context;
+
+    struct vkd3d_shader_cf_info
+    {
+        enum
+        {
+            VKD3D_SHADER_BLOCK_IF,
+            VKD3D_SHADER_BLOCK_LOOP,
+            VKD3D_SHADER_BLOCK_SWITCH,
+        } type;
+        bool inside_block;
+        bool has_default;
+    } *cf_info;
+    size_t cf_info_size;
+    size_t cf_info_count;
+
     struct
     {
         unsigned int id;
@@ -367,6 +383,85 @@ struct vkd3d_shader_scan_context
     size_t uav_ranges_size;
     size_t uav_range_count;
 };
+
+static bool vkd3d_shader_scan_context_init(struct vkd3d_shader_scan_context *context,
+        struct vkd3d_shader_scan_info *scan_info)
+{
+    memset(context, 0, sizeof(*context));
+    context->scan_info = scan_info;
+    return vkd3d_shader_message_context_init(&context->message_context, VKD3D_SHADER_LOG_INFO, NULL);
+}
+
+static void vkd3d_shader_scan_context_cleanup(struct vkd3d_shader_scan_context *context)
+{
+    vkd3d_free(context->uav_ranges);
+    vkd3d_free(context->cf_info);
+    vkd3d_shader_message_context_cleanup(&context->message_context);
+}
+
+static struct vkd3d_shader_cf_info *vkd3d_shader_scan_get_current_cf_info(struct vkd3d_shader_scan_context *context)
+{
+    if (!context->cf_info_count)
+        return NULL;
+    return &context->cf_info[context->cf_info_count - 1];
+}
+
+static struct vkd3d_shader_cf_info *vkd3d_shader_scan_push_cf_info(struct vkd3d_shader_scan_context *context)
+{
+    struct vkd3d_shader_cf_info *cf_info;
+
+    if (!vkd3d_array_reserve((void **)&context->cf_info, &context->cf_info_size,
+            context->cf_info_count + 1, sizeof(*context->cf_info)))
+    {
+        ERR("Failed to allocate UAV range.\n");
+        return false;
+    }
+
+    cf_info = &context->cf_info[context->cf_info_count++];
+    memset(cf_info, 0, sizeof(*cf_info));
+
+    return cf_info;
+}
+
+static void vkd3d_shader_scan_pop_cf_info(struct vkd3d_shader_scan_context *context)
+{
+    assert(context->cf_info_count);
+
+    --context->cf_info_count;
+}
+
+static struct vkd3d_shader_cf_info *vkd3d_shader_scan_find_innermost_breakable_cf_info(
+        struct vkd3d_shader_scan_context *context)
+{
+    size_t count = context->cf_info_count;
+    struct vkd3d_shader_cf_info *cf_info;
+
+    while (count)
+    {
+        cf_info = &context->cf_info[--count];
+        if (cf_info->type == VKD3D_SHADER_BLOCK_LOOP
+                || cf_info->type == VKD3D_SHADER_BLOCK_SWITCH)
+            return cf_info;
+    }
+
+    return NULL;
+}
+
+static struct vkd3d_shader_cf_info *vkd3d_shader_scan_find_innermost_loop_cf_info(
+        struct vkd3d_shader_scan_context *context)
+{
+    size_t count = context->cf_info_count;
+    struct vkd3d_shader_cf_info *cf_info;
+
+    while (count)
+    {
+        cf_info = &context->cf_info[--count];
+        if (cf_info->type == VKD3D_SHADER_BLOCK_LOOP)
+            return cf_info;
+    }
+
+    return NULL;
+}
 
 static struct vkd3d_shader_descriptor_info *vkd3d_shader_scan_get_uav_descriptor_info(
         const struct vkd3d_shader_scan_context *context, unsigned int range_id)
@@ -397,6 +492,9 @@ static void vkd3d_shader_scan_record_uav_read(struct vkd3d_shader_scan_context *
 {
     struct vkd3d_shader_descriptor_info *d;
 
+    if (!context->scan_info)
+        return;
+
     d = vkd3d_shader_scan_get_uav_descriptor_info(context, reg->idx[0].offset);
     d->flags |= VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_UAV_READ;
 }
@@ -412,6 +510,9 @@ static void vkd3d_shader_scan_record_uav_counter(struct vkd3d_shader_scan_contex
         const struct vkd3d_shader_register *reg)
 {
     struct vkd3d_shader_descriptor_info *d;
+
+    if (!context->scan_info)
+        return;
 
     d = vkd3d_shader_scan_get_uav_descriptor_info(context, reg->idx[0].offset);
     d->flags |= VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_UAV_COUNTER;
@@ -467,6 +568,9 @@ static void vkd3d_shader_scan_constant_buffer_declaration(struct vkd3d_shader_sc
 {
     const struct vkd3d_shader_constant_buffer *cb = &instruction->declaration.cb;
 
+    if (!context->scan_info)
+        return;
+
     vkd3d_shader_scan_add_descriptor(context, VKD3D_SHADER_DESCRIPTOR_TYPE_CBV, cb->register_space,
             cb->register_index, VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_SHADER_RESOURCE_DATA_UINT, 0);
 }
@@ -476,6 +580,9 @@ static void vkd3d_shader_scan_sampler_declaration(struct vkd3d_shader_scan_conte
 {
     const struct vkd3d_shader_sampler *sampler = &instruction->declaration.sampler;
     unsigned int flags;
+
+    if (!context->scan_info)
+        return;
 
     if (instruction->flags & VKD3DSI_SAMPLER_COMPARISON_MODE)
         flags = VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_SAMPLER_COMPARISON_MODE;
@@ -490,6 +597,9 @@ static void vkd3d_shader_scan_resource_declaration(struct vkd3d_shader_scan_cont
         enum vkd3d_shader_resource_data_type resource_data_type)
 {
     enum vkd3d_shader_descriptor_type type;
+
+    if (!context->scan_info)
+        return;
 
     if (resource->reg.reg.type == VKD3DSPR_UAV)
         type = VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
@@ -534,9 +644,10 @@ static void vkd3d_shader_scan_typed_resource_declaration(struct vkd3d_shader_sca
             semantic->resource_type, resource_data_type);
 }
 
-static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_context *context,
+static int vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_context *context,
         const struct vkd3d_shader_instruction *instruction)
 {
+    struct vkd3d_shader_cf_info *cf_info;
     unsigned int i;
 
     switch (instruction->handler_idx)
@@ -561,6 +672,121 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_context *cont
             vkd3d_shader_scan_resource_declaration(context, &instruction->declaration.structured_resource.resource,
                     VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_SHADER_RESOURCE_DATA_UINT);
             break;
+        case VKD3DSIH_IF:
+            cf_info = vkd3d_shader_scan_push_cf_info(context);
+            cf_info->type = VKD3D_SHADER_BLOCK_IF;
+            cf_info->inside_block = true;
+            break;
+        case VKD3DSIH_ELSE:
+            if (!(cf_info = vkd3d_shader_scan_get_current_cf_info(context)) || cf_info->type != VKD3D_SHADER_BLOCK_IF)
+            {
+                vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_TPF_MISMATCHED_CF,
+                        "Encountered ‘else’ instruction without corresponding ‘if’ block.");
+                return VKD3D_ERROR_INVALID_SHADER;
+            }
+            cf_info->inside_block = true;
+            break;
+        case VKD3DSIH_ENDIF:
+            if (!(cf_info = vkd3d_shader_scan_get_current_cf_info(context)) || cf_info->type != VKD3D_SHADER_BLOCK_IF)
+            {
+                vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_TPF_MISMATCHED_CF,
+                        "Encountered ‘endif’ instruction without corresponding ‘if’ block.");
+                return VKD3D_ERROR_INVALID_SHADER;
+            }
+            vkd3d_shader_scan_pop_cf_info(context);
+            break;
+        case VKD3DSIH_LOOP:
+            cf_info = vkd3d_shader_scan_push_cf_info(context);
+            cf_info->type = VKD3D_SHADER_BLOCK_LOOP;
+            break;
+        case VKD3DSIH_ENDLOOP:
+            if (!(cf_info = vkd3d_shader_scan_get_current_cf_info(context)) || cf_info->type != VKD3D_SHADER_BLOCK_LOOP)
+            {
+                vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_TPF_MISMATCHED_CF,
+                        "Encountered ‘endloop’ instruction without corresponding ‘loop’ block.");
+                return VKD3D_ERROR_INVALID_SHADER;
+            }
+            vkd3d_shader_scan_pop_cf_info(context);
+            break;
+        case VKD3DSIH_SWITCH:
+            cf_info = vkd3d_shader_scan_push_cf_info(context);
+            cf_info->type = VKD3D_SHADER_BLOCK_SWITCH;
+            break;
+        case VKD3DSIH_ENDSWITCH:
+            if (!(cf_info = vkd3d_shader_scan_get_current_cf_info(context))
+                    || cf_info->type != VKD3D_SHADER_BLOCK_SWITCH || cf_info->inside_block)
+            {
+                vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_TPF_MISMATCHED_CF,
+                        "Encountered ‘endswitch’ instruction without corresponding ‘switch’ block.");
+                return VKD3D_ERROR_INVALID_SHADER;
+            }
+            vkd3d_shader_scan_pop_cf_info(context);
+            break;
+        case VKD3DSIH_CASE:
+            if (!(cf_info = vkd3d_shader_scan_get_current_cf_info(context))
+                    || cf_info->type != VKD3D_SHADER_BLOCK_SWITCH)
+            {
+                vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_TPF_MISMATCHED_CF,
+                        "Encountered ‘case’ instruction outside switch block.");
+                return VKD3D_ERROR_INVALID_SHADER;
+            }
+            cf_info->inside_block = true;
+            break;
+        case VKD3DSIH_DEFAULT:
+            if (!(cf_info = vkd3d_shader_scan_get_current_cf_info(context))
+                    || cf_info->type != VKD3D_SHADER_BLOCK_SWITCH)
+            {
+                vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_TPF_MISMATCHED_CF,
+                        "Encountered ‘default’ instruction outside switch block.");
+                return VKD3D_ERROR_INVALID_SHADER;
+            }
+            if (cf_info->has_default)
+            {
+                vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_TPF_MISMATCHED_CF,
+                        "Encountered duplicate ‘default’ instruction inside the current switch block.");
+                return VKD3D_ERROR_INVALID_SHADER;
+            }
+            cf_info->inside_block = true;
+            cf_info->has_default = true;
+            break;
+        case VKD3DSIH_BREAK:
+            if (!(cf_info = vkd3d_shader_scan_find_innermost_breakable_cf_info(context)))
+            {
+                vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_TPF_MISMATCHED_CF,
+                        "Encountered ‘break’ instruction outside breakable block.");
+                return VKD3D_ERROR_INVALID_SHADER;
+            }
+            cf_info->inside_block = false;
+            break;
+        case VKD3DSIH_BREAKP:
+            if (!(cf_info = vkd3d_shader_scan_find_innermost_loop_cf_info(context)))
+            {
+                vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_TPF_MISMATCHED_CF,
+                        "Encountered ‘breakp’ instruction outside loop.");
+                return VKD3D_ERROR_INVALID_SHADER;
+            }
+            break;
+        case VKD3DSIH_CONTINUE:
+            if (!(cf_info = vkd3d_shader_scan_find_innermost_loop_cf_info(context)))
+            {
+                vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_TPF_MISMATCHED_CF,
+                        "Encountered ‘continue’ instruction outside loop.");
+                return VKD3D_ERROR_INVALID_SHADER;
+            }
+            cf_info->inside_block = false;
+            break;
+        case VKD3DSIH_CONTINUEP:
+            if (!(cf_info = vkd3d_shader_scan_find_innermost_loop_cf_info(context)))
+            {
+                vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_TPF_MISMATCHED_CF,
+                        "Encountered ‘continue’ instruction outside loop.");
+                return VKD3D_ERROR_INVALID_SHADER;
+            }
+            break;
+        case VKD3DSIH_RET:
+            if (context->cf_info_count)
+                context->cf_info[context->cf_info_count - 1].inside_block = false;
+            break;
         default:
             break;
     }
@@ -581,12 +807,14 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_context *cont
 
     if (vkd3d_shader_instruction_is_uav_counter(instruction))
         vkd3d_shader_scan_record_uav_counter(context, &instruction->src[0].reg);
+
+    return VKD3D_OK;
 }
 
 int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_scan_info *scan_info, char **messages)
 {
-    struct vkd3d_shader_message_context message_context;
+    struct vkd3d_shader_message_context *message_context;
     struct vkd3d_shader_instruction instruction;
     struct vkd3d_shader_scan_context context;
     struct vkd3d_shader_parser parser;
@@ -603,24 +831,26 @@ int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
-    if (!vkd3d_shader_message_context_init(&message_context, VKD3D_SHADER_LOG_INFO, NULL))
+    if (!vkd3d_shader_scan_context_init(&context, scan_info))
         return VKD3D_ERROR;
-    ret = vkd3d_shader_parser_init(&parser, dxbc, &message_context);
-    vkd3d_shader_message_context_trace_messages(&message_context);
-    if (messages && !(*messages = vkd3d_shader_message_context_copy_messages(&message_context)))
-        ret = VKD3D_ERROR_OUT_OF_MEMORY;
-    vkd3d_shader_message_context_cleanup(&message_context);
-    if (ret < 0)
+    message_context = &context.message_context;
+
+    if ((ret = vkd3d_shader_parser_init(&parser, dxbc, message_context)) < 0)
+    {
+        vkd3d_shader_message_context_trace_messages(message_context);
+        if (messages && !(*messages = vkd3d_shader_message_context_copy_messages(message_context)))
+            ret = VKD3D_ERROR_OUT_OF_MEMORY;
+        vkd3d_shader_scan_context_cleanup(&context);
         return ret;
+    }
 
     if (TRACE_ON())
         vkd3d_shader_trace(parser.data);
 
     memset(scan_info, 0, sizeof(*scan_info));
 
-    memset(&context, 0, sizeof(context));
-    context.scan_info = scan_info;
-
+    message_context->line = 2; /* Line 1 is the version token. */
+    message_context->column = 1;
     while (!shader_sm4_is_end(parser.data, &parser.ptr))
     {
         shader_sm4_read_instruction(parser.data, &parser.ptr, &instruction);
@@ -628,18 +858,28 @@ int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
         if (instruction.handler_idx == VKD3DSIH_INVALID)
         {
             WARN("Encountered unrecognized or invalid instruction.\n");
-            vkd3d_free(context.uav_ranges);
             vkd3d_shader_free_scan_info(scan_info);
-            vkd3d_shader_parser_destroy(&parser);
-            return VKD3D_ERROR_INVALID_ARGUMENT;
+            ret = VKD3D_ERROR_INVALID_SHADER;
+            goto done;
         }
 
-        vkd3d_shader_scan_instruction(&context, &instruction);
+        if ((ret = vkd3d_shader_scan_instruction(&context, &instruction)) < 0)
+        {
+            vkd3d_shader_free_scan_info(scan_info);
+            goto done;
+        }
+        ++message_context->line;
     }
 
-    vkd3d_free(context.uav_ranges);
+    ret = VKD3D_OK;
+
+done:
+    vkd3d_shader_message_context_trace_messages(message_context);
+    if (messages && !(*messages = vkd3d_shader_message_context_copy_messages(message_context)))
+        ret = VKD3D_ERROR_OUT_OF_MEMORY;
+    vkd3d_shader_scan_context_cleanup(&context);
     vkd3d_shader_parser_destroy(&parser);
-    return VKD3D_OK;
+    return ret;
 }
 
 void vkd3d_shader_free_scan_info(struct vkd3d_shader_scan_info *scan_info)
