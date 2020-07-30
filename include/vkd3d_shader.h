@@ -756,9 +756,8 @@ int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_versioned_root_signature_desc *root_signature, char **messages);
 void vkd3d_shader_free_root_signature(struct vkd3d_shader_versioned_root_signature_desc *root_signature);
 
-/* FIXME: Add support for returning error messages (ID3DBlob). */
 int vkd3d_shader_serialize_root_signature(const struct vkd3d_shader_versioned_root_signature_desc *root_signature,
-        struct vkd3d_shader_code *dxbc);
+        struct vkd3d_shader_code *dxbc, char **messages);
 
 int vkd3d_shader_convert_root_signature(struct vkd3d_shader_versioned_root_signature_desc *dst,
         enum vkd3d_shader_root_signature_version version, const struct vkd3d_shader_versioned_root_signature_desc *src);
@@ -788,7 +787,8 @@ typedef int (*PFN_vkd3d_shader_parse_root_signature)(const struct vkd3d_shader_c
 typedef void (*PFN_vkd3d_shader_free_root_signature)(struct vkd3d_shader_versioned_root_signature_desc *root_signature);
 
 typedef int (*PFN_vkd3d_shader_serialize_root_signature)(
-        const struct vkd3d_shader_versioned_root_signature_desc *root_signature, struct vkd3d_shader_code *dxbc);
+        const struct vkd3d_shader_versioned_root_signature_desc *root_signature,
+        struct vkd3d_shader_code *dxbc, char **messages);
 
 typedef int (*PFN_vkd3d_shader_convert_root_signature)(struct vkd3d_shader_versioned_root_signature_desc *dst,
         enum vkd3d_shader_root_signature_version version, const struct vkd3d_shader_versioned_root_signature_desc *src);

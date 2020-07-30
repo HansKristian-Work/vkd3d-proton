@@ -543,6 +543,7 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
     struct vkd3d_shader_versioned_root_signature_desc vkd3d_desc;
     struct vkd3d_shader_code dxbc;
     struct d3d_blob *blob_object;
+    char *messages;
     HRESULT hr;
     int ret;
 
@@ -565,13 +566,19 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
 
     vkd3d_desc.version = VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_0;
     vkd3d_desc.u.v_1_0 = *(const struct vkd3d_shader_root_signature_desc *)desc;
-    if ((ret = vkd3d_shader_serialize_root_signature(&vkd3d_desc, &dxbc)) < 0)
+    if ((ret = vkd3d_shader_serialize_root_signature(&vkd3d_desc, &dxbc, &messages)) < 0)
     {
         WARN("Failed to serialize root signature, vkd3d result %d.\n", ret);
-        if (error_blob)
-            FIXME("Ignoring error blob %p.\n", error_blob);
+        if (error_blob && messages)
+        {
+            if (FAILED(hr = d3d_blob_create(messages, strlen(messages), &blob_object)))
+                ERR("Failed to create error blob, hr %#x.\n", hr);
+            else
+                *error_blob = &blob_object->ID3DBlob_iface;
+        }
         return hresult_from_vkd3d_result(ret);
     }
+    vkd3d_shader_free_messages(messages);
 
     if (FAILED(hr = d3d_blob_create((void *)dxbc.code, dxbc.size, &blob_object)))
     {
@@ -591,6 +598,7 @@ HRESULT vkd3d_serialize_versioned_root_signature(const D3D12_VERSIONED_ROOT_SIGN
     const struct vkd3d_shader_versioned_root_signature_desc *vkd3d_desc;
     struct vkd3d_shader_code dxbc;
     struct d3d_blob *blob_object;
+    char *messages;
     HRESULT hr;
     int ret;
 
@@ -606,13 +614,19 @@ HRESULT vkd3d_serialize_versioned_root_signature(const D3D12_VERSIONED_ROOT_SIGN
         *error_blob = NULL;
 
     vkd3d_desc = (const struct vkd3d_shader_versioned_root_signature_desc *)desc;
-    if ((ret = vkd3d_shader_serialize_root_signature(vkd3d_desc, &dxbc)) < 0)
+    if ((ret = vkd3d_shader_serialize_root_signature(vkd3d_desc, &dxbc, &messages)) < 0)
     {
         WARN("Failed to serialize root signature, vkd3d result %d.\n", ret);
-        if (error_blob)
-            FIXME("Ignoring error blob %p.\n", error_blob);
+        if (error_blob && messages)
+        {
+            if (FAILED(hr = d3d_blob_create(messages, strlen(messages), &blob_object)))
+                ERR("Failed to create error blob, hr %#x.\n", hr);
+            else
+                *error_blob = &blob_object->ID3DBlob_iface;
+        }
         return hresult_from_vkd3d_result(ret);
     }
+    vkd3d_shader_free_messages(messages);
 
     if (FAILED(hr = d3d_blob_create((void *)dxbc.code, dxbc.size, &blob_object)))
     {

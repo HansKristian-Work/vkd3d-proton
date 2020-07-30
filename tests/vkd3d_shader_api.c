@@ -127,7 +127,7 @@ static void test_vkd3d_shader_pfns(void)
     pfn_vkd3d_shader_compile = vkd3d_shader_compile;
     pfn_vkd3d_shader_scan = vkd3d_shader_scan;
 
-    rc = pfn_vkd3d_shader_serialize_root_signature(&empty_rs_desc, &dxbc);
+    rc = pfn_vkd3d_shader_serialize_root_signature(&empty_rs_desc, &dxbc, NULL);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
     rc = pfn_vkd3d_shader_parse_root_signature(&dxbc, &root_signature_desc, NULL);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);

@@ -2768,6 +2768,8 @@ static unsigned int versioned_root_signature_get_flags(const struct vkd3d_shader
 
 struct root_signature_writer_context
 {
+    struct vkd3d_shader_message_context message_context;
+
     DWORD *data;
     size_t position;
     size_t capacity;
@@ -2813,33 +2815,38 @@ static size_t get_chunk_offset(struct root_signature_writer_context *context)
 static int shader_write_root_signature_header(struct root_signature_writer_context *context)
 {
     if (!write_dword(context, TAG_DXBC))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     /* The checksum is computed when all data is generated. */
     if (!write_dwords(context, 4, 0x00000000))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     if (!write_dword(context, 0x00000001))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     context->total_size_position = context->position;
     if (!write_dword(context, 0xffffffff)) /* total size */
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     if (!write_dword(context, 1)) /* chunk count */
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     /* chunk offset */
     if (!write_dword(context, (context->position + 1) * sizeof(DWORD)))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     if (!write_dword(context, TAG_RTS0))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
     if (!write_dword(context, 0xffffffff)) /* chunk size */
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
     context->chunk_position = context->position;
 
     return VKD3D_OK;
+
+fail:
+    vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_RS_OUT_OF_MEMORY,
+            "Out of memory while writing root signature header.");
+    return VKD3D_ERROR_OUT_OF_MEMORY;
 }
 
 static int shader_write_descriptor_ranges(struct root_signature_writer_context *context,
@@ -2851,18 +2858,23 @@ static int shader_write_descriptor_ranges(struct root_signature_writer_context *
     for (i = 0; i < table->descriptor_range_count; ++i)
     {
         if (!write_dword(context, ranges[i].range_type))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, ranges[i].descriptor_count))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, ranges[i].base_shader_register))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, ranges[i].register_space))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, ranges[i].descriptor_table_offset))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
     }
 
     return VKD3D_OK;
+
+fail:
+    vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_RS_OUT_OF_MEMORY,
+            "Out of memory while writing root signature descriptor ranges.");
+    return VKD3D_ERROR_OUT_OF_MEMORY;
 }
 
 static int shader_write_descriptor_ranges1(struct root_signature_writer_context *context,
@@ -2874,79 +2886,109 @@ static int shader_write_descriptor_ranges1(struct root_signature_writer_context 
     for (i = 0; i < table->descriptor_range_count; ++i)
     {
         if (!write_dword(context, ranges[i].range_type))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, ranges[i].descriptor_count))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, ranges[i].base_shader_register))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, ranges[i].register_space))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, ranges[i].flags))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, ranges[i].descriptor_table_offset))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
     }
 
     return VKD3D_OK;
+
+fail:
+    vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_RS_OUT_OF_MEMORY,
+            "Out of memory while writing root signature descriptor ranges.");
+    return VKD3D_ERROR_OUT_OF_MEMORY;
 }
 
 static int shader_write_descriptor_table(struct root_signature_writer_context *context,
         const struct vkd3d_shader_root_descriptor_table *table)
 {
     if (!write_dword(context, table->descriptor_range_count))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
     if (!write_dword(context, get_chunk_offset(context) + sizeof(DWORD))) /* offset */
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     return shader_write_descriptor_ranges(context, table);
+
+fail:
+    vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_RS_OUT_OF_MEMORY,
+            "Out of memory while writing root signature root descriptor table.");
+    return VKD3D_ERROR_OUT_OF_MEMORY;
 }
 
 static int shader_write_descriptor_table1(struct root_signature_writer_context *context,
         const struct vkd3d_shader_root_descriptor_table1 *table)
 {
     if (!write_dword(context, table->descriptor_range_count))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
     if (!write_dword(context, get_chunk_offset(context) + sizeof(DWORD))) /* offset */
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     return shader_write_descriptor_ranges1(context, table);
+
+fail:
+    vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_RS_OUT_OF_MEMORY,
+            "Out of memory while writing root signature root descriptor table.");
+    return VKD3D_ERROR_OUT_OF_MEMORY;
 }
 
 static int shader_write_root_constants(struct root_signature_writer_context *context,
         const struct vkd3d_shader_root_constants *constants)
 {
     if (!write_dword(context, constants->shader_register))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
     if (!write_dword(context, constants->register_space))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
     if (!write_dword(context, constants->value_count))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     return VKD3D_OK;
+
+fail:
+    vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_RS_OUT_OF_MEMORY,
+            "Out of memory while writing root signature root constants.");
+    return VKD3D_ERROR_OUT_OF_MEMORY;
 }
 
 static int shader_write_root_descriptor(struct root_signature_writer_context *context,
         const struct vkd3d_shader_root_descriptor *descriptor)
 {
     if (!write_dword(context, descriptor->shader_register))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
     if (!write_dword(context, descriptor->register_space))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     return VKD3D_OK;
+
+fail:
+    vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_RS_OUT_OF_MEMORY,
+            "Out of memory while writing root signature root descriptor.");
+    return VKD3D_ERROR_OUT_OF_MEMORY;
 }
 
 static int shader_write_root_descriptor1(struct root_signature_writer_context *context,
         const struct vkd3d_shader_root_descriptor1 *descriptor)
 {
     if (!write_dword(context, descriptor->shader_register))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
     if (!write_dword(context, descriptor->register_space))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
     if (!write_dword(context, descriptor->flags))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     return VKD3D_OK;
+
+fail:
+    vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_RS_OUT_OF_MEMORY,
+            "Out of memory while writing root signature root descriptor.");
+    return VKD3D_ERROR_OUT_OF_MEMORY;
 }
 
 static int shader_write_root_parameters(struct root_signature_writer_context *context,
@@ -2961,11 +3003,11 @@ static int shader_write_root_parameters(struct root_signature_writer_context *co
     for (i = 0; i < parameter_count; ++i)
     {
         if (!write_dword(context, versioned_root_signature_get_parameter_type(desc, i)))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, versioned_root_signature_get_parameter_shader_visibility(desc, i)))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, 0xffffffff)) /* offset */
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
     }
 
     for (i = 0; i < parameter_count; ++i)
@@ -2993,6 +3035,9 @@ static int shader_write_root_parameters(struct root_signature_writer_context *co
                 break;
             default:
                 FIXME("Unrecognized type %#x.\n", versioned_root_signature_get_parameter_type(desc, i));
+                vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_RS_INVALID_ROOT_PARAMETER_TYPE,
+                        "Invalid/unrecognised root signature root parameter type %#x.",
+                        versioned_root_signature_get_parameter_type(desc, i));
                 return VKD3D_ERROR_INVALID_ARGUMENT;
         }
 
@@ -3001,6 +3046,11 @@ static int shader_write_root_parameters(struct root_signature_writer_context *co
     }
 
     return VKD3D_OK;
+
+fail:
+    vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_RS_OUT_OF_MEMORY,
+            "Out of memory while writing root signature root parameters.");
+    return VKD3D_ERROR_OUT_OF_MEMORY;
 }
 
 static int shader_write_static_samplers(struct root_signature_writer_context *context,
@@ -3012,34 +3062,39 @@ static int shader_write_static_samplers(struct root_signature_writer_context *co
     for (i = 0; i < versioned_root_signature_get_static_sampler_count(desc); ++i)
     {
         if (!write_dword(context, samplers[i].filter))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, samplers[i].address_u))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, samplers[i].address_v))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, samplers[i].address_w))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_float(context, samplers[i].mip_lod_bias))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, samplers[i].max_anisotropy))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, samplers[i].comparison_func))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, samplers[i].border_colour))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_float(context, samplers[i].min_lod))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_float(context, samplers[i].max_lod))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, samplers[i].shader_register))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, samplers[i].register_space))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
         if (!write_dword(context, samplers[i].shader_visibility))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
     }
 
     return VKD3D_OK;
+
+fail:
+    vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_RS_OUT_OF_MEMORY,
+            "Out of memory while writing root signature static samplers.");
+    return VKD3D_ERROR_OUT_OF_MEMORY;
 }
 
 static int shader_write_root_signature(struct root_signature_writer_context *context,
@@ -3049,30 +3104,36 @@ static int shader_write_root_signature(struct root_signature_writer_context *con
     int ret;
 
     if (!write_dword(context, desc->version))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     if (!write_dword(context, versioned_root_signature_get_parameter_count(desc)))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
     if (!write_dword(context, get_chunk_offset(context) + 4 * sizeof(DWORD))) /* offset */
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     if (!write_dword(context, versioned_root_signature_get_static_sampler_count(desc)))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
     samplers_offset_position = context->position;
     if (!write_dword(context, 0xffffffff)) /* offset */
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     if (!write_dword(context, versioned_root_signature_get_flags(desc)))
-        return VKD3D_ERROR_OUT_OF_MEMORY;
+        goto fail;
 
     if ((ret = shader_write_root_parameters(context, desc)) < 0)
         return ret;
 
     context->data[samplers_offset_position] = get_chunk_offset(context);
     return shader_write_static_samplers(context, desc);
+
+fail:
+    vkd3d_shader_error(&context->message_context, VKD3D_SHADER_ERROR_RS_OUT_OF_MEMORY,
+            "Out of memory while writing root signature.");
+    return VKD3D_ERROR_OUT_OF_MEMORY;
 }
 
-static int validate_descriptor_table_v_1_0(const struct vkd3d_shader_root_descriptor_table *descriptor_table)
+static int validate_descriptor_table_v_1_0(const struct vkd3d_shader_root_descriptor_table *descriptor_table,
+        struct vkd3d_shader_message_context *message_context)
 {
     bool have_srv_uav_cbv = false;
     bool have_sampler = false;
@@ -3095,6 +3156,8 @@ static int validate_descriptor_table_v_1_0(const struct vkd3d_shader_root_descri
         else
         {
             WARN("Invalid descriptor range type %#x.\n", r->range_type);
+            vkd3d_shader_error(message_context, VKD3D_SHADER_ERROR_RS_INVALID_DESCRIPTOR_RANGE_TYPE,
+                    "Invalid root signature descriptor range type %#x.", r->range_type);
             return VKD3D_ERROR_INVALID_ARGUMENT;
         }
     }
@@ -3102,13 +3165,16 @@ static int validate_descriptor_table_v_1_0(const struct vkd3d_shader_root_descri
     if (have_srv_uav_cbv && have_sampler)
     {
         WARN("Samplers cannot be mixed with CBVs/SRVs/UAVs in descriptor tables.\n");
+        vkd3d_shader_error(message_context, VKD3D_SHADER_ERROR_RS_MIXED_DESCRIPTOR_RANGE_TYPES,
+                "Encountered both CBV/SRV/UAV and sampler descriptor ranges in the same root descriptor table.");
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
     return VKD3D_OK;
 }
 
-static int validate_descriptor_table_v_1_1(const struct vkd3d_shader_root_descriptor_table1 *descriptor_table)
+static int validate_descriptor_table_v_1_1(const struct vkd3d_shader_root_descriptor_table1 *descriptor_table,
+        struct vkd3d_shader_message_context *message_context)
 {
     bool have_srv_uav_cbv = false;
     bool have_sampler = false;
@@ -3131,6 +3197,8 @@ static int validate_descriptor_table_v_1_1(const struct vkd3d_shader_root_descri
         else
         {
             WARN("Invalid descriptor range type %#x.\n", r->range_type);
+            vkd3d_shader_error(message_context, VKD3D_SHADER_ERROR_RS_INVALID_DESCRIPTOR_RANGE_TYPE,
+                    "Invalid root signature descriptor range type %#x.", r->range_type);
             return VKD3D_ERROR_INVALID_ARGUMENT;
         }
     }
@@ -3138,13 +3206,16 @@ static int validate_descriptor_table_v_1_1(const struct vkd3d_shader_root_descri
     if (have_srv_uav_cbv && have_sampler)
     {
         WARN("Samplers cannot be mixed with CBVs/SRVs/UAVs in descriptor tables.\n");
+        vkd3d_shader_error(message_context, VKD3D_SHADER_ERROR_RS_MIXED_DESCRIPTOR_RANGE_TYPES,
+                "Encountered both CBV/SRV/UAV and sampler descriptor ranges in the same root descriptor table.");
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
     return VKD3D_OK;
 }
 
-static int validate_root_signature_desc(const struct vkd3d_shader_versioned_root_signature_desc *desc)
+static int validate_root_signature_desc(const struct vkd3d_shader_versioned_root_signature_desc *desc,
+        struct vkd3d_shader_message_context *message_context)
 {
     int ret = VKD3D_OK;
     unsigned int i;
@@ -3157,9 +3228,9 @@ static int validate_root_signature_desc(const struct vkd3d_shader_versioned_root
         if (type == VKD3D_SHADER_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
         {
             if (desc->version == VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_0)
-                ret = validate_descriptor_table_v_1_0(&desc->u.v_1_0.parameters[i].u.descriptor_table);
+                ret = validate_descriptor_table_v_1_0(&desc->u.v_1_0.parameters[i].u.descriptor_table, message_context);
             else
-                ret = validate_descriptor_table_v_1_1(&desc->u.v_1_1.parameters[i].u.descriptor_table);
+                ret = validate_descriptor_table_v_1_1(&desc->u.v_1_1.parameters[i].u.descriptor_table, message_context);
         }
 
         if (ret < 0)
@@ -3170,37 +3241,46 @@ static int validate_root_signature_desc(const struct vkd3d_shader_versioned_root
 }
 
 int vkd3d_shader_serialize_root_signature(const struct vkd3d_shader_versioned_root_signature_desc *root_signature,
-        struct vkd3d_shader_code *dxbc)
+        struct vkd3d_shader_code *dxbc, char **messages)
 {
     struct root_signature_writer_context context;
     size_t total_size, chunk_size;
     uint32_t checksum[4];
     int ret;
 
-    TRACE("root_signature %p, dxbc %p.\n", root_signature, dxbc);
+    TRACE("root_signature %p, dxbc %p, messages %p.\n", root_signature, dxbc, messages);
+
+    if (messages)
+        *messages = NULL;
+
+    memset(&context, 0, sizeof(context));
+    if (!vkd3d_shader_message_context_init(&context.message_context, VKD3D_SHADER_LOG_INFO, NULL))
+        return VKD3D_ERROR;
 
     if (root_signature->version != VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_0
             && root_signature->version != VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_1)
     {
+        ret = VKD3D_ERROR_INVALID_ARGUMENT;
         WARN("Root signature version %#x not supported.\n", root_signature->version);
-        return VKD3D_ERROR_INVALID_ARGUMENT;
+        vkd3d_shader_error(&context.message_context, VKD3D_SHADER_ERROR_RS_INVALID_VERSION,
+                "Root signature version %#x is not supported.", root_signature->version);
+        goto done;
     }
 
-    if ((ret = validate_root_signature_desc(root_signature)) < 0)
-        return ret;
+    if ((ret = validate_root_signature_desc(root_signature, &context.message_context)) < 0)
+        goto done;
 
     memset(dxbc, 0, sizeof(*dxbc));
-    memset(&context, 0, sizeof(context));
     if ((ret = shader_write_root_signature_header(&context)) < 0)
     {
         vkd3d_free(context.data);
-        return ret;
+        goto done;
     }
 
     if ((ret = shader_write_root_signature(&context, root_signature)) < 0)
     {
         vkd3d_free(context.data);
-        return ret;
+        goto done;
     }
 
     total_size = context.position * sizeof(DWORD);
@@ -3214,7 +3294,14 @@ int vkd3d_shader_serialize_root_signature(const struct vkd3d_shader_versioned_ro
     vkd3d_compute_dxbc_checksum(dxbc->code, dxbc->size, checksum);
     memcpy((uint32_t *)dxbc->code + 1, checksum, sizeof(checksum));
 
-    return VKD3D_OK;
+    ret = VKD3D_OK;
+
+done:
+    vkd3d_shader_message_context_trace_messages(&context.message_context);
+    if (messages && !(*messages = vkd3d_shader_message_context_copy_messages(&context.message_context)))
+        ret = VKD3D_ERROR_OUT_OF_MEMORY;
+    vkd3d_shader_message_context_cleanup(&context.message_context);
+    return ret;
 }
 
 static void free_descriptor_ranges(const struct vkd3d_shader_root_parameter *parameters, unsigned int count)
