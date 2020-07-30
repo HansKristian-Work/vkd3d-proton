@@ -1376,6 +1376,25 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     return S_OK;
 }
 
+static int vkd3d_scan_dxbc(const D3D12_SHADER_BYTECODE *code,
+        struct vkd3d_shader_scan_descriptor_info *descriptor_info)
+{
+    struct vkd3d_shader_compile_info compile_info;
+
+    compile_info.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO;
+    compile_info.next = descriptor_info;
+    compile_info.source.code = code->pShaderBytecode;
+    compile_info.source.size = code->BytecodeLength;
+    compile_info.source_type = VKD3D_SHADER_SOURCE_DXBC_TPF;
+    compile_info.target_type = VKD3D_SHADER_TARGET_SPIRV_BINARY;
+    compile_info.options = NULL;
+    compile_info.option_count = 0;
+    compile_info.log_level = VKD3D_SHADER_LOG_NONE;
+    compile_info.source_name = NULL;
+
+    return vkd3d_shader_scan(&compile_info, NULL);
+}
+
 static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
         const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface_info *shader_interface,
         VkPipelineLayout vk_pipeline_layout, VkPipeline *vk_pipeline)
@@ -1409,7 +1428,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
 
 static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const struct d3d12_root_signature *root_signature,
-        const struct vkd3d_shader_scan_info *shader_info)
+        const struct vkd3d_shader_scan_descriptor_info *shader_info)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_descriptor_set_context context;
@@ -1503,11 +1522,10 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
         struct d3d12_device *device, const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_shader_scan_descriptor_info shader_info;
     struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
-    struct vkd3d_shader_scan_info shader_info;
     VkPipelineLayout vk_pipeline_layout;
-    struct vkd3d_shader_code dxbc;
     HRESULT hr;
     int ret;
 
@@ -1525,11 +1543,9 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
         return E_INVALIDARG;
     }
 
-    dxbc.code = desc->CS.pShaderBytecode;
-    dxbc.size = desc->CS.BytecodeLength;
-    shader_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
+    shader_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_DESCRIPTOR_INFO;
     shader_info.next = NULL;
-    if ((ret = vkd3d_shader_scan_dxbc(&dxbc, &shader_info, NULL)) < 0)
+    if ((ret = vkd3d_scan_dxbc(&desc->CS, &shader_info)) < 0)
     {
         WARN("Failed to scan shader bytecode, vkd3d result %d.\n", ret);
         return hresult_from_vkd3d_result(ret);
@@ -1541,7 +1557,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
         WARN("Failed to create descriptor set layout for UAV counters, hr %#x.\n", hr);
         return hr;
     }
-    vkd3d_shader_free_scan_info(&shader_info);
+    vkd3d_shader_free_scan_descriptor_info(&shader_info);
 
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_INTERFACE_INFO;
     shader_interface.next = NULL;
@@ -2266,14 +2282,17 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     for (i = 0; i < ARRAY_SIZE(shader_stages); ++i)
     {
+        struct vkd3d_shader_scan_descriptor_info shader_info =
+        {
+            .type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_DESCRIPTOR_INFO,
+        };
         const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
-        struct vkd3d_shader_scan_info shader_info = {VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO};
         const struct vkd3d_shader_code dxbc = {b->pShaderBytecode, b->BytecodeLength};
 
         if (!b->pShaderBytecode)
             continue;
 
-        if ((ret = vkd3d_shader_scan_dxbc(&dxbc, &shader_info, NULL)) < 0)
+        if ((ret = vkd3d_scan_dxbc(b, &shader_info)) < 0)
         {
             WARN("Failed to scan shader bytecode, stage %#x, vkd3d result %d.\n",
                     shader_stages[i].stage, ret);
@@ -2291,7 +2310,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 break;
             }
         }
-        vkd3d_shader_free_scan_info(&shader_info);
+        vkd3d_shader_free_scan_descriptor_info(&shader_info);
 
         target_info = NULL;
         switch (shader_stages[i].stage)

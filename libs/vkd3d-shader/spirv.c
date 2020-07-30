@@ -111,27 +111,6 @@ static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv,
 
 #endif  /* HAVE_SPIRV_TOOLS */
 
-struct vkd3d_struct
-{
-    enum vkd3d_shader_structure_type type;
-    const void *next;
-};
-
-#define vkd3d_find_struct(c, t) vkd3d_find_struct_(c, VKD3D_SHADER_STRUCTURE_TYPE_##t)
-static const void *vkd3d_find_struct_(const struct vkd3d_struct *chain,
-        enum vkd3d_shader_structure_type type)
-{
-    while (chain)
-    {
-        if (chain->type == type)
-            return chain;
-
-        chain = chain->next;
-    }
-
-    return NULL;
-}
-
 static enum vkd3d_shader_input_sysval_semantic vkd3d_siv_from_sysval_indexed(enum vkd3d_shader_sysval_semantic sysval,
         unsigned int index)
 {
@@ -2103,7 +2082,7 @@ struct vkd3d_dxbc_compiler
 
     uint32_t binding_idx;
 
-    const struct vkd3d_shader_scan_info *scan_info;
+    const struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info;
     unsigned int input_control_point_count;
     unsigned int output_control_point_count;
     bool use_vocp;
@@ -2134,7 +2113,7 @@ static const char *vkd3d_dxbc_compiler_get_entry_point_name(const struct vkd3d_d
 
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
         const struct vkd3d_shader_desc *shader_desc, const struct vkd3d_shader_compile_info *compile_info,
-        const struct vkd3d_shader_scan_info *scan_info)
+        const struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info)
 {
     const struct vkd3d_shader_signature *patch_constant_signature = &shader_desc->patch_constant_signature;
     const struct vkd3d_shader_signature *output_signature = &shader_desc->output_signature;
@@ -2216,7 +2195,7 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
         }
     }
 
-    compiler->scan_info = scan_info;
+    compiler->scan_descriptor_info = scan_descriptor_info;
 
     vkd3d_dxbc_compiler_emit_initial_declarations(compiler);
 
@@ -5177,13 +5156,13 @@ static const struct vkd3d_shader_descriptor_info *vkd3d_dxbc_compiler_get_descri
         struct vkd3d_dxbc_compiler *compiler, enum vkd3d_shader_descriptor_type type,
         unsigned int register_space, unsigned int register_index)
 {
-    const struct vkd3d_shader_scan_info *scan_info = compiler->scan_info;
+    const struct vkd3d_shader_scan_descriptor_info *descriptor_info = compiler->scan_descriptor_info;
     const struct vkd3d_shader_descriptor_info *d;
     unsigned int i;
 
-    for (i = 0; i < scan_info->descriptor_count; ++i)
+    for (i = 0; i < descriptor_info->descriptor_count; ++i)
     {
-        d = &scan_info->descriptors[i];
+        d = &descriptor_info->descriptors[i];
         if (d->type == type && d->register_space == register_space && d->register_index == register_index)
             return d;
     }

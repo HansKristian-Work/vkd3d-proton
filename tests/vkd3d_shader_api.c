@@ -68,10 +68,14 @@ static void test_invalid_shaders(void)
 
     rc = vkd3d_shader_compile(&info, &spirv, NULL);
     ok(rc == VKD3D_ERROR_INVALID_SHADER, "Got unexpected error code %d.\n", rc);
+
+    rc = vkd3d_shader_scan(&info, NULL);
+    ok(rc == VKD3D_ERROR_INVALID_SHADER, "Got unexpected error code %d.\n", rc);
 }
 
 static void test_vkd3d_shader_pfns(void)
 {
+    PFN_vkd3d_shader_free_scan_descriptor_info pfn_vkd3d_shader_free_scan_descriptor_info;
     PFN_vkd3d_shader_serialize_root_signature pfn_vkd3d_shader_serialize_root_signature;
     PFN_vkd3d_shader_find_signature_element pfn_vkd3d_shader_find_signature_element;
     PFN_vkd3d_shader_free_shader_signature pfn_vkd3d_shader_free_shader_signature;
@@ -79,13 +83,13 @@ static void test_vkd3d_shader_pfns(void)
     PFN_vkd3d_shader_parse_root_signature pfn_vkd3d_shader_parse_root_signature;
     PFN_vkd3d_shader_free_root_signature pfn_vkd3d_shader_free_root_signature;
     PFN_vkd3d_shader_free_shader_code pfn_vkd3d_shader_free_shader_code;
-    PFN_vkd3d_shader_scan_dxbc pfn_vkd3d_shader_scan_dxbc;
     PFN_vkd3d_shader_compile pfn_vkd3d_shader_compile;
+    PFN_vkd3d_shader_scan pfn_vkd3d_shader_scan;
 
     struct vkd3d_shader_versioned_root_signature_desc root_signature_desc;
+    struct vkd3d_shader_scan_descriptor_info descriptor_info;
     struct vkd3d_shader_signature_element *element;
     struct vkd3d_shader_compile_info compile_info;
-    struct vkd3d_shader_scan_info scan_info;
     struct vkd3d_shader_signature signature;
     struct vkd3d_shader_code dxbc, spirv;
     int rc;
@@ -112,6 +116,7 @@ static void test_vkd3d_shader_pfns(void)
     };
     static const struct vkd3d_shader_code vs = {vs_code, sizeof(vs_code)};
 
+    pfn_vkd3d_shader_free_scan_descriptor_info = vkd3d_shader_free_scan_descriptor_info;
     pfn_vkd3d_shader_serialize_root_signature = vkd3d_shader_serialize_root_signature;
     pfn_vkd3d_shader_find_signature_element = vkd3d_shader_find_signature_element;
     pfn_vkd3d_shader_free_shader_signature = vkd3d_shader_free_shader_signature;
@@ -119,8 +124,8 @@ static void test_vkd3d_shader_pfns(void)
     pfn_vkd3d_shader_parse_root_signature = vkd3d_shader_parse_root_signature;
     pfn_vkd3d_shader_free_root_signature = vkd3d_shader_free_root_signature;
     pfn_vkd3d_shader_free_shader_code = vkd3d_shader_free_shader_code;
-    pfn_vkd3d_shader_scan_dxbc = vkd3d_shader_scan_dxbc;
     pfn_vkd3d_shader_compile = vkd3d_shader_compile;
+    pfn_vkd3d_shader_scan = vkd3d_shader_scan;
 
     rc = pfn_vkd3d_shader_serialize_root_signature(&empty_rs_desc, &dxbc);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
@@ -149,10 +154,13 @@ static void test_vkd3d_shader_pfns(void)
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
     pfn_vkd3d_shader_free_shader_code(&spirv);
 
-    memset(&scan_info, 0, sizeof(scan_info));
-    scan_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
-    rc = pfn_vkd3d_shader_scan_dxbc(&vs, &scan_info, NULL);
+    memset(&descriptor_info, 0, sizeof(descriptor_info));
+    descriptor_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_DESCRIPTOR_INFO;
+    compile_info.next = &descriptor_info;
+
+    rc = pfn_vkd3d_shader_scan(&compile_info, NULL);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
+    pfn_vkd3d_shader_free_scan_descriptor_info(&descriptor_info);
 }
 
 START_TEST(vkd3d_shader_api)

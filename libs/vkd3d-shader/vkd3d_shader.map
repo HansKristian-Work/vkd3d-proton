@@ -6,12 +6,12 @@ global:
     vkd3d_shader_find_signature_element;
     vkd3d_shader_free_messages;
     vkd3d_shader_free_root_signature;
-    vkd3d_shader_free_scan_info;
+    vkd3d_shader_free_scan_descriptor_info;
     vkd3d_shader_free_shader_code;
     vkd3d_shader_free_shader_signature;
     vkd3d_shader_parse_input_signature;
     vkd3d_shader_parse_root_signature;
-    vkd3d_shader_scan_dxbc;
+    vkd3d_shader_scan;
     vkd3d_shader_serialize_root_signature;
 
 local: *;

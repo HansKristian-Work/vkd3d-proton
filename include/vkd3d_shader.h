@@ -32,7 +32,7 @@ enum vkd3d_shader_structure_type
     /* 1.2 */
     VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_INTERFACE_INFO,
-    VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO,
+    VKD3D_SHADER_STRUCTURE_TYPE_SCAN_DESCRIPTOR_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_SPIRV_DOMAIN_SHADER_TARGET_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_SPIRV_TARGET_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_TRANSFORM_FEEDBACK_INFO,
@@ -653,10 +653,11 @@ struct vkd3d_shader_descriptor_info
     unsigned int count;
 };
 
-struct vkd3d_shader_scan_info
+/* Extends vkd3d_shader_compile_info. */
+struct vkd3d_shader_scan_descriptor_info
 {
     enum vkd3d_shader_structure_type type;
-    void *next;
+    const void *next;
 
     struct vkd3d_shader_descriptor_info *descriptors;
     unsigned int descriptor_count;
@@ -762,9 +763,8 @@ int vkd3d_shader_serialize_root_signature(const struct vkd3d_shader_versioned_ro
 int vkd3d_shader_convert_root_signature(struct vkd3d_shader_versioned_root_signature_desc *dst,
         enum vkd3d_shader_root_signature_version version, const struct vkd3d_shader_versioned_root_signature_desc *src);
 
-int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_scan_info *scan_info, char **messages);
-void vkd3d_shader_free_scan_info(struct vkd3d_shader_scan_info *scan_info);
+int vkd3d_shader_scan(const struct vkd3d_shader_compile_info *compile_info, char **messages);
+void vkd3d_shader_free_scan_descriptor_info(struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info);
 
 int vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_signature *signature);
@@ -793,9 +793,9 @@ typedef int (*PFN_vkd3d_shader_serialize_root_signature)(
 typedef int (*PFN_vkd3d_shader_convert_root_signature)(struct vkd3d_shader_versioned_root_signature_desc *dst,
         enum vkd3d_shader_root_signature_version version, const struct vkd3d_shader_versioned_root_signature_desc *src);
 
-typedef int (*PFN_vkd3d_shader_scan_dxbc)(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_scan_info *scan_info, char **messages);
-typedef void (*PFN_vkd3d_shader_free_scan_info)(struct vkd3d_shader_scan_info *scan_info);
+typedef int (*PFN_vkd3d_shader_scan)(const struct vkd3d_shader_compile_info *compile_info, char **messages);
+typedef void (*PFN_vkd3d_shader_free_scan_descriptor_info)(
+        struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info);
 
 typedef int (*PFN_vkd3d_shader_parse_input_signature)(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_signature *signature);

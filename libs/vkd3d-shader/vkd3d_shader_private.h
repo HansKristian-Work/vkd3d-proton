@@ -846,7 +846,7 @@ struct vkd3d_dxbc_compiler;
 
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
         const struct vkd3d_shader_desc *shader_desc, const struct vkd3d_shader_compile_info *compile_info,
-        const struct vkd3d_shader_scan_info *scan_info) DECLSPEC_HIDDEN;
+        const struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info) DECLSPEC_HIDDEN;
 int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction) DECLSPEC_HIDDEN;
 int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
@@ -939,6 +939,27 @@ static inline unsigned int vkd3d_compact_swizzle(unsigned int swizzle, unsigned 
     }
 
     return compacted_swizzle;
+}
+
+struct vkd3d_struct
+{
+    enum vkd3d_shader_structure_type type;
+    const void *next;
+};
+
+#define vkd3d_find_struct(c, t) vkd3d_find_struct_(c, VKD3D_SHADER_STRUCTURE_TYPE_##t)
+static inline void *vkd3d_find_struct_(const struct vkd3d_struct *chain,
+        enum vkd3d_shader_structure_type type)
+{
+    while (chain)
+    {
+        if (chain->type == type)
+            return (void *)chain;
+
+        chain = chain->next;
+    }
+
+    return NULL;
 }
 
 #define VKD3D_DXBC_MAX_SOURCE_COUNT 6
