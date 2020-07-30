@@ -528,6 +528,33 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance_info.ppEnabledExtensionNames = extensions;
     vkd3d_free(user_extension_supported);
 
+    if (instance->config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG)
+    {
+        static const char *debug_layer_name = "VK_LAYER_KHRONOS_validation";
+        VkLayerProperties *layers = NULL;
+        uint32_t layer_count, i;
+
+        if (vk_global_procs->vkEnumerateInstanceLayerProperties(&layer_count, NULL) == VK_SUCCESS &&
+            layer_count &&
+            (layers = vkd3d_malloc(layer_count * sizeof(*layers))) &&
+            vk_global_procs->vkEnumerateInstanceLayerProperties(&layer_count, layers) == VK_SUCCESS)
+        {
+            for (i = 0; i < layer_count; i++)
+            {
+                if (strcmp(layers[i].layerName, debug_layer_name) == 0)
+                {
+                    instance_info.enabledLayerCount = 1;
+                    instance_info.ppEnabledLayerNames = &debug_layer_name;
+                    break;
+                }
+            }
+        }
+
+        if (instance_info.enabledLayerCount == 0)
+            ERR("Failed to enumerate instance layers, will not use VK_LAYER_KHRONOS_validation!\n");
+        vkd3d_free(layers);
+    }
+
     vr = vk_global_procs->vkCreateInstance(&instance_info, NULL, &vk_instance);
     vkd3d_free((void *)extensions);
     if (vr < 0)
