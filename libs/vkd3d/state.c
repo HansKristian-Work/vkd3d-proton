@@ -3302,51 +3302,44 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
 HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device)
 {
-    HRESULT hr;
+    const uint32_t required_flags = VKD3D_BINDLESS_SRV |
+            VKD3D_BINDLESS_UAV | VKD3D_BINDLESS_CBV | VKD3D_BINDLESS_SAMPLER;
+    HRESULT hr = E_FAIL;
 
     memset(bindless_state, 0, sizeof(*bindless_state));
     bindless_state->flags = vkd3d_bindless_state_get_bindless_flags(device);
 
-    if (!bindless_state->flags)
-        return S_OK;
-
-    if (bindless_state->flags & VKD3D_BINDLESS_SAMPLER)
+    if ((bindless_state->flags & required_flags) != required_flags)
     {
-        if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
-            goto fail;
+        ERR("Insufficient descriptor indexing support.\n");
+        goto fail;
     }
 
-    if (bindless_state->flags & VKD3D_BINDLESS_CBV)
+    if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+            D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
+        goto fail;
+
+    if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+            D3D12_DESCRIPTOR_RANGE_TYPE_CBV, VKD3D_SHADER_BINDING_FLAG_BUFFER)))
+        goto fail;
+
+    if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_BUFFER)) ||
+        FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
+        goto fail;
+
+    if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_BUFFER)) ||
+        FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
+        goto fail;
+
+    if (!(bindless_state->flags & VKD3D_RAW_VA_UAV_COUNTER))
     {
         if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                D3D12_DESCRIPTOR_RANGE_TYPE_CBV, VKD3D_SHADER_BINDING_FLAG_BUFFER)))
+                D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_COUNTER)))
             goto fail;
-    }
-
-    if (bindless_state->flags & VKD3D_BINDLESS_SRV)
-    {
-        if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_BUFFER)) ||
-            FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
-            goto fail;
-    }
-
-    if (bindless_state->flags & VKD3D_BINDLESS_UAV)
-    {
-        if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_BUFFER)) ||
-            FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
-            goto fail;
-
-        if (!(bindless_state->flags & VKD3D_RAW_VA_UAV_COUNTER))
-        {
-            if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                    D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_COUNTER)))
-                goto fail;
-        }
     }
 
     return S_OK;
