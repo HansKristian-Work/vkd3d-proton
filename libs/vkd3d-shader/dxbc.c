@@ -2679,17 +2679,24 @@ static int rts0_handler(const char *data, DWORD data_size, DWORD tag, void *cont
 }
 
 int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_versioned_root_signature_desc *root_signature)
+        struct vkd3d_shader_versioned_root_signature_desc *root_signature, char **messages)
 {
     struct vkd3d_shader_message_context message_context;
     int ret;
 
-    TRACE("dxbc {%p, %zu}, root_signature %p.\n", dxbc->code, dxbc->size, root_signature);
+    TRACE("dxbc {%p, %zu}, root_signature %p, messages %p.\n", dxbc->code, dxbc->size, root_signature, messages);
 
     memset(root_signature, 0, sizeof(*root_signature));
-    if (!vkd3d_shader_message_context_init(&message_context, VKD3D_SHADER_LOG_NONE, NULL))
+    if (messages)
+        *messages = NULL;
+    if (!vkd3d_shader_message_context_init(&message_context, VKD3D_SHADER_LOG_INFO, NULL))
         return VKD3D_ERROR;
+
     ret = parse_dxbc(dxbc->code, dxbc->size, &message_context, rts0_handler, root_signature);
+    vkd3d_shader_message_context_trace_messages(&message_context);
+    if (messages && !(*messages = vkd3d_shader_message_context_copy_messages(&message_context)))
+        ret = VKD3D_ERROR_OUT_OF_MEMORY;
+
     vkd3d_shader_message_context_cleanup(&message_context);
     if (ret < 0)
         vkd3d_shader_free_root_signature(root_signature);

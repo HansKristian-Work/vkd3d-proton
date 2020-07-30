@@ -129,7 +129,7 @@ static void test_vkd3d_shader_pfns(void)
 
     rc = pfn_vkd3d_shader_serialize_root_signature(&empty_rs_desc, &dxbc);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
-    rc = pfn_vkd3d_shader_parse_root_signature(&dxbc, &root_signature_desc);
+    rc = pfn_vkd3d_shader_parse_root_signature(&dxbc, &root_signature_desc, NULL);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
     pfn_vkd3d_shader_free_root_signature(&root_signature_desc);
     pfn_vkd3d_shader_free_shader_code(&dxbc);

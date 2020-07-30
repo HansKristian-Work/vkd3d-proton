@@ -133,15 +133,13 @@ void vkd3d_shader_message_context_cleanup(struct vkd3d_shader_message_context *c
     vkd3d_string_buffer_cleanup(&context->messages);
 }
 
-#define vkd3d_shader_message_context_trace_messages(context) \
-        vkd3d_shader_message_context_trace_messages_(context, __FUNCTION__)
-static void vkd3d_shader_message_context_trace_messages_(const struct vkd3d_shader_message_context *context,
+void vkd3d_shader_message_context_trace_messages_(const struct vkd3d_shader_message_context *context,
         const char *function)
 {
     vkd3d_string_buffer_trace_(&context->messages, function);
 }
 
-static char *vkd3d_shader_message_context_copy_messages(struct vkd3d_shader_message_context *context)
+char *vkd3d_shader_message_context_copy_messages(struct vkd3d_shader_message_context *context)
 {
     char *messages;
 
