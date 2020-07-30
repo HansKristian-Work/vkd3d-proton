@@ -44711,6 +44711,7 @@ static void test_aliasing_barrier(void)
     texture_desc.SampleDesc.Quality = 0;
     texture_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     texture_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    texture_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 
     for (i = 0; i < 2; i++)
     {
