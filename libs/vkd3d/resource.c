@@ -2799,7 +2799,7 @@ static void vkd3d_view_destroy(struct vkd3d_view *view, struct d3d12_device *dev
             WARN("Unhandled view type %d.\n", view->type);
     }
 
-    if (view->vk_counter_view)
+    if (view->vk_counter_view != device->null_resources.vk_storage_buffer_view)
         VK_CALL(vkDestroyBufferView(device->vk_device, view->vk_counter_view, NULL));
 
     vkd3d_free(view);
