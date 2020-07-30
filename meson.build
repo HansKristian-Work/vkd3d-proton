@@ -103,10 +103,6 @@ endif
 subdir('include')
 subdir('libs')
 
-if enable_tests
-  subdir('tests')
-endif
-
 if enable_extras
   if vkd3d_platform == 'linux'
     lib_m            = vkd3d_compiler.find_library('m')
@@ -124,3 +120,8 @@ if enable_extras
   subdir('demos')
   subdir('programs')
 endif
+
+if enable_tests
+  subdir('tests')
+endif
+
