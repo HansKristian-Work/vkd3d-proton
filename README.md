@@ -95,7 +95,7 @@ Some of debug variables are lists of elements. Elements must be separated by
 commas or semicolons.
 
  - `VKD3D_CONFIG` - a list of options that change the behavior of libvkd3d.
-    - vk_debug - enables Vulkan debug extensions.
+    - vk_debug - enables Vulkan debug extensions and loads validation layer.
  - `VKD3D_DEBUG` - controls the debug level for log messages produced by
    libvkd3d. Accepts the following values: none, err, fixme, warn, trace.
  - `VKD3D_SHADER_DEBUG` - controls the debug level for log messages produced by

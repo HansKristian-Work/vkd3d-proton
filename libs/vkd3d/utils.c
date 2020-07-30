@@ -950,6 +950,7 @@ HRESULT vkd3d_load_vk_global_procs(struct vkd3d_vk_global_procs *procs,
 
     LOAD_GLOBAL_PFN(vkCreateInstance)
     LOAD_GLOBAL_PFN(vkEnumerateInstanceExtensionProperties)
+    LOAD_GLOBAL_PFN(vkEnumerateInstanceLayerProperties)
     MAYBE_LOAD_GLOBAL_PFN(vkEnumerateInstanceVersion)
 
     TRACE("Loaded global Vulkan procs.\n");
