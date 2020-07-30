@@ -103,6 +103,17 @@ endif
 subdir('include')
 subdir('libs')
 
+if vkd3d_platform == 'windows'
+  if enable_standalone_d3d12
+    lib_d3d12 = d3d12_dep
+  elif not lib_d3d12.found()
+    lib_d3d12 = vkd3d_utils_dep
+    if enable_extras
+      warning('No d3d12 lib, falling back to vkd3d_utils for extras ...')
+    endif
+  endif
+endif
+
 if enable_tests
   subdir('tests')
 endif
@@ -112,13 +123,6 @@ if enable_extras
     lib_m            = vkd3d_compiler.find_library('m')
     lib_xcb          = vkd3d_compiler.find_library('xcb')
     lib_xcbkeysyms   = vkd3d_compiler.find_library('xcb-keysyms')
-  endif
-
-  if enable_standalone_d3d12
-    lib_d3d12 = d3d12_dep
-  elif not lib_d3d12.found()
-    lib_d3d12 = vkd3d_utils_dep
-    warning('No d3d12 lib, falling back to vkd3d_utils for extras...')
   endif
 
   subdir('demos')
