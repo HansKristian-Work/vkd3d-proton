@@ -2947,7 +2947,11 @@ static void d3d12_desc_destroy(struct d3d12_desc *descriptor, struct d3d12_devic
 void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
         struct d3d12_device *device)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkCopyDescriptorSet vk_copies[2], *vk_copy;
     struct vkd3d_view *destroy_view = NULL;
+    struct vkd3d_descriptor_data metadata;
+    uint32_t copy_count = 0;
     bool needs_update;
 
     /* Shadow of the Tomb Raider and possibly other titles sometimes destroy
@@ -2979,7 +2983,55 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
         if ((src->magic & VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW) && src->info.view)
             InterlockedIncrement(&src->info.view->refcount);
 
-        d3d12_desc_write(dst, src, &destroy_view);
+        if ((dst->magic & VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW) && (dst->info.view)
+                && !InterlockedDecrement(&dst->info.view->refcount))
+            destroy_view = dst->info.view;
+
+        dst->magic = src->magic;
+        dst->vk_descriptor_type = src->vk_descriptor_type;
+        dst->metadata = metadata = src->metadata;
+        dst->info = src->info;
+
+        if (metadata.flags & VKD3D_DESCRIPTOR_FLAG_DEFINED)
+        {
+            vk_copy = &vk_copies[copy_count++];
+            vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+            vk_copy->pNext = NULL;
+            vk_copy->srcSet = src->heap->vk_descriptor_sets[metadata.set_index];
+            vk_copy->srcBinding = 0;
+            vk_copy->srcArrayElement = src->heap_offset;
+            vk_copy->dstSet = dst->heap->vk_descriptor_sets[metadata.set_index];
+            vk_copy->dstBinding = 0;
+            vk_copy->dstArrayElement = dst->heap_offset;
+            vk_copy->descriptorCount = 1;
+        }
+
+        if (metadata.flags & VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER)
+        {
+            if (dst->heap->uav_counters.data)
+            {
+                dst->heap->uav_counters.data[dst->heap_offset] =
+                        src->heap->uav_counters.data[src->heap_offset];
+            }
+            else
+            {
+                uint32_t set_index = d3d12_descriptor_heap_uav_counter_set_index();
+
+                vk_copy = &vk_copies[copy_count++];
+                vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+                vk_copy->pNext = NULL;
+                vk_copy->srcSet = src->heap->vk_descriptor_sets[set_index];
+                vk_copy->srcBinding = 0;
+                vk_copy->srcArrayElement = src->heap_offset;
+                vk_copy->dstSet = dst->heap->vk_descriptor_sets[set_index];
+                vk_copy->dstBinding = 0;
+                vk_copy->dstArrayElement = dst->heap_offset;
+                vk_copy->descriptorCount = 1;
+            }
+        }
+
+        if (copy_count)
+            VK_CALL(vkUpdateDescriptorSets(device->vk_device, 0, NULL, copy_count, vk_copies));
     }
 
     spinlock_release(&src->spinlock);
