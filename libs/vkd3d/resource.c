@@ -2916,6 +2916,7 @@ static inline void d3d12_desc_write(struct d3d12_desc *dst, const struct d3d12_d
 
     dst->magic = src->magic;
     dst->vk_descriptor_type = src->vk_descriptor_type;
+    dst->metadata = src->metadata;
     dst->info = src->info;
 
     if (dst->magic != VKD3D_DESCRIPTOR_MAGIC_FREE)
@@ -3382,6 +3383,8 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_CBV;
     descriptor->vk_descriptor_type = vkd3d_bindless_state_get_cbv_descriptor_type(&device->bindless_state);
+    descriptor->metadata.set_index = d3d12_descriptor_heap_cbv_set_index();
+    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
 }
 
 static unsigned int vkd3d_view_flags_from_d3d12_buffer_srv_flags(D3D12_BUFFER_SRV_FLAGS flags)
@@ -3400,6 +3403,7 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
     struct vkd3d_texture_view_desc vkd3d_desc;
     struct vkd3d_view *view = NULL;
     VkImage vk_image;
+    bool is_buffer;
 
     if (!desc)
     {
@@ -3407,7 +3411,7 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
         return;
     }
 
-    if (desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER)
+    if ((is_buffer = (desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER)))
     {
         if (!device->device_info.robustness2_features.nullDescriptor)
         {
@@ -3460,6 +3464,8 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
     descriptor->info.view = view;
+    descriptor->metadata.set_index = d3d12_descriptor_heap_srv_set_index(is_buffer);
+    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
 }
 
 static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
@@ -3490,6 +3496,8 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
     descriptor->info.view = view;
+    descriptor->metadata.set_index = d3d12_descriptor_heap_srv_set_index(true);
+    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
 }
 
 void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
@@ -3609,6 +3617,8 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     descriptor->info.view = view;
+    descriptor->metadata.set_index = d3d12_descriptor_heap_srv_set_index(false);
+    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
 }
 
 static unsigned int vkd3d_view_flags_from_d3d12_buffer_uav_flags(D3D12_BUFFER_UAV_FLAGS flags)
@@ -3645,6 +3655,8 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
         }
 
         descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+        descriptor->metadata.set_index = d3d12_descriptor_heap_uav_set_index(true);
+        descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER;
     }
     else
     {
@@ -3683,6 +3695,8 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
         }
 
         descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        descriptor->metadata.set_index = d3d12_descriptor_heap_uav_set_index(false);
+        descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
     }
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
@@ -3760,6 +3774,9 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     }
     else if (!device->device_info.robustness2_features.nullDescriptor)
         view->vk_counter_view = device->null_resources.vk_storage_buffer_view;
+
+    descriptor->metadata.set_index = d3d12_descriptor_heap_uav_set_index(true);
+    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER;
 }
 
 static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
@@ -3829,6 +3846,8 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     descriptor->info.view = view;
+    descriptor->metadata.set_index = d3d12_descriptor_heap_uav_set_index(false);
+    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
 }
 
 void d3d12_desc_create_uav(struct d3d12_desc *descriptor, struct d3d12_device *device,
@@ -4113,6 +4132,8 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
     sampler->magic = VKD3D_DESCRIPTOR_MAGIC_SAMPLER;
     sampler->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLER;
     sampler->info.view = view;
+    sampler->metadata.set_index = d3d12_descriptor_heap_sampler_set_index();
+    sampler->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
 }
 
 /* RTVs */

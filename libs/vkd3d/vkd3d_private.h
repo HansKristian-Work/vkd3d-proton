@@ -596,6 +596,18 @@ bool vkd3d_create_buffer_view(struct d3d12_device *device, VkBuffer vk_buffer, c
 bool vkd3d_create_texture_view(struct d3d12_device *device, VkImage vk_image,
         const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view) DECLSPEC_HIDDEN;
 
+enum vkd3d_descriptor_flag
+{
+    VKD3D_DESCRIPTOR_FLAG_DEFINED     = (1 << 0),
+    VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER = (1 << 1),
+};
+
+struct vkd3d_descriptor_data
+{
+    uint32_t set_index;
+    uint32_t flags;
+};
+
 struct d3d12_desc
 {
     struct d3d12_descriptor_heap *heap;
@@ -603,6 +615,7 @@ struct d3d12_desc
     spinlock_t spinlock;
     uint32_t magic;
     VkDescriptorType vk_descriptor_type;
+    struct vkd3d_descriptor_data metadata;
     union
     {
         VkDescriptorBufferInfo vk_cbv_info;
