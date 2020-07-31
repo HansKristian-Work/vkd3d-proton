@@ -4702,12 +4702,13 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
     descriptor_heap->device = device;
     descriptor_heap->desc = *desc;
 
-    if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
-    {
-        if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_pool(descriptor_heap,
-                &descriptor_heap->vk_descriptor_pool)))
-            goto fail;
+    if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_pool(descriptor_heap,
+            &descriptor_heap->vk_descriptor_pool)))
+        goto fail;
 
+    if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
+            desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+    {
         for (i = 0; i < device->bindless_state.set_count; i++)
         {
             const struct vkd3d_bindless_set_info *set_info = &device->bindless_state.set_info[i];
@@ -4721,13 +4722,21 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
                     goto fail;
             }
         }
+    }
 
-        if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
-                (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER))
+    if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
+            (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER))
+    {
+        if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
         {
             if (FAILED(hr = d3d12_descriptor_heap_create_uav_counter_buffer(descriptor_heap,
                     &descriptor_heap->uav_counters)))
                 goto fail;
+        }
+        else if (!(descriptor_heap->uav_counters.data = vkd3d_calloc(desc->NumDescriptors, sizeof(VkDeviceSize))))
+        {
+            ERR("Failed to allocate UAV counter address buffer.\n");
+            goto fail;
         }
     }
 
@@ -4823,6 +4832,9 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
 {
     const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
     const struct d3d12_device *device = descriptor_heap->device;
+
+    if (!descriptor_heap->uav_counters.vk_memory)
+        vkd3d_free(descriptor_heap->uav_counters.data);
 
     VK_CALL(vkDestroyBuffer(device->vk_device, descriptor_heap->uav_counters.vk_buffer, NULL));
     VK_CALL(vkFreeMemory(device->vk_device, descriptor_heap->uav_counters.vk_memory, NULL));
