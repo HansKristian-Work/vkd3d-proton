@@ -12,6 +12,7 @@ vkd3d-compiler
 vkd3d-*.tar.xz
 
 *.exe
+*.dll
 *.la
 *.lo
 *.log
@@ -26,3 +27,5 @@ vkd3d-*.tar.xz
 build
 build.native
 build.cross
+
+builddir/*
