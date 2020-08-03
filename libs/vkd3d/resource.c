@@ -3100,14 +3100,13 @@ static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
     return vr == VK_SUCCESS;
 }
 
-bool vkd3d_create_buffer_view(struct d3d12_device *device, VkBuffer vk_buffer, const struct vkd3d_format *format,
-        VkDeviceSize offset, VkDeviceSize size, struct vkd3d_view **view)
+bool vkd3d_create_buffer_view(struct d3d12_device *device, const struct vkd3d_buffer_view_desc *desc, struct vkd3d_view **view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_view *object;
     VkBufferView vk_view;
 
-    if (!vkd3d_create_vk_buffer_view(device, vk_buffer, format, offset, size, &vk_view))
+    if (!vkd3d_create_vk_buffer_view(device, desc->buffer, desc->format, desc->offset, desc->size, &vk_view))
         return false;
 
     if (!(object = vkd3d_view_create(VKD3D_VIEW_TYPE_BUFFER)))
@@ -3117,9 +3116,9 @@ bool vkd3d_create_buffer_view(struct d3d12_device *device, VkBuffer vk_buffer, c
     }
 
     object->vk_buffer_view = vk_view;
-    object->format = format;
-    object->info.buffer.offset = offset;
-    object->info.buffer.size = size;
+    object->format = desc->format;
+    object->info.buffer.offset = desc->offset;
+    object->info.buffer.size = desc->size;
     *view = object;
     return true;
 }
@@ -3131,6 +3130,7 @@ static bool vkd3d_create_buffer_view_for_resource(struct d3d12_device *device,
         unsigned int offset, unsigned int size, unsigned int structure_stride,
         unsigned int flags, struct vkd3d_view **view)
 {
+    struct vkd3d_buffer_view_desc view_desc;
     const struct vkd3d_format *format;
     VkDeviceSize element_size;
 
@@ -3156,8 +3156,12 @@ static bool vkd3d_create_buffer_view_for_resource(struct d3d12_device *device,
 
     assert(d3d12_resource_is_buffer(resource));
 
-    return vkd3d_create_buffer_view(device, resource->vk_buffer,
-            format, resource->heap_offset + offset * element_size, size * element_size, view);
+    view_desc.buffer = resource->vk_buffer;
+    view_desc.format = format;
+    view_desc.offset = resource->heap_offset + offset * element_size;
+    view_desc.size = size * element_size;
+
+    return vkd3d_create_buffer_view(device, &view_desc, view);
 }
 
 static void vkd3d_set_view_swizzle_for_format(VkComponentMapping *components,
@@ -3467,9 +3471,13 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
     {
         if (!device->device_info.robustness2_features.nullDescriptor)
         {
-            if (!vkd3d_create_buffer_view(device, null_resources->vk_buffer,
-                    vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
-                    0, VKD3D_NULL_BUFFER_SIZE, &view))
+            struct vkd3d_buffer_view_desc view_desc;
+            view_desc.buffer = null_resources->vk_buffer;
+            view_desc.format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
+            view_desc.offset = 0;
+            view_desc.size = VKD3D_NULL_BUFFER_SIZE;
+
+            if (!vkd3d_create_buffer_view(device, &view_desc, &view))
                 return;
         }
 
@@ -3700,9 +3708,13 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
     {
         if (!device->device_info.robustness2_features.nullDescriptor)
         {
-            if (!vkd3d_create_buffer_view(device, null_resources->vk_buffer,
-                    vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
-                    0, VKD3D_NULL_BUFFER_SIZE, &view))
+            struct vkd3d_buffer_view_desc view_desc;
+            view_desc.buffer = null_resources->vk_buffer;
+            view_desc.format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
+            view_desc.offset = 0;
+            view_desc.size = VKD3D_NULL_BUFFER_SIZE;
+
+            if (!vkd3d_create_buffer_view(device, &view_desc, &view))
                 return;
         }
 

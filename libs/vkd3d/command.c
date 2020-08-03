@@ -5977,7 +5977,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct vkd3d_view *base_view, *uint_view;
-    struct vkd3d_texture_view_desc view_desc;
     const struct vkd3d_format *uint_format;
     struct d3d12_resource *resource_impl;
     VkClearColorValue color;
@@ -6005,7 +6004,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
 
         if (d3d12_resource_is_texture(resource_impl))
         {
+            struct vkd3d_texture_view_desc view_desc;
             memset(&view_desc, 0, sizeof(view_desc));
+
             view_desc.view_type = base_view->info.texture.vk_view_type;
             view_desc.layout = base_view->info.texture.vk_layout;
             view_desc.format = uint_format;
@@ -6023,8 +6024,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
         }
         else
         {
-            if (!vkd3d_create_buffer_view(list->device, resource_impl->vk_buffer, uint_format,
-                    base_view->info.buffer.offset, base_view->info.buffer.size, &uint_view))
+            struct vkd3d_buffer_view_desc view_desc;
+            view_desc.buffer = resource_impl->vk_buffer;
+            view_desc.format = uint_format;
+            view_desc.offset = base_view->info.buffer.offset;
+            view_desc.size = base_view->info.buffer.size;
+
+            if (!vkd3d_create_buffer_view(list->device, &view_desc, &uint_view))
             {
                 ERR("Failed to create buffer view.\n");
                 return;

@@ -578,6 +578,14 @@ struct vkd3d_view
 void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_view_incref(struct vkd3d_view *view) DECLSPEC_HIDDEN;
 
+struct vkd3d_buffer_view_desc
+{
+    VkBuffer buffer;
+    const struct vkd3d_format *format;
+    VkDeviceSize offset;
+    VkDeviceSize size;
+};
+
 struct vkd3d_texture_view_desc
 {
     VkImageViewType view_type;
@@ -591,8 +599,8 @@ struct vkd3d_texture_view_desc
     bool allowed_swizzle;
 };
 
-bool vkd3d_create_buffer_view(struct d3d12_device *device, VkBuffer vk_buffer, const struct vkd3d_format *format,
-        VkDeviceSize offset, VkDeviceSize size, struct vkd3d_view **view) DECLSPEC_HIDDEN;
+bool vkd3d_create_buffer_view(struct d3d12_device *device,
+        const struct vkd3d_buffer_view_desc *desc, struct vkd3d_view **view) DECLSPEC_HIDDEN;
 bool vkd3d_create_texture_view(struct d3d12_device *device, VkImage vk_image,
         const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view) DECLSPEC_HIDDEN;
 
