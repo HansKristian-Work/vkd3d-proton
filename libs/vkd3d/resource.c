@@ -22,6 +22,7 @@
 #include <float.h>
 
 #include "vkd3d_private.h"
+#include "hashmap.h"
 
 #define VKD3D_NULL_SRV_FORMAT DXGI_FORMAT_R8G8B8A8_UNORM
 #define VKD3D_NULL_UAV_FORMAT DXGI_FORMAT_R32_UINT
@@ -1211,6 +1212,128 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     return hr;
 }
 
+struct vkd3d_view_key
+{
+    enum vkd3d_view_type view_type;
+    union
+    {
+        struct vkd3d_buffer_view_desc buffer;
+        struct vkd3d_texture_view_desc texture;
+    } u;
+};
+
+struct vkd3d_view_entry
+{
+    struct hash_map_entry entry;
+    struct vkd3d_view_key key;
+    struct vkd3d_view *view;
+};
+
+uint32_t vkd3d_view_entry_hash(const void *key)
+{
+    const struct vkd3d_view_key *k = key;
+    uint32_t hash;
+
+    switch (k->view_type)
+    {
+        case VKD3D_VIEW_TYPE_BUFFER:
+            hash = hash_uint64((uint64_t)k->u.buffer.buffer);
+            hash = hash_combine(hash, hash_uint64(k->u.buffer.offset));
+            hash = hash_combine(hash, hash_uint64(k->u.buffer.size));
+            hash = hash_combine(hash, k->u.buffer.format->vk_format);
+            break;
+
+        case VKD3D_VIEW_TYPE_IMAGE:
+            hash = hash_uint64((uint64_t)k->u.texture.image);
+            hash = hash_combine(hash, k->u.texture.view_type);
+            hash = hash_combine(hash, k->u.texture.layout);
+            hash = hash_combine(hash, k->u.texture.format->vk_format);
+            hash = hash_combine(hash, k->u.texture.miplevel_idx);
+            hash = hash_combine(hash, k->u.texture.miplevel_count);
+            hash = hash_combine(hash, k->u.texture.layer_idx);
+            hash = hash_combine(hash, k->u.texture.layer_count);
+            hash = hash_combine(hash, k->u.texture.components.r);
+            hash = hash_combine(hash, k->u.texture.components.g);
+            hash = hash_combine(hash, k->u.texture.components.b);
+            hash = hash_combine(hash, k->u.texture.components.a);
+            hash = hash_combine(hash, k->u.texture.allowed_swizzle);
+            break;
+
+        default:
+            ERR("Unexpected view type %d.\n", k->view_type);
+            return 0;
+    }
+
+    return hash;
+}
+
+bool vkd3d_view_entry_compare(const void *key, const struct hash_map_entry *entry)
+{
+    const struct vkd3d_view_entry *e = (const struct vkd3d_view_entry*) entry;
+    const struct vkd3d_view_key *k = key;
+
+    if (k->view_type != e->key.view_type)
+        return false;
+
+    switch (k->view_type)
+    {
+        case VKD3D_VIEW_TYPE_BUFFER:
+            return k->u.buffer.buffer == e->key.u.buffer.buffer &&
+                    k->u.buffer.format == e->key.u.buffer.format &&
+                    k->u.buffer.offset == e->key.u.buffer.offset &&
+                    k->u.buffer.size == e->key.u.buffer.size;
+
+        case VKD3D_VIEW_TYPE_IMAGE:
+            return k->u.texture.image == e->key.u.texture.image &&
+                    k->u.texture.view_type == e->key.u.texture.view_type &&
+                    k->u.texture.layout == e->key.u.texture.layout &&
+                    k->u.texture.format == e->key.u.texture.format &&
+                    k->u.texture.miplevel_idx == e->key.u.texture.miplevel_idx &&
+                    k->u.texture.miplevel_count == e->key.u.texture.miplevel_count &&
+                    k->u.texture.layer_idx == e->key.u.texture.layer_idx &&
+                    k->u.texture.layer_count == e->key.u.texture.layer_count &&
+                    k->u.texture.components.r == e->key.u.texture.components.r &&
+                    k->u.texture.components.g == e->key.u.texture.components.g &&
+                    k->u.texture.components.b == e->key.u.texture.components.b &&
+                    k->u.texture.components.a == e->key.u.texture.components.a &&
+                    k->u.texture.allowed_swizzle == e->key.u.texture.allowed_swizzle;
+
+        default:
+            ERR("Unexpected view type %d.\n", k->view_type);
+            return false;
+    }
+}
+
+HRESULT vkd3d_view_map_init(struct vkd3d_view_map *view_map)
+{
+    int rc;
+
+    if ((rc = pthread_mutex_init(&view_map->mutex, NULL)))
+        return hresult_from_errno(rc);
+
+    hash_map_init(&view_map->map, &vkd3d_view_entry_hash, &vkd3d_view_entry_compare, sizeof(struct vkd3d_view_entry));
+    return S_OK;
+}
+
+static void vkd3d_view_destroy(struct vkd3d_view *view, struct d3d12_device *device);
+
+void vkd3d_view_map_destroy(struct vkd3d_view_map *view_map, struct d3d12_device *device)
+{
+    uint32_t i;
+
+    for (i = 0; i < view_map->map.entry_count; i++)
+    {
+        struct vkd3d_view_entry *e = (struct vkd3d_view_entry *)hash_map_get_entry(&view_map->map, i);
+
+        if (e->entry.flags & HASH_MAP_ENTRY_OCCUPIED)
+            vkd3d_view_destroy(e->view, device);
+    }
+
+    hash_map_clear(&view_map->map);
+
+    pthread_mutex_destroy(&view_map->mutex);
+}
+
 static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_resource *resource,
         UINT *total_tile_count, D3D12_PACKED_MIP_INFO *packed_mip_info, D3D12_TILE_SHAPE *tile_shape,
         D3D12_SUBRESOURCE_TILING *tilings, VkSparseImageMemoryRequirements *vk_info)
@@ -1336,6 +1459,8 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
 static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    vkd3d_view_map_destroy(&resource->view_map, resource->device);
 
     if (resource->flags & VKD3D_RESOURCE_EXTERNAL)
         return;
@@ -2419,6 +2544,9 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     resource->internal_refcount = 1;
 
     resource->desc = *desc;
+
+    if (FAILED(hr = vkd3d_view_map_init(&resource->view_map)))
+        return hr;
 
     if (heap_properties && !d3d12_resource_validate_heap_properties(resource, heap_properties, initial_state))
         return E_INVALIDARG;
