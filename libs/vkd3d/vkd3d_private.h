@@ -25,6 +25,7 @@
 #include "vkd3d_common.h"
 #include "vkd3d_memory.h"
 #include "vkd3d_utf8.h"
+#include "hashmap.h"
 #include "list.h"
 #include "rbtree.h"
 
@@ -464,6 +465,15 @@ struct d3d12_sparse_info
     VkDeviceMemory vk_metadata_memory;
 };
 
+struct vkd3d_view_map
+{
+    pthread_mutex_t mutex;
+    struct hash_map map;
+};
+
+HRESULT vkd3d_view_map_init(struct vkd3d_view_map *view_map) DECLSPEC_HIDDEN;
+void vkd3d_view_map_destroy(struct vkd3d_view_map *view_map, struct d3d12_device *device) DECLSPEC_HIDDEN;
+
 /* ID3D12Resource */
 typedef ID3D12Resource1 d3d12_resource_iface;
 
@@ -491,6 +501,7 @@ struct d3d12_resource
     D3D12_RESOURCE_STATES present_state;
 
     struct d3d12_sparse_info sparse;
+    struct vkd3d_view_map view_map;
 
     struct d3d12_device *device;
 
