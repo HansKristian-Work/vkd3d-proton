@@ -88,11 +88,10 @@ struct vkd3d_shader_code
 
 enum vkd3d_shader_descriptor_type
 {
-    VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN,
-    VKD3D_SHADER_DESCRIPTOR_TYPE_CBV,     /* cb# */
-    VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,     /* t#  */
-    VKD3D_SHADER_DESCRIPTOR_TYPE_UAV,     /* u#  */
-    VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, /* s#  */
+    VKD3D_SHADER_DESCRIPTOR_TYPE_SRV     = 0x0, /* t#  */
+    VKD3D_SHADER_DESCRIPTOR_TYPE_UAV     = 0x1, /* u#  */
+    VKD3D_SHADER_DESCRIPTOR_TYPE_CBV     = 0x2, /* cb# */
+    VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER = 0x3, /* s#  */
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_DESCRIPTOR_TYPE),
 };
@@ -450,19 +449,9 @@ struct vkd3d_shader_static_sampler_desc
     enum vkd3d_shader_visibility shader_visibility;
 };
 
-enum vkd3d_shader_descriptor_range_type
-{
-    VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE_SRV     = 0x0,
-    VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE_UAV     = 0x1,
-    VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE_CBV     = 0x2,
-    VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE_SAMPLER = 0x3,
-
-    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE),
-};
-
 struct vkd3d_shader_descriptor_range
 {
-    enum vkd3d_shader_descriptor_range_type range_type;
+    enum vkd3d_shader_descriptor_type range_type;
     unsigned int descriptor_count;
     unsigned int base_shader_register;
     unsigned int register_space;
@@ -558,7 +547,7 @@ enum vkd3d_shader_descriptor_range_flags
 
 struct vkd3d_shader_descriptor_range1
 {
-    enum vkd3d_shader_descriptor_range_type range_type;
+    enum vkd3d_shader_descriptor_type range_type;
     unsigned int descriptor_count;
     unsigned int base_shader_register;
     unsigned int register_space;

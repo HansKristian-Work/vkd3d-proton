@@ -2364,7 +2364,6 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
     struct vkd3d_shader_descriptor_binding binding;
     unsigned int i;
 
-    descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN;
     if (reg->type == VKD3DSPR_CONSTBUFFER)
         descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_CBV;
     else if (reg->type == VKD3DSPR_RESOURCE)
@@ -2378,6 +2377,7 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
         FIXME("Unhandled register type %#x.\n", reg->type);
         vkd3d_dxbc_compiler_error(compiler, VKD3D_SHADER_ERROR_SPV_INVALID_REGISTER_TYPE,
                 "Encountered invalid/unhandled register type %#x.", reg->type);
+        goto done;
     }
 
     resource_type_flag = resource_type == VKD3D_SHADER_RESOURCE_BUFFER
@@ -2406,7 +2406,7 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
                     "Could not find descriptor binding for UAV counter %u, space %u.", reg_idx, register_space);
         }
     }
-    else if (descriptor_type != VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN)
+    else
     {
         for (i = 0; i < shader_interface->binding_count; ++i)
         {
@@ -2432,6 +2432,7 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
         }
     }
 
+done:
     binding.set = 0;
     binding.binding = compiler->binding_idx++;
     return binding;

@@ -3143,13 +3143,13 @@ static int validate_descriptor_table_v_1_0(const struct vkd3d_shader_root_descri
     {
         const struct vkd3d_shader_descriptor_range *r = &descriptor_table->descriptor_ranges[i];
 
-        if (r->range_type == VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE_SRV
-                || r->range_type == VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE_UAV
-                || r->range_type == VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE_CBV)
+        if (r->range_type == VKD3D_SHADER_DESCRIPTOR_TYPE_SRV
+                || r->range_type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV
+                || r->range_type == VKD3D_SHADER_DESCRIPTOR_TYPE_CBV)
         {
             have_srv_uav_cbv = true;
         }
-        else if (r->range_type == VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE_SAMPLER)
+        else if (r->range_type == VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER)
         {
             have_sampler = true;
         }
@@ -3184,13 +3184,13 @@ static int validate_descriptor_table_v_1_1(const struct vkd3d_shader_root_descri
     {
         const struct vkd3d_shader_descriptor_range1 *r = &descriptor_table->descriptor_ranges[i];
 
-        if (r->range_type == VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE_SRV
-                || r->range_type == VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE_UAV
-                || r->range_type == VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE_CBV)
+        if (r->range_type == VKD3D_SHADER_DESCRIPTOR_TYPE_SRV
+                || r->range_type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV
+                || r->range_type == VKD3D_SHADER_DESCRIPTOR_TYPE_CBV)
         {
             have_srv_uav_cbv = true;
         }
-        else if (r->range_type == VKD3D_SHADER_DESCRIPTOR_RANGE_TYPE_SAMPLER)
+        else if (r->range_type == VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER)
         {
             have_sampler = true;
         }
