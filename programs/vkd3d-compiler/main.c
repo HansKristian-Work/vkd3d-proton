@@ -27,11 +27,12 @@
 #include "vkd3d_common.h"
 #include "vkd3d_shader.h"
 
-#define MAX_COMPILE_OPTIONS 1
+#define MAX_COMPILE_OPTIONS 2
 
 enum
 {
     OPTION_HELP = CHAR_MAX + 1,
+    OPTION_BUFFER_UAV,
     OPTION_OUTPUT,
     OPTION_STRIP_DEBUG,
     OPTION_VERSION,
@@ -101,6 +102,9 @@ static void print_usage(const char *program_name)
         "[options...] file\n"
         "Options:\n"
         "  -h, --help           Display this information and exit.\n"
+        "  --buffer-uav=<type>  Specify the buffer type to use for buffer UAV bindings.\n"
+        "                       Valid values are 'buffer-texture' (default) and\n"
+        "                       'storage-buffer'.\n"
         "  -o, --output=<file>  Write the output to <file>.\n"
         "  --strip-debug        Strip debug information from the output.\n"
         "  -V, --version        Display version information and exit.\n"
@@ -151,6 +155,23 @@ static void add_compile_option(struct options *options,
     o->value = value;
 }
 
+static bool parse_buffer_uav(enum vkd3d_shader_compile_option_buffer_uav *buffer_uav, const char *arg)
+{
+    if (!strcmp(arg, "buffer-texture"))
+    {
+        *buffer_uav = VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV_STORAGE_TEXEL_BUFFER;
+        return true;
+    }
+
+    if (!strcmp(arg, "storage-buffer"))
+    {
+        *buffer_uav = VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV_STORAGE_BUFFER;
+        return true;
+    }
+
+    return false;
+}
+
 static enum vkd3d_shader_source_type parse_source_type(const char *source)
 {
     if (!strcmp(source, "dxbc-tpf") || !strcmp(source, "none"))
@@ -161,11 +182,13 @@ static enum vkd3d_shader_source_type parse_source_type(const char *source)
 
 static bool parse_command_line(int argc, char **argv, struct options *options)
 {
+    enum vkd3d_shader_compile_option_buffer_uav buffer_uav;
     int option;
 
     static struct option long_options[] =
     {
         {"help",        no_argument,       NULL, OPTION_HELP},
+        {"buffer-uav",  required_argument, NULL, OPTION_BUFFER_UAV},
         {"output",      required_argument, NULL, OPTION_OUTPUT},
         {"strip-debug", no_argument,       NULL, OPTION_STRIP_DEBUG},
         {"version",     no_argument,       NULL, OPTION_VERSION},
@@ -182,6 +205,15 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
 
         switch (option)
         {
+            case OPTION_BUFFER_UAV:
+                if (!parse_buffer_uav(&buffer_uav, optarg))
+                {
+                    fprintf(stderr, "Invalid buffer UAV type '%s' specified.\n", optarg);
+                    return false;
+                }
+                add_compile_option(options, VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV, buffer_uav);
+                break;
+
             case OPTION_OUTPUT:
             case 'o':
                 options->output_filename = optarg;
