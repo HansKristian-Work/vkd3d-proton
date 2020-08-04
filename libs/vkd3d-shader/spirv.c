@@ -2340,7 +2340,11 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
     else if (reg->type == VKD3DSPR_SAMPLER)
         descriptor_type = VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER;
     else
+    {
         FIXME("Unhandled register type %#x.\n", reg->type);
+        vkd3d_dxbc_compiler_error(compiler, VKD3D_SHADER_ERROR_SPV_INVALID_REGISTER_TYPE,
+                "Encountered invalid/unhandled register type %#x.", reg->type);
+    }
 
     resource_type_flag = resource_type == VKD3D_SHADER_RESOURCE_BUFFER
             ? VKD3D_SHADER_BINDING_FLAG_BUFFER : VKD3D_SHADER_BINDING_FLAG_IMAGE;
