@@ -40,9 +40,22 @@ enum vkd3d_shader_structure_type
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_STRUCTURE_TYPE),
 };
 
+/* This also affects UAV counters in Vulkan environments. In OpenGL
+ * environments, atomic counter buffers are always used for UAV counters. */
+enum vkd3d_shader_compile_option_buffer_uav
+{
+    /* Use buffer textures for buffer UAVs, this is the default. */
+    VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV_STORAGE_TEXEL_BUFFER = 0x00000000,
+    /* Use storage buffers for buffer UAVs. */
+    VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV_STORAGE_BUFFER       = 0x00000001,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV),
+};
+
 enum vkd3d_shader_compile_option_name
 {
     VKD3D_SHADER_COMPILE_OPTION_STRIP_DEBUG = 0x00000001,
+    VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV  = 0x00000002, /* vkd3d_shader_compile_option_buffer_uav */
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_COMPILE_OPTION_NAME),
 };
