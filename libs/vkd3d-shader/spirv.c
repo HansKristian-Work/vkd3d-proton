@@ -2043,6 +2043,9 @@ struct vkd3d_dxbc_compiler
 {
     struct vkd3d_spirv_builder spirv_builder;
 
+    struct vkd3d_shader_message_context *message_context;
+    bool failed;
+
     bool strip_debug;
 
     struct rb_tree symbol_table;
@@ -2113,7 +2116,8 @@ static const char *vkd3d_dxbc_compiler_get_entry_point_name(const struct vkd3d_d
 
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
         const struct vkd3d_shader_desc *shader_desc, const struct vkd3d_shader_compile_info *compile_info,
-        const struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info)
+        const struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info,
+        struct vkd3d_shader_message_context *message_context)
 {
     const struct vkd3d_shader_signature *patch_constant_signature = &shader_desc->patch_constant_signature;
     const struct vkd3d_shader_signature *output_signature = &shader_desc->output_signature;
@@ -2127,6 +2131,7 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
         return NULL;
 
     memset(compiler, 0, sizeof(*compiler));
+    compiler->message_context = message_context;
 
     if ((target_info = vkd3d_find_struct(compile_info->next, SPIRV_TARGET_INFO)))
     {
@@ -2304,6 +2309,17 @@ static bool vkd3d_dxbc_compiler_has_combined_sampler(const struct vkd3d_dxbc_com
     return false;
 }
 
+static void VKD3D_PRINTF_FUNC(3, 4) vkd3d_dxbc_compiler_error(struct vkd3d_dxbc_compiler *compiler,
+        enum vkd3d_shader_error error, const char *format, ...)
+{
+    va_list args;
+
+    va_start(args, format);
+    vkd3d_shader_verror(compiler->message_context, error, format, args);
+    va_end(args);
+    compiler->failed = true;
+}
+
 static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor_binding(
         struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg, unsigned int register_space,
         unsigned int reg_idx, enum vkd3d_shader_resource_type resource_type, bool is_uav_counter)
@@ -2346,7 +2362,11 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
                 return current->binding;
         }
         if (shader_interface->uav_counter_count)
+        {
             FIXME("Could not find descriptor binding for UAV counter %u, space %u.\n", reg_idx, register_space);
+            vkd3d_dxbc_compiler_error(compiler, VKD3D_SHADER_ERROR_SPV_DESCRIPTOR_BINDING_NOT_FOUND,
+                    "Could not find descriptor binding for UAV counter %u, space %u.", reg_idx, register_space);
+        }
     }
     else if (descriptor_type != VKD3D_SHADER_DESCRIPTOR_TYPE_UNKNOWN)
     {
@@ -2365,8 +2385,13 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
                 return current->binding;
         }
         if (shader_interface->binding_count)
+        {
             FIXME("Could not find binding for type %#x, space %u, register %u, shader type %#x.\n",
                     descriptor_type, register_space, reg_idx, compiler->shader_type);
+            vkd3d_dxbc_compiler_error(compiler, VKD3D_SHADER_ERROR_SPV_DESCRIPTOR_BINDING_NOT_FOUND,
+                    "Could not find descriptor binding for type %#x, space %u, register %u, shader type %#x.",
+                    descriptor_type, register_space, reg_idx, compiler->shader_type);
+        }
     }
 
     binding.set = 0;
@@ -8796,6 +8821,9 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         vkd3d_spirv_dump(spirv, environment);
         vkd3d_spirv_validate(spirv, environment);
     }
+
+    if (compiler->failed)
+        return VKD3D_ERROR_INVALID_SHADER;
 
     return VKD3D_OK;
 }

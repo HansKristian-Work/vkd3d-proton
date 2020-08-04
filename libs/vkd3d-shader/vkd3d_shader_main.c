@@ -149,11 +149,9 @@ char *vkd3d_shader_message_context_copy_messages(struct vkd3d_shader_message_con
     return messages;
 }
 
-void vkd3d_shader_error(struct vkd3d_shader_message_context *context,
-        enum vkd3d_shader_error error, const char *format, ...)
+void vkd3d_shader_verror(struct vkd3d_shader_message_context *context,
+        enum vkd3d_shader_error error, const char *format, va_list args)
 {
-    va_list args;
-
     if (context->log_level < VKD3D_SHADER_LOG_ERROR)
         return;
 
@@ -162,10 +160,18 @@ void vkd3d_shader_error(struct vkd3d_shader_message_context *context,
                 context->source_name, context->line, context->column, error);
     else
         vkd3d_string_buffer_printf(&context->messages, "%s: E%04u: ", context->source_name, error);
-    va_start(args, format);
     vkd3d_string_buffer_vprintf(&context->messages, format, args);
-    va_end(args);
     vkd3d_string_buffer_printf(&context->messages, "\n");
+}
+
+void vkd3d_shader_error(struct vkd3d_shader_message_context *context,
+        enum vkd3d_shader_error error, const char *format, ...)
+{
+    va_list args;
+
+    va_start(args, format);
+    vkd3d_shader_verror(context, error, format, args);
+    va_end(args);
 }
 
 static void vkd3d_shader_dump_blob(const char *path, const char *prefix, const void *data, size_t size)
@@ -306,35 +312,30 @@ int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info,
 
     if ((ret = vkd3d_shader_scan(&scan_info, messages)) < 0)
         return ret;
-
-    if (!vkd3d_shader_message_context_init(&message_context, compile_info->log_level, compile_info->source_name))
-        return VKD3D_ERROR;
-    ret = vkd3d_shader_parser_init(&parser, &compile_info->source, &message_context);
-    vkd3d_shader_message_context_trace_messages(&message_context);
     if (messages)
     {
         vkd3d_shader_free_messages(*messages);
-        if (!(*messages = vkd3d_shader_message_context_copy_messages(&message_context)))
-            ret = VKD3D_ERROR_OUT_OF_MEMORY;
+        *messages = NULL;
     }
-    vkd3d_shader_message_context_cleanup(&message_context);
-    if (ret < 0)
-    {
-        vkd3d_shader_free_scan_descriptor_info(&scan_descriptor_info);
-        return ret;
-    }
+
+    if (!vkd3d_shader_message_context_init(&message_context, compile_info->log_level, compile_info->source_name))
+        return VKD3D_ERROR;
+    if ((ret = vkd3d_shader_parser_init(&parser, &compile_info->source, &message_context)) < 0)
+        goto done;
 
     vkd3d_shader_dump_shader(parser.shader_version.type, &compile_info->source);
 
     if (!(spirv_compiler = vkd3d_dxbc_compiler_create(&parser.shader_version,
-            &parser.shader_desc, compile_info, &scan_descriptor_info)))
+            &parser.shader_desc, compile_info, &scan_descriptor_info, &message_context)))
     {
         ERR("Failed to create DXBC compiler.\n");
         vkd3d_shader_parser_destroy(&parser);
-        vkd3d_shader_free_scan_descriptor_info(&scan_descriptor_info);
-        return VKD3D_ERROR;
+        ret = VKD3D_ERROR;
+        goto done;
     }
 
+    message_context.line = 2; /* Line 1 is the version token. */
+    message_context.column = 1;
     while (!shader_sm4_is_end(parser.data, &parser.ptr))
     {
         shader_sm4_read_instruction(parser.data, &parser.ptr, &instruction);
@@ -348,6 +349,7 @@ int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info,
 
         if ((ret = vkd3d_dxbc_compiler_handle_instruction(spirv_compiler, &instruction)) < 0)
             break;
+        ++message_context.line;
     }
 
     if (ret >= 0)
@@ -355,6 +357,11 @@ int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info,
 
     vkd3d_dxbc_compiler_destroy(spirv_compiler);
     vkd3d_shader_parser_destroy(&parser);
+done:
+    vkd3d_shader_message_context_trace_messages(&message_context);
+    if (messages && !(*messages = vkd3d_shader_message_context_copy_messages(&message_context)))
+        ret = VKD3D_ERROR_OUT_OF_MEMORY;
+    vkd3d_shader_message_context_cleanup(&message_context);
     vkd3d_shader_free_scan_descriptor_info(&scan_descriptor_info);
     return ret;
 }

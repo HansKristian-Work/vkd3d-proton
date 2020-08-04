@@ -70,6 +70,8 @@ enum vkd3d_shader_error
 
     VKD3D_SHADER_ERROR_TPF_MISMATCHED_CF                = 1000,
 
+    VKD3D_SHADER_ERROR_SPV_DESCRIPTOR_BINDING_NOT_FOUND = 2000,
+
     VKD3D_SHADER_ERROR_RS_OUT_OF_MEMORY                 = 3000,
     VKD3D_SHADER_ERROR_RS_INVALID_VERSION               = 3001,
     VKD3D_SHADER_ERROR_RS_INVALID_ROOT_PARAMETER_TYPE   = 3002,
@@ -846,6 +848,8 @@ void vkd3d_shader_message_context_trace_messages_(const struct vkd3d_shader_mess
         vkd3d_shader_message_context_trace_messages_(context, __FUNCTION__)
 void vkd3d_shader_error(struct vkd3d_shader_message_context *context, enum vkd3d_shader_error error,
         const char *format, ...) VKD3D_PRINTF_FUNC(3, 4) DECLSPEC_HIDDEN;
+void vkd3d_shader_verror(struct vkd3d_shader_message_context *context,
+        enum vkd3d_shader_error error, const char *format, va_list args) DECLSPEC_HIDDEN;
 
 int shader_extract_from_dxbc(const void *dxbc, size_t dxbc_length,
         struct vkd3d_shader_message_context *message_context, struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
@@ -858,7 +862,8 @@ struct vkd3d_dxbc_compiler;
 
 struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader_version *shader_version,
         const struct vkd3d_shader_desc *shader_desc, const struct vkd3d_shader_compile_info *compile_info,
-        const struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info) DECLSPEC_HIDDEN;
+        const struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info,
+        struct vkd3d_shader_message_context *message_context) DECLSPEC_HIDDEN;
 int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction) DECLSPEC_HIDDEN;
 int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
