@@ -5665,6 +5665,9 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
                 VK_OBJECT_TYPE_DEVICE_MEMORY, "NULL 2D UAV memory");
     }
 
+    if (FAILED(hr = vkd3d_view_map_init(&null_resources->view_map)))
+        return hr;
+
     return vkd3d_init_null_resources_data(null_resources, device);
 
 fail:
@@ -5677,6 +5680,8 @@ void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
         struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    vkd3d_view_map_destroy(&null_resources->view_map, device);
 
     VK_CALL(vkDestroyBufferView(device->vk_device, null_resources->vk_buffer_view, NULL));
     VK_CALL(vkDestroyBuffer(device->vk_device, null_resources->vk_buffer, NULL));
