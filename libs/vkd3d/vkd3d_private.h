@@ -588,6 +588,7 @@ struct vkd3d_buffer_view_desc
 
 struct vkd3d_texture_view_desc
 {
+    VkImage image;
     VkImageViewType view_type;
     VkImageLayout layout;
     const struct vkd3d_format *format;
@@ -601,7 +602,7 @@ struct vkd3d_texture_view_desc
 
 bool vkd3d_create_buffer_view(struct d3d12_device *device,
         const struct vkd3d_buffer_view_desc *desc, struct vkd3d_view **view) DECLSPEC_HIDDEN;
-bool vkd3d_create_texture_view(struct d3d12_device *device, VkImage vk_image,
+bool vkd3d_create_texture_view(struct d3d12_device *device,
         const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view) DECLSPEC_HIDDEN;
 
 enum vkd3d_descriptor_flag
