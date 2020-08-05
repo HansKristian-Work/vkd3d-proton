@@ -1334,6 +1334,58 @@ void vkd3d_view_map_destroy(struct vkd3d_view_map *view_map, struct d3d12_device
     pthread_mutex_destroy(&view_map->mutex);
 }
 
+static struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
+        struct d3d12_device *device, const struct vkd3d_view_key *key)
+{
+    struct vkd3d_view_entry entry, *e;
+    struct vkd3d_view *view;
+    bool success;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&view_map->mutex)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return NULL;
+    }
+
+    if ((e = (struct vkd3d_view_entry *)hash_map_find(&view_map->map, key)))
+    {
+        view = e->view;
+        pthread_mutex_unlock(&view_map->mutex);
+        return view;
+    }
+
+    switch (key->view_type)
+    {
+        case VKD3D_VIEW_TYPE_BUFFER:
+            success = vkd3d_create_buffer_view(device, &key->u.buffer, &view);
+            break;
+
+        case VKD3D_VIEW_TYPE_IMAGE:
+            success = vkd3d_create_texture_view(device, &key->u.texture, &view);
+            break;
+
+        default:
+            ERR("Unsupported view type %u.\n", key->view_type);
+            return NULL;
+    }
+
+    if (!success)
+    {
+        pthread_mutex_unlock(&view_map->mutex);
+        return NULL;
+    }
+
+    entry.key = *key;
+    entry.view = view;
+
+    if (!hash_map_insert(&view_map->map, key, &entry.entry))
+        ERR("Failed to insert view into hash map.\n");
+
+    pthread_mutex_unlock(&view_map->mutex);
+    return view;
+}
+
 static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_resource *resource,
         UINT *total_tile_count, D3D12_PACKED_MIP_INFO *packed_mip_info, D3D12_TILE_SHAPE *tile_shape,
         D3D12_SUBRESOURCE_TILING *tilings, VkSparseImageMemoryRequirements *vk_info)
