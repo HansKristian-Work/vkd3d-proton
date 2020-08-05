@@ -3315,6 +3315,7 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
         return false;
     }
 
+    desc->image = resource->vk_image;
     desc->layout = resource->common_layout;
     desc->miplevel_idx = 0;
     desc->miplevel_count = 1;
@@ -3351,8 +3352,7 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
     return true;
 }
 
-bool vkd3d_create_texture_view(struct d3d12_device *device, VkImage vk_image,
-        const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view)
+bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_format *format = desc->format;
@@ -3364,7 +3364,7 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, VkImage vk_image,
     view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_desc.pNext = NULL;
     view_desc.flags = 0;
-    view_desc.image = vk_image;
+    view_desc.image = desc->image;
     view_desc.viewType = desc->view_type;
     view_desc.format = format->vk_format;
     vkd3d_set_view_swizzle_for_format(&view_desc.components, format, desc->allowed_swizzle);
@@ -3458,7 +3458,6 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
     struct vkd3d_null_resources *null_resources = &device->null_resources;
     struct vkd3d_texture_view_desc vkd3d_desc;
     struct vkd3d_view *view = NULL;
-    VkImage vk_image;
     bool is_buffer;
 
     if (!desc)
@@ -3490,11 +3489,11 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
             switch (desc->ViewDimension)
             {
                 case D3D12_SRV_DIMENSION_TEXTURE2D:
-                    vk_image = null_resources->vk_2d_image;
+                    vkd3d_desc.image = null_resources->vk_2d_image;
                     vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
                     break;
                 case D3D12_SRV_DIMENSION_TEXTURE2DARRAY:
-                    vk_image = null_resources->vk_2d_image;
+                    vkd3d_desc.image = null_resources->vk_2d_image;
                     vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
                     break;
 
@@ -3515,7 +3514,7 @@ static void vkd3d_create_null_srv(struct d3d12_desc *descriptor,
             vkd3d_desc.components.a = VK_COMPONENT_SWIZZLE_ZERO;
             vkd3d_desc.allowed_swizzle = true;
 
-            if (!vkd3d_create_texture_view(device, vk_image, &vkd3d_desc, &view))
+            if (!vkd3d_create_texture_view(device, &vkd3d_desc, &view))
                 return;
         }
 
@@ -3671,7 +3670,7 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
         }
     }
 
-    if (!vkd3d_create_texture_view(device, resource->vk_image, &vkd3d_desc, &view))
+    if (!vkd3d_create_texture_view(device, &vkd3d_desc, &view))
         return;
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_SRV;
@@ -3696,7 +3695,6 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
     struct vkd3d_null_resources *null_resources = &device->null_resources;
     struct vkd3d_texture_view_desc vkd3d_desc;
     struct vkd3d_view *view = NULL;
-    VkImage vk_image;
 
     if (!desc)
     {
@@ -3729,11 +3727,11 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
             switch (desc->ViewDimension)
             {
                 case D3D12_UAV_DIMENSION_TEXTURE2D:
-                    vk_image = null_resources->vk_2d_storage_image;
+                    vkd3d_desc.image = null_resources->vk_2d_storage_image;
                     vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
                     break;
                 case D3D12_UAV_DIMENSION_TEXTURE2DARRAY:
-                    vk_image = null_resources->vk_2d_storage_image;
+                    vkd3d_desc.image = null_resources->vk_2d_storage_image;
                     vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
                     break;
 
@@ -3754,7 +3752,7 @@ static void vkd3d_create_null_uav(struct d3d12_desc *descriptor,
             vkd3d_desc.components.a = VK_COMPONENT_SWIZZLE_A;
             vkd3d_desc.allowed_swizzle = false;
 
-            if (!vkd3d_create_texture_view(device, vk_image, &vkd3d_desc, &view))
+            if (!vkd3d_create_texture_view(device, &vkd3d_desc, &view))
                 return;
         }
 
@@ -3904,7 +3902,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         }
     }
 
-    if (!vkd3d_create_texture_view(device, resource->vk_image, &vkd3d_desc, &view))
+    if (!vkd3d_create_texture_view(device, &vkd3d_desc, &view))
         return;
 
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_UAV;
@@ -4296,7 +4294,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 
     assert(d3d12_resource_is_texture(resource));
 
-    if (!vkd3d_create_texture_view(device, resource->vk_image, &vkd3d_desc, &view))
+    if (!vkd3d_create_texture_view(device, &vkd3d_desc, &view))
         return;
 
     rtv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_RTV;
@@ -4413,7 +4411,7 @@ void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_dev
 
     assert(d3d12_resource_is_texture(resource));
 
-    if (!vkd3d_create_texture_view(device, resource->vk_image, &vkd3d_desc, &view))
+    if (!vkd3d_create_texture_view(device, &vkd3d_desc, &view))
         return;
 
     dsv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_DSV;

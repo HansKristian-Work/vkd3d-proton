@@ -4046,6 +4046,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_GRAPHICS, true);
 
         memset(&dst_view_desc, 0, sizeof(dst_view_desc));
+        dst_view_desc.image = dst_resource->vk_image;
         dst_view_desc.view_type = pipeline_key.view_type;
         dst_view_desc.layout = dst_layout;
         dst_view_desc.format = dst_format;
@@ -4056,6 +4057,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         dst_view_desc.allowed_swizzle = false;
 
         memset(&src_view_desc, 0, sizeof(src_view_desc));
+        src_view_desc.image = src_resource->vk_image;
         src_view_desc.view_type = pipeline_key.view_type;
         src_view_desc.layout = src_layout;
         src_view_desc.format = src_format;
@@ -4065,8 +4067,8 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         src_view_desc.layer_count = region->srcSubresource.layerCount;
         src_view_desc.allowed_swizzle = false;
 
-        if (!vkd3d_create_texture_view(list->device, dst_resource->vk_image, &dst_view_desc, &dst_view) ||
-                !vkd3d_create_texture_view(list->device, src_resource->vk_image, &src_view_desc, &src_view))
+        if (!vkd3d_create_texture_view(list->device, &dst_view_desc, &dst_view) ||
+                !vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))
         {
             ERR("Failed to create image views.\n");
             goto cleanup;
@@ -6007,6 +6009,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
             struct vkd3d_texture_view_desc view_desc;
             memset(&view_desc, 0, sizeof(view_desc));
 
+            view_desc.image = resource_impl->vk_image;
             view_desc.view_type = base_view->info.texture.vk_view_type;
             view_desc.layout = base_view->info.texture.vk_layout;
             view_desc.format = uint_format;
@@ -6016,7 +6019,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
             view_desc.layer_count = base_view->info.texture.layer_count;
             view_desc.allowed_swizzle = false;
 
-            if (!vkd3d_create_texture_view(list->device, resource_impl->vk_image, &view_desc, &uint_view))
+            if (!vkd3d_create_texture_view(list->device, &view_desc, &uint_view))
             {
                 ERR("Failed to create image view.\n");
                 return;
