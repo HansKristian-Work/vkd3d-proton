@@ -1422,11 +1422,9 @@ struct vkd3d_null_resources
     VkDeviceMemory vk_storage_buffer_memory;
 
     VkImage vk_2d_image;
-    VkImageView vk_2d_image_view;
     VkDeviceMemory vk_2d_image_memory;
 
     VkImage vk_2d_storage_image;
-    VkImageView vk_2d_storage_image_view;
     VkDeviceMemory vk_2d_storage_image_memory;
 };
 
