@@ -243,4 +243,11 @@ static inline void vkd3d_parse_version(const char *version, int *major, int *min
     *minor = atoi(version);
 }
 
+static inline uint32_t float_bits_to_uint32(float f)
+{
+    uint32_t u;
+    memcpy(&u, &f, sizeof(u));
+    return u;
+}
+
 #endif  /* __VKD3D_COMMON_H */
