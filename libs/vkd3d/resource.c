@@ -3136,14 +3136,8 @@ static void d3d12_desc_update_bindless_descriptor(struct d3d12_desc *dst)
     VK_CALL(vkUpdateDescriptorSets(dst->heap->device->vk_device, write_count, vk_writes, 0, NULL));
 }
 
-static inline void d3d12_desc_write(struct d3d12_desc *dst, const struct d3d12_desc *src,
-        struct vkd3d_view **destroy_view)
+static inline void d3d12_desc_write(struct d3d12_desc *dst, const struct d3d12_desc *src)
 {
-    /* Nothing to do for VKD3D_DESCRIPTOR_MAGIC_CBV. */
-    if ((dst->magic & VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW) && (dst->info.view)
-            && !InterlockedDecrement(&dst->info.view->refcount))
-        *destroy_view = dst->info.view;
-
     dst->magic = src->magic;
     dst->vk_descriptor_type = src->vk_descriptor_type;
     dst->metadata = src->metadata;
@@ -3156,22 +3150,9 @@ static inline void d3d12_desc_write(struct d3d12_desc *dst, const struct d3d12_d
 void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *src,
         struct d3d12_device *device)
 {
-    struct vkd3d_view *destroy_view = NULL;
-
     spinlock_acquire(&dst->spinlock);
-    d3d12_desc_write(dst, src, &destroy_view);
+    d3d12_desc_write(dst, src);
     spinlock_release(&dst->spinlock);
-
-    /* Destroy the view after unlocking to reduce wait time. */
-    if (destroy_view)
-        vkd3d_view_destroy(destroy_view, device);
-}
-
-static void d3d12_desc_destroy(struct d3d12_desc *descriptor, struct d3d12_device *device)
-{
-    static const struct d3d12_desc null_desc = {0};
-
-    d3d12_desc_write_atomic(descriptor, &null_desc, device);
 }
 
 void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
@@ -3179,7 +3160,6 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkCopyDescriptorSet vk_copies[2], *vk_copy;
-    struct vkd3d_view *destroy_view = NULL;
     struct vkd3d_descriptor_data metadata;
     uint32_t copy_count = 0;
     bool needs_update;
@@ -3209,14 +3189,6 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
 
     if (needs_update)
     {
-        /* Perform the actual descriptor update */
-        if ((src->magic & VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW) && src->info.view)
-            InterlockedIncrement(&src->info.view->refcount);
-
-        if ((dst->magic & VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW) && (dst->info.view)
-                && !InterlockedDecrement(&dst->info.view->refcount))
-            destroy_view = dst->info.view;
-
         dst->magic = src->magic;
         dst->vk_descriptor_type = src->vk_descriptor_type;
         dst->metadata = metadata = src->metadata;
@@ -3266,10 +3238,6 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
 
     spinlock_release(&src->spinlock);
     spinlock_release(&dst->spinlock);
-
-    /* Destroy the view after unlocking to reduce wait time. */
-    if (destroy_view)
-        vkd3d_view_destroy(destroy_view, device);
 }
 
 static VkDeviceSize vkd3d_get_required_texel_buffer_alignment(const struct d3d12_device *device,
@@ -4064,7 +4032,6 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
             {
                 WARN("Failed to create counter buffer view.\n");
                 view->vk_counter_view = VK_NULL_HANDLE;
-                d3d12_desc_destroy(descriptor, device);
             }
         }
     }
@@ -4715,24 +4682,14 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
         {
             case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
             case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
-            {
-                struct d3d12_desc *descriptors = (struct d3d12_desc *)heap->descriptors;
-
-                for (i = 0; i < heap->desc.NumDescriptors; ++i)
-                {
-                    d3d12_desc_destroy(&descriptors[i], device);
-                }
                 break;
-            }
 
             case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
             {
                 struct d3d12_rtv_desc *rtvs = (struct d3d12_rtv_desc *)heap->descriptors;
 
                 for (i = 0; i < heap->desc.NumDescriptors; ++i)
-                {
                     d3d12_rtv_desc_destroy(&rtvs[i], device);
-                }
                 break;
             }
 
@@ -4741,9 +4698,7 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
                 struct d3d12_dsv_desc *dsvs = (struct d3d12_dsv_desc *)heap->descriptors;
 
                 for (i = 0; i < heap->desc.NumDescriptors; ++i)
-                {
                     d3d12_dsv_desc_destroy(&dsvs[i], device);
-                }
                 break;
             }
 
