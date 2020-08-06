@@ -839,17 +839,8 @@ int vkd3d_shader_scan(const struct vkd3d_shader_compile_info *compile_info, char
     if (messages)
         *messages = NULL;
 
-    if (compile_info->type != VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO)
-    {
-        WARN("Invalid structure type %#x.\n", compile_info->type);
-        return VKD3D_ERROR_INVALID_ARGUMENT;
-    }
-
-    if (compile_info->source_type != VKD3D_SHADER_SOURCE_DXBC_TPF)
-    {
-        WARN("Unsupported source type %#x.\n", compile_info->source_type);
-        return VKD3D_ERROR_INVALID_ARGUMENT;
-    }
+    if ((ret = vkd3d_shader_validate_compile_info(compile_info)) < 0)
+        return ret;
 
     if ((scan_descriptor_info = vkd3d_find_struct(compile_info->next, SCAN_DESCRIPTOR_INFO)))
     {
