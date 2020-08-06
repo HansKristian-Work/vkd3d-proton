@@ -256,6 +256,7 @@ static void vkd3d_shader_parser_destroy(struct vkd3d_shader_parser *parser)
 static int vkd3d_shader_validate_compile_info(const struct vkd3d_shader_compile_info *compile_info)
 {
     const enum vkd3d_shader_source_type *source_types;
+    const enum vkd3d_shader_target_type *target_types;
     unsigned int count, i;
 
     if (compile_info->type != VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO)
@@ -276,13 +277,16 @@ static int vkd3d_shader_validate_compile_info(const struct vkd3d_shader_compile_
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
-    switch (compile_info->target_type)
+    target_types = vkd3d_shader_get_supported_target_types(compile_info->source_type, &count);
+    for (i = 0; i < count; ++i)
     {
-        case VKD3D_SHADER_TARGET_SPIRV_BINARY:
+        if (target_types[i] == compile_info->target_type)
             break;
-        default:
-            WARN("Invalid shader target type %#x.\n", compile_info->target_type);
-            return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+    if (i == count)
+    {
+        WARN("Invalid shader target type %#x.\n", compile_info->target_type);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
     return VKD3D_OK;
@@ -1055,4 +1059,26 @@ const enum vkd3d_shader_source_type *vkd3d_shader_get_supported_source_types(uns
 
     *count = ARRAY_SIZE(types);
     return types;
+}
+
+const enum vkd3d_shader_target_type *vkd3d_shader_get_supported_target_types(
+        enum vkd3d_shader_source_type source_type, unsigned int *count)
+{
+    static const enum vkd3d_shader_target_type dxbc_tpf_types[] =
+    {
+        VKD3D_SHADER_TARGET_SPIRV_BINARY,
+    };
+
+    TRACE("source_type %#x, count %p.\n", source_type, count);
+
+    switch (source_type)
+    {
+        case VKD3D_SHADER_SOURCE_DXBC_TPF:
+            *count = ARRAY_SIZE(dxbc_tpf_types);
+            return dxbc_tpf_types;
+
+        default:
+            *count = 0;
+            return NULL;
+    }
 }
