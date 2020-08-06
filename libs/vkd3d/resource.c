@@ -1219,6 +1219,7 @@ struct vkd3d_view_key
     {
         struct vkd3d_buffer_view_desc buffer;
         struct vkd3d_texture_view_desc texture;
+        D3D12_SAMPLER_DESC sampler;
     } u;
 };
 
@@ -1228,6 +1229,9 @@ struct vkd3d_view_entry
     struct vkd3d_view_key key;
     struct vkd3d_view *view;
 };
+
+static bool d3d12_sampler_needs_border_color(D3D12_TEXTURE_ADDRESS_MODE u,
+        D3D12_TEXTURE_ADDRESS_MODE v, D3D12_TEXTURE_ADDRESS_MODE w);
 
 uint32_t vkd3d_view_entry_hash(const void *key)
 {
@@ -1257,6 +1261,25 @@ uint32_t vkd3d_view_entry_hash(const void *key)
             hash = hash_combine(hash, k->u.texture.components.b);
             hash = hash_combine(hash, k->u.texture.components.a);
             hash = hash_combine(hash, k->u.texture.allowed_swizzle);
+            break;
+
+        case VKD3D_VIEW_TYPE_SAMPLER:
+            hash = (uint32_t)k->u.sampler.Filter;
+            hash = hash_combine(hash, (uint32_t)k->u.sampler.AddressU);
+            hash = hash_combine(hash, (uint32_t)k->u.sampler.AddressV);
+            hash = hash_combine(hash, (uint32_t)k->u.sampler.AddressW);
+            hash = hash_combine(hash, float_bits_to_uint32(k->u.sampler.MipLODBias));
+            hash = hash_combine(hash, (uint32_t)k->u.sampler.MaxAnisotropy);
+            hash = hash_combine(hash, (uint32_t)k->u.sampler.ComparisonFunc);
+            if (d3d12_sampler_needs_border_color(k->u.sampler.AddressU, k->u.sampler.AddressV, k->u.sampler.AddressW))
+            {
+                hash = hash_combine(hash, float_bits_to_uint32(k->u.sampler.BorderColor[0]));
+                hash = hash_combine(hash, float_bits_to_uint32(k->u.sampler.BorderColor[1]));
+                hash = hash_combine(hash, float_bits_to_uint32(k->u.sampler.BorderColor[2]));
+                hash = hash_combine(hash, float_bits_to_uint32(k->u.sampler.BorderColor[3]));
+            }
+            hash = hash_combine(hash, float_bits_to_uint32(k->u.sampler.MinLOD));
+            hash = hash_combine(hash, float_bits_to_uint32(k->u.sampler.MaxLOD));
             break;
 
         default:
@@ -1298,6 +1321,23 @@ bool vkd3d_view_entry_compare(const void *key, const struct hash_map_entry *entr
                     k->u.texture.components.a == e->key.u.texture.components.a &&
                     k->u.texture.allowed_swizzle == e->key.u.texture.allowed_swizzle;
 
+        case VKD3D_VIEW_TYPE_SAMPLER:
+            return k->u.sampler.Filter == e->key.u.sampler.Filter &&
+                    k->u.sampler.AddressU == e->key.u.sampler.AddressU &&
+                    k->u.sampler.AddressV == e->key.u.sampler.AddressV &&
+                    k->u.sampler.AddressW == e->key.u.sampler.AddressW &&
+                    k->u.sampler.MipLODBias == e->key.u.sampler.MipLODBias &&
+                    k->u.sampler.MaxAnisotropy == e->key.u.sampler.MaxAnisotropy &&
+                    k->u.sampler.ComparisonFunc == e->key.u.sampler.ComparisonFunc &&
+                    (!d3d12_sampler_needs_border_color(k->u.sampler.AddressU, k->u.sampler.AddressV, k->u.sampler.AddressW) ||
+                        (k->u.sampler.BorderColor[0] == e->key.u.sampler.BorderColor[0] &&
+                        k->u.sampler.BorderColor[1] == e->key.u.sampler.BorderColor[1] &&
+                        k->u.sampler.BorderColor[2] == e->key.u.sampler.BorderColor[2] &&
+                        k->u.sampler.BorderColor[3] == e->key.u.sampler.BorderColor[3])) &&
+                    k->u.sampler.MinLOD == e->key.u.sampler.MinLOD &&
+                    k->u.sampler.MaxLOD == e->key.u.sampler.MaxLOD;
+            break;
+
         default:
             ERR("Unexpected view type %d.\n", k->view_type);
             return false;
@@ -1334,6 +1374,11 @@ void vkd3d_view_map_destroy(struct vkd3d_view_map *view_map, struct d3d12_device
     pthread_mutex_destroy(&view_map->mutex);
 }
 
+static struct vkd3d_view *vkd3d_view_create(enum vkd3d_view_type type);
+
+static HRESULT d3d12_create_sampler(struct d3d12_device *device,
+        const D3D12_SAMPLER_DESC *desc, VkSampler *vk_sampler);
+
 static struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
         struct d3d12_device *device, const struct vkd3d_view_key *key)
 {
@@ -1363,6 +1408,11 @@ static struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view
 
         case VKD3D_VIEW_TYPE_IMAGE:
             success = vkd3d_create_texture_view(device, &key->u.texture, &view);
+            break;
+
+        case VKD3D_VIEW_TYPE_SAMPLER:
+            success = (view = vkd3d_view_create(VKD3D_VIEW_TYPE_SAMPLER)) &&
+                    SUCCEEDED(d3d12_create_sampler(device, &key->u.sampler, &view->vk_sampler));
             break;
 
         default:
