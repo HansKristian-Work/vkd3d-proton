@@ -265,7 +265,9 @@ int main(int argc, char **argv)
 
     if (options.print_version)
     {
-        fprintf(stdout, "vkd3d shader compiler version " PACKAGE_VERSION "\n");
+        const char *version = vkd3d_shader_get_version(NULL, NULL);
+
+        fprintf(stdout, "vkd3d shader compiler version " PACKAGE_VERSION " using %s\n", version);
         return 0;
     }
 
