@@ -3150,9 +3150,7 @@ static inline void d3d12_desc_write(struct d3d12_desc *dst, const struct d3d12_d
 void d3d12_desc_write_atomic(struct d3d12_desc *dst, const struct d3d12_desc *src,
         struct d3d12_device *device)
 {
-    spinlock_acquire(&dst->spinlock);
     d3d12_desc_write(dst, src);
-    spinlock_release(&dst->spinlock);
 }
 
 void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
@@ -3163,14 +3161,6 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
     struct vkd3d_descriptor_data metadata;
     uint32_t copy_count = 0;
     bool needs_update;
-
-    /* Shadow of the Tomb Raider and possibly other titles sometimes destroy
-     * and rewrite a descriptor in another thread while it is being copied. */
-    assert(dst != src);
-
-    /* Prevent deadlock */
-    spinlock_acquire(dst < src ? &dst->spinlock : &src->spinlock);
-    spinlock_acquire(dst < src ? &src->spinlock : &dst->spinlock);
 
     /* Only update the descriptor if something has changed */
     if (!(needs_update = (dst->magic != src->magic)))
@@ -3235,9 +3225,6 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
         if (copy_count)
             VK_CALL(vkUpdateDescriptorSets(device->vk_device, 0, NULL, copy_count, vk_copies));
     }
-
-    spinlock_release(&src->spinlock);
-    spinlock_release(&dst->spinlock);
 }
 
 static VkDeviceSize vkd3d_get_required_texel_buffer_alignment(const struct d3d12_device *device,
@@ -5023,7 +5010,6 @@ static void d3d12_descriptor_heap_init_descriptors(struct d3d12_descriptor_heap 
             {
                 desc[i].heap = descriptor_heap;
                 desc[i].heap_offset = i;
-                spinlock_init(&desc[i].spinlock);
             }
             break;
 
