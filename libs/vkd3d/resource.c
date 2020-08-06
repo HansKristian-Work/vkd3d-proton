@@ -4410,6 +4410,7 @@ static HRESULT d3d12_create_sampler(struct d3d12_device *device,
 void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc)
 {
+    struct vkd3d_view_key key;
     struct vkd3d_view *view;
 
     if (!desc)
@@ -4418,14 +4419,11 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         return;
     }
 
-    if (!(view = vkd3d_view_create(VKD3D_VIEW_TYPE_SAMPLER)))
-        return;
+    key.view_type = VKD3D_VIEW_TYPE_SAMPLER;
+    key.u.sampler = *desc;
 
-    if (FAILED(d3d12_create_sampler(device, desc, &view->vk_sampler)))
-    {
-        vkd3d_free(view);
+    if (!(view = vkd3d_view_map_create_view(&device->sampler_map, device, &key)))
         return;
-    }
 
     sampler->magic = VKD3D_DESCRIPTOR_MAGIC_SAMPLER;
     sampler->vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLER;

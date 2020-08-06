@@ -1776,6 +1776,7 @@ struct d3d12_device
     struct vkd3d_bindless_state bindless_state;
     struct vkd3d_memory_info memory_info;
     struct vkd3d_meta_ops meta_ops;
+    struct vkd3d_view_map sampler_map;
 };
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
