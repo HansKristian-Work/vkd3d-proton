@@ -5858,9 +5858,6 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
 
-    if (!d3d12_command_allocator_add_view(list->allocator, view))
-        WARN("Failed to add view.\n");
-
     clear_args.clear_color = *clear_color;
 
     write_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -6043,9 +6040,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
 
     d3d12_command_list_clear_uav(list, resource_impl,
       uint_view ? uint_view : base_view, &color, rect_count, rects);
-
-    if (uint_view)
-        vkd3d_view_decref(uint_view, list->device);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d3d12_command_list_iface *iface,
