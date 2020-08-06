@@ -75,6 +75,7 @@ static void test_invalid_shaders(void)
 
 static void test_vkd3d_shader_pfns(void)
 {
+    PFN_vkd3d_shader_get_supported_source_types pfn_vkd3d_shader_get_supported_source_types;
     PFN_vkd3d_shader_free_scan_descriptor_info pfn_vkd3d_shader_free_scan_descriptor_info;
     PFN_vkd3d_shader_serialize_root_signature pfn_vkd3d_shader_serialize_root_signature;
     PFN_vkd3d_shader_find_signature_element pfn_vkd3d_shader_find_signature_element;
@@ -90,11 +91,14 @@ static void test_vkd3d_shader_pfns(void)
     struct vkd3d_shader_versioned_root_signature_desc root_signature_desc;
     unsigned int major, minor, expected_major, expected_minor;
     struct vkd3d_shader_scan_descriptor_info descriptor_info;
+    const enum vkd3d_shader_source_type *source_types;
     struct vkd3d_shader_signature_element *element;
     struct vkd3d_shader_compile_info compile_info;
     struct vkd3d_shader_signature signature;
     struct vkd3d_shader_code dxbc, spirv;
     const char *version, *p;
+    unsigned int i, count;
+    bool b;
     int rc;
 
     static const struct vkd3d_shader_versioned_root_signature_desc empty_rs_desc =
@@ -119,6 +123,7 @@ static void test_vkd3d_shader_pfns(void)
     };
     static const struct vkd3d_shader_code vs = {vs_code, sizeof(vs_code)};
 
+    pfn_vkd3d_shader_get_supported_source_types = vkd3d_shader_get_supported_source_types;
     pfn_vkd3d_shader_free_scan_descriptor_info = vkd3d_shader_free_scan_descriptor_info;
     pfn_vkd3d_shader_serialize_root_signature = vkd3d_shader_serialize_root_signature;
     pfn_vkd3d_shader_find_signature_element = vkd3d_shader_find_signature_element;
@@ -137,6 +142,21 @@ static void test_vkd3d_shader_pfns(void)
     ok(p == version, "Got unexpected version string \"%s\"\n", version);
     ok(major == expected_major, "Got unexpected major version %u.\n", major);
     ok(minor == expected_minor, "Got unexpected minor version %u.\n", minor);
+
+    source_types = pfn_vkd3d_shader_get_supported_source_types(&count);
+    ok(source_types, "Got unexpected source types array %p.\n", source_types);
+    ok(count, "Got unexpected source type count %u.\n", count);
+
+    b = false;
+    for (i = 0; i < count; ++i)
+    {
+        if (source_types[i] == VKD3D_SHADER_SOURCE_DXBC_TPF)
+        {
+            b = true;
+            break;
+        }
+    }
+    ok(b, "The dxbc-tpf source type is not supported.\n");
 
     rc = pfn_vkd3d_shader_serialize_root_signature(&empty_rs_desc, &dxbc, NULL);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);

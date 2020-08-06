@@ -9,6 +9,7 @@ global:
     vkd3d_shader_free_scan_descriptor_info;
     vkd3d_shader_free_shader_code;
     vkd3d_shader_free_shader_signature;
+    vkd3d_shader_get_supported_source_types;
     vkd3d_shader_get_version;
     vkd3d_shader_parse_input_signature;
     vkd3d_shader_parse_root_signature;

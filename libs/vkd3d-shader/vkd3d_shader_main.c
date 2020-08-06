@@ -255,19 +255,25 @@ static void vkd3d_shader_parser_destroy(struct vkd3d_shader_parser *parser)
 
 static int vkd3d_shader_validate_compile_info(const struct vkd3d_shader_compile_info *compile_info)
 {
+    const enum vkd3d_shader_source_type *source_types;
+    unsigned int count, i;
+
     if (compile_info->type != VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO)
     {
         WARN("Invalid structure type %#x.\n", compile_info->type);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
-    switch (compile_info->source_type)
+    source_types = vkd3d_shader_get_supported_source_types(&count);
+    for (i = 0; i < count; ++i)
     {
-        case VKD3D_SHADER_SOURCE_DXBC_TPF:
+        if (source_types[i] == compile_info->source_type)
             break;
-        default:
-            WARN("Invalid shader source type %#x.\n", compile_info->source_type);
-            return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+    if (i == count)
+    {
+        WARN("Invalid shader source type %#x.\n", compile_info->source_type);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
     switch (compile_info->target_type)
@@ -1036,4 +1042,17 @@ const char *vkd3d_shader_get_version(unsigned int *major, unsigned int *minor)
     }
 
     return "vkd3d-shader " PACKAGE_VERSION VKD3D_VCS_ID;
+}
+
+const enum vkd3d_shader_source_type *vkd3d_shader_get_supported_source_types(unsigned int *count)
+{
+    static const enum vkd3d_shader_source_type types[] =
+    {
+        VKD3D_SHADER_SOURCE_DXBC_TPF,
+    };
+
+    TRACE("count %p.\n", count);
+
+    *count = ARRAY_SIZE(types);
+    return types;
 }
