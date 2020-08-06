@@ -83,15 +83,18 @@ static void test_vkd3d_shader_pfns(void)
     PFN_vkd3d_shader_parse_root_signature pfn_vkd3d_shader_parse_root_signature;
     PFN_vkd3d_shader_free_root_signature pfn_vkd3d_shader_free_root_signature;
     PFN_vkd3d_shader_free_shader_code pfn_vkd3d_shader_free_shader_code;
+    PFN_vkd3d_shader_get_version pfn_vkd3d_shader_get_version;
     PFN_vkd3d_shader_compile pfn_vkd3d_shader_compile;
     PFN_vkd3d_shader_scan pfn_vkd3d_shader_scan;
 
     struct vkd3d_shader_versioned_root_signature_desc root_signature_desc;
+    unsigned int major, minor, expected_major, expected_minor;
     struct vkd3d_shader_scan_descriptor_info descriptor_info;
     struct vkd3d_shader_signature_element *element;
     struct vkd3d_shader_compile_info compile_info;
     struct vkd3d_shader_signature signature;
     struct vkd3d_shader_code dxbc, spirv;
+    const char *version, *p;
     int rc;
 
     static const struct vkd3d_shader_versioned_root_signature_desc empty_rs_desc =
@@ -124,8 +127,16 @@ static void test_vkd3d_shader_pfns(void)
     pfn_vkd3d_shader_parse_root_signature = vkd3d_shader_parse_root_signature;
     pfn_vkd3d_shader_free_root_signature = vkd3d_shader_free_root_signature;
     pfn_vkd3d_shader_free_shader_code = vkd3d_shader_free_shader_code;
+    pfn_vkd3d_shader_get_version = vkd3d_shader_get_version;
     pfn_vkd3d_shader_compile = vkd3d_shader_compile;
     pfn_vkd3d_shader_scan = vkd3d_shader_scan;
+
+    sscanf(PACKAGE_VERSION, "%d.%d", &expected_major, &expected_minor);
+    version = pfn_vkd3d_shader_get_version(&major, &minor);
+    p = strstr(version, "vkd3d-shader " PACKAGE_VERSION);
+    ok(p == version, "Got unexpected version string \"%s\"\n", version);
+    ok(major == expected_major, "Got unexpected major version %u.\n", major);
+    ok(minor == expected_minor, "Got unexpected minor version %u.\n", minor);
 
     rc = pfn_vkd3d_shader_serialize_root_signature(&empty_rs_desc, &dxbc, NULL);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
@@ -163,10 +174,36 @@ static void test_vkd3d_shader_pfns(void)
     pfn_vkd3d_shader_free_scan_descriptor_info(&descriptor_info);
 }
 
+static void test_version(void)
+{
+    unsigned int major, minor, expected_major, expected_minor;
+    const char *version, *p;
+
+    sscanf(PACKAGE_VERSION, "%d.%d", &expected_major, &expected_minor);
+
+    version = vkd3d_shader_get_version(NULL, NULL);
+    p = strstr(version, "vkd3d-shader " PACKAGE_VERSION);
+    ok(p == version, "Got unexpected version string \"%s\"\n", version);
+
+    major = ~0u;
+    vkd3d_shader_get_version(&major, NULL);
+    ok(major == expected_major, "Got unexpected major version %u.\n", major);
+
+    minor = ~0u;
+    vkd3d_shader_get_version(NULL, &minor);
+    ok(minor == expected_minor, "Got unexpected minor version %u.\n", minor);
+
+    major = minor = ~0u;
+    vkd3d_shader_get_version(&major, &minor);
+    ok(major == expected_major, "Got unexpected major version %u.\n", major);
+    ok(minor == expected_minor, "Got unexpected minor version %u.\n", minor);
+}
+
 START_TEST(vkd3d_shader_api)
 {
     setlocale(LC_ALL, "");
 
     run_test(test_invalid_shaders);
     run_test(test_vkd3d_shader_pfns);
+    run_test(test_version);
 }

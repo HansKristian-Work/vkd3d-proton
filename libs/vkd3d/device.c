@@ -17,6 +17,7 @@
  */
 
 #include "vkd3d_private.h"
+#include "vkd3d_version.h"
 
 #ifdef HAVE_DLFCN_H
 #include <dlfcn.h>
@@ -460,7 +461,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     VkResult vr;
     HRESULT hr;
 
-    TRACE("Build: %s.\n", vkd3d_build);
+    TRACE("Build: " PACKAGE_STRING VKD3D_VCS_ID ".\n");
 
     if (!create_info->pfn_signal_event)
     {

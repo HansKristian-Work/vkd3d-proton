@@ -1,5 +1,6 @@
 config.h
 config.h.in
+private/vkd3d_version.h
 stamp-h1
 vkd3d_d3d12.h
 vkd3d_d3d12sdklayers.h

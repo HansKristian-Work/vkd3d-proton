@@ -749,6 +749,8 @@ struct vkd3d_shader_signature
 
 #ifndef VKD3D_SHADER_NO_PROTOTYPES
 
+const char *vkd3d_shader_get_version(unsigned int *major, unsigned int *minor);
+
 int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info,
         struct vkd3d_shader_code *out, char **messages);
 void vkd3d_shader_free_messages(char *messages);
@@ -779,6 +781,8 @@ void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature
 /*
  * Function pointer typedefs for vkd3d-shader functions.
  */
+typedef const char *(*PFN_vkd3d_shader_get_version)(unsigned int *major, unsigned int *minor);
+
 typedef int (*PFN_vkd3d_shader_compile)(const struct vkd3d_shader_compile_info *compile_info,
         struct vkd3d_shader_code *out, char **messages);
 typedef void (*PFN_vkd3d_shader_free_messages)(char *messages);

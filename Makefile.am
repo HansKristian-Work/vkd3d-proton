@@ -1,6 +1,6 @@
 ACLOCAL_AMFLAGS = -I m4
 AM_CFLAGS = @VKD3D_CFLAGS@
-AM_CPPFLAGS = -I$(srcdir)/include -I$(srcdir)/include/dummy -I$(srcdir)/include/private
+AM_CPPFLAGS = -I$(srcdir)/include -I$(srcdir)/include/private -I$(builddir)/include/private
 AM_LDFLAGS = -no-undefined
 
 widl_headers = \
@@ -58,7 +58,8 @@ vkd3d_demos_headers = \
 	demos/demo_win32.h \
 	demos/demo_xcb.h
 
-BUILT_SOURCES = $(widl_headers)
+BUILT_SOURCES = $(widl_headers) \
+	include/private/vkd3d_version.h
 
 noinst_LTLIBRARIES = libvkd3d-common.la
 libvkd3d_common_la_SOURCES = \
@@ -109,8 +110,7 @@ libvkd3d_la_SOURCES = \
 	libs/vkd3d/vkd3d_main.c \
 	libs/vkd3d/vkd3d_private.h \
 	libs/vkd3d/vkd3d_shaders.h \
-	libs/vkd3d/vulkan_procs.h \
-	libs/vkd3d_version.c
+	libs/vkd3d/vulkan_procs.h
 libvkd3d_la_LDFLAGS = $(AM_LDFLAGS) -version-info 2:0:1
 libvkd3d_la_LIBADD = libvkd3d-common.la libvkd3d-shader.la @DL_LIBS@ @PTHREAD_LIBS@
 if HAVE_LD_VERSION_SCRIPT
@@ -208,10 +208,15 @@ libvkd3d.pc: $(srcdir)/libs/vkd3d/libvkd3d.pc.in Makefile
 		-e 's![@]PACKAGE_VERSION[@]!$(PACKAGE_VERSION)!g' \
 		$< > $@
 
-libs/vkd3d_version.c: dummy-vkd3d-version
-	$(AM_V_GEN)version=`(GIT_DIR=$(top_srcdir)/.git git describe HEAD 2>/dev/null || echo "vkd3d-$(PACKAGE_VERSION)") | $(SED) -n -e '$$s/\(.*\)/const char vkd3d_build[] = "\1";/p'` && (echo $$version | cmp -s - $@) || echo $$version >$@ || ($(RM) $@ && exit 1)
-.SILENT: libs/vkd3d_version.c
-CLEANFILES += libs/vkd3d_version.c
+include/private/vkd3d_version.h: dummy-vkd3d-version
+	@$(MKDIR_P) include/private
+	version=`(GIT_DIR=$(top_srcdir)/.git git rev-parse --short HEAD 2>/dev/null || echo '') \
+		| $(SED) -e 's!\(..*\)! (git \1)!' \
+		| $(SED) -n -e '$$s!\(.*\)!#define VKD3D_VCS_ID "\1"!p'` \
+		&& (echo $$version | cmp -s - $@) \
+		|| echo $$version >$@ || ($(RM) $@ && exit 1)
+.SILENT: include/private/vkd3d_version.h
+CLEANFILES += include/private/vkd3d_version.h
 
 .PHONY: dummy-vkd3d-version
 dummy-vkd3d-version:

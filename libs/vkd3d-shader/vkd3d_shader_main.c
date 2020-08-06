@@ -17,6 +17,7 @@
  */
 
 #include "vkd3d_shader_private.h"
+#include "vkd3d_version.h"
 
 #include <stdio.h>
 
@@ -1026,4 +1027,22 @@ void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature
 
     vkd3d_free(signature->elements);
     signature->elements = NULL;
+}
+
+const char *vkd3d_shader_get_version(unsigned int *major, unsigned int *minor)
+{
+    int x, y;
+
+    TRACE("major %p, minor %p.\n", major, minor);
+
+    if (major || minor)
+    {
+        vkd3d_parse_version(PACKAGE_VERSION, &x, &y);
+        if (major)
+            *major = x;
+        if (minor)
+            *minor = y;
+    }
+
+    return "vkd3d-shader " PACKAGE_VERSION VKD3D_VCS_ID;
 }
