@@ -174,6 +174,9 @@ vkd3d_v_widl_ = $(vkd3d_v_widl_@AM_DEFAULT_V@)
 vkd3d_v_widl_0 = @echo "  WIDL    " $@;
 vkd3d_v_widl_1 =
 
+if HAVE_WIDL
+CLEANFILES += $(widl_headers)
+endif
 EXTRA_DIST += $(widl_headers) $(widl_headers:.h=.idl)
 $(widl_headers): %.h: %.idl
 if HAVE_WIDL
