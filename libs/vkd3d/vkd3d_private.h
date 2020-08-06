@@ -632,7 +632,6 @@ struct d3d12_desc
 {
     struct d3d12_descriptor_heap *heap;
     uint32_t heap_offset;
-    spinlock_t spinlock;
     uint32_t magic;
     VkDescriptorType vk_descriptor_type;
     struct vkd3d_descriptor_data metadata;
