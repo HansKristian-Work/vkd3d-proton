@@ -4634,7 +4634,10 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_set(struct d3d12_descript
     vk_set_info.pNext = &vk_variable_count_info;
     vk_set_info.descriptorPool = descriptor_heap->vk_descriptor_pool;
     vk_set_info.descriptorSetCount = 1;
-    vk_set_info.pSetLayouts = &binding->vk_set_layout;
+    vk_set_info.pSetLayouts = &binding->vk_host_set_layout;
+
+    if (descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
+        vk_set_info.pSetLayouts = &binding->vk_set_layout;
 
     if ((vr = VK_CALL(vkAllocateDescriptorSets(device->vk_device, &vk_set_info, vk_descriptor_set))) < 0)
     {

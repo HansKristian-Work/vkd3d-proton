@@ -3015,6 +3015,30 @@ static uint32_t d3d12_max_descriptor_count_from_range_type(D3D12_DESCRIPTOR_RANG
     }
 }
 
+static uint32_t d3d12_max_host_descriptor_count_from_range_type(struct d3d12_device *device, D3D12_DESCRIPTOR_RANGE_TYPE range_type)
+{
+    const VkPhysicalDeviceDescriptorIndexingPropertiesEXT *limits = &device->device_info.descriptor_indexing_properties;
+
+    switch (range_type)
+    {
+        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+            return device->bindless_state.flags & VKD3D_BINDLESS_CBV_AS_SSBO
+                    ? limits->maxDescriptorSetUpdateAfterBindStorageBuffers
+                    : limits->maxDescriptorSetUpdateAfterBindUniformBuffers;
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
+            return limits->maxDescriptorSetUpdateAfterBindSampledImages;
+        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+            return min(limits->maxDescriptorSetUpdateAfterBindStorageBuffers,
+                    limits->maxDescriptorSetUpdateAfterBindStorageImages);
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+            return limits->maxDescriptorSetUpdateAfterBindSamplers;
+
+        default:
+            ERR("Invalid descriptor range type %d.\n", range_type);
+            return 0;
+    }
+}
+
 static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device, D3D12_DESCRIPTOR_RANGE_TYPE range_type,
         enum vkd3d_shader_binding_flag binding_flag)
@@ -3057,6 +3081,12 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
 
     if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device,
             &vk_set_layout_info, NULL, &set_info->vk_set_layout))) < 0)
+        ERR("Failed to create descriptor set layout, vr %d.\n", vr);
+
+    vk_binding_info.descriptorCount = d3d12_max_host_descriptor_count_from_range_type(device, range_type);
+
+    if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device,
+            &vk_set_layout_info, NULL, &set_info->vk_host_set_layout))) < 0)
         ERR("Failed to create descriptor set layout, vr %d.\n", vr);
 
     return hresult_from_vk_result(vr);
@@ -3166,7 +3196,10 @@ void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
     unsigned int i;
 
     for (i = 0; i < bindless_state->set_count; i++)
+    {
         VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, bindless_state->set_info[i].vk_set_layout, NULL));
+        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, bindless_state->set_info[i].vk_host_set_layout, NULL));
+    }
 }
 
 bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindless_state,

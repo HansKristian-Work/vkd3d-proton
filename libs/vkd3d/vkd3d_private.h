@@ -1465,6 +1465,7 @@ struct vkd3d_bindless_set_info
     enum vkd3d_shader_binding_flag binding_flag;
 
     VkDescriptorSetLayout vk_set_layout;
+    VkDescriptorSetLayout vk_host_set_layout;
 };
 
 struct vkd3d_bindless_state
