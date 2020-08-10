@@ -1971,8 +1971,7 @@ static HRESULT compute_input_layout_offsets(const struct d3d12_device *device,
 static unsigned int vkd3d_get_rt_format_swizzle(const struct vkd3d_format *format)
 {
     if (format->dxgi_format == DXGI_FORMAT_A8_UNORM)
-        return VKD3D_SHADER_SWIZZLE(VKD3D_SHADER_SWIZZLE_W, VKD3D_SHADER_SWIZZLE_X,
-                VKD3D_SHADER_SWIZZLE_Y, VKD3D_SHADER_SWIZZLE_Z);
+        return VKD3D_SHADER_SWIZZLE(W, X, Y, Z);
 
     return VKD3D_SHADER_NO_SWIZZLE;
 }

@@ -1669,8 +1669,7 @@ static bool shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD *
         {
             case VKD3D_SM4_SWIZZLE_NONE:
                 if (shader_sm4_is_scalar_register(&src_param->reg))
-                    src_param->swizzle = VKD3D_SHADER_SWIZZLE(VKD3D_SHADER_SWIZZLE_X,
-                            VKD3D_SHADER_SWIZZLE_X, VKD3D_SHADER_SWIZZLE_X, VKD3D_SHADER_SWIZZLE_X);
+                    src_param->swizzle = VKD3D_SHADER_SWIZZLE(X, X, X, X);
                 else
                     src_param->swizzle = VKD3D_SHADER_NO_SWIZZLE;
                 break;
