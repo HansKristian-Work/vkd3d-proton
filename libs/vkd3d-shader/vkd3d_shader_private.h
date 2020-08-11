@@ -756,7 +756,6 @@ struct vkd3d_shader_primitive_type
 
 struct vkd3d_shader_instruction
 {
-    const struct vkd3d_shader_context *ctx;
     enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx;
     DWORD flags;
     unsigned int dst_count;
