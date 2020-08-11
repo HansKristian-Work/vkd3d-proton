@@ -1,5 +1,6 @@
 /*
  * Copyright 2017 Józef Kucia for CodeWeavers
+ * Copyright 2020 Henri Verbeet for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -35,6 +36,7 @@ enum
     OPTION_BUFFER_UAV,
     OPTION_OUTPUT,
     OPTION_PRINT_SOURCE_TYPES,
+    OPTION_PRINT_TARGET_TYPES,
     OPTION_STRIP_DEBUG,
     OPTION_VERSION,
 };
@@ -50,6 +52,19 @@ source_type_info[] =
     {VKD3D_SHADER_SOURCE_DXBC_TPF,
         "dxbc-tpf", "A 'Tokenized Program Format' shader embedded in a DXBC container.\n"
         "            This is the format used for Direct3D shader model 4 and 5 shaders."},
+};
+
+static const struct
+{
+    enum vkd3d_shader_target_type type;
+    const char *name;
+    const char *description;
+}
+target_type_info[] =
+{
+    {VKD3D_SHADER_TARGET_SPIRV_BINARY,
+        "spirv-binary", "A SPIR-V shader in binary form.\n"
+        "                This is the format used for Vulkan shaders.\n"},
 };
 
 static bool read_shader(struct vkd3d_shader_code *shader, const char *filename)
@@ -121,6 +136,8 @@ static void print_usage(const char *program_name)
         "                        'storage-buffer'.\n"
         "  -o, --output=<file>   Write the output to <file>.\n"
         "  --print-source-types  Display the supported source types and exit.\n"
+        "  --print-target-types  Display the supported target types for the specified\n"
+        "                        source type and exit.\n"
         "  --strip-debug         Strip debug information from the output.\n"
         "  -V, --version         Display version information and exit.\n"
         "  -x <type>             Specify the type of the source. Valid values are\n"
@@ -138,6 +155,7 @@ struct options
     enum vkd3d_shader_source_type source_type;
     bool print_version;
     bool print_source_types;
+    bool print_target_types;
 
     struct vkd3d_shader_compile_option compile_options[MAX_COMPILE_OPTIONS];
     unsigned int compile_option_count;
@@ -215,6 +233,7 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
         {"buffer-uav",         required_argument, NULL, OPTION_BUFFER_UAV},
         {"output",             required_argument, NULL, OPTION_OUTPUT},
         {"print-source-types", no_argument,       NULL, OPTION_PRINT_SOURCE_TYPES},
+        {"print-target-types", no_argument,       NULL, OPTION_PRINT_TARGET_TYPES},
         {"strip-debug",        no_argument,       NULL, OPTION_STRIP_DEBUG},
         {"version",            no_argument,       NULL, OPTION_VERSION},
         {NULL,                 0,                 NULL, 0},
@@ -248,6 +267,10 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
                 options->print_source_types = true;
                 return true;
 
+            case OPTION_PRINT_TARGET_TYPES:
+                options->print_target_types = true;
+                break;
+
             case OPTION_STRIP_DEBUG:
                 add_compile_option(options, VKD3D_SHADER_COMPILE_OPTION_STRIP_DEBUG, 1);
                 break;
@@ -269,6 +292,9 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
                 return false;
         }
     }
+
+    if (options->print_target_types)
+        return true;
 
     if (optind >= argc)
         return false;
@@ -292,6 +318,36 @@ static void print_source_types(void)
             if (source_types[i] == source_type_info[j].type)
             {
                 fprintf(stdout, "  %s  %s\n", source_type_info[j].name, source_type_info[j].description);
+                break;
+            }
+        }
+    }
+}
+
+static void print_target_types(enum vkd3d_shader_source_type source_type)
+{
+    const enum vkd3d_shader_target_type *target_types;
+    const char *source_type_name;
+    unsigned int count, i, j;
+
+    for (i = 0; i < ARRAY_SIZE(source_type_info); ++i)
+    {
+        if (source_type == source_type_info[i].type)
+        {
+            source_type_name = source_type_info[i].name;
+            break;
+        }
+    }
+
+    target_types = vkd3d_shader_get_supported_target_types(source_type, &count);
+    fprintf(stdout, "Supported target types for source type '%s':\n", source_type_name);
+    for (i = 0; i < count; ++i)
+    {
+        for (j = 0; j < ARRAY_SIZE(target_type_info); ++j)
+        {
+            if (target_types[i] == target_type_info[j].type)
+            {
+                fprintf(stdout, "  %s  %s", target_type_info[j].name, target_type_info[j].description);
                 break;
             }
         }
@@ -323,6 +379,12 @@ int main(int argc, char **argv)
     if (options.print_source_types)
     {
         print_source_types();
+        return 0;
+    }
+
+    if (options.print_target_types)
+    {
+        print_target_types(options.source_type);
         return 0;
     }
 
