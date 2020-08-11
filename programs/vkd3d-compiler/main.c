@@ -131,6 +131,8 @@ static void print_usage(const char *program_name)
         "[options...] file\n"
         "Options:\n"
         "  -h, --help            Display this information and exit.\n"
+        "  -b <type>             Specify the target type. Currently the only valid value\n"
+        "                        is 'spirv-binary'.\n"
         "  --buffer-uav=<type>   Specify the buffer type to use for buffer UAV bindings.\n"
         "                        Valid values are 'buffer-texture' (default) and\n"
         "                        'storage-buffer'.\n"
@@ -153,6 +155,7 @@ struct options
     const char *filename;
     const char *output_filename;
     enum vkd3d_shader_source_type source_type;
+    enum vkd3d_shader_target_type target_type;
     bool print_version;
     bool print_source_types;
     bool print_target_types;
@@ -222,6 +225,19 @@ static enum vkd3d_shader_source_type parse_source_type(const char *source)
     return VKD3D_SHADER_SOURCE_NONE;
 }
 
+static enum vkd3d_shader_target_type parse_target_type(const char *target)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(target_type_info); ++i)
+    {
+        if (!strcmp(target, target_type_info[i].name))
+            return target_type_info[i].type;
+    }
+
+    return VKD3D_SHADER_TARGET_NONE;
+}
+
 static bool parse_command_line(int argc, char **argv, struct options *options)
 {
     enum vkd3d_shader_compile_option_buffer_uav buffer_uav;
@@ -241,14 +257,23 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
 
     memset(options, 0, sizeof(*options));
     options->source_type = VKD3D_SHADER_SOURCE_DXBC_TPF;
+    options->target_type = VKD3D_SHADER_TARGET_SPIRV_BINARY;
 
     for (;;)
     {
-        if ((option = getopt_long(argc, argv, "ho:Vx:", long_options, NULL)) == -1)
+        if ((option = getopt_long(argc, argv, "b:ho:Vx:", long_options, NULL)) == -1)
             break;
 
         switch (option)
         {
+            case 'b':
+                if ((options->target_type = parse_target_type(optarg)) == VKD3D_SHADER_TARGET_NONE)
+                {
+                    fprintf(stderr, "Invalid target type '%s' specified.\n", optarg);
+                    return false;
+                }
+                break;
+
             case OPTION_BUFFER_UAV:
                 if (!parse_buffer_uav(&buffer_uav, optarg))
                 {
@@ -391,7 +416,7 @@ int main(int argc, char **argv)
     info.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO;
     info.next = NULL;
     info.source_type = options.source_type;
-    info.target_type = VKD3D_SHADER_TARGET_SPIRV_BINARY;
+    info.target_type = options.target_type;
     info.options = options.compile_options;
     info.option_count = options.compile_option_count;
     info.log_level = VKD3D_SHADER_LOG_INFO;
