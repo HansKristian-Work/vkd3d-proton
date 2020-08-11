@@ -175,7 +175,9 @@ struct vkd3d_shader_resource_binding
 
 struct vkd3d_shader_combined_resource_sampler
 {
+    unsigned int resource_space;
     unsigned int resource_index;
+    unsigned int sampler_space;
     unsigned int sampler_index;
     enum vkd3d_shader_visibility shader_visibility;
     unsigned int flags; /* vkd3d_shader_binding_flag */
