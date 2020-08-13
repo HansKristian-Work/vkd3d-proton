@@ -731,10 +731,15 @@ struct vkd3d_shader_signature
 };
 
 /* swizzle bits fields: wwzzyyxx */
-#define VKD3D_SHADER_SWIZZLE_X (0u)
-#define VKD3D_SHADER_SWIZZLE_Y (1u)
-#define VKD3D_SHADER_SWIZZLE_Z (2u)
-#define VKD3D_SHADER_SWIZZLE_W (3u)
+enum vkd3d_shader_swizzle_component
+{
+    VKD3D_SHADER_SWIZZLE_X = 0x0,
+    VKD3D_SHADER_SWIZZLE_Y = 0x1,
+    VKD3D_SHADER_SWIZZLE_Z = 0x2,
+    VKD3D_SHADER_SWIZZLE_W = 0x3,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_SWIZZLE_COMPONENT),
+};
 
 #define VKD3D_SHADER_SWIZZLE_MASK (0x3u)
 #define VKD3D_SHADER_SWIZZLE_SHIFT(idx) (2u * (idx))
