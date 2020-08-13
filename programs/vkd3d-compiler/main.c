@@ -68,44 +68,58 @@ target_type_info[] =
         "                This is the format used for Vulkan shaders.\n"},
 };
 
-static bool read_shader(struct vkd3d_shader_code *shader, const char *filename)
+static bool read_shader(struct vkd3d_shader_code *shader, FILE *f)
 {
+    size_t size = 4096;
     struct stat st;
-    void *code;
-    FILE *fd;
+    size_t pos = 0;
+    uint8_t *data;
+    size_t ret;
 
     memset(shader, 0, sizeof(*shader));
 
-    if (stat(filename, &st) == -1)
+    if (fstat(fileno(f), &st) == -1)
     {
-        fprintf(stderr, "Could not stat file: '%s'.\n", filename);
-        return false;
-    }
-    shader->size = st.st_size;
-
-    if (!(fd = fopen(filename, "rb")))
-    {
-        fprintf(stderr, "Cannot open file for reading: '%s'.\n", filename);
+        fprintf(stderr, "Could not stat input.\n");
         return false;
     }
 
-    if (!(code = malloc(shader->size)))
+    if (S_ISREG(st.st_mode))
+        size = st.st_size;
+
+    if (!(data = malloc(size)))
     {
         fprintf(stderr, "Out of memory.\n");
-        fclose(fd);
         return false;
     }
-    shader->code = code;
 
-    if (fread(code, 1, shader->size, fd) != shader->size)
+    for (;;)
     {
-        fprintf(stderr, "Could not read shader bytecode from file: '%s'.\n", filename);
-        free(code);
-        fclose(fd);
+        if (pos >= size)
+        {
+            if (size > SIZE_MAX / 2 || !(data = realloc(data, size * 2)))
+            {
+                fprintf(stderr, "Out of memory.\n");
+                free(data);
+                return false;
+            }
+            size *= 2;
+        }
+
+        if (!(ret = fread(&data[pos], 1, size - pos, f)))
+            break;
+        pos += ret;
+    }
+
+    if (!feof(f))
+    {
+        free(data);
         return false;
     }
 
-    fclose(fd);
+    shader->code = data;
+    shader->size = pos;
+
     return true;
 }
 
@@ -117,7 +131,7 @@ static bool write_shader(const struct vkd3d_shader_code *shader, FILE *f)
 static void print_usage(const char *program_name)
 {
     static const char usage[] =
-        "[options...] file\n"
+        "[options...] [file]\n"
         "Options:\n"
         "  -h, --help            Display this information and exit.\n"
         "  -b <type>             Specify the target type. Currently the only valid value\n"
@@ -136,7 +150,10 @@ static void print_usage(const char *program_name)
         "  -x <type>             Specify the type of the source. Valid values are\n"
         "                        'dxbc-tpf' and 'none'.\n"
         "  --                    Stop option processing. Any subsequent argument is\n"
-        "                        interpreted as a filename.\n";
+        "                        interpreted as a filename.\n"
+        "\n"
+        "If the input file is '-' or not specified, input will be read from standard\n"
+        "input.\n";
 
     fprintf(stderr, "Usage: %s %s", program_name, usage);
 }
@@ -312,10 +329,8 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
     if (options->print_target_types)
         return true;
 
-    if (optind >= argc)
-        return false;
-
-    options->filename = argv[argc - 1];
+    if (optind < argc)
+        options->filename = argv[argc - 1];
 
     return true;
 }
@@ -370,6 +385,25 @@ static void print_target_types(enum vkd3d_shader_source_type source_type)
     }
 }
 
+static FILE *open_input(const char *filename, bool *close)
+{
+    FILE *f;
+
+    *close = false;
+
+    if (!filename || !strcmp(filename, "-"))
+        return stdin;
+
+    if (!(f = fopen(filename, "rb")))
+    {
+        fprintf(stderr, "Unable to open '%s' for reading.\n", filename);
+        return NULL;
+    }
+
+    *close = true;
+    return f;
+}
+
 static FILE *open_output(const char *filename, bool *close)
 {
     FILE *f;
@@ -391,12 +425,12 @@ static FILE *open_output(const char *filename, bool *close)
 
 int main(int argc, char **argv)
 {
+    bool close_input = false, close_output = false;
     struct vkd3d_shader_compile_info info;
     struct vkd3d_shader_code spirv;
-    bool close_output = false;
     struct options options;
+    FILE *input, *output;
     char *messages;
-    FILE *output;
     int fail = 1;
     int ret;
 
@@ -426,6 +460,16 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    if (!(input = open_input(options.filename, &close_input)))
+        goto done;
+
+    if (!options.filename && isatty(fileno(input)))
+    {
+        fprintf(stderr, "Input is a tty and input format is binary, exiting.\n"
+                "If this is really what you intended, specify the input explicitly.\n");
+        goto done;
+    }
+
     if (!(output = open_output(options.output_filename, &close_output)))
         goto done;
 
@@ -445,7 +489,7 @@ int main(int argc, char **argv)
     info.log_level = VKD3D_SHADER_LOG_INFO;
     info.source_name = options.filename;
 
-    if (!read_shader(&info.source, options.filename))
+    if (!read_shader(&info.source, input))
     {
         fprintf(stderr, "Failed to read input shader.\n");
         goto done;
@@ -474,5 +518,7 @@ int main(int argc, char **argv)
 done:
     if (close_output)
         fclose(output);
+    if (close_input)
+        fclose(input);
     return fail;
 }
