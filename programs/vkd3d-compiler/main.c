@@ -17,6 +17,7 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#define _GNU_SOURCE
 #include <fcntl.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -108,21 +109,9 @@ static bool read_shader(struct vkd3d_shader_code *shader, const char *filename)
     return true;
 }
 
-static bool write_shader(const struct vkd3d_shader_code *shader, const char *filename)
+static bool write_shader(const struct vkd3d_shader_code *shader, FILE *f)
 {
-    FILE *fd;
-
-    if (!(fd = fopen(filename, "wb")))
-    {
-        fprintf(stderr, "Cannot open file for writing: '%s'.\n", filename);
-        return false;
-    }
-
-    if (fwrite(shader->code, 1, shader->size, fd) != shader->size)
-        fprintf(stderr, "Could not write shader bytecode to file: '%s'.\n", filename);
-
-    fclose(fd);
-    return true;
+    return fwrite(shader->code, 1, shader->size, f) == shader->size;
 }
 
 static void print_usage(const char *program_name)
@@ -136,7 +125,9 @@ static void print_usage(const char *program_name)
         "  --buffer-uav=<type>   Specify the buffer type to use for buffer UAV bindings.\n"
         "                        Valid values are 'buffer-texture' (default) and\n"
         "                        'storage-buffer'.\n"
-        "  -o, --output=<file>   Write the output to <file>.\n"
+        "  -o, --output=<file>   Write the output to <file>. If <file> is '-' or no\n"
+        "                        output file is specified, output will be written to\n"
+        "                        standard output.\n"
         "  --print-source-types  Display the supported source types and exit.\n"
         "  --print-target-types  Display the supported target types for the specified\n"
         "                        source type and exit.\n"
@@ -379,12 +370,34 @@ static void print_target_types(enum vkd3d_shader_source_type source_type)
     }
 }
 
+static FILE *open_output(const char *filename, bool *close)
+{
+    FILE *f;
+
+    *close = false;
+
+    if (!filename || !strcmp(filename, "-"))
+        return stdout;
+
+    if (!(f = fopen(filename, "wb")))
+    {
+        fprintf(stderr, "Unable to open '%s' for writing.\n", filename);
+        return NULL;
+    }
+
+    *close = true;
+    return f;
+}
+
 int main(int argc, char **argv)
 {
     struct vkd3d_shader_compile_info info;
     struct vkd3d_shader_code spirv;
+    bool close_output = false;
     struct options options;
     char *messages;
+    FILE *output;
+    int fail = 1;
     int ret;
 
     if (!parse_command_line(argc, argv, &options))
@@ -413,6 +426,16 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    if (!(output = open_output(options.output_filename, &close_output)))
+        goto done;
+
+    if (!options.output_filename && isatty(fileno(output)))
+    {
+        fprintf(stderr, "Output is a tty and output format is binary, exiting.\n"
+                "If this is really what you intended, specify the output explicitly.\n");
+        goto done;
+    }
+
     info.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO;
     info.next = NULL;
     info.source_type = options.source_type;
@@ -424,8 +447,8 @@ int main(int argc, char **argv)
 
     if (!read_shader(&info.source, options.filename))
     {
-        fprintf(stderr, "Failed to read DXBC shader.\n");
-        return 1;
+        fprintf(stderr, "Failed to read input shader.\n");
+        goto done;
     }
 
     ret = vkd3d_shader_compile(&info, &spirv, &messages);
@@ -435,13 +458,21 @@ int main(int argc, char **argv)
     vkd3d_shader_free_shader_code(&info.source);
     if (ret < 0)
     {
-        fprintf(stderr, "Failed to compile DXBC shader, ret %d.\n", ret);
-        return 1;
+        fprintf(stderr, "Failed to compile shader, ret %d.\n", ret);
+        goto done;
     }
 
-    if (options.output_filename)
-        write_shader(&spirv, options.output_filename);
+    if (!write_shader(&spirv, output))
+    {
+        fprintf(stderr, "Failed to write output shader.\n");
+        vkd3d_shader_free_shader_code(&spirv);
+        goto done;
+    }
 
+    fail = 0;
     vkd3d_shader_free_shader_code(&spirv);
-    return 0;
+done:
+    if (close_output)
+        fclose(output);
+    return fail;
 }
