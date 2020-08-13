@@ -39,6 +39,7 @@ AC_CACHE_VAL(ac_Lib,
   AC_LINK_IFELSE([AC_LANG_CALL([], [$2])],
   [AS_CASE(["$host_os"],
            [darwin*|macosx*], [AS_VAR_SET(ac_Lib,[`$OTOOL -L conftest$ac_exeext | grep "]ac_lib_pattern[\\.[[0-9A-Za-z.]]*dylib" | sed -e "s/^.*\/\(]ac_lib_pattern[\.[[0-9A-Za-z.]]*dylib\).*$/\1/"';2,$d'`])],
+           [mingw*], [AS_VAR_SET(ac_Lib,[$1.dll])],
            [AS_VAR_SET(ac_Lib,[`$READELF -d conftest$ac_exeext | grep "NEEDED.*]ac_lib_pattern[" | sed -e "s/^.*\\m4_dquote(\\(]ac_lib_pattern[[[^	 ]]*\\)\\).*$/\1/"';2,$d'`])
             AS_VAR_IF([ac_Lib],[],
                      [AS_VAR_SET(ac_Lib,[`$LDD conftest$ac_exeext | grep "]ac_lib_pattern[" | sed -e "s/^.*\(]ac_lib_pattern[[[^	 ]]*\).*$/\1/"';2,$d'`])])])])
