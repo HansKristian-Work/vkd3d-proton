@@ -223,6 +223,9 @@ VK_DEVICE_EXT_PFN(vkCmdSetPrimitiveTopologyEXT)
 VK_DEVICE_EXT_PFN(vkCmdSetScissorWithCountEXT)
 VK_DEVICE_EXT_PFN(vkCmdSetViewportWithCountEXT)
 
+/* VK_EXT_external_memory_host */
+VK_DEVICE_EXT_PFN(vkGetMemoryHostPointerPropertiesEXT)
+
 /* VK_KHR_surface */
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfacePresentModesKHR)
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfaceSupportKHR)

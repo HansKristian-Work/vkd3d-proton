@@ -92,6 +92,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_TRANSFORM_FEEDBACK, EXT_transform_feedback),
     VK_EXTENSION(EXT_VERTEX_ATTRIBUTE_DIVISOR, EXT_vertex_attribute_divisor),
     VK_EXTENSION(EXT_EXTENDED_DYNAMIC_STATE, EXT_extended_dynamic_state),
+    VK_EXTENSION(EXT_EXTERNAL_MEMORY_HOST, EXT_external_memory_host),
     /* AMD extensions */
     VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES, AMD_shader_core_properties),
     VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES_2, AMD_shader_core_properties2),
@@ -719,6 +720,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceSubgroupSizeControlPropertiesEXT *subgroup_size_control_properties;
     VkPhysicalDeviceInlineUniformBlockPropertiesEXT *inline_uniform_block_properties;
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT *extended_dynamic_state_features;
+    VkPhysicalDeviceExternalMemoryHostPropertiesEXT *external_memory_host_properties;
     VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *buffer_device_address_features;
     VkPhysicalDeviceCustomBorderColorPropertiesEXT *custom_border_color_properties;
     VkPhysicalDeviceConditionalRenderingFeaturesEXT *conditional_rendering_features;
@@ -781,6 +783,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     robustness2_properties = &info->robustness2_properties;
     robustness2_features = &info->robustness2_features;
     extended_dynamic_state_features = &info->extended_dynamic_state_features;
+    external_memory_host_properties = &info->external_memory_host_properties;
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
@@ -917,6 +920,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         extended_dynamic_state_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
         vk_prepend_struct(&info->features2, extended_dynamic_state_features);
+    }
+
+    if (vulkan_info->EXT_external_memory_host)
+    {
+        external_memory_host_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, external_memory_host_properties);
     }
 
     if (vulkan_info->AMD_shader_core_properties)
