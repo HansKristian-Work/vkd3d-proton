@@ -141,13 +141,17 @@ vkd3d_test_check_assert_that(unsigned int line, bool result, const char *fmt, va
     {
         InterlockedIncrement(&vkd3d_test_state.success_count);
         if (vkd3d_test_state.debug_level > 1)
+        {
             printf("%s:%d%s: Test succeeded.\n", vkd3d_test_name, line, vkd3d_test_state.context);
+            fflush(stdout);
+        }
     }
     else
     {
         InterlockedIncrement(&vkd3d_test_state.failure_count);
         printf("%s:%d%s: Test failed: ", vkd3d_test_name, line, vkd3d_test_state.context);
         vprintf(fmt, args);
+        fflush(stdout);
     }
 }
 
@@ -177,6 +181,7 @@ vkd3d_test_check_ok(unsigned int line, bool result, const char *fmt, va_list arg
         else
             printf("%s:%d%s: Bug: ", vkd3d_test_name, line, vkd3d_test_state.context);
         vprintf(fmt, args);
+        fflush(stdout);
     }
     else if (is_todo)
     {
@@ -191,6 +196,7 @@ vkd3d_test_check_ok(unsigned int line, bool result, const char *fmt, va_list arg
             printf("%s:%d%s: Todo: ", vkd3d_test_name, line, vkd3d_test_state.context);
         }
         vprintf(fmt, args);
+        fflush(stdout);
     }
     else
     {
@@ -217,6 +223,7 @@ vkd3d_test_skip(unsigned int line, const char *fmt, ...)
     vprintf(fmt, args);
     va_end(args);
     InterlockedIncrement(&vkd3d_test_state.skip_count);
+    fflush(stdout);
 }
 
 static void VKD3D_PRINTF_FUNC(2, 3) VKD3D_UNUSED
@@ -227,6 +234,7 @@ vkd3d_test_trace(unsigned int line, const char *fmt, ...)
     printf("%s:%d%s: ", vkd3d_test_name, line, vkd3d_test_state.context);
     vprintf(fmt, args);
     va_end(args);
+    fflush(stdout);
 }
 
 static void VKD3D_PRINTF_FUNC(1, 2) VKD3D_UNUSED
@@ -250,7 +258,10 @@ vkd3d_test_debug(const char *fmt, ...)
 #endif
 
     if (vkd3d_test_state.debug_level > 0)
+    {
         printf("%s\n", buffer);
+        fflush(stdout);
+    }
 }
 
 int main(int argc, char **argv)
@@ -290,6 +301,7 @@ int main(int argc, char **argv)
     if (test_platform)
         free(test_platform);
 
+    fflush(stdout);
     return vkd3d_test_state.failure_count || vkd3d_test_state.todo_success_count;
 }
 
