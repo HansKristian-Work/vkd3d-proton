@@ -3951,10 +3951,24 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_
 static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromFileMapping(d3d12_device_iface *iface,
         HANDLE file_mapping, REFIID riid, void **heap)
 {
-    FIXME("iface %p, file_mapping %p, riid %s, heap %p stub!\n",
-            iface, file_mapping, debugstr_guid(riid), heap);
+#ifdef _WIN32
+    void *addr;
+    HRESULT hr;
+    TRACE("iface %p, file_mapping %p, riid %s, heap %p\n",
+          iface, file_mapping, debugstr_guid(riid), heap);
 
+    /* 0 size maps everything. */
+    addr = MapViewOfFile(file_mapping, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+    if (!addr)
+        return E_INVALIDARG;
+
+    hr = d3d12_device_OpenExistingHeapFromAddress(iface, addr, riid, heap);
+    UnmapViewOfFile(addr);
+    return hr;
+#else
+    FIXME("OpenExistingHeapFromFileMapping can only be implemented in native Win32.\n");
     return E_NOTIMPL;
+#endif
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_EnqueueMakeResident(d3d12_device_iface *iface,
