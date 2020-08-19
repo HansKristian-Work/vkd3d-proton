@@ -595,6 +595,13 @@ static HRESULT validate_placed_resource_heap(struct d3d12_heap *heap, const D3D1
         return E_INVALIDARG;
     }
 
+    if ((heap->desc.Flags & D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER) &&
+            !(resource_desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER))
+    {
+        ERR("Must declare ALLOW_CROSS_ADAPTER resource flag when heap is cross adapter.\n");
+        return E_INVALIDARG;
+    }
+
     return S_OK;
 }
 
@@ -2379,8 +2386,6 @@ static void d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
 
     if (unknown_flags)
         FIXME("Unknown resource flags %#x.\n", unknown_flags);
-    if (flags & D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER)
-        FIXME("Ignoring D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER.\n");
 }
 
 static bool d3d12_resource_validate_texture_format(const D3D12_RESOURCE_DESC *desc,
