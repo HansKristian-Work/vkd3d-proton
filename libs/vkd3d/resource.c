@@ -170,6 +170,18 @@ static HRESULT vkd3d_allocate_memory(struct d3d12_device *device,
     return hr;
 }
 
+static HRESULT vkd3d_import_host_memory(struct d3d12_device *device,
+        void *host_address, VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
+        void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
+{
+    VkImportMemoryHostPointerInfoEXT import_info;
+    import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT;
+    import_info.pNext = pNext;
+    import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT;
+    import_info.pHostPointer = host_address;
+    return vkd3d_try_allocate_memory(device, size, type_flags, type_mask, &import_info, vk_memory, vk_memory_type);
+}
+
 static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         VkDeviceSize size, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
