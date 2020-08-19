@@ -3897,10 +3897,55 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineState(d3d12_device_i
 static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_device_iface *iface,
         void *address, REFIID riid, void **heap)
 {
-    FIXME("iface %p, address %p, riid %s, heap %p stub!\n",
-            iface, address, debugstr_guid(riid), heap);
+#ifdef _WIN32
+    MEMORY_BASIC_INFORMATION info;
+    struct d3d12_device *device;
+    struct d3d12_heap *object;
+    size_t allocation_size;
+    HRESULT hr;
 
+    TRACE("iface %p, address %p, riid %s, heap %p\n",
+          iface, address, debugstr_guid(riid), heap);
+
+    if (!VirtualQuery(address, &info, sizeof(info)))
+    {
+        ERR("Failed to VirtualQuery host pointer.\n");
+        return E_INVALIDARG;
+    }
+
+    /* Allocation base must equal address. */
+    if (info.AllocationBase != address)
+        return E_INVALIDARG;
+    if (info.BaseAddress != info.AllocationBase)
+        return E_INVALIDARG;
+
+    /* All pages must be committed. */
+    if (info.State != MEM_COMMIT)
+        return E_INVALIDARG;
+
+    /* We can only have one region of page protection types.
+     * Verify this by querying the end of the range. */
+    allocation_size = info.RegionSize;
+    if (VirtualQuery((uint8_t *)address + allocation_size, &info, sizeof(info)) &&
+            info.AllocationBase == address)
+    {
+        /* All pages must have same protections, so there cannot be multiple regions for VirtualQuery. */
+        return E_INVALIDARG;
+    }
+
+    device = impl_from_ID3D12Device(iface);
+
+    if (FAILED(hr = d3d12_heap_create_from_host_pointer(device, address, allocation_size, &object)))
+    {
+        *heap = NULL;
+        return hr;
+    }
+
+    return return_interface(&object->ID3D12Heap_iface, &IID_ID3D12Heap, riid, heap);
+#else
+    FIXME("OpenExistingHeapFromAddress can only be implemented in native Win32.\n");
     return E_NOTIMPL;
+#endif
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromFileMapping(d3d12_device_iface *iface,

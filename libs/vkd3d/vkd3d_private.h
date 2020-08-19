@@ -421,6 +421,8 @@ struct d3d12_heap
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
         const struct d3d12_resource *resource, struct d3d12_heap **heap) DECLSPEC_HIDDEN;
+HRESULT d3d12_heap_create_from_host_pointer(struct d3d12_device *device, void *addr, size_t size,
+        struct d3d12_heap **heap) DECLSPEC_HIDDEN;
 struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface) DECLSPEC_HIDDEN;
 
 #define VKD3D_RESOURCE_PUBLIC_FLAGS \

@@ -604,17 +604,138 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device,
                                      const D3D12_CLEAR_VALUE *optimized_clear_value, bool placed,
                                      struct d3d12_resource **resource);
 
-static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
-        struct d3d12_device *device, const D3D12_HEAP_DESC *desc, const struct d3d12_resource *resource)
+static HRESULT d3d12_heap_init_omnipotent_buffer(struct d3d12_heap *heap, struct d3d12_device *device,
+        const D3D12_HEAP_DESC *desc)
+{
+    D3D12_RESOURCE_STATES initial_resource_state;
+    D3D12_RESOURCE_DESC resource_desc;
+    HRESULT hr;
+
+    /* Create a single omnipotent buffer which fills the entire heap.
+     * Whenever we place buffer resources on this heap, we'll just offset this VkBuffer.
+     * This allows us to keep VA space somewhat sane, and keeps number of (limited) VA allocations down.
+     * One possible downside is that the buffer might be slightly slower to access,
+     * but D3D12 has very lenient usage flags for buffers. */
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Width = desc->SizeInBytes;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    if (heap->desc.Flags & D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER)
+        resource_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER;
+
+    switch (desc->Properties.Type)
+    {
+    case D3D12_HEAP_TYPE_UPLOAD:
+        initial_resource_state = D3D12_RESOURCE_STATE_GENERIC_READ;
+        break;
+
+    case D3D12_HEAP_TYPE_READBACK:
+        initial_resource_state = D3D12_RESOURCE_STATE_COPY_DEST;
+        break;
+
+    default:
+        /* Upload and readback heaps do not allow UAV access, only enable this flag for other heaps. */
+        resource_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        initial_resource_state = D3D12_RESOURCE_STATE_COMMON;
+        break;
+    }
+
+    if (FAILED(hr = d3d12_resource_create(device, &desc->Properties, desc->Flags,
+            &resource_desc, initial_resource_state,
+            NULL, false, &heap->buffer_resource)))
+        return hr;
+
+    /* This internal resource should not own a reference on the device.
+     * d3d12_resource_create takes a reference on the device. */
+    d3d12_device_release(device);
+    return S_OK;
+}
+
+static HRESULT d3d12_heap_allocate_storage(struct d3d12_heap *heap,
+        struct d3d12_device *device, const struct d3d12_resource *resource, void *host_memory)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const VkMemoryType *memory_type;
     VkDeviceSize vk_memory_size;
     VkResult vr;
     HRESULT hr;
+
+    if (resource)
+    {
+        if (d3d12_resource_is_buffer(resource))
+        {
+            hr = vkd3d_allocate_buffer_memory(device, resource->vk_buffer, NULL,
+                    &heap->desc.Properties, heap->desc.Flags | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS,
+                    &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
+        }
+        else
+        {
+            hr = vkd3d_allocate_image_memory(device, resource->vk_image,
+                    &heap->desc.Properties, heap->desc.Flags,
+                    &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
+        }
+
+        heap->desc.SizeInBytes = vk_memory_size;
+    }
+    else if (heap->buffer_resource)
+    {
+        hr = vkd3d_allocate_buffer_memory(device, heap->buffer_resource->vk_buffer, host_memory,
+                &heap->desc.Properties, heap->desc.Flags,
+                &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
+    }
+    else
+    {
+        hr = vkd3d_allocate_device_memory(device, &heap->desc.Properties,
+                heap->desc.Flags, heap->desc.SizeInBytes, &heap->vk_memory,
+                &heap->vk_memory_type);
+    }
+
+    if (FAILED(hr))
+        return hr;
+
+    memory_type = &device->memory_properties.memoryTypes[heap->vk_memory_type];
+
+    if (memory_type->propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+    {
+        if ((vr = VK_CALL(vkMapMemory(device->vk_device,
+                                      heap->vk_memory, 0, VK_WHOLE_SIZE, 0, &heap->map_ptr))) < 0)
+        {
+            ERR("Failed to map memory, vr %d.\n", vr);
+            return hresult_from_vk_result(hr);
+        }
+
+        if ((heap->desc.Flags & D3D12_HEAP_FLAG_SHARED) == 0)
+        {
+            /* Zero private host-visible memory */
+            memset(heap->map_ptr, 0, heap->desc.SizeInBytes);
+        }
+
+        if (!(memory_type->propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+        {
+            VkMappedMemoryRange mapped_range;
+            mapped_range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+            mapped_range.pNext = NULL;
+            mapped_range.memory = heap->vk_memory;
+            mapped_range.offset = 0;
+            mapped_range.size = VK_WHOLE_SIZE;
+
+            VK_CALL(vkFlushMappedMemoryRanges(device->vk_device, 1, &mapped_range));
+        }
+    }
+
+    return S_OK;
+}
+
+static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
+        struct d3d12_device *device, const D3D12_HEAP_DESC *desc, const struct d3d12_resource *resource)
+{
     bool buffers_allowed;
-    D3D12_RESOURCE_DESC resource_desc;
-    D3D12_RESOURCE_STATES initial_resource_state;
+    HRESULT hr;
 
     memset(heap, 0, sizeof(*heap));
     heap->ID3D12Heap_iface.lpVtbl = &d3d12_heap_vtbl;
@@ -651,112 +772,68 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     buffers_allowed = !(heap->desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS);
     if (buffers_allowed && !resource)
     {
-        /* Create a single omnipotent buffer which fills the entire heap.
-         * Whenever we place buffer resources on this heap, we'll just offset this VkBuffer.
-         * This allows us to keep VA space somewhat sane, and keeps number of (limited) VA allocations down.
-         * One possible downside is that the buffer might be slightly slower to access,
-         * but D3D12 has very lenient usage flags for buffers. */
-
-        memset(&resource_desc, 0, sizeof(resource_desc));
-        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        resource_desc.Width = desc->SizeInBytes;
-        resource_desc.Height = 1;
-        resource_desc.DepthOrArraySize = 1;
-        resource_desc.MipLevels = 1;
-        resource_desc.SampleDesc.Count = 1;
-        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-
-        switch (desc->Properties.Type)
-        {
-        case D3D12_HEAP_TYPE_UPLOAD:
-            initial_resource_state = D3D12_RESOURCE_STATE_GENERIC_READ;
-            break;
-
-        case D3D12_HEAP_TYPE_READBACK:
-            initial_resource_state = D3D12_RESOURCE_STATE_COPY_DEST;
-            break;
-
-        default:
-            /* Upload and readback heaps do not allow UAV access, only enable this flag for other heaps. */
-            resource_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-            initial_resource_state = D3D12_RESOURCE_STATE_COMMON;
-            break;
-        }
-
-        if (FAILED(hr = d3d12_resource_create(device, &desc->Properties, desc->Flags,
-                                              &resource_desc, initial_resource_state,
-                                              NULL, false, &heap->buffer_resource)))
+        if (FAILED(hr = d3d12_heap_init_omnipotent_buffer(heap, device, desc)))
         {
             d3d12_heap_cleanup(heap);
             return hr;
         }
-        /* This internal resource should not own a reference on the device.
-         * d3d12_resource_create takes a reference on the device. */
-        d3d12_device_release(device);
     }
 
-    if (resource)
-    {
-        if (d3d12_resource_is_buffer(resource))
-        {
-            hr = vkd3d_allocate_buffer_memory(device, resource->vk_buffer, NULL,
-                    &heap->desc.Properties, heap->desc.Flags | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS,
-                    &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
-        }
-        else
-        {
-            hr = vkd3d_allocate_image_memory(device, resource->vk_image,
-                    &heap->desc.Properties, heap->desc.Flags,
-                    &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
-        }
-
-        heap->desc.SizeInBytes = vk_memory_size;
-    }
-    else if (heap->buffer_resource)
-    {
-        hr = vkd3d_allocate_buffer_memory(device, heap->buffer_resource->vk_buffer, NULL,
-                                          &heap->desc.Properties, heap->desc.Flags,
-                                          &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
-    }
-    else
-    {
-        hr = vkd3d_allocate_device_memory(device, &heap->desc.Properties,
-                heap->desc.Flags, heap->desc.SizeInBytes, &heap->vk_memory,
-                &heap->vk_memory_type);
-    }
-
-    if (FAILED(hr) || FAILED(hr = vkd3d_private_store_init(&heap->private_store)))
+    if (FAILED(hr = vkd3d_private_store_init(&heap->private_store)))
     {
         d3d12_heap_cleanup(heap);
         return hr;
     }
 
-    memory_type = &device->memory_properties.memoryTypes[heap->vk_memory_type];
-
-    if (memory_type->propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+    if (FAILED(hr = d3d12_heap_allocate_storage(heap, device, resource, NULL)))
     {
-        if ((vr = VK_CALL(vkMapMemory(device->vk_device,
-                heap->vk_memory, 0, VK_WHOLE_SIZE, 0, &heap->map_ptr))) < 0)
-        {
-            ERR("Failed to map memory, vr %d.\n", vr);
-            d3d12_heap_cleanup(heap);
-            return hresult_from_vk_result(hr);
-        }
+        d3d12_heap_cleanup(heap);
+        return hr;
+    }
 
-        /* Zero host-visible memory */
-        memset(heap->map_ptr, 0, heap->desc.SizeInBytes);
+    return S_OK;
+}
 
-        if (!(memory_type->propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
-        {
-            VkMappedMemoryRange mapped_range;
-            mapped_range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
-            mapped_range.pNext = NULL;
-            mapped_range.memory = heap->vk_memory;
-            mapped_range.offset = 0;
-            mapped_range.size = VK_WHOLE_SIZE;
+static HRESULT d3d12_heap_init_from_host_pointer(struct d3d12_heap *heap,
+        struct d3d12_device *device, void *address, size_t size)
+{
+    HRESULT hr;
 
-            VK_CALL(vkFlushMappedMemoryRanges(device->vk_device, 1, &mapped_range));
-        }
+    if (!device->vk_info.EXT_external_memory_host)
+        return E_INVALIDARG;
+
+    memset(heap, 0, sizeof(*heap));
+    heap->ID3D12Heap_iface.lpVtbl = &d3d12_heap_vtbl;
+    heap->refcount = 1;
+    heap->device = device;
+
+    heap->desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    heap->desc.Flags = D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    heap->desc.Properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    heap->desc.Properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+    heap->desc.Properties.Type = D3D12_HEAP_TYPE_CUSTOM;
+    heap->desc.Properties.CreationNodeMask = 1;
+    heap->desc.Properties.VisibleNodeMask = 1;
+    heap->desc.SizeInBytes = size;
+
+    d3d12_device_add_ref(heap->device);
+
+    if (FAILED(hr = d3d12_heap_init_omnipotent_buffer(heap, device, &heap->desc)))
+    {
+        d3d12_heap_cleanup(heap);
+        return hr;
+    }
+
+    if (FAILED(hr = vkd3d_private_store_init(&heap->private_store)))
+    {
+        d3d12_heap_cleanup(heap);
+        return hr;
+    }
+
+    if (FAILED(hr = d3d12_heap_allocate_storage(heap, device, NULL, address)))
+    {
+        d3d12_heap_cleanup(heap);
+        return hr;
     }
 
     return S_OK;
@@ -781,6 +858,25 @@ HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *de
 
     *heap = object;
 
+    return S_OK;
+}
+
+HRESULT d3d12_heap_create_from_host_pointer(struct d3d12_device *device, void *address, size_t size,
+        struct d3d12_heap **heap)
+{
+    struct d3d12_heap *object;
+    HRESULT hr;
+
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    if (FAILED(hr = d3d12_heap_init_from_host_pointer(object, device, address, size)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
+
+    *heap = object;
     return S_OK;
 }
 
@@ -839,6 +935,7 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC *desc, VkBuffer *vk_buffer)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkExternalMemoryBufferCreateInfo external_info;
     const bool sparse_resource = !heap_properties;
     VkBufferCreateInfo buffer_info;
     D3D12_HEAP_TYPE heap_type;
@@ -850,6 +947,16 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
     buffer_info.pNext = NULL;
     buffer_info.flags = 0;
     buffer_info.size = desc->Width;
+
+    /* This is only used by OpenExistingHeapFrom*,
+     * and external host memory is the only way for us to do CROSS_ADAPTER. */
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER)
+    {
+        external_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
+        external_info.pNext = NULL;
+        external_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT;
+        buffer_info.pNext = &external_info;
+    }
 
     if (sparse_resource)
     {
