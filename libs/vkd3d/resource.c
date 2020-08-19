@@ -209,12 +209,13 @@ static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
     return S_OK;
 }
 
-HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
+HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer, void *host_memory,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         VkDeviceMemory *vk_memory, uint32_t *vk_memory_type, VkDeviceSize *vk_memory_size)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryDedicatedRequirements dedicated_requirements;
+    VkMemoryHostPointerPropertiesEXT host_properties;
     VkMemoryDedicatedAllocateInfo dedicated_info;
     VkMemoryRequirements2 memory_requirements2;
     VkMemoryRequirements *memory_requirements;
@@ -237,6 +238,25 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
     memory_requirements2.pNext = &dedicated_requirements;
 
     VK_CALL(vkGetBufferMemoryRequirements2(device->vk_device, &info, &memory_requirements2));
+
+    if (host_memory)
+    {
+        if (((uintptr_t)host_memory) &
+            (device->device_info.external_memory_host_properties.minImportedHostPointerAlignment - 1))
+        {
+            FIXME("Imported host memory is misaligned.\n");
+            return E_INVALIDARG;
+        }
+
+        host_properties.sType = VK_STRUCTURE_TYPE_MEMORY_HOST_POINTER_PROPERTIES_EXT;
+        host_properties.pNext = NULL;
+        if (VK_CALL(vkGetMemoryHostPointerPropertiesEXT(device->vk_device,
+                VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
+                host_memory, &host_properties)) != VK_SUCCESS)
+            return E_INVALIDARG;
+
+        memory_requirements->memoryTypeBits &= host_properties.memoryTypeBits;
+    }
 
     if (heap_flags != D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS)
         memory_requirements->memoryTypeBits &= vkd3d_select_memory_types(device, heap_properties, heap_flags);
@@ -261,9 +281,24 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
     if (FAILED(hr = vkd3d_select_memory_flags(device, heap_properties, &type_flags)))
         return hr;
 
-    if (FAILED(hr = vkd3d_allocate_memory(device, memory_requirements->size, type_flags,
-            memory_requirements->memoryTypeBits, &flags_info, vk_memory, vk_memory_type)))
-        return hr;
+    if (host_memory)
+    {
+        if (FAILED(hr = vkd3d_import_host_memory(device, host_memory, memory_requirements->size, type_flags,
+                memory_requirements->memoryTypeBits, &flags_info, vk_memory,
+                vk_memory_type)))
+        {
+            return hr;
+        }
+    }
+    else
+    {
+        if (FAILED(hr = vkd3d_allocate_memory(device, memory_requirements->size, type_flags,
+                memory_requirements->memoryTypeBits, &flags_info, vk_memory,
+                vk_memory_type)))
+        {
+            return hr;
+        }
+    }
 
     if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, vk_buffer, *vk_memory, 0))) < 0)
     {
@@ -664,7 +699,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     {
         if (d3d12_resource_is_buffer(resource))
         {
-            hr = vkd3d_allocate_buffer_memory(device, resource->vk_buffer,
+            hr = vkd3d_allocate_buffer_memory(device, resource->vk_buffer, NULL,
                     &heap->desc.Properties, heap->desc.Flags | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS,
                     &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
         }
@@ -679,7 +714,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
     }
     else if (heap->buffer_resource)
     {
-        hr = vkd3d_allocate_buffer_memory(device, heap->buffer_resource->vk_buffer,
+        hr = vkd3d_allocate_buffer_memory(device, heap->buffer_resource->vk_buffer, NULL,
                                           &heap->desc.Properties, heap->desc.Flags,
                                           &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
     }
@@ -4929,7 +4964,7 @@ static HRESULT d3d12_descriptor_heap_create_uav_counter_buffer(struct d3d12_desc
     if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc, &uav_counters->vk_buffer)))
         return hr;
 
-    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, uav_counters->vk_buffer,
+    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, uav_counters->vk_buffer, NULL,
             &heap_info, heap_flags, &uav_counters->vk_memory, NULL, NULL)))
         return hr;
 
@@ -5584,7 +5619,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     if (FAILED(hr = vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, &null_resources->vk_buffer)))
         goto fail;
-    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_buffer,
+    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_buffer, NULL,
             &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &null_resources->vk_buffer_memory, NULL, NULL)))
         goto fail;
     if (!vkd3d_create_vk_buffer_view(device, null_resources->vk_buffer,
@@ -5598,7 +5633,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     if (FAILED(hr = vkd3d_create_buffer(device, use_sparse_resources ? NULL : &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, &null_resources->vk_storage_buffer)))
         goto fail;
-    if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_storage_buffer,
+    if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_storage_buffer, NULL,
             &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &null_resources->vk_storage_buffer_memory, NULL, NULL)))
         goto fail;
     if (!vkd3d_create_vk_buffer_view(device, null_resources->vk_storage_buffer,
