@@ -44893,6 +44893,124 @@ static void test_clock_calibration(void)
     destroy_test_context(&context);
 }
 
+static void test_open_heap_from_address(void)
+{
+#ifdef _WIN32
+    ID3D12Resource *readback_resource;
+    struct test_context context;
+    struct resource_readback rb;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Resource *resource;
+    unsigned int heap_size;
+    ID3D12Device3 *device3;
+    ID3D12Device *device;
+    HANDLE file_handle;
+    ID3D12Heap *heap;
+    unsigned int i;
+    uint32_t *addr;
+    HRESULT hr;
+
+    if (!init_test_context(&context, NULL))
+        return;
+
+    device = context.device;
+    hr = ID3D12Device_QueryInterface(device, &IID_ID3D12Device3, (void **)&device3);
+    ok(hr == S_OK, "Failed to query ID3D12Device3, hr #%x.\n", hr);
+
+    /* Simple case, import directly from VirtualAlloc. */
+    {
+        heap_size = 64 * 1024;
+        addr = VirtualAlloc(NULL, heap_size, MEM_COMMIT, PAGE_READWRITE);
+        ok(!!addr, "Failed to VirtualAllocate.\n");
+
+        for (i = 0; i < heap_size / sizeof(uint32_t); i++)
+            addr[i] = i;
+
+        hr = ID3D12Device3_OpenExistingHeapFromAddress(device3, addr, &IID_ID3D12Heap, (void **)&heap);
+        ok(hr == S_OK, "Failed to open heap from address: hr #%x.\n", hr);
+
+        if (heap)
+        {
+            heap_desc = ID3D12Heap_GetDesc(heap);
+            ok(heap_desc.SizeInBytes == heap_size, "Expected heap size of %u, but got %u.\n", heap_size, (unsigned int)heap_desc.SizeInBytes);
+            ok(!!(heap_desc.Flags & D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER), "Expected Heap desc to have SHARED_CROSS_ADAPTER flag set.\n");
+            ok(!!(heap_desc.Flags & D3D12_HEAP_FLAG_SHARED), "Expected heap desc to have SHARED flag set.\n");
+
+            resource = create_placed_buffer(device, heap, 0, heap_size, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            ok(!!resource, "Failed to create resource.\n");
+            readback_resource = create_default_buffer(device, heap_size, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+            ID3D12GraphicsCommandList_CopyResource(context.list, readback_resource, resource);
+            transition_resource_state(context.list, readback_resource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            get_buffer_readback_with_command_list(readback_resource, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+            reset_command_list(context.list, context.allocator);
+            ok(!memcmp(rb.data, addr, heap_size), "Expected exact copy.\n");
+            release_resource_readback(&rb);
+            ID3D12Heap_Release(heap);
+            ID3D12Resource_Release(readback_resource);
+            ID3D12Resource_Release(resource);
+        }
+        VirtualFree(addr, 0, MEM_RELEASE);
+    }
+
+    /* Import at offset, which should fail. */
+    {
+        heap_size = 64 * 1024;
+        addr = VirtualAlloc(NULL, heap_size, MEM_COMMIT, PAGE_READWRITE);
+        ok(!!addr, "Failed to VirtualAllocate.\n");
+        hr = ID3D12Device3_OpenExistingHeapFromAddress(device3, addr + 1024, &IID_ID3D12Heap, (void **)&heap);
+        ok(hr == E_INVALIDARG, "Should not be able to open heap at offset from VirtualAlloc.\n");
+    }
+
+    /* HANDLE variant. */
+    {
+        heap_size = 256 * 1024;
+        file_handle = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, heap_size, "foobar");
+        ok(!!file_handle, "Failed to open file mapping.\n");
+
+        addr = MapViewOfFile(file_handle, FILE_MAP_ALL_ACCESS, 0, 0, heap_size);
+        ok(!!addr, "Failed to map view of file.\n");
+        for (i = 0; i < heap_size / sizeof(uint32_t); i++)
+            addr[i] = i;
+
+        hr = ID3D12Device3_OpenExistingHeapFromFileMapping(device3, file_handle, &IID_ID3D12Heap, (void **)&heap);
+        ok(hr == S_OK, "Failed to open heap from file mapping: hr #%x.\n", hr);
+
+        if (heap)
+        {
+            heap_desc = ID3D12Heap_GetDesc(heap);
+            ok(heap_desc.SizeInBytes == heap_size, "Expected heap size of %u, but got %u.\n", heap_size, (unsigned int)heap_desc.SizeInBytes);
+            ok(!!(heap_desc.Flags & D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER), "Expected Heap desc to have SHARED_CROSS_ADAPTER flag set.\n");
+            ok(!!(heap_desc.Flags & D3D12_HEAP_FLAG_SHARED), "Expected heap desc to have SHARED flag set.\n");
+
+            resource = create_placed_buffer(device, heap, 0, heap_size, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            ok(!!resource, "Failed to create resource.\n");
+            readback_resource = create_default_buffer(device, heap_size, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+            ID3D12GraphicsCommandList_CopyResource(context.list, readback_resource, resource);
+            transition_resource_state(context.list, readback_resource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            get_buffer_readback_with_command_list(readback_resource, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+            reset_command_list(context.list, context.allocator);
+            for (i = 0; i < heap_size / sizeof(uint32_t); i++)
+            {
+                uint32_t v = get_readback_uint(&rb, i, 0, 0);
+                ok(v == i, "Expected %u, got %u.\n", i, v);
+            }
+            release_resource_readback(&rb);
+            ID3D12Heap_Release(heap);
+            ID3D12Resource_Release(readback_resource);
+            ID3D12Resource_Release(resource);
+        }
+
+        UnmapViewOfFile(addr);
+        CloseHandle(file_handle);
+    }
+
+    ID3D12Device3_Release(device3);
+    destroy_test_context(&context);
+#else
+    skip("Cannot test OpenExistingHeapFrom* on non-native Win32 platforms.\n");
+#endif
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -45113,4 +45231,5 @@ START_TEST(d3d12)
     run_test(test_aliasing_barrier);
     run_test(test_discard_resource);
     run_test(test_clock_calibration);
+    run_test(test_open_heap_from_address);
 }
