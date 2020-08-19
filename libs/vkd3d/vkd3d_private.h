@@ -137,6 +137,7 @@ struct vkd3d_vulkan_info
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
     bool EXT_extended_dynamic_state;
+    bool EXT_external_memory_host;
     /* AMD device extensions */
     bool AMD_shader_core_properties;
     bool AMD_shader_core_properties2;
@@ -1677,6 +1678,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderSMBuiltinsPropertiesNV shader_sm_builtins_properties;
     VkPhysicalDeviceSamplerFilterMinmaxPropertiesEXT sampler_filter_minmax_properties;
     VkPhysicalDeviceRobustness2PropertiesEXT robustness2_properties;
+    VkPhysicalDeviceExternalMemoryHostPropertiesEXT external_memory_host_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
