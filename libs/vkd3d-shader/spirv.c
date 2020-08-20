@@ -2424,11 +2424,26 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
             if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
                 continue;
 
-            if (current->offset)
-                FIXME("Atomic counter offsets are not supported yet.\n");
+            if (current->register_space != register_space || current->register_index != reg_idx)
+                continue;
 
-            if (current->register_space == register_space && current->register_index == reg_idx)
-                return current->binding;
+            if (current->offset)
+            {
+                FIXME("Atomic counter offsets are not supported yet.\n");
+                vkd3d_dxbc_compiler_error(compiler, VKD3D_SHADER_ERROR_SPV_INVALID_DESCRIPTOR_BINDING,
+                        "Descriptor binding for UAV counter %u, space %u has unsupported ‘offset’ %u.",
+                        reg_idx, register_space, current->offset);
+            }
+
+            if (current->binding.count != 1)
+            {
+                FIXME("Descriptor arrays are not supported.\n");
+                vkd3d_dxbc_compiler_error(compiler, VKD3D_SHADER_ERROR_SPV_INVALID_DESCRIPTOR_BINDING,
+                        "Descriptor binding for UAV counter %u, space %u has unsupported ‘count’ %u.",
+                        reg_idx, register_space, current->binding.count);
+            }
+
+            return current->binding;
         }
         if (shader_interface->uav_counter_count)
         {
@@ -2449,9 +2464,20 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
             if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
                 continue;
 
-            if (current->type == descriptor_type && current->register_space == register_space
-                    && current->register_index == reg_idx)
-                return current->binding;
+            if (current->type != descriptor_type || current->register_space != register_space
+                    || current->register_index != reg_idx)
+                continue;
+
+            if (current->binding.count != 1)
+            {
+                FIXME("Descriptor arrays are not supported.\n");
+                vkd3d_dxbc_compiler_error(compiler, VKD3D_SHADER_ERROR_SPV_INVALID_DESCRIPTOR_BINDING,
+                        "Descriptor binding for type %#x, space %u, register %u, "
+                        "shader type %#x has unsupported ‘count’ %u.",
+                        descriptor_type, register_space, reg_idx, compiler->shader_type, current->binding.count);
+            }
+
+            return current->binding;
         }
         if (shader_interface->binding_count)
         {
@@ -2465,6 +2491,7 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
 
 done:
     binding.set = 0;
+    binding.count = 1;
     binding.binding = compiler->binding_idx++;
     return binding;
 }
@@ -5326,6 +5353,16 @@ static void vkd3d_dxbc_compiler_emit_combined_sampler_declarations(struct vkd3d_
 
         if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
             continue;
+
+        if (current->binding.count != 1)
+        {
+            FIXME("Descriptor arrays are not supported.\n");
+            vkd3d_dxbc_compiler_error(compiler, VKD3D_SHADER_ERROR_SPV_INVALID_DESCRIPTOR_BINDING,
+                    "Combined descriptor binding for resource %u, space %u, "
+                    "and sampler %u, space %u has unsupported ‘count’ %u.",
+                    resource_index, resource_space, current->sampler_index,
+                    current->sampler_space, current->binding.count);
+        }
 
         d = vkd3d_dxbc_compiler_get_descriptor_info(compiler,
                 VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, current->sampler_space, current->sampler_index);

@@ -100,6 +100,7 @@ struct vkd3d_shader_descriptor_binding
 {
     unsigned int set;
     unsigned int binding;
+    unsigned int count; /* This must be 1 in this version of vkd3d-shader. */
 };
 
 enum vkd3d_shader_binding_flag

@@ -535,6 +535,7 @@ static void d3d12_root_signature_append_vk_binding(struct d3d12_root_signature *
     mapping->flags = buffer_descriptor ? VKD3D_SHADER_BINDING_FLAG_BUFFER : VKD3D_SHADER_BINDING_FLAG_IMAGE;
     mapping->binding.set = context->set_index;
     mapping->binding.binding = context->descriptor_binding++;
+    mapping->binding.count = 1;
 }
 
 static uint32_t d3d12_root_signature_assign_vk_bindings(struct d3d12_root_signature *root_signature,
@@ -1478,6 +1479,7 @@ static HRESULT d3d12_pipeline_state_init_compute_uav_counters(struct d3d12_pipel
         state->uav_counters[j].shader_visibility = VKD3D_SHADER_VISIBILITY_COMPUTE;
         state->uav_counters[j].binding.set = context.set_index;
         state->uav_counters[j].binding.binding = context.descriptor_binding;
+        state->uav_counters[j].binding.count = 1;
 
         /* FIXME: For the graphics pipeline we have to take the shader
          * visibility into account. */
@@ -2954,6 +2956,7 @@ HRESULT vkd3d_uav_clear_state_init(struct vkd3d_uav_clear_state *state, struct d
     binding.shader_visibility = VKD3D_SHADER_VISIBILITY_COMPUTE;
     binding.binding.set = 0;
     binding.binding.binding = 0;
+    binding.binding.count = 1;
 
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     push_constant_range.offset = 0;
