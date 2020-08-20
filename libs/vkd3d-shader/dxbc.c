@@ -1638,6 +1638,11 @@ static bool shader_sm4_is_scalar_register(const struct vkd3d_shader_register *re
     }
 }
 
+static uint32_t swizzle_from_sm4(uint32_t s)
+{
+    return vkd3d_shader_create_swizzle(s & 0x3, (s >> 2) & 0x3, (s >> 4) & 0x3, (s >> 6) & 0x3);
+}
+
 static bool shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD **ptr, const DWORD *end,
         enum vkd3d_data_type data_type, struct vkd3d_shader_src_param *src_param)
 {
@@ -1676,11 +1681,11 @@ static bool shader_sm4_read_src_param(struct vkd3d_sm4_data *priv, const DWORD *
 
             case VKD3D_SM4_SWIZZLE_SCALAR:
                 src_param->swizzle = (token & VKD3D_SM4_SWIZZLE_MASK) >> VKD3D_SM4_SWIZZLE_SHIFT;
-                src_param->swizzle = (src_param->swizzle & 0x3) * 0x55;
+                src_param->swizzle = (src_param->swizzle & 0x3) * 0x01010101;
                 break;
 
             case VKD3D_SM4_SWIZZLE_VEC4:
-                src_param->swizzle = (token & VKD3D_SM4_SWIZZLE_MASK) >> VKD3D_SM4_SWIZZLE_SHIFT;
+                src_param->swizzle = swizzle_from_sm4((token & VKD3D_SM4_SWIZZLE_MASK) >> VKD3D_SM4_SWIZZLE_SHIFT);
                 break;
 
             default:

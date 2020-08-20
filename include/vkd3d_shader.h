@@ -741,16 +741,26 @@ enum vkd3d_shader_swizzle_component
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_SWIZZLE_COMPONENT),
 };
 
-#define VKD3D_SHADER_SWIZZLE_MASK (0x3u)
-#define VKD3D_SHADER_SWIZZLE_SHIFT(idx) (2u * (idx))
+#define VKD3D_SHADER_SWIZZLE_MASK (0xffu)
+#define VKD3D_SHADER_SWIZZLE_SHIFT(idx) (8u * (idx))
 
 #define VKD3D_SHADER_SWIZZLE(x, y, z, w) \
-        (((VKD3D_SHADER_SWIZZLE_ ## x) << VKD3D_SHADER_SWIZZLE_SHIFT(0)) \
-        | ((VKD3D_SHADER_SWIZZLE_ ## y) << VKD3D_SHADER_SWIZZLE_SHIFT(1)) \
-        | ((VKD3D_SHADER_SWIZZLE_ ## z) << VKD3D_SHADER_SWIZZLE_SHIFT(2)) \
-        | ((VKD3D_SHADER_SWIZZLE_ ## w) << VKD3D_SHADER_SWIZZLE_SHIFT(3)))
+        vkd3d_shader_create_swizzle(VKD3D_SHADER_SWIZZLE_ ## x, \
+                VKD3D_SHADER_SWIZZLE_ ## y, \
+                VKD3D_SHADER_SWIZZLE_ ## z, \
+                VKD3D_SHADER_SWIZZLE_ ## w)
 
 #define VKD3D_SHADER_NO_SWIZZLE VKD3D_SHADER_SWIZZLE(X, Y, Z, W)
+
+static inline uint32_t vkd3d_shader_create_swizzle(enum vkd3d_shader_swizzle_component x,
+        enum vkd3d_shader_swizzle_component y, enum vkd3d_shader_swizzle_component z,
+        enum vkd3d_shader_swizzle_component w)
+{
+    return ((x & VKD3D_SHADER_SWIZZLE_MASK) << VKD3D_SHADER_SWIZZLE_SHIFT(0))
+            | ((y & VKD3D_SHADER_SWIZZLE_MASK) << VKD3D_SHADER_SWIZZLE_SHIFT(1))
+            | ((z & VKD3D_SHADER_SWIZZLE_MASK) << VKD3D_SHADER_SWIZZLE_SHIFT(2))
+            | ((w & VKD3D_SHADER_SWIZZLE_MASK) << VKD3D_SHADER_SWIZZLE_SHIFT(3));
+}
 
 #ifndef VKD3D_SHADER_NO_PROTOTYPES
 
