@@ -3379,7 +3379,7 @@ static void vkd3d_dxbc_compiler_emit_store(struct vkd3d_dxbc_compiler *compiler,
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     unsigned int component_count, dst_component_count;
     uint32_t components[VKD3D_VEC4_SIZE];
-    unsigned int i, component_idx;
+    unsigned int i, src_idx, dst_idx;
     uint32_t type_id, dst_val_id;
 
     assert(write_mask);
@@ -3409,12 +3409,15 @@ static void vkd3d_dxbc_compiler_emit_store(struct vkd3d_dxbc_compiler *compiler,
 
         assert(component_count <= ARRAY_SIZE(components));
 
-        for (i = 0, component_idx = 0; i < dst_component_count; ++i)
+        for (i = 0, src_idx = 0, dst_idx = 0; dst_idx < VKD3D_VEC4_SIZE; ++dst_idx)
         {
-            if (write_mask & (VKD3DSP_WRITEMASK_0 << i))
-                components[i] = dst_component_count + component_idx++;
+            if (write_mask & (VKD3DSP_WRITEMASK_0 << dst_idx))
+                components[i] = dst_component_count + src_idx++;
             else
                 components[i] = i;
+
+            if (dst_write_mask & (VKD3DSP_WRITEMASK_0 << dst_idx))
+                ++i;
         }
 
         val_id = vkd3d_spirv_build_op_vector_shuffle(builder,
