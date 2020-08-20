@@ -3385,6 +3385,16 @@ static void vkd3d_dxbc_compiler_emit_store(struct vkd3d_dxbc_compiler *compiler,
     assert(write_mask);
 
     component_count = vkd3d_write_mask_component_count(write_mask);
+    dst_component_count = vkd3d_write_mask_component_count(dst_write_mask);
+
+    if (dst_component_count == 1 && component_count != 1)
+    {
+        type_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
+        val_id = vkd3d_spirv_build_op_composite_extract1(builder, type_id, val_id,
+                vkd3d_write_mask_get_component_idx(dst_write_mask));
+        write_mask &= dst_write_mask;
+        component_count = 1;
+    }
 
     if (component_count == 1)
     {
@@ -3392,7 +3402,6 @@ static void vkd3d_dxbc_compiler_emit_store(struct vkd3d_dxbc_compiler *compiler,
                 dst_id, dst_write_mask, component_type, storage_class, write_mask, val_id);
     }
 
-    dst_component_count = vkd3d_write_mask_component_count(dst_write_mask);
     if (dst_component_count != component_count)
     {
         type_id = vkd3d_spirv_get_type_id(builder, component_type, dst_component_count);
