@@ -32830,6 +32830,7 @@ static void test_register_space(void)
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
     ID3D12GraphicsCommandList *command_list;
+    unsigned int descriptor_count;
     struct test_context context;
     ID3D12DescriptorHeap *heap;
     ID3D12CommandQueue *queue;
@@ -32841,17 +32842,13 @@ static void test_register_space(void)
     static const D3D12_DESCRIPTOR_RANGE descriptor_ranges[] =
     {
         {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 2, 0},
-        {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 1, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
-        {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 1, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
-        {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 2, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 1, 1, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 2, 2, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
         {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3, 1, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
-        {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3, 2, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
 
         {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 1, 1, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
-        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 1, 2, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
-        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 2, 1, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
-        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 2, 2, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
-        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 3, 1, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 2, 1, 2, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
+        {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 2, 2, 1, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
         {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 3, 2, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
         {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 3, 4, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
         {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 3, 3, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND},
@@ -32949,6 +32946,7 @@ static void test_register_space(void)
         0x060000b2, 0x00100012, 0x00000000, 0x0021e000, 0x00000007, 0x00000003, 0x060000b3, 0x00100012,
         0x00000000, 0x0021e000, 0x00000006, 0x00000003, 0x0100003e,
     };
+    static const uint32_t uav_data[] = {100, 200, 400, 300, 600, 500, 700, 800};
     static const uint32_t srv_data[] = {100, 200, 300, 400, 500, 600};
 
     if (!init_compute_test_context(&context))
@@ -32963,7 +32961,11 @@ static void test_register_space(void)
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
     ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
 
-    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, ARRAY_SIZE(descriptor_ranges));
+    for (i = 0, descriptor_count = 0; i < ARRAY_SIZE(descriptor_ranges); ++i)
+    {
+        descriptor_count += descriptor_ranges[i].NumDescriptors;
+    }
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, descriptor_count);
 
     for (i = 0; i < ARRAY_SIZE(input_buffers); ++i)
     {
@@ -33033,7 +33035,7 @@ static void test_register_space(void)
     {
         transition_sub_resource_state(command_list, output_buffers[i], 0,
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        check_buffer_uint(output_buffers[i], queue, command_list, (i + 1) * 100, 0);
+        check_buffer_uint(output_buffers[i], queue, command_list, uav_data[i], 0);
         reset_command_list(command_list, context.allocator);
     }
 
