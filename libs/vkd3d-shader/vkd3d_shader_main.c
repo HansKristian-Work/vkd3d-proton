@@ -917,9 +917,6 @@ void vkd3d_shader_free_scan_descriptor_info(struct vkd3d_shader_scan_descriptor_
 
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *shader_code)
 {
-    if (!shader_code)
-        return;
-
     vkd3d_free((void *)shader_code->code);
 }
 
