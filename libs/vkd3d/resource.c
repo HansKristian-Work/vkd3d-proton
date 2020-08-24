@@ -175,11 +175,20 @@ static HRESULT vkd3d_import_host_memory(struct d3d12_device *device,
         void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
 {
     VkImportMemoryHostPointerInfoEXT import_info;
+    HRESULT hr;
+
     import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT;
     import_info.pNext = pNext;
     import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT;
     import_info.pHostPointer = host_address;
-    return vkd3d_try_allocate_memory(device, size, type_flags, type_mask, &import_info, vk_memory, vk_memory_type);
+    if (SUCCEEDED(hr = vkd3d_try_allocate_memory(device, size, type_flags, type_mask, &import_info, vk_memory, vk_memory_type)))
+        return hr;
+
+    /* If we failed, fall back to just being host visible / coherent (NVIDIA).
+     * Generally the app will access the memory thorugh the main host pointer, so it's fine. */
+    return vkd3d_try_allocate_memory(device, size,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            type_mask, &import_info, vk_memory, vk_memory_type);
 }
 
 static HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
