@@ -1450,6 +1450,10 @@ struct vkd3d_sampler_state
 {
     pthread_mutex_t mutex;
     struct hash_map map;
+
+    VkDescriptorPool *vk_descriptor_pools;
+    size_t vk_descriptor_pools_size;
+    size_t vk_descriptor_pool_count;
 };
 
 HRESULT vkd3d_sampler_state_init(struct vkd3d_sampler_state *state,
@@ -1458,6 +1462,11 @@ void vkd3d_sampler_state_cleanup(struct vkd3d_sampler_state *state,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
 HRESULT vkd3d_sampler_state_create_static_sampler(struct vkd3d_sampler_state *state,
         struct d3d12_device *device, const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler) DECLSPEC_HIDDEN;
+HRESULT vkd3d_sampler_state_allocate_descriptor_set(struct vkd3d_sampler_state *state,
+        struct d3d12_device *device, VkDescriptorSetLayout vk_layout, VkDescriptorSet *vk_set,
+        VkDescriptorPool *vk_pool) DECLSPEC_HIDDEN;
+void vkd3d_sampler_state_free_descriptor_set(struct vkd3d_sampler_state *state,
+        struct d3d12_device *device, VkDescriptorSet vk_set, VkDescriptorPool vk_pool) DECLSPEC_HIDDEN;
 
 /* NULL resources */
 struct vkd3d_null_resources

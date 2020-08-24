@@ -1662,6 +1662,8 @@ HRESULT vkd3d_sampler_state_init(struct vkd3d_sampler_state *state,
 {
     int rc;
 
+    memset(state, 0, sizeof(*state));
+
     if ((rc = pthread_mutex_init(&state->mutex, NULL)))
         return hresult_from_errno(rc);
 
@@ -1674,6 +1676,11 @@ void vkd3d_sampler_state_cleanup(struct vkd3d_sampler_state *state,
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     uint32_t i;
+
+    for (i = 0; i < state->vk_descriptor_pool_count; i++)
+        VK_CALL(vkDestroyDescriptorPool(device->vk_device, state->vk_descriptor_pools[i], NULL));
+
+    vkd3d_free(state->vk_descriptor_pools);
 
     for (i = 0; i < state->map.entry_count; i++)
     {
@@ -1725,6 +1732,98 @@ HRESULT vkd3d_sampler_state_create_static_sampler(struct vkd3d_sampler_state *st
 
     pthread_mutex_unlock(&state->mutex);
     return S_OK;
+}
+
+static VkResult vkd3d_sampler_state_create_descriptor_pool(struct d3d12_device *device, VkDescriptorPool *vk_pool)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkDescriptorPoolCreateInfo pool_info;
+    VkDescriptorPoolSize pool_size;
+
+    pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLER;
+    pool_size.descriptorCount = 16384;
+
+    pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_info.pNext = NULL;
+    pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    pool_info.maxSets = 4096;
+    pool_info.poolSizeCount = 1;
+    pool_info.pPoolSizes = &pool_size;
+
+    return VK_CALL(vkCreateDescriptorPool(device->vk_device, &pool_info, NULL, vk_pool));
+}
+
+HRESULT vkd3d_sampler_state_allocate_descriptor_set(struct vkd3d_sampler_state *state,
+        struct d3d12_device *device, VkDescriptorSetLayout vk_layout, VkDescriptorSet *vk_set,
+        VkDescriptorPool *vk_pool)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkResult vr = VK_ERROR_OUT_OF_POOL_MEMORY;
+    VkDescriptorSetAllocateInfo alloc_info;
+    size_t i;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&state->mutex)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    alloc_info.pNext = NULL;
+    alloc_info.descriptorSetCount = 1;
+    alloc_info.pSetLayouts = &vk_layout;
+
+    for (i = 0; i < state->vk_descriptor_pool_count; i++)
+    {
+        alloc_info.descriptorPool = state->vk_descriptor_pools[i];
+        vr = VK_CALL(vkAllocateDescriptorSets(device->vk_device, &alloc_info, vk_set));
+
+        if (vr == VK_SUCCESS)
+        {
+            *vk_pool = alloc_info.descriptorPool;
+            break;
+        }
+    }
+
+    if (vr == VK_ERROR_OUT_OF_POOL_MEMORY || vr == VK_ERROR_FRAGMENTED_POOL)
+    {
+        vr = vkd3d_sampler_state_create_descriptor_pool(device, &alloc_info.descriptorPool);
+
+        if (vr != VK_SUCCESS)
+        {
+            pthread_mutex_unlock(&state->mutex);
+            return hresult_from_vk_result(vr);
+        }
+
+        if (!vkd3d_array_reserve((void **)&state->vk_descriptor_pools, &state->vk_descriptor_pools_size,
+                state->vk_descriptor_pool_count + 1, sizeof(*state->vk_descriptor_pools)))
+        {
+            VK_CALL(vkDestroyDescriptorPool(device->vk_device, alloc_info.descriptorPool, NULL));
+            pthread_mutex_unlock(&state->mutex);
+            return E_OUTOFMEMORY;
+        }
+
+        state->vk_descriptor_pools[state->vk_descriptor_pool_count++] = alloc_info.descriptorPool;
+        vr = VK_CALL(vkAllocateDescriptorSets(device->vk_device, &alloc_info, vk_set));
+        *vk_pool = alloc_info.descriptorPool;
+    }
+
+    pthread_mutex_unlock(&state->mutex);
+    return hresult_from_vk_result(vr);
+}
+
+void vkd3d_sampler_state_free_descriptor_set(struct vkd3d_sampler_state *state,
+        struct d3d12_device *device, VkDescriptorSet vk_set, VkDescriptorPool vk_pool)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&state->mutex)))
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+
+    VK_CALL(vkFreeDescriptorSets(device->vk_device, vk_pool, 1, &vk_set));
+    pthread_mutex_unlock(&state->mutex);
 }
 
 static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_resource *resource,
