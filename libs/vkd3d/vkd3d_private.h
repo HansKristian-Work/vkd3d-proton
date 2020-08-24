@@ -1445,6 +1445,20 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_
         struct d3d12_command_signature **signature) DECLSPEC_HIDDEN;
 struct d3d12_command_signature *unsafe_impl_from_ID3D12CommandSignature(ID3D12CommandSignature *iface) DECLSPEC_HIDDEN;
 
+/* Static samplers */
+struct vkd3d_sampler_state
+{
+    pthread_mutex_t mutex;
+    struct hash_map map;
+};
+
+HRESULT vkd3d_sampler_state_init(struct vkd3d_sampler_state *state,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
+void vkd3d_sampler_state_cleanup(struct vkd3d_sampler_state *state,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
+HRESULT vkd3d_sampler_state_create_static_sampler(struct vkd3d_sampler_state *state,
+        struct d3d12_device *device, const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler) DECLSPEC_HIDDEN;
+
 /* NULL resources */
 struct vkd3d_null_resources
 {

@@ -1610,6 +1610,123 @@ static struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view
     return view;
 }
 
+struct vkd3d_sampler_key
+{
+    D3D12_STATIC_SAMPLER_DESC desc;
+};
+
+struct vkd3d_sampler_entry
+{
+    struct hash_map_entry entry;
+    D3D12_STATIC_SAMPLER_DESC desc;
+    VkSampler vk_sampler;
+};
+
+uint32_t vkd3d_sampler_entry_hash(const void *key)
+{
+    const struct vkd3d_sampler_key *k = key;
+    uint32_t hash;
+
+    hash = (uint32_t)k->desc.Filter;
+    hash = hash_combine(hash, (uint32_t)k->desc.AddressU);
+    hash = hash_combine(hash, (uint32_t)k->desc.AddressV);
+    hash = hash_combine(hash, (uint32_t)k->desc.AddressW);
+    hash = hash_combine(hash, float_bits_to_uint32(k->desc.MipLODBias));
+    hash = hash_combine(hash, k->desc.MaxAnisotropy);
+    hash = hash_combine(hash, (uint32_t)k->desc.ComparisonFunc);
+    hash = hash_combine(hash, (uint32_t)k->desc.BorderColor);
+    hash = hash_combine(hash, float_bits_to_uint32(k->desc.MinLOD));
+    hash = hash_combine(hash, float_bits_to_uint32(k->desc.MaxLOD));
+    return hash;
+}
+
+bool vkd3d_sampler_entry_compare(const void *key, const struct hash_map_entry *entry)
+{
+    const struct vkd3d_sampler_entry *e = (const struct vkd3d_sampler_entry*) entry;
+    const struct vkd3d_sampler_key *k = key;
+
+    return k->desc.Filter == e->desc.Filter &&
+            k->desc.AddressU == e->desc.AddressU &&
+            k->desc.AddressV == e->desc.AddressV &&
+            k->desc.AddressW == e->desc.AddressW &&
+            k->desc.MipLODBias == e->desc.MipLODBias &&
+            k->desc.MaxAnisotropy == e->desc.MaxAnisotropy &&
+            k->desc.ComparisonFunc == e->desc.ComparisonFunc &&
+            k->desc.BorderColor == e->desc.BorderColor &&
+            k->desc.MinLOD == e->desc.MinLOD &&
+            k->desc.MaxLOD == e->desc.MaxLOD;
+}
+
+HRESULT vkd3d_sampler_state_init(struct vkd3d_sampler_state *state,
+        struct d3d12_device *device)
+{
+    int rc;
+
+    if ((rc = pthread_mutex_init(&state->mutex, NULL)))
+        return hresult_from_errno(rc);
+
+    hash_map_init(&state->map, &vkd3d_sampler_entry_hash, &vkd3d_sampler_entry_compare, sizeof(struct vkd3d_sampler_entry));
+    return S_OK;
+}
+
+void vkd3d_sampler_state_cleanup(struct vkd3d_sampler_state *state,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    uint32_t i;
+
+    for (i = 0; i < state->map.entry_count; i++)
+    {
+        struct vkd3d_sampler_entry *e = (struct vkd3d_sampler_entry *)hash_map_get_entry(&state->map, i);
+
+        if (e->entry.flags & HASH_MAP_ENTRY_OCCUPIED)
+            VK_CALL(vkDestroySampler(device->vk_device, e->vk_sampler, NULL));
+    }
+
+    hash_map_clear(&state->map);
+
+    pthread_mutex_destroy(&state->mutex);
+}
+
+HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
+        const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler);
+
+HRESULT vkd3d_sampler_state_create_static_sampler(struct vkd3d_sampler_state *state,
+        struct d3d12_device *device, const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler)
+{
+    struct vkd3d_sampler_entry entry, *e;
+    HRESULT hr;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&state->mutex)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    if ((e = (struct vkd3d_sampler_entry*)hash_map_find(&state->map, desc)))
+    {
+        *vk_sampler = e->vk_sampler;
+        pthread_mutex_unlock(&state->mutex);
+        return S_OK;
+    }
+
+    if (FAILED(hr = d3d12_create_static_sampler(device, desc, vk_sampler)))
+    {
+        pthread_mutex_unlock(&state->mutex);
+        return hr;
+    }
+
+    entry.desc = *desc;
+    entry.vk_sampler = *vk_sampler;
+
+    if (!hash_map_insert(&state->map, desc, &entry.entry))
+        ERR("Failed to insert sampler into hash map.\n");
+
+    pthread_mutex_unlock(&state->mutex);
+    return S_OK;
+}
+
 static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_resource *resource,
         UINT *total_tile_count, D3D12_PACKED_MIP_INFO *packed_mip_info, D3D12_TILE_SHAPE *tile_shape,
         D3D12_SUBRESOURCE_TILING *tilings, VkSparseImageMemoryRequirements *vk_info)
