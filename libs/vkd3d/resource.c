@@ -816,7 +816,10 @@ static HRESULT d3d12_heap_init_from_host_pointer(struct d3d12_heap *heap,
     HRESULT hr;
 
     if (!device->vk_info.EXT_external_memory_host)
-        return E_INVALIDARG;
+    {
+        WARN("VK_EXT_external_memory_host is not supported. Falling back to a private allocation. This will likely break debug code.\n");
+        address = NULL;
+    }
 
     memset(heap, 0, sizeof(*heap));
     heap->ID3D12Heap_iface.lpVtbl = &d3d12_heap_vtbl;
@@ -824,7 +827,8 @@ static HRESULT d3d12_heap_init_from_host_pointer(struct d3d12_heap *heap,
     heap->device = device;
 
     heap->desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-    heap->desc.Flags = D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    heap->desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS |
+            (address ? (D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER) : 0);
     heap->desc.Properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
     heap->desc.Properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
     heap->desc.Properties.Type = D3D12_HEAP_TYPE_CUSTOM;
