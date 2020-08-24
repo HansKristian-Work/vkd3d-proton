@@ -2241,7 +2241,7 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
 
     if ((shader_interface = vkd3d_find_struct(compile_info->next, INTERFACE_INFO)))
     {
-        compiler->xfb_info = vkd3d_find_struct(shader_interface->next, TRANSFORM_FEEDBACK_INFO);
+        compiler->xfb_info = vkd3d_find_struct(compile_info->next, TRANSFORM_FEEDBACK_INFO);
 
         compiler->shader_interface = *shader_interface;
         if (shader_interface->push_constant_buffer_count)
@@ -9110,7 +9110,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
 }
 
 int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
-        struct vkd3d_shader_code *spirv)
+        const struct vkd3d_shader_compile_info *compile_info, struct vkd3d_shader_code *spirv)
 {
     const struct vkd3d_shader_spirv_target_info *info = compiler->spirv_target_info;
     const struct vkd3d_shader_spirv_domain_shader_target_info *ds_info;
@@ -9127,7 +9127,7 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
 
     if (compiler->shader_type == VKD3D_SHADER_TYPE_DOMAIN)
     {
-        if (info && (ds_info = vkd3d_find_struct(info->next, SPIRV_DOMAIN_SHADER_TARGET_INFO)))
+        if (info && (ds_info = vkd3d_find_struct(compile_info->next, SPIRV_DOMAIN_SHADER_TARGET_INFO)))
         {
             vkd3d_dxbc_compiler_emit_tessellator_output_primitive(compiler, ds_info->output_primitive);
             vkd3d_dxbc_compiler_emit_tessellator_partitioning(compiler, ds_info->partitioning);

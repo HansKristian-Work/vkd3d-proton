@@ -364,7 +364,7 @@ int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info,
     }
 
     if (ret >= 0)
-        ret = vkd3d_dxbc_compiler_generate_spirv(spirv_compiler, out);
+        ret = vkd3d_dxbc_compiler_generate_spirv(spirv_compiler, compile_info, out);
 
     vkd3d_dxbc_compiler_destroy(spirv_compiler);
     vkd3d_shader_parser_destroy(&parser);
