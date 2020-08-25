@@ -5173,13 +5173,8 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
     bindings->root_signature = root_signature;
     bindings->static_sampler_set = VK_NULL_HANDLE;
 
-    if (root_signature && root_signature->vk_sampler_descriptor_layout)
-    {
-        /* FIXME allocate static sampler sets globally */
-        bindings->static_sampler_set = d3d12_command_allocator_allocate_descriptor_set(
-                list->allocator, root_signature->vk_sampler_descriptor_layout,
-                VKD3D_DESCRIPTOR_POOL_TYPE_IMMUTABLE_SAMPLER);
-    }
+    if (root_signature && root_signature->vk_sampler_set)
+        bindings->static_sampler_set = root_signature->vk_sampler_set;
 
     d3d12_command_list_invalidate_root_parameters(list, bind_point, true);
 }

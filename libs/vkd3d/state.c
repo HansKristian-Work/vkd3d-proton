@@ -63,6 +63,9 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+    vkd3d_sampler_state_free_descriptor_set(&device->sampler_state, device,
+            root_signature->vk_sampler_set, root_signature->vk_sampler_pool);
+
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->vk_pipeline_layout, NULL));
     VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_sampler_descriptor_layout, NULL));
     VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_root_descriptor_layout, NULL));
@@ -718,8 +721,13 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
         context->vk_binding += 1;
     }
 
-    hr = vkd3d_create_descriptor_set_layout(root_signature->device, 0,
-            desc->NumStaticSamplers, vk_binding_info, vk_set_layout);
+    if (FAILED(hr = vkd3d_create_descriptor_set_layout(root_signature->device, 0,
+            desc->NumStaticSamplers, vk_binding_info, &root_signature->vk_sampler_descriptor_layout)))
+        goto cleanup;
+
+    hr = vkd3d_sampler_state_allocate_descriptor_set(&root_signature->device->sampler_state,
+            root_signature->device, root_signature->vk_sampler_descriptor_layout,
+            &root_signature->vk_sampler_set, &root_signature->vk_sampler_pool);
 
 cleanup:
     vkd3d_free(vk_binding_info);
