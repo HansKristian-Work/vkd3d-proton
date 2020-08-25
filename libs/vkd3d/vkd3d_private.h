@@ -864,6 +864,9 @@ struct d3d12_root_signature
     VkDescriptorSetLayout vk_sampler_descriptor_layout;
     VkDescriptorSetLayout vk_root_descriptor_layout;
 
+    VkDescriptorPool vk_sampler_pool;
+    VkDescriptorSet vk_sampler_set;
+
     struct d3d12_root_parameter *parameters;
     unsigned int parameter_count;
 
