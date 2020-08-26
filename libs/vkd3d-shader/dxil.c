@@ -357,6 +357,8 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     int ret = VKD3D_OK;
     void *code;
 
+    dxil_spv_begin_thread_allocator_context();
+
     if (dxil_spv_parse_dxil_blob(dxbc->code, dxbc->size, &blob) != DXIL_SPV_SUCCESS)
     {
         ret = VKD3D_ERROR_INVALID_SHADER;
@@ -570,6 +572,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 end:
     dxil_spv_converter_free(converter);
     dxil_spv_parsed_blob_free(blob);
+    dxil_spv_end_thread_allocator_context();
     return ret;
 }
 
