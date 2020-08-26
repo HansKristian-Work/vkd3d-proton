@@ -1107,7 +1107,6 @@ struct d3d12_descriptor_pool_cache
 enum vkd3d_descriptor_pool_types
 {
     VKD3D_DESCRIPTOR_POOL_TYPE_STATIC = 0,
-    VKD3D_DESCRIPTOR_POOL_TYPE_IMMUTABLE_SAMPLER,
     VKD3D_DESCRIPTOR_POOL_TYPE_COUNT
 };
 
