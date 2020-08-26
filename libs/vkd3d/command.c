@@ -1249,10 +1249,7 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
 {
     static const VkDescriptorPoolSize pool_sizes[] =
     {
-        /* Must be first in the array. */
-        /* Need at least 2048 so we can allocate an immutable sampler set. */
         {VK_DESCRIPTOR_TYPE_SAMPLER, 2048},
-
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1024},
         {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1024},
         {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1024},
@@ -1289,12 +1286,7 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
         pool_desc.poolSizeCount = ARRAY_SIZE(pool_sizes);
         pool_desc.pPoolSizes = pool_sizes;
 
-        if (pool_type == VKD3D_DESCRIPTOR_POOL_TYPE_IMMUTABLE_SAMPLER)
-        {
-            /* Only allocate for samplers. */
-            pool_desc.poolSizeCount = 1;
-        }
-        else if (!device->vk_info.EXT_inline_uniform_block ||
+        if (!device->vk_info.EXT_inline_uniform_block ||
                 device->vk_info.device_limits.maxPushConstantsSize >= (D3D12_MAX_ROOT_COST * sizeof(uint32_t)))
         {
             pool_desc.pNext = NULL;
