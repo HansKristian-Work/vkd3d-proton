@@ -360,6 +360,12 @@ HRESULT vkd3d_set_private_data_interface(struct vkd3d_private_store *store,
 /* ID3D12Fence */
 typedef ID3D12Fence1 d3d12_fence_iface;
 
+struct d3d12_fence_value
+{
+    uint64_t virtual_value;
+    uint64_t physical_value;
+};
+
 struct d3d12_fence
 {
     d3d12_fence_iface ID3D12Fence_iface;
@@ -368,9 +374,15 @@ struct d3d12_fence
     D3D12_FENCE_FLAGS d3d12_flags;
 
     VkSemaphore timeline_semaphore;
-    uint64_t pending_timeline_value;
 
-    uint64_t value;
+    uint64_t max_pending_virtual_timeline_value;
+    uint64_t virtual_value;
+    uint64_t physical_value;
+    uint64_t counter;
+    struct d3d12_fence_value *pending_updates;
+    size_t pending_updates_count;
+    size_t pending_updates_size;
+
     pthread_mutex_t mutex;
     pthread_cond_t cond;
 
@@ -383,12 +395,6 @@ struct d3d12_fence
     size_t event_count;
 
     LONG pending_worker_operation_count;
-
-    VkSemaphore *queue_operation_semaphores;
-    uint64_t *queue_operation_timeline_values;
-    size_t queue_operation_semaphore_count;
-    size_t queue_operation_semaphore_size;
-    size_t queue_operation_timeline_value_size;
 
     struct d3d12_device *device;
 
