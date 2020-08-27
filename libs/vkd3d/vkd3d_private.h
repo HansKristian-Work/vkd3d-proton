@@ -1549,6 +1549,7 @@ struct vkd3d_format_compatibility_list
 
 struct vkd3d_memory_info
 {
+    uint32_t global_mask;
     uint32_t buffer_type_mask;
     uint32_t sampled_type_mask;
     uint32_t rt_ds_type_mask;
