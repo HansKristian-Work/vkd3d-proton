@@ -123,6 +123,10 @@ static HRESULT vkd3d_try_allocate_memory(struct d3d12_device *device,
     VkResult vr;
     uint32_t i;
 
+    /* buffer_mask / sampled_mask etc will generally take care of this, but for certain fallback scenarios
+     * where we select other memory types, we need to mask here as well. */
+    type_mask &= device->memory_info.global_mask;
+
     allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocate_info.pNext = pNext;
     allocate_info.allocationSize = size;
@@ -6083,6 +6087,99 @@ void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
     memset(null_resources, 0, sizeof(*null_resources));
 }
 
+static uint32_t vkd3d_memory_info_find_global_mask(struct d3d12_device *device)
+{
+    /* Never allow memory types from any PCI-pinned heap.
+     * If we allow it, it might end up being used as a fallback memory type, which will cause severe instabilities.
+     * These types should only be used in a controlled fashion. */
+    VkDeviceSize largest_device_local_heap_size = 0;
+    VkDeviceSize largest_host_only_heap_size = 0;
+    uint32_t largest_device_local_heap_index = 0;
+    uint32_t largest_host_only_heap_index = 0;
+    uint32_t device_local_heap_count = 0;
+    uint32_t host_only_heap_count = 0;
+    bool exists_device_only_type;
+    VkMemoryPropertyFlags flags;
+    bool exists_host_only_type;
+    VkDeviceSize heap_size;
+    uint32_t heap_index;
+    uint32_t i, mask;
+
+    for (i = 0; i < device->memory_properties.memoryHeapCount; i++)
+    {
+        heap_size = device->memory_properties.memoryHeaps[i].size;
+        if (device->memory_properties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+        {
+            if (heap_size > largest_device_local_heap_size)
+            {
+                largest_device_local_heap_index = i;
+                largest_device_local_heap_size = heap_size;
+            }
+            device_local_heap_count++;
+        }
+        else
+        {
+            if (heap_size > largest_host_only_heap_size)
+            {
+                largest_host_only_heap_index = i;
+                largest_host_only_heap_size = heap_size;
+            }
+            host_only_heap_count++;
+        }
+    }
+
+    /* If we only have one device local heap, or no host-only heaps, there is nothing to do. */
+    if (device_local_heap_count <= 1 || host_only_heap_count == 0)
+        return UINT32_MAX;
+
+    /* Verify that there exists a DEVICE_LOCAL type that is not HOST_VISIBLE on this device
+     * which maps to the largest device local heap. That way, it is safe to mask out all memory types which are
+     * DEVICE_LOCAL | HOST_VISIBLE.
+     * Similarly, there must exist a host-only type. */
+    exists_device_only_type = false;
+    exists_host_only_type = false;
+    for (i = 0; i < device->memory_properties.memoryTypeCount; i++)
+    {
+        flags = device->memory_properties.memoryTypes[i].propertyFlags;
+        heap_index = device->memory_properties.memoryTypes[i].heapIndex;
+
+        if (heap_index == largest_device_local_heap_index &&
+            (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0 &&
+            (flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == 0)
+        {
+            exists_device_only_type = true;
+        }
+        else if (heap_index == largest_host_only_heap_index &&
+                 (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) == 0 &&
+                 (flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0)
+        {
+            exists_host_only_type = true;
+        }
+    }
+
+    if (!exists_device_only_type || !exists_host_only_type)
+        return UINT32_MAX;
+
+    /* Mask out any memory types which are deemed problematic. */
+    for (i = 0, mask = 0; i < device->memory_properties.memoryTypeCount; i++)
+    {
+        flags = device->memory_properties.memoryTypes[i].propertyFlags;
+        heap_index = device->memory_properties.memoryTypes[i].propertyFlags;
+        const VkMemoryPropertyFlags pinned_mask = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+        if (heap_index != largest_device_local_heap_index &&
+            heap_index != largest_host_only_heap_index &&
+            (flags & pinned_mask) == pinned_mask)
+        {
+            mask |= 1u << i;
+            WARN("Blocking memory type %u for use (PCI-pinned memory).\n", i);
+        }
+    }
+
+    return ~mask;
+}
+
 HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
         struct d3d12_device *device)
 {
@@ -6093,6 +6190,8 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     VkBuffer buffer;
     VkImage image;
     VkResult vr;
+
+    info->global_mask = vkd3d_memory_info_find_global_mask(device);
 
     memset(&buffer_info, 0, sizeof(buffer_info));
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -6177,6 +6276,10 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     VK_CALL(vkGetImageMemoryRequirements(device->vk_device, image, &memory_requirements));
     VK_CALL(vkDestroyImage(device->vk_device, image, NULL));
     info->rt_ds_type_mask &= memory_requirements.memoryTypeBits;
+
+    info->buffer_type_mask &= info->global_mask;
+    info->sampled_type_mask &= info->global_mask;
+    info->rt_ds_type_mask &= info->global_mask;
 
     TRACE("Device supports buffers on memory types 0x%#x.\n", info->buffer_type_mask);
     TRACE("Device supports textures on memory types 0x%#x.\n", info->sampled_type_mask);
