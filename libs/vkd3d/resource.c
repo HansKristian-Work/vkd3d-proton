@@ -1822,7 +1822,8 @@ void vkd3d_sampler_state_free_descriptor_set(struct vkd3d_sampler_state *state,
     if ((rc = pthread_mutex_lock(&state->mutex)))
         ERR("Failed to lock mutex, rc %d.\n", rc);
 
-    VK_CALL(vkFreeDescriptorSets(device->vk_device, vk_pool, 1, &vk_set));
+    if (vk_pool && vk_set)
+        VK_CALL(vkFreeDescriptorSets(device->vk_device, vk_pool, 1, &vk_set));
     pthread_mutex_unlock(&state->mutex);
 }
 
