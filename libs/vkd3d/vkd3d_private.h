@@ -139,6 +139,7 @@ struct vkd3d_vulkan_info
     bool EXT_extended_dynamic_state;
     bool EXT_external_memory_host;
     /* AMD device extensions */
+    bool AMD_buffer_marker;
     bool AMD_shader_core_properties;
     bool AMD_shader_core_properties2;
     /* NV device extensions */

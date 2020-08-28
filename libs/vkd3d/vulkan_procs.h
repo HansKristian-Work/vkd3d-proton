@@ -246,6 +246,9 @@ VK_DEVICE_EXT_PFN(vkGetSwapchainImagesKHR)
 VK_DEVICE_EXT_PFN(vkAcquireNextImageKHR)
 VK_DEVICE_EXT_PFN(vkQueuePresentKHR)
 
+/* VK_AMD_buffer_marker */
+VK_DEVICE_EXT_PFN(vkCmdWriteBufferMarkerAMD)
+
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN
