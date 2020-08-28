@@ -6546,20 +6546,64 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetViewInstanceMask(d3d12_comma
     FIXME("iface %p, mask %#x stub!\n", iface, mask);
 }
 
+static bool vk_pipeline_stage_from_wbi_mode(D3D12_WRITEBUFFERIMMEDIATE_MODE mode, VkPipelineStageFlagBits *stage)
+{
+    switch (mode)
+    {
+        /* It is not entirely clear what DEFAULT is supposed
+         * to do exactly, so treat it the same way as IN */
+        case D3D12_WRITEBUFFERIMMEDIATE_MODE_DEFAULT:
+        case D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_IN:
+            *stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            return true;
+
+        case D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_OUT:
+            *stage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+            return true;
+
+        default:
+            return false;
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_command_list_iface *iface,
         UINT count, const D3D12_WRITEBUFFERIMMEDIATE_PARAMETER *parameters,
         const D3D12_WRITEBUFFERIMMEDIATE_MODE *modes)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkPipelineStageFlagBits stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     struct d3d12_resource *resource;
+    VkDeviceSize offset;
     unsigned int i;
 
-    FIXME("iface %p, count %u, parameters %p, modes %p stub!\n", iface, count, parameters, modes);
+    TRACE("iface %p, count %u, parameters %p, modes %p.\n", iface, count, parameters, modes);
 
     for (i = 0; i < count; ++i)
     {
-        resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, parameters[i].Dest);
-        d3d12_command_list_track_resource_usage(list, resource);
+        if (!(resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, parameters[i].Dest)))
+        {
+            d3d12_command_list_mark_as_invalid(list, "Invalid target address %p.\n", parameters[i].Dest);
+            return;
+        }
+
+        offset = parameters[i].Dest - resource->gpu_address;
+
+        if (modes && !vk_pipeline_stage_from_wbi_mode(modes[i], &stage))
+        {
+            d3d12_command_list_mark_as_invalid(list, "Invalid mode %u.\n", modes[i]);
+            return;
+        }
+
+        if (list->device->vk_info.AMD_buffer_marker)
+        {
+            VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer, stage,
+                    resource->vk_buffer, offset, parameters[i].Value));
+        }
+        else
+        {
+            FIXME_ONCE("VK_AMD_buffer_marker not supported by device.\n");
+        }
     }
 }
 
