@@ -37991,9 +37991,9 @@ static void test_write_buffer_immediate(void)
 
     get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     value = get_readback_uint(&rb, 0, 0, 0);
-    todo ok(value == parameters[0].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[0].Value);
+    ok(value == parameters[0].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[0].Value);
     value = get_readback_uint(&rb, 1, 0, 0);
-    todo ok(value == parameters[1].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[1].Value);
+    ok(value == parameters[1].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[1].Value);
     release_resource_readback(&rb);
     reset_command_list(command_list, context.allocator);
 
@@ -38010,16 +38010,16 @@ static void test_write_buffer_immediate(void)
 
     get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     value = get_readback_uint(&rb, 0, 0, 0);
-    todo ok(value == parameters[0].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[0].Value);
+    ok(value == parameters[0].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[0].Value);
     value = get_readback_uint(&rb, 1, 0, 0);
-    todo ok(value == parameters[1].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[1].Value);
+    ok(value == parameters[1].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[1].Value);
     release_resource_readback(&rb);
     reset_command_list(command_list, context.allocator);
 
     modes[0] = 0x7fffffff;
     ID3D12GraphicsCommandList2_WriteBufferImmediate(command_list2, ARRAY_SIZE(parameters), parameters, modes);
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     ID3D12Resource_Release(buffer);
     ID3D12GraphicsCommandList2_Release(command_list2);
