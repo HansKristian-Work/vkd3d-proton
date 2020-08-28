@@ -6670,6 +6670,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
         const D3D12_WRITEBUFFERIMMEDIATE_MODE *modes)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    VkPipelineStageFlags wait_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkPipelineStageFlagBits stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     struct d3d12_resource *resource;
@@ -6701,7 +6702,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
         }
         else
         {
-            FIXME_ONCE("VK_AMD_buffer_marker not supported by device.\n");
+            d3d12_command_list_end_current_render_pass(list, true);
+
+            if (!(wait_stage_mask & stage))
+            {
+                VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer, stage,
+                        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 0, NULL));
+                wait_stage_mask |= stage;
+            }
+
+            VK_CALL(vkCmdUpdateBuffer(list->vk_command_buffer, resource->vk_buffer,
+                    offset, sizeof(parameters[i].Value), &parameters[i].Value));
         }
     }
 }
