@@ -1294,14 +1294,31 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetDevice(ID3D12PipelineSt
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetCachedBlob(ID3D12PipelineState *iface,
         ID3DBlob **blob)
 {
+    struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
     struct d3d_blob *blob_object;
+    void *cache_data = NULL;
+    size_t cache_size = 0;
+    VkResult vr;
     HRESULT hr;
 
-    FIXME_ONCE("iface %p, blob %p semi-stub!\n", iface, blob);
+    TRACE("iface %p, blob %p.\n", iface, blob);
 
-    if (FAILED(hr = d3d_blob_create(NULL, 0, &blob_object)))
+    if ((vr = vkd3d_serialize_pipeline_state(state, &cache_size, NULL)))
+        return hresult_from_vk_result(vr);
+
+    if (!(cache_data = malloc(cache_size)))
+        return E_OUTOFMEMORY;
+
+    if ((vr = vkd3d_serialize_pipeline_state(state, &cache_size, cache_data)))
+    {
+        vkd3d_free(cache_data);
+        return hresult_from_vk_result(vr);
+    }
+
+    if (FAILED(hr = d3d_blob_create(cache_data, cache_size, &blob_object)))
     {
         ERR("Failed to create blob, hr %#x.", hr);
+        vkd3d_free(cache_data);
         return hr;
     }
 
