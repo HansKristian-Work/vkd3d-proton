@@ -1000,6 +1000,7 @@ struct d3d12_pipeline_state
         struct d3d12_compute_pipeline_state compute;
     };
     VkPipelineBindPoint vk_bind_point;
+    VkPipelineCache vk_pso_cache;
 
     struct d3d12_device *device;
 
@@ -1075,7 +1076,7 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format,
         VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags) DECLSPEC_HIDDEN;
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
-        const struct vkd3d_pipeline_key *key, VkFormat dsv_format,
+        const struct vkd3d_pipeline_key *key, VkFormat dsv_format, VkPipelineCache vk_cache,
         VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags) DECLSPEC_HIDDEN;
 struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface) DECLSPEC_HIDDEN;
 
@@ -1093,6 +1094,10 @@ struct d3d12_pipeline_library
 
 HRESULT d3d12_pipeline_library_create(struct d3d12_device *device, const void *blob,
         size_t blob_length, struct d3d12_pipeline_library **pipeline_library) DECLSPEC_HIDDEN;
+
+HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
+        const D3D12_CACHED_PIPELINE_STATE *state, VkPipelineCache *cache) DECLSPEC_HIDDEN;
+VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state, size_t *size, void *data) DECLSPEC_HIDDEN;
 
 struct vkd3d_buffer
 {

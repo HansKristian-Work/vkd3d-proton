@@ -1227,6 +1227,7 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState 
         else if (d3d12_pipeline_state_is_compute(state))
             VK_CALL(vkDestroyPipeline(device->vk_device, state->compute.vk_pipeline, NULL));
 
+        VK_CALL(vkDestroyPipelineCache(device->vk_device, state->vk_pso_cache, NULL));
         vkd3d_free(state);
 
         d3d12_device_release(device);
@@ -1377,7 +1378,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
 
 static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
         const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface_info *shader_interface,
-        VkPipelineLayout vk_pipeline_layout, VkPipeline *vk_pipeline)
+        VkPipelineLayout vk_pipeline_layout, VkPipelineCache vk_cache, VkPipeline *vk_pipeline)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkComputePipelineCreateInfo pipeline_info;
@@ -1395,7 +1396,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
     pipeline_info.basePipelineIndex = -1;
 
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device,
-            VK_NULL_HANDLE, 1, &pipeline_info, NULL, vk_pipeline));
+            vk_cache, 1, &pipeline_info, NULL, vk_pipeline));
     VK_CALL(vkDestroyShaderModule(device->vk_device, pipeline_info.stage.module, NULL));
     if (vr < 0)
     {
@@ -1434,8 +1435,16 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
     shader_interface.push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
 
-    if (FAILED(hr = vkd3d_create_compute_pipeline(device, &desc->cs, &shader_interface,
-            root_signature->vk_pipeline_layout, &state->compute.vk_pipeline)))
+    if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &state->vk_pso_cache)) < 0)
+    {
+        ERR("Failed to create pipeline cache, hr %d.\n", hr);
+        return hr;
+    }
+
+    hr = vkd3d_create_compute_pipeline(device, &desc->cs, &shader_interface,
+            root_signature->vk_pipeline_layout, state->vk_pso_cache, &state->compute.vk_pipeline);
+
+    if (FAILED(hr))
     {
         WARN("Failed to create Vulkan compute pipeline, hr %#x.\n", hr);
         return hr;
@@ -2495,8 +2504,15 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     {
         /* If we have EXT_extended_dynamic_state, we can compile a pipeline right here.
          * There are still some edge cases where we need to fall back to special pipelines, but that should be very rare. */
+        if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &state->vk_pso_cache)) < 0)
+        {
+            ERR("Failed to create pipeline cache, hr %d.\n", hr);
+            goto fail;
+        }
+
         graphics->pipeline = d3d12_pipeline_state_create_pipeline_variant(state, NULL, graphics->dsv_format,
-                                                                          &graphics->render_pass, &graphics->dynamic_state_flags);
+                state->vk_pso_cache, &graphics->render_pass, &graphics->dynamic_state_flags);
+
         if (!graphics->pipeline)
             goto fail;
     }
@@ -2532,6 +2548,8 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
+
+    memset(object, 0, sizeof(*object));
 
     switch (bind_point)
     {
@@ -2731,8 +2749,8 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
 }
 
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
-        const struct vkd3d_pipeline_key *key, VkFormat dsv_format, VkRenderPass *vk_render_pass,
-        uint32_t *dynamic_state_flags)
+        const struct vkd3d_pipeline_key *key, VkFormat dsv_format, VkPipelineCache vk_cache,
+        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags)
 {
     VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
@@ -2837,8 +2855,8 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     *vk_render_pass = pipeline_desc.renderPass;
 
-    if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device, device->vk_pipeline_cache,
-            1, &pipeline_desc, NULL, &vk_pipeline))) < 0)
+    if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device,
+            vk_cache, 1, &pipeline_desc, NULL, &vk_pipeline))) < 0)
     {
         WARN("Failed to create Vulkan graphics pipeline, vr %d.\n", vr);
         return VK_NULL_HANDLE;
@@ -2965,8 +2983,8 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     if (extended_dynamic_state)
         FIXME("Extended dynamic state is supported, but compiling a fallback pipeline late!\n");
 
-    vk_pipeline = d3d12_pipeline_state_create_pipeline_variant(state, &pipeline_key, dsv_format, vk_render_pass,
-            dynamic_state_flags);
+    vk_pipeline = d3d12_pipeline_state_create_pipeline_variant(state,
+            &pipeline_key, dsv_format, NULL, vk_render_pass, dynamic_state_flags);
 
     if (!vk_pipeline)
     {
