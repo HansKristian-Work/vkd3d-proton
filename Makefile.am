@@ -110,6 +110,7 @@ libvkd3d_la_SOURCES = \
 	include/vkd3d_d3d12.idl \
 	include/vkd3d_d3dcommon.idl \
 	include/vkd3d_unknown.idl \
+	libs/vkd3d/cache.c \
 	libs/vkd3d/command.c \
 	libs/vkd3d/device.c \
 	libs/vkd3d/meta.c \

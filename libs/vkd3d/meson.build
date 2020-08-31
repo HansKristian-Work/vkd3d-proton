@@ -20,6 +20,7 @@ vkd3d_shaders =[
 ]
 
 vkd3d_src = [
+  'cache.c',
   'command.c',
   'device.c',
   'meta.c',
