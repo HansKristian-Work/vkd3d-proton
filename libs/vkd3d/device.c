@@ -1864,44 +1864,6 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     return hr;
 }
 
-static HRESULT d3d12_device_init_pipeline_cache(struct d3d12_device *device)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkPipelineCacheCreateInfo cache_info;
-    VkResult vr;
-    int rc;
-
-    if ((rc = pthread_mutex_init(&device->mutex, NULL)))
-    {
-        ERR("Failed to initialize mutex, error %d.\n", rc);
-        return hresult_from_errno(rc);
-    }
-
-    cache_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-    cache_info.pNext = NULL;
-    cache_info.flags = 0;
-    cache_info.initialDataSize = 0;
-    cache_info.pInitialData = NULL;
-    if ((vr = VK_CALL(vkCreatePipelineCache(device->vk_device, &cache_info, NULL,
-            &device->vk_pipeline_cache))) < 0)
-    {
-        ERR("Failed to create Vulkan pipeline cache, vr %d.\n", vr);
-        device->vk_pipeline_cache = VK_NULL_HANDLE;
-    }
-
-    return S_OK;
-}
-
-static void d3d12_device_destroy_pipeline_cache(struct d3d12_device *device)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-
-    if (device->vk_pipeline_cache)
-        VK_CALL(vkDestroyPipelineCache(device->vk_device, device->vk_pipeline_cache, NULL));
-
-    pthread_mutex_destroy(&device->mutex);
-}
-
 #define VKD3D_VA_FALLBACK_BASE      0x8000000000000000ull
 #define VKD3D_VA_SLAB_BASE          0x0000001000000000ull
 #define VKD3D_VA_SLAB_SIZE_SHIFT    32
@@ -2240,9 +2202,9 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_gpu_va_allocator_cleanup(&device->gpu_va_allocator);
     vkd3d_render_pass_cache_cleanup(&device->render_pass_cache, device);
     vkd3d_fence_worker_stop(&device->fence_worker, device);
-    d3d12_device_destroy_pipeline_cache(device);
     d3d12_device_destroy_vkd3d_queues(device);
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
+    pthread_mutex_destroy(&device->mutex);
     if (device->parent)
         IUnknown_Release(device->parent);
     vkd3d_instance_decref(device->vkd3d_instance);
@@ -4719,6 +4681,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 {
     const struct vkd3d_vk_device_procs *vk_procs;
     HRESULT hr;
+    int rc;
 
     memset(device, 0, sizeof(*device));
 
@@ -4743,14 +4706,18 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     device->vk_device = VK_NULL_HANDLE;
 
-    if (FAILED(hr = vkd3d_create_vk_device(device, create_info)))
+    if ((rc = pthread_mutex_init(&device->mutex, NULL)))
+    {
+        ERR("Failed to initialize mutex, error %d.\n", rc);
+        hr = hresult_from_errno(rc);
         goto out_free_instance;
+    }
 
-    if (FAILED(hr = d3d12_device_init_pipeline_cache(device)))
-        goto out_free_vk_resources;
+    if (FAILED(hr = vkd3d_create_vk_device(device, create_info)))
+        goto out_free_mutex;
 
     if (FAILED(hr = vkd3d_private_store_init(&device->private_store)))
-        goto out_free_pipeline_cache;
+        goto out_free_vk_resources;
 
     if (FAILED(hr = vkd3d_fence_worker_start(&device->fence_worker, device)))
         goto out_free_private_store;
@@ -4799,13 +4766,13 @@ out_stop_fence_worker:
     vkd3d_fence_worker_stop(&device->fence_worker, device);
 out_free_private_store:
     vkd3d_private_store_destroy(&device->private_store);
-out_free_pipeline_cache:
-    d3d12_device_destroy_pipeline_cache(device);
 out_free_vk_resources:
     vk_procs = &device->vk_procs;
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
 out_free_instance:
     vkd3d_instance_decref(device->vkd3d_instance);
+out_free_mutex:
+    pthread_mutex_destroy(&device->mutex);
     return hr;
 }
 

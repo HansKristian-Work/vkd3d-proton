@@ -1791,7 +1791,6 @@ struct d3d12_device
 
     pthread_mutex_t mutex;
     struct vkd3d_render_pass_cache render_pass_cache;
-    VkPipelineCache vk_pipeline_cache;
 
     VkPhysicalDeviceMemoryProperties memory_properties;
 
