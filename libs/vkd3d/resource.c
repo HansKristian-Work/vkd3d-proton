@@ -5246,6 +5246,60 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_pool(struct d3d12_descrip
     return S_OK;
 }
 
+static void d3d12_descriptor_heap_zero_initialize(struct d3d12_descriptor_heap *descriptor_heap,
+        VkDescriptorType vk_descriptor_type, VkDescriptorSet vk_descriptor_set, uint32_t descriptor_count)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
+    const struct d3d12_device *device = descriptor_heap->device;
+    VkDescriptorBufferInfo *buffer_infos = NULL;
+    VkDescriptorImageInfo *image_infos = NULL;
+    VkBufferView *buffer_view_infos = NULL;
+    VkWriteDescriptorSet write;
+    uint32_t i;
+
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.pNext = NULL;
+    write.descriptorType = vk_descriptor_type;
+    write.dstSet = vk_descriptor_set;
+    write.dstBinding = 0;
+    write.dstArrayElement = 0;
+    write.descriptorCount = descriptor_count;
+    write.pTexelBufferView = NULL;
+    write.pImageInfo = NULL;
+    write.pBufferInfo = NULL;
+
+    switch (vk_descriptor_type)
+    {
+    case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+    case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+        image_infos = vkd3d_calloc(descriptor_count, sizeof(*image_infos));
+        write.pImageInfo = image_infos;
+        break;
+
+    case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+    case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+        buffer_infos = vkd3d_calloc(descriptor_count, sizeof(*buffer_infos));
+        write.pBufferInfo = buffer_infos;
+        for (i = 0; i < descriptor_count; i++)
+            buffer_infos[i].range = VK_WHOLE_SIZE;
+        break;
+
+    case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
+    case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
+        buffer_view_infos = vkd3d_calloc(descriptor_count, sizeof(*buffer_view_infos));
+        write.pTexelBufferView = buffer_view_infos;
+        break;
+
+    default:
+        break;
+    }
+
+    VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &write, 0, NULL));
+    vkd3d_free(image_infos);
+    vkd3d_free(buffer_view_infos);
+    vkd3d_free(buffer_infos);
+}
+
 static HRESULT d3d12_descriptor_heap_create_descriptor_set(struct d3d12_descriptor_heap *descriptor_heap,
         const struct vkd3d_bindless_set_info *binding, VkDescriptorSet *vk_descriptor_set)
 {
@@ -5274,6 +5328,13 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_set(struct d3d12_descript
     {
         ERR("Failed to allocate descriptor set, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
+    }
+
+    if (device->device_info.robustness2_features.nullDescriptor &&
+        binding->vk_descriptor_type != VK_DESCRIPTOR_TYPE_SAMPLER)
+    {
+        d3d12_descriptor_heap_zero_initialize(descriptor_heap,
+                binding->vk_descriptor_type, *vk_descriptor_set, descriptor_count);
     }
 
     return S_OK;
