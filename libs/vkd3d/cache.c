@@ -20,6 +20,104 @@
 
 #include "vkd3d_private.h"
 
+static VkResult vkd3d_create_pipeline_cache(struct d3d12_device *device,
+        size_t size, const void *data, VkPipelineCache *cache)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    VkPipelineCacheCreateInfo info;
+    info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+    info.pNext = NULL;
+    info.flags = 0;
+    info.initialDataSize = size;
+    info.pInitialData = data;
+
+    return VK_CALL(vkCreatePipelineCache(device->vk_device, &info, NULL, cache));
+}
+
+#define VKD3D_CACHE_BLOB_VERSION MAKE_MAGIC('V','K','B',1)
+#define VKD3D_CACHE_BUILD_SIZE 8
+
+struct vkd3d_pipeline_blob
+{
+    uint32_t version;
+    uint32_t vendor_id;
+    uint32_t device_id;
+    char vkd3d_build[VKD3D_CACHE_BUILD_SIZE];
+    uint8_t cache_uuid[VK_UUID_SIZE];
+    uint8_t vk_blob[];
+};
+
+HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
+        const D3D12_CACHED_PIPELINE_STATE *state, VkPipelineCache *cache)
+{
+    const VkPhysicalDeviceProperties *device_properties = &device->device_info.properties2.properties;
+    const struct vkd3d_pipeline_blob *blob = state->pCachedBlob;
+    VkResult vr;
+
+    if (!state->CachedBlobSizeInBytes)
+    {
+        vr = vkd3d_create_pipeline_cache(device, 0, NULL, cache);
+        return hresult_from_vk_result(vr);
+    }
+
+    /* Avoid E_INVALIDARG with an invalid header size, since that may confuse some games */
+    if (state->CachedBlobSizeInBytes < sizeof(*blob) || blob->version != VKD3D_CACHE_BLOB_VERSION)
+        return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
+
+    /* Indicate that the cached data is not useful if we're running on a different device or driver */
+    if (blob->vendor_id != device_properties->vendorID || blob->device_id != device_properties->deviceID)
+        return D3D12_ERROR_ADAPTER_NOT_FOUND;
+
+    /* Check the vkd3d build since the shader compiler itself may change,
+     * and the driver since that will affect the generated pipeline cache */
+    if (strncmp(blob->vkd3d_build, vkd3d_build, VKD3D_CACHE_BUILD_SIZE) ||
+            memcmp(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE))
+        return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
+
+    vr = vkd3d_create_pipeline_cache(device, state->CachedBlobSizeInBytes - sizeof(*blob), blob->vk_blob, cache);
+    return hresult_from_vk_result(vr);
+}
+
+VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state, size_t *size, void *data)
+{
+    const VkPhysicalDeviceProperties *device_properties = &state->device->device_info.properties2.properties;
+    const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
+    struct vkd3d_pipeline_blob *blob = data;
+    size_t total_size = sizeof(*blob);
+    size_t vk_blob_size = 0;
+    VkResult vr;
+
+    if (state->vk_pso_cache)
+    {
+        if ((vr = VK_CALL(vkGetPipelineCacheData(state->device->vk_device, state->vk_pso_cache, &vk_blob_size, NULL))))
+        {
+            ERR("Failed to retrieve pipeline cache size, vr %d.\n", vr);
+            return vr;
+        }
+    }
+
+    total_size += vk_blob_size;
+
+    if (blob && *size < total_size)
+        return VK_INCOMPLETE;
+
+    if (blob)
+    {
+        blob->version = VKD3D_CACHE_BLOB_VERSION;
+        blob->vendor_id = device_properties->vendorID;
+        blob->device_id = device_properties->deviceID;
+        strncpy(blob->vkd3d_build, vkd3d_build, VKD3D_CACHE_BUILD_SIZE);
+        memcpy(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE);
+
+        if ((vr = VK_CALL(vkGetPipelineCacheData(state->device->vk_device, state->vk_pso_cache, &vk_blob_size, blob->vk_blob))))
+            return vr;
+    }
+
+    *size = total_size;
+    return VK_SUCCESS;
+}
+
 /* ID3D12PipelineLibrary */
 static inline struct d3d12_pipeline_library *impl_from_ID3D12PipelineLibrary(d3d12_pipeline_library_iface *iface)
 {
