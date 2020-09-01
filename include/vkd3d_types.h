@@ -23,15 +23,31 @@
 extern "C" {
 #endif  /* __cplusplus */
 
+/**
+ * \file vkd3d_types.h
+ *
+ * This file contains definitions for basic types used by vkd3d libraries.
+ */
+
 #define VKD3D_FORCE_32_BIT_ENUM(name) name##_FORCE_32BIT = 0x7fffffff
 
+/**
+ * Result codes returned by some vkd3d functions. Error codes always have
+ * negative values; non-error codes never do.
+ */
 enum vkd3d_result
 {
+    /** Success. */
     VKD3D_OK = 0,
-    VKD3D_ERROR = -1, /* unspecified failure */
+    /** An unspecified failure occurred. */
+    VKD3D_ERROR = -1,
+    /** There are not enough resources available to complete the operation. */
     VKD3D_ERROR_OUT_OF_MEMORY = -2,
+    /** One or more parameters passed to a vkd3d function were invalid. */
     VKD3D_ERROR_INVALID_ARGUMENT = -3,
+    /** A shader passed to a vkd3d function was invalid. */
     VKD3D_ERROR_INVALID_SHADER = -4,
+    /** The operation is not implemented in this version of vkd3d. */
     VKD3D_ERROR_NOT_IMPLEMENTED = -5,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_RESULT),

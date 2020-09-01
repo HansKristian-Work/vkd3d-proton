@@ -282,3 +282,9 @@ endif
 
 .PHONY: crosstest crosstest32 crosstest64
 crosstest: crosstest32 crosstest64
+
+if BUILD_DOC
+@DX_RULES@
+all: doxygen-doc
+CLEANFILES += $(DX_CLEANFILES)
+endif

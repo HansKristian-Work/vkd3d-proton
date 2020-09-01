@@ -1,0 +1,17 @@
+# Doxyfile 1.8.18
+
+DOXYFILE_ENCODING      = UTF-8
+PROJECT_NAME           = @PACKAGE_NAME@
+PROJECT_NUMBER         = @PACKAGE_VERSION@
+PROJECT_BRIEF          = "The vkd3d 3D Graphics Library"
+OUTPUT_DIRECTORY       = doc
+JAVADOC_AUTOBRIEF      = YES
+OPTIMIZE_OUTPUT_FOR_C  = YES
+EXTRACT_STATIC         = YES
+
+INPUT                  = @srcdir@/include/vkd3d.h \
+                         @srcdir@/include/vkd3d_shader.h \
+                         @srcdir@/include/vkd3d_types.h \
+                         @srcdir@/include/vkd3d_utils.h
+
+EXCLUDE_SYMBOLS        = VKD3D_FORCE_32_BIT_ENUM

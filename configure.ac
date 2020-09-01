@@ -29,6 +29,10 @@ AC_PROG_MKDIR_P
 VKD3D_PROG_WIDL(3, 20)
 AS_IF([test "x$WIDL" = "xno"], [AC_MSG_WARN([widl is required to build header files.])])
 
+DX_PS_FEATURE([OFF])
+DX_INIT_DOXYGEN([vkd3d], [Doxyfile], [doc])
+AC_CONFIG_FILES([Doxyfile])
+
 AM_INIT_AUTOMAKE([1.11 foreign silent-rules subdir-objects no-dist-gzip dist-xz -Wall -Werror])
 AM_MAINTAINER_MODE([enable])
 AM_SILENT_RULES([yes])
@@ -129,6 +133,7 @@ dnl Makefiles
 AS_IF([test "x$enable_demos" = "xyes" -a "x$HAVE_XCB" != "xyes"],
       [AC_MSG_ERROR([libxcb is required for demos.])])
 AM_CONDITIONAL([BUILD_DEMOS], [test "x$enable_demos" = "xyes"])
+AM_CONDITIONAL([BUILD_DOC], [test $DX_FLAG_doc = 1])
 AM_CONDITIONAL([BUILD_TESTS], [test "x$enable_tests" != "xno"])
 AM_CONDITIONAL([HAVE_WIDL], [test "x$WIDL" != "xno"])
 AM_CONDITIONAL([HAVE_CROSSTARGET32], [test "x$CROSSTARGET32" != "xno"])

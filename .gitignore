@@ -3,6 +3,8 @@ autom4te.cache
 config.log
 config.status
 configure
+doc
+Doxyfile
 libtool
 Makefile
 Makefile.in
