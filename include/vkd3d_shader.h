@@ -27,14 +27,31 @@
 extern "C" {
 #endif  /* __cplusplus */
 
+/**
+ * \file vkd3d_shader.h
+ *
+ * \since 1.2
+ *
+ * This file contains definitions for the vkd3d-shader library.
+ *
+ * The vkd3d-shader library provides multiple utilities related to the
+ * compilation, transformation, and reflection of GPU shaders.
+ */
+
+/** The type of a chained structure. */
 enum vkd3d_shader_structure_type
 {
-    /* 1.2 */
+    /** The structure is a vkd3d_shader_compile_info structure. */
     VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO,
+    /** The structure is a vkd3d_shader_interface_info structure. */
     VKD3D_SHADER_STRUCTURE_TYPE_INTERFACE_INFO,
+    /** The structure is a vkd3d_shader_scan_descriptor_info structure. */
     VKD3D_SHADER_STRUCTURE_TYPE_SCAN_DESCRIPTOR_INFO,
+    /** The structure is a vkd3d_shader_spirv_domain_shader_target_info structure. */
     VKD3D_SHADER_STRUCTURE_TYPE_SPIRV_DOMAIN_SHADER_TARGET_INFO,
+    /** The structure is a vkd3d_shader_spirv_target_info structure. */
     VKD3D_SHADER_STRUCTURE_TYPE_SPIRV_TARGET_INFO,
+    /** The structure is a vkd3d_shader_transform_feedback_info structure. */
     VKD3D_SHADER_STRUCTURE_TYPE_TRANSFORM_FEEDBACK_INFO,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_STRUCTURE_TYPE),
