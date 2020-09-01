@@ -864,13 +864,99 @@ static inline uint32_t vkd3d_shader_create_swizzle(enum vkd3d_shader_swizzle_com
 #ifndef VKD3D_SHADER_NO_PROTOTYPES
 
 const char *vkd3d_shader_get_version(unsigned int *major, unsigned int *minor);
+/**
+ * Returns the source types supported, with any target type, by
+ * vkd3d_shader_compile().
+ *
+ * Use vkd3d_shader_get_supported_target_types() to determine which target types
+ * are supported for each source type.
+ *
+ * \param count Output location for the size, in elements, of the returned
+ * array.
+ *
+ * \return Pointer to an array of source types supported by this version of
+ * vkd3d-shader. This array may be a pointer to static data in libvkd3d-shader;
+ * it should not be freed.
+ */
 const enum vkd3d_shader_source_type *vkd3d_shader_get_supported_source_types(unsigned int *count);
+/**
+ * Returns the target types supported, with the given source type, by
+ * vkd3d_shader_compile().
+ *
+ * \param source_type Source type for which to enumerate supported target types.
+ *
+ * \param count Output location for the size, in elements, of the returned
+ * array.
+ *
+ * \return Pointer to an array of target types supported by this version of
+ * vkd3d-shader. This array may be a pointer to static data in libvkd3d-shader;
+ * it should not be freed.
+ */
 const enum vkd3d_shader_target_type *vkd3d_shader_get_supported_target_types(
         enum vkd3d_shader_source_type source_type, unsigned int *count);
 
+/**
+ * Transform a form of GPU shader source code or byte code into another form of
+ * source code or byte code.
+ *
+ * This version of vkd3d-shader supports the following transformations:
+ * - VKD3D_SHADER_SOURCE_DXBC_TPF to VKD3D_SHADER_TARGET_SPIRV_BINARY
+ *
+ * Supported transformations can also be detected at runtime with the functions
+ * vkd3d_shader_get_supported_source_types() and
+ * vkd3d_shader_get_supported_target_types().
+ *
+ * Depending on the source and target types, this function may support the
+ * following chained structures:
+ * - vkd3d_shader_interface_info
+ * - vkd3d_shader_spirv_domain_shader_target_info
+ * - vkd3d_shader_spirv_target_info
+ * - vkd3d_shader_transform_feedback_info
+ *
+ * \param compile_info A chained structure containing compilation parameters.
+ *
+ * \param out A pointer to a vkd3d_shader_code structure in which the compiled
+ * code will be stored.
+ * \n
+ * The compiled shader is allocated by vkd3d-shader and should be freed with
+ * vkd3d_shader_free_shader_code() when no longer needed.
+ *
+ * \param messages Optional output location for error or informational messages
+ * produced by the compiler.
+ * \n
+ * This string is null-terminated and UTF-8 encoded.
+ * \n
+ * The messages are allocated by vkd3d-shader and should be freed with
+ * vkd3d_shader_free_messages() when no longer needed.
+ * \n
+ * The messages returned can be regulated with the \a log_level member of struct
+ * vkd3d_shader_compile_info. Regardless of the requested level, if this
+ * parameter is NULL, no compilation messages will be returned.
+ * \n
+ * If no compilation messages are produced by the compiler, this parameter may
+ * receive NULL instead of a valid string pointer.
+ *
+ * \return A member of \ref vkd3d_result.
+ */
 int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info,
         struct vkd3d_shader_code *out, char **messages);
+/**
+ * Free shader messages allocated by another vkd3d-shader function, such as
+ * vkd3d_shader_compile().
+ *
+ * \param messages Messages to free. This pointer is optional and may be NULL,
+ * in which case no action will be taken.
+ */
 void vkd3d_shader_free_messages(char *messages);
+/**
+ * Free shader code allocated by another vkd3d-shader function, such as
+ * vkd3d_shader_compile().
+ *
+ * This function frees the \ref vkd3d_shader_code.code member, but does not free
+ * the structure itself.
+ *
+ * \param code Code to free.
+ */
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
 
 int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
@@ -883,6 +969,30 @@ int vkd3d_shader_serialize_root_signature(const struct vkd3d_shader_versioned_ro
 int vkd3d_shader_convert_root_signature(struct vkd3d_shader_versioned_root_signature_desc *dst,
         enum vkd3d_shader_root_signature_version version, const struct vkd3d_shader_versioned_root_signature_desc *src);
 
+/**
+ * Parse shader source code or byte code, returning various types of requested
+ * information.
+ *
+ * Currently this function supports the following code types:
+ * - VKD3D_SHADER_SOURCE_DXBC_TPF
+ *
+ * \param compile_info A chained structure containing scan parameters.
+ * \n
+ * The DXBC_TPF scanner supports the following chained structures:
+ * - vkd3d_shader_scan_descriptor_info
+ * \n
+ * Although the \a compile_info parameter is read-only, chained structures
+ * passed to this function need not be, and may serve as output parameters,
+ * depending on their structure type.
+ *
+ * \param messages Optional output location for error or informational messages
+ * produced by the compiler.
+ * \n
+ * This parameter behaves identically to the \a messages parameter of
+ * vkd3d_shader_compile().
+ *
+ * \return A member of \ref vkd3d_result.
+ */
 int vkd3d_shader_scan(const struct vkd3d_shader_compile_info *compile_info, char **messages);
 void vkd3d_shader_free_scan_descriptor_info(struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info);
 
