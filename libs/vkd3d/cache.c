@@ -118,10 +118,123 @@ VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state
     return VK_SUCCESS;
 }
 
+struct vkd3d_cached_pipeline_key
+{
+    size_t name_length;
+    const void *name;
+};
+
+struct vkd3d_cached_pipeline_data
+{
+    size_t blob_length;
+    const void *blob;
+    bool is_new;
+};
+
+struct vkd3d_cached_pipeline_entry
+{
+    struct hash_map_entry entry;
+    struct vkd3d_cached_pipeline_key key;
+    struct vkd3d_cached_pipeline_data data;
+};
+
+uint32_t vkd3d_cached_pipeline_hash(const void *key)
+{
+    const struct vkd3d_cached_pipeline_key *k = key;
+    uint32_t hash = 0;
+    size_t i;
+
+    for (i = 0; i < k->name_length; i += 4)
+    {
+        uint32_t accum = 0;
+        memcpy(&accum, (const char*)k->name + i,
+                min(k->name_length - i, sizeof(accum)));
+        hash = hash_combine(hash, accum);
+    }
+
+    return hash;
+}
+
+bool vkd3d_cached_pipeline_compare(const void *key, const struct hash_map_entry *entry)
+{
+    const struct vkd3d_cached_pipeline_entry *e = (const struct vkd3d_cached_pipeline_entry*)entry;
+    const struct vkd3d_cached_pipeline_key *k = key;
+
+    return k->name_length == e->key.name_length &&
+            !memcmp(k->name, e->key.name, k->name_length);
+}
+
+struct vkd3d_serialized_pipeline
+{
+    uint32_t name_length;
+    uint32_t blob_length;
+    uint8_t data[];
+};
+
+#define VKD3D_PIPELINE_LIBRARY_VERSION MAKE_MAGIC('V','K','L',1)
+
+struct vkd3d_serialized_pipeline_library
+{
+    uint32_t version;
+    uint32_t vendor_id;
+    uint32_t device_id;
+    uint32_t pipeline_count;
+    char vkd3d_build[VKD3D_CACHE_BUILD_SIZE];
+    uint8_t cache_uuid[VK_UUID_SIZE];
+    uint8_t data[];
+};
+
 /* ID3D12PipelineLibrary */
 static inline struct d3d12_pipeline_library *impl_from_ID3D12PipelineLibrary(d3d12_pipeline_library_iface *iface)
 {
     return CONTAINING_RECORD(iface, struct d3d12_pipeline_library, ID3D12PipelineLibrary_iface);
+}
+
+static bool d3d12_pipeline_library_serialize_entry(struct d3d12_pipeline_library *pipeline_library,
+        const struct vkd3d_cached_pipeline_entry *entry, size_t *size, void *data)
+{
+    struct vkd3d_serialized_pipeline *header = data;
+    size_t total_size;
+
+    total_size = sizeof(header) + entry->key.name_length + entry->data.blob_length;
+
+    if (header)
+    {
+        if (*size < total_size)
+        {
+            ERR("Not enough memory provided to store pipeline blob.\n");
+            return false;
+        }
+
+        header->name_length = entry->key.name_length;
+        header->blob_length = entry->data.blob_length;
+        memcpy(header->data, entry->key.name, entry->key.name_length);
+        memcpy(header->data + entry->key.name_length, entry->data.blob, entry->data.blob_length);
+    }
+
+    *size = total_size;
+    return true;
+}
+
+static void d3d12_pipeline_library_cleanup(struct d3d12_pipeline_library *pipeline_library, struct d3d12_device *device)
+{
+    size_t i;
+
+    for (i = 0; i < pipeline_library->map.entry_count; i++)
+    {
+        struct vkd3d_cached_pipeline_entry *e = (struct vkd3d_cached_pipeline_entry*)hash_map_get_entry(&pipeline_library->map, i);
+
+        if ((e->entry.flags & HASH_MAP_ENTRY_OCCUPIED) && e->data.is_new)
+        {
+            vkd3d_free((void*)e->key.name);
+            vkd3d_free((void*)e->data.blob);
+        }
+    }
+
+    hash_map_clear(&pipeline_library->map);
+
+    vkd3d_private_store_destroy(&pipeline_library->private_store);
+    pthread_mutex_destroy(&pipeline_library->mutex);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_QueryInterface(d3d12_pipeline_library_iface *iface,
@@ -165,10 +278,9 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_library_Release(d3d12_pipeline_lib
 
     if (!refcount)
     {
-        struct d3d12_device *device = pipeline_library->device;
-        vkd3d_private_store_destroy(&pipeline_library->private_store);
+        d3d12_pipeline_library_cleanup(pipeline_library, pipeline_library->device);
         vkd3d_free(pipeline_library);
-        d3d12_device_release(device);
+        d3d12_device_release(pipeline_library->device);
     }
 
     return refcount;
@@ -227,61 +339,264 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
         LPCWSTR name, ID3D12PipelineState *pipeline)
 {
     struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
+    struct d3d12_pipeline_state *pipeline_state = unsafe_impl_from_ID3D12PipelineState(pipeline);
+    size_t wchar_size = pipeline_library->device->wchar_size;
+    struct vkd3d_cached_pipeline_entry entry;
+    void *new_name, *new_blob;
+    VkResult vr;
+    int rc;
 
-    FIXME("iface %p, name %s, pipeline %p stub!\n", iface, debugstr_w(name, pipeline_library->device->wchar_size), pipeline);
+    TRACE("iface %p, name %s, pipeline %p.\n", iface, debugstr_w(name, pipeline_library->device->wchar_size), pipeline);
 
+    if ((rc = pthread_mutex_lock(&pipeline_library->mutex)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    entry.key.name_length = vkd3d_wcslen(name, wchar_size) * wchar_size;
+    entry.key.name = name;
+
+    if (hash_map_find(&pipeline_library->map, &entry.key))
+    {
+        WARN("Pipeline %s already exists.\n", debugstr_w(name, pipeline_library->device->wchar_size));
+        pthread_mutex_unlock(&pipeline_library->mutex);
+        return E_INVALIDARG;
+    }
+
+    /* We need to allocate persistent storage for the name */
+    if (!(new_name = malloc(entry.key.name_length)))
+    {
+        pthread_mutex_unlock(&pipeline_library->mutex);
+        return E_OUTOFMEMORY;
+    }
+
+    memcpy(new_name, name, entry.key.name_length);
+    entry.key.name = new_name;
+
+    if (FAILED(vr = vkd3d_serialize_pipeline_state(pipeline_state, &entry.data.blob_length, NULL)))
+    {
+        vkd3d_free(new_name);
+        pthread_mutex_unlock(&pipeline_library->mutex);
+        return hresult_from_vk_result(vr);
+    }
+
+    if (!(new_blob = malloc(entry.data.blob_length)))
+    {
+        vkd3d_free(new_name);
+        pthread_mutex_unlock(&pipeline_library->mutex);
+        return E_OUTOFMEMORY;
+    }
+
+    if (FAILED(vr = vkd3d_serialize_pipeline_state(pipeline_state, &entry.data.blob_length, new_blob)))
+    {
+        vkd3d_free(new_name);
+        vkd3d_free(new_blob);
+        pthread_mutex_unlock(&pipeline_library->mutex);
+        return hresult_from_vk_result(vr);
+    }
+
+    entry.data.blob = new_blob;
+    entry.data.is_new = true;
+
+    if (!hash_map_insert(&pipeline_library->map, &entry.key, &entry.entry))
+    {
+        vkd3d_free(new_name);
+        vkd3d_free(new_blob);
+        pthread_mutex_unlock(&pipeline_library->mutex);
+        return E_OUTOFMEMORY;
+    }
+
+    pthread_mutex_unlock(&pipeline_library->mutex);
     return S_OK;
+}
+
+static HRESULT d3d12_pipeline_library_load_pipeline(struct d3d12_pipeline_library *pipeline_library, LPCWSTR name,
+        VkPipelineBindPoint bind_point, struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state)
+{
+    size_t wchar_size = pipeline_library->device->wchar_size;
+    const struct vkd3d_cached_pipeline_entry *e;
+    struct vkd3d_cached_pipeline_key key;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&pipeline_library->mutex)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    key.name_length = vkd3d_wcslen(name, wchar_size) * wchar_size;
+    key.name = name;
+
+    if (!(e = (const struct vkd3d_cached_pipeline_entry*)hash_map_find(&pipeline_library->map, &key)))
+    {
+        WARN("Pipeline %s does not exist.\n", debugstr_w(name, pipeline_library->device->wchar_size));
+        pthread_mutex_unlock(&pipeline_library->mutex);
+        return E_INVALIDARG;
+    }
+
+    desc->cached_pso.CachedBlobSizeInBytes = e->data.blob_length;
+    desc->cached_pso.pCachedBlob = e->data.blob;
+    pthread_mutex_unlock(&pipeline_library->mutex);
+
+    return d3d12_pipeline_state_create(pipeline_library->device, bind_point, desc, state);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadGraphicsPipeline(d3d12_pipeline_library_iface *iface,
         LPCWSTR name, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID iid, void **pipeline_state)
 {
     struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
+    struct d3d12_pipeline_state_desc pipeline_desc;
+    struct d3d12_pipeline_state *object;
+    HRESULT hr;
 
-    FIXME("iface %p, name %s, desc %p, iid %s, pipeline_state %p stub!\n", iface,
+    TRACE("iface %p, name %s, desc %p, iid %s, pipeline_state %p.\n", iface,
             debugstr_w(name, pipeline_library->device->wchar_size),
             desc, debugstr_guid(iid), pipeline_state);
 
-    return E_INVALIDARG;
+    if (FAILED(hr = vkd3d_pipeline_state_desc_from_d3d12_graphics_desc(&pipeline_desc, desc)))
+        return hr;
+
+    if (FAILED(hr = d3d12_pipeline_library_load_pipeline(pipeline_library,
+            name, VK_PIPELINE_BIND_POINT_GRAPHICS, &pipeline_desc, &object)))
+        return hr;
+
+    return return_interface(&object->ID3D12PipelineState_iface,
+            &IID_ID3D12PipelineState, iid, pipeline_state);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadComputePipeline(d3d12_pipeline_library_iface *iface,
         LPCWSTR name, const D3D12_COMPUTE_PIPELINE_STATE_DESC *desc, REFIID iid, void **pipeline_state)
 {
     struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
+    struct d3d12_pipeline_state_desc pipeline_desc;
+    struct d3d12_pipeline_state *object;
+    HRESULT hr;
 
-    FIXME("iface %p, name %s, desc %p, iid %s, pipeline_state %p stub!\n", iface,
+    TRACE("iface %p, name %s, desc %p, iid %s, pipeline_state %p.\n", iface,
             debugstr_w(name, pipeline_library->device->wchar_size),
             desc, debugstr_guid(iid), pipeline_state);
 
-    return E_INVALIDARG;
+    if (FAILED(hr = vkd3d_pipeline_state_desc_from_d3d12_compute_desc(&pipeline_desc, desc)))
+        return hr;
+
+    if (FAILED(hr = d3d12_pipeline_library_load_pipeline(pipeline_library,
+            name, VK_PIPELINE_BIND_POINT_COMPUTE, &pipeline_desc, &object)))
+        return hr;
+
+    return return_interface(&object->ID3D12PipelineState_iface,
+            &IID_ID3D12PipelineState, iid, pipeline_state);
 }
 
 static SIZE_T STDMETHODCALLTYPE d3d12_pipeline_library_GetSerializedSize(d3d12_pipeline_library_iface *iface)
 {
-    FIXME("iface %p stub!\n", iface);
+    struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
+    size_t total_size = sizeof(struct vkd3d_serialized_pipeline_library);
+    uint32_t i;
+    int rc;
 
-    return 0;
+    TRACE("iface %p.\n", iface);
+
+    if ((rc = pthread_mutex_lock(&pipeline_library->mutex)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return 0;
+    }
+
+    for (i = 0; i < pipeline_library->map.entry_count; i++)
+    {
+        struct vkd3d_cached_pipeline_entry *e = (struct vkd3d_cached_pipeline_entry*)hash_map_get_entry(&pipeline_library->map, i);
+
+        if (e->entry.flags & HASH_MAP_ENTRY_OCCUPIED)
+        {
+            size_t pipeline_size = 0;
+
+            if (!d3d12_pipeline_library_serialize_entry(pipeline_library, e, &pipeline_size, NULL))
+                return 0;
+
+            total_size += pipeline_size;
+        }
+    }
+
+    pthread_mutex_unlock(&pipeline_library->mutex);
+    return total_size;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_Serialize(d3d12_pipeline_library_iface *iface,
         void *data, SIZE_T data_size)
 {
-    FIXME("iface %p, data %p, data_size %lu stub!\n", iface, data, data_size);
+    struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
+    const VkPhysicalDeviceProperties *device_properties = &pipeline_library->device->device_info.properties2.properties;
+    struct vkd3d_serialized_pipeline_library *header = data;
+    size_t serialized_size = data_size - sizeof(*header);
+    uint8_t *serialized_data = header->data;
+    uint32_t i;
+    int rc;
 
-    return E_NOTIMPL;
+    TRACE("iface %p.\n", iface);
+
+    if (data_size < sizeof(*header))
+        return E_INVALIDARG;
+
+    if ((rc = pthread_mutex_lock(&pipeline_library->mutex)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return 0;
+    }
+
+    header->version = VKD3D_PIPELINE_LIBRARY_VERSION;
+    header->vendor_id = device_properties->vendorID;
+    header->device_id = device_properties->deviceID;
+    header->pipeline_count = pipeline_library->map.used_count;
+    strncpy(header->vkd3d_build, vkd3d_build, VKD3D_CACHE_BUILD_SIZE);
+    memcpy(header->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE);
+
+    for (i = 0; i < pipeline_library->map.entry_count; i++)
+    {
+        struct vkd3d_cached_pipeline_entry *e = (struct vkd3d_cached_pipeline_entry*)hash_map_get_entry(&pipeline_library->map, i);
+
+        if (e->entry.flags & HASH_MAP_ENTRY_OCCUPIED)
+        {
+            size_t pipeline_size = serialized_size;
+
+            /* Fails if the provided buffer is too small to fit the pipeline */
+            if (!d3d12_pipeline_library_serialize_entry(pipeline_library, e, &pipeline_size, serialized_data))
+            {
+                pthread_mutex_unlock(&pipeline_library->mutex);
+                return E_INVALIDARG;
+            }
+
+            serialized_data += pipeline_size;
+            serialized_size -= pipeline_size;
+        }
+    }
+
+    pthread_mutex_unlock(&pipeline_library->mutex);
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadPipeline(d3d12_pipeline_library_iface *iface,
         LPCWSTR name, const D3D12_PIPELINE_STATE_STREAM_DESC *desc, REFIID iid, void **pipeline_state)
 {
     struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
+    struct d3d12_pipeline_state_desc pipeline_desc;
+    struct d3d12_pipeline_state *object;
+    VkPipelineBindPoint pipeline_type;
+    HRESULT hr;
 
-    FIXME("iface %p, name %s, desc %p, iid %s, pipeline_state %p stub!\n", iface,
+    TRACE("iface %p, name %s, desc %p, iid %s, pipeline_state %p.\n", iface,
             debugstr_w(name, pipeline_library->device->wchar_size),
             desc, debugstr_guid(iid), pipeline_state);
 
-    return E_INVALIDARG;
+    if (FAILED(hr = vkd3d_pipeline_state_desc_from_d3d12_stream_desc(&pipeline_desc, desc, &pipeline_type)))
+        return hr;
+
+    if (FAILED(hr = d3d12_pipeline_library_load_pipeline(pipeline_library,
+            name, pipeline_type, &pipeline_desc, &object)))
+        return hr;
+
+    return return_interface(&object->ID3D12PipelineState_iface,
+            &IID_ID3D12PipelineState, iid, pipeline_state);
 }
 
 static CONST_VTBL struct ID3D12PipelineLibrary1Vtbl d3d12_pipeline_library_vtbl =
@@ -307,22 +622,92 @@ static CONST_VTBL struct ID3D12PipelineLibrary1Vtbl d3d12_pipeline_library_vtbl 
     d3d12_pipeline_library_LoadPipeline,
 };
 
+static HRESULT d3d12_pipeline_library_read_blob(struct d3d12_pipeline_library *pipeline_library,
+        struct d3d12_device *device, const void *blob, size_t blob_length)
+{
+    const VkPhysicalDeviceProperties *device_properties = &device->device_info.properties2.properties;
+    const struct vkd3d_serialized_pipeline_library *header = blob;
+    const uint8_t *end = header->data + blob_length - sizeof(*header);
+    const uint8_t *cur = header->data;
+    uint32_t i;
+
+    /* Same logic as for pipeline blobs, indicate that the app needs
+     * to rebuild the pipeline library in case vkd3d itself or the
+     * underlying device/driver changed */
+    if (blob_length < sizeof(*header) || header->version != VKD3D_PIPELINE_LIBRARY_VERSION)
+        return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
+
+    if (header->device_id != device_properties->deviceID || header->vendor_id != device_properties->vendorID)
+        return D3D12_ERROR_ADAPTER_NOT_FOUND;
+
+    if (strncmp(header->vkd3d_build, vkd3d_build, VKD3D_CACHE_BUILD_SIZE) ||
+            memcmp(header->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE))
+        return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
+
+    /* The application is not allowed to free the blob, so we
+     * can safely use pointers without copying the data first. */
+    for (i = 0; i < header->pipeline_count; i++)
+    {
+        const struct vkd3d_serialized_pipeline *pipeline = (const struct vkd3d_serialized_pipeline*)cur;
+        struct vkd3d_cached_pipeline_entry entry;
+
+        if (cur + sizeof(*pipeline) > end)
+            return E_INVALIDARG;
+
+        cur += sizeof(*pipeline) + pipeline->name_length + pipeline->blob_length;
+
+        if (cur > end)
+            return E_INVALIDARG;
+
+        entry.key.name_length = pipeline->name_length;
+        entry.key.name = pipeline->data;
+
+        entry.data.blob_length = pipeline->blob_length;
+        entry.data.blob = pipeline->data + pipeline->name_length;
+        entry.data.is_new = false;
+
+        if (!hash_map_insert(&pipeline_library->map, &entry.key, &entry.entry))
+            return E_OUTOFMEMORY;
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_pipeline_library_init(struct d3d12_pipeline_library *pipeline_library,
         struct d3d12_device *device, const void *blob, size_t blob_length)
 {
     HRESULT hr;
+    int rc;
 
     memset(pipeline_library, 0, sizeof(*pipeline_library));
     pipeline_library->ID3D12PipelineLibrary_iface.lpVtbl = &d3d12_pipeline_library_vtbl;
     pipeline_library->refcount = 1;
 
+    if (!blob_length && blob)
+        return E_INVALIDARG;
+
+    if ((rc = pthread_mutex_init(&pipeline_library->mutex, NULL)))
+        return hresult_from_errno(rc);
+
+    hash_map_init(&pipeline_library->map, &vkd3d_cached_pipeline_hash,
+            &vkd3d_cached_pipeline_compare, sizeof(struct vkd3d_cached_pipeline_entry));
+
+    if (blob_length)
+    {
+        if (FAILED(hr = d3d12_pipeline_library_read_blob(pipeline_library, device, blob, blob_length)))
+            goto cleanup_hash_map;
+    }
+
     if (FAILED(hr = vkd3d_private_store_init(&pipeline_library->private_store)))
-        goto fail;
+        goto cleanup_mutex;
 
     d3d12_device_add_ref(pipeline_library->device = device);
-    return S_OK;
+    return hr;
 
-fail:
+cleanup_hash_map:
+    hash_map_clear(&pipeline_library->map);
+cleanup_mutex:
+    pthread_mutex_destroy(&pipeline_library->mutex);
     return hr;
 }
 
