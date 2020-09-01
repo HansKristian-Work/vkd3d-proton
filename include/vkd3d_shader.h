@@ -57,13 +57,17 @@ enum vkd3d_shader_structure_type
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_STRUCTURE_TYPE),
 };
 
-/* This also affects UAV counters in Vulkan environments. In OpenGL
- * environments, atomic counter buffers are always used for UAV counters. */
+/**
+ * Determines how buffer UAVs are stored.
+ *
+ * This also affects UAV counters in Vulkan environments. In OpenGL
+ * environments, atomic counter buffers are always used for UAV counters.
+ */
 enum vkd3d_shader_compile_option_buffer_uav
 {
-    /* Use buffer textures for buffer UAVs, this is the default. */
+    /** Use buffer textures for buffer UAVs. This is the default value. */
     VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV_STORAGE_TEXEL_BUFFER = 0x00000000,
-    /* Use storage buffers for buffer UAVs. */
+    /** Use storage buffers for buffer UAVs. */
     VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV_STORAGE_BUFFER       = 0x00000001,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV),
@@ -71,15 +75,33 @@ enum vkd3d_shader_compile_option_buffer_uav
 
 enum vkd3d_shader_compile_option_name
 {
+    /**
+     * If \a value is nonzero, do not include debug information in the
+     * compiled shader. The default value is zero.
+     *
+     * This option is supported by vkd3d_shader_compile(). However, not all
+     * compilers support generating debug information.
+     */
     VKD3D_SHADER_COMPILE_OPTION_STRIP_DEBUG = 0x00000001,
-    VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV  = 0x00000002, /* vkd3d_shader_compile_option_buffer_uav */
+    /** \a value is a member of enum vkd3d_shader_compile_option_buffer_uav. */
+    VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV  = 0x00000002,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_COMPILE_OPTION_NAME),
 };
 
+/**
+ * Various settings which may affect shader compilation or scanning, passed as
+ * part of struct vkd3d_shader_compile_info. For more details, see the
+ * documentation for individual options.
+ */
 struct vkd3d_shader_compile_option
 {
+    /** Name of the option. */
     enum vkd3d_shader_compile_option_name name;
+    /**
+     * A value associated with the option. The type and interpretation of the
+     * value depends on the option in question.
+     */
     unsigned int value;
 };
 
@@ -97,9 +119,12 @@ enum vkd3d_shader_visibility
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_VISIBILITY),
 };
 
+/** A generic structure containing a GPU shader, in text or byte-code format. */
 struct vkd3d_shader_code
 {
+    /** Pointer to the code. */
     const void *code;
+    /** Size of \a code, in bytes. */
     size_t size;
 };
 
@@ -264,46 +289,102 @@ struct vkd3d_shader_transform_feedback_info
     unsigned int buffer_stride_count;
 };
 
+/** The format of a shader to be compiled or scanned. */
 enum vkd3d_shader_source_type
 {
+    /**
+     * The shader has no type or is to be ignored. This is not a valid value
+     * for vkd3d_shader_compile() or vkd3d_shader_scan().
+     */
     VKD3D_SHADER_SOURCE_NONE,
+    /**
+     * A 'Tokenized Program Format' shader embedded in a DXBC container. This is
+     * the format used for Direct3D shader model 4 and 5 shaders.
+     */
     VKD3D_SHADER_SOURCE_DXBC_TPF,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_SOURCE_TYPE),
 };
 
+/** The output format of a compiled shader. */
 enum vkd3d_shader_target_type
 {
+    /**
+     * The shader has no type or is to be ignored. This is not a valid value
+     * for vkd3d_shader_compile() or vkd3d_shader_scan().
+     */
     VKD3D_SHADER_TARGET_NONE,
+    /**
+     * A SPIR-V shader in binary form. This is the format used for Vulkan
+     * shaders.
+     */
     VKD3D_SHADER_TARGET_SPIRV_BINARY,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_TARGET_TYPE),
 };
 
+/**
+ * Describes the maximum severity of compilation messages returned by
+ * vkd3d_shader_compile() and similar functions.
+ */
 enum vkd3d_shader_log_level
 {
+    /** No messages will be returned. */
     VKD3D_SHADER_LOG_NONE,
+    /** Only fatal errors which prevent successful compilation will be returned. */
     VKD3D_SHADER_LOG_ERROR,
+    /** Non-fatal warnings and fatal errors will be returned. */
     VKD3D_SHADER_LOG_WARNING,
+    /**
+     * All messages, including general informational messages, will be returned.
+     */
     VKD3D_SHADER_LOG_INFO,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_LOG_LEVEL),
 };
 
+/**
+ * A chained structure containing compilation parameters.
+ */
 struct vkd3d_shader_compile_info
 {
+    /** Must be set to VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO. */
     enum vkd3d_shader_structure_type type;
+    /**
+     * Optional pointer to a structure containing further parameters. For a list
+     * of valid structures, refer to the respective function documentation. If
+     * no further parameters are needed, this field should be set to NULL.
+     */
     const void *next;
 
+    /** Input source code or byte code. */
     struct vkd3d_shader_code source;
 
+    /** Format of the input code passed in \ref source. */
     enum vkd3d_shader_source_type source_type;
+    /** Desired output format. */
     enum vkd3d_shader_target_type target_type;
 
+    /**
+     * Pointer to an array of compilation options. This field is ignored if
+     * \ref option_count is zero, but must be valid otherwise.
+     *
+     * If the same option is specified multiple times, only the last value is
+     * used.
+     *
+     * Options not relevant to or not supported by a particular shader compiler
+     * or scanner will be ignored.
+     */
     const struct vkd3d_shader_compile_option *options;
+    /** Size, in elements, of \ref options. */
     unsigned int option_count;
 
+    /** Minimum severity of messages returned from the shader function. */
     enum vkd3d_shader_log_level log_level;
+    /**
+     * Name of the initial source file, which may be used in error messages or
+     * debug information. This parameter is optional and may be NULL.
+     */
     const char *source_name;
 };
 
