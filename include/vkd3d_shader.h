@@ -105,15 +105,23 @@ struct vkd3d_shader_compile_option
     unsigned int value;
 };
 
+/** Describes which shader stages a resource is visible to. */
 enum vkd3d_shader_visibility
 {
+    /** The resource is visible to all shader stages. */
     VKD3D_SHADER_VISIBILITY_ALL = 0,
+    /** The resource is visible only to the vertex shader. */
     VKD3D_SHADER_VISIBILITY_VERTEX = 1,
+    /** The resource is visible only to the hull shader. */
     VKD3D_SHADER_VISIBILITY_HULL = 2,
+    /** The resource is visible only to the domain shader. */
     VKD3D_SHADER_VISIBILITY_DOMAIN = 3,
+    /** The resource is visible only to the geometry shader. */
     VKD3D_SHADER_VISIBILITY_GEOMETRY = 4,
+    /** The resource is visible only to the pixel shader. */
     VKD3D_SHADER_VISIBILITY_PIXEL = 5,
 
+    /** The resource is visible only to the compute shader. */
     VKD3D_SHADER_VISIBILITY_COMPUTE = 1000000000,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_VISIBILITY),
@@ -128,21 +136,51 @@ struct vkd3d_shader_code
     size_t size;
 };
 
+/** The type of a shader resource descriptor. */
 enum vkd3d_shader_descriptor_type
 {
-    VKD3D_SHADER_DESCRIPTOR_TYPE_SRV     = 0x0, /* t#  */
-    VKD3D_SHADER_DESCRIPTOR_TYPE_UAV     = 0x1, /* u#  */
-    VKD3D_SHADER_DESCRIPTOR_TYPE_CBV     = 0x2, /* cb# */
-    VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER = 0x3, /* s#  */
+    /**
+     * The descriptor is a shader resource view. In Direct3D assembly, this is
+     * bound to a t# register.
+     */
+    VKD3D_SHADER_DESCRIPTOR_TYPE_SRV     = 0x0,
+    /**
+     * The descriptor is an unordered access view. In Direct3D assembly, this is
+     * bound to a u# register.
+     */
+    VKD3D_SHADER_DESCRIPTOR_TYPE_UAV     = 0x1,
+    /**
+     * The descriptor is a constant buffer view. In Direct3D assembly, this is
+     * bound to a cb# register.
+     */
+    VKD3D_SHADER_DESCRIPTOR_TYPE_CBV     = 0x2,
+    /**
+     * The descriptor is a sampler. In Direct3D assembly, this is bound to an s#
+     * register.
+     */
+    VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER = 0x3,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_DESCRIPTOR_TYPE),
 };
 
+/**
+ * A common structure describing the bind point of a descriptor or descriptor
+ * array in the target environment.
+ */
 struct vkd3d_shader_descriptor_binding
 {
+    /**
+     * The set of the descriptor. If the target environment does not support
+     * descriptor sets, this value must be set to 0.
+     */
     unsigned int set;
+    /** The binding index of the descriptor. */
     unsigned int binding;
-    unsigned int count; /* This must be 1 in this version of vkd3d-shader. */
+    /**
+     * The size of this descriptor array. Descriptor arrays are not supported in
+     * this version of vkd3d-shader, and therefore this value must be 1.
+     */
+    unsigned int count;
 };
 
 enum vkd3d_shader_binding_flag
@@ -203,67 +241,161 @@ struct vkd3d_shader_parameter
     } u;
 };
 
+/**
+ * Describes the mapping of a single resource or resource array to its binding
+ * point in the target environment.
+ *
+ * For example, to map a Direct3D SRV with register space 2, register "t3" to
+ * a Vulkan descriptor in set 4 and with binding 5, set the following members:
+ * - \a type = VKD3D_SHADER_DESCRIPTOR_TYPE_SRV
+ * - \a register_space = 2
+ * - \a register_index = 3
+ * - \a binding.set = 4
+ * - \a binding.binding = 5
+ * - \a binding.count = 1
+ *
+ * This structure is used in struct vkd3d_shader_interface_info.
+ */
 struct vkd3d_shader_resource_binding
 {
+    /** The type of this descriptor. */
     enum vkd3d_shader_descriptor_type type;
+    /**
+     * Register space of the Direct3D resource. If the source format does not
+     * support multiple register spaces, this parameter must be set to 0.
+     */
     unsigned int register_space;
+    /** Register index of the DXBC resource. */
     unsigned int register_index;
+    /** Shader stage(s) to which the resource is visible. */
     enum vkd3d_shader_visibility shader_visibility;
-    unsigned int flags; /* vkd3d_shader_binding_flag */
+    /** A combination of zero or more elements of vkd3d_shader_binding_flag. */
+    unsigned int flags;
 
+    /** The binding in the target environment. */
     struct vkd3d_shader_descriptor_binding binding;
 };
 
 #define VKD3D_SHADER_DUMMY_SAMPLER_INDEX ~0u
 
+/**
+ * Describes the mapping of a Direct3D resource-sampler pair to a combined
+ * sampler (i.e. sampled image).
+ *
+ * This structure is used in struct vkd3d_shader_interface_info.
+ */
 struct vkd3d_shader_combined_resource_sampler
 {
+    /**
+     * Register space of the Direct3D resource. If the source format does not
+     * support multiple register spaces, this parameter must be set to 0.
+     */
     unsigned int resource_space;
+    /** Register index of the Direct3D resource. */
     unsigned int resource_index;
+    /**
+     * Register space of the Direct3D sampler. If the source format does not
+     * support multiple register spaces, this parameter must be set to 0.
+     */
     unsigned int sampler_space;
+    /** Register index of the Direct3D sampler. */
     unsigned int sampler_index;
+    /** Shader stage(s) to which the resource is visible. */
     enum vkd3d_shader_visibility shader_visibility;
-    unsigned int flags; /* vkd3d_shader_binding_flag */
+    /** A combination of zero or more elements of vkd3d_shader_binding_flag. */
+    unsigned int flags;
 
+    /** The binding in the target environment. */
     struct vkd3d_shader_descriptor_binding binding;
 };
 
+/**
+ * Describes the mapping of a single Direct3D UAV counter.
+ *
+ * This structure is used in struct vkd3d_shader_interface_info.
+ */
 struct vkd3d_shader_uav_counter_binding
 {
+    /**
+     * Register space of the Direct3D UAV descriptor. If the source format does
+     * not support multiple register spaces, this parameter must be set to 0.
+     */
     unsigned int register_space;
-    unsigned int register_index; /* u# */
+    /** Register index of the Direct3D UAV descriptor. */
+    unsigned int register_index;
+    /** Shader stage(s) to which the UAV counter is visible. */
     enum vkd3d_shader_visibility shader_visibility;
 
+    /** The binding in the target environment. */
     struct vkd3d_shader_descriptor_binding binding;
     unsigned int offset;
 };
 
+/**
+ * Describes the mapping of a Direct3D constant buffer to a range of push
+ * constants in the target environment.
+ *
+ * This structure is used in struct vkd3d_shader_interface_info.
+ */
 struct vkd3d_shader_push_constant_buffer
 {
+    /**
+     * Register space of the Direct3D resource. If the source format does not
+     * support multiple register spaces, this parameter must be set to 0.
+     */
     unsigned int register_space;
+    /** Register index of the Direct3D resource. */
     unsigned int register_index;
+    /** Shader stage(s) to which the resource is visible. */
     enum vkd3d_shader_visibility shader_visibility;
 
-    unsigned int offset; /* in bytes */
-    unsigned int size;   /* in bytes */
+    /** Offset, in bytes, of the target push constants. */
+    unsigned int offset;
+    /** Size, in bytes, of the target push constants. */
+    unsigned int size;
 };
 
-/* Extends vkd3d_shader_compile_info. */
+/**
+ * A chained structure describing the interface between a compiled shader and
+ * the target environment.
+ *
+ * For example, when compiling Direct3D shader byte code to SPIR-V, this
+ * structure contains mappings from Direct3D descriptor registers to SPIR-V
+ * descriptor bindings.
+ *
+ * This structure is optional. If omitted, vkd3d_shader_compile() will use a
+ * default mapping, in which resources are mapped to sequential bindings in
+ * register set 0.
+ *
+ * This structure extends vkd3d_shader_compile_info.
+ *
+ * This structure contains only input parameters.
+ */
 struct vkd3d_shader_interface_info
 {
+    /** Must be set to VKD3D_SHADER_STRUCTURE_TYPE_INTERFACE_INFO. */
     enum vkd3d_shader_structure_type type;
+    /** Optional pointer to a structure containing further parameters. */
     const void *next;
 
+    /** Pointer to an array of bindings for shader resource descriptors. */
     const struct vkd3d_shader_resource_binding *bindings;
+    /** Size, in elements, of \ref bindings. */
     unsigned int binding_count;
 
+    /** Pointer to an array of bindings for push constant buffers. */
     const struct vkd3d_shader_push_constant_buffer *push_constant_buffers;
+    /** Size, in elements, of \ref push_constant_buffers. */
     unsigned int push_constant_buffer_count;
 
+    /** Pointer to an array of bindings for combined samplers. */
     const struct vkd3d_shader_combined_resource_sampler *combined_samplers;
+    /** Size, in elements, of \ref combined_samplers. */
     unsigned int combined_sampler_count;
 
+    /** Pointer to an array of bindings for UAV counters. */
     const struct vkd3d_shader_uav_counter_binding *uav_counters;
+    /** Size, in elements, of \ref uav_counters. */
     unsigned int uav_counter_count;
 };
 
