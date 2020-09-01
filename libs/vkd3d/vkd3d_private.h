@@ -1055,6 +1055,13 @@ struct d3d12_pipeline_state_desc
     D3D12_PIPELINE_STATE_FLAGS flags;
 };
 
+HRESULT vkd3d_pipeline_state_desc_from_d3d12_graphics_desc(struct d3d12_pipeline_state_desc *desc,
+        const D3D12_GRAPHICS_PIPELINE_STATE_DESC *d3d12_desc) DECLSPEC_HIDDEN;
+HRESULT vkd3d_pipeline_state_desc_from_d3d12_compute_desc(struct d3d12_pipeline_state_desc *desc,
+        const D3D12_COMPUTE_PIPELINE_STATE_DESC *d3d12_desc) DECLSPEC_HIDDEN;
+HRESULT vkd3d_pipeline_state_desc_from_d3d12_stream_desc(struct d3d12_pipeline_state_desc *desc,
+        const D3D12_PIPELINE_STATE_STREAM_DESC *d3d12_desc, VkPipelineBindPoint *vk_bind_point) DECLSPEC_HIDDEN;
+
 struct vkd3d_pipeline_key
 {
     D3D12_PRIMITIVE_TOPOLOGY topology;
