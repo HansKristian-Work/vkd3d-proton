@@ -250,4 +250,25 @@ static inline uint32_t float_bits_to_uint32(float f)
     return u;
 }
 
+static inline size_t vkd3d_wcslen(const WCHAR *wstr, size_t wchar_size)
+{
+    const uint16_t *data_16 = (const uint16_t*)wstr;
+    const uint32_t *data_32 = (const uint32_t*)wstr;
+    uint32_t curr_char;
+    size_t length = 0;
+
+    while (true)
+    {
+        if (wchar_size == sizeof(uint16_t))
+            curr_char = data_16[length];
+        else /* if (wchar_size == sizeof(uint32_t)) */
+            curr_char = data_32[length];
+
+        if (!curr_char)
+            return length;
+
+        length += 1;
+    }
+}
+
 #endif  /* __VKD3D_COMMON_H */
