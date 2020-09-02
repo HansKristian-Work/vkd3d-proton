@@ -25,6 +25,14 @@ import "vkd3d_d3dcommon.idl";
 cpp_quote("#ifndef _D3D12_CONSTANTS")
 cpp_quote("#define _D3D12_CONSTANTS")
 
+cpp_quote("#ifndef D3D12_ERROR_ADAPTER_NOT_FOUND")
+cpp_quote("#define D3D12_ERROR_ADAPTER_NOT_FOUND 0x887e0001")
+cpp_quote("#endif")
+
+cpp_quote("#ifndef D3D12_ERROR_DRIVER_VERSION_MISMATCH")
+cpp_quote("#define D3D12_ERROR_DRIVER_VERSION_MISMATCH 0x887e0002")
+cpp_quote("#endif")
+
 const UINT D3D12_CS_TGSM_REGISTER_COUNT = 8192;
 const UINT D3D12_MAX_ROOT_COST = 64;
 const UINT D3D12_VIEWPORT_BOUNDS_MAX = 32767;
