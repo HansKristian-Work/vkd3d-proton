@@ -430,6 +430,7 @@ HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *de
         const struct d3d12_resource *resource, struct d3d12_heap **heap) DECLSPEC_HIDDEN;
 HRESULT d3d12_heap_create_from_host_pointer(struct d3d12_device *device, void *addr, size_t size,
         struct d3d12_heap **heap) DECLSPEC_HIDDEN;
+bool d3d12_heap_needs_host_barrier_for_write(struct d3d12_heap *heap) DECLSPEC_HIDDEN;
 struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface) DECLSPEC_HIDDEN;
 
 #define VKD3D_RESOURCE_PUBLIC_FLAGS \
@@ -1248,6 +1249,7 @@ struct d3d12_command_list
 
     bool is_recording;
     bool is_valid;
+    bool need_host_barrier;
     VkCommandBuffer vk_command_buffer;
 
     DXGI_FORMAT index_buffer_format;
