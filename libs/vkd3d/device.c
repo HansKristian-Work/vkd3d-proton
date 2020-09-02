@@ -2857,9 +2857,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                 return E_INVALIDARG;
             }
 
-            /* Stub implementation, but we do expose the API. */
-            WARN("Shader cache features not supported.");
-            data->SupportFlags = D3D12_SHADER_CACHE_SUPPORT_SINGLE_PSO;
+            /* We cannot query shader cache features from the Vulkan driver,
+             * but all relevant drivers have their own disk cache, so we'll
+             * advertize support for the AUTOMATIC_*_CACHE feature bits. */
+            data->SupportFlags = D3D12_SHADER_CACHE_SUPPORT_SINGLE_PSO |
+                    D3D12_SHADER_CACHE_SUPPORT_LIBRARY |
+                    D3D12_SHADER_CACHE_SUPPORT_AUTOMATIC_INPROC_CACHE |
+                    D3D12_SHADER_CACHE_SUPPORT_AUTOMATIC_DISK_CACHE;
 
             TRACE("Shader cache support flags %#x.", data->SupportFlags);
             return S_OK;
