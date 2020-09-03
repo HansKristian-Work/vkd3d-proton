@@ -995,6 +995,17 @@ static inline uint32_t vkd3d_shader_create_swizzle(enum vkd3d_shader_swizzle_com
 
 #ifndef VKD3D_SHADER_NO_PROTOTYPES
 
+/**
+ * Returns the current version of this library.
+ *
+ * \param major Output location for the major version of this library.
+ *
+ * \param minor Output location for the minor version of this library.
+ *
+ * \return A human-readable string describing the library name and version. This
+ * string is null-terminated and UTF-8 encoded. This may be a pointer to static
+ * data in libvkd3d-shader; it should not be freed.
+ */
 const char *vkd3d_shader_get_version(unsigned int *major, unsigned int *minor);
 /**
  * Returns the source types supported, with any target type, by
