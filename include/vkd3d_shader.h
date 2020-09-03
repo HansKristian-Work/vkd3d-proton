@@ -1102,13 +1102,95 @@ void vkd3d_shader_free_messages(char *messages);
  */
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
 
+/**
+ * Convert a byte code description of a shader root signature to a structural
+ * description which can be easily parsed by C code.
+ *
+ * This function corresponds to
+ * ID3D12VersionedRootSignatureDeserializer::GetUnconvertedRootSignatureDesc().
+ *
+ * This function performs the reverse transformation of
+ * vkd3d_shader_serialize_root_signature().
+ *
+ * This function parses a standalone root signature, and should not be confused
+ * with vkd3d_shader_parse_input_signature().
+ *
+ * \param dxbc Compiled byte code, in DXBC format.
+ *
+ * \param root_signature Output location in which the decompiled root signature
+ * will be stored.
+ * \n
+ * Members of \a root_signature may be allocated by vkd3d-shader. The signature
+ * should be freed with vkd3d_shader_free_root_signature() when no longer
+ * needed.
+ *
+ * \param messages Optional output location for error or informational messages
+ * produced by the compiler.
+ * \n
+ * This parameter behaves identically to the \a messages parameter of
+ * vkd3d_shader_compile().
+ *
+ * \return A member of \ref vkd3d_result.
+ */
 int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_versioned_root_signature_desc *root_signature, char **messages);
+/**
+ * Free a structural representation of a shader root signature allocated by
+ * vkd3d_shader_convert_root_signature() or vkd3d_shader_parse_root_signature().
+ *
+ * This function may free members of struct
+ * vkd3d_shader_versioned_root_signature_desc, but does not free the structure
+ * itself.
+ *
+ * \param root_signature Signature description to free.
+ */
 void vkd3d_shader_free_root_signature(struct vkd3d_shader_versioned_root_signature_desc *root_signature);
 
+/**
+ * Convert a structural description of a shader root signature to a byte code
+ * format capable of being read by ID3D12Device::CreateRootSignature. The
+ * compiled signature is compatible with Microsoft D3D 12.
+ *
+ * This function corresponds to D3D12SerializeVersionedRootSignature().
+ *
+ * \param root_signature Description of the root signature.
+ *
+ * \param dxbc A pointer to a vkd3d_shader_code structure in which the compiled
+ * code will be stored.
+ * \n
+ * The compiled signature is allocated by vkd3d-shader and should be freed with
+ * vkd3d_shader_free_shader_code() when no longer needed.
+ *
+ * \param messages Optional output location for error or informational messages
+ * produced by the compiler.
+ * \n
+ * This parameter behaves identically to the \a messages parameter of
+ * vkd3d_shader_compile().
+ *
+ * \return A member of \ref vkd3d_result.
+ */
 int vkd3d_shader_serialize_root_signature(const struct vkd3d_shader_versioned_root_signature_desc *root_signature,
         struct vkd3d_shader_code *dxbc, char **messages);
-
+/**
+ * Convert a structural representation of a root signature to a different
+ * version of structural representation.
+ *
+ * This function corresponds to
+ * ID3D12VersionedRootSignatureDeserializer::GetRootSignatureDescAtVersion().
+ *
+ * \param dst A pointer to a vkd3d_shader_versioned_root_signature_desc
+ * structure in which the converted signature will be stored.
+ * \n
+ * Members of \a dst may be allocated by vkd3d-shader. The signature should be
+ * freed with vkd3d_shader_free_root_signature() when no longer needed.
+ *
+ * \param version The desired version to convert \a src to. This version must
+ * not be equal to \a src->version.
+ *
+ * \param src Input root signature description.
+ *
+ * \return A member of \ref vkd3d_result.
+ */
 int vkd3d_shader_convert_root_signature(struct vkd3d_shader_versioned_root_signature_desc *dst,
         enum vkd3d_shader_root_signature_version version, const struct vkd3d_shader_versioned_root_signature_desc *src);
 
