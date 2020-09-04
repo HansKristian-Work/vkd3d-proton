@@ -494,6 +494,29 @@ static void shader_dump_shader_input_sysval_semantic(struct vkd3d_string_buffer 
     shader_addline(buffer, "unknown_shader_input_sysval_semantic(%#x)", semantic);
 }
 
+static void shader_dump_resource_type(struct vkd3d_string_buffer *buffer, enum vkd3d_shader_resource_type type)
+{
+    static const char *const resource_type_names[] =
+    {
+        /* VKD3D_SHADER_RESOURCE_NONE                 */ "none",
+        /* VKD3D_SHADER_RESOURCE_BUFFER               */ "buffer",
+        /* VKD3D_SHADER_RESOURCE_TEXTURE_1D           */ "texture1d",
+        /* VKD3D_SHADER_RESOURCE_TEXTURE_2D           */ "texture2d",
+        /* VKD3D_SHADER_RESOURCE_TEXTURE_2DMS         */ "texture2dms",
+        /* VKD3D_SHADER_RESOURCE_TEXTURE_3D           */ "texture3d",
+        /* VKD3D_SHADER_RESOURCE_TEXTURE_CUBE         */ "texturecube",
+        /* VKD3D_SHADER_RESOURCE_TEXTURE_1DARRAY      */ "texture1darray",
+        /* VKD3D_SHADER_RESOURCE_TEXTURE_2DARRAY      */ "texture2darray",
+        /* VKD3D_SHADER_RESOURCE_TEXTURE_2DMSARRAY    */ "texture2dmsarray",
+        /* VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY    */ "texturecubearray",
+    };
+
+    if (type <= ARRAY_SIZE(resource_type_names))
+        shader_addline(buffer, "%s", resource_type_names[type]);
+    else
+        shader_addline(buffer, "unknown");
+}
+
 static void shader_dump_decl_usage(struct vkd3d_string_buffer *buffer,
         const struct vkd3d_shader_semantic *semantic, unsigned int flags,
         const struct vkd3d_shader_version *shader_version)
@@ -527,52 +550,7 @@ static void shader_dump_decl_usage(struct vkd3d_string_buffer *buffer,
             shader_addline(buffer, "_resource_");
         else
             shader_addline(buffer, "_uav_");
-        switch (semantic->resource_type)
-        {
-            case VKD3D_SHADER_RESOURCE_BUFFER:
-                shader_addline(buffer, "buffer");
-                break;
-
-            case VKD3D_SHADER_RESOURCE_TEXTURE_1D:
-                shader_addline(buffer, "texture1d");
-                break;
-
-            case VKD3D_SHADER_RESOURCE_TEXTURE_2D:
-                shader_addline(buffer, "texture2d");
-                break;
-
-            case VKD3D_SHADER_RESOURCE_TEXTURE_2DMS:
-                shader_addline(buffer, "texture2dms");
-                break;
-
-            case VKD3D_SHADER_RESOURCE_TEXTURE_3D:
-                shader_addline(buffer, "texture3d");
-                break;
-
-            case VKD3D_SHADER_RESOURCE_TEXTURE_CUBE:
-                shader_addline(buffer, "texturecube");
-                break;
-
-            case VKD3D_SHADER_RESOURCE_TEXTURE_1DARRAY:
-                shader_addline(buffer, "texture1darray");
-                break;
-
-            case VKD3D_SHADER_RESOURCE_TEXTURE_2DARRAY:
-                shader_addline(buffer, "texture2darray");
-                break;
-
-            case VKD3D_SHADER_RESOURCE_TEXTURE_2DMSARRAY:
-                shader_addline(buffer, "texture2dmsarray");
-                break;
-
-            case VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY:
-                shader_addline(buffer, "texturecubearray");
-                break;
-
-            default:
-                shader_addline(buffer, "unknown");
-                break;
-        }
+        shader_dump_resource_type(buffer, semantic->resource_type);
         if (semantic->resource.reg.reg.type == VKD3DSPR_UAV)
             shader_dump_uav_flags(buffer, flags);
         switch (semantic->resource_data_type)
@@ -1520,6 +1498,13 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
             {
                 shader_addline(buffer, "(%d,%d,%d)",
                         ins->texel_offset.u, ins->texel_offset.v, ins->texel_offset.w);
+            }
+
+            if (ins->resource_type != VKD3D_SHADER_RESOURCE_NONE)
+            {
+                shader_addline(buffer, "(");
+                shader_dump_resource_type(buffer, ins->resource_type);
+                shader_addline(buffer, ")");
             }
 
             for (i = 0; i < ins->dst_count; ++i)

@@ -21,7 +21,11 @@
 
 #define VKD3D_SM4_INSTRUCTION_MODIFIER        (0x1u << 31)
 
-#define VKD3D_SM4_MODIFIER_AOFFIMMI           0x1
+#define VKD3D_SM4_MODIFIER_MASK               0x3fu
+
+#define VKD3D_SM5_MODIFIER_RESOURCE_TYPE_SHIFT 6
+#define VKD3D_SM5_MODIFIER_RESOURCE_TYPE_MASK (0xfu << VKD3D_SM5_MODIFIER_RESOURCE_TYPE_SHIFT)
+
 #define VKD3D_SM4_AOFFIMMI_U_SHIFT            9
 #define VKD3D_SM4_AOFFIMMI_U_MASK             (0xfu << VKD3D_SM4_AOFFIMMI_U_SHIFT)
 #define VKD3D_SM4_AOFFIMMI_V_SHIFT            13
@@ -301,6 +305,12 @@ enum vkd3d_sm4_opcode
     VKD3D_SM5_OP_EVAL_SAMPLE_INDEX                = 0xcc,
     VKD3D_SM5_OP_EVAL_CENTROID                    = 0xcd,
     VKD3D_SM5_OP_DCL_GS_INSTANCES                 = 0xce,
+};
+
+enum vkd3d_sm4_instruction_modifier
+{
+    VKD3D_SM4_MODIFIER_AOFFIMMI         = 0x1,
+    VKD3D_SM5_MODIFIER_RESOURCE_TYPE    = 0x2,
 };
 
 enum vkd3d_sm4_register_type
@@ -1734,32 +1744,49 @@ static bool shader_sm4_read_dst_param(struct vkd3d_sm4_data *priv, const DWORD *
 
 static void shader_sm4_read_instruction_modifier(DWORD modifier, struct vkd3d_shader_instruction *ins)
 {
-    static const DWORD recognized_bits = VKD3D_SM4_INSTRUCTION_MODIFIER
-            | VKD3D_SM4_MODIFIER_AOFFIMMI
-            | VKD3D_SM4_AOFFIMMI_U_MASK
-            | VKD3D_SM4_AOFFIMMI_V_MASK
-            | VKD3D_SM4_AOFFIMMI_W_MASK;
+    enum vkd3d_sm4_instruction_modifier modifier_type = modifier & VKD3D_SM4_MODIFIER_MASK;
 
-    if (modifier & ~recognized_bits)
+    switch (modifier_type)
     {
-        WARN("Unhandled modifier 0x%08x.\n", modifier);
-    }
-    else
-    {
-        /* Bit fields are used for sign extension */
-        struct
+        case VKD3D_SM4_MODIFIER_AOFFIMMI:
         {
-            int u : 4;
-            int v : 4;
-            int w : 4;
+            static const DWORD recognized_bits = VKD3D_SM4_INSTRUCTION_MODIFIER
+                    | VKD3D_SM4_MODIFIER_MASK
+                    | VKD3D_SM4_AOFFIMMI_U_MASK
+                    | VKD3D_SM4_AOFFIMMI_V_MASK
+                    | VKD3D_SM4_AOFFIMMI_W_MASK;
+
+            /* Bit fields are used for sign extension. */
+            struct
+            {
+                int u : 4;
+                int v : 4;
+                int w : 4;
+            } aoffimmi;
+
+            if (modifier & ~recognized_bits)
+                FIXME("Unhandled instruction modifier %#x.\n", modifier);
+
+            aoffimmi.u = (modifier & VKD3D_SM4_AOFFIMMI_U_MASK) >> VKD3D_SM4_AOFFIMMI_U_SHIFT;
+            aoffimmi.v = (modifier & VKD3D_SM4_AOFFIMMI_V_MASK) >> VKD3D_SM4_AOFFIMMI_V_SHIFT;
+            aoffimmi.w = (modifier & VKD3D_SM4_AOFFIMMI_W_MASK) >> VKD3D_SM4_AOFFIMMI_W_SHIFT;
+            ins->texel_offset.u = aoffimmi.u;
+            ins->texel_offset.v = aoffimmi.v;
+            ins->texel_offset.w = aoffimmi.w;
+            break;
         }
-        aoffimmi;
-        aoffimmi.u = (modifier & VKD3D_SM4_AOFFIMMI_U_MASK) >> VKD3D_SM4_AOFFIMMI_U_SHIFT;
-        aoffimmi.v = (modifier & VKD3D_SM4_AOFFIMMI_V_MASK) >> VKD3D_SM4_AOFFIMMI_V_SHIFT;
-        aoffimmi.w = (modifier & VKD3D_SM4_AOFFIMMI_W_MASK) >> VKD3D_SM4_AOFFIMMI_W_SHIFT;
-        ins->texel_offset.u = aoffimmi.u;
-        ins->texel_offset.v = aoffimmi.v;
-        ins->texel_offset.w = aoffimmi.w;
+
+        case VKD3D_SM5_MODIFIER_RESOURCE_TYPE:
+        {
+            enum vkd3d_sm4_resource_type resource_type
+                    = (modifier & VKD3D_SM5_MODIFIER_RESOURCE_TYPE_MASK) >> VKD3D_SM5_MODIFIER_RESOURCE_TYPE_SHIFT;
+
+            ins->resource_type = resource_type_table[resource_type];
+            break;
+        }
+
+        default:
+            FIXME("Unhandled instruction modifier %#x.\n", modifier);
     }
 }
 
@@ -1818,6 +1845,7 @@ void shader_sm4_read_instruction(void *data, const DWORD **ptr, struct vkd3d_sha
     ins->dst = priv->dst_param;
     ins->src_count = strlen(opcode_info->src_info);
     ins->src = priv->src_param;
+    ins->resource_type = VKD3D_SHADER_RESOURCE_NONE;
     memset(&ins->texel_offset, 0, sizeof(ins->texel_offset));
 
     p = *ptr;

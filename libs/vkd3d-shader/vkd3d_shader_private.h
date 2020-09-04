@@ -764,6 +764,7 @@ struct vkd3d_shader_instruction
     const struct vkd3d_shader_dst_param *dst;
     const struct vkd3d_shader_src_param *src;
     struct vkd3d_shader_texel_offset texel_offset;
+    enum vkd3d_shader_resource_type resource_type;
     bool coissue;
     const struct vkd3d_shader_src_param *predicate;
     union
