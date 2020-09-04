@@ -5046,9 +5046,11 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
     }
 
     if (compiler->shader_type != VKD3D_SHADER_TYPE_HULL)
+    {
         vkd3d_spirv_builder_begin_main_function(builder);
 
-    vkd3d_dxbc_compiler_emit_shader_signature_outputs(compiler);
+        vkd3d_dxbc_compiler_emit_shader_signature_outputs(compiler);
+    }
 }
 
 static size_t vkd3d_dxbc_compiler_get_current_function_location(struct vkd3d_dxbc_compiler *compiler)
