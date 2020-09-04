@@ -840,61 +840,125 @@ struct vkd3d_shader_versioned_root_signature_desc
     } u;
 };
 
+/**
+ * The type of a shader resource, returned as part of struct
+ * vkd3d_shader_descriptor_info.
+ */
 enum vkd3d_shader_resource_type
 {
+    /**
+     * The type is invalid or not applicable for this descriptor. This value is
+     * returned for samplers.
+     */
     VKD3D_SHADER_RESOURCE_NONE              = 0x0,
+    /** Dimensionless buffer. */
     VKD3D_SHADER_RESOURCE_BUFFER            = 0x1,
+    /** 1-dimensional texture. */
     VKD3D_SHADER_RESOURCE_TEXTURE_1D        = 0x2,
+    /** 2-dimensional texture. */
     VKD3D_SHADER_RESOURCE_TEXTURE_2D        = 0x3,
+    /** Multisampled 2-dimensional texture. */
     VKD3D_SHADER_RESOURCE_TEXTURE_2DMS      = 0x4,
+    /** 3-dimensional texture. */
     VKD3D_SHADER_RESOURCE_TEXTURE_3D        = 0x5,
+    /** Cubemap texture. */
     VKD3D_SHADER_RESOURCE_TEXTURE_CUBE      = 0x6,
+    /** 1-dimensional array texture. */
     VKD3D_SHADER_RESOURCE_TEXTURE_1DARRAY   = 0x7,
+    /** 2-dimensional array texture. */
     VKD3D_SHADER_RESOURCE_TEXTURE_2DARRAY   = 0x8,
+    /** Multisampled 2-dimensional array texture. */
     VKD3D_SHADER_RESOURCE_TEXTURE_2DMSARRAY = 0x9,
+    /** Cubemap array texture. */
     VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY = 0xa,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_RESOURCE_TYPE),
 };
 
+/**
+ * The type of the data contained in a shader resource, returned as part of
+ * struct vkd3d_shader_descriptor_info. All formats are 32-bit.
+ */
 enum vkd3d_shader_resource_data_type
 {
+    /** Unsigned normalized integer. */
     VKD3D_SHADER_RESOURCE_DATA_UNORM = 0x1,
+    /** Signed normalized integer. */
     VKD3D_SHADER_RESOURCE_DATA_SNORM = 0x2,
+    /** Signed integer. */
     VKD3D_SHADER_RESOURCE_DATA_INT   = 0x3,
+    /** Unsigned integer. */
     VKD3D_SHADER_RESOURCE_DATA_UINT  = 0x4,
+    /** IEEE floating-point. */
     VKD3D_SHADER_RESOURCE_DATA_FLOAT = 0x5,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_RESOURCE_DATA_TYPE),
 };
 
+/**
+ * Additional flags describing a shader descriptor, returned as part of struct
+ * vkd3d_shader_descriptor_info.
+ */
 enum vkd3d_shader_descriptor_info_flag
 {
+    /**
+     * The descriptor is a UAV resource, whose counter is read from or written
+     * to by the shader.
+     */
     VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_UAV_COUNTER             = 0x00000001,
+    /** The descriptor is a UAV resource, which is read from by the shader. */
     VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_UAV_READ                = 0x00000002,
+    /** The descriptor is a comparison sampler. */
     VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_SAMPLER_COMPARISON_MODE = 0x00000004,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_DESCRIPTOR_INFO_FLAG),
 };
 
+/**
+ * Describes a single shader descriptor; returned as part of
+ * struct vkd3d_shader_scan_descriptor_info.
+ */
 struct vkd3d_shader_descriptor_info
 {
+    /** Type of the descriptor (for example, SRV, CBV, UAV, or sampler). */
     enum vkd3d_shader_descriptor_type type;
+    /**
+     * Register space of the resource, or 0 if the shader does not
+     * support multiple register spaces.
+     */
     unsigned int register_space;
+    /** Register index of the descriptor. */
     unsigned int register_index;
+    /** Resource type, if applicable, including its dimension. */
     enum vkd3d_shader_resource_type resource_type;
+    /** Data type contained in the resource (for example, float or integer). */
     enum vkd3d_shader_resource_data_type resource_data_type;
-    unsigned int flags; /* vkd3d_shader_descriptor_info_flag */
+    /**
+     * Bitwise combination of zero or more members of
+     * \ref vkd3d_shader_descriptor_info_flag.
+     */
+    unsigned int flags;
+    /** Size of this descriptor array, or 1 if a single descriptor. */
     unsigned int count;
 };
 
-/* Extends vkd3d_shader_compile_info. */
+/**
+ * A chained structure enumerating the descriptors declared by a shader.
+ *
+ * This structure extends vkd3d_shader_compile_info.
+ */
 struct vkd3d_shader_scan_descriptor_info
 {
+    /**
+     * Input; must be set to VKD3D_SHADER_STRUCTURE_TYPE_SCAN_DESCRIPTOR_INFO.
+     */
     enum vkd3d_shader_structure_type type;
+    /** Input; optional pointer to a structure containing further parameters. */
     const void *next;
 
+    /** Output; returns a pointer to an array of descriptors. */
     struct vkd3d_shader_descriptor_info *descriptors;
+    /** Output; size, in elements, of \ref descriptors. */
     unsigned int descriptor_count;
 };
 
@@ -1235,6 +1299,15 @@ int vkd3d_shader_convert_root_signature(struct vkd3d_shader_versioned_root_signa
  * \return A member of \ref vkd3d_result.
  */
 int vkd3d_shader_scan(const struct vkd3d_shader_compile_info *compile_info, char **messages);
+/**
+ * Free members of struct vkd3d_shader_scan_descriptor_info() allocated by
+ * vkd3d_shader_scan().
+ *
+ * This function may free members of vkd3d_shader_scan_descriptor_info, but
+ * does not free the structure itself.
+ *
+ * \param scan_descriptor_info Descriptor information to free.
+ */
 void vkd3d_shader_free_scan_descriptor_info(struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info);
 
 int vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
