@@ -962,29 +962,50 @@ struct vkd3d_shader_scan_descriptor_info
     unsigned int descriptor_count;
 };
 
+/**
+ * Data type of a shader varying, returned as part of struct
+ * vkd3d_shader_signature_element.
+ */
 enum vkd3d_shader_component_type
 {
+    /** The varying has no type. */
     VKD3D_SHADER_COMPONENT_VOID     = 0x0,
+    /** 32-bit unsigned integer. */
     VKD3D_SHADER_COMPONENT_UINT     = 0x1,
+    /** 32-bit signed integer. */
     VKD3D_SHADER_COMPONENT_INT      = 0x2,
+    /** 32-bit IEEE floating-point. */
     VKD3D_SHADER_COMPONENT_FLOAT    = 0x3,
+    /** Boolean. */
     VKD3D_SHADER_COMPONENT_BOOL     = 0x4,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_COMPONENT_TYPE),
 };
 
+/** System value semantic, returned as part of struct vkd3d_shader_signature. */
 enum vkd3d_shader_sysval_semantic
 {
+    /** No system value. */
     VKD3D_SHADER_SV_NONE                      = 0x00,
+    /** Vertex position; SV_Position in Direct3D. */
     VKD3D_SHADER_SV_POSITION                  = 0x01,
+    /** Clip distance; SV_ClipDistance in Direct3D. */
     VKD3D_SHADER_SV_CLIP_DISTANCE             = 0x02,
+    /** Cull distance; SV_CullDistance in Direct3D. */
     VKD3D_SHADER_SV_CULL_DISTANCE             = 0x03,
+    /** Render target layer; SV_RenderTargetArrayIndex in Direct3D. */
     VKD3D_SHADER_SV_RENDER_TARGET_ARRAY_INDEX = 0x04,
+    /** Viewport index; SV_ViewportArrayIndex in Direct3D. */
     VKD3D_SHADER_SV_VIEWPORT_ARRAY_INDEX      = 0x05,
+    /** Vertex ID; SV_VertexID in Direct3D. */
     VKD3D_SHADER_SV_VERTEX_ID                 = 0x06,
+    /** Primtive ID; SV_PrimitiveID in Direct3D. */
     VKD3D_SHADER_SV_PRIMITIVE_ID              = 0x07,
+    /** Instance ID; SV_InstanceID in Direct3D. */
     VKD3D_SHADER_SV_INSTANCE_ID               = 0x08,
+    /** Whether the triangle is front-facing; SV_IsFrontFace in Direct3D. */
     VKD3D_SHADER_SV_IS_FRONT_FACE             = 0x09,
+    /** Sample index; SV_SampleIndex in Direct3D. */
     VKD3D_SHADER_SV_SAMPLE_INDEX              = 0x0a,
     VKD3D_SHADER_SV_TESS_FACTOR_QUADEDGE      = 0x0b,
     VKD3D_SHADER_SV_TESS_FACTOR_QUADINT       = 0x0c,
@@ -996,32 +1017,66 @@ enum vkd3d_shader_sysval_semantic
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_SYSVAL_SEMANTIC),
 };
 
+/**
+ * Minimum interpolation precision of a shader varying, returned as part of
+ * struct vkd3d_shader_signature_element.
+ */
 enum vkd3d_shader_minimum_precision
 {
     VKD3D_SHADER_MINIMUM_PRECISION_NONE      = 0,
+    /** 16-bit floating-point. */
     VKD3D_SHADER_MINIMUM_PRECISION_FLOAT_16  = 1,
+    /** 10-bit fixed point (2 integer and 8 fractional bits). */
     VKD3D_SHADER_MINIMUM_PRECISION_FLOAT_8_2 = 2,
+    /** 16-bit signed integer. */
     VKD3D_SHADER_MINIMUM_PRECISION_INT_16    = 4,
+    /** 16-bit unsigned integer. */
     VKD3D_SHADER_MINIMUM_PRECISION_UINT_16   = 5,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_MINIMUM_PRECISION),
 };
 
+/**
+ * A single shader varying, returned as part of struct vkd3d_shader_signature.
+ */
 struct vkd3d_shader_signature_element
 {
+    /** Semantic name. */
     const char *semantic_name;
+    /** Semantic index, or 0 if the semantic is not indexed. */
     unsigned int semantic_index;
+    /**
+     * Stream index of a geometry shader output semantic. If the signature is
+     * not a geometry shader output signature, this field will be set to 0.
+     */
     unsigned int stream_index;
+    /**
+     * System value semantic. If the varying is not a system value, this field
+     * will be set to VKD3D_SHADER_SV_NONE.
+     */
     enum vkd3d_shader_sysval_semantic sysval_semantic;
+    /** Data type. */
     enum vkd3d_shader_component_type component_type;
+    /** Register index. */
     unsigned int register_index;
+    /** Register mask. */
     unsigned int mask;
+    /** Minimum interpolation precision. */
     enum vkd3d_shader_minimum_precision min_precision;
 };
 
+/**
+ * Description of a shader input or output signature. This structure is
+ * populated by vkd3d_shader_parse_input_signature().
+ *
+ * The helper function vkd3d_shader_find_signature_element() will look up a
+ * varying element by its semantic name, semantic index, and stream index.
+ */
 struct vkd3d_shader_signature
 {
+    /** Pointer to an array of varyings. */
     struct vkd3d_shader_signature_element *elements;
+    /** Size, in elements, of \ref elements. */
     unsigned int element_count;
 };
 
