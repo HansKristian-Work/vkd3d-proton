@@ -961,7 +961,7 @@ struct vkd3d_shader_signature
     unsigned int element_count;
 };
 
-/* swizzle bits fields: wwzzyyxx */
+/** Possible values for a single component of a vkd3d-shader swizzle. */
 enum vkd3d_shader_swizzle_component
 {
     VKD3D_SHADER_SWIZZLE_X = 0x0,
@@ -972,17 +972,33 @@ enum vkd3d_shader_swizzle_component
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_SWIZZLE_COMPONENT),
 };
 
+/**
+ * A mask selecting one component from a vkd3d-shader swizzle. The component has
+ * type \ref vkd3d_shader_swizzle_component.
+ */
 #define VKD3D_SHADER_SWIZZLE_MASK (0xffu)
+/** The offset, in bits, of the nth parameter of a vkd3d-shader swizzle. */
 #define VKD3D_SHADER_SWIZZLE_SHIFT(idx) (8u * (idx))
 
+/**
+ * A helper macro which returns a vkd3d-shader swizzle with the given
+ * components. The components are specified as the suffixes to members of
+ * \ref vkd3d_shader_swizzle_component. For example, the swizzle ".xwyy" can be
+ * represented as:
+ * \code
+ * VKD3D_SHADER_SWIZZLE(X, W, Y, Y)
+ * \endcode
+ */
 #define VKD3D_SHADER_SWIZZLE(x, y, z, w) \
         vkd3d_shader_create_swizzle(VKD3D_SHADER_SWIZZLE_ ## x, \
                 VKD3D_SHADER_SWIZZLE_ ## y, \
                 VKD3D_SHADER_SWIZZLE_ ## z, \
                 VKD3D_SHADER_SWIZZLE_ ## w)
 
+/** The identity swizzle ".xyzw". */
 #define VKD3D_SHADER_NO_SWIZZLE VKD3D_SHADER_SWIZZLE(X, Y, Z, W)
 
+/** Build a vkd3d-shader swizzle with the given components. */
 static inline uint32_t vkd3d_shader_create_swizzle(enum vkd3d_shader_swizzle_component x,
         enum vkd3d_shader_swizzle_component y, enum vkd3d_shader_swizzle_component z,
         enum vkd3d_shader_swizzle_component w)
