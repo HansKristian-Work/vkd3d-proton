@@ -294,6 +294,8 @@ static int vkd3d_shader_validate_compile_info(const struct vkd3d_shader_compile_
 
 void vkd3d_shader_free_messages(char *messages)
 {
+    TRACE("messages %p.\n", messages);
+
     vkd3d_free(messages);
 }
 
@@ -912,11 +914,15 @@ done:
 
 void vkd3d_shader_free_scan_descriptor_info(struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info)
 {
+    TRACE("scan_descriptor_info %p.\n", scan_descriptor_info);
+
     vkd3d_free(scan_descriptor_info->descriptors);
 }
 
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *shader_code)
 {
+    TRACE("shader_code %p.\n", shader_code);
+
     vkd3d_free((void *)shader_code->code);
 }
 
@@ -956,6 +962,8 @@ static void vkd3d_shader_free_root_signature_v_1_1(struct vkd3d_shader_root_sign
 
 void vkd3d_shader_free_root_signature(struct vkd3d_shader_versioned_root_signature_desc *desc)
 {
+    TRACE("desc %p.\n", desc);
+
     if (desc->version == VKD3D_SHADER_ROOT_SIGNATURE_VERSION_1_0)
     {
         vkd3d_shader_free_root_signature_v_1_0(&desc->u.v_1_0);
