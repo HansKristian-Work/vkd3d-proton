@@ -1027,7 +1027,7 @@ enum vkd3d_shader_minimum_precision
     /** 16-bit floating-point. */
     VKD3D_SHADER_MINIMUM_PRECISION_FLOAT_16  = 1,
     /** 10-bit fixed point (2 integer and 8 fractional bits). */
-    VKD3D_SHADER_MINIMUM_PRECISION_FLOAT_8_2 = 2,
+    VKD3D_SHADER_MINIMUM_PRECISION_FIXED_8_2 = 2,
     /** 16-bit signed integer. */
     VKD3D_SHADER_MINIMUM_PRECISION_INT_16    = 4,
     /** 16-bit unsigned integer. */
