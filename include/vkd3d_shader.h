@@ -1310,11 +1310,63 @@ int vkd3d_shader_scan(const struct vkd3d_shader_compile_info *compile_info, char
  */
 void vkd3d_shader_free_scan_descriptor_info(struct vkd3d_shader_scan_descriptor_info *scan_descriptor_info);
 
+/**
+ * Read the input signature of a compiled shader, returning a structural
+ * description which can be easily parsed by C code.
+ *
+ * This function parses a compiled shader. To parse a standalone root signature,
+ * use vkd3d_shader_parse_root_signature().
+ *
+ * \param dxbc Compiled byte code, in DXBC format.
+ *
+ * \param signature Output location in which the parsed root signature will be
+ * stored.
+ * \n
+ * Members of \a signature may be allocated by vkd3d-shader. The signature
+ * should be freed with vkd3d_shader_free_shader_signature() when no longer
+ * needed.
+ *
+ * \param messages Optional output location for error or informational messages
+ * produced by the compiler.
+ * \n
+ * This parameter behaves identically to the \a messages parameter of
+ * vkd3d_shader_compile().
+ *
+ * \return A member of \ref vkd3d_result.
+ */
 int vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_signature *signature, char **messages);
+/**
+ * Find a single element of a parsed input signature.
+ *
+ * \param signature The parsed input signature. This structure is normally
+ * populated by vkd3d_shader_parse_input_signature().
+ *
+ * \param semantic_name Semantic name of the desired element. This function
+ * performs a case-insensitive comparison with respect to the ASCII plane.
+ *
+ * \param semantic_index Semantic index of the desired element.
+ *
+ * \param stream_index Geometry shader stream index of the desired element. If
+ * the signature is not a geometry shader output signature, this parameter must
+ * be set to 0.
+ *
+ * \return A description of the element matching the requested parameters, or
+ * NULL if no such element was found. If not NULL, the return value points into
+ * the \a signature parameter and should not be explicitly freed.
+ */
 struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
         const struct vkd3d_shader_signature *signature, const char *semantic_name,
         unsigned int semantic_index, unsigned int stream_index);
+/**
+ * Free a structural representation of a shader input signature allocated by
+ * vkd3d_shader_parse_input_signature().
+ *
+ * This function may free members of struct vkd3d_shader_signature, but does not
+ * free the structure itself.
+ *
+ * \param signature Signature description to free.
+ */
 void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature);
 
 #endif  /* VKD3D_SHADER_NO_PROTOTYPES */
