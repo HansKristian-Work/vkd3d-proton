@@ -9,7 +9,7 @@ libtool
 Makefile
 Makefile.in
 test-suite.log
-vkd3d-compiler
+/vkd3d-compiler
 
 vkd3d-*.tar.xz
 
