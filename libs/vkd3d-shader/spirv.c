@@ -3628,6 +3628,12 @@ static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *com
         case SpvBuiltInSampleId:
             vkd3d_spirv_enable_capability(builder, SpvCapabilitySampleRateShading);
             break;
+        case SpvBuiltInClipDistance:
+            vkd3d_spirv_enable_capability(builder, SpvCapabilityClipDistance);
+            break;
+        case SpvBuiltInCullDistance:
+            vkd3d_spirv_enable_capability(builder, SpvCapabilityCullDistance);
+            break;
         default:
             break;
     }
