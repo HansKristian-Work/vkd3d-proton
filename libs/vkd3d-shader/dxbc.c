@@ -23,6 +23,9 @@
 
 #define VKD3D_SM4_MODIFIER_MASK               0x3fu
 
+#define VKD3D_SM5_MODIFIER_DATA_TYPE_SHIFT    6
+#define VKD3D_SM5_MODIFIER_DATA_TYPE_MASK     (0xffffu << VKD3D_SM5_MODIFIER_DATA_TYPE_SHIFT)
+
 #define VKD3D_SM5_MODIFIER_RESOURCE_TYPE_SHIFT 6
 #define VKD3D_SM5_MODIFIER_RESOURCE_TYPE_MASK (0xfu << VKD3D_SM5_MODIFIER_RESOURCE_TYPE_SHIFT)
 
@@ -311,6 +314,7 @@ enum vkd3d_sm4_instruction_modifier
 {
     VKD3D_SM4_MODIFIER_AOFFIMMI         = 0x1,
     VKD3D_SM5_MODIFIER_RESOURCE_TYPE    = 0x2,
+    VKD3D_SM5_MODIFIER_DATA_TYPE        = 0x3,
 };
 
 enum vkd3d_sm4_register_type
@@ -1776,6 +1780,17 @@ static void shader_sm4_read_instruction_modifier(DWORD modifier, struct vkd3d_sh
             break;
         }
 
+        case VKD3D_SM5_MODIFIER_DATA_TYPE:
+        {
+            DWORD components = (modifier & VKD3D_SM5_MODIFIER_DATA_TYPE_MASK) >> VKD3D_SM5_MODIFIER_DATA_TYPE_SHIFT;
+            enum vkd3d_sm4_data_type data_type = components & 0xf;
+
+            if ((components & 0xfff0) != (components & 0xf) * 0x1110)
+                FIXME("Components (%#x) have different data types.\n", components);
+            ins->resource_data_type = data_type_table[data_type];
+            break;
+        }
+
         case VKD3D_SM5_MODIFIER_RESOURCE_TYPE:
         {
             enum vkd3d_sm4_resource_type resource_type
@@ -1846,6 +1861,7 @@ void shader_sm4_read_instruction(void *data, const DWORD **ptr, struct vkd3d_sha
     ins->src_count = strlen(opcode_info->src_info);
     ins->src = priv->src_param;
     ins->resource_type = VKD3D_SHADER_RESOURCE_NONE;
+    ins->resource_data_type = VKD3D_DATA_FLOAT;
     memset(&ins->texel_offset, 0, sizeof(ins->texel_offset));
 
     p = *ptr;

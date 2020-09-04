@@ -517,6 +517,27 @@ static void shader_dump_resource_type(struct vkd3d_string_buffer *buffer, enum v
         shader_addline(buffer, "unknown");
 }
 
+static void shader_dump_data_type(struct vkd3d_string_buffer *buffer, enum vkd3d_data_type type)
+{
+    static const char *const data_type_names[] =
+    {
+        /* VKD3D_DATA_FLOAT    */ "(float)",
+        /* VKD3D_DATA_INT      */ "(int)",
+        /* VKD3D_DATA_RESOURCE */ "(resource)",
+        /* VKD3D_DATA_SAMPLER  */ "(sampler)",
+        /* VKD3D_DATA_UAV      */ "(uav)",
+        /* VKD3D_DATA_UINT     */ "(uint)",
+        /* VKD3D_DATA_UNORM    */ "(unorm)",
+        /* VKD3D_DATA_SNORM    */ "(snorm)",
+        /* VKD3D_DATA_OPAQUE   */ "(opaque)",
+    };
+
+    if (type <= ARRAY_SIZE(data_type_names))
+        shader_addline(buffer, "%s", data_type_names[type]);
+    else
+        shader_addline(buffer, "(unknown)");
+}
+
 static void shader_dump_decl_usage(struct vkd3d_string_buffer *buffer,
         const struct vkd3d_shader_semantic *semantic, unsigned int flags,
         const struct vkd3d_shader_version *shader_version)
@@ -553,32 +574,7 @@ static void shader_dump_decl_usage(struct vkd3d_string_buffer *buffer,
         shader_dump_resource_type(buffer, semantic->resource_type);
         if (semantic->resource.reg.reg.type == VKD3DSPR_UAV)
             shader_dump_uav_flags(buffer, flags);
-        switch (semantic->resource_data_type)
-        {
-            case VKD3D_DATA_FLOAT:
-                shader_addline(buffer, " (float)");
-                break;
-
-            case VKD3D_DATA_INT:
-                shader_addline(buffer, " (int)");
-                break;
-
-            case VKD3D_DATA_UINT:
-                shader_addline(buffer, " (uint)");
-                break;
-
-            case VKD3D_DATA_UNORM:
-                shader_addline(buffer, " (unorm)");
-                break;
-
-            case VKD3D_DATA_SNORM:
-                shader_addline(buffer, " (snorm)");
-                break;
-
-            default:
-                shader_addline(buffer, " (unknown)");
-                break;
-        }
+        shader_dump_data_type(buffer, semantic->resource_data_type);
     }
     else
     {
@@ -1506,6 +1502,9 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
                 shader_dump_resource_type(buffer, ins->resource_type);
                 shader_addline(buffer, ")");
             }
+
+            if (ins->resource_data_type != VKD3D_DATA_FLOAT)
+                shader_dump_data_type(buffer, ins->resource_data_type);
 
             for (i = 0; i < ins->dst_count; ++i)
             {
