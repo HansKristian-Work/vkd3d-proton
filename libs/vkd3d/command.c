@@ -3065,6 +3065,12 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     {
         VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, vk_pipeline));
 
+        /* The application did set vertex buffers that we didn't bind because of the pipeline vbo mask.
+         * The new pipeline could use those so we need to rebind vertex buffers. */
+        if ((new_active_flags & (VKD3D_DYNAMIC_STATE_VERTEX_BUFFER | VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE))
+          && (list->dynamic_state.dirty_vbos || list->dynamic_state.dirty_vbo_strides))
+          list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_VERTEX_BUFFER | VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE;
+
         /* Reapply all dynamic states that were not dynamic in previously bound pipeline.
          * If we didn't use to have dynamic vertex strides, but we then bind a pipeline with dynamic strides,
          * we will need to rebind all VBOs. Mark dynamic stride as dirty in this case. */
@@ -3503,6 +3509,7 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
     {
         update_vbos = dyn_state->dirty_vbos & list->state->graphics.vertex_buffer_mask;
         dyn_state->dirty_vbos &= ~update_vbos;
+        dyn_state->dirty_vbo_strides &= ~update_vbos;
 
         while (update_vbos)
         {
