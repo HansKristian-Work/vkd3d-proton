@@ -2207,6 +2207,7 @@ struct vkd3d_dxbc_compiler
     unsigned int spec_constant_count;
     struct vkd3d_shader_spec_constant *spec_constants;
     size_t spec_constants_size;
+    enum vkd3d_shader_compile_option_formatting_flags formatting;
 };
 
 static bool is_control_point_phase(const struct vkd3d_shader_phase *phase)
@@ -2267,6 +2268,9 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
 
     vkd3d_spirv_builder_init(&compiler->spirv_builder, vkd3d_dxbc_compiler_get_entry_point_name(compiler));
 
+    compiler->formatting = VKD3D_SHADER_COMPILE_OPTION_FORMATTING_FRIENDLY_NAMES |
+                           VKD3D_SHADER_COMPILE_OPTION_FORMATTING_INDENT;
+
     for (i = 0; i < compile_info->option_count; ++i)
     {
         const struct vkd3d_shader_compile_option *option = &compile_info->options[i];
@@ -2284,6 +2288,10 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
                     compiler->ssbo_uavs = true;
                 else
                     WARN("Ignoring unrecognised value %#x for option %#x.\n", option->value, option->name);
+                break;
+
+            case VKD3D_SHADER_COMPILE_OPTION_FORMATTING:
+                compiler->formatting = option->value;
                 break;
 
             default:
@@ -9227,9 +9235,7 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_code text;
         enum vkd3d_shader_spirv_environment environment = vkd3d_dxbc_compiler_get_target_environment(compiler);
         if (vkd3d_spirv_binary_to_text(spirv, environment,
-                    get_binary_to_text_options(VKD3D_SHADER_COMPILE_OPTION_FORMATTING_FRIENDLY_NAMES |
-                                               VKD3D_SHADER_COMPILE_OPTION_FORMATTING_INDENT),
-                    &text) != VKD3D_OK)
+                    get_binary_to_text_options(compiler->formatting), &text) != VKD3D_OK)
             return VKD3D_ERROR;
         *spirv = text;
     }

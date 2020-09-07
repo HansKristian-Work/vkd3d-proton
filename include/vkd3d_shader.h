@@ -97,6 +97,8 @@ enum vkd3d_shader_compile_option_name
     VKD3D_SHADER_COMPILE_OPTION_STRIP_DEBUG = 0x00000001,
     /** \a value is a member of enum vkd3d_shader_compile_option_buffer_uav. */
     VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV  = 0x00000002,
+    /** \a value is a member of enum vkd3d_shader_compile_option_formatting_flags. */
+    VKD3D_SHADER_COMPILE_OPTION_FORMATTING  = 0x00000003,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_COMPILE_OPTION_NAME),
 };
