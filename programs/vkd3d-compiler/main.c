@@ -268,6 +268,23 @@ static const struct target_type_info *get_target_type_info(enum vkd3d_shader_tar
     return NULL;
 }
 
+static bool validate_target_type(
+        enum vkd3d_shader_source_type source_type,
+        enum vkd3d_shader_target_type target_type)
+{
+    unsigned int i, count;
+    const enum vkd3d_shader_target_type *supported_types =
+        vkd3d_shader_get_supported_target_types(source_type, &count);
+
+    for (i = 0; i < ARRAY_SIZE(target_type_info); ++i)
+    {
+        if (target_type == supported_types[i])
+            return true;
+    }
+
+    return false;
+}
+
 static bool parse_command_line(int argc, char **argv, struct options *options)
 {
     enum vkd3d_shader_compile_option_buffer_uav buffer_uav;
@@ -346,6 +363,14 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
             default:
                 return false;
         }
+    }
+
+    if (!validate_target_type(options->source_type, options->target_type))
+    {
+        fprintf(stderr, "Target type '%s' is invalid for source type '%s'.\n",
+                get_target_type_info(options->target_type)->name,
+                get_source_type_info(options->source_type)->name);
+        return false;
     }
 
     if (options->print_target_types)
