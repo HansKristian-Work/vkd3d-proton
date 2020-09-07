@@ -55,7 +55,7 @@ source_type_info[] =
         "            This is the format used for Direct3D shader model 4 and 5 shaders."},
 };
 
-static const struct
+static const struct target_type_info
 {
     enum vkd3d_shader_target_type type;
     const char *name;
@@ -246,6 +246,17 @@ static enum vkd3d_shader_target_type parse_target_type(const char *target)
     return VKD3D_SHADER_TARGET_NONE;
 }
 
+static const struct target_type_info *get_target_type_info(enum vkd3d_shader_target_type type)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(target_type_info); ++i)
+        if (type == target_type_info[i].type)
+            return &target_type_info[i];
+
+    return NULL;
+}
+
 static bool parse_command_line(int argc, char **argv, struct options *options)
 {
     enum vkd3d_shader_compile_option_buffer_uav buffer_uav;
@@ -359,7 +370,7 @@ static void print_target_types(enum vkd3d_shader_source_type source_type)
 {
     const enum vkd3d_shader_target_type *target_types;
     const char *source_type_name;
-    unsigned int count, i, j;
+    unsigned int count, i;
 
     for (i = 0; i < ARRAY_SIZE(source_type_info); ++i)
     {
@@ -374,14 +385,9 @@ static void print_target_types(enum vkd3d_shader_source_type source_type)
     fprintf(stdout, "Supported target types for source type '%s':\n", source_type_name);
     for (i = 0; i < count; ++i)
     {
-        for (j = 0; j < ARRAY_SIZE(target_type_info); ++j)
-        {
-            if (target_types[i] == target_type_info[j].type)
-            {
-                fprintf(stdout, "  %s  %s", target_type_info[j].name, target_type_info[j].description);
-                break;
-            }
-        }
+        const struct target_type_info *type = get_target_type_info(target_types[i]);
+        if (type)
+            fprintf(stdout, "  %s  %s", type->name, type->description);
     }
 }
 
