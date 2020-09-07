@@ -1063,6 +1063,9 @@ const enum vkd3d_shader_target_type *vkd3d_shader_get_supported_target_types(
     static const enum vkd3d_shader_target_type dxbc_tpf_types[] =
     {
         VKD3D_SHADER_TARGET_SPIRV_BINARY,
+#ifdef HAVE_SPIRV_TOOLS
+        VKD3D_SHADER_TARGET_SPIRV_TEXT,
+#endif
     };
 
     TRACE("source_type %#x, count %p.\n", source_type, count);
