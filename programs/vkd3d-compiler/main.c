@@ -29,7 +29,7 @@
 #include "vkd3d_common.h"
 #include "vkd3d_shader.h"
 
-#define MAX_COMPILE_OPTIONS 2
+#define MAX_COMPILE_OPTIONS 3
 
 enum
 {
@@ -40,6 +40,7 @@ enum
     OPTION_PRINT_TARGET_TYPES,
     OPTION_STRIP_DEBUG,
     OPTION_VERSION,
+    OPTION_TEXT_FORMATTING,
 };
 
 static const struct source_type_info
@@ -146,6 +147,10 @@ static void print_usage(const char *program_name)
         "  -o, --output=<file>   Write the output to <file>. If <file> is '-' or no\n"
         "                        output file is specified, output will be written to\n"
         "                        standard output.\n"
+        "  --formatting=<type>   Specify the formatting options for text output.\n"
+        "                        Valid values are 'none', 'print', 'colour', 'indent',\n"
+        "                        'show-byte-offset', 'no-header', and 'friendly-names'.\n"
+        "                        Default is --formatting=friendly-names,indent.\n"
         "  --print-source-types  Display the supported source types and exit.\n"
         "  --print-target-types  Display the supported target types for the specified\n"
         "                        source type and exit.\n"
@@ -221,6 +226,45 @@ static bool parse_buffer_uav(enum vkd3d_shader_compile_option_buffer_uav *buffer
     return false;
 }
 
+static bool parse_formatting(uint32_t *formatting, char *arg)
+{
+    static const struct formatting_option
+    {
+        char *name;
+        enum vkd3d_shader_compile_option_formatting_flags value;
+    }
+    opts[] =
+    {
+        {"none",             VKD3D_SHADER_COMPILE_OPTION_FORMATTING_NONE            },
+        {"colour",           VKD3D_SHADER_COMPILE_OPTION_FORMATTING_COLOUR          },
+        {"indent",           VKD3D_SHADER_COMPILE_OPTION_FORMATTING_INDENT          },
+        {"show-byte-offset", VKD3D_SHADER_COMPILE_OPTION_FORMATTING_SHOW_BYTE_OFFSET},
+        {"no-header",        VKD3D_SHADER_COMPILE_OPTION_FORMATTING_NO_HEADER       },
+        {"friendly-names",   VKD3D_SHADER_COMPILE_OPTION_FORMATTING_FRIENDLY_NAMES  },
+    };
+    char *tok;
+
+    for (tok = strtok(arg, ","); tok; tok = strtok(NULL, ","))
+    {
+        unsigned int i;
+        for (i = 0; i < ARRAY_SIZE(opts); ++i)
+        {
+            if (!strcmp(tok, opts[i].name))
+            {
+                *formatting |= opts[i].value;
+                break;
+            }
+        }
+        if (i == ARRAY_SIZE(opts))
+        {
+            fprintf(stderr, "Invalid formatting '%s' specified.\n", tok);
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static enum vkd3d_shader_source_type parse_source_type(const char *source)
 {
     unsigned int i;
@@ -292,6 +336,7 @@ static bool validate_target_type(
 static bool parse_command_line(int argc, char **argv, struct options *options)
 {
     enum vkd3d_shader_compile_option_buffer_uav buffer_uav;
+    enum vkd3d_shader_compile_option_formatting_flags formatting = 0;
     int option;
 
     static struct option long_options[] =
@@ -299,6 +344,7 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
         {"help",               no_argument,       NULL, OPTION_HELP},
         {"buffer-uav",         required_argument, NULL, OPTION_BUFFER_UAV},
         {"output",             required_argument, NULL, OPTION_OUTPUT},
+        {"formatting",         required_argument, NULL, OPTION_TEXT_FORMATTING},
         {"print-source-types", no_argument,       NULL, OPTION_PRINT_SOURCE_TYPES},
         {"print-target-types", no_argument,       NULL, OPTION_PRINT_TARGET_TYPES},
         {"strip-debug",        no_argument,       NULL, OPTION_STRIP_DEBUG},
@@ -337,6 +383,12 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
             case OPTION_OUTPUT:
             case 'o':
                 options->output_filename = optarg;
+                break;
+
+            case OPTION_TEXT_FORMATTING:
+                if (!parse_formatting(&formatting, optarg))
+                    return false;
+                add_compile_option(options, VKD3D_SHADER_COMPILE_OPTION_FORMATTING, formatting);
                 break;
 
             case OPTION_PRINT_SOURCE_TYPES:
