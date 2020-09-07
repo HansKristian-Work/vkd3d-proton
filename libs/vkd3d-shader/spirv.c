@@ -50,36 +50,62 @@ static spv_target_env spv_target_env_from_vkd3d(enum vkd3d_shader_spirv_environm
     }
 }
 
-static void vkd3d_spirv_dump(const struct vkd3d_shader_code *spirv, enum vkd3d_shader_spirv_environment environment)
+static enum vkd3d_result vkd3d_spirv_binary_to_text(const struct vkd3d_shader_code *spirv,
+        enum vkd3d_shader_spirv_environment environment, uint32_t options, struct vkd3d_shader_code *out)
 {
-    const static uint32_t options
-            = SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES | SPV_BINARY_TO_TEXT_OPTION_INDENT;
     spv_diagnostic diagnostic = NULL;
     spv_text text = NULL;
     spv_context context;
-    spv_result_t ret;
+    spv_result_t spvret;
+    enum vkd3d_result result = VKD3D_OK;
 
     context = spvContextCreate(spv_target_env_from_vkd3d(environment));
 
-    if (!(ret = spvBinaryToText(context, spirv->code, spirv->size / sizeof(uint32_t),
+    if (!(spvret = spvBinaryToText(context, spirv->code, spirv->size / sizeof(uint32_t),
             options, &text, &diagnostic)))
     {
-        const char *str, *current = text->str;
-        while ((str = strchr(current, '\n')))
+        void *code = vkd3d_malloc(text->length);
+        if (code)
         {
-            TRACE("%.*s\n", (int)(str - current), current);
-            current = str + 1;
+            memcpy(code, text->str, text->length);
+            out->size = text->length;
+            out->code = code;
         }
+        else
+            result = VKD3D_ERROR_OUT_OF_MEMORY;
     }
     else
     {
-        FIXME("Failed to convert SPIR-V binary to text, ret %d.\n", ret);
+        FIXME("Failed to convert SPIR-V binary to text, ret %d.\n", spvret);
         FIXME("Diagnostic message: %s.\n", debugstr_a(diagnostic->error));
+        result = VKD3D_ERROR;
     }
 
     spvTextDestroy(text);
     spvDiagnosticDestroy(diagnostic);
     spvContextDestroy(context);
+
+    return result;
+}
+
+static void vkd3d_spirv_dump(const struct vkd3d_shader_code *spirv,
+        enum vkd3d_shader_spirv_environment environment)
+{
+    const static uint32_t options
+        = SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES | SPV_BINARY_TO_TEXT_OPTION_INDENT;
+    struct vkd3d_shader_code text;
+
+    if (!vkd3d_spirv_binary_to_text(spirv, environment, options, &text))
+    {
+        const char *str, *current = text.code;
+        while ((str = strchr(current, '\n')))
+        {
+            TRACE("%.*s\n", (int)(str - current), current);
+            current = str + 1;
+        }
+
+        vkd3d_shader_free_shader_code(&text);
+    }
 }
 
 static void vkd3d_spirv_validate(const struct vkd3d_shader_code *spirv,
