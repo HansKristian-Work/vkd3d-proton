@@ -42,7 +42,7 @@ enum
     OPTION_VERSION,
 };
 
-static const struct
+static const struct source_type_info
 {
     enum vkd3d_shader_source_type type;
     const char *name;
@@ -246,6 +246,17 @@ static enum vkd3d_shader_target_type parse_target_type(const char *target)
     return VKD3D_SHADER_TARGET_NONE;
 }
 
+static const struct source_type_info *get_source_type_info(enum vkd3d_shader_source_type type)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(source_type_info); ++i)
+        if (type == source_type_info[i].type)
+            return &source_type_info[i];
+
+    return NULL;
+}
+
 static const struct target_type_info *get_target_type_info(enum vkd3d_shader_target_type type)
 {
     unsigned int i;
@@ -349,37 +360,24 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
 static void print_source_types(void)
 {
     const enum vkd3d_shader_source_type *source_types;
-    unsigned int count, i, j;
+    unsigned int count, i;
 
     source_types = vkd3d_shader_get_supported_source_types(&count);
     fputs("Supported source types:\n", stdout);
     for (i = 0; i < count; ++i)
     {
-        for (j = 0; j < ARRAY_SIZE(source_type_info); ++j)
-        {
-            if (source_types[i] == source_type_info[j].type)
-            {
-                fprintf(stdout, "  %s  %s\n", source_type_info[j].name, source_type_info[j].description);
-                break;
-            }
-        }
+        const struct source_type_info *type = get_source_type_info(source_types[i]);
+        if (type)
+            fprintf(stdout, "  %s  %s", type->name, type->description);
     }
+
 }
 
 static void print_target_types(enum vkd3d_shader_source_type source_type)
 {
     const enum vkd3d_shader_target_type *target_types;
-    const char *source_type_name;
+    const char *source_type_name = get_source_type_info(source_type)->name;
     unsigned int count, i;
-
-    for (i = 0; i < ARRAY_SIZE(source_type_info); ++i)
-    {
-        if (source_type == source_type_info[i].type)
-        {
-            source_type_name = source_type_info[i].name;
-            break;
-        }
-    }
 
     target_types = vkd3d_shader_get_supported_target_types(source_type, &count);
     fprintf(stdout, "Supported target types for source type '%s':\n", source_type_name);
