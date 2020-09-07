@@ -51,8 +51,8 @@ static const struct source_type_info
 source_type_info[] =
 {
     {VKD3D_SHADER_SOURCE_DXBC_TPF,
-        "dxbc-tpf", "A 'Tokenized Program Format' shader embedded in a DXBC container.\n"
-        "            This is the format used for Direct3D shader model 4 and 5 shaders."},
+        "dxbc-tpf",     "A 'Tokenized Program Format' shader embedded in a DXBC container.\n"
+        "                This is the format used for Direct3D shader model 4 and 5 shaders.\n"},
 };
 
 static const struct target_type_info
@@ -60,12 +60,17 @@ static const struct target_type_info
     enum vkd3d_shader_target_type type;
     const char *name;
     const char *description;
+    bool is_binary;
 }
 target_type_info[] =
 {
     {VKD3D_SHADER_TARGET_SPIRV_BINARY,
         "spirv-binary", "A SPIR-V shader in binary form.\n"
-        "                This is the format used for Vulkan shaders.\n"},
+        "                This is the format used for Vulkan shaders.\n",
+        true},
+    {VKD3D_SHADER_TARGET_SPIRV_TEXT,
+        "spirv-text", "A SPIR-V shader in text form.\n",
+        false},
 };
 
 static bool read_shader(struct vkd3d_shader_code *shader, FILE *f)
@@ -134,8 +139,7 @@ static void print_usage(const char *program_name)
         "[options...] [file]\n"
         "Options:\n"
         "  -h, --help            Display this information and exit.\n"
-        "  -b <type>             Specify the target type. Currently the only valid value\n"
-        "                        is 'spirv-binary'.\n"
+        "  -b <type>             Specify the target type.\n"
         "  --buffer-uav=<type>   Specify the buffer type to use for buffer UAV bindings.\n"
         "                        Valid values are 'buffer-texture' (default) and\n"
         "                        'storage-buffer'.\n"
@@ -393,7 +397,7 @@ static void print_source_types(void)
     {
         const struct source_type_info *type = get_source_type_info(source_types[i]);
         if (type)
-            fprintf(stdout, "  %s  %s", type->name, type->description);
+            fprintf(stdout, "  %-12s  %s", type->name, type->description);
     }
 
 }
@@ -410,7 +414,7 @@ static void print_target_types(enum vkd3d_shader_source_type source_type)
     {
         const struct target_type_info *type = get_target_type_info(target_types[i]);
         if (type)
-            fprintf(stdout, "  %s  %s", type->name, type->description);
+            fprintf(stdout, "  %-12s  %s", type->name, type->description);
     }
 }
 
@@ -502,7 +506,8 @@ int main(int argc, char **argv)
     if (!(output = open_output(options.output_filename, &close_output)))
         goto done;
 
-    if (!options.output_filename && isatty(fileno(output)))
+    if (!options.output_filename && get_target_type_info(options.target_type)->is_binary
+            && isatty(fileno(output)))
     {
         fprintf(stderr, "Output is a tty and output format is binary, exiting.\n"
                 "If this is really what you intended, specify the output explicitly.\n");
