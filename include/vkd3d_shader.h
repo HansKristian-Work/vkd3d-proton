@@ -72,6 +72,7 @@ struct vkd3d_shader_code
 {
     const void *code;
     size_t size;
+    struct vkd3d_shader_meta meta;
 };
 
 enum vkd3d_shader_descriptor_type

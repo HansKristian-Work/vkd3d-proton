@@ -21,30 +21,76 @@
 #include "vkd3d_shader_private.h"
 
 #include <stdio.h>
+#include <inttypes.h>
 
-static void vkd3d_shader_dump_blob(const char *path, const char *prefix, const void *data, size_t size,
-        unsigned int id, const char *ext)
+static void vkd3d_shader_dump_blob(const char *path, vkd3d_shader_hash_t hash, const void *data, size_t size, const char *ext)
 {
     char filename[1024];
     FILE *f;
 
-    snprintf(filename, ARRAY_SIZE(filename), "%s/vkd3d-shader-%s-%u.%s", path, prefix, id, ext);
-    if ((f = fopen(filename, "wb")))
+    snprintf(filename, ARRAY_SIZE(filename), "%s/%016"PRIx64".%s", path, hash, ext);
+
+    /* Exclusive open to avoid multiple threads spamming out the same shader module, and avoids race condition. */
+    if ((f = fopen(filename, "wbx")))
     {
         if (fwrite(data, 1, size, f) != size)
             ERR("Failed to write shader to %s.\n", filename);
         if (fclose(f))
             ERR("Failed to close stream %s.\n", filename);
     }
+}
+
+bool vkd3d_shader_replace(vkd3d_shader_hash_t hash, const void **data, size_t *size)
+{
+    static bool enabled = true;
+    char filename[1024];
+    void *buffer = NULL;
+    const char *path;
+    FILE *f = NULL;
+    size_t len;
+
+    if (!enabled)
+        return false;
+
+    if (!(path = getenv("VKD3D_SHADER_OVERRIDE")))
+    {
+        enabled = false;
+        return false;
+    }
+
+    snprintf(filename, ARRAY_SIZE(filename), "%s/%016"PRIx64".spv", path, hash);
+    if ((f = fopen(filename, "rb")))
+    {
+        if (fseek(f, 0, SEEK_END) < 0)
+            goto err;
+        len = ftell(f);
+        if (len < 16)
+            goto err;
+        rewind(f);
+        buffer = vkd3d_malloc(len);
+        if (!buffer)
+            goto err;
+        if (fread(buffer, 1, len, f) != len)
+            goto err;
+    }
     else
-    {
-        ERR("Failed to open %s for dumping shader.\n", filename);
-    }
+        goto err;
+
+    *data = buffer;
+    *size = len;
+    WARN("Overriding shader hash %016"PRIx64" with alternative SPIR-V module!\n", hash);
+    fclose(f);
+    return true;
+
+err:
+    if (f)
+        fclose(f);
+    vkd3d_free(buffer);
+    return false;
 }
 
-void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader, const char *ext)
+void vkd3d_shader_dump_shader(vkd3d_shader_hash_t hash, const struct vkd3d_shader_code *shader, const char *ext)
 {
-    static LONG shader_id = 0;
     static bool enabled = true;
     const char *path;
 
@@ -57,13 +103,11 @@ void vkd3d_shader_dump_shader(enum vkd3d_shader_type type, const struct vkd3d_sh
         return;
     }
 
-    vkd3d_shader_dump_blob(path, shader_get_type_prefix(type), shader->code, shader->size,
-                           InterlockedIncrement(&shader_id) - 1, ext);
+    vkd3d_shader_dump_blob(path, hash, shader->code, shader->size, ext);
 }
 
-void vkd3d_shader_dump_spirv_shader(enum vkd3d_shader_type type, const struct vkd3d_shader_code *shader)
+void vkd3d_shader_dump_spirv_shader(vkd3d_shader_hash_t hash, const struct vkd3d_shader_code *shader)
 {
-    static LONG shader_id = 0;
     static bool enabled = true;
     const char *path;
 
@@ -76,8 +120,7 @@ void vkd3d_shader_dump_spirv_shader(enum vkd3d_shader_type type, const struct vk
         return;
     }
 
-    vkd3d_shader_dump_blob(path, shader_get_type_prefix(type), shader->code, shader->size,
-                           InterlockedIncrement(&shader_id) - 1, "spv");
+    vkd3d_shader_dump_blob(path, hash, shader->code, shader->size, "spv");
 }
 
 struct vkd3d_shader_parser
@@ -150,6 +193,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     struct vkd3d_dxbc_compiler *spirv_compiler;
     struct vkd3d_shader_scan_info scan_info;
     struct vkd3d_shader_parser parser;
+    vkd3d_shader_hash_t hash;
     int ret;
 
     TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, shader_interface_info %p, compile_args %p.\n",
@@ -175,6 +219,15 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
 #endif
     }
 
+    hash = vkd3d_shader_hash(dxbc);
+    spirv->meta.replaced = false;
+    spirv->meta.hash = hash;
+    if (vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
+    {
+        spirv->meta.replaced = true;
+        return VKD3D_OK;
+    }
+
     scan_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
     scan_info.next = NULL;
     if ((ret = vkd3d_shader_scan_dxbc(dxbc, &scan_info)) < 0)
@@ -183,7 +236,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
         return ret;
 
-    vkd3d_shader_dump_shader(parser.shader_version.type, dxbc, "dxbc");
+    vkd3d_shader_dump_shader(hash, dxbc, "dxbc");
 
     if (TRACE_ON())
         vkd3d_shader_trace(parser.data);
@@ -216,7 +269,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         ret = vkd3d_dxbc_compiler_generate_spirv(spirv_compiler, spirv);
 
     if (ret == 0)
-        vkd3d_shader_dump_spirv_shader(parser.shader_version.type, spirv);
+        vkd3d_shader_dump_spirv_shader(hash, spirv);
 
     vkd3d_dxbc_compiler_destroy(spirv_compiler);
     vkd3d_shader_parser_destroy(&parser);
