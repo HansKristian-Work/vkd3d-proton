@@ -350,47 +350,31 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     unsigned int raw_va_binding_count = 0;
     unsigned int root_constant_words = 0;
     dxil_spv_converter converter = NULL;
-    enum vkd3d_shader_type shader_type;
     dxil_spv_parsed_blob blob = NULL;
     dxil_spv_compiled_spirv compiled;
     unsigned int i, max_size;
+    vkd3d_shader_hash_t hash;
     int ret = VKD3D_OK;
     void *code;
 
+    hash = vkd3d_shader_hash(dxbc);
+    spirv->meta.replaced = false;
+    spirv->meta.hash = hash;
+    if (vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
+    {
+        spirv->meta.replaced = true;
+        return ret;
+    }
+
     dxil_spv_begin_thread_allocator_context();
+
+    vkd3d_shader_dump_shader(hash, dxbc, "dxil");
 
     if (dxil_spv_parse_dxil_blob(dxbc->code, dxbc->size, &blob) != DXIL_SPV_SUCCESS)
     {
         ret = VKD3D_ERROR_INVALID_SHADER;
         goto end;
     }
-
-    switch (dxil_spv_parsed_blob_get_shader_stage(blob))
-    {
-        case DXIL_SPV_STAGE_VERTEX:
-            shader_type = VKD3D_SHADER_TYPE_VERTEX;
-            break;
-        case DXIL_SPV_STAGE_HULL:
-            shader_type = VKD3D_SHADER_TYPE_HULL;
-            break;
-        case DXIL_SPV_STAGE_DOMAIN:
-            shader_type = VKD3D_SHADER_TYPE_DOMAIN;
-            break;
-        case DXIL_SPV_STAGE_GEOMETRY:
-            shader_type = VKD3D_SHADER_TYPE_GEOMETRY;
-            break;
-        case DXIL_SPV_STAGE_PIXEL:
-            shader_type = VKD3D_SHADER_TYPE_PIXEL;
-            break;
-        case DXIL_SPV_STAGE_COMPUTE:
-            shader_type = VKD3D_SHADER_TYPE_COMPUTE;
-            break;
-        default:
-            ret = VKD3D_ERROR_INVALID_SHADER;
-            goto end;
-    }
-
-    vkd3d_shader_dump_shader(shader_type, dxbc, "dxil");
 
     if (dxil_spv_create_converter(blob, &converter) != DXIL_SPV_SUCCESS)
     {
@@ -567,7 +551,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     spirv->code = code;
     spirv->size = compiled.size;
 
-    vkd3d_shader_dump_spirv_shader(shader_type, spirv);
+    vkd3d_shader_dump_spirv_shader(hash, spirv);
 
 end:
     dxil_spv_converter_free(converter);
