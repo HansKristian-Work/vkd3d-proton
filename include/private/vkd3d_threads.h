@@ -40,7 +40,7 @@ typedef struct pthread *pthread_t;
 /* pthread_mutex_t is not copyable, so embed CS inline. */
 typedef struct pthread_mutex
 {
-    CRITICAL_SECTION lock;
+    SRWLOCK lock;
 } pthread_mutex_t;
 
 /* pthread_cond_t is not copyable, so embed CV inline. */
@@ -90,25 +90,24 @@ static inline int pthread_join(pthread_t thread, void **ret)
 static inline int pthread_mutex_init(pthread_mutex_t *lock, void *attr)
 {
     (void)attr;
-    InitializeCriticalSection(&lock->lock);
+    InitializeSRWLock(&lock->lock);
     return 0;
 }
 
 static inline int pthread_mutex_lock(pthread_mutex_t *lock)
 {
-    EnterCriticalSection(&lock->lock);
+    AcquireSRWLockExclusive(&lock->lock);
     return 0;
 }
 
 static inline int pthread_mutex_unlock(pthread_mutex_t *lock)
 {
-    LeaveCriticalSection(&lock->lock);
+    ReleaseSRWLockExclusive(&lock->lock);
     return 0;
 }
 
 static inline int pthread_mutex_destroy(pthread_mutex_t *lock)
 {
-    DeleteCriticalSection(&lock->lock);
     return 0;
 }
 
@@ -139,7 +138,7 @@ static inline int pthread_cond_broadcast(pthread_cond_t *cond)
 
 static inline int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *lock)
 {
-    BOOL ret = SleepConditionVariableCS(&cond->cond, &lock->lock, INFINITE);
+    BOOL ret = SleepConditionVariableSRW(&cond->cond, &lock->lock, INFINITE, 0);
     return ret ? 0 : -1;
 }
 
