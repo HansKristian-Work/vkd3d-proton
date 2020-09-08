@@ -172,6 +172,21 @@ static inline void vkd3d_set_thread_name(const char *name)
 #define PTHREAD_ONCE_CALLBACK
 #endif
 
+#ifdef __linux__
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#endif
 
+static inline unsigned int vkd3d_get_current_thread_id(void)
+{
+#ifdef _WIN32
+    return GetCurrentThreadId();
+#elif defined(__linux__)
+    return syscall(__NR_gettid);
+#else
+    return 0;
+#endif
+}
 
 #endif /* __VKD3D_THREADS_H */
