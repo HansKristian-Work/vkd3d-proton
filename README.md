@@ -106,6 +106,10 @@ commas or semicolons.
  - `VKD3D_DISABLE_EXTENSIONS` - a list of Vulkan extensions that libvkd3d should
    not use even if available.
  - `VKD3D_SHADER_DUMP_PATH` - path where shader bytecode is dumped.
+   Bytecode is dumped in format of `$hash.{spv,dxbc,dxil}`.
+ - `VKD3D_SHADER_OVERRIDE` - path to where overridden shaders can be found.
+   If application is creating a pipeline with `$hash` and `$VKD3D_SHADER_OVERRIDE/$hash.spv` exists,
+   that SPIR-V file will be used instead. Useful for debugging.
  - `VKD3D_TEST_DEBUG` - enables additional debug messages in tests. Set to 0, 1
    or 2.
  - `VKD3D_TEST_FILTER` - a filter string. Only the tests whose names matches the
