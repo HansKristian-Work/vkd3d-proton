@@ -60,6 +60,14 @@ enum vkd3d_shader_visibility
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_VISIBILITY),
 };
 
+typedef uint64_t vkd3d_shader_hash_t;
+
+struct vkd3d_shader_meta
+{
+    vkd3d_shader_hash_t hash;
+    bool replaced;
+};
+
 struct vkd3d_shader_code
 {
     const void *code;
