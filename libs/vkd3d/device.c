@@ -431,6 +431,8 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
 
     TRACE("Build: %s.\n", vkd3d_build);
 
+    memset(instance, 0, sizeof(*instance));
+
     if (!create_info->pfn_signal_event)
     {
         ERR("Invalid signal event function pointer.\n");
@@ -4717,6 +4719,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 {
     const struct vkd3d_vk_device_procs *vk_procs;
     HRESULT hr;
+
+    memset(device, 0, sizeof(*device));
 
 #ifdef VKD3D_ENABLE_PROFILING
     if (vkd3d_uses_profiling())
