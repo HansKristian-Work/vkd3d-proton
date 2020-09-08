@@ -20,6 +20,7 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 
 #include "vkd3d_private.h"
+#include <stdio.h>
 
 /* ID3D12RootSignature */
 static inline struct d3d12_root_signature *impl_from_ID3D12RootSignature(ID3D12RootSignature *iface)
@@ -1549,7 +1550,7 @@ struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12Pipeline
 static HRESULT create_shader_stage(struct d3d12_device *device,
         struct VkPipelineShaderStageCreateInfo *stage_desc, enum VkShaderStageFlagBits stage,
         const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface_info *shader_interface,
-        const struct vkd3d_shader_compile_arguments *compile_args)
+        const struct vkd3d_shader_compile_arguments *compile_args, struct vkd3d_shader_meta *meta)
 {
     struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -1576,6 +1577,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     }
     shader_desc.codeSize = spirv.size;
     shader_desc.pCode = spirv.code;
+    *meta = spirv.meta;
 
     vr = VK_CALL(vkCreateShaderModule(device->vk_device, &shader_desc, NULL, &stage_desc->module));
     vkd3d_shader_free_shader_code(&spirv);
@@ -1590,7 +1592,8 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
 
 static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
         const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface_info *shader_interface,
-        VkPipelineLayout vk_pipeline_layout, VkPipelineCache vk_cache, VkPipeline *vk_pipeline)
+        VkPipelineLayout vk_pipeline_layout, VkPipelineCache vk_cache, VkPipeline *vk_pipeline,
+        struct vkd3d_shader_meta *meta)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkComputePipelineCreateInfo pipeline_info;
@@ -1601,7 +1604,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
     pipeline_info.pNext = NULL;
     pipeline_info.flags = 0;
     if (FAILED(hr = create_shader_stage(device, &pipeline_info.stage,
-            VK_SHADER_STAGE_COMPUTE_BIT, code, shader_interface, NULL)))
+            VK_SHADER_STAGE_COMPUTE_BIT, code, shader_interface, NULL, meta)))
         return hr;
     pipeline_info.layout = vk_pipeline_layout;
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
@@ -1654,7 +1657,8 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     }
 
     hr = vkd3d_create_compute_pipeline(device, &desc->cs, &shader_interface,
-            root_signature->vk_pipeline_layout, state->vk_pso_cache, &state->compute.vk_pipeline);
+            root_signature->vk_pipeline_layout, state->vk_pso_cache, &state->compute.vk_pipeline,
+            &state->compute.meta);
 
     if (FAILED(hr))
     {
@@ -2528,7 +2532,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         shader_interface.next = shader_stages[i].stage == xfb_stage ? &xfb_info : NULL;
 
         if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
-                shader_stages[i].stage, b, &shader_interface, compile_args)))
+                shader_stages[i].stage, b, &shader_interface, compile_args, &graphics->stage_meta[graphics->stage_count])))
             goto fail;
 
         ++graphics->stage_count;
@@ -2750,6 +2754,22 @@ fail:
     vkd3d_shader_free_shader_signature(&input_signature);
 
     return hr;
+}
+
+bool d3d12_pipeline_state_has_replaced_shaders(struct d3d12_pipeline_state *state)
+{
+    unsigned int i;
+    if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
+        return state->compute.meta.replaced;
+    else if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
+    {
+        for (i = 0; i < state->graphics.stage_count; i++)
+            if (state->graphics.stage_meta[i].replaced)
+                return true;
+        return false;
+    }
+    else
+        return false;
 }
 
 HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
