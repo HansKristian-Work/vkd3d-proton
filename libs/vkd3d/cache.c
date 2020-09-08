@@ -110,8 +110,11 @@ VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state
         strncpy(blob->vkd3d_build, vkd3d_build, VKD3D_CACHE_BUILD_SIZE);
         memcpy(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE);
 
-        if ((vr = VK_CALL(vkGetPipelineCacheData(state->device->vk_device, state->vk_pso_cache, &vk_blob_size, blob->vk_blob))))
-            return vr;
+        if (state->vk_pso_cache)
+        {
+            if ((vr = VK_CALL(vkGetPipelineCacheData(state->device->vk_device, state->vk_pso_cache, &vk_blob_size, blob->vk_blob))))
+                return vr;
+        }
     }
 
     *size = total_size;
