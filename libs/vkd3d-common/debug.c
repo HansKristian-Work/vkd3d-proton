@@ -106,8 +106,9 @@ enum vkd3d_dbg_level vkd3d_dbg_get_level(enum vkd3d_dbg_channel channel)
 void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level, const char *function, const char *fmt, ...)
 {
     static spinlock_t spin;
-    va_list args;
+    unsigned int tid;
     FILE *log_file;
+    va_list args;
 
     if (vkd3d_dbg_get_level(channel) < level)
         return;
@@ -115,9 +116,11 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level
     log_file = vkd3d_log_file ? vkd3d_log_file : stderr;
     assert(level < ARRAY_SIZE(debug_level_names));
 
+    tid = vkd3d_get_current_thread_id();
+
     va_start(args, fmt);
     spinlock_acquire(&spin);
-    fprintf(log_file, "%s:%s: ", debug_level_names[level], function);
+    fprintf(log_file, "%u:%s:%s: ", tid, debug_level_names[level], function);
     vfprintf(log_file, fmt, args);
     spinlock_release(&spin);
     va_end(args);
