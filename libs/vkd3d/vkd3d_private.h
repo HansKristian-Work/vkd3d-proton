@@ -936,6 +936,7 @@ enum vkd3d_dynamic_state_flag
 struct d3d12_graphics_pipeline_state
 {
     VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
+    struct vkd3d_shader_meta stage_meta[VKD3D_MAX_SHADER_STAGES];
     size_t stage_count;
 
     VkVertexInputAttributeDescription attributes[D3D12_VS_INPUT_REGISTER_COUNT];
@@ -986,6 +987,7 @@ static inline unsigned int dsv_attachment_mask(const struct d3d12_graphics_pipel
 struct d3d12_compute_pipeline_state
 {
     VkPipeline vk_pipeline;
+    struct vkd3d_shader_meta meta;
 };
 
 /* ID3D12PipelineState */
@@ -1074,6 +1076,7 @@ struct vkd3d_pipeline_key
     bool dynamic_topology;
 };
 
+bool d3d12_pipeline_state_has_replaced_shaders(struct d3d12_pipeline_state *state) DECLSPEC_HIDDEN;
 HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
         const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state) DECLSPEC_HIDDEN;
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,

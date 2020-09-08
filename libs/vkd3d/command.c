@@ -4741,8 +4741,29 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
 {
     struct d3d12_pipeline_state *state = unsafe_impl_from_ID3D12PipelineState(pipeline_state);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    unsigned int i;
 
     TRACE("iface %p, pipeline_state %p.\n", iface, pipeline_state);
+
+    if (TRACE_ON() && state)
+    {
+        if (d3d12_pipeline_state_has_replaced_shaders(state))
+            TRACE("Binding pipeline state %p which has replaced shader(s)!\n", pipeline_state);
+
+        if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
+        {
+            TRACE("Binding compute module with hash: %016"PRIx64".\n", state->compute.meta.hash);
+        }
+        else if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
+        {
+            for (i = 0; i < state->graphics.stage_count; i++)
+            {
+                TRACE("Binding graphics module with hash: %016"PRIx64" (replaced: %s).\n",
+                      state->graphics.stage_meta[i].hash,
+                      state->graphics.stage_meta[i].replaced ? "yes" : "no");
+            }
+        }
+    }
 
     if (list->state == state)
         return;
