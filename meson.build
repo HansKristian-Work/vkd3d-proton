@@ -22,6 +22,10 @@ add_project_arguments('-DHAVE_DXIL_SPV', language : 'c')
 add_project_arguments('-D_GNU_SOURCE',   language : 'c')
 add_project_arguments('-DPACKAGE_VERSION="' + meson.project_version() + '"',   language : 'c')
 
+if vkd3d_platform == 'windows'
+  add_project_arguments('-D_WIN32_WINNT=0x600', language : 'c')
+endif
+
 if enable_standalone_d3d12
   add_project_arguments('-DVKD3D_BUILD_STANDALONE_D3D12', language : 'c')
 endif

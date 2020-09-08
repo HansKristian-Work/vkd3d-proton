@@ -21,7 +21,7 @@
 
 #include "vkd3d_memory.h"
 
-#if defined(_MSC_VER)
+#if defined(_WIN32)
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
