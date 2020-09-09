@@ -52,6 +52,7 @@ VK_INSTANCE_PFN(vkGetPhysicalDeviceProperties2)
 /* VK_EXT_debug_utils */
 VK_INSTANCE_EXT_PFN(vkCreateDebugUtilsMessengerEXT)
 VK_INSTANCE_EXT_PFN(vkDestroyDebugUtilsMessengerEXT)
+VK_DEVICE_EXT_PFN(vkQueueInsertDebugUtilsLabelEXT)
 
 /* Device functions (obtained by vkGetDeviceProcAddr). */
 VK_DEVICE_PFN(vkDestroyDevice) /* Load vkDestroyDevice() first. */

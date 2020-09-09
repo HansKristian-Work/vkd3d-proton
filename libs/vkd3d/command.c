@@ -21,6 +21,9 @@
 
 #include "vkd3d_private.h"
 #include "vkd3d_swapchain_factory.h"
+#ifdef VKD3D_ENABLE_RENDERDOC
+#include "vkd3d_renderdoc.h"
+#endif
 
 static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t value);
 static void d3d12_command_queue_add_submission(struct d3d12_command_queue *queue,
@@ -2799,6 +2802,11 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->is_predicated = false;
     list->render_pass_suspended = false;
     list->need_host_barrier = false;
+#ifdef VKD3D_ENABLE_RENDERDOC
+    list->debug_capture = vkd3d_renderdoc_active() && vkd3d_renderdoc_should_capture_shader_hash(0);
+#else
+    list->debug_capture = false;
+#endif
 
     list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;
@@ -4764,6 +4772,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
             }
         }
     }
+
+#ifdef VKD3D_ENABLE_RENDERDOC
+    vkd3d_renderdoc_command_list_check_capture(list, state);
+#endif
 
     if (list->state == state)
         return;
@@ -7310,6 +7322,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         return;
     }
 
+    sub.execute.debug_capture = false;
+
     for (i = 0; i < command_list_count; ++i)
     {
         cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[i]);
@@ -7326,6 +7340,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         InterlockedIncrement(outstanding[i]);
 
         buffers[i] = cmd_list->vk_command_buffer;
+        if (cmd_list->debug_capture)
+            sub.execute.debug_capture = true;
     }
 
     sub.type = VKD3D_SUBMISSION_EXECUTE;
@@ -7690,7 +7706,7 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
 }
 
 static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queue,
-        VkCommandBuffer *cmd, UINT count)
+        VkCommandBuffer *cmd, UINT count, bool debug_capture)
 {
     static const VkPipelineStageFlags wait_stage_mask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
@@ -7730,8 +7746,25 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         return;
     }
 
+#ifdef VKD3D_ENABLE_RENDERDOC
+    /* For each submission we have marked to be captured, we will first need to filter it
+     * based on VKD3D_AUTO_CAPTURE_COUNTS.
+     * If a submission index is not marked to be captured after all, we drop any capture here.
+     * Deciding this in the submission thread is more robust than the alternative, since the submission
+     * threads are mostly serialized. */
+    if (debug_capture)
+        debug_capture = vkd3d_renderdoc_command_queue_begin_capture(command_queue);
+#else
+    (void)debug_capture;
+#endif
+
     if ((vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_desc, VK_NULL_HANDLE))) < 0)
         ERR("Failed to submit queue(s), vr %d.\n", vr);
+
+#ifdef VKD3D_ENABLE_RENDERDOC
+    if (debug_capture)
+        vkd3d_renderdoc_command_queue_end_capture(command_queue);
+#endif
 
     vkd3d_queue_release(command_queue->vkd3d_queue);
     command_queue->submit_timeline.last_signaled = signal_value;
@@ -8008,7 +8041,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 
         case VKD3D_SUBMISSION_EXECUTE:
             VKD3D_REGION_BEGIN(queue_execute);
-            d3d12_command_queue_execute(queue, submission.execute.cmd, submission.execute.count);
+            d3d12_command_queue_execute(queue, submission.execute.cmd, submission.execute.count, submission.execute.debug_capture);
             vkd3d_free(submission.execute.cmd);
             /* TODO: The correct place to do this would be in a fence handler, but this is good enough for now. */
             for (i = 0; i < submission.execute.count; i++)
