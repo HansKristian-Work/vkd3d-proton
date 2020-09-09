@@ -21,6 +21,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 #include <vkd3d_types.h>
 
 #ifdef __cplusplus

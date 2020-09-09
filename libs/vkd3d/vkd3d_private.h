@@ -1269,6 +1269,7 @@ struct d3d12_command_list
     bool is_recording;
     bool is_valid;
     bool need_host_barrier;
+    bool debug_capture;
     VkCommandBuffer vk_command_buffer;
 
     DXGI_FORMAT index_buffer_format;
@@ -1385,6 +1386,7 @@ struct d3d12_command_queue_submission_execute
     VkCommandBuffer *cmd;
     LONG **outstanding_submissions_count;
     UINT count;
+    bool debug_capture;
 };
 
 struct d3d12_command_queue_submission_bind_sparse

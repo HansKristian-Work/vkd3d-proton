@@ -13,6 +13,7 @@ enable_tests             = get_option('enable_tests')
 enable_extras            = get_option('enable_extras')
 enable_standalone_d3d12  = get_option('enable_standalone_d3d12')
 enable_profiling         = get_option('enable_profiling')
+enable_renderdoc         = get_option('enable_renderdoc')
 
 if vkd3d_platform != 'windows' and enable_standalone_d3d12
   error('Standalone D3D12 is only supported on Windows.')
@@ -32,6 +33,10 @@ endif
 
 if enable_profiling
   add_project_arguments('-DVKD3D_ENABLE_PROFILING', language : 'c')
+endif
+
+if enable_renderdoc
+  add_project_arguments('-DVKD3D_ENABLE_RENDERDOC', language : 'c')
 endif
 
 vkd3d_external_includes = [ './subprojects/Vulkan-Headers/include', './subprojects/SPIRV-Headers/include' ]
