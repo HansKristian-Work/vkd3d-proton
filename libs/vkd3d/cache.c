@@ -141,7 +141,7 @@ struct vkd3d_cached_pipeline_entry
     struct vkd3d_cached_pipeline_data data;
 };
 
-uint32_t vkd3d_cached_pipeline_hash(const void *key)
+static uint32_t vkd3d_cached_pipeline_hash(const void *key)
 {
     const struct vkd3d_cached_pipeline_key *k = key;
     uint32_t hash = 0;
@@ -158,7 +158,7 @@ uint32_t vkd3d_cached_pipeline_hash(const void *key)
     return hash;
 }
 
-bool vkd3d_cached_pipeline_compare(const void *key, const struct hash_map_entry *entry)
+static bool vkd3d_cached_pipeline_compare(const void *key, const struct hash_map_entry *entry)
 {
     const struct vkd3d_cached_pipeline_entry *e = (const struct vkd3d_cached_pipeline_entry*)entry;
     const struct vkd3d_cached_pipeline_key *k = key;

@@ -1432,7 +1432,7 @@ struct vkd3d_view_entry
 static bool d3d12_sampler_needs_border_color(D3D12_TEXTURE_ADDRESS_MODE u,
         D3D12_TEXTURE_ADDRESS_MODE v, D3D12_TEXTURE_ADDRESS_MODE w);
 
-uint32_t vkd3d_view_entry_hash(const void *key)
+static uint32_t vkd3d_view_entry_hash(const void *key)
 {
     const struct vkd3d_view_key *k = key;
     uint32_t hash;
@@ -1489,7 +1489,7 @@ uint32_t vkd3d_view_entry_hash(const void *key)
     return hash;
 }
 
-bool vkd3d_view_entry_compare(const void *key, const struct hash_map_entry *entry)
+static bool vkd3d_view_entry_compare(const void *key, const struct hash_map_entry *entry)
 {
     const struct vkd3d_view_entry *e = (const struct vkd3d_view_entry*) entry;
     const struct vkd3d_view_key *k = key;
@@ -1647,7 +1647,7 @@ struct vkd3d_sampler_entry
     VkSampler vk_sampler;
 };
 
-uint32_t vkd3d_sampler_entry_hash(const void *key)
+static uint32_t vkd3d_sampler_entry_hash(const void *key)
 {
     const struct vkd3d_sampler_key *k = key;
     uint32_t hash;
@@ -1665,7 +1665,7 @@ uint32_t vkd3d_sampler_entry_hash(const void *key)
     return hash;
 }
 
-bool vkd3d_sampler_entry_compare(const void *key, const struct hash_map_entry *entry)
+static bool vkd3d_sampler_entry_compare(const void *key, const struct hash_map_entry *entry)
 {
     const struct vkd3d_sampler_entry *e = (const struct vkd3d_sampler_entry*) entry;
     const struct vkd3d_sampler_key *k = key;
@@ -6246,10 +6246,10 @@ static uint32_t vkd3d_memory_info_find_global_mask(struct d3d12_device *device)
     /* Mask out any memory types which are deemed problematic. */
     for (i = 0, mask = 0; i < device->memory_properties.memoryTypeCount; i++)
     {
-        flags = device->memory_properties.memoryTypes[i].propertyFlags;
-        heap_index = device->memory_properties.memoryTypes[i].propertyFlags;
         const VkMemoryPropertyFlags pinned_mask = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        flags = device->memory_properties.memoryTypes[i].propertyFlags;
+        heap_index = device->memory_properties.memoryTypes[i].propertyFlags;
 
         if (heap_index != largest_device_local_heap_index &&
             heap_index != largest_host_only_heap_index &&
