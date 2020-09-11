@@ -45049,7 +45049,7 @@ static void test_get_cached_blob(void)
     compute_desc.CS.BytecodeLength = sizeof(cs_dxbc);
 
     hr = ID3D12Device_CreateComputePipelineState(device,
-            &compute_desc, &IID_ID3D12PipelineState, &state);
+            &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
     ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", hr);
 
     hr = ID3D12PipelineState_GetCachedBlob(state, &blob);
@@ -45062,7 +45062,7 @@ static void test_get_cached_blob(void)
     compute_desc.CachedPSO.CachedBlobSizeInBytes = ID3D10Blob_GetBufferSize(blob);
 
     hr = ID3D12Device_CreateComputePipelineState(device,
-            &compute_desc, &IID_ID3D12PipelineState, &state);
+            &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
     ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", hr);
 
     ID3D12PipelineState_Release(state);
@@ -45144,7 +45144,7 @@ static void test_pipeline_library(void)
     }
 
     /* Test adding pipelines to an empty pipeline library */
-    hr = ID3D12Device1_CreatePipelineLibrary(device1, NULL, 0, &IID_ID3D12PipelineLibrary, &pipeline_library);
+    hr = ID3D12Device1_CreatePipelineLibrary(device1, NULL, 0, &IID_ID3D12PipelineLibrary, (void**)&pipeline_library);
     ok(hr == S_OK, "Failed to create pipeline library, hr %#x.\n");
 
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
@@ -45157,11 +45157,11 @@ static void test_pipeline_library(void)
     compute_desc.CS.BytecodeLength = sizeof(cs_dxbc);
 
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
-            compute_name, &compute_desc, &IID_ID3D12PipelineState, &state);
+            compute_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
     ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
 
     hr = ID3D12Device_CreateComputePipelineState(device,
-            &compute_desc, &IID_ID3D12PipelineState, &state);
+            &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
     ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", hr);
 
     hr = ID3D12PipelineLibrary_StorePipeline(pipeline_library, compute_name, state);
@@ -45185,11 +45185,11 @@ static void test_pipeline_library(void)
     graphics_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
 
     hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library,
-            graphics_name, &graphics_desc, &IID_ID3D12PipelineState, &state);
+            graphics_name, &graphics_desc, &IID_ID3D12PipelineState, (void**)&state);
     ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
 
     hr = ID3D12Device_CreateGraphicsPipelineState(device,
-            &graphics_desc, &IID_ID3D12PipelineState, &state);
+            &graphics_desc, &IID_ID3D12PipelineState, (void**)&state);
     ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
 
     hr = ID3D12PipelineLibrary_StorePipeline(pipeline_library, graphics_name, state);
@@ -45201,12 +45201,12 @@ static void test_pipeline_library(void)
 
     /* Test looking up pipelines in a new pipeline library */
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
-            compute_name, &compute_desc, &IID_ID3D12PipelineState, &state);
+            compute_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
     ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", hr);
     ID3D12PipelineState_Release(state);
 
     hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library,
-            graphics_name, &graphics_desc, &IID_ID3D12PipelineState, &state);
+            graphics_name, &graphics_desc, &IID_ID3D12PipelineState, (void**)&state);
     ok(hr == S_OK, "Failed to load graphics pipeline from pipeline library, hr %#x.\n", hr);
     ID3D12PipelineState_Release(state);
 
@@ -45224,21 +45224,21 @@ static void test_pipeline_library(void)
 
     /* Test deserializing a pipeline library */
     hr = ID3D12Device1_CreatePipelineLibrary(device1, serialized_data,
-            serialized_size, &IID_ID3D12PipelineLibrary, &pipeline_library);
+            serialized_size, &IID_ID3D12PipelineLibrary, (void**)&pipeline_library);
     ok(hr == S_OK, "Failed to create pipeline library, hr %#x.\n");
 
     hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library,
-            graphics_name, &graphics_desc, &IID_ID3D12PipelineState, &state);
+            graphics_name, &graphics_desc, &IID_ID3D12PipelineState, (void**)&state);
     ok(hr == S_OK, "Failed to load graphics pipeline from pipeline library, hr %#x.\n", hr);
     ID3D12PipelineState_Release(state);
 
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
-            compute_name, &compute_desc, &IID_ID3D12PipelineState, &state);
+            compute_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
     ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", hr);
     ID3D12PipelineState_Release(state);
 
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
-            graphics_name, &compute_desc, &IID_ID3D12PipelineState, &state);
+            graphics_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
     todo ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
 
     if (SUCCEEDED(hr))
