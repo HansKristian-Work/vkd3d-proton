@@ -105,11 +105,6 @@ commas or semicolons.
    Vulkan device.
  - `VKD3D_DISABLE_EXTENSIONS` - a list of Vulkan extensions that libvkd3d should
    not use even if available.
- - `VKD3D_SHADER_DUMP_PATH` - path where shader bytecode is dumped.
-   Bytecode is dumped in format of `$hash.{spv,dxbc,dxil}`.
- - `VKD3D_SHADER_OVERRIDE` - path to where overridden shaders can be found.
-   If application is creating a pipeline with `$hash` and `$VKD3D_SHADER_OVERRIDE/$hash.spv` exists,
-   that SPIR-V file will be used instead. Useful for debugging.
  - `VKD3D_TEST_DEBUG` - enables additional debug messages in tests. Set to 0, 1
    or 2.
  - `VKD3D_TEST_FILTER` - a filter string. Only the tests whose names matches the
@@ -128,3 +123,23 @@ Pass `-Denable_profiling=true` to Meson to enable a profiled build. With a profi
 The profiling dumps out a binary blob which can be analyzed with `programs/vkd3d-profile.py`.
 The profile is a trivial system which records number of iterations and total ticks (ns) spent.
 It is easy to instrument parts of code you are working on optimizing.
+
+## Advanced shader debugging
+
+These features are only meant to be used by vkd3d-proton developers. For any builtin RenderDoc related functionality
+pass `-Denable_renderdoc=true` to Meson.
+
+ - `VKD3D_SHADER_DUMP_PATH` - path where shader bytecode is dumped.
+   Bytecode is dumped in format of `$hash.{spv,dxbc,dxil}`.
+ - `VKD3D_SHADER_OVERRIDE` - path to where overridden shaders can be found.
+   If application is creating a pipeline with `$hash` and `$VKD3D_SHADER_OVERRIDE/$hash.spv` exists,
+   that SPIR-V file will be used instead.
+ - `VKD3D_AUTO_CAPTURE_SHADER` - If this is set to a shader hash, and the RenderDoc layer is enabled,
+ vkd3d-proton will automatically make a capture when a specific shader is encountered.
+ - `VKD3D_AUTO_CAPTURE_COUNTS` - A comma-separated list of indices. This can be used to control which queue submissions to capture.
+ E.g., use `VKD3D_AUTO_CAPTURE_COUNTS=0,4,10` to capture the 0th (first submission), 4th and 10th submissions which are candidates for capturing.
+
+ If only `VKD3D_AUTO_CAPTURE_COUNTS` is set, any queue submission is considered for capturing.
+ If only `VKD3D_AUTO_CAPTURE_SHADER` is set, `VKD3D_AUTO_CAPTURE_COUNTS` is considered to be equal to `"0"`, i.e. a capture is only
+ made on first encounter with the target shader.
+ If both are set, the capture counter is only incremented and considered when a submission contains the use of the target shader.
