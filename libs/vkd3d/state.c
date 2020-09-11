@@ -3379,16 +3379,11 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
             device_info->descriptor_indexing_features.shaderStorageTexelBufferArrayNonUniformIndexing)
         flags |= VKD3D_BINDLESS_UAV;
 
-#if 0
-    /* NVIDIA drivers currently (as of 2020-03-25) seem to have some rather interesting issues with bindless UBO where bindless SSBO
-     * appears to work just fine. AMD does not care about UBO vs SSBO, so just use bindless SSBO until the issues are resolved. */
     if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindUniformBuffers >= 1000000 &&
             device_info->descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind &&
             device_info->descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing)
         flags |= VKD3D_BINDLESS_CBV;
-    else
-#endif
-    if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers >= 1000000 &&
+    else if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers >= 1000000 &&
             device_info->descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind &&
             device_info->descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing)
         flags |= VKD3D_BINDLESS_CBV | VKD3D_BINDLESS_CBV_AS_SSBO;
