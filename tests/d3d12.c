@@ -30696,22 +30696,15 @@ static void test_hull_shader_fork_phase_dxil(void)
 
 static void test_tessellation_read_tesslevel(void)
 {
-    ID3D12Resource *vb, *so_buffer, *readback_buffer;
-    D3D12_QUERY_DATA_SO_STATISTICS *so_statistics;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
-    D3D12_QUERY_HEAP_DESC query_heap_desc;
     D3D12_STREAM_OUTPUT_BUFFER_VIEW sobv;
     D3D12_INPUT_LAYOUT_DESC input_layout;
     struct test_context_desc desc;
-    D3D12_VERTEX_BUFFER_VIEW vbv;
     struct resource_readback rb;
-    ID3D12QueryHeap *query_heap;
     struct test_context context;
-    const struct vec4 *expected;
+    ID3D12Resource *so_buffer;
     ID3D12CommandQueue *queue;
-    struct vec4 *data;
-    bool broken_warp;
     unsigned int i, j;
     HRESULT hr;
 
@@ -38045,10 +38038,8 @@ static void test_register_space(bool use_dxil)
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
-    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
     unsigned int i, descriptor_size;
     D3D12_SAMPLER_DESC sampler_desc;
-    D3D12_SUBRESOURCE_DATA data;
     struct test_context context;
     ID3D12CommandQueue *queue;
     HRESULT hr;
@@ -38580,14 +38571,10 @@ static void test_constant_buffers(bool use_dxil)
     D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc;
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
-    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
-    unsigned int i, descriptor_size;
-    D3D12_SAMPLER_DESC sampler_desc;
-    D3D12_SUBRESOURCE_DATA data;
     struct test_context context;
     ID3D12CommandQueue *queue;
+    unsigned int i;
     HRESULT hr;
-    unsigned int counter_value;
 
 #if 0
     cbuffer DescriptorTableCBV : register(b2, space1)
@@ -39174,7 +39161,6 @@ static void test_bindless_samplers(bool use_dxil)
 
     ID3D12GraphicsCommandList* command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
-    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
     unsigned int i, descriptor_size;
     struct test_context context;
     ID3D12CommandQueue* queue;
@@ -39354,7 +39340,7 @@ static void test_bindless_samplers(bool use_dxil)
     {
         D3D12_SAMPLER_DESC samp;
         memset(&samp, 0, sizeof(samp));
-        samp.Filter = D3D12_FILTER_TYPE_POINT;
+        samp.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
         samp.AddressU = samp.AddressV = samp.AddressW = (i & 1) ? D3D12_TEXTURE_ADDRESS_MODE_CLAMP : D3D12_TEXTURE_ADDRESS_MODE_WRAP;
         cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heaps[1]);
         descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
@@ -44655,7 +44641,6 @@ static void test_aliasing_barrier(void)
     struct test_context_desc desc;
     struct test_context context;
     D3D12_HEAP_DESC heap_desc;
-    ID3D12CommandQueue *queue;
     bool supports_heap_tier_2;
     ID3D12Heap *buffer_heap;
     ID3D12Heap *texture_heap;
@@ -44670,7 +44655,6 @@ static void test_aliasing_barrier(void)
         return;
     device = context.device;
     command_list = context.list;
-    queue = context.queue;
 
     committed_texture = create_default_texture(context.device, 1, 1, DXGI_FORMAT_R32_SINT,
             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
@@ -44797,7 +44781,7 @@ static void test_aliasing_barrier(void)
 
 static void test_discard_resource(void)
 {
-    ID3D12DescriptorHeap *dsv_heap, *rtv_heap;
+    ID3D12DescriptorHeap *rtv_heap;
     ID3D12GraphicsCommandList *command_list;
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
