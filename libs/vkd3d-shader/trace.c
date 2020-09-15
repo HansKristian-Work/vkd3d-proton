@@ -348,6 +348,7 @@ static void shader_dump_global_flags(struct vkd3d_string_buffer *buffer, DWORD g
         {VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL,         "forceEarlyDepthStencil"},
         {VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS, "enableRawAndStructuredBuffers"},
         {VKD3DSGF_ENABLE_MINIMUM_PRECISION,          "enableMinimumPrecision"},
+        {VKD3DSGF_SKIP_OPTIMIZATION,                 "skipOptimization"},
     };
 
     for (i = 0; i < ARRAY_SIZE(global_flag_info); ++i)
