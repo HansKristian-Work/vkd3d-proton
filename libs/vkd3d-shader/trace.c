@@ -300,6 +300,11 @@ shader_input_sysval_semantic_names[] =
     {VKD3D_SIV_LINE_DENSITY_TESS_FACTOR,   "finalLineDensityTessFactor"},
 };
 
+static int shader_ver_ge(const struct vkd3d_shader_version *v, int major, int minor)
+{
+    return v->major > major || (v->major == major && v->minor >= minor);
+}
+
 static int VKD3D_PRINTF_FUNC(2, 3) shader_addline(struct vkd3d_string_buffer *buffer, const char *format, ...)
 {
     va_list args;
@@ -579,7 +584,7 @@ static void shader_dump_decl_usage(struct vkd3d_string_buffer *buffer,
     else
     {
         /* Pixel shaders 3.0 don't have usage semantics. */
-        if (shader_version->major < 3 && shader_version->type == VKD3D_SHADER_TYPE_PIXEL)
+        if (!shader_ver_ge(shader_version, 3, 0) && shader_version->type == VKD3D_SHADER_TYPE_PIXEL)
             return;
         else
             shader_addline(buffer, "_");
@@ -711,7 +716,7 @@ static void shader_dump_register(struct vkd3d_string_buffer *buffer,
         case VKD3DSPR_TEXCRDOUT:
             /* Vertex shaders >= 3.0 use general purpose output registers
              * (VKD3DSPR_OUTPUT), which can include an address token. */
-            if (shader_version->major >= 3)
+            if (shader_ver_ge(shader_version, 3, 0))
                 shader_addline(buffer, "o");
             else
                 shader_addline(buffer, "oT");
@@ -1239,7 +1244,7 @@ static void shader_dump_instruction_flags(struct vkd3d_string_buffer *buffer,
             break;
 
         case VKD3DSIH_TEX:
-            if (shader_version->major >= 2 && (ins->flags & VKD3DSI_TEXLD_PROJECT))
+            if (shader_ver_ge(shader_version, 2, 0) && (ins->flags & VKD3DSI_TEXLD_PROJECT))
                 shader_addline(buffer, "p");
             break;
 
@@ -1252,7 +1257,7 @@ static void shader_dump_instruction_flags(struct vkd3d_string_buffer *buffer,
 static void shader_dump_register_space(struct vkd3d_string_buffer *buffer,
         unsigned int register_space, const struct vkd3d_shader_version *shader_version)
 {
-    if (shader_version->major >= 5 && shader_version->minor >= 1)
+    if (shader_ver_ge(shader_version, 5, 1))
         shader_addline(buffer, ", space=%u", register_space);
 }
 
@@ -1275,7 +1280,7 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
         case VKD3DSIH_DCL_CONSTANT_BUFFER:
             shader_addline(buffer, "%s ", shader_opcode_names[ins->handler_idx]);
             shader_dump_src_param(buffer, &ins->declaration.cb.src, shader_version);
-            if (shader_version->major >= 5 && shader_version->minor >= 1)
+            if (shader_ver_ge(shader_version, 5, 1))
                 shader_addline(buffer, "[%u]", ins->declaration.cb.size);
             shader_addline(buffer, ", %s",
                     ins->flags & VKD3DSI_INDEXED_DYNAMIC ? "dynamicIndexed" : "immediateIndexed");
