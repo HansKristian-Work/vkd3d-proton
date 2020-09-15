@@ -576,7 +576,9 @@ static void shader_dump_decl_usage(struct vkd3d_string_buffer *buffer,
         if (semantic->resource.reg.reg.type == VKD3DSPR_RESOURCE)
             shader_addline(buffer, "_resource_");
         else
-            shader_addline(buffer, "_uav_");
+            /* non typed UAVs don't go through this code path */
+            shader_addline(buffer, "_uav_typed_");
+
         shader_dump_resource_type(buffer, semantic->resource_type);
         if (semantic->resource.reg.reg.type == VKD3DSPR_UAV)
             shader_dump_uav_flags(buffer, flags);
