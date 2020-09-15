@@ -1282,7 +1282,7 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
 
         case VKD3DSIH_DCL_CONSTANT_BUFFER:
             shader_addline(buffer, "%s ", shader_opcode_names[ins->handler_idx]);
-            shader_dump_src_param(buffer, &ins->declaration.cb.src, shader_version);
+            shader_dump_register(buffer, &ins->declaration.cb.src.reg, shader_version);
             if (shader_ver_ge(shader_version, 5, 1))
                 shader_addline(buffer, "[%u]", ins->declaration.cb.size);
             shader_addline(buffer, ", %s",
