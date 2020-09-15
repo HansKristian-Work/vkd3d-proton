@@ -1396,7 +1396,7 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
 
         case VKD3DSIH_DCL_SAMPLER:
             shader_addline(buffer, "%s ", shader_opcode_names[ins->handler_idx]);
-            shader_dump_src_param(buffer, &ins->declaration.sampler.src, shader_version);
+            shader_dump_register(buffer, &ins->declaration.sampler.src.reg, shader_version);
             if (ins->flags == VKD3DSI_SAMPLER_COMPARISON_MODE)
                 shader_addline(buffer, ", comparisonMode");
             shader_dump_register_space(buffer, ins->declaration.sampler.register_space, shader_version);
