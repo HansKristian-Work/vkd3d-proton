@@ -1276,7 +1276,7 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
             shader_dump_decl_usage(buffer, &ins->declaration.semantic, ins->flags, shader_version);
             shader_dump_ins_modifiers(buffer, &ins->declaration.semantic.resource.reg);
             shader_addline(buffer, " ");
-            shader_dump_dst_param(buffer, &ins->declaration.semantic.resource.reg, shader_version);
+            shader_dump_register(buffer, &ins->declaration.semantic.resource.reg.reg, shader_version);
             shader_dump_register_space(buffer, ins->declaration.semantic.resource.register_space, shader_version);
             break;
 
