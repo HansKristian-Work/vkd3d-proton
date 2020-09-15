@@ -2095,6 +2095,7 @@ struct vkd3d_hull_shader_variables
 enum vkd3d_shader_global_binding_flag
 {
     VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY = 0x00000001,
+    VKD3D_SHADER_GLOBAL_BINDING_RAW_SSBO   = 0x00000002,
 };
 
 struct vkd3d_shader_global_binding
@@ -2374,7 +2375,7 @@ static bool vkd3d_get_binding_info_for_register(
 
 static const struct vkd3d_shader_resource_binding *vkd3d_dxbc_compiler_get_resource_binding(
         struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg,
-        enum vkd3d_shader_binding_flag binding_flag)
+        uint32_t binding_flags)
 {
     const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
     enum vkd3d_shader_descriptor_type descriptor_type;
@@ -2387,9 +2388,10 @@ static const struct vkd3d_shader_resource_binding *vkd3d_dxbc_compiler_get_resou
 
     for (i = 0; i < shader_interface->binding_count; ++i)
     {
+        const uint32_t mask = ~(VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_RAW_VA);
         const struct vkd3d_shader_resource_binding *current = &shader_interface->bindings[i];
 
-        if (!(current->flags & binding_flag))
+        if ((current->flags & mask) != binding_flags)
             continue;
 
         if (!vkd3d_dxbc_compiler_check_shader_visibility(compiler, current->shader_visibility))
@@ -2403,35 +2405,45 @@ static const struct vkd3d_shader_resource_binding *vkd3d_dxbc_compiler_get_resou
 
     if (shader_interface->binding_count)
         FIXME("Could not find binding for type %#x, register %u, space %u, shader type %#x, flag %#x.\n",
-                descriptor_type, reg_idx, reg_space, compiler->shader_type, binding_flag);
+                descriptor_type, reg_idx, reg_space, compiler->shader_type, binding_flags);
 
     return NULL;
 }
 
-static enum vkd3d_shader_binding_flag vkd3d_binding_flags_from_resource_type(
-        enum vkd3d_shader_resource_type resource_type)
+static unsigned int vkd3d_binding_flags_from_resource_type(
+        enum vkd3d_shader_resource_type resource_type, bool raw_ssbo)
 {
-    return resource_type == VKD3D_SHADER_RESOURCE_BUFFER
-            ? VKD3D_SHADER_BINDING_FLAG_BUFFER
-            : VKD3D_SHADER_BINDING_FLAG_IMAGE;
+    unsigned int flags;
+
+    if (resource_type == VKD3D_SHADER_RESOURCE_BUFFER)
+    {
+        flags = VKD3D_SHADER_BINDING_FLAG_BUFFER;
+
+        if (raw_ssbo)
+            flags |= VKD3D_SHADER_BINDING_FLAG_RAW_SSBO;
+    }
+    else
+        flags = VKD3D_SHADER_BINDING_FLAG_IMAGE;
+
+    return flags;
 }
 
 static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor_binding(
         struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg,
-        enum vkd3d_shader_resource_type resource_type, bool is_uav_counter)
+        enum vkd3d_shader_resource_type resource_type, bool is_uav_counter, bool raw_ssbo)
 {
     const struct vkd3d_shader_resource_binding *resource = NULL;
     enum vkd3d_shader_descriptor_type descriptor_type;
     struct vkd3d_shader_descriptor_binding binding;
-    enum vkd3d_shader_binding_flag binding_flag;
+    uint32_t binding_flags;
 
     descriptor_type = vkd3d_shader_descriptor_type_from_register_type(reg->type);
     assert(!is_uav_counter || descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV);
 
-    binding_flag = is_uav_counter ? VKD3D_SHADER_BINDING_FLAG_COUNTER
-            : vkd3d_binding_flags_from_resource_type(resource_type);
+    binding_flags = is_uav_counter ? VKD3D_SHADER_BINDING_FLAG_COUNTER
+            : vkd3d_binding_flags_from_resource_type(resource_type, raw_ssbo);
 
-    if ((resource = vkd3d_dxbc_compiler_get_resource_binding(compiler, reg, binding_flag)))
+    if ((resource = vkd3d_dxbc_compiler_get_resource_binding(compiler, reg, binding_flags)))
         return resource->binding;
 
     binding.set = 0;
@@ -2450,11 +2462,11 @@ static void vkd3d_dxbc_compiler_emit_descriptor_binding(struct vkd3d_dxbc_compil
 
 static void vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(struct vkd3d_dxbc_compiler *compiler,
         uint32_t variable_id, const struct vkd3d_shader_register *reg,
-        enum vkd3d_shader_resource_type resource_type, bool is_uav_counter)
+        enum vkd3d_shader_resource_type resource_type, bool is_uav_counter, bool raw_ssbo)
 {
     struct vkd3d_shader_descriptor_binding binding;
 
-    binding = vkd3d_dxbc_compiler_get_descriptor_binding(compiler, reg, resource_type, is_uav_counter);
+    binding = vkd3d_dxbc_compiler_get_descriptor_binding(compiler, reg, resource_type, is_uav_counter, raw_ssbo);
     vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, variable_id, &binding);
 }
 
@@ -5069,6 +5081,24 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
             vkd3d_spirv_enable_capability(builder, SpvCapabilityUniformBufferArrayNonUniformIndexingEXT);
         }
     }
+    else if (flags & VKD3D_SHADER_GLOBAL_BINDING_RAW_SSBO)
+    {
+        uint32_t array_type_id = vkd3d_spirv_build_op_type_runtime_array(builder,
+                vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1));
+        vkd3d_spirv_build_op_decorate1(builder, array_type_id, SpvDecorationArrayStride, 4);
+
+        type_id = vkd3d_spirv_build_op_type_struct(builder, &array_type_id, 1);
+        vkd3d_spirv_build_op_decorate(builder, type_id, SpvDecorationBufferBlock, NULL, 0);
+        vkd3d_spirv_build_op_member_decorate1(builder, type_id, 0, SpvDecorationOffset, 0);
+
+        if (data_type == VKD3D_DATA_RESOURCE)
+            vkd3d_spirv_build_op_member_decorate(builder, type_id, 0, SpvDecorationNonWritable, NULL, 0);
+        else if (flags & VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY)
+            vkd3d_spirv_build_op_member_decorate(builder, type_id, 0, SpvDecorationNonReadable, NULL, 0);
+
+        vkd3d_spirv_enable_capability(builder, SpvCapabilityStorageBufferArrayDynamicIndexing);
+        vkd3d_spirv_enable_capability(builder, SpvCapabilityStorageBufferArrayNonUniformIndexingEXT);
+    }
     else if (data_type == VKD3D_DATA_RESOURCE)
     {
         const struct vkd3d_spirv_resource_type *type_info = vkd3d_get_spirv_resource_type(resource_type);
@@ -5187,7 +5217,7 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
 
     vkd3d_dxbc_compiler_emit_descriptor_binding(compiler, var_id, binding_info);
 
-    if (flags & VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY)
+    if ((flags & VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY) && !(flags & VKD3D_SHADER_GLOBAL_BINDING_RAW_SSBO))
         vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
 
     if (!vkd3d_array_reserve((void **)&compiler->global_bindings, &compiler->global_bindings_size,
@@ -5488,7 +5518,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
     }
 
     binding = vkd3d_dxbc_compiler_get_resource_binding(compiler, reg,
-            vkd3d_binding_flags_from_resource_type(VKD3D_SHADER_RESOURCE_BUFFER));
+            vkd3d_binding_flags_from_resource_type(VKD3D_SHADER_RESOURCE_BUFFER, false));
 
     if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
     {
@@ -5516,7 +5546,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
                 pointer_type_id, storage_class, 0);
 
         vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
-                var_id, reg, VKD3D_SHADER_RESOURCE_BUFFER, false);
+                var_id, reg, VKD3D_SHADER_RESOURCE_BUFFER, false, false);
 
         vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
     }
@@ -5585,7 +5615,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
     }
 
     binding = vkd3d_dxbc_compiler_get_resource_binding(compiler, reg,
-            vkd3d_binding_flags_from_resource_type(VKD3D_SHADER_RESOURCE_NONE));
+            vkd3d_binding_flags_from_resource_type(VKD3D_SHADER_RESOURCE_NONE, false));
     type_id = vkd3d_spirv_get_op_type_sampler(builder);
 
     if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
@@ -5604,7 +5634,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
                 ptr_type_id, storage_class, 0);
 
         vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
-                var_id, reg, VKD3D_SHADER_RESOURCE_NONE, false);
+                var_id, reg, VKD3D_SHADER_RESOURCE_NONE, false, false);
 
         vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
     }
@@ -5701,6 +5731,15 @@ static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler
             depth, resource_type_info->arrayed, resource_type_info->ms, is_uav ? 2 : 1, format);
 }
 
+static bool vkd3d_dxbc_compiler_use_ssbo(struct vkd3d_dxbc_compiler *compiler,
+        unsigned int structure_stride, bool raw)
+{
+    /* Extract lowest bit from stride to get alignment
+     * in case the stride is not a power of two. */
+    unsigned int dword_alignment = raw ? 4 : (structure_stride & -structure_stride);
+    return dword_alignment * sizeof(uint32_t) >= compiler->shader_interface.min_ssbo_alignment;
+}
+
 static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, enum vkd3d_shader_resource_type resource_type,
         enum vkd3d_data_type resource_data_type, unsigned int structure_stride, bool raw)
@@ -5715,7 +5754,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     enum vkd3d_component_type sampled_type;
     struct vkd3d_symbol resource_symbol;
     unsigned int uav_flags;
-    bool is_uav;
+    bool is_uav, use_ssbo;
 
     is_uav = reg->type == VKD3DSPR_UAV;
     if (!(resource_type_info = vkd3d_dxbc_compiler_enable_resource_type(compiler,
@@ -5725,8 +5764,15 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
         return;
     }
 
+    use_ssbo = vkd3d_dxbc_compiler_use_ssbo(compiler, structure_stride, raw)
+            && vkd3d_dxbc_compiler_get_resource_binding(compiler, reg,
+                    vkd3d_binding_flags_from_resource_type(resource_type, true));
+
+    if (use_ssbo)
+        storage_class = SpvStorageClassUniform;
+
     binding = vkd3d_dxbc_compiler_get_resource_binding(compiler, reg,
-            vkd3d_binding_flags_from_resource_type(resource_type));
+            vkd3d_binding_flags_from_resource_type(resource_type, use_ssbo));
     sampled_type = vkd3d_component_type_from_data_type(resource_data_type);
 
     if (is_uav)
@@ -5762,6 +5808,9 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
                 flags |= VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY;
         }
 
+        if (use_ssbo)
+            flags |= VKD3D_SHADER_GLOBAL_BINDING_RAW_SSBO;
+
         global_binding = vkd3d_dxbc_compiler_get_global_binding(compiler,
                 is_uav ? VKD3D_DATA_UAV : VKD3D_DATA_RESOURCE, resource_type,
                 sampled_type, storage_class, binding, format, flags);
@@ -5771,18 +5820,37 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     }
     else
     {
-        type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler,
-                reg, resource_type_info, sampled_type, structure_stride || raw, 0);
+        if (use_ssbo)
+        {
+            uint32_t array_type_id = vkd3d_spirv_build_op_type_runtime_array(builder,
+                    vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1));
+            vkd3d_spirv_build_op_decorate1(builder, array_type_id, SpvDecorationArrayStride, 4);
+
+            type_id = vkd3d_spirv_build_op_type_struct(builder, &array_type_id, 1);
+            vkd3d_spirv_build_op_decorate(builder, type_id, SpvDecorationBufferBlock, NULL, 0);
+            vkd3d_spirv_build_op_member_decorate1(builder, type_id, 0, SpvDecorationOffset, 0);
+
+            if (!is_uav)
+                vkd3d_spirv_build_op_member_decorate(builder, type_id, 0, SpvDecorationNonWritable, NULL, 0);
+            else if (!(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
+                vkd3d_spirv_build_op_member_decorate(builder, type_id, 0, SpvDecorationNonReadable, NULL, 0);
+        }
+        else
+        {
+            type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler,
+                    reg, resource_type_info, sampled_type, structure_stride || raw, 0);
+        }
+
         ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id);
         var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
                 ptr_type_id, storage_class, 0);
 
-        vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
-                var_id, reg, resource_type, false);
-        vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
-
-        if (is_uav && !(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
+        if (is_uav && !use_ssbo && !(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
             vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
+
+        vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
+                var_id, reg, resource_type, false, use_ssbo);
+        vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
     }
 
     if (is_uav && (uav_flags & VKD3D_SHADER_UAV_FLAG_ATOMIC_COUNTER))
@@ -5810,7 +5878,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
                     vkd3d_spirv_get_op_type_pointer(builder, storage_class, type_id), storage_class, 0);
 
             vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
-                    counter_var_id, reg, resource_type, true);
+                    counter_var_id, reg, resource_type, true, false);
 
             vkd3d_spirv_build_op_name(builder, counter_var_id, "u%u_counter", reg->idx[0].offset);
         }
