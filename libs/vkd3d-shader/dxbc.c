@@ -1787,7 +1787,13 @@ static void shader_sm4_read_instruction_modifier(DWORD modifier, struct vkd3d_sh
 
             if ((components & 0xfff0) != (components & 0xf) * 0x1110)
                 FIXME("Components (%#x) have different data types.\n", components);
-            ins->resource_data_type = data_type_table[data_type];
+            if (data_type < ARRAY_SIZE(data_type_table))
+                ins->resource_data_type = data_type_table[data_type];
+            else
+            {
+                FIXME("Unhandled data type %#x.\n", data_type);
+                ins->resource_data_type = VKD3D_DATA_FLOAT;
+            }
             break;
         }
 
@@ -1796,7 +1802,13 @@ static void shader_sm4_read_instruction_modifier(DWORD modifier, struct vkd3d_sh
             enum vkd3d_sm4_resource_type resource_type
                     = (modifier & VKD3D_SM5_MODIFIER_RESOURCE_TYPE_MASK) >> VKD3D_SM5_MODIFIER_RESOURCE_TYPE_SHIFT;
 
-            ins->resource_type = resource_type_table[resource_type];
+            if (resource_type < ARRAY_SIZE(resource_type_table))
+                ins->resource_type = resource_type_table[resource_type];
+            else
+            {
+                FIXME("Unhandled resource type %#x.\n", resource_type);
+                ins->resource_type = VKD3D_SHADER_RESOURCE_NONE;
+            }
             break;
         }
 
