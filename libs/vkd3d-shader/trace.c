@@ -1033,7 +1033,7 @@ static void shader_dump_src_param(struct vkd3d_string_buffer *buffer,
         shader_addline(buffer, "!");
 
     if (src_modifier == VKD3DSPSM_ABS || src_modifier == VKD3DSPSM_ABSNEG)
-        shader_addline(buffer, "abs(");
+        shader_addline(buffer, "|");
 
     shader_dump_register(buffer, &param->reg, shader_version);
 
@@ -1051,8 +1051,8 @@ static void shader_dump_src_param(struct vkd3d_string_buffer *buffer,
         case VKD3DSPSM_X2NEG:   shader_addline(buffer, "_x2"); break;
         case VKD3DSPSM_DZ:      shader_addline(buffer, "_dz"); break;
         case VKD3DSPSM_DW:      shader_addline(buffer, "_dw"); break;
-        case VKD3DSPSM_ABSNEG:  shader_addline(buffer, ")"); break;
-        case VKD3DSPSM_ABS:     shader_addline(buffer, ")"); break;
+        case VKD3DSPSM_ABSNEG:
+        case VKD3DSPSM_ABS:     /* handled later */ break;
         default:                  shader_addline(buffer, "_unknown_modifier(%#x)", src_modifier);
     }
 
@@ -1076,6 +1076,8 @@ static void shader_dump_src_param(struct vkd3d_string_buffer *buffer,
                     swizzle_chars[swizzle_z], swizzle_chars[swizzle_w]);
         }
     }
+    if (src_modifier == VKD3DSPSM_ABS || src_modifier == VKD3DSPSM_ABSNEG)
+        shader_addline(buffer, "|");
 }
 
 static void shader_dump_ins_modifiers(struct vkd3d_string_buffer *buffer,
