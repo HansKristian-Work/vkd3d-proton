@@ -420,6 +420,7 @@ static void shader_dump_uav_flags(struct vkd3d_string_buffer *buffer, DWORD uav_
 static void shader_dump_tessellator_domain(struct vkd3d_string_buffer *buffer,
         enum vkd3d_tessellator_domain domain)
 {
+    shader_addline(buffer, "domain_");
     switch (domain)
     {
         case VKD3D_TESSELLATOR_DOMAIN_LINE:
