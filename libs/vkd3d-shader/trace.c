@@ -1051,7 +1051,7 @@ static void shader_dump_src_param(struct vkd3d_string_buffer *buffer,
         default:                  shader_addline(buffer, "_unknown_modifier(%#x)", src_modifier);
     }
 
-    if (swizzle != VKD3D_SHADER_NO_SWIZZLE)
+    if (param->reg.type != VKD3DSPR_IMMCONST && param->reg.type != VKD3DSPR_SAMPLER)
     {
         static const char swizzle_chars[] = "xyzw";
         DWORD swizzle_x = (swizzle >> VKD3D_SHADER_SWIZZLE_SHIFT(0)) & VKD3D_SHADER_SWIZZLE_MASK;
