@@ -937,13 +937,23 @@ static void shader_dump_register(struct vkd3d_string_buffer *buffer,
     {
         if (offset != ~0u)
         {
-            shader_addline(buffer, "[");
+            bool printbrackets = reg->idx[0].rel_addr
+                || reg->type == VKD3DSPR_INCONTROLPOINT
+                || reg->type == VKD3DSPR_IMMCONSTBUFFER
+                || ((shader_version->type == VKD3D_SHADER_TYPE_GEOMETRY
+                            || shader_version->type == VKD3D_SHADER_TYPE_HULL)
+                        && reg->type == VKD3DSPR_INPUT);
+
+            if (printbrackets)
+                shader_addline(buffer, "[");
             if (reg->idx[0].rel_addr)
             {
                 shader_dump_src_param(buffer, reg->idx[0].rel_addr, shader_version);
                 shader_addline(buffer, " + ");
             }
-            shader_addline(buffer, "%u]", offset);
+            shader_addline(buffer, "%u", offset);
+            if (printbrackets)
+                shader_addline(buffer, "]");
 
             if (reg->idx[1].offset != ~0u)
             {
