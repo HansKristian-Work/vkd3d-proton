@@ -441,6 +441,7 @@ static void shader_dump_tessellator_domain(struct vkd3d_string_buffer *buffer,
 static void shader_dump_tessellator_output_primitive(struct vkd3d_string_buffer *buffer,
         enum vkd3d_shader_tessellator_output_primitive output_primitive)
 {
+    shader_addline(buffer, "output_");
     switch (output_primitive)
     {
         case VKD3D_SHADER_TESSELLATOR_OUTPUT_POINT:
