@@ -1330,7 +1330,7 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
             break;
 
         case VKD3DSIH_DCL_INDEXABLE_TEMP:
-            shader_addline(buffer, "%s x[%u][%u], %u", shader_opcode_names[ins->handler_idx],
+            shader_addline(buffer, "%s x%u[%u], %u", shader_opcode_names[ins->handler_idx],
                     ins->declaration.indexable_temp.register_idx,
                     ins->declaration.indexable_temp.register_size,
                     ins->declaration.indexable_temp.component_count);
