@@ -424,7 +424,7 @@ static void shader_dump_tessellator_domain(struct vkd3d_string_buffer *buffer,
     switch (domain)
     {
         case VKD3D_TESSELLATOR_DOMAIN_LINE:
-            shader_addline(buffer, "line");
+            shader_addline(buffer, "isoline");
             break;
         case VKD3D_TESSELLATOR_DOMAIN_TRIANGLE:
             shader_addline(buffer, "triangle");
