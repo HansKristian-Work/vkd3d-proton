@@ -1375,7 +1375,7 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
             break;
 
         case VKD3DSIH_DCL_INTERFACE:
-            shader_addline(buffer, "%s fp[%u][%u][%u] = {...}",
+            shader_addline(buffer, "%s fp%u[%u][%u] = {...}",
                     shader_opcode_names[ins->handler_idx], ins->declaration.fp.index,
                     ins->declaration.fp.array_size, ins->declaration.fp.body_count);
             break;
