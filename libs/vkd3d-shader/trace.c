@@ -700,7 +700,9 @@ static void shader_dump_register(struct vkd3d_string_buffer *buffer,
             break;
 
         case VKD3DSPR_COLOROUT:
-            shader_addline(buffer, "oC");
+            shader_addline(buffer, "o");
+            if (!shader_ver_ge(shader_version, 4, 0))
+                shader_addline(buffer, "C");
             break;
 
         case VKD3DSPR_DEPTHOUT:
