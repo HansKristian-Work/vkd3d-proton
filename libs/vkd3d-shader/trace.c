@@ -955,7 +955,11 @@ static void shader_dump_register(struct vkd3d_string_buffer *buffer,
             if (printbrackets)
                 shader_addline(buffer, "]");
 
-            if (reg->idx[1].offset != ~0u)
+            /* For CBs in sm < 5.1 we move the buffer offset from idx[1] to idx[2]
+             * to normalise it with 5.1.
+             * Here we should ignore it if it's a CB in sm < 5.1. */
+            if (reg->idx[1].offset != ~0u &&
+                    (reg->type != VKD3DSPR_CONSTBUFFER || shader_ver_ge(shader_version, 5, 1)))
             {
                 shader_addline(buffer, "[");
                 if (reg->idx[1].rel_addr)
