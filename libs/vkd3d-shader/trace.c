@@ -465,6 +465,7 @@ static void shader_dump_tessellator_output_primitive(struct vkd3d_string_buffer 
 static void shader_dump_tessellator_partitioning(struct vkd3d_string_buffer *buffer,
         enum vkd3d_shader_tessellator_partitioning partitioning)
 {
+    shader_addline(buffer, "partitioning_");
     switch (partitioning)
     {
         case VKD3D_SHADER_TESSELLATOR_PARTITIONING_INTEGER:
