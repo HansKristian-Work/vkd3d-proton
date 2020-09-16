@@ -994,7 +994,7 @@ static void shader_dump_dst_param(struct vkd3d_string_buffer *buffer,
 
     shader_dump_register(buffer, &param->reg, shader_version);
 
-    if (write_mask && write_mask != VKD3DSP_WRITEMASK_ALL)
+    if (write_mask)
     {
         static const char write_mask_chars[] = "xyzw";
 
