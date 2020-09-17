@@ -1883,6 +1883,7 @@ struct vkd3d_symbol_resource_data
     const struct vkd3d_spirv_resource_type *resource_type_info;
     unsigned int structure_stride;
     bool raw;
+    bool ssbo;
     const struct vkd3d_shader_resource_binding *uav_counter_binding;
     uint32_t uav_counter_type_id;
     uint32_t uav_counter_id;
@@ -5648,6 +5649,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_sampler(struct vkd3d_dxbc_compiler *com
     resource_symbol.info.resource.resource_type_info = NULL;
     resource_symbol.info.resource.structure_stride = 0;
     resource_symbol.info.resource.raw = 0;
+    resource_symbol.info.resource.ssbo = 0;
     resource_symbol.info.resource.uav_counter_binding = NULL;
     resource_symbol.info.resource.uav_counter_type_id = 0;
     resource_symbol.info.resource.uav_counter_id = 0;
@@ -5895,6 +5897,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     resource_symbol.info.resource.resource_type_info = resource_type_info;
     resource_symbol.info.resource.structure_stride = structure_stride;
     resource_symbol.info.resource.raw = raw;
+    resource_symbol.info.resource.ssbo = use_ssbo;
     resource_symbol.info.resource.uav_counter_binding = counter_binding;
     resource_symbol.info.resource.uav_counter_type_id = counter_type_id;
     resource_symbol.info.resource.uav_counter_id = counter_var_id;
@@ -7700,11 +7703,12 @@ struct vkd3d_shader_image
     uint32_t image_id;
     uint32_t sampled_image_id;
 
+    SpvStorageClass storage_class;
     enum vkd3d_component_type sampled_type;
     uint32_t image_type_id;
     const struct vkd3d_spirv_resource_type *resource_type_info;
     unsigned int structure_stride;
-    bool raw;
+    bool raw, ssbo;
 };
 
 #define VKD3D_IMAGE_FLAG_NONE    0x0
@@ -7833,18 +7837,27 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
     symbol = vkd3d_dxbc_compiler_find_resource(compiler, resource_reg);
 
     image->id = vkd3d_dxbc_compiler_get_resource_pointer(compiler, resource_reg);
+    image->storage_class = symbol->info.resource.storage_class;
     image->sampled_type = symbol->info.resource.sampled_type;
     image->image_type_id = symbol->info.resource.type_id;
     image->resource_type_info = symbol->info.resource.resource_type_info;
     image->structure_stride = symbol->info.resource.structure_stride;
     image->raw = symbol->info.resource.raw;
+    image->ssbo = symbol->info.resource.ssbo;
 
-    image->image_id = load ? vkd3d_spirv_build_op_load(builder,
-            image->image_type_id, image->id, SpvMemoryAccessMaskNone) : 0;
+    if (!image->ssbo)
+    {
+        image->image_id = load ? vkd3d_spirv_build_op_load(builder,
+                image->image_type_id, image->id, SpvMemoryAccessMaskNone) : 0;
 
-    image->image_type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler,
-            resource_reg, image->resource_type_info, image->sampled_type,
-            image->structure_stride || image->raw, depth_comparison);
+        image->image_type_id = vkd3d_dxbc_compiler_get_image_type_id(compiler,
+                resource_reg, image->resource_type_info, image->sampled_type,
+                image->structure_stride || image->raw, depth_comparison);
+    }
+    else
+    {
+        image->image_id = 0;
+    }
 
     if (image->image_id && resource_reg->modifier == VKD3DSPRM_NONUNIFORM)
         vkd3d_dxbc_compiler_decorate_nonuniform(compiler, image->image_id);
@@ -8270,7 +8283,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_raw_structured_addressing(
 static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    uint32_t coordinate_id, result_type_id, type_id, val_id, texel_type_id, status_id = 0;
+    uint32_t coordinate_id, result_type_id, type_id, ptr_id, ptr_type_id, val_id, texel_type_id, status_id = 0;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
@@ -8288,14 +8301,28 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
 
     resource = &src[instruction->src_count - 1];
 
-    if (resource->reg.type == VKD3DSPR_RESOURCE)
-        op = is_sparse_op ? SpvOpImageSparseFetch : SpvOpImageFetch;
-    else
-        op = is_sparse_op ? SpvOpImageSparseRead : SpvOpImageRead;
-
     vkd3d_dxbc_compiler_prepare_image(compiler, &image, &resource->reg, NULL, VKD3D_IMAGE_FLAG_NONE);
 
+    if (image.ssbo)
+    {
+        if (is_sparse_op)
+        {
+            ERR("Sparse feedback on raw and structured buffers not supported.\n");
+            return;
+        }
+
+        op = SpvOpNop;
+    }
+    else
+    {
+        if (resource->reg.type == VKD3DSPR_RESOURCE)
+            op = is_sparse_op ? SpvOpImageSparseFetch : SpvOpImageFetch;
+        else
+            op = is_sparse_op ? SpvOpImageSparseRead : SpvOpImageRead;
+    }
+
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    ptr_type_id = image.ssbo ? vkd3d_spirv_get_op_type_pointer(builder, image.storage_class, type_id) : 0;
     base_coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
             type_id, image.structure_stride, &src[0], VKD3DSP_WRITEMASK_0, &src[1], VKD3DSP_WRITEMASK_0);
 
@@ -8319,12 +8346,26 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
             coordinate_id = vkd3d_spirv_build_op_iadd(builder, type_id,
                     coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
 
-        val_id = vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
-                op, result_type_id, image.image_id, coordinate_id);
-        constituents[j++] = vkd3d_spirv_build_op_composite_extract(builder, type_id, val_id, members, member_idx);
+        if (image.ssbo)
+        {
+            uint32_t indices[2];
+            indices[0] = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
+            indices[1] = coordinate_id;
+            ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id, image.id, indices, ARRAY_SIZE(indices));
+            constituents[j++] = vkd3d_spirv_build_op_load(builder, type_id, ptr_id, SpvMemoryAccessMaskNone);
 
-        if (is_sparse_op && !status_id)
-            status_id = vkd3d_spirv_build_op_composite_extract1(builder, type_id, val_id, 0);
+            if (resource->reg.modifier == VKD3DSPRM_NONUNIFORM)
+                vkd3d_dxbc_compiler_decorate_nonuniform(compiler, ptr_id);
+        }
+        else
+        {
+            val_id = vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+                    op, result_type_id, image.image_id, coordinate_id);
+            constituents[j++] = vkd3d_spirv_build_op_composite_extract(builder, type_id, val_id, members, member_idx);
+
+            if (is_sparse_op && !status_id)
+                status_id = vkd3d_spirv_build_op_composite_extract1(builder, type_id, val_id, 0);
+        }
     }
 
     if (is_sparse_op)
