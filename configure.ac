@@ -145,6 +145,7 @@ AC_OUTPUT
 dnl Output configuration summary
 AS_IF([test "x$CROSSTARGET32" != "xno" -o "x$CROSSTARGET64" != "xno"],
       [HAVE_CROSSTEST=yes], [HAVE_CROSSTEST=no])
+AS_IF([test $DX_FLAG_doc = 1], [HAVE_DOCS=yes], [HAVE_DOCS=no])
 
 AS_ECHO(["
   Configuration summary for $PACKAGE $VERSION
@@ -156,6 +157,7 @@ AS_ECHO(["
 
   Building demos: ${enable_demos}
   Building tests: ${enable_tests}
+  Building documentation: ${HAVE_DOCS}
 
   Building crosstests: ${HAVE_CROSSTEST}"])
 AS_IF([test "x$CROSSTARGET32" != "xno"], [AS_ECHO(["    Using 32-bit cross compiler: $CROSSCC32"])])
