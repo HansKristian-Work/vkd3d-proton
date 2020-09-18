@@ -1074,8 +1074,15 @@ struct vkd3d_shader_signature_element
     enum vkd3d_shader_component_type component_type;
     /** Register index. */
     unsigned int register_index;
-    /** Register mask. */
+    /** Mask of the register components allocated to this varying. */
     unsigned int mask;
+    /**
+     * Subset of \ref mask which the shader reads from or writes to. Unlike
+     * Direct3D shader bytecode, the mask for output and tessellation signatures
+     * is not inverted, i.e. bits set in this field denote components which are
+     * written to.
+     */
+    unsigned int used_mask;
     /** Minimum interpolation precision. */
     enum vkd3d_shader_minimum_precision min_precision;
 };

@@ -4139,7 +4139,7 @@ static bool needs_private_io_variable(const struct vkd3d_shader_signature *signa
         if (current->register_index != reg_idx)
             continue;
 
-        write_mask |= current->mask & 0xff;
+        write_mask |= current->mask;
         ++count;
 
         if (current->sysval_semantic)
@@ -4216,7 +4216,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
 
     builtin = get_spirv_builtin_for_sysval(compiler, sysval);
 
-    write_mask = signature_element->mask & 0xff;
+    write_mask = signature_element->mask;
 
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
     if (builtin)
@@ -4228,8 +4228,8 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     else
     {
         component_type = signature_element->component_type;
-        input_component_count = vkd3d_write_mask_component_count(signature_element->mask & 0xff);
-        component_idx = vkd3d_write_mask_get_component_idx(signature_element->mask & 0xff);
+        input_component_count = vkd3d_write_mask_component_count(signature_element->mask);
+        component_idx = vkd3d_write_mask_get_component_idx(signature_element->mask);
     }
 
     if ((use_private_var = builtin && builtin->fixup_pfn))
@@ -4657,10 +4657,10 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
 
     builtin = vkd3d_get_spirv_builtin(compiler, dst->reg.type, sysval);
 
-    write_mask = signature_element->mask & 0xff;
+    write_mask = signature_element->mask;
 
     component_idx = vkd3d_write_mask_get_component_idx(dst->write_mask);
-    output_component_count = vkd3d_write_mask_component_count(signature_element->mask & 0xff);
+    output_component_count = vkd3d_write_mask_component_count(signature_element->mask);
     if (builtin)
     {
         component_type = builtin->component_type;
@@ -4833,9 +4833,9 @@ static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compi
     unsigned int i, index, array_idx;
     uint32_t output_id;
 
-    dst_write_mask = output->mask & 0xff;
+    dst_write_mask = output->mask;
     write_mask &= dst_write_mask;
-    use_mask = (output->mask >> 8) & 0xff;
+    use_mask = output->used_mask;
 
     if (!write_mask)
         return;
@@ -4847,7 +4847,7 @@ static void vkd3d_dxbc_compiler_emit_store_shader_output(struct vkd3d_dxbc_compi
     }
 
     swizzle = get_shader_output_swizzle(compiler, output->register_index);
-    uninit_mask = dst_write_mask & use_mask;
+    uninit_mask = dst_write_mask & ~use_mask;
     if (uninit_mask)
     {
         /* Set values to 0 for not initialized shader output components. */
@@ -6180,7 +6180,7 @@ static void vkd3d_dxbc_compiler_emit_default_control_point_phase(struct vkd3d_dx
         const struct vkd3d_shader_signature_element *output = &output_signature->elements[i];
         const struct vkd3d_shader_signature_element *input = &input_signature->elements[i];
 
-        assert((input->mask & 0xff) == (output->mask & 0xff));
+        assert(input->mask == output->mask);
         assert(input->component_type == output->component_type);
 
         if ((input_builtin = get_spirv_builtin_for_sysval(compiler, vkd3d_siv_from_sysval(input->sysval_semantic))))
@@ -6191,7 +6191,7 @@ static void vkd3d_dxbc_compiler_emit_default_control_point_phase(struct vkd3d_dx
         else
         {
             component_type = input->component_type;
-            component_count = vkd3d_write_mask_component_count(input->mask & 0xff);
+            component_count = vkd3d_write_mask_component_count(input->mask);
         }
 
         if (input_builtin)

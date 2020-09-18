@@ -2139,7 +2139,7 @@ static int shader_parse_signature(DWORD tag, const char *data, DWORD data_size,
 
     for (i = 0; i < count; ++i)
     {
-        DWORD name_offset;
+        DWORD name_offset, mask;
 
         if (has_stream_index)
             read_dword(&ptr, &e[i].stream_index);
@@ -2157,7 +2157,19 @@ static int shader_parse_signature(DWORD tag, const char *data, DWORD data_size,
         read_dword(&ptr, &e[i].sysval_semantic);
         read_dword(&ptr, &e[i].component_type);
         read_dword(&ptr, &e[i].register_index);
-        read_dword(&ptr, &e[i].mask);
+        read_dword(&ptr, &mask);
+        e[i].mask = mask & 0xff;
+        e[i].used_mask = (mask >> 8) & 0xff;
+        switch (tag)
+        {
+            case TAG_OSGN:
+            case TAG_OSG1:
+            case TAG_OSG5:
+            case TAG_PCSG:
+            case TAG_PSG1:
+                e[i].used_mask = e[i].mask & ~e[i].used_mask;
+                break;
+        }
 
         if (has_min_precision)
             read_dword(&ptr, &e[i].min_precision);
@@ -2167,7 +2179,7 @@ static int shader_parse_signature(DWORD tag, const char *data, DWORD data_size,
         TRACE("Stream: %u, semantic: %s, semantic idx: %u, sysval_semantic %#x, "
                 "type %u, register idx: %u, use_mask %#x, input_mask %#x, precision %u.\n",
                 e[i].stream_index, debugstr_a(e[i].semantic_name), e[i].semantic_index, e[i].sysval_semantic,
-                e[i].component_type, e[i].register_index, (e[i].mask >> 8) & 0xff, e[i].mask & 0xff, e[i].min_precision);
+                e[i].component_type, e[i].register_index, e[i].used_mask, e[i].mask, e[i].min_precision);
     }
 
     s->elements = e;
