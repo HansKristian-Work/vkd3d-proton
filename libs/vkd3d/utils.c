@@ -699,11 +699,12 @@ const char *debug_vk_queue_flags(VkQueueFlags flags)
 
 const char *debug_vk_memory_heap_flags(VkMemoryHeapFlags flags)
 {
-    char buffer[50];
+    char buffer[80];
 
     buffer[0] = '\0';
 #define FLAG_TO_STR(f) if (flags & f) { strcat(buffer, " | "#f); flags &= ~f; }
     FLAG_TO_STR(VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+    FLAG_TO_STR(VK_MEMORY_HEAP_MULTI_INSTANCE_BIT)
 #undef FLAG_TO_STR
     if (flags)
         FIXME("Unrecognized flag(s) %#x.\n", flags);
