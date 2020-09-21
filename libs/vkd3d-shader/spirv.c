@@ -59,19 +59,22 @@ static uint32_t get_binary_to_text_options(enum vkd3d_shader_compile_option_form
     {
         enum vkd3d_shader_compile_option_formatting_flags vkd3d;
         uint32_t spv;
+        bool invert;
     }
     valuemap[] =
     {
         {VKD3D_SHADER_COMPILE_OPTION_FORMATTING_COLOUR,           SPV_BINARY_TO_TEXT_OPTION_COLOR           },
         {VKD3D_SHADER_COMPILE_OPTION_FORMATTING_INDENT,           SPV_BINARY_TO_TEXT_OPTION_INDENT          },
         {VKD3D_SHADER_COMPILE_OPTION_FORMATTING_OFFSETS,          SPV_BINARY_TO_TEXT_OPTION_SHOW_BYTE_OFFSET},
-        {VKD3D_SHADER_COMPILE_OPTION_FORMATTING_NO_HEADER,        SPV_BINARY_TO_TEXT_OPTION_NO_HEADER       },
+        {VKD3D_SHADER_COMPILE_OPTION_FORMATTING_HEADER,           SPV_BINARY_TO_TEXT_OPTION_NO_HEADER,        true},
         {VKD3D_SHADER_COMPILE_OPTION_FORMATTING_FRIENDLY_NAMES,   SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES  },
     };
 
-    for (i = 0; i < ARRAY_SIZE(valuemap); i++)
-        if (formatting & valuemap[i].vkd3d)
+    for (i = 0; i < ARRAY_SIZE(valuemap); ++i)
+    {
+        if (valuemap[i].invert == !(formatting & valuemap[i].vkd3d))
             out |= valuemap[i].spv;
+    }
 
     return out;
 }
@@ -2268,8 +2271,9 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
 
     vkd3d_spirv_builder_init(&compiler->spirv_builder, vkd3d_dxbc_compiler_get_entry_point_name(compiler));
 
-    compiler->formatting = VKD3D_SHADER_COMPILE_OPTION_FORMATTING_FRIENDLY_NAMES |
-                           VKD3D_SHADER_COMPILE_OPTION_FORMATTING_INDENT;
+    compiler->formatting = VKD3D_SHADER_COMPILE_OPTION_FORMATTING_FRIENDLY_NAMES
+            | VKD3D_SHADER_COMPILE_OPTION_FORMATTING_INDENT
+            | VKD3D_SHADER_COMPILE_OPTION_FORMATTING_HEADER;
 
     for (i = 0; i < compile_info->option_count; ++i)
     {
