@@ -278,6 +278,10 @@ static void vkd3d_wait_for_gpu_timeline_semaphores(struct vkd3d_fence_worker *wo
         return;
     }
 
+    /* This is a good time to kick the debug ring thread into action. */
+    if (device->debug_ring.active)
+        pthread_cond_signal(&device->debug_ring.ring_cond);
+
     for (i = 0, j = 0; i < worker->fence_count; ++i)
     {
         struct vkd3d_waiting_fence *current = &worker->fences[i];
@@ -2759,6 +2763,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
                 1, &barrier, 0, NULL, 0, NULL));
     }
 
+    vkd3d_shader_debug_ring_end_command_buffer(list);
+
     if ((vr = VK_CALL(vkEndCommandBuffer(list->vk_command_buffer))) < 0)
     {
         WARN("Failed to end command buffer, vr %d.\n", vr);
@@ -2807,6 +2813,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 #else
     list->debug_capture = false;
 #endif
+    list->has_replaced_shaders = false;
 
     list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;
@@ -4753,10 +4760,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
 
     TRACE("iface %p, pipeline_state %p.\n", iface, pipeline_state);
 
-    if (TRACE_ON() && state)
+    if ((TRACE_ON() || list->device->debug_ring.active) && state)
     {
         if (d3d12_pipeline_state_has_replaced_shaders(state))
+        {
             TRACE("Binding pipeline state %p which has replaced shader(s)!\n", pipeline_state);
+            list->has_replaced_shaders = true;
+        }
 
         if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
         {

@@ -933,8 +933,24 @@ enum vkd3d_dynamic_state_flag
     VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE = (1 << 9),
 };
 
+struct vkd3d_shader_debug_ring_spec_constants
+{
+    uint64_t hash;
+    uint64_t atomic_bda;
+    uint64_t host_bda;
+    uint32_t ring_words;
+};
+
+struct vkd3d_shader_debug_ring_spec_info
+{
+    struct vkd3d_shader_debug_ring_spec_constants constants;
+    VkSpecializationMapEntry map_entries[4];
+    VkSpecializationInfo spec_info;
+};
+
 struct d3d12_graphics_pipeline_state
 {
+    struct vkd3d_shader_debug_ring_spec_info spec_info[VKD3D_MAX_SHADER_STAGES];
     VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
     struct vkd3d_shader_meta stage_meta[VKD3D_MAX_SHADER_STAGES];
     size_t stage_count;
@@ -1270,6 +1286,7 @@ struct d3d12_command_list
     bool is_valid;
     bool need_host_barrier;
     bool debug_capture;
+    bool has_replaced_shaders;
     VkCommandBuffer vk_command_buffer;
 
     DXGI_FORMAT index_buffer_format;
@@ -1488,6 +1505,26 @@ struct vkd3d_sampler_state
     size_t vk_descriptor_pool_count;
 };
 
+struct vkd3d_shader_debug_ring
+{
+    VkBuffer host_buffer;
+    VkBuffer device_atomic_buffer;
+
+    VkDeviceMemory host_buffer_memory;
+    VkDeviceMemory device_atomic_buffer_memory;
+
+    void *mapped;
+    VkDeviceAddress ring_device_address;
+    VkDeviceAddress atomic_device_address;
+    size_t ring_size;
+    size_t ring_offset;
+
+    pthread_t ring_thread;
+    pthread_mutex_t ring_lock;
+    pthread_cond_t ring_cond;
+    bool active;
+};
+
 HRESULT vkd3d_sampler_state_init(struct vkd3d_sampler_state *state,
         struct d3d12_device *device) DECLSPEC_HIDDEN;
 void vkd3d_sampler_state_cleanup(struct vkd3d_sampler_state *state,
@@ -1499,6 +1536,15 @@ HRESULT vkd3d_sampler_state_allocate_descriptor_set(struct vkd3d_sampler_state *
         VkDescriptorPool *vk_pool) DECLSPEC_HIDDEN;
 void vkd3d_sampler_state_free_descriptor_set(struct vkd3d_sampler_state *state,
         struct d3d12_device *device, VkDescriptorSet vk_set, VkDescriptorPool vk_pool) DECLSPEC_HIDDEN;
+
+HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *state,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
+void vkd3d_shader_debug_ring_cleanup(struct vkd3d_shader_debug_ring *state,
+        struct d3d12_device *device) DECLSPEC_HIDDEN;
+void *vkd3d_shader_debug_ring_thread_main(void *arg) DECLSPEC_HIDDEN;
+void vkd3d_shader_debug_ring_init_spec_constant(struct d3d12_device *device,
+        struct vkd3d_shader_debug_ring_spec_info *info, vkd3d_shader_hash_t hash) DECLSPEC_HIDDEN;
+void vkd3d_shader_debug_ring_end_command_buffer(struct d3d12_command_list *list) DECLSPEC_HIDDEN;
 
 /* NULL resources */
 struct vkd3d_null_resources
@@ -1836,6 +1882,7 @@ struct d3d12_device
     struct vkd3d_meta_ops meta_ops;
     struct vkd3d_view_map sampler_map;
     struct vkd3d_sampler_state sampler_state;
+    struct vkd3d_shader_debug_ring debug_ring;
 };
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
@@ -2063,6 +2110,8 @@ static inline void vk_prepend_struct(void *header, void *structure)
     vk_structure->pNext = vk_header->pNext;
     vk_header->pNext = vk_structure;
 }
+
+VkDeviceAddress vkd3d_get_buffer_device_address(struct d3d12_device *device, VkBuffer vk_buffer) DECLSPEC_HIDDEN;
 
 #define VKD3D_NULL_BUFFER_SIZE 16
 

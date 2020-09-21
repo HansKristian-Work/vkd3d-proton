@@ -118,6 +118,7 @@ libvkd3d_la_SOURCES = \
 	libs/vkd3d/resource.c \
 	libs/vkd3d/state.c \
 	libs/vkd3d/utils.c \
+	libs/vkd3d/debug_ring.c \
 	libs/vkd3d/vkd3d.map \
 	libs/vkd3d/vkd3d_main.c \
 	libs/vkd3d/vkd3d_private.h \
