@@ -1,16 +1,17 @@
-The Wine team is proud to announce that release 1.1 of vkd3d, the
-Direct3D 12 to Vulkan translation library, is now available.
+The Wine team is proud to announce that release 1.2 of vkd3d, the Direct3D to
+Vulkan translation library, is now available.
 
 This release contains improvements that are listed in the release notes below.
 The main highlights are:
 
-  - Initial support for placed resources.
-  - MoltenVK support.
-  - Support for geometry shaders.
+  - Availability of libvkd3d-shader as a public library.
+  - Support for tessellation shaders.
+  - Version 1.1 root signatures.
+  - Stream output support.
 
 The source is available from the following location:
 
-  https://dl.winehq.org/vkd3d/source/vkd3d-1.1.tar.xz
+  https://dl.winehq.org/vkd3d/source/vkd3d-1.2.tar.xz
 
 The current source can also be pulled directly from the git repository:
 
@@ -21,65 +22,171 @@ for the complete list.
 
 ----------------------------------------------------------------
 
-What's new in vkd3d 1.1
+What's new in vkd3d 1.2
 =======================
 
 
 *** libvkd3d
 
-- Initial support for memory heaps and placed resources.
+- Newly implemented Direct3D 12 features:
+  - Multi-sampling.
+  - Reserved resources.
+  - Instance data step rates. This requires the
+    VK_EXT_vertex_attribute_divisor extension.
+  - `Private data' APIs for all interfaces.
+  - Shader-resource view component mappings.
+  - Indirect indexed draws.
+  - Indirect draws with a count buffer. This requires the
+    VK_KHR_draw_indirect_count extension.
+  - Stream output and stream output queries. This requires the
+    VK_EXT_transform_feedback extension.
+  - Predicated/conditional rendering.
+  - Primitive restart.
+  - Depth rendering without a pixel shader.
+  - Depth clipping. This requires the VK_EXT_depth_clip_enable extension.
+  - Rasteriser discard.
+  - Dual-source blending.
+  - Mapping placed resources.
+  - The ReadFromSubresource() and WriteToSubresource() ID3D12Resource methods.
+  - Simultaneous access to resources from multiple queues.
+  - Null-views. I.e., views without an underlying resource.
+  - Several more feature support queries.
 
-- Improved support for resource views.
+- New interfaces:
+  - vkd3d_serialize_versioned_root_signature() and
+    vkd3d_create_versioned_root_signature_deserializer() provide support for
+    versioned root signatures.
+  - The vkd3d_application_info structure extends the
+    vkd3d_instance_create_info structure, and can be used to pass information
+    about the application to libvkd3d. It is analogous to the
+    VkApplicationInfo structure in Vulkan. Its `api_version' field should be
+    set to the version of the libvkd3d API that the application targets.
+  - The vkd3d_optional_device_extensions_info structure extends the
+    vkd3d_device_create_info structure, and can be used to pass a list of
+    device extensions to enable only when available to libvkd3d. It is
+    analogous to the vkd3d_optional_instance_extensions_info structure for
+    instance extensions.
 
-- ClearUnorderedAccessViewUint() is implemented for textures.
+- New environment variables:
+  - VKD3D_CONFIG can be used to set options that change the behaviour of
+    libvkd3d.
+  - VKD3D_TEST_BUG can be used to disable bug_if() conditions in the test
+    suite.
+  - VKD3D_TEST_FILTER can be used to control which tests are run.
+  - VKD3D_VULKAN_DEVICE can be used to override the Vulkan physical device
+    used by vkd3d.
+  See the README for more detailed descriptions and how to use these.
 
-- Blend factor is implemented.
+- When the VK_KHR_dedicated_allocation extension is available, dedicated
+  allocations may be used for committed resources.
 
-- Performance improvements.
+- When the VK_KHR_image_format_list extension is available, it will be used to
+  inform the driver about the view formats that a particular mutable Vulkan
+  image can be used with. This improves performance on some Vulkan
+  implementations.
 
-- A new interface is available for enabling additional Vulkan instance
-  extensions.
+- When the VK_EXT_debug_marker extension is available, object names set with
+  the ID3D12Object SetName() method will be propagated to the underlying
+  Vulkan objects.
 
-- A new public function is available for mapping VkFormats to DXGI_FORMATs.
+- Unordered-access view clears are supported on more formats. Previously these
+  were limited to integer formats for texture resources, and single component
+  integer formats for buffer resources.
 
-- Support for more DXGI formats.
+- When the D24_UNORM_S8_UINT format is not supported by the Vulkan
+  implementation, the D32_SFLOAT_S8_UINT format will be used instead to
+  implement the D24_UNORM_S8_UINT and related DXGI formats. This is required
+  because the DXGI D24_UNORM_S8_UINT format is mandatory, while the Vulkan
+  D24_UNORM_S8_UINT format is optional.
 
 - Various bug fixes.
 
 
 *** libvkd3d-shader
 
-- Support for geometry shaders.
+- libvkd3d-shader is now available as a public instead of an internal library.
 
-- Pretty printing is implemented for shader code extracted from DXBC.
+- New features:
+  - Tessellation shaders.
+  - Root signature version 1.1 serialisation, deserialisation, and conversion.
+  - Multi-sample masks.
+  - Per-sample shading.
+  - Early depth/stencil test.
+  - Conservative depth output.
+  - Dual-source blending.
+  - Stream output.
+  - Viewport arrays.
 
-- Clip and cull distances are supported.
+- Support for OpenGL SPIR-V target environments. This allows SPIR-V produced
+  by libvkd3d-shader to be used with GL_ARB_gl_spirv. This includes support
+  for OpenGL atomic counters and combined samplers.
+
+- Preliminary support for shader model 5.1 shaders. This is still a work in
+  progress. Notably, support for resource arrays is not yet implemented.
+
+- When the SPV_EXT_demote_to_helper_invocation is available, it will be used
+  to implement the `discard' shader instruction instead of using SpvOpKill. In
+  particular, this ensures the `deriv_rtx' and `deriv_rty' instruction return
+  accurate results after a (conditional) `discard' instruction.
+
+- Support for using SPIR-V specialisation constants for shader parameters.
 
 - Support for more shader instructions:
-  - round_ne,
-  - sincos,
-  - ineg,
-  - continue,
-  - continuec,
-  - gather4_po,
-  - gather4_po_c,
-  - gather4_c.
+  - bufinfo,
+  - eval_centroid,
+  - eval_sample_index,
+  - ld2ms,
+  - sample_b,
+  - sample_d,
+  - sample_info,
+  - samplepos.
 
-- Texel offsets are supported.
+- When built against SPIRV-Tools, libvkd3d-shader can produce SPIR-V shaders
+  in text form.
+
+- libvkd3d-shader now has its own environment variable (VKD3D_SHADER_DEBUG) to
+  control debug output.
 
 - Various shader translation fixes.
 
 
+*** vkd3d-compiler
+
+- When supported by libvkd3d-shader, text form SPIR-V is available as a target
+  format, in addition to the existing binary form SPIR-V target format.
+
+- Input from standard input, and output to standard output is supported.
+
+
 *** libvkd3d-utils
 
-- Vulkan WSI extensions are detected at runtime.
+- To specify the libvkd3d API version to use when creating vkd3d instances,
+  define VKD3D_UTILS_API_VERSION to the desired version before including
+  vkd3d_utils.h. If VKD3D_UTILS_API_VERSION is not explicitly defined,
+  VKD3D_API_VERSION_1_0 will be used.
+
+- Support for versioned root signatures is provided by the
+  D3D12SerializeVersionedRootSignature() and
+  D3D12CreateVersionedRootSignatureDeserializer() entry points.
 
 
 *** build
 
-- Demos are not built by default.
+- The minimum required version of Vulkan-Headers and SPIRV-Headers for this
+  release is version 1.1.113.
 
-- libxcb is now an optional dependency required only for demos.
+- The minimum required version of widl for this release is version 3.20.
 
-- MoltenVK is supported.
+- If doxygen is available, it will be used to build API documentation. By
+  default, documentation will be generated in HTML and PDF formats.
+
+- If debug logs are not required or desired, defining VKD3D_NO_TRACE_MESSAGES
+  and VKD3D_NO_DEBUG_MESSAGES will prevent them from being included in the
+  build. For example, a release build may want to configure with
+  `CPPFLAGS="-DNDEBUG -DVKD3D_NO_TRACE_MESSAGES -DVKD3D_NO_DEBUG_MESSAGES"'.
+
+- Microsoft Windows is now a supported target platform. To create a build for
+  Windows, either cross-compile by configuring with an appropriate --host
+  option like for example `--host=x86_64-w64-mingw32', or build on Windows
+  itself using an environment like MSYS2 or Cygwin.
 

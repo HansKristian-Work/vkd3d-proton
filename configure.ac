@@ -1,5 +1,5 @@
 AC_PREREQ([2.69])
-AC_INIT([vkd3d],[1.1])
+AC_INIT([vkd3d],[1.2])
 
 AC_CONFIG_AUX_DIR([bin])
 AC_CONFIG_MACRO_DIR([m4])

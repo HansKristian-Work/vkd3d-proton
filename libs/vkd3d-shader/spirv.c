@@ -213,7 +213,7 @@ static enum vkd3d_shader_input_sysval_semantic vkd3d_siv_from_sysval(enum vkd3d_
 
 #define VKD3D_SPIRV_VERSION 0x00010000
 #define VKD3D_SPIRV_GENERATOR_ID 18
-#define VKD3D_SPIRV_GENERATOR_VERSION 1
+#define VKD3D_SPIRV_GENERATOR_VERSION 2
 #define VKD3D_SPIRV_GENERATOR_MAGIC ((VKD3D_SPIRV_GENERATOR_ID << 16) | VKD3D_SPIRV_GENERATOR_VERSION)
 
 struct vkd3d_spirv_stream
