@@ -147,10 +147,11 @@ static void print_usage(const char *program_name)
         "  -o, --output=<file>   Write the output to <file>. If <file> is '-' or no\n"
         "                        output file is specified, output will be written to\n"
         "                        standard output.\n"
-        "  --formatting=<type>   Specify the formatting options for text output.\n"
-        "                        Valid values are 'none', 'print', 'colour', 'indent',\n"
-        "                        'offsets', 'header', and 'raw-ids'.\n"
-        "                        Default is --formatting=indent,header.\n"
+        "  --formatting=<flags>  Specify the formatting options for text output.\n"
+        "                        <flags> is a comma separated list of formatting flags,\n"
+        "                        optionally prefixed by '+' or '-'. Valid flags are\n"
+        "                        'colour', 'indent', 'offsets', 'header', and 'raw-ids'.\n"
+        "                        The 'indent' and 'header' flags are enabled by default.\n"
         "  --print-source-types  Display the supported source types and exit.\n"
         "  --print-target-types  Display the supported target types for the specified\n"
         "                        source type and exit.\n"
@@ -235,7 +236,6 @@ static bool parse_formatting(uint32_t *formatting, char *arg)
     }
     opts[] =
     {
-        {"none",    VKD3D_SHADER_COMPILE_OPTION_FORMATTING_NONE},
         {"colour",  VKD3D_SHADER_COMPILE_OPTION_FORMATTING_COLOUR},
         {"indent",  VKD3D_SHADER_COMPILE_OPTION_FORMATTING_INDENT},
         {"offsets", VKD3D_SHADER_COMPILE_OPTION_FORMATTING_OFFSETS},
@@ -246,12 +246,27 @@ static bool parse_formatting(uint32_t *formatting, char *arg)
 
     for (tok = strtok(arg, ","); tok; tok = strtok(NULL, ","))
     {
+        bool set = true;
         unsigned int i;
+
+        if (*tok == '-')
+        {
+            set = false;
+            ++tok;
+        }
+        else if (*tok == '+')
+        {
+            ++tok;
+        }
+
         for (i = 0; i < ARRAY_SIZE(opts); ++i)
         {
             if (!strcmp(tok, opts[i].name))
             {
-                *formatting |= opts[i].value;
+                if (set)
+                    *formatting |= opts[i].value;
+                else
+                    *formatting &= ~opts[i].value;
                 break;
             }
         }
@@ -335,8 +350,9 @@ static bool validate_target_type(
 
 static bool parse_command_line(int argc, char **argv, struct options *options)
 {
+    enum vkd3d_shader_compile_option_formatting_flags formatting = VKD3D_SHADER_COMPILE_OPTION_FORMATTING_INDENT
+            | VKD3D_SHADER_COMPILE_OPTION_FORMATTING_HEADER;
     enum vkd3d_shader_compile_option_buffer_uav buffer_uav;
-    enum vkd3d_shader_compile_option_formatting_flags formatting = 0;
     int option;
 
     static struct option long_options[] =
@@ -388,7 +404,6 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
             case OPTION_TEXT_FORMATTING:
                 if (!parse_formatting(&formatting, optarg))
                     return false;
-                add_compile_option(options, VKD3D_SHADER_COMPILE_OPTION_FORMATTING, formatting);
                 break;
 
             case OPTION_PRINT_SOURCE_TYPES:
@@ -432,6 +447,7 @@ static bool parse_command_line(int argc, char **argv, struct options *options)
     if (options->print_target_types)
         return true;
 
+    add_compile_option(options, VKD3D_SHADER_COMPILE_OPTION_FORMATTING, formatting);
     if (optind < argc)
         options->filename = argv[argc - 1];
 
