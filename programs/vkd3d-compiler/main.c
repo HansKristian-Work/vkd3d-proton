@@ -149,8 +149,8 @@ static void print_usage(const char *program_name)
         "                        standard output.\n"
         "  --formatting=<type>   Specify the formatting options for text output.\n"
         "                        Valid values are 'none', 'print', 'colour', 'indent',\n"
-        "                        'offsets', 'header', and 'friendly-names'.\n"
-        "                        Default is --formatting=friendly-names,indent,header.\n"
+        "                        'offsets', 'header', and 'raw-ids'.\n"
+        "                        Default is --formatting=indent,header.\n"
         "  --print-source-types  Display the supported source types and exit.\n"
         "  --print-target-types  Display the supported target types for the specified\n"
         "                        source type and exit.\n"
@@ -235,12 +235,12 @@ static bool parse_formatting(uint32_t *formatting, char *arg)
     }
     opts[] =
     {
-        {"none",             VKD3D_SHADER_COMPILE_OPTION_FORMATTING_NONE            },
-        {"colour",           VKD3D_SHADER_COMPILE_OPTION_FORMATTING_COLOUR          },
-        {"indent",           VKD3D_SHADER_COMPILE_OPTION_FORMATTING_INDENT          },
-        {"offsets",          VKD3D_SHADER_COMPILE_OPTION_FORMATTING_OFFSETS         },
-        {"header",           VKD3D_SHADER_COMPILE_OPTION_FORMATTING_HEADER          },
-        {"friendly-names",   VKD3D_SHADER_COMPILE_OPTION_FORMATTING_FRIENDLY_NAMES  },
+        {"none",    VKD3D_SHADER_COMPILE_OPTION_FORMATTING_NONE},
+        {"colour",  VKD3D_SHADER_COMPILE_OPTION_FORMATTING_COLOUR},
+        {"indent",  VKD3D_SHADER_COMPILE_OPTION_FORMATTING_INDENT},
+        {"offsets", VKD3D_SHADER_COMPILE_OPTION_FORMATTING_OFFSETS},
+        {"header",  VKD3D_SHADER_COMPILE_OPTION_FORMATTING_HEADER},
+        {"raw-ids", VKD3D_SHADER_COMPILE_OPTION_FORMATTING_RAW_IDS},
     };
     char *tok;
 
