@@ -8444,9 +8444,9 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
         const struct vkd3d_shader_instruction *instruction)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t coordinate_id, type_id, ptr_type_id, val_id, texel_id;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    uint32_t coordinate_id, type_id, val_id, texel_id;
     const struct vkd3d_shader_src_param *texel;
     uint32_t base_coordinate_id, component_idx;
     struct vkd3d_shader_image image;
@@ -8461,21 +8461,42 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
     texel = &src[instruction->src_count - 1];
     assert(texel->reg.data_type == VKD3D_DATA_UINT);
     val_id = vkd3d_dxbc_compiler_emit_load_src(compiler, texel, dst->write_mask);
+    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, image.storage_class, type_id);
 
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
     for (component_idx = 0; component_idx < component_count; ++component_idx)
     {
-        /* Mesa Vulkan drivers require the texel parameter to be a vector. */
-        texel_id = vkd3d_dxbc_compiler_emit_construct_vector(compiler,
-                VKD3D_TYPE_UINT, VKD3D_VEC4_SIZE, val_id, component_idx, component_count);
-
         coordinate_id = base_coordinate_id;
         if (component_idx)
             coordinate_id = vkd3d_spirv_build_op_iadd(builder, type_id,
                     coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
 
-        vkd3d_spirv_build_op_image_write(builder, image.image_id, coordinate_id,
-                texel_id, SpvImageOperandsMaskNone, NULL, 0);
+        if (image.ssbo)
+        {
+            uint32_t indices[2], ptr_id;
+            indices[0] = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
+            indices[1] = coordinate_id;
+
+            texel_id = val_id;
+
+            if (component_count > 1)
+                texel_id = vkd3d_spirv_build_op_composite_extract1(builder, type_id, texel_id, component_idx);
+
+            ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id, image.id, indices, ARRAY_SIZE(indices));
+            vkd3d_spirv_build_op_store(builder, ptr_id, texel_id, SpvMemoryAccessMaskNone);
+
+            if (dst->reg.modifier == VKD3DSPRM_NONUNIFORM)
+                vkd3d_dxbc_compiler_decorate_nonuniform(compiler, ptr_id);
+        }
+        else
+        {
+            /* Mesa Vulkan drivers require the texel parameter to be a vector. */
+            texel_id = vkd3d_dxbc_compiler_emit_construct_vector(compiler,
+                    VKD3D_TYPE_UINT, VKD3D_VEC4_SIZE, val_id, component_idx, component_count);
+
+            vkd3d_spirv_build_op_image_write(builder, image.image_id, coordinate_id,
+                    texel_id, SpvImageOperandsMaskNone, NULL, 0);
+        }
     }
 }
 
