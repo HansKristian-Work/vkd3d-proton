@@ -471,7 +471,7 @@ enum vkd3d_shader_target_type
 };
 
 /**
- * Describes the maximum severity of compilation messages returned by
+ * Describes the minimum severity of compilation messages returned by
  * vkd3d_shader_compile() and similar functions.
  */
 enum vkd3d_shader_log_level
