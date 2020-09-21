@@ -129,7 +129,7 @@ libvkd3d_utils_la_LDFLAGS += -Wl,--version-script=$(srcdir)/libs/vkd3d-utils/vkd
 EXTRA_libvkd3d_utils_la_DEPENDENCIES = $(srcdir)/libs/vkd3d-utils/vkd3d_utils.map
 endif
 
-EXTRA_DIST = LICENSE
+EXTRA_DIST = ANNOUNCE LICENSE
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkginclude_HEADERS = $(vkd3d_public_headers)
