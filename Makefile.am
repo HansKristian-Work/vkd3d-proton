@@ -140,7 +140,7 @@ EXTRA_DIST += \
 	libs/vkd3d-shader/libvkd3d-shader.pc.in \
 	libs/vkd3d-utils/libvkd3d-utils.pc.in
 
-noinst_PROGRAMS = vkd3d-compiler
+bin_PROGRAMS = vkd3d-compiler
 vkd3d_compiler_SOURCES = programs/vkd3d-compiler/main.c
 vkd3d_compiler_LDADD = libvkd3d-shader.la
 
@@ -158,7 +158,7 @@ endif
 if BUILD_DEMOS
 DEMOS_LDADD = $(LDADD) libvkd3d-shader.la @XCB_LIBS@ @VULKAN_LIBS@
 DEMOS_CFLAGS = $(AM_CFLAGS) @XCB_CFLAGS@
-noinst_PROGRAMS += $(vkd3d_demos)
+noinst_PROGRAMS = $(vkd3d_demos)
 
 demos_gears_CFLAGS = $(DEMOS_CFLAGS)
 demos_gears_LDADD = $(DEMOS_LDADD) -lm
