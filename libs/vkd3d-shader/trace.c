@@ -355,7 +355,7 @@ static void shader_dump_global_flags(struct vkd3d_string_buffer *buffer, DWORD g
     {
         if (global_flags & global_flag_info[i].flag)
         {
-            shader_addline(buffer, global_flag_info[i].name);
+            shader_addline(buffer, "%s", global_flag_info[i].name);
             global_flags &= ~global_flag_info[i].flag;
             if (global_flags)
                 shader_addline(buffer, " | ");
