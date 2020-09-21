@@ -28,6 +28,7 @@ vkd3d_src = [
   'resource.c',
   'state.c',
   'utils.c',
+  'debug_ring.c',
   'vkd3d_main.c',
 ]
 

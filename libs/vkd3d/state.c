@@ -1601,6 +1601,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
         struct vkd3d_shader_meta *meta)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_shader_debug_ring_spec_info spec_info;
     VkComputePipelineCreateInfo pipeline_info;
     VkResult vr;
     HRESULT hr;
@@ -1614,6 +1615,12 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
     pipeline_info.layout = vk_pipeline_layout;
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
+
+    if (meta->replaced && device->debug_ring.active)
+    {
+        vkd3d_shader_debug_ring_init_spec_constant(device, &spec_info, meta->hash);
+        pipeline_info.stage.pSpecializationInfo = &spec_info.spec_info;
+    }
 
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device,
             vk_cache, 1, &pipeline_info, NULL, vk_pipeline));
@@ -2539,6 +2546,14 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
                 shader_stages[i].stage, b, &shader_interface, compile_args, &graphics->stage_meta[graphics->stage_count])))
             goto fail;
+
+        if (graphics->stage_meta[graphics->stage_count].replaced && device->debug_ring.active)
+        {
+            vkd3d_shader_debug_ring_init_spec_constant(device,
+                    &graphics->spec_info[graphics->stage_count],
+                    graphics->stage_meta[graphics->stage_count].hash);
+            graphics->stages[graphics->stage_count].pSpecializationInfo = &graphics->spec_info[graphics->stage_count].spec_info;
+        }
 
         ++graphics->stage_count;
     }
