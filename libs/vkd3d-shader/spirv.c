@@ -8813,6 +8813,19 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
         ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, reg_info.storage_class, type_id);
         pointer_id = vkd3d_spirv_build_op_access_chain1(builder, ptr_type_id, reg_info.id, coordinate_id);
     }
+    else if (image.ssbo)
+    {
+        uint32_t indices[2];
+        indices[0] = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
+        indices[1] = coordinate_id;
+
+        component_type = VKD3D_TYPE_UINT;
+        ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, image.storage_class, type_id);
+        pointer_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id, image.id, indices, ARRAY_SIZE(indices));
+
+        if (resource->reg.modifier == VKD3DSPRM_NONUNIFORM)
+            vkd3d_dxbc_compiler_decorate_nonuniform(compiler, pointer_id);
+    }
     else
     {
         component_type = image.sampled_type;
