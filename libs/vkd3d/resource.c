@@ -4801,6 +4801,9 @@ static HRESULT d3d12_create_sampler(struct d3d12_device *device,
 void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    union vkd3d_descriptor_info descriptor_info;
+    VkWriteDescriptorSet vk_write;
     struct vkd3d_view_key key;
     struct vkd3d_view *view;
 
@@ -4821,6 +4824,13 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
     sampler->info.view = view;
     sampler->metadata.set_index = d3d12_descriptor_heap_sampler_set_index();
     sampler->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
+
+    descriptor_info.image.sampler = view->vk_sampler;
+    descriptor_info.image.imageView = VK_NULL_HANDLE;
+    descriptor_info.image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    vkd3d_init_write_descriptor_set(&vk_write, sampler, VK_DESCRIPTOR_TYPE_SAMPLER, &descriptor_info);
+    VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
 }
 
 /* RTVs */
