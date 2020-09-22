@@ -3998,11 +3998,29 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
     return true;
 }
 
+static inline void vkd3d_init_write_descriptor_set(VkWriteDescriptorSet *vk_write, const struct d3d12_desc *descriptor,
+        VkDescriptorType vk_descriptor_type, const union vkd3d_descriptor_info *info)
+{
+    vk_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    vk_write->pNext = NULL;
+    vk_write->dstSet = descriptor->heap->vk_descriptor_sets[descriptor->metadata.set_index];
+    vk_write->dstBinding = 0;
+    vk_write->dstArrayElement = d3d12_desc_heap_offset(descriptor);
+    vk_write->descriptorCount = 1;
+    vk_write->descriptorType = vk_descriptor_type;
+    vk_write->pImageInfo = &info->image;
+    vk_write->pBufferInfo = &info->buffer;
+    vk_write->pTexelBufferView = &info->buffer_view;
+}
+
 void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc)
 {
-    struct VkDescriptorBufferInfo *buffer_info;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    union vkd3d_descriptor_info descriptor_info;
+    VkDescriptorType vk_descriptor_type;
     struct d3d12_resource *resource;
+    VkWriteDescriptorSet vk_write;
 
     if (!desc)
     {
@@ -4016,31 +4034,36 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
         return;
     }
 
-    buffer_info = &descriptor->info.vk_cbv_info;
     if (desc->BufferLocation)
     {
         resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, desc->BufferLocation);
-        buffer_info->buffer = resource->vk_buffer;
-        buffer_info->offset = desc->BufferLocation - resource->gpu_address;
-        buffer_info->range = min(desc->SizeInBytes, resource->desc.Width - buffer_info->offset);
+        descriptor_info.buffer.buffer = resource->vk_buffer;
+        descriptor_info.buffer.offset = desc->BufferLocation - resource->gpu_address;
+        descriptor_info.buffer.range = min(desc->SizeInBytes, resource->desc.Width - descriptor_info.buffer.offset);
     }
     else if (device->device_info.robustness2_features.nullDescriptor)
     {
-        buffer_info->buffer = VK_NULL_HANDLE;
-        buffer_info->offset = 0;
-        buffer_info->range = 0;
+        descriptor_info.buffer.buffer = VK_NULL_HANDLE;
+        descriptor_info.buffer.offset = 0;
+        descriptor_info.buffer.range = 0;
     }
     else
     {
-        buffer_info->buffer = device->null_resources.vk_buffer;
-        buffer_info->offset = 0;
-        buffer_info->range = VKD3D_NULL_BUFFER_SIZE;
+        descriptor_info.buffer.buffer = device->null_resources.vk_buffer;
+        descriptor_info.buffer.offset = 0;
+        descriptor_info.buffer.range = VKD3D_NULL_BUFFER_SIZE;
     }
 
+    vk_descriptor_type = vkd3d_bindless_state_get_cbv_descriptor_type(&device->bindless_state);
+
     descriptor->magic = VKD3D_DESCRIPTOR_MAGIC_CBV;
-    descriptor->vk_descriptor_type = vkd3d_bindless_state_get_cbv_descriptor_type(&device->bindless_state);
+    descriptor->vk_descriptor_type = vk_descriptor_type;
     descriptor->metadata.set_index = d3d12_descriptor_heap_cbv_set_index();
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
+    descriptor->info.vk_cbv_info = descriptor_info.buffer;
+
+    vkd3d_init_write_descriptor_set(&vk_write, descriptor, vk_descriptor_type, &descriptor_info);
+    VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
 }
 
 static unsigned int vkd3d_view_flags_from_d3d12_buffer_srv_flags(D3D12_BUFFER_SRV_FLAGS flags)

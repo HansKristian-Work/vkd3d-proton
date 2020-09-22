@@ -3115,12 +3115,10 @@ static void STDMETHODCALLTYPE d3d12_device_CreateConstantBufferView(d3d12_device
         const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_desc tmp = {0};
 
     TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
 
-    d3d12_desc_create_cbv(&tmp, device, desc);
-    d3d12_desc_write_atomic(d3d12_desc_from_cpu_handle(descriptor), &tmp, device);
+    d3d12_desc_create_cbv(d3d12_desc_from_cpu_handle(descriptor), device, desc);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView(d3d12_device_iface *iface,
