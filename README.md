@@ -143,3 +143,40 @@ pass `-Denable_renderdoc=true` to Meson.
  If only `VKD3D_AUTO_CAPTURE_SHADER` is set, `VKD3D_AUTO_CAPTURE_COUNTS` is considered to be equal to `"0"`, i.e. a capture is only
  made on first encounter with the target shader.
  If both are set, the capture counter is only incremented and considered when a submission contains the use of the target shader.
+
+### Shader logging
+
+It is possible to log the output of replaced shaders, essentially a custom shader printf. To enable this feature, `VK_KHR_buffer_device_address` must be supported.
+First, use `VKD3D_SHADER_DEBUG_RING_SIZE_LOG2=28` for example to set up a 256 MiB ring buffer in host memory.
+Since this buffer is allocated in host memory, feel free to make it as large as you want, as it does not consume VRAM.
+A worker thread will read the data as it comes in and log it. There is potential here to emit more structured information later.
+The main reason this is implemented instead of the validation layer printf system is run-time performance,
+and avoids any possible accidental hiding of bugs by introducing validation layers which add locking, etc.
+Using `debugPrintEXT` is also possible if that fits better with your debugging scenario.
+With this shader replacement scheme, we're able to add shader logging as unintrusive as possible.
+
+Replaced shaders will need to include `debug_channel.h` from `include/shader-debug`.
+Use `glslc -I/path/to/vkd3d-proton/include/shader-debug --target-env=vulkan1.1` when compiling replaced shaders.
+
+```
+void DEBUG_CHANNEL_INIT(uvec3 ID);
+```
+
+is used somewhere in your replaced shader. This should be initialized with `gl_GlobalInvocationID` or similar.
+This ID will show up in the log. For each subgroup which calls `DEBUG_CHANNEL_INIT`, an instance counter is generated.
+This allows you to correlate several messages which all originate from the same instance counter, which is logged alongside the ID.
+An invocation can be uniquely identified with the instance + `DEBUG_CHANNEL_INIT` id.
+`DEBUG_CHANNEL_INIT` can be called from non-uniform control flow, as it does not use `barrier()` or similar constructs.
+It can also be used in vertex and fragment shaders for this reason.
+
+```
+void DEBUG_CHANNEL_MSG();
+void DEBUG_CHANNEL_MSG(uint v0);
+void DEBUG_CHANNEL_MSG(uint v0, uint v1, ...); // Up to 4 components, can be expanded as needed up to 16.
+void DEBUG_CHANNEL_MSG(int v0);
+void DEBUG_CHANNEL_MSG(int v0, int v1, ...); // Up to 4 components, ...
+void DEBUG_CHANNEL_MSG(float v0);
+void DEBUG_CHANNEL_MSG(float v0, float v1, ...); // Up to 4 components, ...
+```
+
+These functions log, formatting is `#%x` for uint, `%d` for int and `%f` for float type.
