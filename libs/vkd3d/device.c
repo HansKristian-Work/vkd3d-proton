@@ -3126,13 +3126,12 @@ static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView(d3d12_device
         D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_desc tmp = {0};
 
     TRACE("iface %p, resource %p, desc %p, descriptor %#lx.\n",
             iface, resource, desc, descriptor.ptr);
 
-    d3d12_desc_create_srv(&tmp, device, unsafe_impl_from_ID3D12Resource(resource), desc);
-    d3d12_desc_write_atomic(d3d12_desc_from_cpu_handle(descriptor), &tmp, device);
+    d3d12_desc_create_srv(d3d12_desc_from_cpu_handle(descriptor),
+            device, unsafe_impl_from_ID3D12Resource(resource), desc);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView(d3d12_device_iface *iface,
