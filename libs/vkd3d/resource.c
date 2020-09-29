@@ -5516,28 +5516,6 @@ unsigned int d3d12_descriptor_heap_set_index_from_binding(const struct vkd3d_bin
     }
 }
 
-unsigned int d3d12_descriptor_heap_set_index_from_magic(uint32_t magic, bool is_buffer)
-{
-    switch (magic)
-    {
-        case VKD3D_DESCRIPTOR_MAGIC_SAMPLER:
-            return d3d12_descriptor_heap_sampler_set_index();
-
-        case VKD3D_DESCRIPTOR_MAGIC_CBV:
-            return d3d12_descriptor_heap_cbv_set_index();
-
-        case VKD3D_DESCRIPTOR_MAGIC_SRV:
-            return d3d12_descriptor_heap_srv_set_index(is_buffer);
-
-        case VKD3D_DESCRIPTOR_MAGIC_UAV:
-            return d3d12_descriptor_heap_uav_set_index(is_buffer);
-
-        default:
-            WARN("Unhandled descriptor magic %#x.\n", magic);
-            return 0;
-    }
-}
-
 /* ID3D12QueryHeap */
 static inline struct d3d12_query_heap *impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface)
 {
