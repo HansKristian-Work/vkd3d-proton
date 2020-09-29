@@ -44,13 +44,7 @@
 
 #define MAKE_MAGIC(a,b,c,d) (((uint32_t)a) | (((uint32_t)b) << 8) | (((uint32_t)c) << 16) | d)
 
-#define VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW 0x01000000u
-
 #define VKD3D_DESCRIPTOR_MAGIC_FREE    0x00000000u
-#define VKD3D_DESCRIPTOR_MAGIC_CBV     MAKE_MAGIC('C', 'B', 'V', 0)
-#define VKD3D_DESCRIPTOR_MAGIC_SRV     MAKE_MAGIC('S', 'R', 'V', VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW)
-#define VKD3D_DESCRIPTOR_MAGIC_UAV     MAKE_MAGIC('U', 'A', 'V', VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW)
-#define VKD3D_DESCRIPTOR_MAGIC_SAMPLER MAKE_MAGIC('S', 'M', 'P', VKD3D_DESCRIPTOR_MAGIC_HAS_VIEW)
 #define VKD3D_DESCRIPTOR_MAGIC_DSV     MAKE_MAGIC('D', 'S', 'V', 0)
 #define VKD3D_DESCRIPTOR_MAGIC_RTV     MAKE_MAGIC('R', 'T', 'V', 0)
 
@@ -644,8 +638,6 @@ struct d3d12_desc
 {
     struct d3d12_descriptor_heap *heap;
     uint32_t heap_offset;
-    uint32_t magic;
-    VkDescriptorType vk_descriptor_type;
     struct vkd3d_descriptor_data metadata;
     union
     {
