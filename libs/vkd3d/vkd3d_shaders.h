@@ -19,9 +19,14 @@
 #ifndef __VKD3D_SPV_SHADERS_H
 #define __VKD3D_SPV_SHADERS_H
 
-#define VKD3D_META_COPY_MODE_1D (0)
-#define VKD3D_META_COPY_MODE_2D (1)
-#define VKD3D_META_COPY_MODE_MS (2)
+enum vkd3d_meta_copy_mode
+{
+    VKD3D_META_COPY_MODE_1D = 0,
+    VKD3D_META_COPY_MODE_2D = 1,
+    VKD3D_META_COPY_MODE_MS = 2,
+
+    VKD3D_FORCE_32_BIT_ENUM(VKD3D_META_COPY_MODE),
+};
 
 #include <cs_clear_uav_buffer_float.h>
 #include <cs_clear_uav_buffer_uint.h>
