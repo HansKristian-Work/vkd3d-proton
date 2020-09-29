@@ -3236,7 +3236,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         FIXME("Extended dynamic state is supported, but compiling a fallback pipeline late!\n");
 
     vk_pipeline = d3d12_pipeline_state_create_pipeline_variant(state,
-            &pipeline_key, dsv_format, NULL, vk_render_pass, dynamic_state_flags);
+            &pipeline_key, dsv_format, VK_NULL_HANDLE, vk_render_pass, dynamic_state_flags);
 
     if (!vk_pipeline)
     {
