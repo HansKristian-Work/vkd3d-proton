@@ -605,7 +605,7 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
 
     struct spec_data
     {
-        uint32_t mode;
+        enum vkd3d_meta_copy_mode mode;
     } spec_data;
 
     static const VkSpecializationMapEntry map_entries[] =
