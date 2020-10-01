@@ -180,6 +180,8 @@ struct d3d12_swapchain
     VkCommandPool vk_cmd_pool;
     VkImage vk_images[DXGI_MAX_SWAP_CHAIN_BUFFERS];
     VkImage vk_swapchain_images[DXGI_MAX_SWAP_CHAIN_BUFFERS];
+    VkImageView vk_swapchain_image_views[DXGI_MAX_SWAP_CHAIN_BUFFERS];
+    VkFramebuffer vk_framebuffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
     VkCommandBuffer vk_cmd_buffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
     VkSemaphore vk_semaphores[DXGI_MAX_SWAP_CHAIN_BUFFERS];
     ID3D12Resource *buffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
@@ -187,6 +189,15 @@ struct d3d12_swapchain
     unsigned int vk_swapchain_width;
     unsigned int vk_swapchain_height;
     VkPresentModeKHR present_mode;
+
+    struct
+    {
+        VkDescriptorPool pool;
+        VkDescriptorSet sets[DXGI_MAX_SWAP_CHAIN_BUFFERS];
+        VkImageView vk_image_views[DXGI_MAX_SWAP_CHAIN_BUFFERS];
+    } descriptors;
+
+    struct vkd3d_swapchain_info pipeline;
 
     uint32_t vk_image_index;
     unsigned int current_buffer_index;
@@ -790,6 +801,120 @@ static BOOL d3d12_swapchain_has_user_images(struct d3d12_swapchain *swapchain)
     return !!swapchain->vk_images[0];
 }
 
+static HRESULT d3d12_swapchain_get_user_graphics_pipeline(struct d3d12_swapchain *swapchain, VkFormat format)
+{
+    struct d3d12_device *device = d3d12_swapchain_device(swapchain);
+    struct vkd3d_swapchain_pipeline_key key;
+    HRESULT hr;
+
+    key.bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    key.load_op = swapchain->desc.Scaling == DXGI_SCALING_NONE ?
+            VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    key.filter = swapchain->desc.Scaling == DXGI_SCALING_NONE ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+    key.format = format;
+
+    if (FAILED(hr = vkd3d_meta_get_swapchain_pipeline(&device->meta_ops, &key, &swapchain->pipeline)))
+        return hr;
+
+    return S_OK;
+}
+
+static void d3d12_swapchain_destroy_user_descriptors(struct d3d12_swapchain *swapchain)
+{
+    struct d3d12_device *device = d3d12_swapchain_device(swapchain);
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    UINT i;
+    for (i = 0; i < swapchain->desc.BufferCount; i++)
+    {
+        VK_CALL(vkDestroyImageView(device->vk_device, swapchain->descriptors.vk_image_views[i], NULL));
+        swapchain->descriptors.vk_image_views[i] = VK_NULL_HANDLE;
+    }
+
+    VK_CALL(vkDestroyDescriptorPool(device->vk_device, swapchain->descriptors.pool, NULL));
+    swapchain->descriptors.pool = VK_NULL_HANDLE;
+}
+
+static HRESULT d3d12_swapchain_create_user_descriptors(struct d3d12_swapchain *swapchain, VkFormat vk_format)
+{
+    struct d3d12_device *device = d3d12_swapchain_device(swapchain);
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkDescriptorPoolCreateInfo pool_create_info;
+    VkDescriptorSetAllocateInfo allocate_info;
+    VkImageViewCreateInfo image_view_info;
+    VkDescriptorImageInfo image_info;
+    VkWriteDescriptorSet write_info;
+    VkDescriptorPoolSize pool_sizes;
+    VkResult vr;
+    UINT i;
+
+    image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    image_view_info.pNext = NULL;
+    image_view_info.flags = 0;
+    image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    image_view_info.format = vk_format;
+    image_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    image_view_info.subresourceRange.baseMipLevel = 0;
+    image_view_info.subresourceRange.baseArrayLayer = 0;
+    image_view_info.subresourceRange.levelCount = 1;
+    image_view_info.subresourceRange.layerCount = 1;
+    image_view_info.components.r = VK_COMPONENT_SWIZZLE_R;
+    image_view_info.components.g = VK_COMPONENT_SWIZZLE_G;
+    image_view_info.components.b = VK_COMPONENT_SWIZZLE_B;
+    image_view_info.components.a = VK_COMPONENT_SWIZZLE_A;
+
+    for (i = 0; i < swapchain->desc.BufferCount; i++)
+    {
+        image_view_info.image = swapchain->vk_images[i];
+        if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &image_view_info, NULL, &swapchain->descriptors.vk_image_views[i]))))
+            return hresult_from_vk_result(vr);
+    }
+
+    pool_sizes.descriptorCount = swapchain->desc.BufferCount;
+    pool_sizes.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+
+    pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_create_info.pNext = NULL;
+    pool_create_info.flags = 0;
+    pool_create_info.poolSizeCount = 1;
+    pool_create_info.pPoolSizes = &pool_sizes;
+    pool_create_info.maxSets = swapchain->desc.BufferCount;
+    if ((vr = VK_CALL(vkCreateDescriptorPool(device->vk_device, &pool_create_info, NULL, &swapchain->descriptors.pool))))
+        return hresult_from_vk_result(vr);
+
+    allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocate_info.pNext = NULL;
+    allocate_info.descriptorPool = swapchain->descriptors.pool;
+    allocate_info.descriptorSetCount = 1;
+    allocate_info.pSetLayouts = &swapchain->pipeline.vk_set_layout;
+
+    for (i = 0; i < swapchain->desc.BufferCount; i++)
+    {
+        if ((vr = VK_CALL(vkAllocateDescriptorSets(device->vk_device, &allocate_info, &swapchain->descriptors.sets[i]))))
+            return hresult_from_vk_result(vr);
+    }
+
+    write_info.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write_info.pNext = NULL;
+    write_info.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write_info.pBufferInfo = NULL;
+    write_info.pTexelBufferView = NULL;
+    write_info.pImageInfo = &image_info;
+    write_info.dstBinding = 0;
+    write_info.dstArrayElement = 0;
+    write_info.descriptorCount = 1;
+    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    image_info.sampler = VK_NULL_HANDLE;
+
+    for (i = 0; i < swapchain->desc.BufferCount; i++)
+    {
+        write_info.dstSet = swapchain->descriptors.sets[i];
+        image_info.imageView = swapchain->descriptors.vk_image_views[i];
+        VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &write_info, 0, NULL));
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_swapchain_create_user_buffers(struct d3d12_swapchain *swapchain, VkFormat vk_format)
 {
     D3D12_HEAP_PROPERTIES heap_properties;
@@ -842,53 +967,27 @@ static HRESULT d3d12_swapchain_create_user_buffers(struct d3d12_swapchain *swapc
         vkd3d_enqueue_initial_transition(&swapchain->command_queue->ID3D12CommandQueue_iface, swapchain->buffers[i]);
     }
 
+    if (FAILED(hr = d3d12_swapchain_create_user_descriptors(swapchain, vk_format)))
+        return hr;
+
     return S_OK;
 }
 
-static void vk_cmd_image_barrier(const struct vkd3d_vk_device_procs *vk_procs, VkCommandBuffer cmd_buffer,
-        VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask,
-        VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask,
-        VkImageLayout old_layout, VkImageLayout new_layout, VkImage image)
-{
-    VkImageMemoryBarrier barrier;
-
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.pNext = NULL;
-    barrier.srcAccessMask = src_access_mask;
-    barrier.dstAccessMask = dst_access_mask;
-    barrier.oldLayout = old_layout;
-    barrier.newLayout = new_layout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
-
-    vk_procs->vkCmdPipelineBarrier(cmd_buffer,
-            src_stage_mask, dst_stage_mask, 0, 0, NULL, 0, NULL, 1, &barrier);
-}
-
 static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *swapchain,
-        VkCommandBuffer vk_cmd_buffer, VkImage vk_dst_image, VkImage vk_src_image)
+        VkCommandBuffer vk_cmd_buffer, unsigned int dst_index, unsigned int src_index)
 {
     const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
     VkCommandBufferBeginInfo begin_info;
-    VkImageBlit blit;
-    VkFilter filter;
+    VkRenderPassBeginInfo rp_info;
+    VkClearValue clear_value;
+    VkViewport viewport;
     VkResult vr;
 
-    if (swapchain->desc.Width != swapchain->vk_swapchain_width
-            || swapchain->desc.Height != swapchain->vk_swapchain_height)
-        filter = VK_FILTER_LINEAR;
-    else
-        filter = VK_FILTER_NEAREST;
+    memset(&clear_value, 0, sizeof(clear_value));
 
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.pNext = NULL;
-    begin_info.flags = 0;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     begin_info.pInheritanceInfo = NULL;
 
     if ((vr = vk_procs->vkBeginCommandBuffer(vk_cmd_buffer, &begin_info)) < 0)
@@ -897,57 +996,118 @@ static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *sw
         return vr;
     }
 
-    vk_cmd_image_barrier(vk_procs, vk_cmd_buffer,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, VK_ACCESS_TRANSFER_WRITE_BIT,
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk_dst_image);
+    rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    rp_info.pNext = NULL;
+    rp_info.renderPass = swapchain->pipeline.vk_render_pass;
+    rp_info.framebuffer = swapchain->vk_framebuffers[dst_index];
 
-    blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    blit.srcSubresource.mipLevel = 0;
-    blit.srcSubresource.baseArrayLayer = 0;
-    blit.srcSubresource.layerCount = 1;
-    blit.srcOffsets[0].x = 0;
-    blit.srcOffsets[0].y = 0;
-    blit.srcOffsets[0].z = 0;
-    blit.srcOffsets[1].x = swapchain->desc.Width;
-    blit.srcOffsets[1].y = swapchain->desc.Height;
-    blit.srcOffsets[1].z = 1;
-    blit.dstSubresource = blit.srcSubresource;
-    blit.dstOffsets[0].x = 0;
-    blit.dstOffsets[0].y = 0;
-    blit.dstOffsets[0].z = 0;
+    rp_info.renderArea.offset.x = 0;
+    rp_info.renderArea.offset.y = 0;
+    rp_info.renderArea.extent.width = swapchain->vk_swapchain_width;
+    rp_info.renderArea.extent.height = swapchain->vk_swapchain_height;
+
     if (swapchain->desc.Scaling == DXGI_SCALING_NONE)
     {
-        blit.srcOffsets[1].x = min((int)swapchain->vk_swapchain_width, blit.srcOffsets[1].x);
-        blit.srcOffsets[1].y = min((int)swapchain->vk_swapchain_height, blit.srcOffsets[1].y);
-        blit.dstOffsets[1].x = blit.srcOffsets[1].x;
-        blit.dstOffsets[1].y = blit.srcOffsets[1].y;
+        rp_info.clearValueCount = 1;
+        rp_info.pClearValues = &clear_value;
     }
     else
     {
-        /* FIXME: handle DXGI_SCALING_ASPECT_RATIO_STRETCH. */
-        blit.dstOffsets[1].x = swapchain->vk_swapchain_width;
-        blit.dstOffsets[1].y = swapchain->vk_swapchain_height;
+        rp_info.clearValueCount = 0;
+        rp_info.pClearValues = NULL;
     }
-    blit.dstOffsets[1].z = 1;
 
-    /* FIXME: Move to a proper graphics pipeline here
-     * to avoid validation errors...
-     */
-    vk_procs->vkCmdBlitImage(vk_cmd_buffer,
-            vk_src_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            vk_dst_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            1, &blit, filter);
+    viewport.x = viewport.y = 0.0f;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
 
-    vk_cmd_image_barrier(vk_procs, vk_cmd_buffer,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-            VK_ACCESS_TRANSFER_WRITE_BIT, 0,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, vk_dst_image);
+    VK_CALL(vkCmdBeginRenderPass(vk_cmd_buffer, &rp_info, VK_SUBPASS_CONTENTS_INLINE));
+    if (swapchain->desc.Scaling == DXGI_SCALING_NONE)
+    {
+        viewport.width = (float)swapchain->desc.Width;
+        viewport.height = (float)swapchain->desc.Height;
+    }
+    else
+    {
+        viewport.width = swapchain->vk_swapchain_width;
+        viewport.height = swapchain->vk_swapchain_height;
+    }
+
+    VK_CALL(vkCmdSetViewport(vk_cmd_buffer, 0, 1, &viewport));
+    VK_CALL(vkCmdSetScissor(vk_cmd_buffer, 0, 1, &rp_info.renderArea));
+
+    VK_CALL(vkCmdBindPipeline(vk_cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain->pipeline.vk_pipeline));
+    VK_CALL(vkCmdBindDescriptorSets(vk_cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            swapchain->pipeline.vk_pipeline_layout, 0, 1, &swapchain->descriptors.sets[src_index],
+            0, NULL));
+    VK_CALL(vkCmdDraw(vk_cmd_buffer, 3, 1, 0, 0));
+    VK_CALL(vkCmdEndRenderPass(vk_cmd_buffer));
 
     if ((vr = vk_procs->vkEndCommandBuffer(vk_cmd_buffer)) < 0)
         WARN("Failed to end command buffer, vr %d.\n", vr);
 
     return vr;
+}
+
+static void d3d12_swapchain_destroy_framebuffers(struct d3d12_swapchain *swapchain)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
+    VkDevice vk_device = d3d12_swapchain_device(swapchain)->vk_device;
+    unsigned int i;
+
+    for (i = 0; i < swapchain->buffer_count; i++)
+    {
+        VK_CALL(vkDestroyImageView(vk_device, swapchain->vk_swapchain_image_views[i], NULL));
+        VK_CALL(vkDestroyFramebuffer(vk_device, swapchain->vk_framebuffers[i], NULL));
+        swapchain->vk_swapchain_image_views[i] = VK_NULL_HANDLE;
+        swapchain->vk_framebuffers[i] = VK_NULL_HANDLE;
+    }
+}
+
+static HRESULT d3d12_swapchain_create_framebuffers(struct d3d12_swapchain *swapchain, VkFormat format)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
+    VkDevice vk_device = d3d12_swapchain_device(swapchain)->vk_device;
+    VkImageViewCreateInfo image_view_info;
+    VkFramebufferCreateInfo fb_info;
+    unsigned int i;
+    VkResult vr;
+
+    fb_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fb_info.pNext = NULL;
+    fb_info.flags = 0;
+    fb_info.renderPass = swapchain->pipeline.vk_render_pass;
+    fb_info.width = swapchain->vk_swapchain_width;
+    fb_info.height = swapchain->vk_swapchain_height;
+    fb_info.layers = 1;
+    fb_info.attachmentCount = 1;
+
+    image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    image_view_info.pNext = NULL;
+    image_view_info.flags = 0;
+    image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    image_view_info.format = format;
+    image_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    image_view_info.subresourceRange.baseMipLevel = 0;
+    image_view_info.subresourceRange.baseArrayLayer = 0;
+    image_view_info.subresourceRange.levelCount = 1;
+    image_view_info.subresourceRange.layerCount = 1;
+    image_view_info.components.r = VK_COMPONENT_SWIZZLE_R;
+    image_view_info.components.g = VK_COMPONENT_SWIZZLE_G;
+    image_view_info.components.b = VK_COMPONENT_SWIZZLE_B;
+    image_view_info.components.a = VK_COMPONENT_SWIZZLE_A;
+
+    for (i = 0; i < swapchain->buffer_count; i++)
+    {
+        image_view_info.image = swapchain->vk_swapchain_images[i];
+        if ((vr = VK_CALL(vkCreateImageView(vk_device, &image_view_info, NULL, &swapchain->vk_swapchain_image_views[i]))))
+            return hresult_from_vk_result(vr);
+        fb_info.pAttachments = &swapchain->vk_swapchain_image_views[i];
+        if ((vr = VK_CALL(vkCreateFramebuffer(vk_device, &fb_info, NULL, &swapchain->vk_framebuffers[i]))))
+            return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
 }
 
 static HRESULT d3d12_swapchain_prepare_command_buffers(struct d3d12_swapchain *swapchain,
@@ -1020,6 +1180,8 @@ static HRESULT d3d12_swapchain_create_buffers(struct d3d12_swapchain *swapchain,
     VkResult vr;
     HRESULT hr;
 
+    d3d12_swapchain_destroy_framebuffers(swapchain);
+
     if ((vr = vk_procs->vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &image_count, NULL)) < 0)
     {
         WARN("Failed to get Vulkan swapchain images, vr %d.\n", vr);
@@ -1045,6 +1207,12 @@ static HRESULT d3d12_swapchain_create_buffers(struct d3d12_swapchain *swapchain,
         return E_NOTIMPL;
     }
     queue_family_index = vkd3d_get_vk_queue_family_index(queue);
+
+    if (queue_desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
+    {
+        if (FAILED(hr = d3d12_swapchain_create_framebuffers(swapchain, vk_swapchain_format)))
+            return hr;
+    }
 
     if (FAILED(hr = d3d12_swapchain_create_user_buffers(swapchain, vk_format)))
         return hr;
@@ -1130,6 +1298,9 @@ static void d3d12_swapchain_destroy_buffers(struct d3d12_swapchain *swapchain, B
         }
     }
 
+    if (destroy_user_buffers)
+        d3d12_swapchain_destroy_user_descriptors(swapchain);
+
     if (swapchain->command_queue->device->vk_device)
     {
         for (i = 0; i < swapchain->buffer_count; ++i)
@@ -1207,11 +1378,21 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
         return DXGI_ERROR_UNSUPPORTED;
     }
 
-    usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    usage |= surface_caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    usage |= surface_caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    if (!(usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) || !(usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT))
-        WARN("Transfer not supported for swapchain images.\n");
+    if (swapchain->command_queue->desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
+        usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    else if (swapchain->command_queue->desc.Type == D3D12_COMMAND_LIST_TYPE_COMPUTE)
+        usage = VK_IMAGE_USAGE_STORAGE_BIT;
+    else
+    {
+        FIXME("Unsupported queue type.\n");
+        return DXGI_ERROR_UNSUPPORTED;
+    }
+
+    if ((usage & surface_caps.supportedUsageFlags) != usage)
+    {
+        FIXME("Require usage flags not supported.\n");
+        return DXGI_ERROR_UNSUPPORTED;
+    }
 
     vk_swapchain_desc.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     vk_swapchain_desc.pNext = NULL;
@@ -1246,6 +1427,12 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
     swapchain->vk_swapchain_height = height;
 
     swapchain->vk_image_index = INVALID_VK_IMAGE_INDEX;
+
+    if (FAILED(hr = d3d12_swapchain_get_user_graphics_pipeline(swapchain, vk_swapchain_format)))
+    {
+        ERR("Failed to create user graphics pipeline, hr %ld.\n", hr);
+        return hr;
+    }
 
     return d3d12_swapchain_create_buffers(swapchain, vk_swapchain_format, vk_format);
 }
@@ -1306,6 +1493,7 @@ static void d3d12_swapchain_destroy(struct d3d12_swapchain *swapchain)
     const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
 
     d3d12_swapchain_destroy_buffers(swapchain, TRUE);
+    d3d12_swapchain_destroy_framebuffers(swapchain);
 
     if (swapchain->frame_latency_event)
         CloseHandle(swapchain->frame_latency_event);
@@ -1449,8 +1637,6 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
     VkCommandBuffer vk_cmd_buffer;
     VkPresentInfoKHR present_info;
     VkSubmitInfo submit_info;
-    VkImage vk_dst_image;
-    VkImage vk_src_image;
     VkResult vr;
 
     if (swapchain->vk_image_index == INVALID_VK_IMAGE_INDEX)
@@ -1470,10 +1656,7 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
     present_info.pImageIndices = &swapchain->vk_image_index;
     present_info.pResults = NULL;
 
-    /* blit. TODO: Use graphics / compute pipelines instead. */
     vk_cmd_buffer = swapchain->vk_cmd_buffers[swapchain->vk_image_index];
-    vk_dst_image = swapchain->vk_swapchain_images[swapchain->vk_image_index];
-    vk_src_image = swapchain->vk_images[swapchain->current_buffer_index];
 
     if ((vr = vk_procs->vkResetCommandBuffer(vk_cmd_buffer, 0)) < 0)
     {
@@ -1482,7 +1665,7 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
     }
 
     if ((vr = d3d12_swapchain_record_swapchain_blit(swapchain,
-            vk_cmd_buffer, vk_dst_image, vk_src_image)) < 0 )
+            vk_cmd_buffer, swapchain->vk_image_index, swapchain->current_buffer_index)) < 0)
         return vr;
 
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
