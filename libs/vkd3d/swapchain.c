@@ -1055,6 +1055,24 @@ static HRESULT d3d12_swapchain_create_buffers(struct d3d12_swapchain *swapchain,
     return S_OK;
 }
 
+static VkResult d3d12_swapchain_wait_and_reset_swapchain_fence(struct d3d12_swapchain *swapchain)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
+    VkDevice vk_device = d3d12_swapchain_device(swapchain)->vk_device;
+    VkFence vk_fence = swapchain->vk_fence;
+    VkResult vr;
+
+    if ((vr = vk_procs->vkWaitForFences(vk_device, 1, &vk_fence, VK_TRUE, UINT64_MAX)) != VK_SUCCESS)
+    {
+        ERR("Failed to wait for fence, vr %d.\n", vr);
+        return vr;
+    }
+    if ((vr = vk_procs->vkResetFences(vk_device, 1, &vk_fence)) < 0)
+        ERR("Failed to reset fence, vr %d.\n", vr);
+
+    return vr;
+}
+
 static VkResult d3d12_swapchain_acquire_next_vulkan_image(struct d3d12_swapchain *swapchain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
@@ -1065,20 +1083,20 @@ static VkResult d3d12_swapchain_acquire_next_vulkan_image(struct d3d12_swapchain
     swapchain->vk_image_index = INVALID_VK_IMAGE_INDEX;
 
     if ((vr = vk_procs->vkAcquireNextImageKHR(vk_device, swapchain->vk_swapchain, UINT64_MAX,
-            VK_NULL_HANDLE, vk_fence, &swapchain->vk_image_index)) < 0)
+            VK_NULL_HANDLE, vk_fence, &swapchain->vk_image_index)))
     {
+        if (vr == VK_SUBOPTIMAL_KHR)
+        {
+            /* Suboptimal is still considered success, so make sure to wait and reset fence here, but we always want
+             * to recreate swapchains in this case. */
+            d3d12_swapchain_wait_and_reset_swapchain_fence(swapchain);
+            return VK_ERROR_OUT_OF_DATE_KHR;
+        }
         WARN("Failed to acquire next Vulkan image, vr %d.\n", vr);
         return vr;
     }
 
-    if ((vr = vk_procs->vkWaitForFences(vk_device, 1, &vk_fence, VK_TRUE, UINT64_MAX)) != VK_SUCCESS)
-    {
-        ERR("Failed to wait for fence, vr %d.\n", vr);
-        return vr;
-    }
-    if ((vr = vk_procs->vkResetFences(vk_device, 1, &vk_fence)) < 0)
-        ERR("Failed to reset fence, vr %d.\n", vr);
-
+    vr = d3d12_swapchain_wait_and_reset_swapchain_fence(swapchain);
     return vr;
 }
 
@@ -1487,7 +1505,11 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
     present_info.pWaitSemaphores = &swapchain->vk_semaphores[swapchain->vk_image_index];
 
     if ((vr = vk_procs->vkQueuePresentKHR(vk_queue, &present_info)) >= 0)
+    {
         swapchain->vk_image_index = INVALID_VK_IMAGE_INDEX;
+        /* Could get SUBOPTIMAL here. Deal with it later. */
+        vr = VK_SUCCESS;
+    }
 
     return vr;
 }
