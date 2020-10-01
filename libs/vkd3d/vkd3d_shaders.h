@@ -44,5 +44,7 @@ enum vkd3d_meta_copy_mode
 #include <vs_fullscreen.h>
 #include <gs_fullscreen.h>
 #include <fs_copy_image_float.h>
+#include <vs_swapchain_fullscreen.h>
+#include <fs_swapchain_fullscreen.h>
 
 #endif  /* __VKD3D_SPV_SHADERS_H */

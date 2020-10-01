@@ -17,6 +17,9 @@ vkd3d_shaders =[
   'shaders/gs_fullscreen.geom',
   'shaders/vs_fullscreen.vert',
   'shaders/vs_fullscreen_layer.vert',
+
+  'shaders/vs_swapchain_fullscreen.vert',
+  'shaders/fs_swapchain_fullscreen.frag',
 ]
 
 vkd3d_src = [
