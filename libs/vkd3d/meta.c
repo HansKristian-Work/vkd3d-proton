@@ -198,7 +198,8 @@ static VkResult vkd3d_meta_create_render_pass(struct d3d12_device *device, VkSam
 }
 
 static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_ops,
-        VkPipelineLayout layout, VkRenderPass render_pass, VkShaderModule fs_module,
+        VkPipelineLayout layout, VkRenderPass render_pass,
+        VkShaderModule vs_module, VkShaderModule fs_module,
         VkSampleCountFlagBits samples, const VkPipelineDepthStencilStateCreateInfo *ds_state,
         const VkPipelineColorBlendStateCreateInfo *cb_state, const VkSpecializationInfo *spec_info,
         VkPipeline *vk_pipeline)
@@ -294,7 +295,9 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     pipeline_info.basePipelineIndex = -1;
 
     vkd3d_meta_make_shader_stage(&shader_stages[pipeline_info.stageCount++],
-            VK_SHADER_STAGE_VERTEX_BIT, meta_ops->common.vk_module_fullscreen_vs, "main", NULL);
+            VK_SHADER_STAGE_VERTEX_BIT,
+            vs_module ? vs_module : meta_ops->common.vk_module_fullscreen_vs,
+            "main", NULL);
 
     if (meta_ops->common.vk_module_fullscreen_gs)
     {
@@ -691,7 +694,7 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
 
     if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
             meta_copy_image_ops->vk_pipeline_layout, pipeline->vk_render_pass,
-            meta_copy_image_ops->vk_fs_module, key->sample_count,
+            VK_NULL_HANDLE, meta_copy_image_ops->vk_fs_module, key->sample_count,
             has_depth_target ? &ds_state : NULL, has_depth_target ? NULL : &cb_state,
             &spec_info, &pipeline->vk_pipeline)) < 0)
     {
