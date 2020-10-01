@@ -520,7 +520,7 @@ void vkd3d_format_copy_data(const struct vkd3d_format *format, const uint8_t *sr
     }
 }
 
-VkFormat vkd3d_get_vk_format(DXGI_FORMAT format)
+VKD3D_EXPORT VkFormat vkd3d_get_vk_format(DXGI_FORMAT format)
 {
     const struct vkd3d_format *vkd3d_format;
 
@@ -530,7 +530,7 @@ VkFormat vkd3d_get_vk_format(DXGI_FORMAT format)
     return vkd3d_format->vk_format;
 }
 
-DXGI_FORMAT vkd3d_get_dxgi_format(VkFormat format)
+VKD3D_EXPORT DXGI_FORMAT vkd3d_get_dxgi_format(VkFormat format)
 {
     DXGI_FORMAT dxgi_format;
     VkFormat vk_format;

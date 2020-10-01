@@ -21,7 +21,7 @@
 #define INITGUID
 #include "vkd3d_private.h"
 
-HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
+VKD3D_EXPORT HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         REFIID iid, void **device)
 {
     struct vkd3d_instance *instance;
@@ -216,7 +216,7 @@ static HRESULT d3d12_root_signature_deserializer_init(struct d3d12_root_signatur
     return S_OK;
 }
 
-HRESULT vkd3d_create_root_signature_deserializer(const void *data, SIZE_T data_size,
+VKD3D_EXPORT HRESULT vkd3d_create_root_signature_deserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer)
 {
     struct vkd3d_shader_code dxbc = {data, data_size};
@@ -399,7 +399,7 @@ static HRESULT d3d12_versioned_root_signature_deserializer_init(struct d3d12_ver
     return S_OK;
 }
 
-HRESULT vkd3d_create_versioned_root_signature_deserializer(const void *data, SIZE_T data_size,
+VKD3D_EXPORT HRESULT vkd3d_create_versioned_root_signature_deserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer)
 {
     struct d3d12_versioned_root_signature_deserializer *object;
@@ -422,7 +422,7 @@ HRESULT vkd3d_create_versioned_root_signature_deserializer(const void *data, SIZ
             &IID_ID3D12VersionedRootSignatureDeserializer, iid, deserializer);
 }
 
-HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
+VKD3D_EXPORT HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob)
 {
     struct vkd3d_versioned_root_signature_desc vkd3d_desc;
@@ -470,7 +470,7 @@ HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
     return S_OK;
 }
 
-HRESULT vkd3d_serialize_versioned_root_signature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
+VKD3D_EXPORT HRESULT vkd3d_serialize_versioned_root_signature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
         ID3DBlob **blob, ID3DBlob **error_blob)
 {
     const struct vkd3d_versioned_root_signature_desc *vkd3d_desc;

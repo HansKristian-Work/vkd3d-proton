@@ -21,14 +21,14 @@
 #include "vkd3d_common.h"
 #include "vkd3d_utils_private.h"
 
-HRESULT WINAPI D3D12GetDebugInterface(REFIID iid, void **debug)
+VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12GetDebugInterface(REFIID iid, void **debug)
 {
     FIXME("iid %s, debug %p stub!\n", debugstr_guid(iid), debug);
 
     return E_NOTIMPL;
 }
 
-HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
+VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
         D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
 {
     struct vkd3d_optional_instance_extensions_info optional_extensions_info;
@@ -79,7 +79,7 @@ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
     return vkd3d_create_device(&device_create_info, iid, device);
 }
 
-HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T data_size,
+VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer)
 {
     TRACE("data %p, data_size %lu, iid %s, deserializer %p.\n",
@@ -88,7 +88,7 @@ HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T dat
     return vkd3d_create_root_signature_deserializer(data, data_size, iid, deserializer);
 }
 
-HRESULT WINAPI D3D12CreateVersionedRootSignatureDeserializer(const void *data, SIZE_T data_size,
+VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12CreateVersionedRootSignatureDeserializer(const void *data, SIZE_T data_size,
         REFIID iid,void **deserializer)
 {
     TRACE("data %p, data_size %lu, iid %s, deserializer %p.\n",
@@ -97,7 +97,7 @@ HRESULT WINAPI D3D12CreateVersionedRootSignatureDeserializer(const void *data, S
     return vkd3d_create_versioned_root_signature_deserializer(data, data_size, iid, deserializer);
 }
 
-HRESULT WINAPI D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *desc,
+VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob)
 {
     TRACE("desc %p, version %#x, blob %p, error_blob %p.\n", desc, version, blob, error_blob);
@@ -105,7 +105,7 @@ HRESULT WINAPI D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *desc
     return vkd3d_serialize_root_signature(desc, version, blob, error_blob);
 }
 
-HRESULT WINAPI D3D12SerializeVersionedRootSignature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
+VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12SerializeVersionedRootSignature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
         ID3DBlob **blob, ID3DBlob **error_blob)
 {
     TRACE("desc %p, blob %p, error_blob %p.\n", desc, blob, error_blob);
@@ -114,7 +114,7 @@ HRESULT WINAPI D3D12SerializeVersionedRootSignature(const D3D12_VERSIONED_ROOT_S
 }
 
 /* Events */
-HANDLE vkd3d_create_event(void)
+VKD3D_UTILS_EXPORT HANDLE vkd3d_create_event(void)
 {
     struct vkd3d_event *event;
     int rc;
@@ -145,7 +145,7 @@ HANDLE vkd3d_create_event(void)
     return event;
 }
 
-unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
+VKD3D_UTILS_EXPORT unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
 {
     struct vkd3d_event *impl = event;
     int rc;
@@ -188,7 +188,7 @@ unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
     return VKD3D_WAIT_FAILED;
 }
 
-HRESULT vkd3d_signal_event(HANDLE event)
+VKD3D_UTILS_EXPORT HRESULT vkd3d_signal_event(HANDLE event)
 {
     struct vkd3d_event *impl = event;
     int rc;
@@ -207,7 +207,7 @@ HRESULT vkd3d_signal_event(HANDLE event)
     return S_OK;
 }
 
-void vkd3d_destroy_event(HANDLE event)
+VKD3D_UTILS_EXPORT void vkd3d_destroy_event(HANDLE event)
 {
     struct vkd3d_event *impl = event;
     int rc;

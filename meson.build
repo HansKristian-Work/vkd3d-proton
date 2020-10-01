@@ -71,6 +71,7 @@ else
 endif
 
 add_project_arguments(vkd3d_compiler.get_supported_arguments([
+    '-fvisibility=hidden',
     '-Wno-format',
     '-Wno-missing-field-initializers',
     '-Wno-unused-parameter',

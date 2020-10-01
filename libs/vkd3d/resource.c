@@ -3330,7 +3330,7 @@ HRESULT d3d12_reserved_resource_create(struct d3d12_device *device,
     return S_OK;
 }
 
-HRESULT vkd3d_create_image_resource(ID3D12Device *device,
+VKD3D_EXPORT HRESULT vkd3d_create_image_resource(ID3D12Device *device,
         const struct vkd3d_image_resource_create_info *create_info, ID3D12Resource **resource)
 {
     struct d3d12_device *d3d12_device = unsafe_impl_from_ID3D12Device((d3d12_device_iface *)device);
@@ -3390,13 +3390,13 @@ HRESULT vkd3d_create_image_resource(ID3D12Device *device,
     return S_OK;
 }
 
-ULONG vkd3d_resource_incref(ID3D12Resource *resource)
+VKD3D_EXPORT ULONG vkd3d_resource_incref(ID3D12Resource *resource)
 {
     TRACE("resource %p.\n", resource);
     return d3d12_resource_incref(unsafe_impl_from_ID3D12Resource(resource));
 }
 
-ULONG vkd3d_resource_decref(ID3D12Resource *resource)
+VKD3D_EXPORT ULONG vkd3d_resource_decref(ID3D12Resource *resource)
 {
     TRACE("resource %p.\n", resource);
     return d3d12_resource_decref(unsafe_impl_from_ID3D12Resource(resource));
