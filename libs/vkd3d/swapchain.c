@@ -834,6 +834,12 @@ static HRESULT d3d12_swapchain_create_user_buffers(struct d3d12_swapchain *swapc
 
         vkd3d_resource_incref(swapchain->buffers[i]);
         ID3D12Resource_Release(swapchain->buffers[i]);
+
+        /* It is technically possible to just start presenting images without rendering to them.
+         * The initial resource state for swapchain images is PRESENT.
+         * Since presentable images are dedicated allocations, we can safely queue a transition into common state
+         * right away. We will also drain the queue when we release the images, so there is no risk of early delete. */
+        vkd3d_enqueue_initial_transition(&swapchain->command_queue->ID3D12CommandQueue_iface, swapchain->buffers[i]);
     }
 
     return S_OK;
