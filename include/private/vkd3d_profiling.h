@@ -32,10 +32,10 @@
 #include <time.h>
 #endif
 
-void vkd3d_init_profiling(void) DECLSPEC_HIDDEN;
-bool vkd3d_uses_profiling(void) DECLSPEC_HIDDEN;
-unsigned int vkd3d_profiling_register_region(const char *name, spinlock_t *lock, uint32_t *latch) DECLSPEC_HIDDEN;
-void vkd3d_profiling_notify_work(unsigned int index, uint64_t start_ticks, uint64_t end_ticks, unsigned int iteration_count) DECLSPEC_HIDDEN;
+void vkd3d_init_profiling(void);
+bool vkd3d_uses_profiling(void);
+unsigned int vkd3d_profiling_register_region(const char *name, spinlock_t *lock, uint32_t *latch);
+void vkd3d_profiling_notify_work(unsigned int index, uint64_t start_ticks, uint64_t end_ticks, unsigned int iteration_count);
 
 static inline uint64_t vkd3d_profiling_get_tick_count(void)
 {

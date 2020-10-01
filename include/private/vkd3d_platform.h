@@ -29,14 +29,14 @@
 
 typedef void* vkd3d_module_t;
 
-vkd3d_module_t vkd3d_dlopen(const char *name) DECLSPEC_HIDDEN;
+vkd3d_module_t vkd3d_dlopen(const char *name);
 
-void *vkd3d_dlsym(vkd3d_module_t handle, const char *symbol) DECLSPEC_HIDDEN;
+void *vkd3d_dlsym(vkd3d_module_t handle, const char *symbol);
 
-int vkd3d_dlclose(vkd3d_module_t handle) DECLSPEC_HIDDEN;
+int vkd3d_dlclose(vkd3d_module_t handle);
 
-const char *vkd3d_dlerror(void) DECLSPEC_HIDDEN;
+const char *vkd3d_dlerror(void);
 
-bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX]) DECLSPEC_HIDDEN;
+bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX]);
 
 #endif

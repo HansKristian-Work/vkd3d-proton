@@ -825,26 +825,26 @@ static inline bool vkd3d_shader_register_is_output(const struct vkd3d_shader_reg
     return reg->type == VKD3DSPR_OUTPUT || reg->type == VKD3DSPR_COLOROUT;
 }
 
-void vkd3d_shader_trace(void *data) DECLSPEC_HIDDEN;
+void vkd3d_shader_trace(void *data);
 
-const char *shader_get_type_prefix(enum vkd3d_shader_type type) DECLSPEC_HIDDEN;
+const char *shader_get_type_prefix(enum vkd3d_shader_type type);
 
 void *shader_sm4_init(const DWORD *byte_code, size_t byte_code_size,
-        const struct vkd3d_shader_signature *output_signature) DECLSPEC_HIDDEN;
-void shader_sm4_free(void *data) DECLSPEC_HIDDEN;
+        const struct vkd3d_shader_signature *output_signature);
+void shader_sm4_free(void *data);
 void shader_sm4_read_header(void *data, const DWORD **ptr,
-        struct vkd3d_shader_version *shader_version) DECLSPEC_HIDDEN;
+        struct vkd3d_shader_version *shader_version);
 void shader_sm4_read_instruction(void *data, const DWORD **ptr,
-        struct vkd3d_shader_instruction *ins) DECLSPEC_HIDDEN;
-bool shader_sm4_is_end(void *data, const DWORD **ptr) DECLSPEC_HIDDEN;
+        struct vkd3d_shader_instruction *ins);
+bool shader_sm4_is_end(void *data, const DWORD **ptr);
 
 int shader_extract_from_dxbc(const void *dxbc, size_t dxbc_length,
-        struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
-bool shader_is_dxil(const void *dxbc, size_t dxbc_length) DECLSPEC_HIDDEN;
-void free_shader_desc(struct vkd3d_shader_desc *desc) DECLSPEC_HIDDEN;
+        struct vkd3d_shader_desc *desc);
+bool shader_is_dxil(const void *dxbc, size_t dxbc_length);
+void free_shader_desc(struct vkd3d_shader_desc *desc);
 
 int shader_parse_input_signature(const void *dxbc, size_t dxbc_length,
-        struct vkd3d_shader_signature *signature) DECLSPEC_HIDDEN;
+        struct vkd3d_shader_signature *signature);
 
 struct vkd3d_dxbc_compiler;
 
@@ -852,18 +852,18 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
         const struct vkd3d_shader_desc *shader_desc, uint32_t compiler_options,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compile_args,
-        const struct vkd3d_shader_scan_info *scan_info) DECLSPEC_HIDDEN;
+        const struct vkd3d_shader_scan_info *scan_info);
 int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_instruction *instruction) DECLSPEC_HIDDEN;
+        const struct vkd3d_shader_instruction *instruction);
 int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
-        struct vkd3d_shader_code *spirv) DECLSPEC_HIDDEN;
-void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler) DECLSPEC_HIDDEN;
+        struct vkd3d_shader_code *spirv);
+void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler);
 
-void vkd3d_compute_dxbc_checksum(const void *dxbc, size_t size, uint32_t checksum[4]) DECLSPEC_HIDDEN;
+void vkd3d_compute_dxbc_checksum(const void *dxbc, size_t size, uint32_t checksum[4]);
 
-void vkd3d_shader_dump_spirv_shader(vkd3d_shader_hash_t hash, const struct vkd3d_shader_code *shader) DECLSPEC_HIDDEN;
-void vkd3d_shader_dump_shader(vkd3d_shader_hash_t hash, const struct vkd3d_shader_code *shader, const char *ext) DECLSPEC_HIDDEN;
-bool vkd3d_shader_replace(vkd3d_shader_hash_t hash, const void **data, size_t *size) DECLSPEC_HIDDEN;
+void vkd3d_shader_dump_spirv_shader(vkd3d_shader_hash_t hash, const struct vkd3d_shader_code *shader);
+void vkd3d_shader_dump_shader(vkd3d_shader_hash_t hash, const struct vkd3d_shader_code *shader, const char *ext);
+bool vkd3d_shader_replace(vkd3d_shader_hash_t hash, const void **data, size_t *size);
 
 static inline enum vkd3d_component_type vkd3d_component_type_from_data_type(
         enum vkd3d_data_type data_type)
@@ -981,6 +981,6 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compiler_args);
 
-vkd3d_shader_hash_t vkd3d_shader_hash(const struct vkd3d_shader_code *shader) DECLSPEC_HIDDEN;
+vkd3d_shader_hash_t vkd3d_shader_hash(const struct vkd3d_shader_code *shader);
 
 #endif  /* __VKD3D_SHADER_PRIVATE_H */

@@ -56,15 +56,15 @@ enum vkd3d_dbg_channel
     VKD3D_DBG_CHANNEL_COUNT
 };
 
-enum vkd3d_dbg_level vkd3d_dbg_get_level(enum vkd3d_dbg_channel channel) DECLSPEC_HIDDEN;
+enum vkd3d_dbg_level vkd3d_dbg_get_level(enum vkd3d_dbg_channel channel);
 
 void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level, const char *function,
-        const char *fmt, ...) VKD3D_PRINTF_FUNC(4, 5) DECLSPEC_HIDDEN;
+        const char *fmt, ...) VKD3D_PRINTF_FUNC(4, 5);
 
-const char *vkd3d_dbg_sprintf(const char *fmt, ...) VKD3D_PRINTF_FUNC(1, 2) DECLSPEC_HIDDEN;
-const char *vkd3d_dbg_vsprintf(const char *fmt, va_list args) DECLSPEC_HIDDEN;
-const char *debugstr_a(const char *str) DECLSPEC_HIDDEN;
-const char *debugstr_w(const WCHAR *wstr, size_t wchar_size) DECLSPEC_HIDDEN;
+const char *vkd3d_dbg_sprintf(const char *fmt, ...) VKD3D_PRINTF_FUNC(1, 2);
+const char *vkd3d_dbg_vsprintf(const char *fmt, va_list args);
+const char *debugstr_a(const char *str);
+const char *debugstr_w(const WCHAR *wstr, size_t wchar_size);
 
 #define VKD3D_DBG_LOG(level) \
         do { \
@@ -115,7 +115,7 @@ static inline const char *debugstr_guid(const GUID *guid)
             guid->Data4[5], guid->Data4[6], guid->Data4[7]);
 }
 
-unsigned int vkd3d_env_var_as_uint(const char *name, unsigned int default_value) DECLSPEC_HIDDEN;
+unsigned int vkd3d_env_var_as_uint(const char *name, unsigned int default_value);
 
 struct vkd3d_debug_option
 {
@@ -123,8 +123,8 @@ struct vkd3d_debug_option
     uint64_t flag;
 };
 
-bool vkd3d_debug_list_has_member(const char *string, const char *member) DECLSPEC_HIDDEN;
+bool vkd3d_debug_list_has_member(const char *string, const char *member);
 uint64_t vkd3d_parse_debug_options(const char *string,
-        const struct vkd3d_debug_option *options, unsigned int option_count) DECLSPEC_HIDDEN;
+        const struct vkd3d_debug_option *options, unsigned int option_count);
 
 #endif  /* __VKD3D_DEBUG_H */

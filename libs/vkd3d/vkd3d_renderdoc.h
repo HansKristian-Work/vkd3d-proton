@@ -23,18 +23,18 @@
 #include "vkd3d_shader.h"
 #include "vkd3d_common.h"
 
-bool vkd3d_renderdoc_active(void) DECLSPEC_HIDDEN;
-bool vkd3d_renderdoc_loaded_api(void) DECLSPEC_HIDDEN;
-bool vkd3d_renderdoc_should_capture_shader_hash(vkd3d_shader_hash_t hash) DECLSPEC_HIDDEN;
+bool vkd3d_renderdoc_active(void);
+bool vkd3d_renderdoc_loaded_api(void);
+bool vkd3d_renderdoc_should_capture_shader_hash(vkd3d_shader_hash_t hash);
 
-bool vkd3d_renderdoc_begin_capture(void *instance) DECLSPEC_HIDDEN;
-void vkd3d_renderdoc_end_capture(void *instance) DECLSPEC_HIDDEN;
+bool vkd3d_renderdoc_begin_capture(void *instance);
+void vkd3d_renderdoc_end_capture(void *instance);
 
-void vkd3d_renderdoc_init(void) DECLSPEC_HIDDEN;
+void vkd3d_renderdoc_init(void);
 
 void vkd3d_renderdoc_command_list_check_capture(struct d3d12_command_list *list,
-        struct d3d12_pipeline_state *state) DECLSPEC_HIDDEN;
-bool vkd3d_renderdoc_command_queue_begin_capture(struct d3d12_command_queue *command_queue) DECLSPEC_HIDDEN;
-void vkd3d_renderdoc_command_queue_end_capture(struct d3d12_command_queue *command_queue) DECLSPEC_HIDDEN;
+        struct d3d12_pipeline_state *state);
+bool vkd3d_renderdoc_command_queue_begin_capture(struct d3d12_command_queue *command_queue);
+void vkd3d_renderdoc_command_queue_end_capture(struct d3d12_command_queue *command_queue);
 
 #endif
