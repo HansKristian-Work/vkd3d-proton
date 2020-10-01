@@ -4574,17 +4574,17 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_bindless_state_init(&device->bindless_state, device)))
         goto out_destroy_null_resources;
 
-    if (FAILED(hr = vkd3d_meta_ops_init(&device->meta_ops, device)))
-        goto out_cleanup_bindless_state;
-
     if (FAILED(hr = vkd3d_view_map_init(&device->sampler_map)))
-        goto out_cleanup_meta_ops;
+        goto out_cleanup_bindless_state;
 
     if (FAILED(hr = vkd3d_sampler_state_init(&device->sampler_state, device)))
         goto out_cleanup_view_map;
 
-    if (FAILED(hr = vkd3d_shader_debug_ring_init(&device->debug_ring, device)))
+    if (FAILED(hr = vkd3d_meta_ops_init(&device->meta_ops, device)))
         goto out_cleanup_sampler_state;
+
+    if (FAILED(hr = vkd3d_shader_debug_ring_init(&device->debug_ring, device)))
+        goto out_cleanup_meta_ops;
 
     vkd3d_render_pass_cache_init(&device->render_pass_cache);
     vkd3d_gpu_va_allocator_init(&device->gpu_va_allocator);
@@ -4595,12 +4595,12 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     d3d12_device_caps_init(device);
     return S_OK;
 
+out_cleanup_meta_ops:
+    vkd3d_meta_ops_cleanup(&device->meta_ops, device);
 out_cleanup_sampler_state:
     vkd3d_sampler_state_cleanup(&device->sampler_state, device);
 out_cleanup_view_map:
     vkd3d_view_map_destroy(&device->sampler_map, device);
-out_cleanup_meta_ops:
-    vkd3d_meta_ops_cleanup(&device->meta_ops, device);
 out_cleanup_bindless_state:
     vkd3d_bindless_state_cleanup(&device->bindless_state, device);
 out_destroy_null_resources:

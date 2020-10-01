@@ -53,6 +53,28 @@ static VkResult vkd3d_meta_create_descriptor_set_layout(struct d3d12_device *dev
     return VK_CALL(vkCreateDescriptorSetLayout(device->vk_device, &set_layout_info, NULL, set_layout));
 }
 
+static VkResult vkd3d_meta_create_sampler(struct d3d12_device *device, VkFilter filter, VkSampler *vk_sampler)
+{
+    struct vkd3d_view_key view_key;
+    struct vkd3d_view *view;
+    D3D12_SAMPLER_DESC desc;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    desc.Filter = filter == VK_FILTER_LINEAR ? D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT : D3D12_FILTER_MIN_MAG_MIP_POINT;
+
+    view_key.view_type = VKD3D_VIEW_TYPE_SAMPLER;
+    view_key.u.sampler = desc;
+    view = vkd3d_view_map_create_view(&device->sampler_map, device, &view_key);
+    if (!view)
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+
+    *vk_sampler = view->vk_sampler;
+    return VK_SUCCESS;
+}
+
 static VkResult vkd3d_meta_create_pipeline_layout(struct d3d12_device *device,
         uint32_t set_layout_count, const VkDescriptorSetLayout *set_layouts,
         uint32_t push_constant_range_count, const VkPushConstantRange *push_constant_ranges,
