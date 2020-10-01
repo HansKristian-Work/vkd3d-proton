@@ -33,6 +33,24 @@
 # include <vulkan/vulkan.h>
 #endif  /* VKD3D_NO_VULKAN_H */
 
+#if defined(__GNUC__)
+# define DECLSPEC_VISIBLE __attribute__((visibility("default")))
+#else
+# define DECLSPEC_VISIBLE
+#endif
+
+#if defined(_WIN32) && !defined(VKD3D_BUILD_STANDALONE_D3D12)
+# ifdef VKD3D_EXPORTS
+#  define VKD3D_EXPORT __declspec(dllexport)
+# else
+#  define VKD3D_EXPORT __declspec(dllimport)
+# endif
+#elif defined(__GNUC__)
+# define VKD3D_EXPORT DECLSPEC_VISIBLE
+#else
+# define VKD3D_EXPORT
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif  /* __cplusplus */
@@ -149,42 +167,42 @@ struct vkd3d_image_resource_create_info
 
 #ifndef VKD3D_NO_PROTOTYPES
 
-HRESULT vkd3d_create_instance(const struct vkd3d_instance_create_info *create_info,
+VKD3D_EXPORT HRESULT vkd3d_create_instance(const struct vkd3d_instance_create_info *create_info,
         struct vkd3d_instance **instance);
-ULONG vkd3d_instance_decref(struct vkd3d_instance *instance);
-VkInstance vkd3d_instance_get_vk_instance(struct vkd3d_instance *instance);
-ULONG vkd3d_instance_incref(struct vkd3d_instance *instance);
+VKD3D_EXPORT ULONG vkd3d_instance_decref(struct vkd3d_instance *instance);
+VKD3D_EXPORT VkInstance vkd3d_instance_get_vk_instance(struct vkd3d_instance *instance);
+VKD3D_EXPORT ULONG vkd3d_instance_incref(struct vkd3d_instance *instance);
 
-HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
+VKD3D_EXPORT HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
         REFIID iid, void **device);
-IUnknown *vkd3d_get_device_parent(ID3D12Device *device);
-VkDevice vkd3d_get_vk_device(ID3D12Device *device);
-VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device);
-struct vkd3d_instance *vkd3d_instance_from_device(ID3D12Device *device);
+VKD3D_EXPORT IUnknown *vkd3d_get_device_parent(ID3D12Device *device);
+VKD3D_EXPORT VkDevice vkd3d_get_vk_device(ID3D12Device *device);
+VKD3D_EXPORT VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device);
+VKD3D_EXPORT struct vkd3d_instance *vkd3d_instance_from_device(ID3D12Device *device);
 
-uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue);
-VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue);
-void vkd3d_release_vk_queue(ID3D12CommandQueue *queue);
+VKD3D_EXPORT uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue);
+VKD3D_EXPORT VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue);
+VKD3D_EXPORT void vkd3d_release_vk_queue(ID3D12CommandQueue *queue);
 
-HRESULT vkd3d_create_image_resource(ID3D12Device *device,
+VKD3D_EXPORT HRESULT vkd3d_create_image_resource(ID3D12Device *device,
         const struct vkd3d_image_resource_create_info *create_info, ID3D12Resource **resource);
-ULONG vkd3d_resource_decref(ID3D12Resource *resource);
-ULONG vkd3d_resource_incref(ID3D12Resource *resource);
+VKD3D_EXPORT ULONG vkd3d_resource_decref(ID3D12Resource *resource);
+VKD3D_EXPORT ULONG vkd3d_resource_incref(ID3D12Resource *resource);
 
-HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
+VKD3D_EXPORT HRESULT vkd3d_serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC *desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob);
-HRESULT vkd3d_create_root_signature_deserializer(const void *data, SIZE_T data_size,
+VKD3D_EXPORT HRESULT vkd3d_create_root_signature_deserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer);
 
-VkFormat vkd3d_get_vk_format(DXGI_FORMAT format);
+VKD3D_EXPORT VkFormat vkd3d_get_vk_format(DXGI_FORMAT format);
 
 /* 1.1 */
-DXGI_FORMAT vkd3d_get_dxgi_format(VkFormat format);
+VKD3D_EXPORT DXGI_FORMAT vkd3d_get_dxgi_format(VkFormat format);
 
 /* 1.2 */
-HRESULT vkd3d_serialize_versioned_root_signature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
+VKD3D_EXPORT HRESULT vkd3d_serialize_versioned_root_signature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
         ID3DBlob **blob, ID3DBlob **error_blob);
-HRESULT vkd3d_create_versioned_root_signature_deserializer(const void *data, SIZE_T data_size,
+VKD3D_EXPORT HRESULT vkd3d_create_versioned_root_signature_deserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer);
 
 #endif  /* VKD3D_NO_PROTOTYPES */

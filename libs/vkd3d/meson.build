@@ -45,8 +45,8 @@ if not enable_standalone_d3d12
     dependencies        : [ vkd3d_common_dep, vkd3d_shader_dep ] + vkd3d_extra_libs,
     include_directories : vkd3d_private_includes,
     install             : true,
-    vs_module_defs      : 'vkd3d.def',
     version             : '1.1.0',
+    c_args              : '-DVKD3D_EXPORTS',
     override_options    : [ 'c_std='+vkd3d_c_std ])
 else
   vkd3d_lib = static_library('vkd3d', vkd3d_src, glsl_generator.process(vkd3d_shaders), vkd3d_version, vkd3d_headers,

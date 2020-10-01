@@ -8190,14 +8190,14 @@ HRESULT d3d12_command_queue_create(struct d3d12_device *device,
     return S_OK;
 }
 
-uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue)
+VKD3D_EXPORT uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue)
 {
     struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
 
     return d3d12_queue->vkd3d_queue->vk_family_index;
 }
 
-VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue)
+VKD3D_EXPORT VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue)
 {
     struct d3d12_command_queue *d3d12_queue;
     VkQueue vk_queue;
@@ -8214,7 +8214,7 @@ VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue)
     return vk_queue;
 }
 
-void vkd3d_release_vk_queue(ID3D12CommandQueue *queue)
+VKD3D_EXPORT void vkd3d_release_vk_queue(ID3D12CommandQueue *queue)
 {
     struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
     vkd3d_queue_release(d3d12_queue->vkd3d_queue);
