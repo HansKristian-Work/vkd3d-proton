@@ -1313,6 +1313,23 @@ static void d3d12_swapchain_destroy_buffers(struct d3d12_swapchain *swapchain, B
     }
 }
 
+static bool d3d12_swapchain_has_nonzero_surface_size(struct d3d12_swapchain *swapchain)
+{
+    VkPhysicalDevice vk_physical_device = d3d12_swapchain_device(swapchain)->vk_physical_device;
+    const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
+    VkSurfaceCapabilitiesKHR surface_caps;
+    VkResult vr;
+
+    if ((vr = vk_procs->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device,
+            swapchain->vk_surface, &surface_caps)) < 0)
+    {
+        WARN("Failed to get surface capabilities, vr %d.\n", vr);
+        return false;
+    }
+
+    return surface_caps.maxImageExtent.width != 0 && surface_caps.maxImageExtent.height != 0;
+}
+
 static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *swapchain)
 {
     VkPhysicalDevice vk_physical_device = d3d12_swapchain_device(swapchain)->vk_physical_device;
@@ -1362,7 +1379,15 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
     height = max(height, surface_caps.minImageExtent.height);
     height = min(height, surface_caps.maxImageExtent.height);
 
-    if (width != swapchain->desc.Width || height != swapchain->desc.Height)
+    if (surface_caps.maxImageExtent.width == 0 || surface_caps.maxImageExtent.height == 0)
+    {
+        /* This is expected behavior on Windows when a HWND minimizes.
+         * We must retry creating a proper swapchain later.
+         * Since we can always fall back to user buffers,
+         * we can pretend that we have an active swapchain. */
+        TRACE("Window is minimized, cannot create swapchain at this time.\n");
+    }
+    else if (width != swapchain->desc.Width || height != swapchain->desc.Height)
     {
         WARN("Swapchain dimensions %ux%u are not supported (%u-%u x %u-%u).\n",
                 swapchain->desc.Width, swapchain->desc.Height,
@@ -1394,30 +1419,35 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
         return DXGI_ERROR_UNSUPPORTED;
     }
 
-    vk_swapchain_desc.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    vk_swapchain_desc.pNext = NULL;
-    vk_swapchain_desc.flags = 0;
-    vk_swapchain_desc.surface = swapchain->vk_surface;
-    vk_swapchain_desc.minImageCount = image_count;
-    vk_swapchain_desc.imageFormat = vk_swapchain_format;
-    vk_swapchain_desc.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-    vk_swapchain_desc.imageExtent.width = width;
-    vk_swapchain_desc.imageExtent.height = height;
-    vk_swapchain_desc.imageArrayLayers = 1;
-    vk_swapchain_desc.imageUsage = usage;
-    vk_swapchain_desc.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    vk_swapchain_desc.queueFamilyIndexCount = 0;
-    vk_swapchain_desc.pQueueFamilyIndices = NULL;
-    vk_swapchain_desc.preTransform = surface_caps.currentTransform;
-    vk_swapchain_desc.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    vk_swapchain_desc.presentMode = swapchain->present_mode;
-    vk_swapchain_desc.clipped = VK_TRUE;
-    vk_swapchain_desc.oldSwapchain = swapchain->vk_swapchain;
-    if ((vr = vk_procs->vkCreateSwapchainKHR(vk_device, &vk_swapchain_desc, NULL, &vk_swapchain)) < 0)
+    if (width && height)
     {
-        WARN("Failed to create Vulkan swapchain, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
+        vk_swapchain_desc.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        vk_swapchain_desc.pNext = NULL;
+        vk_swapchain_desc.flags = 0;
+        vk_swapchain_desc.surface = swapchain->vk_surface;
+        vk_swapchain_desc.minImageCount = image_count;
+        vk_swapchain_desc.imageFormat = vk_swapchain_format;
+        vk_swapchain_desc.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        vk_swapchain_desc.imageExtent.width = width;
+        vk_swapchain_desc.imageExtent.height = height;
+        vk_swapchain_desc.imageArrayLayers = 1;
+        vk_swapchain_desc.imageUsage = usage;
+        vk_swapchain_desc.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        vk_swapchain_desc.queueFamilyIndexCount = 0;
+        vk_swapchain_desc.pQueueFamilyIndices = NULL;
+        vk_swapchain_desc.preTransform = surface_caps.currentTransform;
+        vk_swapchain_desc.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        vk_swapchain_desc.presentMode = swapchain->present_mode;
+        vk_swapchain_desc.clipped = VK_TRUE;
+        vk_swapchain_desc.oldSwapchain = swapchain->vk_swapchain;
+        if ((vr = vk_procs->vkCreateSwapchainKHR(vk_device, &vk_swapchain_desc, NULL, &vk_swapchain)) < 0)
+        {
+            WARN("Failed to create Vulkan swapchain, vr %d.\n", vr);
+            return hresult_from_vk_result(vr);
+        }
     }
+    else
+        vk_swapchain = VK_NULL_HANDLE;
 
     if (swapchain->vk_swapchain)
         vk_procs->vkDestroySwapchainKHR(swapchain->command_queue->device->vk_device, swapchain->vk_swapchain, NULL);
@@ -1428,13 +1458,24 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
 
     swapchain->vk_image_index = INVALID_VK_IMAGE_INDEX;
 
-    if (FAILED(hr = d3d12_swapchain_get_user_graphics_pipeline(swapchain, vk_swapchain_format)))
+    if (swapchain->vk_swapchain != VK_NULL_HANDLE)
     {
-        ERR("Failed to create user graphics pipeline, hr %ld.\n", hr);
-        return hr;
-    }
+        if (FAILED(hr = d3d12_swapchain_get_user_graphics_pipeline(swapchain, vk_swapchain_format)))
+        {
+            ERR("Failed to create user graphics pipeline, hr %ld.\n", hr);
+            return hr;
+        }
 
-    return d3d12_swapchain_create_buffers(swapchain, vk_swapchain_format, vk_format);
+        return d3d12_swapchain_create_buffers(swapchain, vk_swapchain_format, vk_format);
+    }
+    else
+    {
+        /* Fallback path for when surface size is 0. We'll try to create a proper swapchain in a future Present call. */
+        d3d12_swapchain_destroy_buffers(swapchain, FALSE);
+        d3d12_swapchain_destroy_framebuffers(swapchain);
+        swapchain->buffer_count = 0;
+        return S_OK;
+    }
 }
 
 static HRESULT d3d12_swapchain_recreate_vulkan_swapchain(struct d3d12_swapchain *swapchain)
@@ -1617,7 +1658,7 @@ static HRESULT d3d12_swapchain_set_sync_interval(struct d3d12_swapchain *swapcha
             break;
     }
 
-    if (swapchain->present_mode == present_mode)
+    if (swapchain->vk_swapchain != VK_NULL_HANDLE && swapchain->present_mode == present_mode)
         return S_OK;
 
     if (!d3d12_swapchain_is_present_mode_supported(swapchain, present_mode))
@@ -1638,6 +1679,10 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
     VkPresentInfoKHR present_info;
     VkSubmitInfo submit_info;
     VkResult vr;
+
+    /* Dummy present by doing nothing. */
+    if (swapchain->vk_swapchain == VK_NULL_HANDLE)
+        return VK_SUCCESS;
 
     if (swapchain->vk_image_index == INVALID_VK_IMAGE_INDEX)
     {
@@ -1717,6 +1762,13 @@ static HRESULT d3d12_swapchain_present(struct d3d12_swapchain *swapchain,
     {
         WARN("Returning S_OK for DXGI_PRESENT_TEST.\n");
         return S_OK;
+    }
+
+    if (swapchain->vk_swapchain == VK_NULL_HANDLE)
+    {
+        /* We're in a minimized state where we cannot present. However, we might be able to present now, so check that. */
+        if (!d3d12_swapchain_has_nonzero_surface_size(swapchain))
+            return S_OK;
     }
 
     if (FAILED(hr = d3d12_swapchain_set_sync_interval(swapchain, sync_interval)))
