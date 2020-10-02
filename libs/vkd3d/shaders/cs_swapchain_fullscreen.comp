@@ -1,0 +1,21 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 1, binding = 0) writeonly uniform image2D FragColor;
+layout(set = 0, binding = 0) uniform sampler2D Tex;
+
+layout(push_constant, std430) uniform Registers
+{
+  uvec2 output_resolution;
+  vec2 coord_scale;
+} registers;
+
+void main()
+{
+  if (any(greaterThanEqual(gl_GlobalInvocationID.xy, registers.output_resolution)))
+    return;
+  vec2 frag_coord = vec2(gl_GlobalInvocationID.xy) + 0.5;
+  vec2 tex_coord = frag_coord * registers.coord_scale;
+  vec4 color = textureLod(Tex, tex_coord, 0.0);
+  imageStore(FragColor, ivec2(gl_GlobalInvocationID.xy), color);
+}

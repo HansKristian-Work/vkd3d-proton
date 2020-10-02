@@ -923,7 +923,9 @@ static void vkd3d_meta_ops_common_cleanup(struct vkd3d_meta_ops_common *meta_ops
 
 HRESULT vkd3d_swapchain_ops_init(struct vkd3d_swapchain_ops *meta_swapchain_ops, struct d3d12_device *device)
 {
-    VkDescriptorSetLayoutBinding set_binding;
+    VkDescriptorSetLayoutBinding set_binding_srv, set_binding_uav;
+    VkDescriptorSetLayout set_layouts[2];
+    VkPushConstantRange push_range;
     unsigned int i;
     VkResult vr;
     int rc;
@@ -936,10 +938,26 @@ HRESULT vkd3d_swapchain_ops_init(struct vkd3d_swapchain_ops *meta_swapchain_ops,
         return hresult_from_errno(rc);
     }
 
-    set_binding.binding = 0;
-    set_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    set_binding.descriptorCount = 1;
-    set_binding.stageFlags = VK_SHADER_STAGE_ALL; /* Could be compute or graphics, so just use ALL. */
+    set_binding_srv.binding = 0;
+    set_binding_srv.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    set_binding_srv.descriptorCount = 1;
+    set_binding_srv.stageFlags = VK_SHADER_STAGE_ALL; /* Could be compute or graphics, so just use ALL. */
+
+    set_binding_uav.binding = 0;
+    set_binding_uav.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    set_binding_uav.descriptorCount = 1;
+    set_binding_uav.stageFlags = VK_SHADER_STAGE_ALL; /* Could be compute or graphics, so just use ALL. */
+
+    push_range.stageFlags = VK_SHADER_STAGE_ALL;
+    push_range.offset = 0;
+    push_range.size = sizeof(struct vkd3d_swapchain_push_parameters);
+
+    if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding_uav,
+            &meta_swapchain_ops->vk_set_layout_uav)) < 0)
+    {
+        ERR("Failed to create descriptor set layout, vr %d.\n", vr);
+        goto fail;
+    }
 
     for (i = 0; i < 2; i++)
     {
@@ -949,16 +967,18 @@ HRESULT vkd3d_swapchain_ops_init(struct vkd3d_swapchain_ops *meta_swapchain_ops,
             goto fail;
         }
 
-        set_binding.pImmutableSamplers = &meta_swapchain_ops->vk_samplers[i];
-        if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding,
-                &meta_swapchain_ops->vk_set_layouts[i])) < 0)
+        set_binding_srv.pImmutableSamplers = &meta_swapchain_ops->vk_samplers[i];
+        if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding_srv,
+                &meta_swapchain_ops->vk_set_layouts_srv[i])) < 0)
         {
             ERR("Failed to create descriptor set layout, vr %d.\n", vr);
             goto fail;
         }
 
-        if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_swapchain_ops->vk_set_layouts[i],
-                0, NULL, &meta_swapchain_ops->vk_pipeline_layouts[i])))
+        set_layouts[0] = meta_swapchain_ops->vk_set_layouts_srv[i];
+        set_layouts[1] = meta_swapchain_ops->vk_set_layout_uav;
+        if ((vr = vkd3d_meta_create_pipeline_layout(device, 2, set_layouts,
+                1, &push_range, &meta_swapchain_ops->vk_pipeline_layouts[i])))
         {
             ERR("Failed to create pipeline layout, vr %d.\n", vr);
             goto fail;
@@ -999,10 +1019,11 @@ void vkd3d_swapchain_ops_cleanup(struct vkd3d_swapchain_ops *meta_swapchain_ops,
 
     for (i = 0; i < 2; i++)
     {
-        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_swapchain_ops->vk_set_layouts[i], NULL));
+        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_swapchain_ops->vk_set_layouts_srv[i], NULL));
         VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_swapchain_ops->vk_pipeline_layouts[i], NULL));
         VK_CALL(vkDestroySampler(device->vk_device, meta_swapchain_ops->vk_samplers[i], NULL));
     }
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_swapchain_ops->vk_set_layout_uav, NULL));
 
     VK_CALL(vkDestroyShaderModule(device->vk_device, meta_swapchain_ops->vk_vs_module, NULL));
     VK_CALL(vkDestroyShaderModule(device->vk_device, meta_swapchain_ops->vk_fs_module, NULL));
@@ -1026,7 +1047,8 @@ HRESULT vkd3d_meta_get_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
         return hresult_from_errno(rc);
     }
 
-    info->vk_set_layout = meta_swapchain_ops->vk_set_layouts[key->filter];
+    info->vk_set_layout_srv = meta_swapchain_ops->vk_set_layouts_srv[key->filter];
+    info->vk_set_layout_uav = meta_swapchain_ops->vk_set_layout_uav;
     info->vk_pipeline_layout = meta_swapchain_ops->vk_pipeline_layouts[key->filter];
 
     for (i = 0; i < meta_swapchain_ops->pipeline_count; i++)
@@ -1059,8 +1081,6 @@ HRESULT vkd3d_meta_get_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
 
     info->vk_render_pass = pipeline->vk_render_pass;
     info->vk_pipeline = pipeline->vk_pipeline;
-    info->vk_set_layout = meta_swapchain_ops->vk_set_layouts[key->filter];
-    info->vk_pipeline_layout = meta_swapchain_ops->vk_pipeline_layouts[key->filter];
 
     pthread_mutex_unlock(&meta_swapchain_ops->mutex);
     return S_OK;

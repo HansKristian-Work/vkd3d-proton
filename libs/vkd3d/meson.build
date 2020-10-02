@@ -20,6 +20,7 @@ vkd3d_shaders =[
 
   'shaders/vs_swapchain_fullscreen.vert',
   'shaders/fs_swapchain_fullscreen.frag',
+  'shaders/cs_swapchain_fullscreen.comp',
 ]
 
 vkd3d_src = [

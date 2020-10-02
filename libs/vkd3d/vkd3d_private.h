@@ -1725,7 +1725,8 @@ struct vkd3d_swapchain_pipeline_key
 
 struct vkd3d_swapchain_info
 {
-    VkDescriptorSetLayout vk_set_layout;
+    VkDescriptorSetLayout vk_set_layout_srv;
+    VkDescriptorSetLayout vk_set_layout_uav;
     VkPipelineLayout vk_pipeline_layout;
     VkRenderPass vk_render_pass;
     VkPipeline vk_pipeline;
@@ -1740,7 +1741,8 @@ struct vkd3d_swapchain_pipeline
 
 struct vkd3d_swapchain_ops
 {
-    VkDescriptorSetLayout vk_set_layouts[2];
+    VkDescriptorSetLayout vk_set_layouts_srv[2];
+    VkDescriptorSetLayout vk_set_layout_uav;
     VkPipelineLayout vk_pipeline_layouts[2];
     VkShaderModule vk_vs_module;
     VkShaderModule vk_fs_module;
@@ -1751,6 +1753,12 @@ struct vkd3d_swapchain_ops
     struct vkd3d_swapchain_pipeline *pipelines;
     size_t pipelines_size;
     size_t pipeline_count;
+};
+
+struct vkd3d_swapchain_push_parameters
+{
+    uint32_t output_width, output_height;
+    float coord_scale_x, coord_scale_y;
 };
 
 HRESULT vkd3d_swapchain_ops_init(struct vkd3d_swapchain_ops *meta_swapchain_ops,
