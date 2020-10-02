@@ -1,50 +1,50 @@
 # VKD3D-Proton
 
-VKD3D-Proton is a fork of VKD3D, which aims to implement the full Direct3D 12 API on top of Vulkan.
-The project serves as the development effort for Direct3D 12 support in [Proton](https://github.com/ValveSoftware/Proton).
+The VKD3D-Proton is a VKD3D fork designed to implement the entire Direct3D 12 API at the top of Vulcan.
+The project serves as a development effort to support Direct3D 12 in [Proton] (https://github.com/ValveSoftware/Proton).
 
 ## Upstream
 
-The original project is available at [WineHQ](https://source.winehq.org/git/vkd3d.git/).
+The original project is available at [WineHQ] (https://source.winehq.org/git/vkd3d.git/).
 
 ## Priorities
 
-Performance and compatibility are important targets, at the expense of compatibility with older drivers and systems.
-Modern Vulkan extensions and features are aggressively made use of to improve performance and compatibility.
-It is recommended to use the very latest drivers you can get your hands on for the best experience.
-Backwards compatibility with the vkd3d standalone API is not a goal of this project.
+Efficiency and compatibility are important goals at the expense of compatibility with older drivers and systems.
+Modern Vulcan extensions and features are being used aggressively to improve performance and compatibility.
+For the best experience, it is recommended to use the latest drivers that you get your hands on.
+Compatibility with the vkd3d standalone API is not the goal of this project.
 
 ------
 
 ## Cloning the repo
 
-To clone the repo you should run:
+To clone a turnip, run:
 ```
 git clone --recursive https://github.com/HansKristian-Work/vkd3d-proton
 ```
-in order to pull in all the submodules which are needed for building.
+to pull all the submodules needed for construction.
 
 ## Building VKD3D
 
 ### Requirements:
 - [wine](https://www.winehq.org/) (for `widl`) [for native builds]
-  - On Windows this may be substituted for [Strawberry Perl](http://strawberryperl.com/) as it ships `widl` and is easy to find and install -- although this dependency may be eliminated in the future.
+  - On Windows this may be substituted for [Strawberry Perl](http://strawberryperl.com/) as it sends a `widl` and is easy to find and install - although this dependency can be fixed in the future.
 - [Meson](http://mesonbuild.com/) build system (at least version 0.51)
-- [glslang](https://github.com/KhronosGroup/glslang) compiler
+- [glslang](https://github.com/KhronosGroup/glslang) translator
 - [Mingw-w64](http://mingw-w64.org/) compiler, headers and tools (at least version 7.0) [for cross-builds for d3d12.dll which are default]
 
 ### Building:
 #### The simple way
-Inside the VKD3D directory, run:
+Within the VKD3D directory, run:
 ```
 ./package-release.sh master /your/target/directory --no-package
 ```
 
-This will create a folder `vkd3d-master` in `/your/target/directory`, which contains both 32-bit and 64-bit versions of VKD3D, which can be set up in the same way as the release versions as noted above.
+This will create a `vkd3d-master` folder in `/your/target/directory`, which contains 32-bit and 64-bit versions of VKD3D, which you can set up in the same way as the release versions as mentioned above.
 
-If you want to build natively (ie. for `libvkd3d.so`), pass `--native` to the build script. This option will make it build using your system's compilers.
+To build the original (eg for `libvkd3d.so`), enter` --native` in the build script. With this option, it will be built using your system's compilers.
 
-In order to preserve the build directories for development, pass `--dev-build` to the script. This option implies `--no-package`. After making changes to the source code, you can then do the following to rebuild VKD3D:
+To save build directories for development, download `--dev-build` in the script. This option means "--no-package". After changing the source code, you can do the following to restore VKD3D:
 ```
 # change to build.86 for 32-bit
 cd /your/target/directory/build.64
@@ -79,19 +79,19 @@ ninja install
 
 ## Using VKD3D
 
-VKD3D can be used by projects that target Direct3D 12 as a drop-in replacement
-at build-time with some modest source modifications.
+VKD3D can be used by projects targeting Direct3D 12 as an alternative
+at the time of construction with some modest source changes.
 
-If VKD3D is available when building Wine, then Wine will use it to support
-Direct3D 12 applications.
+If VKD3D is available when building Wine, Wine will use it for support
+Direct3D Applications 12.
 
 ## Environment variables
 
-Most of the environment variables used by VKD3D are for debugging purposes. The
-environment variables are not considered a part of API and might be changed or
-removed in the future versions of VKD3D.
+Most of the environment variables used by VKD3D are debugged. The
+environment variables are not part of the API and can be changed or
+removed in future versions of VKD3D.
 
-Some of debug variables are lists of elements. Elements must be separated by
+Some debug variables are item lists. Elements must be separated by
 commas or semicolons.
 
  - `VKD3D_CONFIG` - a list of options that change the behavior of libvkd3d.
