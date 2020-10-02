@@ -1236,7 +1236,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
             return E_INVALIDARG;
         }
 
-        if (!is_power_of_two(vkd3d_get_format(device, desc->Format, true)->vk_aspect_mask))
+        if (!is_power_of_two(format->vk_aspect_mask))
         {
             WARN("Multi-planar format %u not supported for tiled resources.\n", desc->Format);
             return E_INVALIDARG;
