@@ -4858,6 +4858,9 @@ static void vk_image_memory_barrier_for_after_aliasing_barrier(struct d3d12_devi
         VkQueueFlags vk_queue_flags, struct d3d12_resource *after, VkImageMemoryBarrier *vk_barrier)
 {
     const struct vkd3d_format *vk_format = vkd3d_get_format(device, after->desc.Format, false);
+    /* If this is a typeless format, try depth version. */
+    if (!vk_format)
+        vk_format = vkd3d_get_format(device, after->desc.Format, true);
 
     /* Shouldn't happen, but be defensive. */
     if (!vk_format)
