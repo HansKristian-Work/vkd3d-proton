@@ -170,6 +170,10 @@ struct d3d12_swapchain
     LONG refcount;
     struct vkd3d_private_store private_store;
 
+    /* Use critical section rather than pthread_mutex_t wrapper here since we need it
+     * to be re-entrant, and this code is Win32-only. */
+    CRITICAL_SECTION mutex;
+
     VkSwapchainKHR vk_swapchain;
     VkSurfaceKHR vk_surface;
     VkFence vk_fence;
@@ -1373,6 +1377,8 @@ static void d3d12_swapchain_destroy(struct d3d12_swapchain *swapchain)
 
     if (swapchain->factory)
         IDXGIFactory_Release(swapchain->factory);
+
+    DeleteCriticalSection(&swapchain->mutex);
 }
 
 static ULONG STDMETHODCALLTYPE d3d12_swapchain_Release(dxgi_swapchain_iface *iface)
@@ -1659,10 +1665,14 @@ static HRESULT d3d12_swapchain_present(struct d3d12_swapchain *swapchain,
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_Present(dxgi_swapchain_iface *iface, UINT sync_interval, UINT flags)
 {
     struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain(iface);
+    HRESULT hr;
 
     TRACE("iface %p, sync_interval %u, flags %#x.\n", iface, sync_interval, flags);
 
-    return d3d12_swapchain_present(swapchain, sync_interval, flags);
+    EnterCriticalSection(&swapchain->mutex);
+    hr = d3d12_swapchain_present(swapchain, sync_interval, flags);
+    LeaveCriticalSection(&swapchain->mutex);
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetBuffer(dxgi_swapchain_iface *iface,
@@ -1683,6 +1693,40 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetBuffer(dxgi_swapchain_iface 
     return ID3D12Resource_QueryInterface(swapchain->buffers[buffer_idx], iid, surface);
 }
 
+static HRESULT d3d12_swapchain_get_containing_output(struct d3d12_swapchain *swapchain, IDXGIOutput **output)
+{
+    IUnknown *device_parent;
+    IDXGIFactory *factory;
+    IDXGIAdapter *adapter;
+    HRESULT hr;
+
+    if (swapchain->target)
+    {
+        IDXGIOutput_AddRef(*output = swapchain->target);
+        return S_OK;
+    }
+
+    device_parent = vkd3d_get_device_parent((ID3D12Device *)d3d12_swapchain_device_iface(swapchain));
+
+    if (FAILED(hr = IUnknown_QueryInterface(device_parent, &IID_IDXGIAdapter, (void **)&adapter)))
+    {
+        WARN("Failed to get adapter, hr %#x.\n", hr);
+        return hr;
+    }
+
+    if (FAILED(hr = IDXGIAdapter_GetParent(adapter, &IID_IDXGIFactory, (void **)&factory)))
+    {
+        WARN("Failed to get factory, hr %#x.\n", hr);
+        IDXGIAdapter_Release(adapter);
+        return hr;
+    }
+
+    hr = d3d12_get_output_from_window(factory, swapchain->window, output);
+    IDXGIFactory_Release(factory);
+    IDXGIAdapter_Release(adapter);
+    return hr;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetFullscreenState(dxgi_swapchain_iface *iface,
         BOOL fullscreen, IDXGIOutput *target)
 {
@@ -1692,23 +1736,30 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetFullscreenState(dxgi_swapcha
 
     TRACE("iface %p, fullscreen %#x, target %p.\n", iface, fullscreen, target);
 
+    EnterCriticalSection(&swapchain->mutex);
+
     if (!fullscreen && target)
     {
         WARN("Invalid call.\n");
+        LeaveCriticalSection(&swapchain->mutex);
         return DXGI_ERROR_INVALID_CALL;
     }
 
     /* no-op */
     if (fullscreen != swapchain->fullscreen_desc.Windowed)
+    {
+        LeaveCriticalSection(&swapchain->mutex);
         return S_OK;
+    }
 
     if (target)
     {
         IDXGIOutput_AddRef(target);
     }
-    else if (FAILED(hr = IDXGISwapChain4_GetContainingOutput(iface, &target)))
+    else if (FAILED(hr = d3d12_swapchain_get_containing_output(swapchain, &target)))
     {
         WARN("Failed to get target output for swapchain, hr %#x.\n", hr);
+        LeaveCriticalSection(&swapchain->mutex);
         return hr;
     }
 
@@ -1716,7 +1767,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetFullscreenState(dxgi_swapcha
     swapchain->fullscreen_desc.Windowed = !fullscreen;
     hr = d3d12_swapchain_set_fullscreen(swapchain, target, original_state);
 
-    if (FAILED(hr)) {
+    if (FAILED(hr))
+    {
         swapchain->fullscreen_desc.Windowed = original_state;
         goto fail;
     }
@@ -1731,11 +1783,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetFullscreenState(dxgi_swapcha
         IDXGIOutput_Release(swapchain->target);
     swapchain->target = target;
 
+    LeaveCriticalSection(&swapchain->mutex);
     return S_OK;
 
 fail:
     IDXGIOutput_Release(target);
-
+    LeaveCriticalSection(&swapchain->mutex);
     return DXGI_ERROR_NOT_CURRENTLY_AVAILABLE;
 }
 
@@ -1743,6 +1796,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetFullscreenState(dxgi_swapcha
         BOOL *fullscreen, IDXGIOutput **target)
 {
     struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain(iface);
+    EnterCriticalSection(&swapchain->mutex);
 
     TRACE("iface %p, fullscreen %p, target %p.\n", iface, fullscreen, target);
 
@@ -1752,6 +1806,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetFullscreenState(dxgi_swapcha
     if (target && (*target = swapchain->target))
         IDXGIOutput_AddRef(*target);
 
+    LeaveCriticalSection(&swapchain->mutex);
     return S_OK;
 }
 
@@ -1769,6 +1824,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetDesc(dxgi_swapchain_iface *i
         return E_INVALIDARG;
     }
 
+    EnterCriticalSection(&swapchain->mutex);
     desc->BufferDesc.Width = swapchain_desc->Width;
     desc->BufferDesc.Height = swapchain_desc->Height;
     desc->BufferDesc.RefreshRate = fullscreen_desc->RefreshRate;
@@ -1782,6 +1838,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetDesc(dxgi_swapchain_iface *i
     desc->Windowed = fullscreen_desc->Windowed;
     desc->SwapEffect = swapchain_desc->SwapEffect;
     desc->Flags = swapchain_desc->Flags;
+    LeaveCriticalSection(&swapchain->mutex);
 
     return S_OK;
 }
@@ -1848,58 +1905,41 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_ResizeBuffers(dxgi_swapchain_if
         UINT buffer_count, UINT width, UINT height, DXGI_FORMAT format, UINT flags)
 {
     struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain(iface);
+    HRESULT hr;
 
     TRACE("iface %p, buffer_count %u, width %u, height %u, format %s, flags %#x.\n",
             iface, buffer_count, width, height, debug_dxgi_format(format), flags);
 
-    return d3d12_swapchain_resize_buffers(swapchain, buffer_count, width, height, format, flags);
+    EnterCriticalSection(&swapchain->mutex);
+    hr = d3d12_swapchain_resize_buffers(swapchain, buffer_count, width, height, format, flags);
+    LeaveCriticalSection(&swapchain->mutex);
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_ResizeTarget(dxgi_swapchain_iface *iface,
         const DXGI_MODE_DESC *target_mode_desc)
 {
     struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain(iface);
+    HRESULT hr;
 
     TRACE("iface %p, target_mode_desc %p.\n", iface, target_mode_desc);
 
-    return d3d12_swapchain_resize_target(swapchain, target_mode_desc);
+    EnterCriticalSection(&swapchain->mutex);
+    hr = d3d12_swapchain_resize_target(swapchain, target_mode_desc);
+    LeaveCriticalSection(&swapchain->mutex);
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetContainingOutput(dxgi_swapchain_iface *iface,
         IDXGIOutput **output)
 {
     struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain(iface);
-    IUnknown *device_parent;
-    IDXGIFactory *factory;
-    IDXGIAdapter *adapter;
     HRESULT hr;
-
     TRACE("iface %p, output %p.\n", iface, output);
 
-    if (swapchain->target)
-    {
-        IDXGIOutput_AddRef(*output = swapchain->target);
-        return S_OK;
-    }
-
-    device_parent = vkd3d_get_device_parent((ID3D12Device *)d3d12_swapchain_device_iface(swapchain));
-
-    if (FAILED(hr = IUnknown_QueryInterface(device_parent, &IID_IDXGIAdapter, (void **)&adapter)))
-    {
-        WARN("Failed to get adapter, hr %#x.\n", hr);
-        return hr;
-    }
-
-    if (FAILED(hr = IDXGIAdapter_GetParent(adapter, &IID_IDXGIFactory, (void **)&factory)))
-    {
-        WARN("Failed to get factory, hr %#x.\n", hr);
-        IDXGIAdapter_Release(adapter);
-        return hr;
-    }
-
-    hr = d3d12_get_output_from_window(factory, swapchain->window, output);
-    IDXGIFactory_Release(factory);
-    IDXGIAdapter_Release(adapter);
+    EnterCriticalSection(&swapchain->mutex);
+    hr = d3d12_swapchain_get_containing_output(swapchain, output);
+    LeaveCriticalSection(&swapchain->mutex);
     return hr;
 }
 
@@ -1933,7 +1973,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetDesc1(dxgi_swapchain_iface *
         return E_INVALIDARG;
     }
 
+    EnterCriticalSection(&swapchain->mutex);
     *desc = swapchain->desc;
+    LeaveCriticalSection(&swapchain->mutex);
     return S_OK;
 }
 
@@ -1950,7 +1992,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetFullscreenDesc(dxgi_swapchai
         return E_INVALIDARG;
     }
 
+    EnterCriticalSection(&swapchain->mutex);
     *desc = swapchain->fullscreen_desc;
+    LeaveCriticalSection(&swapchain->mutex);
     return S_OK;
 }
 
@@ -1985,6 +2029,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_Present1(dxgi_swapchain_iface *
         UINT sync_interval, UINT flags, const DXGI_PRESENT_PARAMETERS *present_parameters)
 {
     struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain(iface);
+    HRESULT hr;
 
     TRACE("iface %p, sync_interval %u, flags %#x, present_parameters %p.\n",
             iface, sync_interval, flags, present_parameters);
@@ -1992,7 +2037,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_Present1(dxgi_swapchain_iface *
     if (present_parameters)
         FIXME("Ignored present parameters %p.\n", present_parameters);
 
-    return d3d12_swapchain_present(swapchain, sync_interval, flags);
+    EnterCriticalSection(&swapchain->mutex);
+    hr = d3d12_swapchain_present(swapchain, sync_interval, flags);
+    LeaveCriticalSection(&swapchain->mutex);
+    return hr;
 }
 
 static BOOL STDMETHODCALLTYPE d3d12_swapchain_IsTemporaryMonoSupported(dxgi_swapchain_iface *iface)
@@ -2065,20 +2113,24 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetMaximumFrameLatency(dxgi_swa
     struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain(iface);
 
     TRACE("iface %p, max_latency %u.\n", iface, max_latency);
+    EnterCriticalSection(&swapchain->mutex);
 
     if (!(swapchain->desc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT))
     {
         WARN("DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT not set for swap chain %p.\n", iface);
+        LeaveCriticalSection(&swapchain->mutex);
         return DXGI_ERROR_INVALID_CALL;
     }
 
     if (!max_latency)
     {
         WARN("Invalid maximum frame latency %u.\n", max_latency);
+        LeaveCriticalSection(&swapchain->mutex);
         return DXGI_ERROR_INVALID_CALL;
     }
 
     swapchain->frame_latency = max_latency;
+    LeaveCriticalSection(&swapchain->mutex);
     return S_OK;
 }
 
@@ -2087,14 +2139,17 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetMaximumFrameLatency(dxgi_swa
     struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain(iface);
 
     TRACE("iface %p, max_latency %p.\n", iface, max_latency);
+    EnterCriticalSection(&swapchain->mutex);
 
     if (!(swapchain->desc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT))
     {
         WARN("DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT not set for swap chain %p.\n", iface);
+        LeaveCriticalSection(&swapchain->mutex);
         return DXGI_ERROR_INVALID_CALL;
     }
 
     *max_latency = swapchain->frame_latency;
+    LeaveCriticalSection(&swapchain->mutex);
     return S_OK;
 }
 
@@ -2128,12 +2183,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetMatrixTransform(dxgi_swapcha
 static UINT STDMETHODCALLTYPE d3d12_swapchain_GetCurrentBackBufferIndex(dxgi_swapchain_iface *iface)
 {
     struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain(iface);
+    UINT index;
+    EnterCriticalSection(&swapchain->mutex);
 
     TRACE("iface %p.\n", iface);
 
     TRACE("Current back buffer index %u.\n", swapchain->current_buffer_index);
     assert(swapchain->current_buffer_index < swapchain->desc.BufferCount);
-    return swapchain->current_buffer_index;
+    index = swapchain->current_buffer_index;
+    LeaveCriticalSection(&swapchain->mutex);
+    return index;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_CheckColorSpaceSupport(dxgi_swapchain_iface *iface,
@@ -2174,6 +2233,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_ResizeBuffers1(dxgi_swapchain_i
 {
     struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain(iface);
     size_t i, count;
+    HRESULT hr;
 
     TRACE("iface %p, buffer_count %u, width %u, height %u, format %s, flags %#x, "
             "node_mask %p, present_queue %p.\n",
@@ -2182,16 +2242,24 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_ResizeBuffers1(dxgi_swapchain_i
     if (!node_mask || !present_queue)
         return DXGI_ERROR_INVALID_CALL;
 
+    EnterCriticalSection(&swapchain->mutex);
+
     count = buffer_count ? buffer_count : swapchain->desc.BufferCount;
     for (i = 0; i < count; ++i)
     {
         if (node_mask[i] > 1 || !present_queue[i])
+        {
+            LeaveCriticalSection(&swapchain->mutex);
             return DXGI_ERROR_INVALID_CALL;
+        }
+
         if ((ID3D12CommandQueue*)present_queue[i] != d3d12_swapchain_queue_iface(swapchain))
             FIXME("Ignoring present queue %p.\n", present_queue[i]);
     }
 
-    return d3d12_swapchain_resize_buffers(swapchain, buffer_count, width, height, format, flags);
+    hr = d3d12_swapchain_resize_buffers(swapchain, buffer_count, width, height, format, flags);
+    LeaveCriticalSection(&swapchain->mutex);
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetHDRMetaData(dxgi_swapchain_iface *iface,
@@ -2292,6 +2360,8 @@ static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFact
     VkFence vk_fence;
     VkResult vr;
     HRESULT hr;
+
+    InitializeCriticalSection(&swapchain->mutex);
 
     if (window == GetDesktopWindow())
     {
