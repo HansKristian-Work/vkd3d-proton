@@ -2008,7 +2008,6 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
         struct d3d12_resource *resource, const VkImageSubresourceLayers *subresource, bool is_bound)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    const struct vkd3d_format *format;
     VkImageMemoryBarrier barrier;
     VkPipelineStageFlags stages;
     VkAccessFlags access;
@@ -2032,11 +2031,7 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
         ERR("Unsupported resource flags %#x.\n", resource->desc.Flags);
         return;
     }
-
-    /* Transitioning only one aspect of a depth-stencil image is not allowed */
-    format = vkd3d_format_from_d3d12_resource_desc(list->device, &resource->desc, 0);
-
-    if (format->vk_aspect_mask != subresource->aspectMask)
+    if (resource->format->vk_aspect_mask != subresource->aspectMask)
         return;
 
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -2559,16 +2554,9 @@ static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkPipelineStageFlags dst_stage_mask = 0;
-    const struct vkd3d_format *format;
     VkImageMemoryBarrier barrier;
 
     assert(d3d12_resource_is_texture(resource));
-
-    if (!(format = vkd3d_format_from_d3d12_resource_desc(list->device, &resource->desc, 0)))
-    {
-        ERR("Resource %p has invalid format %#x.\n", resource, resource->desc.Format);
-        return;
-    }
 
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.pNext = NULL;
@@ -2580,7 +2568,7 @@ static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = resource->vk_image;
-    barrier.subresourceRange.aspectMask = format->vk_aspect_mask;
+    barrier.subresourceRange.aspectMask = resource->format->vk_aspect_mask;
     barrier.subresourceRange.baseMipLevel = 0;
     barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
     barrier.subresourceRange.baseArrayLayer = 0;
@@ -4266,18 +4254,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         assert(d3d12_resource_is_texture(dst_resource));
         assert(d3d12_resource_is_texture(src_resource));
 
-        if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(list->device,
-                &dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
-        {
-            WARN("Invalid format %#x.\n", dst_resource->desc.Format);
-            return;
-        }
-        if (!(src_format = vkd3d_format_from_d3d12_resource_desc(list->device,
-                &src_resource->desc, DXGI_FORMAT_UNKNOWN)))
-        {
-            WARN("Invalid format %#x.\n", src_resource->desc.Format);
-            return;
-        }
+        dst_format = dst_resource->format;
+        src_format = src_resource->format;
 
         if ((dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
                 && (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
@@ -4308,7 +4286,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *dst_resource, *src_resource;
-    const struct vkd3d_format *src_format, *dst_format;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkBufferCopy vk_buffer_copy;
     VkImageCopy vk_image_copy;
@@ -4340,19 +4317,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     }
     else
     {
-        if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(list->device,
-                &dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
-        {
-            WARN("Invalid format %#x.\n", dst_resource->desc.Format);
-            return;
-        }
-        if (!(src_format = vkd3d_format_from_d3d12_resource_desc(list->device,
-                &src_resource->desc, DXGI_FORMAT_UNKNOWN)))
-        {
-            WARN("Invalid format %#x.\n", src_resource->desc.Format);
-            return;
-        }
-
         layer_count = d3d12_resource_desc_get_layer_count(&dst_resource->desc);
 
         assert(d3d12_resource_is_texture(dst_resource));
@@ -4363,12 +4327,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
         for (i = 0; i < dst_resource->desc.MipLevels; ++i)
         {
             vk_image_copy_from_d3d12(&vk_image_copy, i, i,
-                    &src_resource->desc, &dst_resource->desc, src_format, dst_format, NULL, 0, 0, 0);
+                    &src_resource->desc, &dst_resource->desc, src_resource->format, dst_resource->format, NULL, 0, 0, 0);
             vk_image_copy.dstSubresource.layerCount = layer_count;
             vk_image_copy.srcSubresource.layerCount = layer_count;
 
-            d3d12_command_list_copy_image(list, dst_resource, dst_format,
-                    src_resource, src_format, &vk_image_copy);
+            d3d12_command_list_copy_image(list, dst_resource, dst_resource->format,
+                    src_resource, src_resource->format, &vk_image_copy);
         }
     }
 
@@ -4391,7 +4355,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
     struct d3d12_resource *tiled_res, *linear_res;
     VkImageMemoryBarrier vk_image_barrier;
     VkBufferImageCopy buffer_image_copy;
-    const struct vkd3d_format *format;
     VkImageLayout vk_image_layout;
     VkBufferCopy buffer_copy;
     bool copy_to_buffer;
@@ -4424,8 +4387,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
             return;
         }
 
-        format = vkd3d_format_from_d3d12_resource_desc(list->device, &tiled_res->desc, 0);
-
         vk_image_layout = d3d12_resource_pick_layout(tiled_res, copy_to_buffer
                 ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
@@ -4440,7 +4401,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
         vk_image_barrier.image = tiled_res->vk_image;
 
         /* The entire resource must be in the appropriate copy state */
-        vk_image_barrier.subresourceRange.aspectMask = format->vk_aspect_mask;
+        vk_image_barrier.subresourceRange.aspectMask = tiled_res->format->vk_aspect_mask;
         vk_image_barrier.subresourceRange.baseMipLevel = 0;
         vk_image_barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
         vk_image_barrier.subresourceRange.baseArrayLayer = 0;
@@ -4513,7 +4474,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
         ID3D12Resource *src, UINT src_sub_resource_idx, DXGI_FORMAT format)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_format *src_format, *dst_format, *vk_format;
+    const struct vkd3d_format *vk_format;
     struct d3d12_resource *dst_resource, *src_resource;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkImageMemoryBarrier vk_image_barriers[2];
@@ -4539,25 +4500,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
 
     d3d12_command_list_end_current_render_pass(list, false);
 
-    if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(device, &dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
-    {
-        WARN("Invalid format %#x.\n", dst_resource->desc.Format);
-        return;
-    }
-    if (!(src_format = vkd3d_format_from_d3d12_resource_desc(device, &src_resource->desc, DXGI_FORMAT_UNKNOWN)))
-    {
-        WARN("Invalid format %#x.\n", src_resource->desc.Format);
-        return;
-    }
-
-    if (dst_format->type == VKD3D_FORMAT_TYPE_TYPELESS || src_format->type == VKD3D_FORMAT_TYPE_TYPELESS)
+    if (dst_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS || src_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS)
     {
         if (!(vk_format = vkd3d_format_from_d3d12_resource_desc(device, &dst_resource->desc, format)))
         {
             WARN("Invalid format %#x.\n", format);
             return;
         }
-        if (dst_format->vk_format != src_format->vk_format || dst_format->vk_format != vk_format->vk_format)
+        if (dst_resource->format->vk_format != src_resource->format->vk_format || dst_resource->format->vk_format != vk_format->vk_format)
         {
             FIXME("Not implemented for typeless resources.\n");
             return;
@@ -4565,18 +4515,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     }
 
     /* Resolve of depth/stencil images is not supported in Vulkan. */
-    if ((dst_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
-            || (src_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
+    if ((dst_resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+            || (src_resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
     {
         FIXME("Resolve of depth/stencil images is not implemented yet.\n");
         return;
     }
 
     vk_image_subresource_layers_from_d3d12(&vk_image_resolve.srcSubresource,
-            src_format, src_sub_resource_idx, src_resource->desc.MipLevels);
+            src_resource->format, src_sub_resource_idx, src_resource->desc.MipLevels);
     memset(&vk_image_resolve.srcOffset, 0, sizeof(vk_image_resolve.srcOffset));
     vk_image_subresource_layers_from_d3d12(&vk_image_resolve.dstSubresource,
-            dst_format, dst_sub_resource_idx, dst_resource->desc.MipLevels);
+            dst_resource->format, dst_sub_resource_idx, dst_resource->desc.MipLevels);
     memset(&vk_image_resolve.dstOffset, 0, sizeof(vk_image_resolve.dstOffset));
     vk_extent_3d_from_d3d12_miplevel(&vk_image_resolve.extent,
             &dst_resource->desc, vk_image_resolve.dstSubresource.mipLevel);
@@ -4857,12 +4807,6 @@ static bool vk_image_memory_barrier_from_d3d12_transition(const struct d3d12_dev
 static void vk_image_memory_barrier_for_after_aliasing_barrier(struct d3d12_device *device,
         VkQueueFlags vk_queue_flags, struct d3d12_resource *after, VkImageMemoryBarrier *vk_barrier)
 {
-    const struct vkd3d_format *vk_format = vkd3d_get_format(device, after->desc.Format, false);
-
-    /* Shouldn't happen, but be defensive. */
-    if (!vk_format)
-        ERR("Aliasing barrier with invalid format? (#%u).\n", after->desc.Format);
-
     vk_barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     vk_barrier->pNext = NULL;
     vk_barrier->srcAccessMask = 0;
@@ -4872,7 +4816,7 @@ static void vk_image_memory_barrier_for_after_aliasing_barrier(struct d3d12_devi
     vk_barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     vk_barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     vk_barrier->image = after->vk_image;
-    vk_barrier->subresourceRange.aspectMask = vk_format ? vk_format->vk_aspect_mask : VK_IMAGE_ASPECT_COLOR_BIT;
+    vk_barrier->subresourceRange.aspectMask = after->format->vk_aspect_mask;
     vk_barrier->subresourceRange.baseMipLevel = 0;
     vk_barrier->subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
     vk_barrier->subresourceRange.baseArrayLayer = 0;

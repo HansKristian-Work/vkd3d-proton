@@ -1174,10 +1174,17 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     unsigned int i;
     VkResult vr;
 
-    if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
+    if (!resource)
     {
-        WARN("Invalid DXGI format %#x.\n", desc->Format);
-        return E_INVALIDARG;
+        if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
+        {
+            WARN("Invalid DXGI format %#x.\n", desc->Format);
+            return E_INVALIDARG;
+        }
+    }
+    else
+    {
+        format = resource->format;
     }
 
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -2040,8 +2047,6 @@ static bool d3d12_resource_validate_box(const struct d3d12_resource *resource,
         unsigned int sub_resource_idx, const D3D12_BOX *box)
 {
     unsigned int mip_level = sub_resource_idx % resource->desc.MipLevels;
-    struct d3d12_device *device = resource->device;
-    const struct vkd3d_format *vkd3d_format;
     uint32_t width_mask, height_mask;
     uint64_t width, height, depth;
 
@@ -2049,10 +2054,8 @@ static bool d3d12_resource_validate_box(const struct d3d12_resource *resource,
     height = d3d12_resource_desc_get_height(&resource->desc, mip_level);
     depth = d3d12_resource_desc_get_depth(&resource->desc, mip_level);
 
-    vkd3d_format = vkd3d_format_from_d3d12_resource_desc(device, &resource->desc, 0);
-    assert(vkd3d_format);
-    width_mask = vkd3d_format->block_width - 1;
-    height_mask = vkd3d_format->block_height - 1;
+    width_mask = resource->format->block_width - 1;
+    height_mask = resource->format->block_height - 1;
 
     return box->left <= width && box->right <= width
             && box->top <= height && box->bottom <= height
@@ -2357,7 +2360,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
     const struct vkd3d_vk_device_procs *vk_procs;
     VkImageSubresource vk_sub_resource;
-    const struct vkd3d_format *format;
     VkSubresourceLayout vk_layout;
     struct d3d12_device *device;
     uint8_t *dst_data;
@@ -2376,20 +2378,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
     device = resource->device;
     vk_procs = &device->vk_procs;
 
-    if (!(format = vkd3d_format_from_d3d12_resource_desc(device, &resource->desc, 0)))
+    if (resource->format->vk_aspect_mask != VK_IMAGE_ASPECT_COLOR_BIT)
     {
-        ERR("Invalid DXGI format %#x.\n", resource->desc.Format);
-        return E_INVALIDARG;
-    }
-    if (format->vk_aspect_mask != VK_IMAGE_ASPECT_COLOR_BIT)
-    {
-        FIXME("Not supported for format %#x.\n", format->dxgi_format);
+        FIXME("Not supported for format %#x.\n", resource->format->dxgi_format);
         return E_NOTIMPL;
     }
 
     vk_sub_resource.arrayLayer = dst_sub_resource / resource->desc.MipLevels;
     vk_sub_resource.mipLevel = dst_sub_resource % resource->desc.MipLevels;
-    vk_sub_resource.aspectMask = format->vk_aspect_mask;
+    vk_sub_resource.aspectMask = resource->format->vk_aspect_mask;
 
     if (!dst_box)
     {
@@ -2425,10 +2422,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
 
     d3d12_resource_get_map_ptr(resource, (void **)&dst_data);
 
-    dst_data += vk_layout.offset + vkd3d_format_get_data_offset(format, vk_layout.rowPitch,
+    dst_data += vk_layout.offset + vkd3d_format_get_data_offset(resource->format, vk_layout.rowPitch,
             vk_layout.depthPitch, dst_box->left, dst_box->top, dst_box->front);
 
-    vkd3d_format_copy_data(format, src_data, src_row_pitch, src_slice_pitch,
+    vkd3d_format_copy_data(resource->format, src_data, src_row_pitch, src_slice_pitch,
             dst_data, vk_layout.rowPitch, vk_layout.depthPitch, dst_box->right - dst_box->left,
             dst_box->bottom - dst_box->top, dst_box->back - dst_box->front);
 
@@ -2442,7 +2439,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
     const struct vkd3d_vk_device_procs *vk_procs;
     VkImageSubresource vk_sub_resource;
-    const struct vkd3d_format *format;
     VkSubresourceLayout vk_layout;
     struct d3d12_device *device;
     uint8_t *src_data;
@@ -2461,20 +2457,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
     device = resource->device;
     vk_procs = &device->vk_procs;
 
-    if (!(format = vkd3d_format_from_d3d12_resource_desc(device, &resource->desc, 0)))
+    if (resource->format->vk_aspect_mask != VK_IMAGE_ASPECT_COLOR_BIT)
     {
-        ERR("Invalid DXGI format %#x.\n", resource->desc.Format);
-        return E_INVALIDARG;
-    }
-    if (format->vk_aspect_mask != VK_IMAGE_ASPECT_COLOR_BIT)
-    {
-        FIXME("Not supported for format %#x.\n", format->dxgi_format);
+        FIXME("Not supported for format %#x.\n", resource->format->dxgi_format);
         return E_NOTIMPL;
     }
 
     vk_sub_resource.arrayLayer = src_sub_resource / resource->desc.MipLevels;
     vk_sub_resource.mipLevel = src_sub_resource % resource->desc.MipLevels;
-    vk_sub_resource.aspectMask = format->vk_aspect_mask;
+    vk_sub_resource.aspectMask = resource->format->vk_aspect_mask;
 
     if (!src_box)
     {
@@ -2510,10 +2501,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
 
     d3d12_resource_get_map_ptr(resource, (void **)&src_data);
 
-    src_data += vk_layout.offset + vkd3d_format_get_data_offset(format, vk_layout.rowPitch,
+    src_data += vk_layout.offset + vkd3d_format_get_data_offset(resource->format, vk_layout.rowPitch,
             vk_layout.depthPitch, src_box->left, src_box->top, src_box->front);
 
-    vkd3d_format_copy_data(format, src_data, vk_layout.rowPitch, vk_layout.depthPitch,
+    vkd3d_format_copy_data(resource->format, src_data, vk_layout.rowPitch, vk_layout.depthPitch,
             dst_data, dst_row_pitch, dst_slice_pitch, src_box->right - src_box->left,
             src_box->bottom - src_box->top, src_box->back - src_box->front);
 
@@ -2605,11 +2596,10 @@ struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface)
 
 VkImageSubresource d3d12_resource_get_vk_subresource(const struct d3d12_resource *resource, uint32_t subresource_idx, bool all_aspects)
 {
-    const struct vkd3d_format *format = vkd3d_format_from_d3d12_resource_desc(resource->device, &resource->desc, 0);
     uint32_t layer_count = d3d12_resource_desc_get_layer_count(&resource->desc);
     VkImageSubresource subresource;
 
-    subresource.aspectMask = format->vk_aspect_mask;
+    subresource.aspectMask = resource->format->vk_aspect_mask;
     subresource.mipLevel = subresource_idx % resource->desc.MipLevels;
     subresource.arrayLayer = (subresource_idx / resource->desc.MipLevels) % layer_count;
 
@@ -3095,6 +3085,8 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     if (FAILED(hr = d3d12_resource_validate_desc(&resource->desc, device)))
         return hr;
 
+    resource->format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0);
+
     switch (desc->Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
@@ -3374,6 +3366,8 @@ VKD3D_EXPORT HRESULT vkd3d_create_image_resource(ID3D12Device *device,
         object->present_state = create_info->present_state;
     else
         object->present_state = D3D12_RESOURCE_STATE_COMMON;
+
+    object->format = vkd3d_format_from_d3d12_resource_desc(d3d12_device, &create_info->desc, 0);
 
     if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
     {
