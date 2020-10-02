@@ -510,6 +510,8 @@ struct d3d12_resource
 
     struct d3d12_device *device;
 
+    const struct vkd3d_format *format;
+
     struct vkd3d_private_store private_store;
 };
 
