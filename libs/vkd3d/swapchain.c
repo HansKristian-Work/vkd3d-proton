@@ -529,8 +529,6 @@ static HRESULT d3d12_swapchain_set_fullscreen(struct d3d12_swapchain *swapchain,
     DXGI_OUTPUT_DESC output_desc;
     HRESULT hr;
 
-    TRACE("swapchain %p, swapchain_desc %p, mode %p.\n");
-
     if (swapchain->desc.Flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH)
     {
         if (!swapchain->fullscreen_desc.Windowed)
@@ -1174,7 +1172,6 @@ static HRESULT d3d12_swapchain_create_buffers(struct d3d12_swapchain *swapchain,
     VkSwapchainKHR vk_swapchain = swapchain->vk_swapchain;
     ID3D12CommandQueue *queue = &swapchain->command_queue->ID3D12CommandQueue_iface;
     VkDevice vk_device = d3d12_swapchain_device(swapchain)->vk_device;
-    ID3D12Device6* device = d3d12_swapchain_device_iface(swapchain);
     uint32_t image_count, queue_family_index;
     D3D12_COMMAND_QUEUE_DESC queue_desc;
     VkResult vr;
@@ -1301,7 +1298,7 @@ static void d3d12_swapchain_destroy_buffers(struct d3d12_swapchain *swapchain, B
     if (destroy_user_buffers)
         d3d12_swapchain_destroy_user_descriptors(swapchain);
 
-    if (swapchain->command_queue->device->vk_device)
+    if (swapchain->command_queue && swapchain->command_queue->device->vk_device)
     {
         for (i = 0; i < swapchain->buffer_count; ++i)
         {
