@@ -3518,3 +3518,30 @@ bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindle
 
     return false;
 }
+
+unsigned int vkd3d_bindless_state_find_set(const struct vkd3d_bindless_state *bindless_state,
+        D3D12_DESCRIPTOR_RANGE_TYPE range_type, enum vkd3d_shader_binding_flag binding_flag)
+{
+    D3D12_DESCRIPTOR_HEAP_TYPE heap_type;
+    unsigned int i, set_index = 0;
+
+    heap_type = range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER
+            ? D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER
+            : D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+
+    for (i = 0; i < bindless_state->set_count; i++)
+    {
+        const struct vkd3d_bindless_set_info *set_info = &bindless_state->set_info[i];
+
+        if (set_info->heap_type == heap_type)
+        {
+            if (set_info->range_type == range_type && set_info->binding_flag == binding_flag)
+                return set_index;
+
+            set_index++;
+        }
+    }
+
+    ERR("No set found for range type %u, flag %#x.", range_type, binding_flag);
+    return 0;
+}

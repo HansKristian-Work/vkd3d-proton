@@ -3499,7 +3499,8 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
             }
             else
             {
-                uint32_t set_index = d3d12_descriptor_heap_uav_counter_set_index();
+                uint32_t set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
+                        D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_COUNTER);
 
                 vk_copy = &vk_copies[copy_count++];
                 vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
@@ -3935,7 +3936,8 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
     vk_descriptor_type = vkd3d_bindless_state_get_cbv_descriptor_type(&device->bindless_state);
 
     descriptor->metadata.cookie = resource ? resource->cookie : 0;
-    descriptor->metadata.set_index = d3d12_descriptor_heap_cbv_set_index();
+    descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
+            D3D12_DESCRIPTOR_RANGE_TYPE_CBV, VKD3D_SHADER_BINDING_FLAG_BUFFER);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
     descriptor->info.buffer = descriptor_info.buffer;
 
@@ -4000,7 +4002,8 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
 
     descriptor->info.view = view;
     descriptor->metadata.cookie = view ? view->cookie : 0;
-    descriptor->metadata.set_index = d3d12_descriptor_heap_srv_set_index(true);
+    descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_BUFFER);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
     vkd3d_init_write_descriptor_set(&vk_write, descriptor, VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, &descriptor_info);
@@ -4157,7 +4160,8 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
 
     descriptor->info.view = view;
     descriptor->metadata.cookie = view ? view->cookie : 0;
-    descriptor->metadata.set_index = d3d12_descriptor_heap_srv_set_index(false);
+    descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_IMAGE);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
     vkd3d_init_write_descriptor_set(&vk_write, descriptor, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &descriptor_info);
@@ -4259,7 +4263,8 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
 
     descriptor->info.view = view;
     descriptor->metadata.cookie = view ? view->cookie : 0;
-    descriptor->metadata.set_index = d3d12_descriptor_heap_uav_set_index(true);
+    descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_BUFFER);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW | VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER;
 
     descriptor_info[vk_write_count].buffer_view = view ? view->vk_buffer_view : VK_NULL_HANDLE;
@@ -4302,7 +4307,8 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     }
     else
     {
-        uint32_t set_index = d3d12_descriptor_heap_uav_counter_set_index();
+        uint32_t set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_COUNTER);
 
         descriptor_info[vk_write_count].buffer_view = view ? view->vk_counter_view : VK_NULL_HANDLE;
         vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], descriptor,
@@ -4427,7 +4433,8 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
 
     descriptor->info.view = view;
     descriptor->metadata.cookie = view ? view->cookie : 0;
-    descriptor->metadata.set_index = d3d12_descriptor_heap_uav_set_index(false);
+    descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_IMAGE);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
     vkd3d_init_write_descriptor_set(&vk_write, descriptor, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, &descriptor_info);
@@ -4721,7 +4728,8 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
 
     sampler->info.view = view;
     sampler->metadata.cookie = view->cookie;
-    sampler->metadata.set_index = d3d12_descriptor_heap_sampler_set_index();
+    sampler->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
+            D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, VKD3D_SHADER_BINDING_FLAG_IMAGE);
     sampler->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
     descriptor_info.image.sampler = view->vk_sampler;
@@ -5341,7 +5349,7 @@ static HRESULT d3d12_descriptor_heap_create_uav_counter_buffer(struct d3d12_desc
 static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descriptor_heap,
         struct d3d12_device *device, const D3D12_DESCRIPTOR_HEAP_DESC *desc)
 {
-    unsigned int i;
+    unsigned int i, set_index = 0;
     HRESULT hr;
 
     memset(descriptor_heap, 0, sizeof(*descriptor_heap));
@@ -5363,10 +5371,8 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
 
             if (set_info->heap_type == desc->Type)
             {
-                unsigned int set_index = d3d12_descriptor_heap_set_index_from_binding(set_info);
-
                 if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_set(descriptor_heap,
-                        set_info, &descriptor_heap->vk_descriptor_sets[set_index])))
+                        set_info, &descriptor_heap->vk_descriptor_sets[set_index++])))
                     goto fail;
             }
         }
@@ -5487,31 +5493,6 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
     VK_CALL(vkFreeMemory(device->vk_device, descriptor_heap->uav_counters.vk_memory, NULL));
 
     VK_CALL(vkDestroyDescriptorPool(device->vk_device, descriptor_heap->vk_descriptor_pool, NULL));
-}
-
-unsigned int d3d12_descriptor_heap_set_index_from_binding(const struct vkd3d_bindless_set_info *set)
-{
-    switch (set->range_type)
-    {
-        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
-            return d3d12_descriptor_heap_sampler_set_index();
-
-        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
-            return d3d12_descriptor_heap_cbv_set_index();
-
-        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
-            return d3d12_descriptor_heap_srv_set_index(
-                    set->binding_flag & VKD3D_SHADER_BINDING_FLAG_BUFFER);
-
-        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-            return set->binding_flag & VKD3D_SHADER_BINDING_FLAG_COUNTER
-                    ? d3d12_descriptor_heap_uav_counter_set_index()
-                    : d3d12_descriptor_heap_uav_set_index(set->binding_flag & VKD3D_SHADER_BINDING_FLAG_BUFFER);
-
-        default:
-            WARN("Unhandled descriptor range type %d.\n", set->range_type);
-            return 0;
-    }
 }
 
 /* ID3D12QueryHeap */
