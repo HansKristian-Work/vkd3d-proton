@@ -3466,8 +3466,8 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
                 (metadata.flags & VKD3D_DESCRIPTOR_FLAG_VIEW) == 0)
         {
             needs_update =
-                    dst->info.vk_cbv_info.offset != src->info.vk_cbv_info.offset ||
-                    dst->info.vk_cbv_info.range != src->info.vk_cbv_info.range;
+                    dst->info.buffer.offset != src->info.buffer.offset ||
+                    dst->info.buffer.range != src->info.buffer.range;
         }
     }
 
@@ -3937,7 +3937,7 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
     descriptor->metadata.cookie = resource ? resource->cookie : 0;
     descriptor->metadata.set_index = d3d12_descriptor_heap_cbv_set_index();
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
-    descriptor->info.vk_cbv_info = descriptor_info.buffer;
+    descriptor->info.buffer = descriptor_info.buffer;
 
     vkd3d_init_write_descriptor_set(&vk_write, descriptor, vk_descriptor_type, &descriptor_info);
     VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
