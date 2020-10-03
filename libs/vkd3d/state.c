@@ -211,25 +211,6 @@ static enum vkd3d_shader_visibility vkd3d_shader_visibility_from_d3d12(D3D12_SHA
     }
 }
 
-static VkDescriptorType vk_descriptor_type_from_d3d12_range_type(const struct vkd3d_bindless_state *bindless_state,
-        D3D12_DESCRIPTOR_RANGE_TYPE type, bool is_buffer)
-{
-    switch (type)
-    {
-        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
-            return is_buffer ? VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-            return is_buffer ? VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
-            return vkd3d_bindless_state_get_cbv_descriptor_type(bindless_state);
-        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
-            return VK_DESCRIPTOR_TYPE_SAMPLER;
-        default:
-            FIXME("Unhandled descriptor range type type %#x.\n", type);
-            return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    }
-}
-
 static VkDescriptorType vk_descriptor_type_from_d3d12_root_parameter(D3D12_ROOT_PARAMETER_TYPE type)
 {
     switch (type)
@@ -3335,7 +3316,7 @@ static uint32_t d3d12_max_host_descriptor_count_from_range_type(struct d3d12_dev
 
 static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device, D3D12_DESCRIPTOR_RANGE_TYPE range_type,
-        enum vkd3d_shader_binding_flag binding_flag)
+        enum vkd3d_shader_binding_flag binding_flag, VkDescriptorType vk_descriptor_type)
 {
     struct vkd3d_bindless_set_info *set_info = &bindless_state->set_info[bindless_state->set_count++];
     VkDescriptorSetLayoutBindingFlagsCreateInfoEXT vk_binding_flags_info;
@@ -3345,8 +3326,7 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     VkDescriptorBindingFlagsEXT vk_binding_flags;
     VkResult vr;
 
-    set_info->vk_descriptor_type = vk_descriptor_type_from_d3d12_range_type(bindless_state,
-            range_type, !!(binding_flag & (VKD3D_SHADER_BINDING_FLAG_BUFFER | VKD3D_SHADER_BINDING_FLAG_COUNTER)));
+    set_info->vk_descriptor_type = vk_descriptor_type;
     set_info->heap_type = d3d12_descriptor_heap_type_from_range_type(range_type);
     set_info->range_type = range_type;
     set_info->binding_flag = binding_flag;
@@ -3452,29 +3432,36 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
     }
 
     if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-            D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
+            D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, VKD3D_SHADER_BINDING_FLAG_IMAGE,
+            VK_DESCRIPTOR_TYPE_SAMPLER)))
         goto fail;
 
     if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-            D3D12_DESCRIPTOR_RANGE_TYPE_CBV, VKD3D_SHADER_BINDING_FLAG_BUFFER)))
+            D3D12_DESCRIPTOR_RANGE_TYPE_CBV, VKD3D_SHADER_BINDING_FLAG_BUFFER,
+            vkd3d_bindless_state_get_cbv_descriptor_type(bindless_state))))
         goto fail;
 
     if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-            D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_BUFFER)) ||
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_BUFFER,
+            VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER)) ||
         FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-            D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_IMAGE,
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)))
         goto fail;
 
     if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-            D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_BUFFER)) ||
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)) ||
         FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-            D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_IMAGE)))
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_IMAGE,
+            VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)))
         goto fail;
 
     if (!(bindless_state->flags & VKD3D_RAW_VA_UAV_COUNTER))
     {
         if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_COUNTER)))
+                D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_COUNTER,
+                VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)))
             goto fail;
     }
 
