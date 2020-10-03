@@ -652,7 +652,7 @@ struct d3d12_desc
     uint32_t heap_offset;
     union
     {
-        VkDescriptorBufferInfo vk_cbv_info;
+        VkDescriptorBufferInfo buffer;
         struct vkd3d_view *view;
     } info;
 };
