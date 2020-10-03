@@ -756,38 +756,10 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
 void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap);
 struct d3d12_descriptor_heap *unsafe_impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface);
 
-static inline unsigned int d3d12_descriptor_heap_sampler_set_index()
-{
-    return 0;
-}
-
-static inline unsigned int d3d12_descriptor_heap_cbv_set_index()
-{
-    return 0;
-}
-
-static inline unsigned int d3d12_descriptor_heap_srv_set_index(bool is_buffer)
-{
-    return 1 + (is_buffer ? 0 : 1);
-}
-
-static inline unsigned int d3d12_descriptor_heap_uav_set_index(bool is_buffer)
-{
-    return 3 + (is_buffer ? 0 : 1);
-}
-
-static inline unsigned int d3d12_descriptor_heap_uav_counter_set_index()
-{
-    return 5;
-}
-
 static inline uint32_t d3d12_desc_heap_offset(const struct d3d12_desc *dst)
 {
     return dst->heap_offset;
 }
-
-unsigned int d3d12_descriptor_heap_set_index_from_binding(const struct vkd3d_bindless_set_info *set);
-unsigned int d3d12_descriptor_heap_set_index_from_magic(uint32_t magic, bool is_buffer);
 
 /* ID3D12QueryHeap */
 struct d3d12_query_heap
@@ -1626,6 +1598,8 @@ void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
 bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindless_state,
         D3D12_DESCRIPTOR_RANGE_TYPE range_type, enum vkd3d_shader_binding_flag binding_flag,
         struct vkd3d_shader_descriptor_binding *binding);
+unsigned int vkd3d_bindless_state_find_set(const struct vkd3d_bindless_state *bindless_state,
+        D3D12_DESCRIPTOR_RANGE_TYPE range_type, enum vkd3d_shader_binding_flag binding_flag);
 
 static inline VkDescriptorType vkd3d_bindless_state_get_cbv_descriptor_type(const struct vkd3d_bindless_state *bindless_state)
 {

@@ -5113,14 +5113,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_comman
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct vkd3d_bindless_state *bindless_state = &list->device->bindless_state;
     bool dirty_uav_counters = false;
-    unsigned int i, j, set_index;
     uint64_t dirty_mask = 0;
+    unsigned int i, j;
 
     TRACE("iface %p, heap_count %u, heaps %p.\n", iface, heap_count, heaps);
 
     for (i = 0; i < heap_count; i++)
     {
         struct d3d12_descriptor_heap *heap = unsafe_impl_from_ID3D12DescriptorHeap(heaps[i]);
+        unsigned int set_index = 0;
 
         if (!heap)
             continue;
@@ -5130,8 +5131,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_comman
             if (bindless_state->set_info[j].heap_type != heap->desc.Type)
                 continue;
 
-            set_index = d3d12_descriptor_heap_set_index_from_binding(&bindless_state->set_info[j]);
-            list->descriptor_heaps[j] = heap->vk_descriptor_sets[set_index];
+            list->descriptor_heaps[j] = heap->vk_descriptor_sets[set_index++];
             dirty_mask |= 1ull << j;
         }
 
