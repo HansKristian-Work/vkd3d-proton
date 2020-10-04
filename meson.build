@@ -93,8 +93,8 @@ endif
 
 vkd3d_version = vcs_tag(
   command : ['git', 'describe', '--always', '--dirty=+'],
-  input   : 'vkd3d_version.c.in',
-  output  : 'vkd3d_version.c')
+  input   : 'vkd3d_version.h.in',
+  output  : 'vkd3d_version.h')
 
 dxil_spirv = subproject('dxil-spirv')
 dxil_spirv_dep = dxil_spirv.get_variable('dxil_spirv_dep')

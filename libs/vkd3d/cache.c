@@ -36,14 +36,13 @@ static VkResult vkd3d_create_pipeline_cache(struct d3d12_device *device,
 }
 
 #define VKD3D_CACHE_BLOB_VERSION MAKE_MAGIC('V','K','B',1)
-#define VKD3D_CACHE_BUILD_SIZE 8
 
 struct vkd3d_pipeline_blob
 {
     uint32_t version;
     uint32_t vendor_id;
     uint32_t device_id;
-    char vkd3d_build[VKD3D_CACHE_BUILD_SIZE];
+    char vkd3d_build[VKD3D_BUILD_SIZE];
     uint8_t cache_uuid[VK_UUID_SIZE];
     uint8_t vk_blob[];
 };
@@ -71,7 +70,7 @@ HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
 
     /* Check the vkd3d build since the shader compiler itself may change,
      * and the driver since that will affect the generated pipeline cache */
-    if (strncmp(blob->vkd3d_build, vkd3d_build, VKD3D_CACHE_BUILD_SIZE) ||
+    if (strncmp(blob->vkd3d_build, vkd3d_build, VKD3D_BUILD_SIZE) ||
             memcmp(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE))
         return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
 
@@ -107,7 +106,7 @@ VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state
         blob->version = VKD3D_CACHE_BLOB_VERSION;
         blob->vendor_id = device_properties->vendorID;
         blob->device_id = device_properties->deviceID;
-        strncpy(blob->vkd3d_build, vkd3d_build, VKD3D_CACHE_BUILD_SIZE);
+        strncpy(blob->vkd3d_build, vkd3d_build, VKD3D_BUILD_SIZE);
         memcpy(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE);
 
         if (state->vk_pso_cache)
@@ -182,7 +181,7 @@ struct vkd3d_serialized_pipeline_library
     uint32_t vendor_id;
     uint32_t device_id;
     uint32_t pipeline_count;
-    char vkd3d_build[VKD3D_CACHE_BUILD_SIZE];
+    char vkd3d_build[VKD3D_BUILD_SIZE];
     uint8_t cache_uuid[VK_UUID_SIZE];
     uint8_t data[];
 };
@@ -551,7 +550,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_Serialize(d3d12_pipeline
     header->vendor_id = device_properties->vendorID;
     header->device_id = device_properties->deviceID;
     header->pipeline_count = pipeline_library->map.used_count;
-    strncpy(header->vkd3d_build, vkd3d_build, VKD3D_CACHE_BUILD_SIZE);
+    strncpy(header->vkd3d_build, vkd3d_build, VKD3D_BUILD_SIZE);
     memcpy(header->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE);
 
     for (i = 0; i < pipeline_library->map.entry_count; i++)
@@ -643,7 +642,7 @@ static HRESULT d3d12_pipeline_library_read_blob(struct d3d12_pipeline_library *p
     if (header->device_id != device_properties->deviceID || header->vendor_id != device_properties->vendorID)
         return D3D12_ERROR_ADAPTER_NOT_FOUND;
 
-    if (strncmp(header->vkd3d_build, vkd3d_build, VKD3D_CACHE_BUILD_SIZE) ||
+    if (strncmp(header->vkd3d_build, vkd3d_build, VKD3D_BUILD_SIZE) ||
             memcmp(header->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE))
         return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
 
