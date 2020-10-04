@@ -71,6 +71,11 @@ function build_arch {
   fi
 }
 
+function build_script {
+  cp "$VKD3D_SRC_DIR/setup_vkd3d.sh" "$VKD3D_BUILD_DIR/setup_vkd3d.sh"
+  chmod +x "$VKD3D_BUILD_DIR/setup_vkd3d.sh"
+}
+
 function package {
   cd "$VKD3D_BUILD_DIR/.."
   tar -caf "$VKD3D_ARCHIVE_PATH" "vkd3d-$VKD3D_VERSION"
@@ -80,6 +85,7 @@ function package {
 if [ $opt_native -eq 0 ]; then
   build_arch 64 "--cross-file build-win64.txt -Denable_standalone_d3d12=True"
   build_arch 86 "--cross-file build-win32.txt -Denable_standalone_d3d12=True"
+  build_script
 else
   build_arch 64
   build_arch 86 "--cross-file x86-linux-gnu"
