@@ -107,6 +107,7 @@ VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state
         blob->vendor_id = device_properties->vendorID;
         blob->device_id = device_properties->deviceID;
         strncpy(blob->vkd3d_build, vkd3d_build, VKD3D_BUILD_SIZE);
+        blob->vkd3d_build[VKD3D_BUILD_MAX_LENGTH] = '\0';
         memcpy(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE);
 
         if (state->vk_pso_cache)
@@ -551,6 +552,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_Serialize(d3d12_pipeline
     header->device_id = device_properties->deviceID;
     header->pipeline_count = pipeline_library->map.used_count;
     strncpy(header->vkd3d_build, vkd3d_build, VKD3D_BUILD_SIZE);
+    header->vkd3d_build[VKD3D_BUILD_MAX_LENGTH] = '\0';
     memcpy(header->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE);
 
     for (i = 0; i < pipeline_library->map.entry_count; i++)

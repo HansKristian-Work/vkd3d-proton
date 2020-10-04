@@ -1,3 +1,4 @@
 #define VKD3D_BUILD_SIZE 8
+#define VKD3D_BUILD_MAX_LENGTH (VKD3D_BUILD_SIZE - 1)
 
 static const char vkd3d_build[VKD3D_BUILD_SIZE] = "@VCS_TAG@";
