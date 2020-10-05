@@ -412,7 +412,7 @@ static HRESULT d3d12_swapchain_set_display_mode(struct d3d12_swapchain *swapchai
         }
     }
 
-    if (FAILED(hr = d3d12_output_set_display_mode(output, mode)))
+    if (FAILED(hr = d3d12_output_set_display_mode(output, &matching_mode)))
     {
         WARN("Failed to set display mode, hr %#x.\n", hr);
         return DXGI_ERROR_INVALID_CALL;
