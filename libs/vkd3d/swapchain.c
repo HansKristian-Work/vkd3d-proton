@@ -385,6 +385,12 @@ static HRESULT d3d12_swapchain_set_display_mode(struct d3d12_swapchain *swapchai
 {
     DXGI_MODE_DESC matching_mode;
     HRESULT hr;
+
+    /* Workaround. FindClosestMatchingMode can take UNKNOWN format, but neither Wine nor DXVK DXGI seems to like it.
+     * Just opt for existing format to workaround the issue. */
+    if (mode->Format == DXGI_FORMAT_UNKNOWN)
+        mode->Format = swapchain->desc.Format;
+
     if (FAILED(hr = IDXGIOutput_FindClosestMatchingMode(output, mode, &matching_mode, NULL)))
     {
         WARN("Failed to find closest matching mode, hr %#x.\n", hr);
