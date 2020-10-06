@@ -1047,7 +1047,7 @@ static HRESULT d3d12_swapchain_create_buffers(struct d3d12_swapchain *swapchain,
     resource_info.desc.SampleDesc.Quality = 0;
     resource_info.desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     resource_info.desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-    resource_info.flags = VKD3D_RESOURCE_INITIAL_STATE_TRANSITION | VKD3D_RESOURCE_PRESENT_STATE_TRANSITION;
+    resource_info.flags = VKD3D_RESOURCE_PRESENT_STATE_TRANSITION;
 
     queue_desc = ID3D12CommandQueue_GetDesc(queue);
     if (queue_desc.Type != D3D12_COMMAND_LIST_TYPE_DIRECT)

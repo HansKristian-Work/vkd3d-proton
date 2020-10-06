@@ -428,7 +428,7 @@ bool d3d12_heap_needs_host_barrier_for_write(struct d3d12_heap *heap);
 struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface);
 
 #define VKD3D_RESOURCE_PUBLIC_FLAGS \
-        (VKD3D_RESOURCE_INITIAL_STATE_TRANSITION | VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)
+        (VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)
 #define VKD3D_RESOURCE_EXTERNAL       0x00000004
 #define VKD3D_RESOURCE_DEDICATED_HEAP 0x00000008
 #define VKD3D_RESOURCE_LINEAR_TILING  0x00000010
@@ -496,13 +496,17 @@ struct d3d12_resource
         VkBuffer vk_buffer;
         VkImage vk_image;
     };
-    unsigned int flags;
 
     struct d3d12_heap *heap;
     uint64_t heap_offset;
 
+    uint32_t flags;
+
+    /* To keep track of initial layout. */
     VkImageLayout common_layout;
-    D3D12_RESOURCE_STATES initial_state;
+    uint32_t initial_layout_transition;
+
+    /* Legacy, to be removed. */
     D3D12_RESOURCE_STATES present_state;
 
     struct d3d12_sparse_info sparse;
@@ -1267,6 +1271,12 @@ struct vkd3d_clear_state
     struct vkd3d_clear_attachment attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
 };
 
+struct d3d12_resource_initial_transition
+{
+    struct d3d12_resource *resource;
+    bool perform_initial_transition;
+};
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
@@ -1326,6 +1336,10 @@ struct d3d12_command_list
     struct d3d12_deferred_descriptor_set_update *descriptor_updates;
     size_t descriptor_updates_size;
     size_t descriptor_updates_count;
+
+    struct d3d12_resource_initial_transition *resource_init_transitions;
+    size_t resource_init_transitions_size;
+    size_t resource_init_transitions_count;
 
     LONG *outstanding_submissions_count;
 
@@ -1396,6 +1410,10 @@ struct d3d12_command_queue_submission_execute
     VkCommandBuffer *cmd;
     LONG **outstanding_submissions_count;
     UINT count;
+
+    struct d3d12_resource_initial_transition *transitions;
+    size_t transition_count;
+
     bool debug_capture;
 };
 

@@ -151,7 +151,6 @@ struct vkd3d_optional_device_extensions_info
 };
 
 /* vkd3d_image_resource_create_info flags */
-#define VKD3D_RESOURCE_INITIAL_STATE_TRANSITION 0x00000001
 #define VKD3D_RESOURCE_PRESENT_STATE_TRANSITION 0x00000002
 
 struct vkd3d_image_resource_create_info
