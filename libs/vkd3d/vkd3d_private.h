@@ -2108,4 +2108,17 @@ VkDeviceAddress vkd3d_get_buffer_device_address(struct d3d12_device *device, VkB
 
 #define VKD3D_NULL_BUFFER_SIZE 16
 
+struct vkd3d_view_key
+{
+    enum vkd3d_view_type view_type;
+    union
+    {
+        struct vkd3d_buffer_view_desc buffer;
+        struct vkd3d_texture_view_desc texture;
+        D3D12_SAMPLER_DESC sampler;
+    } u;
+};
+struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
+        struct d3d12_device *device, const struct vkd3d_view_key *key);
+
 #endif  /* __VKD3D_PRIVATE_H */
