@@ -1418,17 +1418,6 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     return hr;
 }
 
-struct vkd3d_view_key
-{
-    enum vkd3d_view_type view_type;
-    union
-    {
-        struct vkd3d_buffer_view_desc buffer;
-        struct vkd3d_texture_view_desc texture;
-        D3D12_SAMPLER_DESC sampler;
-    } u;
-};
-
 struct vkd3d_view_entry
 {
     struct hash_map_entry entry;
@@ -1585,7 +1574,7 @@ static struct vkd3d_view *vkd3d_view_create(enum vkd3d_view_type type);
 static HRESULT d3d12_create_sampler(struct d3d12_device *device,
         const D3D12_SAMPLER_DESC *desc, VkSampler *vk_sampler);
 
-static struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
+struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
         struct d3d12_device *device, const struct vkd3d_view_key *key)
 {
     struct vkd3d_view_entry entry, *e;
