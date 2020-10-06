@@ -3063,6 +3063,7 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
 
     resource->gpu_address = 0;
     resource->flags = 0;
+    resource->initial_layout_transition = 0;
     resource->common_layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     if (placed && d3d12_resource_is_buffer(resource))
@@ -3104,7 +3105,7 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
         case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
             if (!resource->desc.MipLevels)
                 resource->desc.MipLevels = max_miplevel_count(desc);
-            resource->flags |= VKD3D_RESOURCE_INITIAL_STATE_TRANSITION;
+            resource->initial_layout_transition = 1;
             if (FAILED(hr = vkd3d_create_image(device, heap_properties, heap_flags,
                     &resource->desc, resource, &resource->vk_image)))
                 return hr;
@@ -3114,8 +3115,6 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
             WARN("Invalid resource dimension %#x.\n", resource->desc.Dimension);
             return E_INVALIDARG;
     }
-
-    resource->initial_state = initial_state;
 
     if (FAILED(hr = d3d12_resource_init_sparse_info(resource, device, &resource->sparse)))
     {
@@ -3342,7 +3341,7 @@ VKD3D_EXPORT HRESULT vkd3d_create_image_resource(ID3D12Device *device,
     object->vk_image = create_info->vk_image;
     object->flags = VKD3D_RESOURCE_EXTERNAL;
     object->flags |= create_info->flags & VKD3D_RESOURCE_PUBLIC_FLAGS;
-    object->initial_state = D3D12_RESOURCE_STATE_COMMON;
+    object->initial_layout_transition = 1;
     object->common_layout = vk_common_image_layout_from_d3d12_desc(&object->desc);
 
     memset(&object->sparse, 0, sizeof(object->sparse));

@@ -2559,52 +2559,52 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
         FIXME("Unhandled resource state %#x.\n", unhandled_state);
 }
 
-static void d3d12_command_list_transition_resource_to_initial_state(struct d3d12_command_list *list,
-        struct d3d12_resource *resource)
+static void d3d12_command_list_add_initial_resource(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, bool perform_initial_transition)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkPipelineStageFlags dst_stage_mask = 0;
-    VkImageMemoryBarrier barrier;
+    struct d3d12_resource_initial_transition *initial;
+    size_t i;
 
-    assert(d3d12_resource_is_texture(resource));
+    /* Search in reverse as we're more likely to use same resource again. */
+    for (i = list->resource_init_transitions_count; i; i--)
+        if (list->resource_init_transitions[i - 1].resource == resource)
+            return;
 
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.pNext = NULL;
-    barrier.srcAccessMask = 0;
-    barrier.dstAccessMask = 0;
-    barrier.oldLayout = d3d12_resource_is_cpu_accessible(resource)
-            ? VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = resource->common_layout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = resource->vk_image;
-    barrier.subresourceRange.aspectMask = resource->format->vk_aspect_mask;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+    if (!vkd3d_array_reserve((void**)&list->resource_init_transitions, &list->resource_init_transitions_size,
+            list->resource_init_transitions_count + 1, sizeof(*list->resource_init_transitions)))
+    {
+        ERR("Failed to allocate memory.\n");
+        return;
+    }
 
-    vk_access_and_stage_flags_from_d3d12_resource_state(list->device, resource,
-            resource->initial_state, list->vk_queue_flags, &dst_stage_mask, &barrier.dstAccessMask);
+    initial = &list->resource_init_transitions[list->resource_init_transitions_count++];
+    initial->resource = resource;
+    initial->perform_initial_transition = perform_initial_transition;
 
-    TRACE("Initial state %#x transition for resource %p (old layout %#x, new layout %#x).\n",
-            resource->initial_state, resource, barrier.oldLayout, barrier.newLayout);
-
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, dst_stage_mask,
-            0, 0, NULL, 0, NULL, 1, &barrier));
+    TRACE("Adding initial resource transition for resource %p (%s).\n",
+          resource, perform_initial_transition ? "yes" : "no");
 }
 
 static void d3d12_command_list_track_resource_usage(struct d3d12_command_list *list,
         struct d3d12_resource *resource)
 {
-    if (resource->flags & VKD3D_RESOURCE_INITIAL_STATE_TRANSITION)
-    {
-        d3d12_command_list_end_current_render_pass(list, true);
+    /* When a command queue has confirmed that it has received a command list for submission, this flag will eventually
+     * be cleared. The command queue will only perform the transition once.
+     * Until that point, we must keep submitting initial transitions like this. */
+    uint32_t transition = vkd3d_atomic_uint32_load_explicit(&resource->initial_layout_transition, vkd3d_memory_order_relaxed);
+    if (transition)
+        d3d12_command_list_add_initial_resource(list, resource, true);
+}
 
-        d3d12_command_list_transition_resource_to_initial_state(list, resource);
-        resource->flags &= ~VKD3D_RESOURCE_INITIAL_STATE_TRANSITION;
-    }
+/* Called if we observe that the resource will be transitioned away from UNDEFINED explicitly,
+ * through either an aliasing barrier or Discard/Clear/Copy that touches the entire resource.
+ * In this case, we will simply clear the initial layout flag on submission, but not perform any barrier. */
+static void d3d12_command_list_track_resource_usage_skip_initial_transition(struct d3d12_command_list *list,
+        struct d3d12_resource *resource)
+{
+    uint32_t transition = vkd3d_atomic_uint32_load_explicit(&resource->initial_layout_transition, vkd3d_memory_order_relaxed);
+    if (transition)
+        d3d12_command_list_add_initial_resource(list, resource, false);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_iface *iface,
@@ -2661,6 +2661,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_ifa
         if (list->allocator)
             d3d12_command_allocator_free_command_buffer(list->allocator, list);
 
+        vkd3d_free(list->resource_init_transitions);
         vkd3d_free(list);
 
         d3d12_device_release(device);
@@ -2841,6 +2842,8 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 
     memset(list->so_counter_buffers, 0, sizeof(list->so_counter_buffers));
     memset(list->so_counter_buffer_offsets, 0, sizeof(list->so_counter_buffer_offsets));
+
+    list->resource_init_transitions_count = 0;
 
     ID3D12GraphicsCommandList_SetPipelineState(iface, initial_pipeline_state);
 }
@@ -4172,7 +4175,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
     dst_resource = unsafe_impl_from_ID3D12Resource(dst->pResource);
     src_resource = unsafe_impl_from_ID3D12Resource(src->pResource);
 
-    d3d12_command_list_track_resource_usage(list, dst_resource);
     d3d12_command_list_track_resource_usage(list, src_resource);
 
     d3d12_command_list_end_current_render_pass(list, false);
@@ -4180,6 +4182,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
     if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
             && dst->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
     {
+        d3d12_command_list_track_resource_usage(list, dst_resource);
         assert(d3d12_resource_is_buffer(dst_resource));
         assert(d3d12_resource_is_texture(src_resource));
 
@@ -4251,6 +4254,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
                 &buffer_image_copy.imageExtent, &buffer_image_copy.imageSubresource);
 
+        if (writes_full_subresource)
+            d3d12_command_list_track_resource_usage_skip_initial_transition(list, dst_resource);
+        else
+            d3d12_command_list_track_resource_usage(list, dst_resource);
+
         d3d12_command_list_transition_image_layout(list, dst_resource->vk_image,
                 &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
                 0, writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout,
@@ -4289,6 +4297,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
                 &image_copy.extent, &image_copy.dstSubresource);
 
+        if (writes_full_subresource)
+            d3d12_command_list_track_resource_usage_skip_initial_transition(list, dst_resource);
+        else
+            d3d12_command_list_track_resource_usage(list, dst_resource);
+
         d3d12_command_list_copy_image(list, dst_resource, dst_format,
                 src_resource, src_format, &image_copy, writes_full_subresource);
     }
@@ -4320,7 +4333,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     dst_resource = unsafe_impl_from_ID3D12Resource(dst);
     src_resource = unsafe_impl_from_ID3D12Resource(src);
 
-    d3d12_command_list_track_resource_usage(list, dst_resource);
+    d3d12_command_list_track_resource_usage_skip_initial_transition(list, dst_resource);
     d3d12_command_list_track_resource_usage(list, src_resource);
 
     d3d12_command_list_end_current_render_pass(list, false);
@@ -4518,9 +4531,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     assert(d3d12_resource_is_texture(dst_resource));
     assert(d3d12_resource_is_texture(src_resource));
 
-    d3d12_command_list_track_resource_usage(list, dst_resource);
-    d3d12_command_list_track_resource_usage(list, src_resource);
-
     d3d12_command_list_end_current_render_pass(list, false);
 
     if (dst_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS || src_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS)
@@ -4567,6 +4577,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
 
     writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
             &vk_image_resolve.extent, &vk_image_resolve.dstSubresource);
+
+    if (writes_full_subresource)
+        d3d12_command_list_track_resource_usage_skip_initial_transition(list, dst_resource);
+    else
+        d3d12_command_list_track_resource_usage(list, dst_resource);
+    d3d12_command_list_track_resource_usage(list, src_resource);
 
     vk_image_barriers[0].srcAccessMask = 0;
     vk_image_barriers[0].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -4894,7 +4910,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
     for (i = 0; i < barrier_count; ++i)
     {
         const D3D12_RESOURCE_BARRIER *current = &barriers[i];
-        struct d3d12_resource *resource = NULL;
+        struct d3d12_resource *preserve_resource = NULL;
+        struct d3d12_resource *discard_resource = NULL;
 
         have_split_barriers = have_split_barriers
                 || (current->Flags & D3D12_RESOURCE_BARRIER_FLAG_BEGIN_ONLY)
@@ -4923,14 +4940,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     continue;
                 }
 
-                if (!(resource = unsafe_impl_from_ID3D12Resource(transition->pResource)))
+                if (!(preserve_resource = unsafe_impl_from_ID3D12Resource(transition->pResource)))
                 {
                     d3d12_command_list_mark_as_invalid(list, "A resource pointer is NULL.");
                     continue;
                 }
 
-                if (resource->flags & VKD3D_RESOURCE_PRESENT_STATE_TRANSITION &&
-                        vk_image_memory_barrier_from_d3d12_transition(list->device, resource, transition,
+                if (preserve_resource->flags & VKD3D_RESOURCE_PRESENT_STATE_TRANSITION &&
+                        vk_image_memory_barrier_from_d3d12_transition(list->device, preserve_resource, transition,
                                  list->vk_queue_flags, &vk_image_barrier, &src_image_stage_mask, &dst_image_stage_mask))
                 {
                     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
@@ -4939,32 +4956,32 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 }
                 else
                 {
-                    vk_access_and_stage_flags_from_d3d12_resource_state(list->device, resource,
+                    vk_access_and_stage_flags_from_d3d12_resource_state(list->device, preserve_resource,
                             transition->StateBefore, list->vk_queue_flags, &src_stage_mask,
                             &vk_memory_barrier.srcAccessMask);
-                    vk_access_and_stage_flags_from_d3d12_resource_state(list->device, resource,
+                    vk_access_and_stage_flags_from_d3d12_resource_state(list->device, preserve_resource,
                             transition->StateAfter, list->vk_queue_flags, &dst_stage_mask,
                             &vk_memory_barrier.dstAccessMask);
                 }
 
                 TRACE("Transition barrier (resource %p, subresource %#x, before %#x, after %#x).\n",
-                        resource, transition->Subresource, transition->StateBefore, transition->StateAfter);
+                        preserve_resource, transition->Subresource, transition->StateBefore, transition->StateAfter);
                 break;
             }
 
             case D3D12_RESOURCE_BARRIER_TYPE_UAV:
             {
                 const D3D12_RESOURCE_UAV_BARRIER *uav = &current->UAV;
-                resource = unsafe_impl_from_ID3D12Resource(uav->pResource);
+                preserve_resource = unsafe_impl_from_ID3D12Resource(uav->pResource);
 
-                vk_access_and_stage_flags_from_d3d12_resource_state(list->device, resource,
+                vk_access_and_stage_flags_from_d3d12_resource_state(list->device, preserve_resource,
                         D3D12_RESOURCE_STATE_UNORDERED_ACCESS, list->vk_queue_flags, &src_stage_mask,
                         &vk_memory_barrier.srcAccessMask);
-                vk_access_and_stage_flags_from_d3d12_resource_state(list->device, resource,
+                vk_access_and_stage_flags_from_d3d12_resource_state(list->device, preserve_resource,
                         D3D12_RESOURCE_STATE_UNORDERED_ACCESS, list->vk_queue_flags, &dst_stage_mask,
                         &vk_memory_barrier.dstAccessMask);
 
-                TRACE("UAV barrier (resource %p).\n", resource);
+                TRACE("UAV barrier (resource %p).\n", preserve_resource);
                 break;
             }
 
@@ -4980,6 +4997,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 TRACE("Aliasing barrier (before %p, after %p).\n", alias->pResourceBefore, alias->pResourceAfter);
                 before = unsafe_impl_from_ID3D12Resource(alias->pResourceBefore);
                 after = unsafe_impl_from_ID3D12Resource(alias->pResourceAfter);
+
+                discard_resource = after;
 
                 if (d3d12_resource_may_alias_other_resources(before) && d3d12_resource_may_alias_other_resources(after))
                 {
@@ -5035,8 +5054,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 continue;
         }
 
-        if (resource)
-            d3d12_command_list_track_resource_usage(list, resource);
+        if (preserve_resource)
+            d3d12_command_list_track_resource_usage(list, preserve_resource);
+
+        /* We will need to skip any initial transition if the aliasing barrier is the first use we observe in
+         * a command list.
+         * Consider a scenario of two freshly allocated resources A and B which alias each other.
+         * - A is used with Clear/DiscardResource.
+         * - Use A.
+         * - Aliasing barrier A -> B.
+         * - B gets Clear/DiscardResource.
+         * - Use B.
+         * With initial transitions, we risk getting this order of commands if we naively queue up transitions.
+         * - A UNDEFINED -> common
+         * - B UNDEFINED -> common
+         * - A is used (woops! B is the current owner).
+         * It is critical to avoid redundant initial layout transitions if the first use transitions away from
+         * UNDEFINED to make sure aliasing ownership is maintained correctly throughout a submission. */
+        if (discard_resource)
+            d3d12_command_list_track_resource_usage_skip_initial_transition(list, discard_resource);
     }
 
     if (src_stage_mask && dst_stage_mask)
@@ -7281,9 +7317,11 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         UINT command_list_count, ID3D12CommandList * const *command_lists)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
+    struct d3d12_resource_initial_transition *transitions;
     struct d3d12_command_queue_submission sub;
     struct d3d12_command_list *cmd_list;
     VkCommandBuffer *buffers;
+    size_t num_transitions;
     LONG **outstanding;
     unsigned int i;
 
@@ -7304,6 +7342,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
     sub.execute.debug_capture = false;
 
+    num_transitions = 0;
+
     for (i = 0; i < command_list_count; ++i)
     {
         cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[i]);
@@ -7316,12 +7356,43 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             return;
         }
 
+        num_transitions += cmd_list->resource_init_transitions_count;
+
         outstanding[i] = cmd_list->outstanding_submissions_count;
         InterlockedIncrement(outstanding[i]);
 
         buffers[i] = cmd_list->vk_command_buffer;
         if (cmd_list->debug_capture)
             sub.execute.debug_capture = true;
+    }
+
+    if (command_list_count == 1 && num_transitions != 0)
+    {
+        /* Pilfer directly. */
+        cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[0]);
+        sub.execute.transitions = cmd_list->resource_init_transitions;
+        sub.execute.transition_count = cmd_list->resource_init_transitions_count;
+        cmd_list->resource_init_transitions = NULL;
+        cmd_list->resource_init_transitions_count = 0;
+        cmd_list->resource_init_transitions_size = 0;
+    }
+    else if (num_transitions != 0)
+    {
+        sub.execute.transitions = vkd3d_malloc(num_transitions * sizeof(*sub.execute.transitions));
+        sub.execute.transition_count = num_transitions;
+        transitions = sub.execute.transitions;
+        for (i = 0; i < command_list_count; ++i)
+        {
+            cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[i]);
+            memcpy(transitions, cmd_list->resource_init_transitions,
+                   cmd_list->resource_init_transitions_count * sizeof(*transitions));
+            transitions += cmd_list->resource_init_transitions_count;
+        }
+    }
+    else
+    {
+        sub.execute.transitions = NULL;
+        sub.execute.transition_count = 0;
     }
 
     sub.type = VKD3D_SUBMISSION_EXECUTE;
@@ -7685,14 +7756,185 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
     /* We should probably trigger DEVICE_REMOVED if we hit any errors in the submission thread. */
 }
 
+#define VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS 16
+struct d3d12_command_queue_transition_pool
+{
+    VkCommandBuffer cmd[VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS];
+    VkCommandPool pool;
+    VkSemaphore timeline;
+    uint64_t timeline_value;
+
+    VkImageMemoryBarrier *barriers;
+    size_t barriers_size;
+    size_t barriers_count;
+};
+
+static HRESULT d3d12_command_queue_transition_pool_init(struct d3d12_command_queue_transition_pool *pool,
+        struct d3d12_command_queue *queue)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &queue->device->vk_procs;
+    VkCommandBufferAllocateInfo alloc_info;
+    VkCommandPoolCreateInfo pool_info;
+    VkResult vr;
+    HRESULT hr;
+
+    memset(pool, 0, sizeof(*pool));
+
+    pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    pool_info.pNext = NULL;
+    pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    pool_info.queueFamilyIndex = queue->vkd3d_queue->vk_family_index;
+
+    if ((vr = VK_CALL(vkCreateCommandPool(queue->device->vk_device, &pool_info, NULL, &pool->pool))))
+        return hresult_from_vk_result(vr);
+
+    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.pNext = NULL;
+    alloc_info.commandPool = pool->pool;
+    alloc_info.commandBufferCount = VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS;
+    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    if ((vr = VK_CALL(vkAllocateCommandBuffers(queue->device->vk_device, &alloc_info, pool->cmd))))
+        return hresult_from_vk_result(vr);
+
+    if (FAILED(hr = vkd3d_create_timeline_semaphore(queue->device, 0, &pool->timeline)))
+        return hr;
+
+    return S_OK;
+}
+
+static void d3d12_command_queue_transition_pool_wait(struct d3d12_command_queue_transition_pool *pool,
+        struct d3d12_device *device, uint64_t value)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkSemaphoreWaitInfoKHR wait_info;
+
+    wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR;
+    wait_info.pNext = NULL;
+    wait_info.flags = 0;
+    wait_info.pSemaphores = &pool->timeline;
+    wait_info.semaphoreCount = 1;
+    wait_info.pValues = &value;
+    VK_CALL(vkWaitSemaphoresKHR(device->vk_device, &wait_info, ~(uint64_t)0));
+}
+
+static void d3d12_command_queue_transition_pool_deinit(struct d3d12_command_queue_transition_pool *pool,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    d3d12_command_queue_transition_pool_wait(pool, device, pool->timeline_value);
+    VK_CALL(vkDestroyCommandPool(device->vk_device, pool->pool, NULL));
+    VK_CALL(vkDestroySemaphore(device->vk_device, pool->timeline, NULL));
+}
+
+static void d3d12_command_queue_transition_pool_add_barrier(struct d3d12_command_queue_transition_pool *pool,
+            const struct d3d12_resource *resource)
+{
+    VkImageMemoryBarrier *barrier;
+    assert(d3d12_resource_is_texture(resource));
+
+    if (!vkd3d_array_reserve((void**)&pool->barriers, &pool->barriers_size,
+            pool->barriers_count + 1, sizeof(*pool->barriers)))
+    {
+        ERR("Failed to allocate barriers.\n");
+        return;
+    }
+
+    barrier = &pool->barriers[pool->barriers_count++];
+
+    barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier->pNext = NULL;
+    barrier->srcAccessMask = 0;
+    barrier->dstAccessMask = 0;
+    barrier->oldLayout = d3d12_resource_is_cpu_accessible(resource)
+                        ? VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier->newLayout = resource->common_layout;
+    barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier->image = resource->vk_image;
+    barrier->subresourceRange.aspectMask = resource->format->vk_aspect_mask;
+    barrier->subresourceRange.baseMipLevel = 0;
+    barrier->subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+    barrier->subresourceRange.baseArrayLayer = 0;
+    barrier->subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+    /* srcAccess and dstAccess mask is 0 since we will use the timeline semaphore to synchronize anyways. */
+
+    TRACE("Initial layout transition for resource %p (old layout %#x, new layout %#x).\n",
+          resource, barrier->oldLayout, barrier->newLayout);
+}
+
+static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue_transition_pool *pool,
+        struct d3d12_device *device, const struct d3d12_resource_initial_transition *transitions, size_t count,
+        VkCommandBuffer *vk_cmd_buffer, uint64_t *timeline_value)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const struct d3d12_resource_initial_transition *transition;
+    VkCommandBufferBeginInfo begin_info;
+    unsigned int command_index;
+    uint32_t need_transition;
+    size_t i;
+
+    pool->barriers_count = 0;
+
+    if (!count)
+    {
+        *vk_cmd_buffer = VK_NULL_HANDLE;
+        return;
+    }
+
+    for (i = 0; i < count; i++)
+    {
+        transition = &transitions[i];
+
+        /* Memory order can be relaxed since this only needs to return 1 once.
+         * Ordering is guaranteed by synchronization between queues.
+         * A Signal() -> Wait() pair on the queue will guarantee that this step is done in execution order. */
+        need_transition = vkd3d_atomic_uint32_exchange_explicit(&transition->resource->initial_layout_transition,
+                0, vkd3d_memory_order_relaxed);
+
+        if (need_transition && transition->perform_initial_transition)
+            d3d12_command_queue_transition_pool_add_barrier(pool, transition->resource);
+    }
+
+    if (!pool->barriers_count)
+    {
+        *vk_cmd_buffer = VK_NULL_HANDLE;
+        return;
+    }
+
+    pool->timeline_value++;
+    command_index = pool->timeline_value % VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS;
+
+    if (pool->timeline_value > VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS)
+        d3d12_command_queue_transition_pool_wait(pool, device, pool->timeline_value - VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS);
+
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.pNext = NULL;
+    begin_info.pInheritanceInfo = NULL;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VK_CALL(vkResetCommandBuffer(pool->cmd[command_index], 0));
+    VK_CALL(vkBeginCommandBuffer(pool->cmd[command_index], &begin_info));
+    VK_CALL(vkCmdPipelineBarrier(pool->cmd[command_index],
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            0, 0, NULL, 0, NULL, pool->barriers_count, pool->barriers));
+    VK_CALL(vkEndCommandBuffer(pool->cmd[command_index]));
+
+    *vk_cmd_buffer = pool->cmd[command_index];
+    *timeline_value = pool->timeline_value;
+}
+
 static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queue,
-        VkCommandBuffer *cmd, UINT count, bool debug_capture)
+        VkCommandBuffer *cmd, UINT count,
+        VkCommandBuffer transition_cmd, VkSemaphore transition_timeline, uint64_t transition_timeline_value,
+        bool debug_capture)
 {
     static const VkPipelineStageFlags wait_stage_mask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
-    VkTimelineSemaphoreSubmitInfoKHR timeline_submit_info;
-    VkSubmitInfo submit_desc;
+    VkTimelineSemaphoreSubmitInfoKHR timeline_submit_info[2];
+    unsigned int i, wait_submission, signal_submission;
+    VkSubmitInfo submit_desc[2];
     uint64_t signal_value;
+    uint32_t num_submits;
     uint64_t wait_value;
     VkQueue vk_queue;
     VkResult vr;
@@ -7703,22 +7945,61 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     wait_value = command_queue->submit_timeline.last_signaled;
     signal_value = wait_value + 1;
 
-    timeline_submit_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
-    timeline_submit_info.pNext = NULL;
-    timeline_submit_info.waitSemaphoreValueCount = 1;
-    timeline_submit_info.pWaitSemaphoreValues = &wait_value;
-    timeline_submit_info.signalSemaphoreValueCount = 1;
-    timeline_submit_info.pSignalSemaphoreValues = &signal_value;
+    memset(timeline_submit_info, 0, sizeof(timeline_submit_info));
+    memset(submit_desc, 0, sizeof(submit_desc));
 
-    submit_desc.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_desc.pNext = &timeline_submit_info;
-    submit_desc.waitSemaphoreCount = 1;
-    submit_desc.pWaitSemaphores = &command_queue->submit_timeline.vk_semaphore;
-    submit_desc.pWaitDstStageMask = &wait_stage_mask;
-    submit_desc.commandBufferCount = count;
-    submit_desc.pCommandBuffers = cmd;
-    submit_desc.signalSemaphoreCount = 1;
-    submit_desc.pSignalSemaphores = &command_queue->submit_timeline.vk_semaphore;
+    if (transition_cmd)
+    {
+        /* The transition cmd must happen in-order, since with the advanced aliasing model in D3D12,
+         * it is enough to separate aliases with an ExecuteCommandLists.
+         * A clear-like operation must still happen though in the application which would acquire the alias,
+         * but we must still be somewhat careful about when we emit initial state transitions.
+         * The clear requirement only exists for render targets. */
+        num_submits = 2;
+        wait_submission = 0;
+        signal_submission = 1;
+
+        submit_desc[0].signalSemaphoreCount = 1;
+        submit_desc[0].pSignalSemaphores = &transition_timeline;
+        submit_desc[0].commandBufferCount = 1;
+        submit_desc[0].pCommandBuffers = &transition_cmd;
+
+        timeline_submit_info[0].signalSemaphoreValueCount = 1;
+        timeline_submit_info[0].pSignalSemaphoreValues = &transition_timeline_value;
+
+        submit_desc[1].waitSemaphoreCount = 1;
+        timeline_submit_info[1].waitSemaphoreValueCount = 1;
+        timeline_submit_info[1].pWaitSemaphoreValues = &transition_timeline_value;
+        submit_desc[1].pWaitSemaphores = &transition_timeline;
+        submit_desc[1].pWaitDstStageMask = &wait_stage_mask;
+    }
+    else
+    {
+        num_submits = 1;
+        wait_submission = 0;
+        signal_submission = 0;
+    }
+
+    submit_desc[wait_submission].waitSemaphoreCount = 1;
+    timeline_submit_info[wait_submission].waitSemaphoreValueCount = 1;
+    timeline_submit_info[wait_submission].pWaitSemaphoreValues = &wait_value;
+    submit_desc[wait_submission].pWaitSemaphores = &command_queue->submit_timeline.vk_semaphore;
+    submit_desc[wait_submission].pWaitDstStageMask = &wait_stage_mask;
+
+    timeline_submit_info[signal_submission].signalSemaphoreValueCount = 1;
+    timeline_submit_info[signal_submission].pSignalSemaphoreValues = &signal_value;
+    submit_desc[signal_submission].signalSemaphoreCount = 1;
+    submit_desc[signal_submission].pSignalSemaphores = &command_queue->submit_timeline.vk_semaphore;
+
+    submit_desc[signal_submission].commandBufferCount = count;
+    submit_desc[signal_submission].pCommandBuffers = cmd;
+
+    for (i = 0; i < num_submits; i++)
+    {
+        timeline_submit_info[i].sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
+        submit_desc[i].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_desc[i].pNext = &timeline_submit_info[i];
+    }
 
     if (!(vk_queue = vkd3d_queue_acquire(command_queue->vkd3d_queue)))
     {
@@ -7738,7 +8019,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     (void)debug_capture;
 #endif
 
-    if ((vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_desc, VK_NULL_HANDLE))) < 0)
+    if ((vr = VK_CALL(vkQueueSubmit(vk_queue, num_submits, submit_desc, VK_NULL_HANDLE))) < 0)
         ERR("Failed to submit queue(s), vr %d.\n", vr);
 
 #ifdef VKD3D_ENABLE_RENDERDOC
@@ -7983,13 +8264,20 @@ static void d3d12_command_queue_release_serialized(struct d3d12_command_queue *q
 static void *d3d12_command_queue_submission_worker_main(void *userdata)
 {
     struct d3d12_command_queue_submission submission;
+    struct d3d12_command_queue_transition_pool pool;
     struct d3d12_command_queue *queue = userdata;
-    unsigned int i;
+    uint64_t transition_timeline_value = 0;
     VKD3D_REGION_DECL(queue_wait);
     VKD3D_REGION_DECL(queue_signal);
     VKD3D_REGION_DECL(queue_execute);
+    VkCommandBuffer transition_cmd;
+    unsigned int i;
+    HRESULT hr;
 
     vkd3d_set_thread_name("vkd3d_queue");
+
+    if (FAILED(hr = d3d12_command_queue_transition_pool_init(&pool, queue)))
+        ERR("Failed to initialize transition pool.\n");
 
     for (;;)
     {
@@ -8005,7 +8293,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
         switch (submission.type)
         {
         case VKD3D_SUBMISSION_STOP:
-            return NULL;
+            goto cleanup;
 
         case VKD3D_SUBMISSION_WAIT:
             VKD3D_REGION_BEGIN(queue_wait);
@@ -8021,8 +8309,15 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 
         case VKD3D_SUBMISSION_EXECUTE:
             VKD3D_REGION_BEGIN(queue_execute);
-            d3d12_command_queue_execute(queue, submission.execute.cmd, submission.execute.count, submission.execute.debug_capture);
+            d3d12_command_queue_transition_pool_build(&pool, queue->device,
+                    submission.execute.transitions,
+                    submission.execute.transition_count,
+                    &transition_cmd, &transition_timeline_value);
+            d3d12_command_queue_execute(queue, submission.execute.cmd, submission.execute.count,
+                    transition_cmd, pool.timeline, transition_timeline_value,
+                    submission.execute.debug_capture);
             vkd3d_free(submission.execute.cmd);
+            vkd3d_free(submission.execute.transitions);
             /* TODO: The correct place to do this would be in a fence handler, but this is good enough for now. */
             for (i = 0; i < submission.execute.count; i++)
                 InterlockedDecrement(submission.execute.outstanding_submissions_count[i]);
@@ -8051,6 +8346,10 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
         }
     }
+
+cleanup:
+    d3d12_command_queue_transition_pool_deinit(&pool, queue->device);
+    return NULL;
 }
 
 static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
@@ -8096,12 +8395,6 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
         goto fail_pthread_cond;
     }
 
-    if ((rc = pthread_create(&queue->submission_thread, NULL, d3d12_command_queue_submission_worker_main, queue)) < 0)
-    {
-        hr = hresult_from_errno(rc);
-        goto fail_pthread_create;
-    }
-
     if (desc->Priority == D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME)
         FIXME("Global realtime priority is not implemented.\n");
     if (desc->Priority)
@@ -8119,16 +8412,21 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
 
     d3d12_device_add_ref(queue->device = device);
 
+    if ((rc = pthread_create(&queue->submission_thread, NULL, d3d12_command_queue_submission_worker_main, queue)) < 0)
+    {
+        d3d12_device_release(queue->device);
+        hr = hresult_from_errno(rc);
+        goto fail_pthread_create;
+    }
+
     return S_OK;
 
+fail_pthread_create:;
 #ifdef VKD3D_BUILD_STANDALONE_D3D12
 fail_swapchain_factory:
     vkd3d_private_store_destroy(&queue->private_store);
 #endif
 fail_private_store:
-    d3d12_command_queue_submit_stop(queue);
-    pthread_join(queue->submission_thread, NULL);
-fail_pthread_create:
     pthread_cond_destroy(&queue->queue_cond);
 fail_pthread_cond:
     pthread_mutex_destroy(&queue->queue_lock);
