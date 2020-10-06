@@ -1712,6 +1712,16 @@ static D3D12_RECT d3d12_get_image_rect(struct d3d12_resource *resource, unsigned
     return rect;
 }
 
+static bool d3d12_image_copy_writes_full_subresource(struct d3d12_resource *resource,
+        const VkExtent3D *extent, const VkImageSubresourceLayers *subresource)
+{
+    unsigned int width, height, depth;
+    width = d3d12_resource_desc_get_width(&resource->desc, subresource->mipLevel);
+    height = d3d12_resource_desc_get_height(&resource->desc, subresource->mipLevel);
+    depth = d3d12_resource_desc_get_depth(&resource->desc, subresource->mipLevel);
+    return width == extent->width && height == extent->height && depth == extent->depth;
+}
+
 static bool vk_rect_from_d3d12(const D3D12_RECT *rect, VkRect2D *vk_rect)
 {
     if (rect->top >= rect->bottom || rect->left >= rect->right)
@@ -3854,7 +3864,7 @@ static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
 static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         struct d3d12_resource *dst_resource, const struct vkd3d_format *dst_format,
         struct d3d12_resource *src_resource, const struct vkd3d_format *src_format,
-        const VkImageCopy *region)
+        const VkImageCopy *region, bool writes_full_subresource)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_texture_view_desc dst_view_desc, src_view_desc;
@@ -3920,7 +3930,10 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
     vk_image_barriers[0].srcAccessMask = 0;
     vk_image_barriers[0].dstAccessMask = dst_access;
-    vk_image_barriers[0].oldLayout = dst_resource->common_layout;
+    /* Fully writing a subresource with a copy is a valid way to use the "advanced" aliasing model of D3D12.
+     * In this model, a complete Copy command is sufficient to activate an aliased resource.
+     * This is also an optimization, since we can avoid a potential decompress when entering TRANSFER_DST layout. */
+    vk_image_barriers[0].oldLayout = writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout;
     vk_image_barriers[0].newLayout = dst_layout;
     vk_image_barriers[0].image = dst_resource->vk_image;
     vk_image_barriers[0].subresourceRange = vk_subresource_range_from_layers(&region->dstSubresource);
@@ -4141,6 +4154,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
     const struct vkd3d_format *src_format, *dst_format;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkBufferImageCopy buffer_image_copy;
+    bool writes_full_subresource;
     VkImageLayout vk_layout;
     VkImageCopy image_copy;
 
@@ -4234,9 +4248,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
         vk_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
+        writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
+                &buffer_image_copy.imageExtent, &buffer_image_copy.imageSubresource);
+
         d3d12_command_list_transition_image_layout(list, dst_resource->vk_image,
                 &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                0, dst_resource->common_layout, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                0, writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout,
+                VK_PIPELINE_STAGE_TRANSFER_BIT,
                 VK_ACCESS_TRANSFER_WRITE_BIT, vk_layout);
 
         VK_CALL(vkCmdCopyBufferToImage(list->vk_command_buffer,
@@ -4268,8 +4286,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
                  &src_resource->desc, &dst_resource->desc, src_format, dst_format,
                  src_box, dst_x, dst_y, dst_z);
 
+        writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
+                &image_copy.extent, &image_copy.dstSubresource);
+
         d3d12_command_list_copy_image(list, dst_resource, dst_format,
-                src_resource, src_format, &image_copy);
+                src_resource, src_format, &image_copy, writes_full_subresource);
     }
     else
     {
@@ -4331,8 +4352,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
             vk_image_copy.dstSubresource.layerCount = layer_count;
             vk_image_copy.srcSubresource.layerCount = layer_count;
 
+            /* CopyResource() always copies all subresources, so we can safely discard the dst_resource contents. */
             d3d12_command_list_copy_image(list, dst_resource, dst_resource->format,
-                    src_resource, src_resource->format, &vk_image_copy);
+                    src_resource, src_resource->format, &vk_image_copy, true);
         }
     }
 
@@ -4481,6 +4503,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     VkImageLayout dst_layout, src_layout;
     const struct d3d12_device *device;
     VkImageResolve vk_image_resolve;
+    bool writes_full_subresource;
     unsigned int i;
 
     TRACE("iface %p, dst_resource %p, dst_sub_resource_idx %u, src_resource %p, src_sub_resource_idx %u, "
@@ -4542,9 +4565,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
         vk_image_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     }
 
+    writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
+            &vk_image_resolve.extent, &vk_image_resolve.dstSubresource);
+
     vk_image_barriers[0].srcAccessMask = 0;
     vk_image_barriers[0].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vk_image_barriers[0].oldLayout = dst_resource->common_layout;
+    vk_image_barriers[0].oldLayout = writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout;
     vk_image_barriers[0].newLayout = dst_layout;
     vk_image_barriers[0].image = dst_resource->vk_image;
     vk_image_barriers[0].subresourceRange = vk_subresource_range_from_layers(&vk_image_resolve.dstSubresource);
