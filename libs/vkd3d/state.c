@@ -1066,8 +1066,18 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
     pass_info.pAttachments = attachments;
     pass_info.subpassCount = 1;
     pass_info.pSubpasses = &sub_pass_desc;
-    pass_info.dependencyCount = ARRAY_SIZE(dependencies);
-    pass_info.pDependencies = dependencies;
+
+    if (stages)
+    {
+        pass_info.dependencyCount = ARRAY_SIZE(dependencies);
+        pass_info.pDependencies = dependencies;
+    }
+    else
+    {
+        pass_info.dependencyCount = 0;
+        pass_info.pDependencies = NULL;
+    }
+
     if ((vr = VK_CALL(vkCreateRenderPass(device->vk_device, &pass_info, NULL, vk_render_pass))) >= 0)
     {
         entry->vk_render_pass = *vk_render_pass;
