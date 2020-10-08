@@ -8497,6 +8497,21 @@ VKD3D_EXPORT void vkd3d_release_vk_queue(ID3D12CommandQueue *queue)
     d3d12_command_queue_release_serialized(d3d12_queue);
 }
 
+VKD3D_EXPORT void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID3D12Resource *resource)
+{
+    struct d3d12_command_queue_submission sub;
+    struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
+    struct d3d12_resource *d3d12_resource = unsafe_impl_from_ID3D12Resource(resource);
+
+    memset(&sub, 0, sizeof(sub));
+    sub.type = VKD3D_SUBMISSION_EXECUTE;
+    sub.execute.transition_count = 1;
+    sub.execute.transitions = vkd3d_malloc(sizeof(*sub.execute.transitions));
+    sub.execute.transitions[0].resource = d3d12_resource;
+    sub.execute.transitions[0].perform_initial_transition = true;
+    d3d12_command_queue_add_submission(d3d12_queue, &sub);
+}
+
 /* ID3D12CommandSignature */
 static inline struct d3d12_command_signature *impl_from_ID3D12CommandSignature(ID3D12CommandSignature *iface)
 {

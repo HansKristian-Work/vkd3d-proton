@@ -182,6 +182,7 @@ VKD3D_EXPORT struct vkd3d_instance *vkd3d_instance_from_device(ID3D12Device *dev
 VKD3D_EXPORT uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue);
 VKD3D_EXPORT VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue);
 VKD3D_EXPORT void vkd3d_release_vk_queue(ID3D12CommandQueue *queue);
+VKD3D_EXPORT void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID3D12Resource *resource);
 
 VKD3D_EXPORT HRESULT vkd3d_create_image_resource(ID3D12Device *device,
         const struct vkd3d_image_resource_create_info *create_info, ID3D12Resource **resource);
