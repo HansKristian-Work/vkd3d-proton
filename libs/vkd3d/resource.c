@@ -1194,11 +1194,11 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     {
         /* Format compatibility rules are more relaxed for UAVs. */
         if (format->type != VKD3D_FORMAT_TYPE_UINT)
-            image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+            image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
     }
     else if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) && format->type == VKD3D_FORMAT_TYPE_TYPELESS)
     {
-        image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+        image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
 
         if ((compat_list = vkd3d_get_format_compatibility_list(device, desc->Format)))
         {
