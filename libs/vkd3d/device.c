@@ -1488,10 +1488,17 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     vulkan_info->vertex_attrib_zero_divisor = physical_device_info->vertex_divisor_features.vertexAttributeInstanceRateZeroDivisor;
 
     /* Shader extensions. */
+    vulkan_info->shader_extension_count = 0;
     if (vulkan_info->EXT_shader_demote_to_helper_invocation)
     {
-        vulkan_info->shader_extension_count = 1;
-        vulkan_info->shader_extensions[0] = VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION;
+        vulkan_info->shader_extensions[vulkan_info->shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION;
+    }
+
+    if (physical_device_info->features2.features.shaderStorageImageReadWithoutFormat)
+    {
+        vulkan_info->shader_extensions[vulkan_info->shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_READ_STORAGE_IMAGE_WITHOUT_FORMAT;
     }
 
     /* Disable unused Vulkan features. */
@@ -4198,7 +4205,9 @@ static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
     options->TiledResourcesTier = d3d12_device_determine_tiled_resources_tier(device);
     options->ResourceBindingTier = d3d12_device_determine_resource_binding_tier(device);
     options->PSSpecifiedStencilRefSupported = vk_info->EXT_shader_stencil_export;
-    options->TypedUAVLoadAdditionalFormats = features->shaderStorageImageExtendedFormats;
+    options->TypedUAVLoadAdditionalFormats =
+            features->shaderStorageImageExtendedFormats &&
+            features->shaderStorageImageReadWithoutFormat;
     /* Requires VK_EXT_fragment_shader_interlock */
     options->ROVsSupported = FALSE;
     /* Requires VK_EXT_conservative_rasterization */
