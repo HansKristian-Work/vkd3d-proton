@@ -3322,6 +3322,12 @@ VKD3D_EXPORT HRESULT vkd3d_create_image_resource(ID3D12Device *device,
 
     TRACE("device %p, create_info %p, resource %p.\n", device, create_info, resource);
 
+    if (create_info->flags & VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)
+    {
+        ERR("Present state transition is broken and is not supported.\n");
+        return E_INVALIDARG;
+    }
+
     if (!create_info || !resource)
         return E_INVALIDARG;
     if (create_info->type != VKD3D_STRUCTURE_TYPE_IMAGE_RESOURCE_CREATE_INFO)
@@ -3348,15 +3354,6 @@ VKD3D_EXPORT HRESULT vkd3d_create_image_resource(ID3D12Device *device,
     object->common_layout = vk_common_image_layout_from_d3d12_desc(&object->desc);
 
     memset(&object->sparse, 0, sizeof(object->sparse));
-
-    /* DXGI only allows transfer and render target usage */
-    if (object->flags & VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)
-        object->common_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    if (create_info->flags & VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)
-        object->present_state = create_info->present_state;
-    else
-        object->present_state = D3D12_RESOURCE_STATE_COMMON;
 
     object->format = vkd3d_format_from_d3d12_resource_desc(d3d12_device, &create_info->desc, 0);
 
