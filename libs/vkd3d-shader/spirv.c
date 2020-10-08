@@ -5661,6 +5661,19 @@ static SpvImageFormat image_format_for_image_read(enum vkd3d_component_type data
     }
 }
 
+static bool vkd3d_dxbc_compiler_supports_typed_uav_load_without_format(struct vkd3d_dxbc_compiler *compiler)
+{
+    unsigned int i;
+    if (!compiler->compile_args)
+        return false;
+
+    for (i = 0; i < compiler->compile_args->target_extension_count; i++)
+        if (compiler->compile_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_READ_STORAGE_IMAGE_WITHOUT_FORMAT)
+            return true;
+
+    return false;
+}
+
 static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, const struct vkd3d_spirv_resource_type *resource_type_info,
         enum vkd3d_component_type data_type, bool raw_structured, uint32_t depth)
@@ -5670,6 +5683,7 @@ static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler
     uint32_t sampled_type_id;
     unsigned int uav_flags;
     SpvImageFormat format;
+    bool uav_read;
     bool is_uav;
 
     format = SpvImageFormatUnknown;
@@ -5677,8 +5691,8 @@ static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler
     {
         assert(reg->idx[0].offset < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
         uav_flags = scan_info->uav_flags[reg->idx[0].offset];
-
-        if (raw_structured || (uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
+        uav_read = (uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS) != 0;
+        if (raw_structured || (uav_read && !vkd3d_dxbc_compiler_supports_typed_uav_load_without_format(compiler)))
             format = image_format_for_image_read(data_type);
     }
 
@@ -5727,11 +5741,22 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     {
         SpvImageFormat format = SpvImageFormatUnknown;
         unsigned int flags = 0;
+        bool uav_read;
 
         if (is_uav)
         {
-            if (structure_stride || raw || (uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
-                format = image_format_for_image_read(sampled_type);
+            uav_read = (uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS) != 0;
+            if (structure_stride || raw || uav_read)
+            {
+                if ((uav_read && !structure_stride && !raw) &&
+                    vkd3d_dxbc_compiler_supports_typed_uav_load_without_format(compiler))
+                {
+                    format = SpvImageFormatUnknown;
+                    vkd3d_spirv_enable_capability(builder, SpvCapabilityStorageImageReadWithoutFormat);
+                }
+                else
+                    format = image_format_for_image_read(sampled_type);
+            }
 
             if (!(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
                 flags |= VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY;
