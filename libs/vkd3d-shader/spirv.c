@@ -1095,6 +1095,13 @@ static uint32_t vkd3d_spirv_build_op_undef(struct vkd3d_spirv_builder *builder,
     return vkd3d_spirv_build_op_tr(builder, stream, SpvOpUndef, type_id);
 }
 
+static uint32_t vkd3d_spirv_build_op_array_length(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t struct_id, uint32_t struct_member)
+{
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            SpvOpArrayLength, result_type, struct_id, struct_member);
+}
+
 static uint32_t vkd3d_spirv_build_op_access_chain(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t base_id, uint32_t *indexes, uint32_t index_count)
 {
@@ -8873,7 +8880,17 @@ static void vkd3d_dxbc_compiler_emit_bufinfo(struct vkd3d_dxbc_compiler *compile
     vkd3d_dxbc_compiler_prepare_image(compiler, &image, &src->reg, NULL, VKD3D_IMAGE_FLAG_NONE);
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-    val_id = vkd3d_spirv_build_op_image_query_size(builder, type_id, image.image_id);
+
+    if (image.ssbo)
+    {
+        if (src->reg.modifier == VKD3DSPRM_NONUNIFORM)
+            vkd3d_dxbc_compiler_decorate_nonuniform(compiler, image.id);
+
+        val_id = vkd3d_spirv_build_op_array_length(builder, type_id, image.id, 0);
+    }
+    else
+        val_id = vkd3d_spirv_build_op_image_query_size(builder, type_id, image.image_id);
+
     write_mask = VKD3DSP_WRITEMASK_0;
 
     if (image.structure_stride)
