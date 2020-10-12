@@ -1570,12 +1570,22 @@ enum vkd3d_bindless_flags
     VKD3D_BINDLESS_RAW_SSBO     = (1u << 6),
 };
 
+enum vkd3d_bindless_set_flag
+{
+    VKD3D_BINDLESS_SET_SAMPLER  = (1u << 0),
+    VKD3D_BINDLESS_SET_CBV      = (1u << 1),
+    VKD3D_BINDLESS_SET_SRV      = (1u << 2),
+    VKD3D_BINDLESS_SET_UAV      = (1u << 3),
+    VKD3D_BINDLESS_SET_IMAGE    = (1u << 4),
+    VKD3D_BINDLESS_SET_BUFFER   = (1u << 5),
+    VKD3D_BINDLESS_SET_COUNTER  = (1u << 6),
+};
+
 struct vkd3d_bindless_set_info
 {
     VkDescriptorType vk_descriptor_type;
     D3D12_DESCRIPTOR_HEAP_TYPE heap_type;
-    D3D12_DESCRIPTOR_RANGE_TYPE range_type;
-    enum vkd3d_shader_binding_flag binding_flag;
+    uint32_t flags; /* vkd3d_bindless_set_flag */
 
     VkDescriptorSetLayout vk_set_layout;
     VkDescriptorSetLayout vk_host_set_layout;
@@ -1594,10 +1604,8 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
 void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device);
 bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindless_state,
-        D3D12_DESCRIPTOR_RANGE_TYPE range_type, enum vkd3d_shader_binding_flag binding_flag,
-        struct vkd3d_shader_descriptor_binding *binding);
-unsigned int vkd3d_bindless_state_find_set(const struct vkd3d_bindless_state *bindless_state,
-        D3D12_DESCRIPTOR_RANGE_TYPE range_type, enum vkd3d_shader_binding_flag binding_flag);
+        uint32_t flags, struct vkd3d_shader_descriptor_binding *binding);
+unsigned int vkd3d_bindless_state_find_set(const struct vkd3d_bindless_state *bindless_state, uint32_t flags);
 
 static inline VkDescriptorType vkd3d_bindless_state_get_cbv_descriptor_type(const struct vkd3d_bindless_state *bindless_state)
 {

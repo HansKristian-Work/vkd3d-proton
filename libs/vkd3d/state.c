@@ -472,6 +472,24 @@ struct vkd3d_descriptor_set_context
     uint32_t vk_binding;
 };
 
+static enum vkd3d_bindless_set_flag vkd3d_bindless_set_flag_from_descriptor_range_type(D3D12_DESCRIPTOR_RANGE_TYPE range_type)
+{
+    switch (range_type)
+    {
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+            return VKD3D_BINDLESS_SET_SAMPLER;
+        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+            return VKD3D_BINDLESS_SET_CBV;
+        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
+            return VKD3D_BINDLESS_SET_SRV;
+        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+            return VKD3D_BINDLESS_SET_UAV;
+        default:
+            ERR("Unhandled descriptor range type %u.\n", range_type);
+            return VKD3D_BINDLESS_SET_SRV;
+    }
+}
+
 static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_root_signature *root_signature,
         const D3D12_ROOT_SIGNATURE_DESC *desc, const struct d3d12_root_signature_info *info,
         struct vkd3d_descriptor_set_context *context)
@@ -503,7 +521,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
         for (j = 0; j < range_count; ++j)
         {
             const D3D12_DESCRIPTOR_RANGE *range = &p->DescriptorTable.pDescriptorRanges[j];
-            bool is_uav = range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+            enum vkd3d_bindless_set_flag range_flag = vkd3d_bindless_set_flag_from_descriptor_range_type(range->RangeType);
 
             if (range->OffsetInDescriptorsFromTableStart != D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND)
                 range_descriptor_offset = range->OffsetInDescriptorsFromTableStart;
@@ -516,36 +534,51 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
             binding.descriptor_offset = range_descriptor_offset;
             binding.shader_visibility = vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility);
 
-            if (vkd3d_bindless_state_find_binding(bindless_state, range->RangeType, VKD3D_SHADER_BINDING_FLAG_BUFFER, &binding.binding))
+            switch (range->RangeType)
             {
-                binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_BUFFER;
-                table->first_binding[table->binding_count++] = binding;
-            }
+                case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+                    if (vkd3d_bindless_state_find_binding(bindless_state, range_flag, &binding.binding))
+                    {
+                        binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_IMAGE;
+                        table->first_binding[table->binding_count++] = binding;
+                    }
+                    break;
+                case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+                    if (vkd3d_bindless_state_find_binding(bindless_state, range_flag, &binding.binding))
+                    {
+                        binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_BUFFER;
+                        table->first_binding[table->binding_count++] = binding;
+                    }
+                    break;
+                case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+                    binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS |
+                            VKD3D_SHADER_BINDING_FLAG_COUNTER;
 
-            if (vkd3d_bindless_state_find_binding(bindless_state, range->RangeType, VKD3D_SHADER_BINDING_FLAG_IMAGE, &binding.binding))
-            {
-                binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_IMAGE;
-                table->first_binding[table->binding_count++] = binding;
-            }
+                    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_RAW_VA_UAV_COUNTERS)
+                    {
+                        binding.flags |= VKD3D_SHADER_BINDING_FLAG_RAW_VA;
+                        binding.binding = root_signature->uav_counter_binding;
+                    }
+                    else if (!vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_COUNTER, &binding.binding))
+                        ERR("Failed to find UAV counter binding.\n");
 
-            /* Add UAV counter bindings */
-            if (is_uav)
-            {
-                binding.register_index = range->BaseShaderRegister;
-                binding.register_count = range->NumDescriptors;
-                binding.descriptor_offset = range_descriptor_offset;
-                binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS |
-                        VKD3D_SHADER_BINDING_FLAG_COUNTER;
+                    table->first_binding[table->binding_count++] = binding;
+                    /* fall through */
+                case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
+                    if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_BUFFER, &binding.binding))
+                    {
+                        binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_BUFFER;
+                        table->first_binding[table->binding_count++] = binding;
+                    }
 
-                if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_RAW_VA_UAV_COUNTERS)
-                {
-                    binding.flags |= VKD3D_SHADER_BINDING_FLAG_RAW_VA;
-                    binding.binding = root_signature->uav_counter_binding;
-                }
-                else if (!vkd3d_bindless_state_find_binding(bindless_state, range->RangeType, VKD3D_SHADER_BINDING_FLAG_COUNTER, &binding.binding))
-                    ERR("Failed to find UAV counter binding.\n");
-
-                table->first_binding[table->binding_count++] = binding;
+                    if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_IMAGE, &binding.binding))
+                    {
+                        binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_IMAGE;
+                        table->first_binding[table->binding_count++] = binding;
+                    }
+                    break;
+                default:
+                    FIXME("Unhandled descriptor range type %u.\n", range->RangeType);
             }
 
             range_descriptor_offset = binding.descriptor_offset + binding.register_count;
@@ -3254,69 +3287,50 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     return vk_pipeline;
 }
 
-static D3D12_DESCRIPTOR_HEAP_TYPE d3d12_descriptor_heap_type_from_range_type(D3D12_DESCRIPTOR_RANGE_TYPE range_type)
+static uint32_t d3d12_max_descriptor_count_from_heap_type(D3D12_DESCRIPTOR_HEAP_TYPE heap_type)
 {
-    switch (range_type)
+    switch (heap_type)
     {
-        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
-        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
-        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-            return D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-
-        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
-            return D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
-
-        default:
-            ERR("Invalid descriptor range type %d.\n", range_type);
-            return D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    }
-}
-
-static uint32_t d3d12_max_descriptor_count_from_range_type(D3D12_DESCRIPTOR_RANGE_TYPE range_type)
-{
-    switch (range_type)
-    {
-        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
-        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
-        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+        case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
             return 1000000;
 
-        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+        case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
             return 2048;
 
         default:
-            ERR("Invalid descriptor range type %d.\n", range_type);
+            ERR("Invalid descriptor heap type %d.\n", heap_type);
             return 0;
     }
 }
 
-static uint32_t d3d12_max_host_descriptor_count_from_range_type(struct d3d12_device *device, D3D12_DESCRIPTOR_RANGE_TYPE range_type)
+static uint32_t d3d12_max_host_descriptor_count_from_heap_type(struct d3d12_device *device, D3D12_DESCRIPTOR_HEAP_TYPE heap_type)
 {
     const VkPhysicalDeviceDescriptorIndexingPropertiesEXT *limits = &device->device_info.descriptor_indexing_properties;
 
-    switch (range_type)
+    switch (heap_type)
     {
-        case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
-            return device->bindless_state.flags & VKD3D_BINDLESS_CBV_AS_SSBO
+        case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
+        {
+            uint32_t cbv_count = device->bindless_state.flags & VKD3D_BINDLESS_CBV_AS_SSBO
                     ? limits->maxDescriptorSetUpdateAfterBindStorageBuffers
                     : limits->maxDescriptorSetUpdateAfterBindUniformBuffers;
-        case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
-            return limits->maxDescriptorSetUpdateAfterBindSampledImages;
-        case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-            return min(limits->maxDescriptorSetUpdateAfterBindStorageBuffers,
+            uint32_t srv_count = limits->maxDescriptorSetUpdateAfterBindSampledImages;
+            uint32_t uav_count = min(limits->maxDescriptorSetUpdateAfterBindStorageBuffers,
                     limits->maxDescriptorSetUpdateAfterBindStorageImages);
-        case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+            return min(cbv_count, min(srv_count, uav_count));
+        }
+
+        case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
             return limits->maxDescriptorSetUpdateAfterBindSamplers;
 
         default:
-            ERR("Invalid descriptor range type %d.\n", range_type);
+            ERR("Invalid descriptor heap type %d.\n", heap_type);
             return 0;
     }
 }
 
 static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bindless_state,
-        struct d3d12_device *device, D3D12_DESCRIPTOR_RANGE_TYPE range_type,
-        enum vkd3d_shader_binding_flag binding_flag, VkDescriptorType vk_descriptor_type)
+        struct d3d12_device *device, uint32_t flags, VkDescriptorType vk_descriptor_type)
 {
     struct vkd3d_bindless_set_info *set_info = &bindless_state->set_info[bindless_state->set_count++];
     VkDescriptorSetLayoutBindingFlagsCreateInfoEXT vk_binding_flags_info;
@@ -3327,9 +3341,10 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     VkResult vr;
 
     set_info->vk_descriptor_type = vk_descriptor_type;
-    set_info->heap_type = d3d12_descriptor_heap_type_from_range_type(range_type);
-    set_info->range_type = range_type;
-    set_info->binding_flag = binding_flag;
+    set_info->heap_type = flags & VKD3D_BINDLESS_SET_SAMPLER
+            ? D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER
+            : D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    set_info->flags = flags;
 
     vk_binding_flags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT |
             VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT_EXT |
@@ -3343,7 +3358,7 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
 
     vk_binding_info.binding = 0;
     vk_binding_info.descriptorType = set_info->vk_descriptor_type;
-    vk_binding_info.descriptorCount = d3d12_max_descriptor_count_from_range_type(range_type);
+    vk_binding_info.descriptorCount = d3d12_max_descriptor_count_from_heap_type(set_info->heap_type);
     vk_binding_info.stageFlags = VK_SHADER_STAGE_ALL;
     vk_binding_info.pImmutableSamplers = NULL;
 
@@ -3357,7 +3372,7 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
             &vk_set_layout_info, NULL, &set_info->vk_set_layout))) < 0)
         ERR("Failed to create descriptor set layout, vr %d.\n", vr);
 
-    vk_binding_info.descriptorCount = d3d12_max_host_descriptor_count_from_range_type(device, range_type);
+    vk_binding_info.descriptorCount = d3d12_max_host_descriptor_count_from_heap_type(device, set_info->heap_type);
 
     if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device,
             &vk_set_layout_info, NULL, &set_info->vk_host_set_layout))) < 0)
@@ -3432,35 +3447,34 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
     }
 
     if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-            D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, VKD3D_SHADER_BINDING_FLAG_IMAGE,
-            VK_DESCRIPTOR_TYPE_SAMPLER)))
+            VKD3D_BINDLESS_SET_SAMPLER, VK_DESCRIPTOR_TYPE_SAMPLER)))
         goto fail;
 
     if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-            D3D12_DESCRIPTOR_RANGE_TYPE_CBV, VKD3D_SHADER_BINDING_FLAG_BUFFER,
+            VKD3D_BINDLESS_SET_CBV,
             vkd3d_bindless_state_get_cbv_descriptor_type(bindless_state))))
         goto fail;
 
     if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-            D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_BUFFER,
+            VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_BUFFER,
             VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER)) ||
         FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-            D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_IMAGE,
+            VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_IMAGE,
             VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)))
         goto fail;
 
     if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-            D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_BUFFER,
+            VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)) ||
         FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-            D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_IMAGE,
+            VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_IMAGE,
             VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)))
         goto fail;
 
     if (!(bindless_state->flags & VKD3D_RAW_VA_UAV_COUNTER))
     {
         if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_COUNTER,
+                VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_COUNTER,
                 VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)))
             goto fail;
     }
@@ -3486,8 +3500,7 @@ void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
 }
 
 bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindless_state,
-        D3D12_DESCRIPTOR_RANGE_TYPE range_type, enum vkd3d_shader_binding_flag binding_flag,
-        struct vkd3d_shader_descriptor_binding *binding)
+        uint32_t flags, struct vkd3d_shader_descriptor_binding *binding)
 {
     unsigned int i;
 
@@ -3495,7 +3508,7 @@ bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindle
     {
         const struct vkd3d_bindless_set_info *set_info = &bindless_state->set_info[i];
 
-        if (set_info->range_type == range_type && set_info->binding_flag == binding_flag)
+        if ((set_info->flags & flags) == flags)
         {
             binding->set = i;
             binding->binding = 0;
@@ -3506,13 +3519,12 @@ bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindle
     return false;
 }
 
-unsigned int vkd3d_bindless_state_find_set(const struct vkd3d_bindless_state *bindless_state,
-        D3D12_DESCRIPTOR_RANGE_TYPE range_type, enum vkd3d_shader_binding_flag binding_flag)
+unsigned int vkd3d_bindless_state_find_set(const struct vkd3d_bindless_state *bindless_state, uint32_t flags)
 {
     D3D12_DESCRIPTOR_HEAP_TYPE heap_type;
     unsigned int i, set_index = 0;
 
-    heap_type = range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER
+    heap_type = flags & VKD3D_BINDLESS_SET_SAMPLER
             ? D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER
             : D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 
@@ -3522,13 +3534,13 @@ unsigned int vkd3d_bindless_state_find_set(const struct vkd3d_bindless_state *bi
 
         if (set_info->heap_type == heap_type)
         {
-            if (set_info->range_type == range_type && set_info->binding_flag == binding_flag)
+            if ((set_info->flags & flags) == flags)
                 return set_index;
 
             set_index++;
         }
     }
 
-    ERR("No set found for range type %u, flag %#x.", range_type, binding_flag);
+    ERR("No set found for flags %#x.", flags);
     return 0;
 }
