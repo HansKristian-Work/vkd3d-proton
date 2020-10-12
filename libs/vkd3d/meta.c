@@ -334,8 +334,9 @@ HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
     }
     set_layouts[] =
     {
-      { &meta_clear_uav_ops->vk_set_layout_buffer, &meta_clear_uav_ops->vk_pipeline_layout_buffer, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER },
-      { &meta_clear_uav_ops->vk_set_layout_image,  &meta_clear_uav_ops->vk_pipeline_layout_image,  VK_DESCRIPTOR_TYPE_STORAGE_IMAGE },
+      { &meta_clear_uav_ops->vk_set_layout_buffer_raw, &meta_clear_uav_ops->vk_pipeline_layout_buffer_raw, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER },
+      { &meta_clear_uav_ops->vk_set_layout_buffer,     &meta_clear_uav_ops->vk_pipeline_layout_buffer,     VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER },
+      { &meta_clear_uav_ops->vk_set_layout_image,      &meta_clear_uav_ops->vk_pipeline_layout_image,      VK_DESCRIPTOR_TYPE_STORAGE_IMAGE },
     };
 
     struct {
@@ -367,6 +368,9 @@ HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
       { &meta_clear_uav_ops->clear_uint.buffer,
         &meta_clear_uav_ops->vk_pipeline_layout_buffer,
         SPIRV_CODE(cs_clear_uav_buffer_uint) },
+      { &meta_clear_uav_ops->clear_uint.buffer_raw,
+        &meta_clear_uav_ops->vk_pipeline_layout_buffer_raw,
+        SPIRV_CODE(cs_clear_uav_buffer_raw) },
       { &meta_clear_uav_ops->clear_uint.image_1d,
         &meta_clear_uav_ops->vk_pipeline_layout_image,
         SPIRV_CODE(cs_clear_uav_image_1d_uint) },
@@ -444,15 +448,18 @@ void vkd3d_clear_uav_ops_cleanup(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
         &meta_clear_uav_ops->clear_uint,
     };
 
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_clear_uav_ops->vk_set_layout_buffer_raw, NULL));
     VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_clear_uav_ops->vk_set_layout_buffer, NULL));
     VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_clear_uav_ops->vk_set_layout_image, NULL));
 
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_clear_uav_ops->vk_pipeline_layout_buffer_raw, NULL));
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_clear_uav_ops->vk_pipeline_layout_buffer, NULL));
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_clear_uav_ops->vk_pipeline_layout_image, NULL));
 
     for (i = 0; i < ARRAY_SIZE(pipeline_sets); i++)
     {
         VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->buffer, NULL));
+        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->buffer_raw, NULL));
         VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->image_1d, NULL));
         VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->image_2d, NULL));
         VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->image_3d, NULL));
@@ -462,18 +469,18 @@ void vkd3d_clear_uav_ops_cleanup(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
 }
 
 struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_buffer_uav_pipeline(struct vkd3d_meta_ops *meta_ops,
-        bool as_uint)
+        bool as_uint, bool raw)
 {
     struct vkd3d_clear_uav_ops *meta_clear_uav_ops = &meta_ops->clear_uav;
     struct vkd3d_clear_uav_pipeline info;
 
-    const struct vkd3d_clear_uav_pipelines *pipelines = as_uint
+    const struct vkd3d_clear_uav_pipelines *pipelines = (as_uint || raw)
             ? &meta_clear_uav_ops->clear_uint
             : &meta_clear_uav_ops->clear_float;
 
     info.vk_set_layout = meta_clear_uav_ops->vk_set_layout_buffer;
     info.vk_pipeline_layout = meta_clear_uav_ops->vk_pipeline_layout_buffer;
-    info.vk_pipeline = pipelines->buffer;
+    info.vk_pipeline = raw ? pipelines->buffer_raw : pipelines->buffer;
     return info;
 }
 
