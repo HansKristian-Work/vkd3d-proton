@@ -77,6 +77,7 @@ typedef unsigned long UINT64;
 typedef long long DECLSPEC_ALIGN(8) INT64;
 typedef unsigned long long DECLSPEC_ALIGN(8) UINT64;
 # endif
+typedef INT64 LONG64;
 typedef long LONG_PTR;
 typedef unsigned long ULONG_PTR;
 

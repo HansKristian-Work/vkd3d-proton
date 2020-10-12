@@ -125,6 +125,7 @@ FORCEINLINE uint32_t vkd3d_atomic_uint32_decrement(uint32_t *target, vkd3d_memor
 # ifndef __MINGW32__
 #  define InterlockedIncrement(target) vkd3d_atomic_uint32_increment(target, vkd3d_memory_order_seq_cst)
 #  define InterlockedDecrement(target) vkd3d_atomic_uint32_decrement(target, vkd3d_memory_order_seq_cst)
+#  define InterlockedIncrement64(target) __atomic_add_fetch(target, 1, vkd3d_memory_order_seq_cst)
 # endif
 
 #else
