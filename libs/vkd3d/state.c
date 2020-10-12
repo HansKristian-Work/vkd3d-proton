@@ -340,10 +340,16 @@ static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_sig
         case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
             /* separate image + buffer descriptors */
             info->binding_count += 2;
+
+            if (device->bindless_state.flags & VKD3D_BINDLESS_RAW_SSBO)
+                info->binding_count += 1;
             break;
         case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
             /* separate image + buffer descriptors */
             info->binding_count += 3;
+
+            if (device->bindless_state.flags & VKD3D_BINDLESS_RAW_SSBO)
+                info->binding_count += 1;
 
             if (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER)
                 info->has_raw_va_uav_counters = true;
@@ -568,6 +574,12 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
                     if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_BUFFER, &binding.binding))
                     {
                         binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_BUFFER;
+                        table->first_binding[table->binding_count++] = binding;
+                    }
+
+                    if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_RAW_SSBO, &binding.binding))
+                    {
+                        binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_BUFFER | VKD3D_SHADER_BINDING_FLAG_RAW_SSBO;
                         table->first_binding[table->binding_count++] = binding;
                     }
 
@@ -3470,6 +3482,14 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
             VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_IMAGE,
             VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)))
         goto fail;
+
+    if (bindless_state->flags & VKD3D_BINDLESS_RAW_SSBO)
+    {
+        if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+                VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_RAW_SSBO,
+                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)))
+            goto fail;
+    }
 
     if (!(bindless_state->flags & VKD3D_RAW_VA_UAV_COUNTER))
     {
