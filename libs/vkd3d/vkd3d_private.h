@@ -53,8 +53,8 @@
 #define VKD3D_MAX_SHADER_STAGES           5u
 #define VKD3D_MAX_VK_SYNC_OBJECTS         4u
 
-#define VKD3D_MAX_DESCRIPTOR_SETS 9u
-#define VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS 7u
+#define VKD3D_MAX_DESCRIPTOR_SETS 10u
+#define VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS 8u
 
 #define VKD3D_PIPELINE_BIND_POINT_COUNT 2u
 
@@ -1579,6 +1579,7 @@ enum vkd3d_bindless_set_flag
     VKD3D_BINDLESS_SET_IMAGE    = (1u << 4),
     VKD3D_BINDLESS_SET_BUFFER   = (1u << 5),
     VKD3D_BINDLESS_SET_COUNTER  = (1u << 6),
+    VKD3D_BINDLESS_SET_RAW_SSBO = (1u << 7),
 };
 
 struct vkd3d_bindless_set_info
