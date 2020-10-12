@@ -3495,7 +3495,7 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
             else
             {
                 uint32_t set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
-                        D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_COUNTER);
+                        VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_COUNTER);
 
                 vk_copy = &vk_copies[copy_count++];
                 vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
@@ -3931,8 +3931,7 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
     vk_descriptor_type = vkd3d_bindless_state_get_cbv_descriptor_type(&device->bindless_state);
 
     descriptor->metadata.cookie = resource ? resource->cookie : 0;
-    descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
-            D3D12_DESCRIPTOR_RANGE_TYPE_CBV, VKD3D_SHADER_BINDING_FLAG_BUFFER);
+    descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state, VKD3D_BINDLESS_SET_CBV);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
     descriptor->info.buffer = descriptor_info.buffer;
 
@@ -3998,7 +3997,7 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
     descriptor->info.view = view;
     descriptor->metadata.cookie = view ? view->cookie : 0;
     descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
-            D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_BUFFER);
+            VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_BUFFER);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
     vkd3d_init_write_descriptor_set(&vk_write, descriptor, VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, &descriptor_info);
@@ -4156,7 +4155,7 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
     descriptor->info.view = view;
     descriptor->metadata.cookie = view ? view->cookie : 0;
     descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
-            D3D12_DESCRIPTOR_RANGE_TYPE_SRV, VKD3D_SHADER_BINDING_FLAG_IMAGE);
+            VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_IMAGE);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
     vkd3d_init_write_descriptor_set(&vk_write, descriptor, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &descriptor_info);
@@ -4261,7 +4260,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     descriptor->info.view = view;
     descriptor->metadata.cookie = view ? view->cookie : 0;
     descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
-            D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_BUFFER);
+            VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_BUFFER);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW | VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER;
 
     descriptor_info[vk_write_count].buffer_view = view ? view->vk_buffer_view : VK_NULL_HANDLE;
@@ -4305,7 +4304,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     else
     {
         uint32_t set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
-            D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_COUNTER);
+            VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_COUNTER);
 
         descriptor_info[vk_write_count].buffer_view = uav_counter_view;
         vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], descriptor,
@@ -4431,7 +4430,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
     descriptor->info.view = view;
     descriptor->metadata.cookie = view ? view->cookie : 0;
     descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
-            D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_IMAGE);
+            VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_IMAGE);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
     vkd3d_init_write_descriptor_set(&vk_write, descriptor, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, &descriptor_info);
@@ -4725,8 +4724,7 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
 
     sampler->info.view = view;
     sampler->metadata.cookie = view->cookie;
-    sampler->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
-            D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, VKD3D_SHADER_BINDING_FLAG_IMAGE);
+    sampler->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state, VKD3D_BINDLESS_SET_SAMPLER);
     sampler->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
     descriptor_info.image.sampler = view->vk_sampler;
