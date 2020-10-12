@@ -5937,6 +5937,19 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     full_rect.top = 0;
     full_rect.bottom = d3d12_resource_desc_get_height(&resource->desc, miplevel_idx);
 
+    if (d3d12_resource_is_buffer(resource))
+    {
+        if (args->has_view)
+        {
+            VkDeviceSize byte_count = args->u.view->format->byte_count
+                    ? args->u.view->format->byte_count
+                    : sizeof(uint32_t);  /* structured buffer */
+            full_rect.right = args->u.view->info.buffer.size / byte_count;
+        }
+        else
+            full_rect.right = args->u.buffer.range / sizeof(uint32_t);
+    }
+
     /* clear full resource if no rects are specified */
     curr_rect = full_rect;
 
