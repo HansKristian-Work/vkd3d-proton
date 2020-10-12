@@ -488,6 +488,8 @@ struct d3d12_resource
     LONG refcount;
     LONG internal_refcount;
 
+    uint64_t cookie;
+
     D3D12_RESOURCE_DESC desc;
 
     D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
@@ -570,6 +572,8 @@ struct vkd3d_view
 {
     LONG refcount;
     enum vkd3d_view_type type;
+    uint64_t cookie;
+
     union
     {
         VkBufferView vk_buffer_view;
@@ -636,15 +640,16 @@ enum vkd3d_descriptor_flag
 
 struct vkd3d_descriptor_data
 {
+    uint64_t cookie;
     uint32_t set_index;
     uint32_t flags;
 };
 
 struct d3d12_desc
 {
+    struct vkd3d_descriptor_data metadata;
     struct d3d12_descriptor_heap *heap;
     uint32_t heap_offset;
-    struct vkd3d_descriptor_data metadata;
     union
     {
         VkDescriptorBufferInfo vk_cbv_info;

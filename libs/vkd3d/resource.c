@@ -3027,6 +3027,8 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
     return S_OK;
 }
 
+static LONG64 global_cookie_counter;
+
 static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
@@ -3039,6 +3041,7 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     resource->internal_refcount = 1;
 
     resource->desc = *desc;
+    resource->cookie = InterlockedIncrement64(&global_cookie_counter);
 
     if (FAILED(hr = vkd3d_view_map_init(&resource->view_map)))
         return hr;
@@ -3395,6 +3398,7 @@ static struct vkd3d_view *vkd3d_view_create(enum vkd3d_view_type type)
         view->type = type;
         view->vk_counter_view = VK_NULL_HANDLE;
         view->vk_counter_address = 0;
+        view->cookie = InterlockedIncrement64(&global_cookie_counter);
     }
     return view;
 }
@@ -3447,17 +3451,23 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
     bool needs_update;
 
     /* Only update the descriptor if something has changed */
-    if (!(needs_update = (metadata.flags != dst->metadata.flags)))
+    if (!(needs_update = (metadata.cookie != dst->metadata.cookie)))
     {
-        if (metadata.flags & VKD3D_DESCRIPTOR_FLAG_VIEW)
+        /* We don't have a cookie for the UAV counter, so just force update if we have that.
+         * If flags differ, we also need to update. E.g. happens if UAV counter flag is turned off.
+         * We have no cookie for the UAV counter itself.
+         * Lastly, if we have plain VkBuffers, offset/range might differ. */
+        if ((metadata.flags & VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER) != 0 ||
+            (metadata.flags != dst->metadata.flags))
         {
-            needs_update = dst->info.view != src->info.view;
+            needs_update = true;
         }
-        else if (metadata.flags & VKD3D_DESCRIPTOR_FLAG_DEFINED)
+        else if ((metadata.flags & VKD3D_DESCRIPTOR_FLAG_DEFINED) != 0 &&
+                (metadata.flags & VKD3D_DESCRIPTOR_FLAG_VIEW) == 0)
         {
-            needs_update = dst->info.vk_cbv_info.buffer != src->info.vk_cbv_info.buffer ||
-                dst->info.vk_cbv_info.offset != src->info.vk_cbv_info.offset ||
-                dst->info.vk_cbv_info.range != src->info.vk_cbv_info.range;
+            needs_update =
+                    dst->info.vk_cbv_info.offset != src->info.vk_cbv_info.offset ||
+                    dst->info.vk_cbv_info.range != src->info.vk_cbv_info.range;
         }
     }
 
@@ -3886,8 +3896,8 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     union vkd3d_descriptor_info descriptor_info;
+    struct d3d12_resource *resource = NULL;
     VkDescriptorType vk_descriptor_type;
-    struct d3d12_resource *resource;
     VkWriteDescriptorSet vk_write;
 
     if (!desc)
@@ -3924,6 +3934,7 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
 
     vk_descriptor_type = vkd3d_bindless_state_get_cbv_descriptor_type(&device->bindless_state);
 
+    descriptor->metadata.cookie = resource ? resource->cookie : 0;
     descriptor->metadata.set_index = d3d12_descriptor_heap_cbv_set_index();
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
     descriptor->info.vk_cbv_info = descriptor_info.buffer;
@@ -3988,6 +3999,7 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
     descriptor_info.buffer_view = view ? view->vk_buffer_view : VK_NULL_HANDLE;
 
     descriptor->info.view = view;
+    descriptor->metadata.cookie = view ? view->cookie : 0;
     descriptor->metadata.set_index = d3d12_descriptor_heap_srv_set_index(true);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
@@ -4144,6 +4156,7 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
     descriptor_info.image.imageLayout = view ? view->info.texture.vk_layout : VK_IMAGE_LAYOUT_UNDEFINED;
 
     descriptor->info.view = view;
+    descriptor->metadata.cookie = view ? view->cookie : 0;
     descriptor->metadata.set_index = d3d12_descriptor_heap_srv_set_index(false);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
@@ -4245,6 +4258,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     }
 
     descriptor->info.view = view;
+    descriptor->metadata.cookie = view ? view->cookie : 0;
     descriptor->metadata.set_index = d3d12_descriptor_heap_uav_set_index(true);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW | VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER;
 
@@ -4412,6 +4426,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
     descriptor_info.image.imageLayout = view ? view->info.texture.vk_layout : VK_IMAGE_LAYOUT_UNDEFINED;
 
     descriptor->info.view = view;
+    descriptor->metadata.cookie = view ? view->cookie : 0;
     descriptor->metadata.set_index = d3d12_descriptor_heap_uav_set_index(false);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
@@ -4705,6 +4720,7 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
         return;
 
     sampler->info.view = view;
+    sampler->metadata.cookie = view->cookie;
     sampler->metadata.set_index = d3d12_descriptor_heap_sampler_set_index();
     sampler->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
