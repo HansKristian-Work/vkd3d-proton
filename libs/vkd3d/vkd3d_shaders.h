@@ -30,6 +30,7 @@ enum vkd3d_meta_copy_mode
 
 #include <cs_clear_uav_buffer_float.h>
 #include <cs_clear_uav_buffer_uint.h>
+#include <cs_clear_uav_buffer_raw.h>
 #include <cs_clear_uav_image_1d_array_float.h>
 #include <cs_clear_uav_image_1d_array_uint.h>
 #include <cs_clear_uav_image_1d_float.h>

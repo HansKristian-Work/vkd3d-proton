@@ -5888,7 +5888,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
         miplevel_idx = 0;
         layer_count = 1;
         pipeline = vkd3d_meta_get_clear_buffer_uav_pipeline(
-                &list->device->meta_ops, view->format->type == VKD3D_FORMAT_TYPE_UINT);
+                &list->device->meta_ops, view->format->type == VKD3D_FORMAT_TYPE_UINT, false);
         workgroup_size = vkd3d_meta_get_clear_buffer_uav_workgroup_size();
     }
 

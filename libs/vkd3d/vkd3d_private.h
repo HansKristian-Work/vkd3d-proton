@@ -1644,6 +1644,7 @@ struct vkd3d_clear_uav_args
 struct vkd3d_clear_uav_pipelines
 {
     VkPipeline buffer;
+    VkPipeline buffer_raw;
     VkPipeline image_1d;
     VkPipeline image_2d;
     VkPipeline image_3d;
@@ -1653,9 +1654,11 @@ struct vkd3d_clear_uav_pipelines
 
 struct vkd3d_clear_uav_ops
 {
+    VkDescriptorSetLayout vk_set_layout_buffer_raw;
     VkDescriptorSetLayout vk_set_layout_buffer;
     VkDescriptorSetLayout vk_set_layout_image;
 
+    VkPipelineLayout vk_pipeline_layout_buffer_raw;
     VkPipelineLayout vk_pipeline_layout_buffer;
     VkPipelineLayout vk_pipeline_layout_image;
 
@@ -1783,7 +1786,7 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
 HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device);
 
 struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_buffer_uav_pipeline(struct vkd3d_meta_ops *meta_ops,
-        bool as_uint);
+        bool as_uint, bool raw);
 struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_image_uav_pipeline(struct vkd3d_meta_ops *meta_ops,
         VkImageViewType image_view_type, bool as_uint);
 VkExtent3D vkd3d_meta_get_clear_image_uav_workgroup_size(VkImageViewType view_type);

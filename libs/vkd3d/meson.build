@@ -1,5 +1,6 @@
 vkd3d_shaders =[
   'shaders/cs_clear_uav_buffer_float.comp',
+  'shaders/cs_clear_uav_buffer_raw.comp',
   'shaders/cs_clear_uav_buffer_uint.comp',
   'shaders/cs_clear_uav_image_1d_array_float.comp',
   'shaders/cs_clear_uav_image_1d_array_uint.comp',
