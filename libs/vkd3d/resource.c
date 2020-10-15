@@ -3396,8 +3396,6 @@ static struct vkd3d_view *vkd3d_view_create(enum vkd3d_view_type type)
     {
         view->refcount = 1;
         view->type = type;
-        view->vk_counter_view = VK_NULL_HANDLE;
-        view->vk_counter_address = 0;
         view->cookie = InterlockedIncrement64(&global_cookie_counter);
     }
     return view;
@@ -3428,9 +3426,6 @@ static void vkd3d_view_destroy(struct vkd3d_view *view, struct d3d12_device *dev
         default:
             WARN("Unhandled view type %d.\n", view->type);
     }
-
-    if (view->vk_counter_view != device->null_resources.vk_storage_buffer_view)
-        VK_CALL(vkDestroyBufferView(device->vk_device, view->vk_counter_view, NULL));
 
     vkd3d_free(view);
 }
@@ -4223,8 +4218,10 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     union vkd3d_descriptor_info descriptor_info[2];
     unsigned int flags, vk_write_count = 0;
+    VkDeviceAddress uav_counter_address;
     VkWriteDescriptorSet vk_write[2];
     struct vkd3d_view *view = NULL;
+    VkBufferView uav_counter_view;
     struct vkd3d_view_key key;
 
     if (!desc)
@@ -4273,6 +4270,9 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     vk_write_count++;
 
     /* Handle UAV counter */
+    uav_counter_view = VK_NULL_HANDLE;
+    uav_counter_address = 0;
+
     if (resource && counter_resource)
     {
         assert(d3d12_resource_is_buffer(counter_resource));
@@ -4281,36 +4281,33 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
         if (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER)
         {
             VkDeviceAddress address = vkd3d_get_buffer_device_address(device, counter_resource->vk_buffer);
-
-            view->vk_counter_view = VK_NULL_HANDLE;
-            view->vk_counter_address = address + counter_resource->heap_offset + desc->Buffer.CounterOffsetInBytes;
+            uav_counter_address = address + counter_resource->heap_offset + desc->Buffer.CounterOffsetInBytes;
         }
         else
         {
-            const struct vkd3d_format *format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
+            struct vkd3d_view *view;
 
-            if (!vkd3d_create_vk_buffer_view(device, counter_resource->vk_buffer, format,
-                    desc->Buffer.CounterOffsetInBytes + resource->heap_offset, sizeof(uint32_t), &view->vk_counter_view))
-            {
-                WARN("Failed to create counter buffer view.\n");
-                view->vk_counter_view = VK_NULL_HANDLE;
-            }
+            if (!vkd3d_create_buffer_view_for_resource(device, counter_resource, DXGI_FORMAT_R32_UINT,
+                    desc->Buffer.CounterOffsetInBytes / sizeof(uint32_t), 1, 0, 0, &view))
+                return;
+
+            uav_counter_view = view->vk_buffer_view;
         }
     }
     else if (!device->device_info.robustness2_features.nullDescriptor)
-        view->vk_counter_view = device->null_resources.vk_storage_buffer_view;
+        uav_counter_view = device->null_resources.vk_storage_buffer_view;
 
     if (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER)
     {
         uint32_t descriptor_index = d3d12_desc_heap_offset(descriptor);
-        descriptor->heap->uav_counters.data[descriptor_index] = view ? view->vk_counter_address : 0;
+        descriptor->heap->uav_counters.data[descriptor_index] = uav_counter_address;
     }
     else
     {
         uint32_t set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
             D3D12_DESCRIPTOR_RANGE_TYPE_UAV, VKD3D_SHADER_BINDING_FLAG_COUNTER);
 
-        descriptor_info[vk_write_count].buffer_view = view ? view->vk_counter_view : VK_NULL_HANDLE;
+        descriptor_info[vk_write_count].buffer_view = uav_counter_view;
         vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], descriptor,
                 VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, &descriptor_info[vk_write_count]);
 

@@ -580,8 +580,6 @@ struct vkd3d_view
         VkImageView vk_image_view;
         VkSampler vk_sampler;
     };
-    VkBufferView vk_counter_view;
-    VkDeviceAddress vk_counter_address;
     const struct vkd3d_format *format;
     union
     {
