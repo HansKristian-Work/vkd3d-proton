@@ -1671,6 +1671,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
     shader_interface.next = NULL;
     shader_interface.flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
+    shader_interface.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
     shader_interface.descriptor_tables.offset = root_signature->descriptor_table_offset;
     shader_interface.descriptor_tables.count = root_signature->descriptor_table_count;
     shader_interface.bindings = root_signature->bindings;
@@ -2503,6 +2504,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
     shader_interface.next = NULL;
     shader_interface.flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
+    shader_interface.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
     shader_interface.descriptor_tables.offset = root_signature->descriptor_table_offset;
     shader_interface.descriptor_tables.count = root_signature->descriptor_table_count;
     shader_interface.bindings = root_signature->bindings;
@@ -3419,6 +3421,13 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
             device_info->descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind &&
             device_info->descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing)
         flags |= VKD3D_BINDLESS_CBV | VKD3D_BINDLESS_CBV_AS_SSBO;
+
+    /* TODO enable */
+    #if 0
+    if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers >= 1000000 &&
+            device_info->descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind)
+        flags |= VKD3D_BINDLESS_RAW_SSBO;
+    #endif
 
     if (device_info->buffer_device_address_features.bufferDeviceAddress && (flags & VKD3D_BINDLESS_UAV))
         flags |= VKD3D_RAW_VA_UAV_COUNTER;

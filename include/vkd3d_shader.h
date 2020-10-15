@@ -193,6 +193,7 @@ struct vkd3d_shader_interface_info
     enum vkd3d_shader_structure_type type;
     const void *next;
     unsigned int flags; /* vkd3d_shader_interface_flags */
+    unsigned int min_ssbo_alignment;
 
     struct vkd3d_shader_descriptor_table_buffer descriptor_tables;
     const struct vkd3d_shader_resource_binding *bindings;
