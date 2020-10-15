@@ -3489,8 +3489,8 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
         {
             if (dst->heap->uav_counters.data)
             {
-                dst->heap->uav_counters.data[dst->heap_offset] =
-                        src->heap->uav_counters.data[src->heap_offset];
+                dst->heap->uav_counters.data[dst->heap_offset] = src->counter_address;
+                dst->counter_address = src->counter_address;
             }
             else
             {
@@ -4393,6 +4393,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     {
         uint32_t descriptor_index = d3d12_desc_heap_offset(descriptor);
         descriptor->heap->uav_counters.data[descriptor_index] = uav_counter_address;
+        descriptor->counter_address = uav_counter_address;
     }
     else
     {
