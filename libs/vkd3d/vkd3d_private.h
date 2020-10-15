@@ -1597,6 +1597,7 @@ enum vkd3d_bindless_flags
     VKD3D_BINDLESS_UAV          = (1u << 3),
     VKD3D_RAW_VA_UAV_COUNTER    = (1u << 4),
     VKD3D_BINDLESS_CBV_AS_SSBO  = (1u << 5),
+    VKD3D_BINDLESS_RAW_SSBO     = (1u << 6),
 };
 
 struct vkd3d_bindless_set_info
@@ -1976,6 +1977,13 @@ static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(str
         D3D12_DESCRIPTOR_HEAP_TYPE descriptor_type)
 {
     return ID3D12Device6_GetDescriptorHandleIncrementSize(&device->ID3D12Device_iface, descriptor_type);
+}
+
+static inline VkDeviceSize d3d12_device_get_ssbo_alignment(struct d3d12_device *device)
+{
+    return (device->bindless_state.flags & VKD3D_BINDLESS_RAW_SSBO)
+            ? device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment
+            : ~0ull;
 }
 
 /* ID3DBlob */
