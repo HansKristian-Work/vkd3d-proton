@@ -211,15 +211,17 @@ static enum vkd3d_shader_visibility vkd3d_shader_visibility_from_d3d12(D3D12_SHA
     }
 }
 
-static VkDescriptorType vk_descriptor_type_from_d3d12_root_parameter(D3D12_ROOT_PARAMETER_TYPE type)
+static VkDescriptorType vk_descriptor_type_from_d3d12_root_parameter(struct d3d12_device *device, D3D12_ROOT_PARAMETER_TYPE type)
 {
+    bool use_ssbo = d3d12_device_use_ssbo_root_descriptors(device);
+
     switch (type)
     {
         /* SRV and UAV root parameters are buffer views. */
         case D3D12_ROOT_PARAMETER_TYPE_SRV:
-            return VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+            return use_ssbo ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
         case D3D12_ROOT_PARAMETER_TYPE_UAV:
-            return VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+            return use_ssbo ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
         case D3D12_ROOT_PARAMETER_TYPE_CBV:
             return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         default:
@@ -635,7 +637,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
 
         vk_binding = &vk_binding_info[j++];
         vk_binding->binding = context->vk_binding;
-        vk_binding->descriptorType = vk_descriptor_type_from_d3d12_root_parameter(p->ParameterType);
+        vk_binding->descriptorType = vk_descriptor_type_from_d3d12_root_parameter(root_signature->device, p->ParameterType);
         vk_binding->descriptorCount = 1;
         vk_binding->stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
         vk_binding->pImmutableSamplers = NULL;
@@ -651,6 +653,9 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
         binding->flags = VKD3D_SHADER_BINDING_FLAG_BUFFER;
         binding->binding.binding = context->vk_binding;
         binding->binding.set = context->vk_set;
+
+        if (vk_binding->descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            binding->flags |= VKD3D_SHADER_BINDING_FLAG_RAW_SSBO;
 
         param = &root_signature->parameters[i];
         param->parameter_type = p->ParameterType;

@@ -5214,23 +5214,29 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
     struct vkd3d_root_descriptor_info *descriptor;
     struct d3d12_resource *resource;
     VkBufferView vk_buffer_view;
-    bool null_descriptors;
+    bool null_descriptors, ssbo;
+    VkDeviceSize max_range;
 
+    ssbo = d3d12_device_use_ssbo_root_descriptors(list->device);
     root_parameter = root_signature_get_root_descriptor(root_signature, index);
     descriptor = &bindings->root_descriptors[root_parameter->descriptor.packed_descriptor];
     null_descriptors = list->device->device_info.robustness2_features.nullDescriptor;
 
-    if (root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV)
+    if (ssbo || root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV)
     {
-        descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        descriptor->vk_descriptor_type = root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV
+                ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 
         if (gpu_address)
         {
+            max_range = descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                    ? vk_info->device_limits.maxUniformBufferRange
+                    : vk_info->device_limits.maxStorageBufferRange;
+
             resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, gpu_address);
             descriptor->info.buffer.buffer = resource->vk_buffer;
             descriptor->info.buffer.offset = gpu_address - resource->gpu_address;
-            descriptor->info.buffer.range = min(resource->desc.Width - descriptor->info.buffer.offset,
-                    vk_info->device_limits.maxUniformBufferRange);
+            descriptor->info.buffer.range = min(resource->desc.Width - descriptor->info.buffer.offset, max_range);
         }
         else if (null_descriptors)
         {
