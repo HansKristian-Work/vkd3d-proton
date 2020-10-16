@@ -2194,4 +2194,8 @@ struct vkd3d_view_key
 struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
         struct d3d12_device *device, const struct vkd3d_view_key *key);
 
+#define VKD3D_VENDOR_ID_NVIDIA 0x10DE
+#define VKD3D_VENDOR_ID_AMD 0x1002
+#define VKD3D_VENDOR_ID_INTEL 0x8086
+
 #endif  /* __VKD3D_PRIVATE_H */

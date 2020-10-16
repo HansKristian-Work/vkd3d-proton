@@ -3434,12 +3434,14 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
             device_info->descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing)
         flags |= VKD3D_BINDLESS_CBV | VKD3D_BINDLESS_CBV_AS_SSBO;
 
-    /* TODO enable */
-    #if 0
-    if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers >= 1000000 &&
+    /* FIXME: For now, NV drivers seem to be broken when enabling this path, even if AMD with 16 byte alignment works just fine.
+     * Enable SSBO path for NV when we figure out what is going on ... */
+    if (device_info->properties2.properties.vendorID != VKD3D_VENDOR_ID_NVIDIA)
+    {
+        if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers >= 1000000 &&
             device_info->descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind)
-        flags |= VKD3D_BINDLESS_RAW_SSBO;
-    #endif
+            flags |= VKD3D_BINDLESS_RAW_SSBO;
+    }
 
     if (device_info->buffer_device_address_features.bufferDeviceAddress && (flags & VKD3D_BINDLESS_UAV))
         flags |= VKD3D_RAW_VA_UAV_COUNTER;
