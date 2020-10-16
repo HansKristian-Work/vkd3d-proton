@@ -478,8 +478,8 @@ struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_buffer_uav_pipeline(struct 
             ? &meta_clear_uav_ops->clear_uint
             : &meta_clear_uav_ops->clear_float;
 
-    info.vk_set_layout = meta_clear_uav_ops->vk_set_layout_buffer;
-    info.vk_pipeline_layout = meta_clear_uav_ops->vk_pipeline_layout_buffer;
+    info.vk_set_layout = raw ? meta_clear_uav_ops->vk_set_layout_buffer_raw : meta_clear_uav_ops->vk_set_layout_buffer;
+    info.vk_pipeline_layout = raw ? meta_clear_uav_ops->vk_pipeline_layout_buffer_raw : meta_clear_uav_ops->vk_pipeline_layout_buffer;
     info.vk_pipeline = raw ? pipelines->buffer_raw : pipelines->buffer;
     return info;
 }
