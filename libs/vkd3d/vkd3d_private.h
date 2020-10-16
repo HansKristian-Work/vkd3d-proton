@@ -1295,6 +1295,7 @@ struct d3d12_command_list
     bool need_host_barrier;
     bool debug_capture;
     bool has_replaced_shaders;
+    bool has_valid_index_buffer;
     VkCommandBuffer vk_command_buffer;
 
     DXGI_FORMAT index_buffer_format;
