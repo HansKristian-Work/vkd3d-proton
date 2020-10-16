@@ -2813,6 +2813,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->debug_capture = false;
 #endif
     list->has_replaced_shaders = false;
+    list->has_valid_index_buffer = false;
 
     list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;
@@ -3677,6 +3678,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
             "base_vertex_location %d, start_instance_location %u.\n",
             iface, index_count_per_instance, instance_count, start_vertex_location,
             base_vertex_location, start_instance_location);
+
+    if (!list->has_valid_index_buffer)
+    {
+        FIXME_ONCE("Application attempts to perform an indexed draw call without index buffer bound.\n");
+        /* We are supposed to render all 0 indices here. However, there are several problems with emulating this approach.
+         * There is no robustness support for index buffers, and if we render all 0 indices,
+         * it is extremely unlikely that this would create a meaningful side effect.
+         * For any line or triangle primitive, we would end up creating degenerates for every primitive.
+         * The only reasonable scenarios where we will observe anything is stream-out with all duplicate values, or
+         * geometry shaders where the application makes use of PrimitiveID to construct primitives.
+         * Until proven to be required otherwise, we just ignore the draw call. */
+        return;
+    }
 
     if (!d3d12_command_list_begin_render_pass(list))
     {
@@ -5440,7 +5454,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
 
     if (!view)
     {
-        WARN("Ignoring NULL index buffer view.\n");
+        WARN("Got NULL index buffer view, indexed draw calls will be dropped.\n");
+        list->has_valid_index_buffer = false;
         return;
     }
 
@@ -5455,15 +5470,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
             index_type = VK_INDEX_TYPE_UINT32;
             break;
         default:
-            WARN("Invalid index format %#x.\n", view->Format);
-            return;
+            FIXME_ONCE("Invalid index format %#x. This will map to R16_UINT to match observed driver behavior.\n", view->Format);
+            /* D3D12 debug layer disallows this case, but it doesn't trigger a DEVICE LOST event, so we shouldn't crash and burn. */
+            index_type = VK_INDEX_TYPE_UINT16;
+            break;
     }
 
     list->index_buffer_format = view->Format;
-
-    resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, view->BufferLocation);
-    VK_CALL(vkCmdBindIndexBuffer(list->vk_command_buffer, resource->vk_buffer,
-            view->BufferLocation - resource->gpu_address, index_type));
+    list->has_valid_index_buffer = view->BufferLocation != 0;
+    if (list->has_valid_index_buffer)
+    {
+        resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, view->BufferLocation);
+        VK_CALL(vkCmdBindIndexBuffer(list->vk_command_buffer, resource->vk_buffer,
+                view->BufferLocation - resource->gpu_address, index_type));
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_command_list_iface *iface,
@@ -6521,6 +6541,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
+                if (!list->has_valid_index_buffer)
+                {
+                    FIXME_ONCE("Application attempts to perform an indexed draw call without index buffer bound.\n");
+                    break;
+                }
+
                 if (!d3d12_command_list_begin_render_pass(list))
                 {
                     WARN("Failed to begin render pass, ignoring draw.\n");
