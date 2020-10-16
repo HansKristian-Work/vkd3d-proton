@@ -440,6 +440,17 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
                     WARN("dxil-spirv does not support DEMOTE_TO_HELPER. Slower path will be used.\n");
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_READ_STORAGE_IMAGE_WITHOUT_FORMAT)
+            {
+                static const dxil_spv_option_typed_uav_read_without_format helper =
+                        { { DXIL_SPV_OPTION_TYPED_UAV_READ_WITHOUT_FORMAT }, DXIL_SPV_TRUE };
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support TYPED_UAV_READ_WITHOUT_FORMAT.\n");
+                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                    goto end;
+                }
+            }
         }
 
         if (compiler_args->dual_source_blending)
