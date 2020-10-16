@@ -3139,39 +3139,25 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
 
 static bool vk_write_descriptor_set_from_root_descriptor(struct d3d12_command_list *list,
         VkWriteDescriptorSet *vk_descriptor_write, const struct d3d12_root_parameter *root_parameter,
-        VkDescriptorSet vk_descriptor_set, const union vkd3d_descriptor_info *descriptors)
+        VkDescriptorSet vk_descriptor_set, const struct vkd3d_root_descriptor_info *descriptors)
 {
-    const union vkd3d_descriptor_info *descriptor = &descriptors[root_parameter->descriptor.packed_descriptor];
-    bool is_defined;
+    const struct vkd3d_root_descriptor_info *descriptor = &descriptors[root_parameter->descriptor.packed_descriptor];
+    bool is_buffer, is_defined;
 
-    switch (root_parameter->parameter_type)
-    {
-        case D3D12_ROOT_PARAMETER_TYPE_CBV:
-            vk_descriptor_write->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            is_defined = !!descriptor->buffer.buffer;
-            break;
-        case D3D12_ROOT_PARAMETER_TYPE_SRV:
-            vk_descriptor_write->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-            is_defined = !!descriptor->buffer_view;
-            break;
-        case D3D12_ROOT_PARAMETER_TYPE_UAV:
-            vk_descriptor_write->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-            is_defined = !!descriptor->buffer_view;
-            break;
-        default:
-            ERR("Invalid root descriptor %#x.\n", root_parameter->parameter_type);
-            return false;
-    }
+    is_buffer = descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+            || descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    is_defined = is_buffer ? !!descriptor->info.buffer.buffer : !!descriptor->info.buffer_view;
 
     vk_descriptor_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     vk_descriptor_write->pNext = NULL;
     vk_descriptor_write->dstSet = vk_descriptor_set;
     vk_descriptor_write->dstBinding = root_parameter->descriptor.binding->binding.binding;
     vk_descriptor_write->dstArrayElement = 0;
+    vk_descriptor_write->descriptorType = descriptor->vk_descriptor_type;
     vk_descriptor_write->descriptorCount = 1;
     vk_descriptor_write->pImageInfo = NULL;
-    vk_descriptor_write->pBufferInfo = &descriptor->buffer;
-    vk_descriptor_write->pTexelBufferView = &descriptor->buffer_view;
+    vk_descriptor_write->pBufferInfo = &descriptor->info.buffer;
+    vk_descriptor_write->pTexelBufferView = &descriptor->info.buffer_view;
     return is_defined || list->device->device_info.robustness2_features.nullDescriptor;
 }
 
@@ -5225,7 +5211,7 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
     const struct d3d12_root_parameter *root_parameter;
-    union vkd3d_descriptor_info *descriptor;
+    struct vkd3d_root_descriptor_info *descriptor;
     struct d3d12_resource *resource;
     VkBufferView vk_buffer_view;
     bool null_descriptors;
@@ -5236,29 +5222,34 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
 
     if (root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV)
     {
+        descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+
         if (gpu_address)
         {
             resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, gpu_address);
-            descriptor->buffer.buffer = resource->vk_buffer;
-            descriptor->buffer.offset = gpu_address - resource->gpu_address;
-            descriptor->buffer.range = min(resource->desc.Width - descriptor->buffer.offset,
+            descriptor->info.buffer.buffer = resource->vk_buffer;
+            descriptor->info.buffer.offset = gpu_address - resource->gpu_address;
+            descriptor->info.buffer.range = min(resource->desc.Width - descriptor->info.buffer.offset,
                     vk_info->device_limits.maxUniformBufferRange);
         }
         else if (null_descriptors)
         {
-            descriptor->buffer.buffer = VK_NULL_HANDLE;
-            descriptor->buffer.offset = 0;
-            descriptor->buffer.range = 0;
+            descriptor->info.buffer.buffer = VK_NULL_HANDLE;
+            descriptor->info.buffer.offset = 0;
+            descriptor->info.buffer.range = 0;
         }
         else
         {
-            descriptor->buffer.buffer = list->device->null_resources.vk_buffer;
-            descriptor->buffer.offset = 0;
-            descriptor->buffer.range = VK_WHOLE_SIZE;
+            descriptor->info.buffer.buffer = list->device->null_resources.vk_buffer;
+            descriptor->info.buffer.offset = 0;
+            descriptor->info.buffer.range = VK_WHOLE_SIZE;
         }
     }
     else
     {
+        descriptor->vk_descriptor_type = root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_SRV
+                ? VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+
         if (gpu_address)
         {
             if (!vkd3d_create_raw_buffer_view(list->device, gpu_address, &vk_buffer_view))
@@ -5274,15 +5265,15 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
                 return;
             }
 
-            descriptor->buffer_view = vk_buffer_view;
+            descriptor->info.buffer_view = vk_buffer_view;
         }
         else if (null_descriptors)
         {
-            descriptor->buffer_view = VK_NULL_HANDLE;
+            descriptor->info.buffer_view = VK_NULL_HANDLE;
         }
         else
         {
-            descriptor->buffer_view = root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_SRV
+            descriptor->info.buffer_view = root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_SRV
                     ? list->device->null_resources.vk_buffer_view
                     : list->device->null_resources.vk_storage_buffer_view;
         }
