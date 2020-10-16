@@ -46,13 +46,18 @@ static bool dxil_match_shader_visibility(enum vkd3d_shader_visibility visibility
     }
 }
 
-static unsigned dxil_resource_flags_from_kind(dxil_spv_resource_kind kind)
+static unsigned dxil_resource_flags_from_kind(dxil_spv_resource_kind kind, bool ssbo)
 {
     switch (kind)
     {
         case DXIL_SPV_RESOURCE_KIND_RAW_BUFFER:
-        case DXIL_SPV_RESOURCE_KIND_TYPED_BUFFER:
         case DXIL_SPV_RESOURCE_KIND_STRUCTURED_BUFFER:
+            if (ssbo)
+                return VKD3D_SHADER_BINDING_FLAG_BUFFER | VKD3D_SHADER_BINDING_FLAG_RAW_SSBO;
+            else
+                return VKD3D_SHADER_BINDING_FLAG_BUFFER;
+
+        case DXIL_SPV_RESOURCE_KIND_TYPED_BUFFER:
             return VKD3D_SHADER_BINDING_FLAG_BUFFER;
 
         default:
@@ -72,59 +77,24 @@ static bool dxil_resource_is_in_range(const struct vkd3d_shader_resource_binding
            ((d3d_binding->register_index - binding->register_index) < binding->register_count);
 }
 
-static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *d3d_binding,
-                                    dxil_spv_vulkan_binding *vk_binding)
+static dxil_spv_bool dxil_remap(const struct vkd3d_shader_interface_info *shader_interface_info,
+        enum vkd3d_shader_descriptor_type descriptor_type,
+        const dxil_spv_d3d_binding *d3d_binding,
+        dxil_spv_vulkan_binding *vk_binding,
+        uint32_t resource_flags)
 {
-    const struct vkd3d_shader_interface_info *shader_interface_info = userdata;
-    unsigned int binding_count = shader_interface_info->binding_count;
-    unsigned int i, resource_flags;
-    resource_flags = dxil_resource_flags_from_kind(d3d_binding->kind);
-
-    for (i = 0; i < binding_count; i++)
-    {
-        const struct vkd3d_shader_resource_binding *binding = &shader_interface_info->bindings[i];
-        if (binding->type == VKD3D_SHADER_DESCRIPTOR_TYPE_SRV &&
-            dxil_resource_is_in_range(binding, d3d_binding) &&
-            (binding->flags & resource_flags) != 0 &&
-            dxil_match_shader_visibility(binding->shader_visibility, d3d_binding->stage))
-        {
-            memset(vk_binding, 0, sizeof(*vk_binding));
-
-            if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
-            {
-                vk_binding->bindless.use_heap = DXIL_SPV_TRUE;
-                vk_binding->bindless.heap_root_offset = binding->descriptor_offset +
-                        d3d_binding->register_index - binding->register_index;
-                vk_binding->bindless.root_constant_word = binding->descriptor_table +
-                        (shader_interface_info->descriptor_tables.offset / sizeof(uint32_t));
-                vk_binding->set = binding->binding.set;
-                vk_binding->binding = binding->binding.binding;
-            }
-            else
-            {
-                vk_binding->set = binding->binding.set;
-                vk_binding->binding = binding->binding.binding + d3d_binding->register_index - binding->register_index;
-            }
-
-            return DXIL_SPV_TRUE;
-        }
-    }
-
-    return DXIL_SPV_FALSE;
-}
-
-static dxil_spv_bool dxil_sampler_remap(void *userdata, const dxil_spv_d3d_binding *d3d_binding,
-                                        dxil_spv_vulkan_binding *vk_binding)
-{
-    const struct vkd3d_shader_interface_info *shader_interface_info = userdata;
     unsigned int binding_count = shader_interface_info->binding_count;
     unsigned int i;
 
     for (i = 0; i < binding_count; i++)
     {
         const struct vkd3d_shader_resource_binding *binding = &shader_interface_info->bindings[i];
-        if (binding->type == VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER &&
+        const uint32_t mask = ~(VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_RAW_VA);
+        uint32_t match_flags = binding->flags & mask;
+
+        if (binding->type == descriptor_type &&
             dxil_resource_is_in_range(binding, d3d_binding) &&
+            (match_flags & resource_flags) == resource_flags &&
             dxil_match_shader_visibility(binding->shader_visibility, d3d_binding->stage))
         {
             memset(vk_binding, 0, sizeof(*vk_binding));
@@ -152,9 +122,46 @@ static dxil_spv_bool dxil_sampler_remap(void *userdata, const dxil_spv_d3d_bindi
     return DXIL_SPV_FALSE;
 }
 
+static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *d3d_binding,
+                                    dxil_spv_srv_vulkan_binding *vk_binding)
+{
+    const struct vkd3d_shader_interface_info *shader_interface_info = userdata;
+    unsigned int resource_flags, resource_flags_ssbo;
+    bool use_ssbo;
+
+    resource_flags_ssbo = dxil_resource_flags_from_kind(d3d_binding->kind, true);
+    resource_flags = dxil_resource_flags_from_kind(d3d_binding->kind, false);
+
+    if (resource_flags_ssbo != resource_flags)
+        use_ssbo = d3d_binding->alignment >= shader_interface_info->min_ssbo_alignment;
+    else
+        use_ssbo = false;
+
+    if (use_ssbo && dxil_remap(shader_interface_info, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,
+            d3d_binding, &vk_binding->buffer_binding, resource_flags_ssbo))
+    {
+        vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
+        return DXIL_SPV_TRUE;
+    }
+    else
+        vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_TEXEL_BUFFER;
+
+    return dxil_remap(shader_interface_info, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,
+            d3d_binding, &vk_binding->buffer_binding, resource_flags);
+}
+
+static dxil_spv_bool dxil_sampler_remap(void *userdata, const dxil_spv_d3d_binding *d3d_binding,
+                                        dxil_spv_vulkan_binding *vk_binding)
+{
+    const struct vkd3d_shader_interface_info *shader_interface_info = userdata;
+    return dxil_remap(shader_interface_info, VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER,
+            d3d_binding, vk_binding, VKD3D_SHADER_BINDING_FLAG_IMAGE);
+}
+
 static dxil_spv_bool dxil_input_remap(void *userdata, const dxil_spv_d3d_vertex_input *d3d_input,
                                       dxil_spv_vulkan_vertex_input *vk_input)
 {
+    (void)userdata;
     vk_input->location = d3d_input->start_row;
     return DXIL_SPV_TRUE;
 }
@@ -216,78 +223,58 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
                                     dxil_spv_uav_vulkan_binding *vk_binding)
 {
     const struct vkd3d_shader_interface_info *shader_interface_info = userdata;
-    unsigned int binding_count = shader_interface_info->binding_count;
-    const struct vkd3d_shader_resource_binding *binding;
-    unsigned int i, resource_flags;
-    bool found_binding = false;
+    unsigned int resource_flags, resource_flags_ssbo;
+    bool use_ssbo;
 
-    resource_flags = dxil_resource_flags_from_kind(d3d_binding->d3d_binding.kind);
-    if (d3d_binding->has_counter)
-        resource_flags |= VKD3D_SHADER_BINDING_FLAG_COUNTER;
+    resource_flags_ssbo = dxil_resource_flags_from_kind(d3d_binding->d3d_binding.kind, true);
+    resource_flags = dxil_resource_flags_from_kind(d3d_binding->d3d_binding.kind, false);
 
-    memset(vk_binding, 0, sizeof(*vk_binding));
+    if (resource_flags != resource_flags_ssbo)
+        use_ssbo = d3d_binding->d3d_binding.alignment >= shader_interface_info->min_ssbo_alignment;
+    else
+        use_ssbo = false;
 
-    for (i = 0; i < binding_count; i++)
+    if (use_ssbo)
     {
-        binding = &shader_interface_info->bindings[i];
-        if (binding->type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV &&
-            dxil_resource_is_in_range(binding, &d3d_binding->d3d_binding) &&
-            (binding->flags & resource_flags) != 0 &&
-            dxil_match_shader_visibility(binding->shader_visibility, d3d_binding->d3d_binding.stage))
+        if (dxil_remap(shader_interface_info, VKD3D_SHADER_DESCRIPTOR_TYPE_UAV, &d3d_binding->d3d_binding,
+                &vk_binding->buffer_binding, resource_flags_ssbo))
         {
-            if (d3d_binding->has_counter && (binding->flags & VKD3D_SHADER_BINDING_FLAG_COUNTER))
-            {
-                if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
-                {
-                    vk_binding->counter_binding.bindless.use_heap = DXIL_SPV_TRUE;
-                    vk_binding->counter_binding.bindless.heap_root_offset = binding->descriptor_offset +
-                            d3d_binding->d3d_binding.register_index - binding->register_index;
-                    vk_binding->counter_binding.bindless.root_constant_word =
-                            binding->descriptor_table +
-                            (shader_interface_info->descriptor_tables.offset / sizeof(uint32_t));
-                    vk_binding->counter_binding.set = binding->binding.set;
-                    vk_binding->counter_binding.binding = binding->binding.binding;
-                }
-                else
-                {
-                    vk_binding->counter_binding.set = binding->binding.set;
-                    vk_binding->counter_binding.binding =
-                            binding->binding.binding + d3d_binding->d3d_binding.register_index - binding->register_index;
-                }
-                found_binding = true;
-            }
-            else if (!(binding->flags & VKD3D_SHADER_BINDING_FLAG_COUNTER))
-            {
-                if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
-                {
-                    vk_binding->buffer_binding.bindless.use_heap = DXIL_SPV_TRUE;
-                    vk_binding->buffer_binding.bindless.heap_root_offset = binding->descriptor_offset +
-                            d3d_binding->d3d_binding.register_index - binding->register_index;
-                    vk_binding->buffer_binding.bindless.root_constant_word =
-                            binding->descriptor_table +
-                            (shader_interface_info->descriptor_tables.offset / sizeof(uint32_t));
-                    vk_binding->buffer_binding.set = binding->binding.set;
-                    vk_binding->buffer_binding.binding = binding->binding.binding;
-                }
-                else
-                {
-                    vk_binding->buffer_binding.set = binding->binding.set;
-                    vk_binding->buffer_binding.binding =
-                            binding->binding.binding + d3d_binding->d3d_binding.register_index - binding->register_index;
-                }
-                found_binding = true;
-            }
+            vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
+        }
+        else if (!dxil_remap(shader_interface_info, VKD3D_SHADER_DESCRIPTOR_TYPE_UAV, &d3d_binding->d3d_binding,
+                &vk_binding->buffer_binding, resource_flags))
+        {
+            return DXIL_SPV_FALSE;
+        }
+        else
+            vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_TEXEL_BUFFER;
+    }
+    else
+    {
+        vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_TEXEL_BUFFER;
+        if (!dxil_remap(shader_interface_info, VKD3D_SHADER_DESCRIPTOR_TYPE_UAV, &d3d_binding->d3d_binding,
+                &vk_binding->buffer_binding, resource_flags))
+        {
+            return DXIL_SPV_FALSE;
         }
     }
 
-    return found_binding ? DXIL_SPV_TRUE : DXIL_SPV_FALSE;
+    if (d3d_binding->has_counter)
+    {
+        if (!dxil_remap(shader_interface_info, VKD3D_SHADER_DESCRIPTOR_TYPE_UAV, &d3d_binding->d3d_binding,
+                &vk_binding->counter_binding, VKD3D_SHADER_BINDING_FLAG_COUNTER))
+        {
+            return DXIL_SPV_FALSE;
+        }
+    }
+
+    return DXIL_SPV_TRUE;
 }
 
 static dxil_spv_bool dxil_cbv_remap(void *userdata, const dxil_spv_d3d_binding *d3d_binding,
                                     dxil_spv_cbv_vulkan_binding *vk_binding)
 {
     const struct vkd3d_shader_interface_info *shader_interface_info = userdata;
-    unsigned int binding_count = shader_interface_info->binding_count;
     unsigned int i;
 
     /* Try to map to root constant -> push constant.
@@ -305,39 +292,9 @@ static dxil_spv_bool dxil_cbv_remap(void *userdata, const dxil_spv_d3d_binding *
         }
     }
 
-    /* Fall back to regular CBV -> UBO. */
-    for (i = 0; i < binding_count; i++)
-    {
-        const struct vkd3d_shader_resource_binding *binding = &shader_interface_info->bindings[i];
-        if (binding->type == VKD3D_SHADER_DESCRIPTOR_TYPE_CBV &&
-            dxil_resource_is_in_range(binding, d3d_binding) &&
-            dxil_match_shader_visibility(binding->shader_visibility, d3d_binding->stage))
-        {
-            memset(vk_binding, 0, sizeof(*vk_binding));
-
-            if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
-            {
-                vk_binding->vulkan.uniform_binding.bindless.use_heap = DXIL_SPV_TRUE;
-                vk_binding->vulkan.uniform_binding.bindless.heap_root_offset =
-                        binding->descriptor_offset + d3d_binding->register_index - binding->register_index;
-                vk_binding->vulkan.uniform_binding.bindless.root_constant_word =
-                        binding->descriptor_table +
-                        (shader_interface_info->descriptor_tables.offset / sizeof(uint32_t));
-                vk_binding->vulkan.uniform_binding.set = binding->binding.set;
-                vk_binding->vulkan.uniform_binding.binding = binding->binding.binding;
-            }
-            else
-            {
-                vk_binding->vulkan.uniform_binding.set = binding->binding.set;
-                vk_binding->vulkan.uniform_binding.binding =
-                        binding->binding.binding + d3d_binding->register_index - binding->register_index;
-            }
-
-            return DXIL_SPV_TRUE;
-        }
-    }
-
-    return DXIL_SPV_FALSE;
+    return dxil_remap(shader_interface_info, VKD3D_SHADER_DESCRIPTOR_TYPE_CBV,
+            d3d_binding, &vk_binding->vulkan.uniform_binding,
+            VKD3D_SHADER_BINDING_FLAG_BUFFER);
 }
 
 int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
@@ -396,6 +353,17 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
                shader_interface_info->descriptor_tables.count;
     if (max_size > root_constant_words)
         root_constant_words = max_size;
+
+    {
+        const struct dxil_spv_option_ssbo_alignment helper =
+                { { DXIL_SPV_OPTION_SSBO_ALIGNMENT }, shader_interface_info->min_ssbo_alignment };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support SSBO_ALIGNMENT.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
 
     if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER)
     {
