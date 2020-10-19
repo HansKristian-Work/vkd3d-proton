@@ -1046,6 +1046,7 @@ static const struct vkd3d_sm4_opcode_info opcode_table[] =
     {VKD3D_SM4_OP_DP4,                              VKD3DSIH_DP4,                              "f",    "ff"},
     {VKD3D_SM4_OP_ELSE,                             VKD3DSIH_ELSE,                             "",     ""},
     {VKD3D_SM4_OP_EMIT,                             VKD3DSIH_EMIT,                             "",     ""},
+    {VKD3D_SM4_OP_EMIT_THEN_CUT,                    VKD3DSIH_EMIT_THEN_CUT,                    "",     ""},
     {VKD3D_SM4_OP_ENDIF,                            VKD3DSIH_ENDIF,                            "",     ""},
     {VKD3D_SM4_OP_ENDLOOP,                          VKD3DSIH_ENDLOOP,                          "",     ""},
     {VKD3D_SM4_OP_ENDSWITCH,                        VKD3DSIH_ENDSWITCH,                        "",     ""},

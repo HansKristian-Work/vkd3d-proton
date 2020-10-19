@@ -9645,6 +9645,10 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_EMIT_STREAM:
             vkd3d_dxbc_compiler_emit_emit_stream(compiler, instruction);
             break;
+        case VKD3DSIH_EMIT_THEN_CUT:
+            vkd3d_dxbc_compiler_emit_emit_stream(compiler, instruction);
+            vkd3d_dxbc_compiler_emit_cut_stream(compiler, instruction);
+            break;
         case VKD3DSIH_CUT:
         case VKD3DSIH_CUT_STREAM:
             vkd3d_dxbc_compiler_emit_cut_stream(compiler, instruction);
