@@ -117,6 +117,7 @@ static const char * const shader_opcode_names[] =
     /* VKD3DSIH_DSY_FINE                         */ "deriv_rty_fine",
     /* VKD3DSIH_ELSE                             */ "else",
     /* VKD3DSIH_EMIT                             */ "emit",
+    /* VKD3DSIH_EMIT_THEN_CUT                    */ "emit_then_cut",
     /* VKD3DSIH_EMIT_STREAM                      */ "emit_stream",
     /* VKD3DSIH_ENDIF                            */ "endif",
     /* VKD3DSIH_ENDLOOP                          */ "endloop",
