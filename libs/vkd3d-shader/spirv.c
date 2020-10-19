@@ -6972,7 +6972,10 @@ static void vkd3d_dxbc_compiler_emit_imad(struct vkd3d_dxbc_compiler *compiler,
     unsigned int i, component_count;
 
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
-    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_INT, component_count);
+    if (instruction->handler_idx == VKD3DSIH_UMAD)
+        type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, component_count);
+    else
+        type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_INT, component_count);
 
     for (i = 0; i < ARRAY_SIZE(src_ids); ++i)
         src_ids[i] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[i], dst->write_mask);
@@ -9483,6 +9486,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_IMUL:
             vkd3d_dxbc_compiler_emit_imul(compiler, instruction);
             break;
+        case VKD3DSIH_UMAD:
         case VKD3DSIH_IMAD:
             vkd3d_dxbc_compiler_emit_imad(compiler, instruction);
             break;
