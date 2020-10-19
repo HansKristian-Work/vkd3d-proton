@@ -38,7 +38,6 @@ struct vkd3d_string_buffer
 
 static const char * const shader_opcode_names[] =
 {
-    /* VKD3DSIH_ABS                              */ "abs",
     /* VKD3DSIH_ADD                              */ "add",
     /* VKD3DSIH_AND                              */ "and",
     /* VKD3DSIH_ATOMIC_AND                       */ "atomic_and",
@@ -60,12 +59,9 @@ static const char * const shader_opcode_names[] =
     /* VKD3DSIH_CALL                             */ "call",
     /* VKD3DSIH_CALLNZ                           */ "callnz",
     /* VKD3DSIH_CASE                             */ "case",
-    /* VKD3DSIH_CMP                              */ "cmp",
-    /* VKD3DSIH_CND                              */ "cnd",
     /* VKD3DSIH_CONTINUE                         */ "continue",
     /* VKD3DSIH_CONTINUEP                        */ "continuec",
     /* VKD3DSIH_COUNTBITS                        */ "countbits",
-    /* VKD3DSIH_CRS                              */ "crs",
     /* VKD3DSIH_CUT                              */ "cut",
     /* VKD3DSIH_CUT_STREAM                       */ "cut_stream",
     /* VKD3DSIH_DCL                              */ "dcl",
@@ -108,16 +104,11 @@ static const char * const shader_opcode_names[] =
     /* VKD3DSIH_DCL_UAV_STRUCTURED               */ "dcl_uav_structured",
     /* VKD3DSIH_DCL_UAV_TYPED                    */ "dcl_uav_typed",
     /* VKD3DSIH_DCL_VERTICES_OUT                 */ "dcl_maxOutputVertexCount",
-    /* VKD3DSIH_DEF                              */ "def",
     /* VKD3DSIH_DEFAULT                          */ "default",
-    /* VKD3DSIH_DEFB                             */ "defb",
-    /* VKD3DSIH_DEFI                             */ "defi",
     /* VKD3DSIH_DIV                              */ "div",
     /* VKD3DSIH_DP2                              */ "dp2",
-    /* VKD3DSIH_DP2ADD                           */ "dp2add",
     /* VKD3DSIH_DP3                              */ "dp3",
     /* VKD3DSIH_DP4                              */ "dp4",
-    /* VKD3DSIH_DST                              */ "dst",
     /* VKD3DSIH_DSX                              */ "dsx",
     /* VKD3DSIH_DSX_COARSE                       */ "deriv_rtx_coarse",
     /* VKD3DSIH_DSX_FINE                         */ "deriv_rtx_fine",
@@ -129,13 +120,11 @@ static const char * const shader_opcode_names[] =
     /* VKD3DSIH_EMIT_STREAM                      */ "emit_stream",
     /* VKD3DSIH_ENDIF                            */ "endif",
     /* VKD3DSIH_ENDLOOP                          */ "endloop",
-    /* VKD3DSIH_ENDREP                           */ "endrep",
     /* VKD3DSIH_ENDSWITCH                        */ "endswitch",
     /* VKD3DSIH_EQ                               */ "eq",
     /* VKD3DSIH_EVAL_CENTROID                    */ "eval_centroid",
     /* VKD3DSIH_EVAL_SAMPLE_INDEX                */ "eval_sample_index",
     /* VKD3DSIH_EXP                              */ "exp",
-    /* VKD3DSIH_EXPP                             */ "expp",
     /* VKD3DSIH_F16TOF32                         */ "f16tof32",
     /* VKD3DSIH_F32TOF16                         */ "f32tof16",
     /* VKD3DSIH_FCALL                            */ "fcall",
@@ -188,34 +177,23 @@ static const char * const shader_opcode_names[] =
     /* VKD3DSIH_LD_RAW                           */ "ld_raw",
     /* VKD3DSIH_LD_STRUCTURED                    */ "ld_structured",
     /* VKD3DSIH_LD_UAV_TYPED                     */ "ld_uav_typed",
-    /* VKD3DSIH_LIT                              */ "lit",
     /* VKD3DSIH_LOD                              */ "lod",
     /* VKD3DSIH_LOG                              */ "log",
-    /* VKD3DSIH_LOGP                             */ "logp",
     /* VKD3DSIH_LOOP                             */ "loop",
     /* VKD3DSIH_LRP                              */ "lrp",
     /* VKD3DSIH_LT                               */ "lt",
-    /* VKD3DSIH_M3x2                             */ "m3x2",
-    /* VKD3DSIH_M3x3                             */ "m3x3",
-    /* VKD3DSIH_M3x4                             */ "m3x4",
-    /* VKD3DSIH_M4x3                             */ "m4x3",
-    /* VKD3DSIH_M4x4                             */ "m4x4",
     /* VKD3DSIH_MAD                              */ "mad",
     /* VKD3DSIH_MAX                              */ "max",
     /* VKD3DSIH_MIN                              */ "min",
     /* VKD3DSIH_MOV                              */ "mov",
-    /* VKD3DSIH_MOVA                             */ "mova",
     /* VKD3DSIH_MOVC                             */ "movc",
     /* VKD3DSIH_MUL                              */ "mul",
     /* VKD3DSIH_NE                               */ "ne",
     /* VKD3DSIH_NOP                              */ "nop",
     /* VKD3DSIH_NOT                              */ "not",
-    /* VKD3DSIH_NRM                              */ "nrm",
     /* VKD3DSIH_OR                               */ "or",
-    /* VKD3DSIH_PHASE                            */ "phase",
     /* VKD3DSIH_POW                              */ "pow",
     /* VKD3DSIH_RCP                              */ "rcp",
-    /* VKD3DSIH_REP                              */ "rep",
     /* VKD3DSIH_RESINFO                          */ "resinfo",
     /* VKD3DSIH_RET                              */ "ret",
     /* VKD3DSIH_RETP                             */ "retp",
@@ -232,7 +210,6 @@ static const char * const shader_opcode_names[] =
     /* VKD3DSIH_SAMPLE_INFO                      */ "sample_info",
     /* VKD3DSIH_SAMPLE_LOD                       */ "sample_l",
     /* VKD3DSIH_SAMPLE_POS                       */ "sample_pos",
-    /* VKD3DSIH_SETP                             */ "setp",
     /* VKD3DSIH_SGE                              */ "sge",
     /* VKD3DSIH_SGN                              */ "sgn",
     /* VKD3DSIH_SINCOS                           */ "sincos",
@@ -245,28 +222,7 @@ static const char * const shader_opcode_names[] =
     /* VKD3DSIH_SWAPC                            */ "swapc",
     /* VKD3DSIH_SWITCH                           */ "switch",
     /* VKD3DSIH_SYNC                             */ "sync",
-    /* VKD3DSIH_TEX                              */ "texld",
-    /* VKD3DSIH_TEXBEM                           */ "texbem",
-    /* VKD3DSIH_TEXBEML                          */ "texbeml",
-    /* VKD3DSIH_TEXCOORD                         */ "texcrd",
-    /* VKD3DSIH_TEXDEPTH                         */ "texdepth",
-    /* VKD3DSIH_TEXDP3                           */ "texdp3",
-    /* VKD3DSIH_TEXDP3TEX                        */ "texdp3tex",
     /* VKD3DSIH_TEXKILL                          */ "texkill",
-    /* VKD3DSIH_TEXLDD                           */ "texldd",
-    /* VKD3DSIH_TEXLDL                           */ "texldl",
-    /* VKD3DSIH_TEXM3x2DEPTH                     */ "texm3x2depth",
-    /* VKD3DSIH_TEXM3x2PAD                       */ "texm3x2pad",
-    /* VKD3DSIH_TEXM3x2TEX                       */ "texm3x2tex",
-    /* VKD3DSIH_TEXM3x3                          */ "texm3x3",
-    /* VKD3DSIH_TEXM3x3DIFF                      */ "texm3x3diff",
-    /* VKD3DSIH_TEXM3x3PAD                       */ "texm3x3pad",
-    /* VKD3DSIH_TEXM3x3SPEC                      */ "texm3x3spec",
-    /* VKD3DSIH_TEXM3x3TEX                       */ "texm3x3tex",
-    /* VKD3DSIH_TEXM3x3VSPEC                     */ "texm3x3vspec",
-    /* VKD3DSIH_TEXREG2AR                        */ "texreg2ar",
-    /* VKD3DSIH_TEXREG2GB                        */ "texreg2gb",
-    /* VKD3DSIH_TEXREG2RGB                       */ "texreg2rgb",
     /* VKD3DSIH_UBFE                             */ "ubfe",
     /* VKD3DSIH_UDIV                             */ "udiv",
     /* VKD3DSIH_UGE                              */ "uge",
@@ -380,22 +336,6 @@ static int shader_addline(struct vkd3d_string_buffer *buffer, const char *format
             return ret;
         if (!string_buffer_resize(buffer, ret))
             return -1;
-    }
-}
-
-/* Convert floating point offset relative to a register file to an absolute
- * offset for float constants. */
-static unsigned int shader_get_float_offset(enum vkd3d_shader_register_type register_type, UINT register_idx)
-{
-    switch (register_type)
-    {
-        case VKD3DSPR_CONST: return register_idx;
-        case VKD3DSPR_CONST2: return 2048 + register_idx;
-        case VKD3DSPR_CONST3: return 4096 + register_idx;
-        case VKD3DSPR_CONST4: return 6144 + register_idx;
-        default:
-            FIXME("Unsupported register type: %u.\n", register_type);
-            return register_idx;
     }
 }
 
@@ -592,7 +532,7 @@ static void shader_dump_decl_usage(struct vkd3d_string_buffer *buffer,
                 break;
         }
     }
-    else if (semantic->reg.reg.type == VKD3DSPR_RESOURCE || semantic->reg.reg.type == VKD3DSPR_UAV)
+    else // if (semantic->reg.reg.type == VKD3DSPR_RESOURCE || semantic->reg.reg.type == VKD3DSPR_UAV)
     {
         if (semantic->reg.reg.type == VKD3DSPR_RESOURCE)
             shader_addline(buffer, "_resource_");
@@ -673,80 +613,6 @@ static void shader_dump_decl_usage(struct vkd3d_string_buffer *buffer,
                 break;
         }
     }
-    else
-    {
-        /* Pixel shaders 3.0 don't have usage semantics. */
-        if (shader_version->major < 3 && shader_version->type == VKD3D_SHADER_TYPE_PIXEL)
-            return;
-        else
-            shader_addline(buffer, "_");
-
-        switch (semantic->usage)
-        {
-            case VKD3D_DECL_USAGE_POSITION:
-                shader_addline(buffer, "position%u", semantic->usage_idx);
-                break;
-
-            case VKD3D_DECL_USAGE_BLEND_INDICES:
-                shader_addline(buffer, "blend");
-                break;
-
-            case VKD3D_DECL_USAGE_BLEND_WEIGHT:
-                shader_addline(buffer, "weight");
-                break;
-
-            case VKD3D_DECL_USAGE_NORMAL:
-                shader_addline(buffer, "normal%u", semantic->usage_idx);
-                break;
-
-            case VKD3D_DECL_USAGE_PSIZE:
-                shader_addline(buffer, "psize");
-                break;
-
-            case VKD3D_DECL_USAGE_COLOR:
-                if (!semantic->usage_idx)
-                    shader_addline(buffer, "color");
-                else
-                    shader_addline(buffer, "specular%u", (semantic->usage_idx - 1));
-                break;
-
-            case VKD3D_DECL_USAGE_TEXCOORD:
-                shader_addline(buffer, "texture%u", semantic->usage_idx);
-                break;
-
-            case VKD3D_DECL_USAGE_TANGENT:
-                shader_addline(buffer, "tangent");
-                break;
-
-            case VKD3D_DECL_USAGE_BINORMAL:
-                shader_addline(buffer, "binormal");
-                break;
-
-            case VKD3D_DECL_USAGE_TESS_FACTOR:
-                shader_addline(buffer, "tessfactor");
-                break;
-
-            case VKD3D_DECL_USAGE_POSITIONT:
-                shader_addline(buffer, "positionT%u", semantic->usage_idx);
-                break;
-
-            case VKD3D_DECL_USAGE_FOG:
-                shader_addline(buffer, "fog");
-                break;
-
-            case VKD3D_DECL_USAGE_DEPTH:
-                shader_addline(buffer, "depth");
-                break;
-
-            case VKD3D_DECL_USAGE_SAMPLE:
-                shader_addline(buffer, "sample");
-                break;
-
-            default:
-                shader_addline(buffer, "<unknown_semantic(%#x)>", semantic->usage);
-                FIXME("Unrecognised semantic usage %#x.\n", semantic->usage);
-        }
-    }
 }
 
 static void shader_dump_src_param(struct vkd3d_string_buffer *buffer,
@@ -755,8 +621,6 @@ static void shader_dump_src_param(struct vkd3d_string_buffer *buffer,
 static void shader_dump_register(struct vkd3d_string_buffer *buffer,
         const struct vkd3d_shader_register *reg, const struct vkd3d_shader_version *shader_version)
 {
-    static const char * const rastout_reg_names[] = {"oPos", "oFog", "oPts"};
-    static const char * const misctype_reg_names[] = {"vPos", "vFace"};
     unsigned int offset = reg->idx[0].offset;
 
     switch (reg->type)
@@ -767,22 +631,6 @@ static void shader_dump_register(struct vkd3d_string_buffer *buffer,
 
         case VKD3DSPR_INPUT:
             shader_addline(buffer, "v");
-            break;
-
-        case VKD3DSPR_CONST:
-        case VKD3DSPR_CONST2:
-        case VKD3DSPR_CONST3:
-        case VKD3DSPR_CONST4:
-            shader_addline(buffer, "c");
-            offset = shader_get_float_offset(reg->type, offset);
-            break;
-
-        case VKD3DSPR_TEXTURE: /* vs: case VKD3DSPR_ADDR */
-            shader_addline(buffer, "%c", shader_version->type == VKD3D_SHADER_TYPE_PIXEL ? 't' : 'a');
-            break;
-
-        case VKD3DSPR_RASTOUT:
-            shader_addline(buffer, "%s", rastout_reg_names[offset]);
             break;
 
         case VKD3DSPR_COLOROUT:
@@ -801,53 +649,12 @@ static void shader_dump_register(struct vkd3d_string_buffer *buffer,
             shader_addline(buffer, "oDepthLE");
             break;
 
-        case VKD3DSPR_ATTROUT:
-            shader_addline(buffer, "oD");
-            break;
-
-        case VKD3DSPR_TEXCRDOUT:
-            /* Vertex shaders >= 3.0 use general purpose output registers
-             * (VKD3DSPR_OUTPUT), which can include an address token. */
-            if (shader_version->major >= 3)
-                shader_addline(buffer, "o");
-            else
-                shader_addline(buffer, "oT");
-            break;
-
-        case VKD3DSPR_CONSTINT:
-            shader_addline(buffer, "i");
-            break;
-
-        case VKD3DSPR_CONSTBOOL:
-            shader_addline(buffer, "b");
-            break;
-
-        case VKD3DSPR_LABEL:
-            shader_addline(buffer, "l");
-            break;
-
-        case VKD3DSPR_LOOP:
-            shader_addline(buffer, "aL");
+        case VKD3DSPR_OUTPUT:
+            shader_addline(buffer, "o");
             break;
 
         case VKD3DSPR_SAMPLER:
             shader_addline(buffer, "s");
-            break;
-
-        case VKD3DSPR_MISCTYPE:
-            if (offset > 1)
-            {
-                FIXME("Unhandled misctype register %u.\n", offset);
-                shader_addline(buffer, "<unhandled misctype %#x>", offset);
-            }
-            else
-            {
-                shader_addline(buffer, "%s", misctype_reg_names[offset]);
-            }
-            break;
-
-        case VKD3DSPR_PREDICATE:
-            shader_addline(buffer, "p");
             break;
 
         case VKD3DSPR_IMMCONST:
@@ -1020,9 +827,7 @@ static void shader_dump_register(struct vkd3d_string_buffer *buffer,
         }
         shader_addline(buffer, ")");
     }
-    else if (reg->type != VKD3DSPR_RASTOUT
-            && reg->type != VKD3DSPR_MISCTYPE
-            && reg->type != VKD3DSPR_NULL)
+    else if (reg->type != VKD3DSPR_NULL)
     {
         if (offset != ~0u)
         {
@@ -1091,16 +896,8 @@ static void shader_dump_src_param(struct vkd3d_string_buffer *buffer,
     enum vkd3d_shader_src_modifier src_modifier = param->modifiers;
     DWORD swizzle = param->swizzle;
 
-    if (src_modifier == VKD3DSPSM_NEG
-            || src_modifier == VKD3DSPSM_BIASNEG
-            || src_modifier == VKD3DSPSM_SIGNNEG
-            || src_modifier == VKD3DSPSM_X2NEG
-            || src_modifier == VKD3DSPSM_ABSNEG)
+    if (src_modifier == VKD3DSPSM_NEG || src_modifier == VKD3DSPSM_ABSNEG)
         shader_addline(buffer, "-");
-    else if (src_modifier == VKD3DSPSM_COMP)
-        shader_addline(buffer, "1-");
-    else if (src_modifier == VKD3DSPSM_NOT)
-        shader_addline(buffer, "!");
 
     if (src_modifier == VKD3DSPSM_ABS || src_modifier == VKD3DSPSM_ABSNEG)
         shader_addline(buffer, "abs(");
@@ -1111,16 +908,6 @@ static void shader_dump_src_param(struct vkd3d_string_buffer *buffer,
     {
         case VKD3DSPSM_NONE:    break;
         case VKD3DSPSM_NEG:     break;
-        case VKD3DSPSM_NOT:     break;
-        case VKD3DSPSM_BIAS:    shader_addline(buffer, "_bias"); break;
-        case VKD3DSPSM_BIASNEG: shader_addline(buffer, "_bias"); break;
-        case VKD3DSPSM_SIGN:    shader_addline(buffer, "_bx2"); break;
-        case VKD3DSPSM_SIGNNEG: shader_addline(buffer, "_bx2"); break;
-        case VKD3DSPSM_COMP:    break;
-        case VKD3DSPSM_X2:      shader_addline(buffer, "_x2"); break;
-        case VKD3DSPSM_X2NEG:   shader_addline(buffer, "_x2"); break;
-        case VKD3DSPSM_DZ:      shader_addline(buffer, "_dz"); break;
-        case VKD3DSPSM_DW:      shader_addline(buffer, "_dw"); break;
         case VKD3DSPSM_ABSNEG:  shader_addline(buffer, ")"); break;
         case VKD3DSPSM_ABS:     shader_addline(buffer, ")"); break;
         default:                  shader_addline(buffer, "_unknown_modifier(%#x)", src_modifier);
@@ -1153,23 +940,9 @@ static void shader_dump_ins_modifiers(struct vkd3d_string_buffer *buffer,
 {
     DWORD mmask = dst->modifiers;
 
-    switch (dst->shift)
-    {
-        case 0: break;
-        case 13: shader_addline(buffer, "_d8"); break;
-        case 14: shader_addline(buffer, "_d4"); break;
-        case 15: shader_addline(buffer, "_d2"); break;
-        case 1: shader_addline(buffer, "_x2"); break;
-        case 2: shader_addline(buffer, "_x4"); break;
-        case 3: shader_addline(buffer, "_x8"); break;
-        default: shader_addline(buffer, "_unhandled_shift(%d)", dst->shift); break;
-    }
-
     if (mmask & VKD3DSPDM_SATURATE)         shader_addline(buffer, "_sat");
-    if (mmask & VKD3DSPDM_PARTIALPRECISION) shader_addline(buffer, "_pp");
-    if (mmask & VKD3DSPDM_MSAMPCENTROID)    shader_addline(buffer, "_centroid");
 
-    mmask &= ~(VKD3DSPDM_SATURATE | VKD3DSPDM_PARTIALPRECISION | VKD3DSPDM_MSAMPCENTROID);
+    mmask &= ~(VKD3DSPDM_SATURATE);
     if (mmask) FIXME("Unrecognised modifier %#x.\n", mmask);
 }
 
@@ -1333,11 +1106,6 @@ static void shader_dump_instruction_flags(struct vkd3d_string_buffer *buffer,
 
         case VKD3DSIH_SYNC:
             shader_dump_sync_flags(buffer, ins->flags);
-            break;
-
-        case VKD3DSIH_TEX:
-            if (shader_version->major >= 2 && (ins->flags & VKD3DSI_TEXLD_PROJECT))
-                shader_addline(buffer, "p");
             break;
 
         default:
@@ -1550,24 +1318,6 @@ static void shader_dump_instruction(struct vkd3d_string_buffer *buffer,
             shader_dump_dst_param(buffer, &ins->declaration.structured_resource.reg, shader_version);
             shader_addline(buffer, ", %u", ins->declaration.structured_resource.byte_stride);
             shader_dump_register_space(buffer, ins->declaration.structured_resource.register_space, shader_version);
-            break;
-
-        case VKD3DSIH_DEF:
-            shader_addline(buffer, "def c%u = %.8e, %.8e, %.8e, %.8e",
-                    shader_get_float_offset(ins->dst[0].reg.type, ins->dst[0].reg.idx[0].offset),
-                    ins->src[0].reg.immconst_float[0], ins->src[0].reg.immconst_float[1],
-                    ins->src[0].reg.immconst_float[2], ins->src[0].reg.immconst_float[3]);
-            break;
-
-        case VKD3DSIH_DEFI:
-            shader_addline(buffer, "defi i%u = %d, %d, %d, %d", ins->dst[0].reg.idx[0].offset,
-                    ins->src[0].reg.immconst_uint[0], ins->src[0].reg.immconst_uint[1],
-                    ins->src[0].reg.immconst_uint[2], ins->src[0].reg.immconst_uint[3]);
-            break;
-
-        case VKD3DSIH_DEFB:
-            shader_addline(buffer, "defb b%u = %s",
-                    ins->dst[0].reg.idx[0].offset, ins->src[0].reg.immconst_uint[0] ? "true" : "false");
             break;
 
         default:

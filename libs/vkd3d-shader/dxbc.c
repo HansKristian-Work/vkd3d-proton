@@ -1756,7 +1756,6 @@ static bool shader_sm4_read_dst_param(struct vkd3d_sm4_data *priv, const DWORD *
     if (!dst_param->write_mask && shader_sm4_is_scalar_register(&dst_param->reg))
         dst_param->write_mask = VKD3DSP_WRITEMASK_0;
     dst_param->modifiers = 0;
-    dst_param->shift = 0;
 
     return true;
 }
