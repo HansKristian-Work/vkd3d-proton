@@ -6961,10 +6961,9 @@ static void vkd3d_dxbc_compiler_emit_imad(struct vkd3d_dxbc_compiler *compiler,
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
     uint32_t type_id, val_id, src_ids[3];
-    unsigned int i, component_count;
+    unsigned int i;
 
-    component_count = vkd3d_write_mask_component_count(dst->write_mask);
-    type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_INT, component_count);
+    type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, dst);
 
     for (i = 0; i < ARRAY_SIZE(src_ids); ++i)
         src_ids[i] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[i], dst->write_mask);
@@ -9475,6 +9474,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_IMUL:
             vkd3d_dxbc_compiler_emit_imul(compiler, instruction);
             break;
+        case VKD3DSIH_UMAD:
         case VKD3DSIH_IMAD:
             vkd3d_dxbc_compiler_emit_imad(compiler, instruction);
             break;

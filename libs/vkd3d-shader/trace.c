@@ -230,6 +230,7 @@ static const char * const shader_opcode_names[] =
     /* VKD3DSIH_UMAX                             */ "umax",
     /* VKD3DSIH_UMIN                             */ "umin",
     /* VKD3DSIH_UMUL                             */ "umul",
+    /* VKD3DSIH_UMAD                             */ "umad",
     /* VKD3DSIH_USHR                             */ "ushr",
     /* VKD3DSIH_UTOF                             */ "utof",
     /* VKD3DSIH_XOR                              */ "xor",
