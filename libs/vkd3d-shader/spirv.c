@@ -9483,6 +9483,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_SINCOS:
             vkd3d_dxbc_compiler_emit_sincos(compiler, instruction);
             break;
+        case VKD3DSIH_UMUL:
         case VKD3DSIH_IMUL:
             vkd3d_dxbc_compiler_emit_imul(compiler, instruction);
             break;
