@@ -7265,7 +7265,7 @@ static void vkd3d_dxbc_compiler_emit_retc(struct vkd3d_dxbc_compiler *compiler,
     vkd3d_spirv_build_op_label(builder, merge_block_id);
 }
 
-static void vkd3d_dxbc_compiler_emit_kill(struct vkd3d_dxbc_compiler *compiler,
+static void vkd3d_dxbc_compiler_emit_discard(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -7639,8 +7639,8 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
             vkd3d_dxbc_compiler_emit_retc(compiler, instruction);
             break;
 
-        case VKD3DSIH_TEXKILL:
-            vkd3d_dxbc_compiler_emit_kill(compiler, instruction);
+        case VKD3DSIH_DISCARD:
+            vkd3d_dxbc_compiler_emit_discard(compiler, instruction);
             break;
 
         default:
@@ -9519,7 +9519,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_RET:
         case VKD3DSIH_RETP:
         case VKD3DSIH_SWITCH:
-        case VKD3DSIH_TEXKILL:
+        case VKD3DSIH_DISCARD:
             ret = vkd3d_dxbc_compiler_emit_control_flow_instruction(compiler, instruction);
             break;
         case VKD3DSIH_DSX:
