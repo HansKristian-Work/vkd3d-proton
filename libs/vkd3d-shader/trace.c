@@ -222,7 +222,7 @@ static const char * const shader_opcode_names[] =
     /* VKD3DSIH_SWAPC                            */ "swapc",
     /* VKD3DSIH_SWITCH                           */ "switch",
     /* VKD3DSIH_SYNC                             */ "sync",
-    /* VKD3DSIH_TEXKILL                          */ "texkill",
+    /* VKD3DSIH_DISCARD                          */ "discard",
     /* VKD3DSIH_UBFE                             */ "ubfe",
     /* VKD3DSIH_UDIV                             */ "udiv",
     /* VKD3DSIH_UGE                              */ "uge",
@@ -1062,7 +1062,7 @@ static void shader_dump_instruction_flags(struct vkd3d_string_buffer *buffer,
         case VKD3DSIH_CONTINUEP:
         case VKD3DSIH_IF:
         case VKD3DSIH_RETP:
-        case VKD3DSIH_TEXKILL:
+        case VKD3DSIH_DISCARD:
             switch (ins->flags)
             {
                 case VKD3D_SHADER_CONDITIONAL_OP_NZ: shader_addline(buffer, "_nz"); break;
