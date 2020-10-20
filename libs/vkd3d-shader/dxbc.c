@@ -1163,6 +1163,7 @@ static const struct vkd3d_sm4_opcode_info opcode_table[] =
     {VKD3D_SM5_OP_HS_JOIN_PHASE,                    VKD3DSIH_HS_JOIN_PHASE,                    "",     ""},
     {VKD3D_SM5_OP_EMIT_STREAM,                      VKD3DSIH_EMIT_STREAM,                      "",     "f"},
     {VKD3D_SM5_OP_CUT_STREAM,                       VKD3DSIH_CUT_STREAM,                       "",     "f"},
+    {VKD3D_SM5_OP_EMIT_THEN_CUT_STREAM,             VKD3DSIH_EMIT_THEN_CUT_STREAM,             "",     "f"},
     {VKD3D_SM5_OP_FCALL,                            VKD3DSIH_FCALL,                            "",     "O",
             shader_sm5_read_fcall},
     {VKD3D_SM5_OP_BUFINFO,                          VKD3DSIH_BUFINFO,                          "i",    "U"},

@@ -9245,7 +9245,7 @@ static void vkd3d_dxbc_compiler_emit_emit_stream(struct vkd3d_dxbc_compiler *com
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     unsigned int stream_idx;
 
-    if (instruction->handler_idx == VKD3DSIH_EMIT_STREAM)
+    if (instruction->handler_idx == VKD3DSIH_EMIT_STREAM || instruction->handler_idx == VKD3DSIH_EMIT_THEN_CUT_STREAM)
         stream_idx = instruction->src[0].reg.idx[0].offset;
     else
         stream_idx = 0;
@@ -9266,7 +9266,7 @@ static void vkd3d_dxbc_compiler_emit_cut_stream(struct vkd3d_dxbc_compiler *comp
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     unsigned int stream_idx;
 
-    if (instruction->handler_idx == VKD3DSIH_CUT_STREAM)
+    if (instruction->handler_idx == VKD3DSIH_CUT_STREAM || instruction->handler_idx == VKD3DSIH_EMIT_THEN_CUT_STREAM)
         stream_idx = instruction->src[0].reg.idx[0].offset;
     else
         stream_idx = 0;
@@ -9650,6 +9650,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             vkd3d_dxbc_compiler_emit_emit_stream(compiler, instruction);
             break;
         case VKD3DSIH_EMIT_THEN_CUT:
+        case VKD3DSIH_EMIT_THEN_CUT_STREAM:
             vkd3d_dxbc_compiler_emit_emit_stream(compiler, instruction);
             vkd3d_dxbc_compiler_emit_cut_stream(compiler, instruction);
             break;
