@@ -9160,6 +9160,11 @@ static void vkd3d_dxbc_compiler_emit_eval_attrib(struct vkd3d_dxbc_compiler *com
     {
         op = GLSLstd450InterpolateAtCentroid;
     }
+    else if (instruction->handler_idx == VKD3DSIH_EVAL_SNAPPED)
+    {
+        op = GLSLstd450InterpolateAtOffset;
+        src_ids[src_count++] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], VKD3DSP_WRITEMASK_0 | VKD3DSP_WRITEMASK_1);
+    }
     else
     {
         assert(instruction->handler_idx == VKD3DSIH_EVAL_SAMPLE_INDEX);
@@ -9622,6 +9627,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             break;
         case VKD3DSIH_EVAL_CENTROID:
         case VKD3DSIH_EVAL_SAMPLE_INDEX:
+        case VKD3DSIH_EVAL_SNAPPED:
             vkd3d_dxbc_compiler_emit_eval_attrib(compiler, instruction);
             break;
         case VKD3DSIH_SYNC:
