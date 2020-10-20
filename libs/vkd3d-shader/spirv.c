@@ -2104,6 +2104,7 @@ enum vkd3d_shader_global_binding_flag
 {
     VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY = 0x00000001,
     VKD3D_SHADER_GLOBAL_BINDING_RAW_SSBO   = 0x00000002,
+    VKD3D_SHADER_GLOBAL_BINDING_COHERENT   = 0x00000004,
 };
 
 struct vkd3d_shader_global_binding
@@ -5228,6 +5229,9 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
     if ((flags & VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY) && !(flags & VKD3D_SHADER_GLOBAL_BINDING_RAW_SSBO))
         vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
 
+    if (flags & VKD3D_SHADER_GLOBAL_BINDING_COHERENT)
+        vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationCoherent, NULL, 0);
+
     if (!vkd3d_array_reserve((void **)&compiler->global_bindings, &compiler->global_bindings_size,
             compiler->global_binding_count + 1, sizeof(*compiler->global_bindings)))
     {
@@ -5750,8 +5754,9 @@ static bool vkd3d_dxbc_compiler_use_ssbo(struct vkd3d_dxbc_compiler *compiler,
 }
 
 static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_register *reg, enum vkd3d_shader_resource_type resource_type,
-        enum vkd3d_data_type resource_data_type, unsigned int structure_stride, bool raw)
+        const struct vkd3d_shader_instruction *instruction, const struct vkd3d_shader_register *reg,
+        enum vkd3d_shader_resource_type resource_type, enum vkd3d_data_type resource_data_type,
+        unsigned int structure_stride, bool raw)
 {
     uint32_t type_id, ptr_type_id, var_id, counter_type_id = 0, counter_var_id = 0;
     const struct vkd3d_shader_resource_binding *binding, *counter_binding;
@@ -5764,6 +5769,9 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     struct vkd3d_symbol resource_symbol;
     unsigned int uav_flags;
     bool is_uav, use_ssbo;
+
+    if (instruction->flags & ~VKD3DSUF_GLOBALLY_COHERENT)
+        FIXME("Unhandled instruction flags %#x.\n", instruction->flags);
 
     is_uav = reg->type == VKD3DSPR_UAV;
     if (!(resource_type_info = vkd3d_dxbc_compiler_enable_resource_type(compiler,
@@ -5815,6 +5823,9 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
 
             if (!(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
                 flags |= VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY;
+
+            if (instruction->flags & VKD3DSUF_GLOBALLY_COHERENT)
+                flags |= VKD3D_SHADER_GLOBAL_BINDING_COHERENT;
         }
 
         if (use_ssbo)
@@ -5854,8 +5865,14 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
         var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
                 ptr_type_id, storage_class, 0);
 
-        if (is_uav && !use_ssbo && !(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
-            vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
+        if (is_uav)
+        {
+            if (!use_ssbo && !(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
+                vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
+
+            if (instruction->flags & VKD3DSUF_GLOBALLY_COHERENT)
+                vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationCoherent, NULL, 0);
+        }
 
         vkd3d_dxbc_compiler_emit_descriptor_binding_for_reg(compiler,
                 var_id, reg, resource_type, false, use_ssbo);
@@ -5928,10 +5945,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource(struct vkd3d_dxbc_compiler *co
             vkd3d_free(sym);
     }
 
-    if (instruction->flags)
-        FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
-
-    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &semantic->reg.reg,
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, instruction, &semantic->reg.reg,
             semantic->resource_type, semantic->resource_data_type, 0, false);
 }
 
@@ -5952,10 +5966,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource_raw(struct vkd3d_dxbc_compiler
             vkd3d_free(sym);
     }
 
-    if (instruction->flags)
-        FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
-
-    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, &resource->dst.reg,
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, instruction, &resource->dst.reg,
             VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, 0, true);
 }
 
@@ -5978,10 +5989,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_resource_structured(struct vkd3d_dxbc_c
             vkd3d_free(sym);
     }
 
-    if (instruction->flags)
-        FIXME("Unhandled UAV flags %#x.\n", instruction->flags);
-
-    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, reg,
+    vkd3d_dxbc_compiler_emit_resource_declaration(compiler, instruction, reg,
             VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_DATA_UINT, stride / 4, false);
 }
 
