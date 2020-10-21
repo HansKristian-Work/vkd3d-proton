@@ -150,9 +150,6 @@ struct vkd3d_optional_device_extensions_info
     uint32_t extension_count;
 };
 
-/* vkd3d_image_resource_create_info flags */
-#define VKD3D_RESOURCE_PRESENT_STATE_TRANSITION 0x00000002
-
 struct vkd3d_image_resource_create_info
 {
     enum vkd3d_structure_type type;
