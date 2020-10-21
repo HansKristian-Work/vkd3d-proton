@@ -9381,6 +9381,44 @@ static void vkd3d_dxbc_compiler_emit_check_sparse_access(struct vkd3d_dxbc_compi
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
+static void vkd3d_dxbc_compiler_emit_double_conversion(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    enum vkd3d_component_type component_type;
+    uint32_t src_id, val_id, type_id;
+    unsigned int component_count;
+    DWORD src_mask;
+    SpvOp op;
+
+    switch (instruction->handler_idx)
+    {
+        case VKD3DSIH_DTOF:
+        case VKD3DSIH_FTOD: op = SpvOpFConvert; break;
+        case VKD3DSIH_DTOI: op = SpvOpConvertFToS; break;
+        case VKD3DSIH_DTOU: op = SpvOpConvertFToU; break;
+        case VKD3DSIH_ITOD: op = SpvOpConvertSToF; break;
+        case VKD3DSIH_UTOD: op = SpvOpConvertUToF; break;
+        default:
+            ERR("Unexpected instruction %#x.\n", instruction->handler_idx);
+            return;
+    }
+
+    src_mask = vkd3d_dxbc_compiler_double_source_mask_fixup(src->reg.data_type, dst->reg.data_type, dst->write_mask);
+    src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, src_mask);
+
+    component_type = vkd3d_component_type_from_data_type(dst->reg.data_type);
+    component_count = vkd3d_write_mask_component_count_typed(dst->write_mask, component_type);
+    type_id = vkd3d_spirv_get_type_id(builder, component_type, component_count);
+
+    val_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
+                op, type_id, &src_id, 1);
+
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
+}
+
 /* This function is called after declarations are processed. */
 static void vkd3d_dxbc_compiler_emit_main_prolog(struct vkd3d_dxbc_compiler *compiler)
 {
@@ -9755,6 +9793,14 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             break;
         case VKD3DSIH_CHECK_ACCESS_FULLY_MAPPED:
             vkd3d_dxbc_compiler_emit_check_sparse_access(compiler, instruction);
+            break;
+        case VKD3DSIH_DTOF:
+        case VKD3DSIH_FTOD:
+        case VKD3DSIH_DTOI:
+        case VKD3DSIH_DTOU:
+        case VKD3DSIH_ITOD:
+        case VKD3DSIH_UTOD:
+            vkd3d_dxbc_compiler_emit_double_conversion(compiler, instruction);
             break;
         case VKD3DSIH_DCL_HS_MAX_TESSFACTOR:
         case VKD3DSIH_HS_DECLS:
