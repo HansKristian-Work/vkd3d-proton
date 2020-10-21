@@ -43560,6 +43560,11 @@ static void test_buffer_feedback_instructions(bool use_dxil)
         pipeline_state = create_compute_pipeline_state(context.device,
                 root_signature, use_dxil ? tests[i].cs_dxil : tests[i].cs_dxbc);
 
+        /* This can fail for SSBO buffer feedback case. */
+        ok(!!pipeline_state, "Failed to create pipeline state.\n");
+        if (!pipeline_state)
+            continue;
+
         srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
         srv_desc.Format = tests[i].is_structured ? DXGI_FORMAT_UNKNOWN :
             (tests[i].is_raw ? DXGI_FORMAT_R32_TYPELESS : DXGI_FORMAT_R32_UINT);
@@ -43602,7 +43607,7 @@ static void test_buffer_feedback_instructions(bool use_dxil)
         ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
 
         transition_resource_state(context.list, out_buffer,
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
         if (tests[i].is_uav)
         {
