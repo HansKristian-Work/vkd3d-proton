@@ -347,6 +347,7 @@ enum vkd3d_data_type
     VKD3D_DATA_UNORM,
     VKD3D_DATA_SNORM,
     VKD3D_DATA_OPAQUE,
+    VKD3D_DATA_DOUBLE,
 };
 
 enum vkd3d_immconst_type
@@ -782,6 +783,8 @@ static inline enum vkd3d_component_type vkd3d_component_type_from_data_type(
             return VKD3D_TYPE_UINT;
         case VKD3D_DATA_INT:
             return VKD3D_TYPE_INT;
+        case VKD3D_DATA_DOUBLE:
+            return VKD3D_TYPE_DOUBLE;
         default:
             FIXME("Unhandled data type %#x.\n", data_type);
             return VKD3D_TYPE_UINT;
@@ -799,6 +802,8 @@ static inline enum vkd3d_data_type vkd3d_data_type_from_component_type(
             return VKD3D_DATA_UINT;
         case VKD3D_TYPE_INT:
             return VKD3D_DATA_INT;
+        case VKD3D_TYPE_DOUBLE:
+            return VKD3D_DATA_DOUBLE;
         default:
             FIXME("Unhandled component type %#x.\n", component_type);
             return VKD3D_DATA_FLOAT;
@@ -825,6 +830,16 @@ static inline unsigned int vkd3d_write_mask_component_count(DWORD write_mask)
     unsigned int count = vkd3d_popcount(write_mask & VKD3DSP_WRITEMASK_ALL);
     assert(1 <= count && count <= VKD3D_VEC4_SIZE);
     return count;
+}
+
+static inline unsigned int vkd3d_write_mask_component_count_typed(DWORD write_mask,
+        enum vkd3d_component_type type)
+{
+    unsigned int component_count = vkd3d_write_mask_component_count(write_mask);
+    if (type == VKD3D_TYPE_DOUBLE)
+        component_count /= 2;
+    assert(component_count != 0);
+    return component_count;
 }
 
 static inline unsigned int vkd3d_write_mask_from_component_count(unsigned int component_count)

@@ -1607,6 +1607,9 @@ static uint32_t vkd3d_spirv_get_type_id(struct vkd3d_spirv_builder *builder,
             case VKD3D_TYPE_BOOL:
                 return vkd3d_spirv_get_op_type_bool(builder);
                 break;
+            case VKD3D_TYPE_DOUBLE:
+                return vkd3d_spirv_get_op_type_float(builder, 64);
+                break;
             default:
                 FIXME("Unhandled component type %#x.\n", component_type);
                 return 0;
@@ -1618,6 +1621,13 @@ static uint32_t vkd3d_spirv_get_type_id(struct vkd3d_spirv_builder *builder,
         scalar_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
         return vkd3d_spirv_get_op_type_vector(builder, scalar_id, component_count);
     }
+}
+
+static unsigned int vkd3d_spirv_get_type_dword_count(enum vkd3d_component_type type, unsigned int component_count)
+{
+    unsigned int type_size = type == VKD3D_TYPE_DOUBLE ? 2 : 1;
+
+    return type_size * component_count;
 }
 
 static uint32_t vkd3d_spirv_get_sparse_result_type(struct vkd3d_spirv_builder *builder, uint32_t sampled_type_id)
@@ -2497,7 +2507,7 @@ static uint32_t vkd3d_dxbc_compiler_get_constant(struct vkd3d_dxbc_compiler *com
 {
     uint32_t type_id, scalar_type_id, component_ids[VKD3D_VEC4_SIZE];
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
-    unsigned int i;
+    unsigned int i, dword_count;
 
     assert(0 < component_count && component_count <= VKD3D_VEC4_SIZE);
     type_id = vkd3d_spirv_get_type_id(builder, component_type, component_count);
@@ -2507,21 +2517,24 @@ static uint32_t vkd3d_dxbc_compiler_get_constant(struct vkd3d_dxbc_compiler *com
         case VKD3D_TYPE_UINT:
         case VKD3D_TYPE_INT:
         case VKD3D_TYPE_FLOAT:
+        case VKD3D_TYPE_DOUBLE:
             break;
         default:
             FIXME("Unhandled component_type %#x.\n", component_type);
             return vkd3d_spirv_build_op_undef(builder, &builder->global_stream, type_id);
     }
 
+    dword_count = vkd3d_spirv_get_type_dword_count(component_type, 1);
+
     if (component_count == 1)
     {
-        return vkd3d_spirv_get_op_constant(builder, type_id, values, 1);
+        return vkd3d_spirv_get_op_constant(builder, type_id, values, dword_count);
     }
     else
     {
         scalar_type_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
         for (i = 0; i < component_count; ++i)
-            component_ids[i] = vkd3d_spirv_get_op_constant(builder, scalar_type_id, &values[i], 1);
+            component_ids[i] = vkd3d_spirv_get_op_constant(builder, scalar_type_id, &values[i], dword_count);
         return vkd3d_spirv_get_op_constant_composite(builder, type_id, component_ids, component_count);
     }
 }
@@ -2559,14 +2572,23 @@ static uint32_t vkd3d_dxbc_compiler_get_constant_float_vector(struct vkd3d_dxbc_
             VKD3D_TYPE_FLOAT, component_count, (const uint32_t *)values);
 }
 
+static uint32_t vkd3d_dxbc_compiler_get_constant_double_vector(struct vkd3d_dxbc_compiler *compiler,
+        double value, unsigned int component_count)
+{
+    const double values[] = {value, value};
+    return vkd3d_dxbc_compiler_get_constant(compiler,
+            VKD3D_TYPE_DOUBLE, component_count, (const uint32_t *)values);
+}
+
 static uint32_t vkd3d_dxbc_compiler_get_type_id_for_reg(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, DWORD write_mask)
 {
+    enum vkd3d_component_type component_type = vkd3d_component_type_from_data_type(reg->data_type);
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
 
     return vkd3d_spirv_get_type_id(builder,
-            vkd3d_component_type_from_data_type(reg->data_type),
-            vkd3d_write_mask_component_count(write_mask));
+            component_type,
+            vkd3d_write_mask_component_count_typed(write_mask, component_type));
 }
 
 static uint32_t vkd3d_dxbc_compiler_get_type_id_for_dst(struct vkd3d_dxbc_compiler *compiler,
@@ -3235,9 +3257,11 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_constant_buffer(struct vkd3d_dxbc_
             }
             else
             {
-                uint32_t zero_value = 0;
+                uint32_t zero_values[2] = { 0, 0 };
+                unsigned int dword_count = vkd3d_spirv_get_type_dword_count(
+                        register_info->component_type, 1);
                 WARN("Root constant index out of bounds: cb %u, member %u\n", reg->idx[0].offset, index);
-                component_ids[j++] = vkd3d_spirv_get_op_constant(builder, type_id, &zero_value, 1);
+                component_ids[j++] = vkd3d_spirv_get_op_constant(builder, type_id, zero_values, dword_count);
                 continue;
             }
         }
@@ -3317,6 +3341,8 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *co
 
     if (component_type != reg_info.component_type)
     {
+        component_count = vkd3d_write_mask_component_count_typed(write_mask, component_type);
+
         type_id = vkd3d_spirv_get_type_id(builder, component_type, component_count);
         val_id = vkd3d_spirv_build_op_bitcast(builder, type_id, val_id);
     }
@@ -3342,15 +3368,12 @@ static void vkd3d_dxbc_compiler_emit_execution_mode1(struct vkd3d_dxbc_compiler 
 static uint32_t vkd3d_dxbc_compiler_emit_abs(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, DWORD write_mask, uint32_t val_id)
 {
-    unsigned int component_count = vkd3d_write_mask_component_count(write_mask);
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t type_id;
-
-    if (reg->data_type == VKD3D_DATA_FLOAT)
-    {
-        type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, component_count);
+    
+    type_id = vkd3d_dxbc_compiler_get_type_id_for_reg(compiler, reg, write_mask);
+    if (reg->data_type == VKD3D_DATA_FLOAT || reg->data_type == VKD3D_DATA_DOUBLE)
         return vkd3d_spirv_build_op_glsl_std450_fabs(builder, type_id, val_id);
-    }
 
     FIXME("Unhandled data type %#x.\n", reg->data_type);
     return val_id;
@@ -3363,7 +3386,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_neg(struct vkd3d_dxbc_compiler *compile
     uint32_t type_id;
 
     type_id = vkd3d_dxbc_compiler_get_type_id_for_reg(compiler, reg, write_mask);
-    if (reg->data_type == VKD3D_DATA_FLOAT)
+    if (reg->data_type == VKD3D_DATA_FLOAT || reg->data_type == VKD3D_DATA_DOUBLE)
         return vkd3d_spirv_build_op_fnegate(builder, type_id, val_id);
     else if (reg->data_type == VKD3D_DATA_INT)
         return vkd3d_spirv_build_op_snegate(builder, type_id, val_id);
@@ -3495,7 +3518,7 @@ static void vkd3d_dxbc_compiler_emit_store_reg(struct vkd3d_dxbc_compiler *compi
     component_type = vkd3d_component_type_from_data_type(reg->data_type);
     if (component_type != reg_info.component_type)
     {
-        unsigned int component_count = vkd3d_write_mask_component_count(write_mask);
+        unsigned int component_count = vkd3d_write_mask_component_count_typed(write_mask, reg_info.component_type);
         type_id = vkd3d_spirv_get_type_id(builder, reg_info.component_type, component_count);
         val_id = vkd3d_spirv_build_op_bitcast(builder, type_id, val_id);
         component_type = reg_info.component_type;
@@ -3508,7 +3531,8 @@ static void vkd3d_dxbc_compiler_emit_store_reg(struct vkd3d_dxbc_compiler *compi
 static uint32_t vkd3d_dxbc_compiler_emit_sat(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, DWORD write_mask, uint32_t val_id)
 {
-    unsigned int component_count = vkd3d_write_mask_component_count(write_mask);
+    enum vkd3d_component_type component_type = vkd3d_component_type_from_data_type(reg->data_type);
+    unsigned int component_count = vkd3d_write_mask_component_count_typed(write_mask, component_type);
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t type_id, zero_id, one_id;
 
@@ -3516,7 +3540,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_sat(struct vkd3d_dxbc_compiler *compile
     one_id = vkd3d_dxbc_compiler_get_constant_float_vector(compiler, 1.0f, component_count);
 
     type_id = vkd3d_dxbc_compiler_get_type_id_for_reg(compiler, reg, write_mask);
-    if (reg->data_type == VKD3D_DATA_FLOAT)
+    if (reg->data_type == VKD3D_DATA_FLOAT || reg->data_type == VKD3D_DATA_DOUBLE)
         return vkd3d_spirv_build_op_glsl_std450_nclamp(builder, type_id, val_id, zero_id, one_id);
 
     FIXME("Unhandled data type %#x.\n", reg->data_type);
