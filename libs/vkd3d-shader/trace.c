@@ -667,6 +667,10 @@ static void shader_dump_register(struct vkd3d_string_buffer *buffer,
             shader_addline(buffer, "l");
             break;
 
+        case VKD3DSPR_IMMCONST64:
+            shader_addline(buffer, "d");
+            break;
+
         case VKD3DSPR_CONSTBUFFER:
             shader_addline(buffer, "cb");
             break;
@@ -820,6 +824,42 @@ static void shader_dump_register(struct vkd3d_string_buffer *buffer,
                         shader_addline(buffer, "%u, %u, %u, %u",
                                 reg->immconst_uint[0], reg->immconst_uint[1],
                                 reg->immconst_uint[2], reg->immconst_uint[3]);
+                        break;
+                    default:
+                        shader_addline(buffer, "<unhandled data type %#x>", reg->data_type);
+                        break;
+                }
+                break;
+
+            default:
+                shader_addline(buffer, "<unhandled immconst_type %#x>", reg->immconst_type);
+                break;
+        }
+        shader_addline(buffer, ")");
+    }
+    else if (reg->type == VKD3DSPR_IMMCONST64)
+    {
+        shader_addline(buffer, "(");
+        switch (reg->immconst_type)
+        {
+            case VKD3D_IMMCONST_SCALAR:
+                switch (reg->data_type)
+                {
+                    case VKD3D_DATA_DOUBLE:
+                        shader_addline(buffer, "%f", reg->immconst_double[0]);
+                        break;
+                    default:
+                        shader_addline(buffer, "<unhandled data type %#x>", reg->data_type);
+                        break;
+                }
+                break;
+
+            case VKD3D_IMMCONST_VEC4:
+                switch (reg->data_type)
+                {
+                    case VKD3D_DATA_DOUBLE:
+                        shader_addline(buffer, "%f, %f",
+                                reg->immconst_double[0], reg->immconst_double[1]);
                         break;
                     default:
                         shader_addline(buffer, "<unhandled data type %#x>", reg->data_type);

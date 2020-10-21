@@ -308,6 +308,7 @@ enum vkd3d_shader_register_type
     VKD3DSPR_DEPTHOUT,
     VKD3DSPR_SAMPLER,
     VKD3DSPR_IMMCONST,
+    VKD3DSPR_IMMCONST64,
     VKD3DSPR_CONSTBUFFER,
     VKD3DSPR_IMMCONSTBUFFER,
     VKD3DSPR_PRIMID,
@@ -536,6 +537,8 @@ struct vkd3d_shader_register
     {
         uint32_t immconst_uint[VKD3D_VEC4_SIZE];
         float immconst_float[VKD3D_VEC4_SIZE];
+        uint64_t immconst_uint64[2];
+        double immconst_double[2];
         unsigned fp_body_idx;
     };
 };
