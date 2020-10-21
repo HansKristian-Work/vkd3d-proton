@@ -3342,8 +3342,8 @@ VKD3D_EXPORT HRESULT vkd3d_create_image_resource(ID3D12Device *device,
     object->internal_refcount = 1;
     object->desc = create_info->desc;
     object->vk_image = create_info->vk_image;
-    object->flags = VKD3D_RESOURCE_EXTERNAL;
-    object->flags |= create_info->flags & VKD3D_RESOURCE_PUBLIC_FLAGS;
+    object->flags = create_info->flags;
+    object->flags |= VKD3D_RESOURCE_EXTERNAL;
     object->initial_layout_transition = 1;
     object->common_layout = vk_common_image_layout_from_d3d12_desc(&object->desc);
 
