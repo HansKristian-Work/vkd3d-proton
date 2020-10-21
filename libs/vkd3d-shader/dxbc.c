@@ -1278,6 +1278,14 @@ static const struct vkd3d_sm4_opcode_info opcode_table[] =
     {VKD3D_SM5_OP_SAMPLE_D_CLAMP_FEEDBACK,          VKD3DSIH_SAMPLE_GRAD_FEEDBACK,             "fu",   "fRSfff"},
     {VKD3D_SM5_OP_SAMPLE_C_CLAMP_FEEDBACK,          VKD3DSIH_SAMPLE_C_FEEDBACK,                "fu",   "fRSff"},
     {VKD3D_SM5_OP_CHECK_ACCESS_FULLY_MAPPED,        VKD3DSIH_CHECK_ACCESS_FULLY_MAPPED,        "u",    "u"},
+
+    {VKD3D_SM5_OP_DADD,                             VKD3DSIH_DADD,                             "d",    "dd"},
+    {VKD3D_SM5_OP_DMAX,                             VKD3DSIH_DMAX,                             "d",    "dd"},
+    {VKD3D_SM5_OP_DMIN,                             VKD3DSIH_DMIN,                             "d",    "dd"},
+    {VKD3D_SM5_OP_DMUL,                             VKD3DSIH_DMUL,                             "d",    "dd"},
+    {VKD3D_SM5_OP_DMOV,                             VKD3DSIH_DMOV,                             "d",    "d"},
+    {VKD3D_SM5_OP_DDIV,                             VKD3DSIH_DDIV,                             "d",    "dd"},
+    {VKD3D_SM5_OP_DFMA,                             VKD3DSIH_DFMA,                             "d",    "ddd"},
 };
 
 static const enum vkd3d_shader_register_type register_type_table[] =
