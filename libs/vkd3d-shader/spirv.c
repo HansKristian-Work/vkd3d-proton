@@ -1019,19 +1019,18 @@ static uint32_t vkd3d_spirv_get_op_type_pointer(struct vkd3d_spirv_builder *buil
             vkd3d_spirv_build_op_type_pointer);
 }
 
-/* Types larger than 32-bits are not supported. */
 static uint32_t vkd3d_spirv_build_op_constant(struct vkd3d_spirv_builder *builder,
-        uint32_t result_type, uint32_t value)
+        uint32_t result_type, const uint32_t *value, unsigned int dword_count)
 {
-    return vkd3d_spirv_build_op_tr1(builder, &builder->global_stream,
-            SpvOpConstant, result_type, value);
+    return vkd3d_spirv_build_op_trv(builder, &builder->global_stream,
+            SpvOpConstant, result_type, value, dword_count);
 }
 
 static uint32_t vkd3d_spirv_get_op_constant(struct vkd3d_spirv_builder *builder,
-        uint32_t result_type, uint32_t value)
+        uint32_t result_type, const uint32_t *value, unsigned int dword_count)
 {
-    return vkd3d_spirv_build_once2(builder, SpvOpConstant, result_type, value,
-            vkd3d_spirv_build_op_constant);
+    return vkd3d_spirv_build_once1v(builder, SpvOpConstant, result_type,
+            value, dword_count, vkd3d_spirv_build_op_constant);
 }
 
 static uint32_t vkd3d_spirv_build_op_constant_composite(struct vkd3d_spirv_builder *builder,
@@ -2516,13 +2515,13 @@ static uint32_t vkd3d_dxbc_compiler_get_constant(struct vkd3d_dxbc_compiler *com
 
     if (component_count == 1)
     {
-        return vkd3d_spirv_get_op_constant(builder, type_id, *values);
+        return vkd3d_spirv_get_op_constant(builder, type_id, values, 1);
     }
     else
     {
         scalar_type_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
         for (i = 0; i < component_count; ++i)
-            component_ids[i] = vkd3d_spirv_get_op_constant(builder, scalar_type_id, values[i]);
+            component_ids[i] = vkd3d_spirv_get_op_constant(builder, scalar_type_id, &values[i], 1);
         return vkd3d_spirv_get_op_constant_composite(builder, type_id, component_ids, component_count);
     }
 }
@@ -3236,8 +3235,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_constant_buffer(struct vkd3d_dxbc_
             }
             else
             {
+                uint32_t zero_value = 0;
                 WARN("Root constant index out of bounds: cb %u, member %u\n", reg->idx[0].offset, index);
-                component_ids[j++] = vkd3d_spirv_get_op_constant(builder, type_id, 0);
+                component_ids[j++] = vkd3d_spirv_get_op_constant(builder, type_id, &zero_value, 1);
                 continue;
             }
         }
