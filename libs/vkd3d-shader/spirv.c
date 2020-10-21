@@ -2155,6 +2155,14 @@ struct vkd3d_shader_global_binding
     uint32_t var_id;
 };
 
+struct vkd3d_shader_buffer_reference_type
+{
+    enum vkd3d_data_type data_type;
+    unsigned int flags;
+    uint32_t length;
+    uint32_t type_id;
+};
+
 struct vkd3d_dxbc_compiler
 {
     struct vkd3d_shader_version shader_version;
@@ -2221,6 +2229,10 @@ struct vkd3d_dxbc_compiler
     struct vkd3d_shader_global_binding *global_bindings;
     size_t global_bindings_size;
     size_t global_binding_count;
+
+    struct vkd3d_shader_buffer_reference_type *buffer_ref_types;
+    size_t buffer_ref_types_size;
+    size_t buffer_ref_type_count;
 
     uint32_t offset_buffer_var_id;
 };
@@ -5344,6 +5356,68 @@ static void vkd3d_dxbc_compiler_emit_source_hash(struct vkd3d_dxbc_compiler *com
     vkd3d_spirv_build_op_string(builder, id, buffer);
     vkd3d_spirv_build_op_source(builder, SpvSourceLanguageUnknown,
             compiler->shader_version.major * 100 + compiler->shader_version.minor, id);
+}
+
+static const struct vkd3d_shader_buffer_reference_type *vkd3d_dxbc_compiler_get_buffer_reference_type(
+        struct vkd3d_dxbc_compiler *compiler, enum vkd3d_data_type data_type, uint32_t component_count,
+        uint32_t length, unsigned int flags)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    struct vkd3d_shader_buffer_reference_type *type;
+    enum vkd3d_component_type component_type;
+    uint32_t type_id, struct_id, array_id;
+    unsigned int i;
+
+    for (i = 0; i < compiler->buffer_ref_type_count; i++)
+    {
+        type = &compiler->buffer_ref_types[i];
+
+        if (type->data_type == data_type && type->flags == flags)
+            return type;
+    }
+
+    if (!vkd3d_array_reserve((void **)&compiler->buffer_ref_types, &compiler->buffer_ref_types_size,
+            compiler->buffer_ref_type_count + 1, sizeof(*compiler->buffer_ref_types)))
+        return NULL;
+
+    /* VKD3D_DATA_FLOAT is used for constant buffers */
+    component_type = data_type == VKD3D_DATA_FLOAT ? VKD3D_TYPE_FLOAT : VKD3D_TYPE_UINT;
+
+    if (length)
+        array_id = vkd3d_spirv_build_op_type_array(builder,
+                vkd3d_spirv_get_type_id(builder, component_type, component_count),
+                vkd3d_dxbc_compiler_get_constant_uint(compiler, length));
+    else
+        array_id = vkd3d_spirv_build_op_type_runtime_array(builder,
+                vkd3d_spirv_get_type_id(builder, component_type, component_count));
+
+    vkd3d_spirv_build_op_decorate1(builder, array_id, SpvDecorationArrayStride, 4);
+
+    struct_id = vkd3d_spirv_build_op_type_struct(builder, &array_id, 1);
+    vkd3d_spirv_build_op_decorate(builder, struct_id, SpvDecorationBlock, NULL, 0);
+    vkd3d_spirv_build_op_member_decorate1(builder, struct_id, 0, SpvDecorationOffset, 0);
+
+    if (data_type != VKD3D_DATA_UAV)
+    {
+        vkd3d_spirv_build_op_member_decorate(builder, struct_id, 0, SpvDecorationNonWritable, NULL, 0);
+    }
+    else
+    {
+        if (flags & VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY)
+            vkd3d_spirv_build_op_member_decorate(builder, struct_id, 0, SpvDecorationNonReadable, NULL, 0);
+
+        if (flags & VKD3D_SHADER_GLOBAL_BINDING_COHERENT)
+            vkd3d_spirv_build_op_member_decorate(builder, struct_id, 0, SpvDecorationCoherent, NULL, 0);
+    }
+
+    type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassPhysicalStorageBuffer, struct_id);
+    vkd3d_spirv_enable_capability(builder, SpvCapabilityPhysicalStorageBufferAddresses);
+
+    type = &compiler->buffer_ref_types[compiler->buffer_ref_type_count++];
+    type->data_type = data_type;
+    type->flags = flags;
+    type->type_id = type_id;
+    return type;
 }
 
 static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler)
@@ -10130,6 +10204,7 @@ void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler)
     vkd3d_free(compiler->shader_phases);
     vkd3d_free(compiler->spec_constants);
     vkd3d_free(compiler->global_bindings);
+    vkd3d_free(compiler->buffer_ref_types);
 
     vkd3d_free(compiler);
 }
