@@ -428,7 +428,7 @@ bool d3d12_heap_needs_host_barrier_for_write(struct d3d12_heap *heap);
 struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface);
 
 #define VKD3D_RESOURCE_PUBLIC_FLAGS \
-        (VKD3D_RESOURCE_PRESENT_STATE_TRANSITION)
+        (0)
 #define VKD3D_RESOURCE_EXTERNAL       0x00000004
 #define VKD3D_RESOURCE_DEDICATED_HEAP 0x00000008
 #define VKD3D_RESOURCE_LINEAR_TILING  0x00000010

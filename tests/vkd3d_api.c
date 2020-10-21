@@ -965,7 +965,7 @@ static void test_external_resource_present_state(void)
     resource_create_info.desc.SampleDesc.Quality = 0;
     resource_create_info.desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     resource_create_info.desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-    resource_create_info.flags = VKD3D_RESOURCE_INITIAL_STATE_TRANSITION | VKD3D_RESOURCE_PRESENT_STATE_TRANSITION;
+    resource_create_info.flags = 0;
     resource_create_info.present_state = D3D12_RESOURCE_STATE_COPY_SOURCE;
     hr = vkd3d_create_image_resource(device, &resource_create_info, &vk_resource);
     ok(hr == S_OK, "Failed to create D3D12 resource for Vulkan image, hr %#x.\n", hr);
