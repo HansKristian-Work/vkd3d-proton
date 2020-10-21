@@ -5335,12 +5335,19 @@ static size_t vkd3d_dxbc_compiler_get_current_function_location(struct vkd3d_dxb
 static void vkd3d_dxbc_compiler_emit_dcl_global_flags(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     unsigned int flags = instruction->flags;
 
     if (flags & VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL)
     {
         vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeEarlyFragmentTests, NULL, 0);
         flags &= ~VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL;
+    }
+
+    if (flags & (VKD3DSGF_ENABLE_DOUBLE_PRECISION_FLOAT_OPS | VKD3DSGF_ENABLE_11_1_DOUBLE_EXTENSIONS))
+    {
+        vkd3d_spirv_enable_capability(builder, SpvCapabilityFloat64);
+        flags &= ~(VKD3DSGF_ENABLE_DOUBLE_PRECISION_FLOAT_OPS | VKD3DSGF_ENABLE_11_1_DOUBLE_EXTENSIONS);
     }
 
     if (flags & ~(VKD3DSGF_REFACTORING_ALLOWED | VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS))
