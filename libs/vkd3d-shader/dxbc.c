@@ -477,6 +477,7 @@ enum vkd3d_sm4_data_type
     VKD3D_SM4_DATA_INT    = 0x3,
     VKD3D_SM4_DATA_UINT   = 0x4,
     VKD3D_SM4_DATA_FLOAT  = 0x5,
+    VKD3D_SM4_DATA_DOUBLE = 0x6,
 };
 
 enum vkd3d_sm4_sampler_mode
@@ -567,6 +568,7 @@ static const enum vkd3d_data_type data_type_table[] =
     /* VKD3D_SM4_DATA_INT */      VKD3D_DATA_INT,
     /* VKD3D_SM4_DATA_UINT */     VKD3D_DATA_UINT,
     /* VKD3D_SM4_DATA_FLOAT */    VKD3D_DATA_FLOAT,
+    /* VKD3D_SM4_DATA_DOUBLE */   VKD3D_DATA_DOUBLE,
 };
 
 static bool shader_is_sm_5_1(const struct vkd3d_sm4_data *priv)
@@ -1022,6 +1024,7 @@ static void shader_sm5_read_sync(struct vkd3d_shader_instruction *ins,
  * R -> VKD3D_DATA_RESOURCE
  * S -> VKD3D_DATA_SAMPLER
  * U -> VKD3D_DATA_UAV
+ * d -> VKD3D_DATA_DOUBLE
  */
 static const struct vkd3d_sm4_opcode_info opcode_table[] =
 {
@@ -1275,6 +1278,26 @@ static const struct vkd3d_sm4_opcode_info opcode_table[] =
     {VKD3D_SM5_OP_SAMPLE_D_CLAMP_FEEDBACK,          VKD3DSIH_SAMPLE_GRAD_FEEDBACK,             "fu",   "fRSfff"},
     {VKD3D_SM5_OP_SAMPLE_C_CLAMP_FEEDBACK,          VKD3DSIH_SAMPLE_C_FEEDBACK,                "fu",   "fRSff"},
     {VKD3D_SM5_OP_CHECK_ACCESS_FULLY_MAPPED,        VKD3DSIH_CHECK_ACCESS_FULLY_MAPPED,        "u",    "u"},
+
+    {VKD3D_SM5_OP_DADD,                             VKD3DSIH_DADD,                             "d",    "dd"},
+    {VKD3D_SM5_OP_DMAX,                             VKD3DSIH_DMAX,                             "d",    "dd"},
+    {VKD3D_SM5_OP_DMIN,                             VKD3DSIH_DMIN,                             "d",    "dd"},
+    {VKD3D_SM5_OP_DMUL,                             VKD3DSIH_DMUL,                             "d",    "dd"},
+    {VKD3D_SM5_OP_DEQ,                              VKD3DSIH_DEQ,                              "u",    "dd"},
+    {VKD3D_SM5_OP_DGE,                              VKD3DSIH_DGE,                              "u",    "dd"},
+    {VKD3D_SM5_OP_DLT,                              VKD3DSIH_DLT,                              "u",    "dd"},
+    {VKD3D_SM5_OP_DNE,                              VKD3DSIH_DNE,                              "u",    "dd"},
+    {VKD3D_SM5_OP_DMOV,                             VKD3DSIH_DMOV,                             "d",    "d"},
+    {VKD3D_SM5_OP_DMOVC,                            VKD3DSIH_DMOVC,                            "d",    "udd"},
+    {VKD3D_SM5_OP_DTOF,                             VKD3DSIH_DTOF,                             "f",    "d"},
+    {VKD3D_SM5_OP_FTOD,                             VKD3DSIH_FTOD,                             "d",    "f"},
+    {VKD3D_SM5_OP_DDIV,                             VKD3DSIH_DDIV,                             "d",    "dd"},
+    {VKD3D_SM5_OP_DFMA,                             VKD3DSIH_DFMA,                             "d",    "ddd"},
+    {VKD3D_SM5_OP_DRCP,                             VKD3DSIH_DRCP,                             "d",    "d"},
+    {VKD3D_SM5_OP_DTOI,                             VKD3DSIH_DTOI,                             "i",    "d"},
+    {VKD3D_SM5_OP_DTOU,                             VKD3DSIH_DTOU,                             "u",    "d"},
+    {VKD3D_SM5_OP_ITOD,                             VKD3DSIH_ITOD,                             "d",    "i"},
+    {VKD3D_SM5_OP_UTOD,                             VKD3DSIH_UTOD,                             "d",    "u"},
 };
 
 static const enum vkd3d_shader_register_type register_type_table[] =
@@ -1378,6 +1401,8 @@ static enum vkd3d_data_type map_data_type(char t)
             return VKD3D_DATA_SAMPLER;
         case 'U':
             return VKD3D_DATA_UAV;
+        case 'd':
+            return VKD3D_DATA_DOUBLE;
         default:
             ERR("Invalid data type '%c'.\n", t);
             return VKD3D_DATA_FLOAT;

@@ -9762,6 +9762,22 @@ static void test_shader_instructions(void)
         0x00100e46, 0x00000001, 0x0100003e,
     };
     static struct named_shader ps_swapc5 = {"swapc5", ps_swapc5_code, sizeof(ps_swapc5_code)};
+    static const DWORD ps_double_code[] =
+    {
+#if 0
+        double2 src0;
+        double2 src1;
+        float4 src2;
+
+        void main(out float4 dst : SV_Target)
+        {
+            double2 tmp = src0 + src1;
+            
+            dst.xyzw = tmp.xyxy;
+        }
+#endif
+    };
+    static struct named_shader ps_double = {"double", ps_double_code, sizeof(ps_double_code)};
     static const struct
     {
         const struct named_shader *ps;
@@ -9998,6 +10014,12 @@ static void test_shader_instructions(void)
                 struct vec4 src1;
                 struct vec4 src2;
             } f;
+            struct
+            {
+                struct dvec2 src0;
+                struct dvec2 src1;
+                struct vec4  src2;
+            } d;
         } input;
         union
         {

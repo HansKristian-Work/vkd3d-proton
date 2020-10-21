@@ -276,6 +276,26 @@ enum VKD3D_SHADER_INSTRUCTION_HANDLER
     VKD3DSIH_UTOF,
     VKD3DSIH_XOR,
 
+    VKD3DSIH_DADD,
+    VKD3DSIH_DMAX,
+    VKD3DSIH_DMIN,
+    VKD3DSIH_DMUL,
+    VKD3DSIH_DEQ,
+    VKD3DSIH_DGE,
+    VKD3DSIH_DLT, 
+    VKD3DSIH_DNE,
+    VKD3DSIH_DMOV,
+    VKD3DSIH_DMOVC,
+    VKD3DSIH_DTOF,
+    VKD3DSIH_FTOD,
+    VKD3DSIH_DDIV,
+    VKD3DSIH_DFMA,
+    VKD3DSIH_DRCP,
+    VKD3DSIH_DTOI,
+    VKD3DSIH_DTOU,
+    VKD3DSIH_ITOD,
+    VKD3DSIH_UTOD,
+
     VKD3DSIH_INVALID,
 };
 
@@ -347,6 +367,7 @@ enum vkd3d_data_type
     VKD3D_DATA_UNORM,
     VKD3D_DATA_SNORM,
     VKD3D_DATA_OPAQUE,
+    VKD3D_DATA_DOUBLE,
 };
 
 enum vkd3d_immconst_type
@@ -396,9 +417,12 @@ enum vkd3d_shader_interpolation_mode
 enum vkd3d_shader_global_flags
 {
     VKD3DSGF_REFACTORING_ALLOWED               = 0x01,
+    VKD3DSGF_ENABLE_DOUBLE_PRECISION_FLOAT_OPS = 0x02,
     VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL         = 0x04,
     VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS = 0x08,
-    VKD3DSGF_ENABLE_MINIMUM_PRECISION          = 0x20
+    VKD3DSGF_ENABLE_MINIMUM_PRECISION          = 0x20,
+    VKD3DSGF_ENABLE_11_1_DOUBLE_EXTENSIONS     = 0x40,
+
 };
 
 enum vkd3d_shader_sync_flags
@@ -782,6 +806,8 @@ static inline enum vkd3d_component_type vkd3d_component_type_from_data_type(
             return VKD3D_TYPE_UINT;
         case VKD3D_DATA_INT:
             return VKD3D_TYPE_INT;
+        case VKD3D_DATA_DOUBLE:
+            return VKD3D_TYPE_DOUBLE;
         default:
             FIXME("Unhandled data type %#x.\n", data_type);
             return VKD3D_TYPE_UINT;
@@ -799,6 +825,8 @@ static inline enum vkd3d_data_type vkd3d_data_type_from_component_type(
             return VKD3D_DATA_UINT;
         case VKD3D_TYPE_INT:
             return VKD3D_DATA_INT;
+        case VKD3D_TYPE_DOUBLE:
+            return VKD3D_DATA_DOUBLE;
         default:
             FIXME("Unhandled component type %#x.\n", component_type);
             return VKD3D_DATA_FLOAT;
