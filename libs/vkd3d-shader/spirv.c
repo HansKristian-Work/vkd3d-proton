@@ -6674,10 +6674,12 @@ static SpvOp vkd3d_dxbc_compiler_map_alu_instruction(const struct vkd3d_shader_i
     }
     alu_ops[] =
     {
+        {VKD3DSIH_DADD,       SpvOpFAdd},
         {VKD3DSIH_ADD,        SpvOpFAdd},
         {VKD3DSIH_AND,        SpvOpBitwiseAnd},
         {VKD3DSIH_BFREV,      SpvOpBitReverse},
         {VKD3DSIH_COUNTBITS,  SpvOpBitCount},
+        {VKD3DSIH_DDIV,       SpvOpFDiv},
         {VKD3DSIH_DIV,        SpvOpFDiv},
         {VKD3DSIH_FTOI,       SpvOpConvertFToS},
         {VKD3DSIH_FTOU,       SpvOpConvertFToU},
@@ -6686,6 +6688,7 @@ static SpvOp vkd3d_dxbc_compiler_map_alu_instruction(const struct vkd3d_shader_i
         {VKD3DSIH_ISHL,       SpvOpShiftLeftLogical},
         {VKD3DSIH_ISHR,       SpvOpShiftRightArithmetic},
         {VKD3DSIH_ITOF,       SpvOpConvertSToF},
+        {VKD3DSIH_DMUL,       SpvOpFMul},
         {VKD3DSIH_MUL,        SpvOpFMul},
         {VKD3DSIH_NOT,        SpvOpNot},
         {VKD3DSIH_OR,         SpvOpBitwiseOr},
@@ -6754,8 +6757,11 @@ static enum GLSLstd450 vkd3d_dxbc_compiler_map_ext_glsl_instruction(
         {VKD3DSIH_IMAX,            GLSLstd450SMax},
         {VKD3DSIH_IMIN,            GLSLstd450SMin},
         {VKD3DSIH_LOG,             GLSLstd450Log2},
+        {VKD3DSIH_DFMA,            GLSLstd450Fma},
         {VKD3DSIH_MAD,             GLSLstd450Fma},
+        {VKD3DSIH_DMAX,            GLSLstd450NMax},
         {VKD3DSIH_MAX,             GLSLstd450NMax},
+        {VKD3DSIH_DMIN,            GLSLstd450NMin},
         {VKD3DSIH_MIN,             GLSLstd450NMin},
         {VKD3DSIH_ROUND_NE,        GLSLstd450RoundEven},
         {VKD3DSIH_ROUND_NI,        GLSLstd450Floor},
@@ -9456,6 +9462,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_HS_JOIN_PHASE:
             vkd3d_dxbc_compiler_enter_shader_phase(compiler, instruction);
             break;
+        case VKD3DSIH_DMOV:
         case VKD3DSIH_MOV:
             vkd3d_dxbc_compiler_emit_mov(compiler, instruction);
             break;
@@ -9465,10 +9472,12 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_SWAPC:
             vkd3d_dxbc_compiler_emit_swapc(compiler, instruction);
             break;
+        case VKD3DSIH_DADD:
         case VKD3DSIH_ADD:
         case VKD3DSIH_AND:
         case VKD3DSIH_BFREV:
         case VKD3DSIH_COUNTBITS:
+        case VKD3DSIH_DDIV:
         case VKD3DSIH_DIV:
         case VKD3DSIH_FTOI:
         case VKD3DSIH_FTOU:
@@ -9477,6 +9486,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_ISHL:
         case VKD3DSIH_ISHR:
         case VKD3DSIH_ITOF:
+        case VKD3DSIH_DMUL:
         case VKD3DSIH_MUL:
         case VKD3DSIH_NOT:
         case VKD3DSIH_OR:
@@ -9493,8 +9503,11 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_IMAX:
         case VKD3DSIH_IMIN:
         case VKD3DSIH_LOG:
+        case VKD3DSIH_DFMA:
         case VKD3DSIH_MAD:
+        case VKD3DSIH_DMAX:
         case VKD3DSIH_MAX:
+        case VKD3DSIH_DMIN:
         case VKD3DSIH_MIN:
         case VKD3DSIH_ROUND_NE:
         case VKD3DSIH_ROUND_NI:
