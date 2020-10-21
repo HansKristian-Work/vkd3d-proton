@@ -58,6 +58,10 @@
 
 #define VKD3D_VEC4_SIZE 4
 
+#define VKD3D_DVEC2_SIZE 2
+#define VKD3D_DOUBLE_DWORD_SIZE 2
+#define VKD3D_DVEC2_DWORD_SIZE (VKD3D_DOUBLE_DWORD_SIZE * VKD3D_DVEC2_SIZE)
+
 enum VKD3D_SHADER_INSTRUCTION_HANDLER
 {
     VKD3DSIH_ADD,
@@ -308,6 +312,7 @@ enum vkd3d_shader_register_type
     VKD3DSPR_DEPTHOUT,
     VKD3DSPR_SAMPLER,
     VKD3DSPR_IMMCONST,
+    VKD3DSPR_IMMCONST64,
     VKD3DSPR_CONSTBUFFER,
     VKD3DSPR_IMMCONSTBUFFER,
     VKD3DSPR_PRIMID,
@@ -374,6 +379,7 @@ enum vkd3d_immconst_type
 {
     VKD3D_IMMCONST_SCALAR,
     VKD3D_IMMCONST_VEC4,
+    VKD3D_IMMCONST_DVEC2 = VKD3D_IMMCONST_VEC4,
 };
 
 enum vkd3d_shader_register_modifier
@@ -535,6 +541,8 @@ struct vkd3d_shader_register
     {
         uint32_t immconst_uint[VKD3D_VEC4_SIZE];
         float immconst_float[VKD3D_VEC4_SIZE];
+        double immconst_double[VKD3D_DVEC2_SIZE];
+        uint64_t immconst_uint64[VKD3D_DVEC2_SIZE];
         unsigned fp_body_idx;
     };
 };

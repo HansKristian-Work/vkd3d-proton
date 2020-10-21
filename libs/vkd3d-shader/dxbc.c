@@ -363,6 +363,7 @@ enum vkd3d_sm4_register_type
     VKD3D_SM4_RT_OUTPUT                  = 0x02,
     VKD3D_SM4_RT_INDEXABLE_TEMP          = 0x03,
     VKD3D_SM4_RT_IMMCONST                = 0x04,
+    VKD3D_SM4_RT_IMMCONST64              = 0x05,
     VKD3D_SM4_RT_SAMPLER                 = 0x06,
     VKD3D_SM4_RT_RESOURCE                = 0x07,
     VKD3D_SM4_RT_CONSTBUFFER             = 0x08,
@@ -454,6 +455,7 @@ enum vkd3d_sm4_immconst_type
 {
     VKD3D_SM4_IMMCONST_SCALAR = 0x1,
     VKD3D_SM4_IMMCONST_VEC4   = 0x2,
+    VKD3D_SM4_IMMCONST_DVEC2  = VKD3D_SM4_IMMCONST_VEC4,
 };
 
 enum vkd3d_sm4_resource_type
@@ -1307,7 +1309,7 @@ static const enum vkd3d_shader_register_type register_type_table[] =
     /* VKD3D_SM4_RT_OUTPUT */                  VKD3DSPR_OUTPUT,
     /* VKD3D_SM4_RT_INDEXABLE_TEMP */          VKD3DSPR_IDXTEMP,
     /* VKD3D_SM4_RT_IMMCONST */                VKD3DSPR_IMMCONST,
-    /* UNKNOWN */                              ~0u,
+    /* VKD3D_SM4_RT_IMMCONST64 */              VKD3DSPR_IMMCONST64,
     /* VKD3D_SM4_RT_SAMPLER */                 VKD3DSPR_SAMPLER,
     /* VKD3D_SM4_RT_RESOURCE */                VKD3DSPR_RESOURCE,
     /* VKD3D_SM4_RT_CONSTBUFFER */             VKD3DSPR_CONSTBUFFER,
@@ -1703,6 +1705,40 @@ static bool shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
                 }
                 memcpy(param->immconst_uint, *ptr, VKD3D_VEC4_SIZE * sizeof(DWORD));
                 *ptr += 4;
+                break;
+
+            default:
+                FIXME("Unhandled immediate constant type %#x.\n", immconst_type);
+                break;
+        }
+    }
+    else if (register_type == VKD3D_SM4_RT_IMMCONST64)
+    {
+        enum vkd3d_sm4_immconst_type immconst_type =
+                (token & VKD3D_SM4_IMMCONST_TYPE_MASK) >> VKD3D_SM4_IMMCONST_TYPE_SHIFT;
+
+        switch (immconst_type)
+        {
+            case VKD3D_SM4_IMMCONST_SCALAR:
+                param->immconst_type = VKD3D_IMMCONST_SCALAR;
+                if (end - *ptr < VKD3D_DOUBLE_DWORD_SIZE)
+                {
+                    WARN("Invalid ptr %p, end %p.\n", *ptr, end);
+                    return false;
+                }
+                memcpy(param->immconst_uint64, *ptr, VKD3D_DOUBLE_DWORD_SIZE * sizeof(DWORD));
+                *ptr += VKD3D_DOUBLE_DWORD_SIZE;
+                break;
+
+            case VKD3D_SM4_IMMCONST_DVEC2:
+                param->immconst_type = VKD3D_IMMCONST_VEC4;
+                if (end - *ptr < VKD3D_DVEC2_DWORD_SIZE)
+                {
+                    WARN("Invalid ptr %p, end %p.\n", *ptr, end);
+                    return false;
+                }
+                memcpy(param->immconst_uint64, *ptr, VKD3D_DVEC2_DWORD_SIZE * sizeof(DWORD));
+                *ptr += VKD3D_DVEC2_DWORD_SIZE;
                 break;
 
             default:
