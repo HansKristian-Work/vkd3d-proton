@@ -506,7 +506,7 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     resource_create_info.desc.SampleDesc.Quality = 0;
     resource_create_info.desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     resource_create_info.desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-    resource_create_info.flags = VKD3D_RESOURCE_INITIAL_STATE_TRANSITION | VKD3D_RESOURCE_PRESENT_STATE_TRANSITION;
+    resource_create_info.flags = 0;
     resource_create_info.present_state = D3D12_RESOURCE_STATE_PRESENT;
     for (i = 0; i < image_count; ++i)
     {
@@ -521,6 +521,8 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
             free(vk_images);
             goto fail;
         }
+
+        vkd3d_enqueue_initial_transition(command_queue, swapchain->buffers[i]);
     }
     swapchain->buffer_count = image_count;
     free(vk_images);
