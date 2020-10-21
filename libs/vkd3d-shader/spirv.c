@@ -2921,7 +2921,7 @@ static bool vkd3d_dxbc_compiler_find_register_info(const struct vkd3d_dxbc_compi
     struct vkd3d_symbol reg_symbol, *symbol;
     struct rb_entry *entry;
 
-    assert(reg->type != VKD3DSPR_IMMCONST);
+    assert(reg->type != VKD3DSPR_IMMCONST && reg->type != VKD3DSPR_IMMCONST64);
 
     if (reg->type == VKD3DSPR_TEMP)
     {
@@ -3161,6 +3161,33 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_constant(struct vkd3d_dxbc_compile
             vkd3d_component_type_from_data_type(reg->data_type), component_count, values);
 }
 
+static uint32_t vkd3d_dxbc_compiler_emit_load_constant64(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg, DWORD swizzle, DWORD write_mask)
+{
+    unsigned int component_count = vkd3d_write_mask_component_count_typed(write_mask, VKD3D_TYPE_DOUBLE);
+    uint64_t values[2] = {0};
+    unsigned int i, j;
+
+    assert(reg->type == VKD3DSPR_IMMCONST64);
+
+    if (reg->immconst_type == VKD3D_IMMCONST_SCALAR)
+    {
+        for (i = 0; i < component_count; ++i)
+            values[i] = reg->immconst_uint64[0];
+    }
+    else
+    {
+        for (i = 0, j = 0; i < VKD3D_DVEC2_SIZE; ++i)
+        {
+            if (write_mask & (VKD3DSP_WRITEMASK_0 << (i * 2)))
+                values[j++] = reg->immconst_uint64[vkd3d_swizzle_get_component(swizzle, i * 2) / 2];
+        }
+    }
+
+    return vkd3d_dxbc_compiler_get_constant(compiler,
+            vkd3d_component_type_from_data_type(reg->data_type), component_count, (const uint32_t*)values);
+}
+
 static uint32_t vkd3d_dxbc_compiler_emit_load_scalar(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, DWORD swizzle, DWORD write_mask,
         const struct vkd3d_shader_register_info *reg_info)
@@ -3171,7 +3198,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_scalar(struct vkd3d_dxbc_compiler 
     enum vkd3d_component_type component_type;
     unsigned int skipped_component_mask;
 
-    assert(reg->type != VKD3DSPR_IMMCONST);
+    assert(reg->type != VKD3DSPR_IMMCONST && reg->type != VKD3DSPR_IMMCONST64);
     assert(vkd3d_write_mask_component_count(write_mask) == 1);
 
     component_idx = vkd3d_write_mask_get_component_idx(write_mask);
@@ -3301,6 +3328,8 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *co
 
     if (reg->type == VKD3DSPR_IMMCONST)
         return vkd3d_dxbc_compiler_emit_load_constant(compiler, reg, swizzle, write_mask);
+    else if (reg->type == VKD3DSPR_IMMCONST64)
+        return vkd3d_dxbc_compiler_emit_load_constant64(compiler, reg, swizzle, write_mask);
 
     component_count = vkd3d_write_mask_component_count(write_mask);
     component_type = vkd3d_component_type_from_data_type(reg->data_type);
@@ -3509,7 +3538,7 @@ static void vkd3d_dxbc_compiler_emit_store_reg(struct vkd3d_dxbc_compiler *compi
     enum vkd3d_component_type component_type;
     uint32_t type_id;
 
-    assert(reg->type != VKD3DSPR_IMMCONST);
+    assert(reg->type != VKD3DSPR_IMMCONST && reg->type != VKD3DSPR_IMMCONST64);
 
     if (!vkd3d_dxbc_compiler_get_register_info(compiler, reg, &reg_info))
         return;
