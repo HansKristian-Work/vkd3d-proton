@@ -2412,7 +2412,8 @@ static const struct vkd3d_shader_resource_binding *vkd3d_dxbc_compiler_get_resou
             return current;
     }
 
-    if (shader_interface->binding_count)
+    /* Not finding a binding for RAW_SSBO is expected, so don't warn about it. */
+    if (shader_interface->binding_count && !(binding_flags & VKD3D_SHADER_BINDING_FLAG_RAW_SSBO))
         FIXME("Could not find binding for type %#x, register %u, space %u, shader type %#x, flag %#x.\n",
                 descriptor_type, reg_idx, reg_space, compiler->shader_type, binding_flags);
 
