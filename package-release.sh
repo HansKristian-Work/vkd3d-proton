@@ -10,7 +10,7 @@ if [ -z "$1" ] || [ -z "$2" ]; then
 fi
 
 VKD3D_VERSION="$1"
-VKD3D_SRC_DIR=`dirname $(readlink -f $0)`
+VKD3D_SRC_DIR=$(dirname "$(readlink -f "$0")")
 VKD3D_BUILD_DIR=$(realpath "$2")"/vkd3d-$VKD3D_VERSION"
 VKD3D_ARCHIVE_PATH=$(realpath "$2")"/vkd3d-$VKD3D_VERSION.tar.zst"
 
@@ -24,8 +24,6 @@ shift 2
 opt_nopackage=0
 opt_devbuild=0
 opt_native=0
-
-crossfile="build-win"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -49,6 +47,7 @@ done
 function build_arch {
   cd "$VKD3D_SRC_DIR"
 
+  # shellcheck disable=SC2086
   meson $2                           \
         --buildtype "release"        \
         --prefix "$VKD3D_BUILD_DIR"  \
