@@ -6943,15 +6943,21 @@ static void vkd3d_dxbc_compiler_emit_rcp(struct vkd3d_dxbc_compiler *compiler,
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    uint32_t type_id, src_id, val_id;
+    enum vkd3d_component_type component_type;
+    uint32_t type_id, src_id, val_id, one_id;
     unsigned int component_count;
 
-    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    component_type = vkd3d_component_type_from_data_type(dst->reg.data_type);
+    component_count = vkd3d_write_mask_component_count_typed(dst->write_mask, component_type);
     type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, dst);
 
+    if (component_type == VKD3D_TYPE_DOUBLE)
+        one_id = vkd3d_dxbc_compiler_get_constant_double_vector(compiler, 1.0, component_count);
+    else
+        one_id = vkd3d_dxbc_compiler_get_constant_float_vector(compiler, 1.0f, component_count);
+
     src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst->write_mask);
-    val_id = vkd3d_spirv_build_op_fdiv(builder, type_id,
-            vkd3d_dxbc_compiler_get_constant_float_vector(compiler, 1.0f, component_count), src_id);
+    val_id = vkd3d_spirv_build_op_fdiv(builder, type_id, one_id, src_id);
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
@@ -9611,6 +9617,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_DP2:
             vkd3d_dxbc_compiler_emit_dot(compiler, instruction);
             break;
+        case VKD3DSIH_DRCP:
         case VKD3DSIH_RCP:
             vkd3d_dxbc_compiler_emit_rcp(compiler, instruction);
             break;
