@@ -5429,7 +5429,7 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
     const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
     VkDeviceSize alignment = max(device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment,
             device->device_info.properties2.properties.limits.nonCoherentAtomSize);
-    VkDeviceSize uav_counter_size = 0;
+    VkDeviceSize uav_counter_size = 0, offset_buffer_size = 0;
     VkDeviceSize buffer_size, offset;
     D3D12_HEAP_PROPERTIES heap_info;
     D3D12_RESOURCE_DESC buffer_desc;
@@ -5437,11 +5437,16 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
     VkResult vr;
     HRESULT hr;
 
-    if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
-            (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER))
-        uav_counter_size = align(desc->NumDescriptors * sizeof(VkDeviceAddress), alignment);
+    if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+    {
+        if (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER)
+            uav_counter_size = align(desc->NumDescriptors * sizeof(VkDeviceAddress), alignment);
 
-    buffer_size = uav_counter_size;
+        if (device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
+            offset_buffer_size = align(desc->NumDescriptors * sizeof(struct vkd3d_bound_ssbo_range), alignment);
+    }
+
+    buffer_size = uav_counter_size + offset_buffer_size;
 
     if (!buffer_size)
         return S_OK;
@@ -5488,6 +5493,7 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
     offset = 0;
 
     d3d12_descriptor_heap_get_buffer_range(descriptor_heap, &offset, uav_counter_size, &descriptor_heap->uav_counters);
+    d3d12_descriptor_heap_get_buffer_range(descriptor_heap, &offset, offset_buffer_size, &descriptor_heap->ssbo_ranges);
     return S_OK;
 }
 
