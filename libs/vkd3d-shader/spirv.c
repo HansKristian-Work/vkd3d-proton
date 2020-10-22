@@ -9108,7 +9108,7 @@ static void vkd3d_dxbc_compiler_emit_bufinfo(struct vkd3d_dxbc_compiler *compile
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
-    uint32_t type_id, val_id, stride_id;
+    uint32_t type_id, val_id, stride_id, bounds_id;
     struct vkd3d_shader_image image;
     uint32_t constituents[2];
     unsigned int write_mask;
@@ -9121,10 +9121,22 @@ static void vkd3d_dxbc_compiler_emit_bufinfo(struct vkd3d_dxbc_compiler *compile
 
     if (image.ssbo)
     {
-        if (src->reg.modifier == VKD3DSPRM_NONUNIFORM)
-            vkd3d_dxbc_compiler_decorate_nonuniform(compiler, image.id);
+        if (compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER)
+        {
+            const struct vkd3d_symbol *symbol = vkd3d_dxbc_compiler_find_resource(compiler, &src->reg);
+            bounds_id = vkd3d_dxbc_compiler_get_ssbo_bounds(compiler, &src->reg, symbol->info.resource.resource_binding);
 
-        val_id = vkd3d_spirv_build_op_array_length(builder, type_id, image.id, 0);
+            val_id = vkd3d_spirv_build_op_shift_right_logical(builder, type_id,
+                    vkd3d_spirv_build_op_composite_extract1(builder, type_id, bounds_id, 1),
+                    vkd3d_dxbc_compiler_get_constant_uint(compiler, 2));
+        }
+        else
+        {
+            if (src->reg.modifier == VKD3DSPRM_NONUNIFORM)
+                vkd3d_dxbc_compiler_decorate_nonuniform(compiler, image.id);
+
+            val_id = vkd3d_spirv_build_op_array_length(builder, type_id, image.id, 0);
+        }
     }
     else
         val_id = vkd3d_spirv_build_op_image_query_size(builder, type_id, image.image_id);
