@@ -410,10 +410,6 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
     }
 
     info->binding_count += desc->NumStaticSamplers;
-
-    /* Account for UAV counter binding */
-    if (info->has_raw_va_uav_counters)
-        info->push_descriptor_count += 1;
     return S_OK;
 }
 
@@ -613,13 +609,10 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     struct vkd3d_shader_resource_binding *binding;
     VkDescriptorSetLayoutCreateFlags vk_flags;
     struct d3d12_root_parameter *param;
-    unsigned int i, j, rs_flags;
+    unsigned int i, j;
     HRESULT hr;
 
-    rs_flags = VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK |
-        VKD3D_ROOT_SIGNATURE_USE_RAW_VA_UAV_COUNTERS;
-
-    if (!info->push_descriptor_count && !(root_signature->flags & rs_flags))
+    if (!info->push_descriptor_count && !(root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK))
         return S_OK;
 
     if (!(vk_binding_info = vkd3d_malloc(sizeof(*vk_binding_info) * (info->push_descriptor_count + 1))))
@@ -664,21 +657,6 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
 
         context->packed_descriptor_index += 1;
         context->binding_index += 1;
-        context->vk_binding += 1;
-    }
-
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_RAW_VA_UAV_COUNTERS)
-    {
-        vk_binding = &vk_binding_info[j++];
-        vk_binding->binding = context->vk_binding;
-        vk_binding->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        vk_binding->descriptorCount = 1;
-        vk_binding->stageFlags = VK_SHADER_STAGE_ALL;
-        vk_binding->pImmutableSamplers = NULL;
-
-        root_signature->uav_counter_binding.set = context->vk_set;
-        root_signature->uav_counter_binding.binding = context->vk_binding;
-
         context->vk_binding += 1;
     }
 
@@ -859,7 +837,13 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     }
 
     if (info.has_raw_va_uav_counters)
+    {
         root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_RAW_VA_UAV_COUNTERS;
+
+        vkd3d_bindless_state_find_binding(&device->bindless_state,
+                VKD3D_BINDLESS_SET_EXTRA_UAV_COUNTER_BUFFER,
+                &root_signature->uav_counter_binding);
+    }
 
     if (FAILED(hr = d3d12_root_signature_init_root_descriptors(root_signature, desc,
                 &info, &root_signature->push_constant_range, &context,
