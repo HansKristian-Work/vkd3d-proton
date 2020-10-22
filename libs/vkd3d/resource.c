@@ -3945,21 +3945,12 @@ static unsigned int vkd3d_view_flags_from_d3d12_buffer_srv_flags(D3D12_BUFFER_SR
     return 0;
 }
 
-static VkDeviceSize vkd3d_buffer_view_use_raw_ssbo(struct d3d12_device *device, VkDeviceSize structure_stride, bool raw)
-{
-    VkDeviceSize alignment = raw ? 16 : (structure_stride & -structure_stride);
-    return alignment >= d3d12_device_get_ssbo_alignment(device);
-}
-
 static bool vkd3d_buffer_srv_use_raw_ssbo(struct d3d12_device *device,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
 {
     bool raw = !!(desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW);
-
-    if (desc->Format == DXGI_FORMAT_UNKNOWN || raw)
-        return vkd3d_buffer_view_use_raw_ssbo(device, desc->Buffer.StructureByteStride, raw);
-
-    return false;
+    return d3d12_device_use_ssbo_raw_buffer(device) &&
+            ((desc->Format == DXGI_FORMAT_UNKNOWN && desc->Buffer.StructureByteStride) || raw);
 }
 
 static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
@@ -3995,6 +3986,12 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
             descriptor_info.buffer.buffer = resource->vk_buffer;
             descriptor_info.buffer.offset = desc->Buffer.FirstElement * stride + resource->heap_offset;
             descriptor_info.buffer.range = desc->Buffer.NumElements * stride;
+
+            if (descriptor_info.buffer.offset & (d3d12_device_get_ssbo_alignment(device) - 1))
+            {
+                FIXME("Emitting SSBO at offset #%"PRIx64", but needs alignment of %"PRIu64" bytes.\n",
+                      descriptor_info.buffer.offset, d3d12_device_get_ssbo_alignment(device));
+            }
         }
         else
         {
@@ -4258,11 +4255,8 @@ static bool vkd3d_buffer_uav_use_raw_ssbo(struct d3d12_device *device,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
     bool raw = !!(desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW);
-
-    if (desc->Format == DXGI_FORMAT_UNKNOWN || raw)
-        return vkd3d_buffer_view_use_raw_ssbo(device, desc->Buffer.StructureByteStride, raw);
-
-    return false;
+    return d3d12_device_use_ssbo_raw_buffer(device) &&
+           ((desc->Format == DXGI_FORMAT_UNKNOWN && desc->Buffer.StructureByteStride) || raw);
 }
 
 static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_device *device,
@@ -4306,6 +4300,12 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
             buffer_info->buffer = resource->vk_buffer;
             buffer_info->offset = desc->Buffer.FirstElement * stride + resource->heap_offset;
             buffer_info->range = desc->Buffer.NumElements * stride;
+
+            if (buffer_info->offset & (d3d12_device_get_ssbo_alignment(device) - 1))
+            {
+                FIXME("Emitting SSBO at offset #%"PRIx64", but needs alignment of %"PRIu64" bytes.\n",
+                      buffer_info->offset, d3d12_device_get_ssbo_alignment(device));
+            }
         }
         else
         {

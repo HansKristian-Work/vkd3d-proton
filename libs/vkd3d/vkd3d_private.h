@@ -1967,18 +1967,14 @@ static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(str
     return ID3D12Device6_GetDescriptorHandleIncrementSize(&device->ID3D12Device_iface, descriptor_type);
 }
 
-static inline VkDeviceSize d3d12_device_get_ssbo_alignment(struct d3d12_device *device)
+static inline bool d3d12_device_use_ssbo_raw_buffer(struct d3d12_device *device)
 {
-    return (device->bindless_state.flags & VKD3D_BINDLESS_RAW_SSBO)
-            ? device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment
-            : ~0ull;
+    return (device->bindless_state.flags & VKD3D_BINDLESS_RAW_SSBO) != 0;
 }
 
-static inline bool d3d12_device_use_ssbo_root_descriptors(struct d3d12_device *device)
+static inline VkDeviceSize d3d12_device_get_ssbo_alignment(struct d3d12_device *device)
 {
-    /* We only know the VA of root SRV/UAVs, so we cannot
-     * make any better assumptions about the alignment */
-    return d3d12_device_get_ssbo_alignment(device) <= 4;
+    return device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment;
 }
 
 /* ID3DBlob */

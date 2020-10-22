@@ -132,15 +132,17 @@ static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *
     resource_flags_ssbo = dxil_resource_flags_from_kind(d3d_binding->kind, true);
     resource_flags = dxil_resource_flags_from_kind(d3d_binding->kind, false);
 
-    if (resource_flags_ssbo != resource_flags)
-        use_ssbo = d3d_binding->alignment >= shader_interface_info->min_ssbo_alignment;
-    else
-        use_ssbo = false;
+    use_ssbo = resource_flags_ssbo != resource_flags;
 
     if (use_ssbo && dxil_remap(shader_interface_info, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,
             d3d_binding, &vk_binding->buffer_binding, resource_flags_ssbo))
     {
         vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
+        if (d3d_binding->alignment < shader_interface_info->min_ssbo_alignment)
+        {
+            FIXME("Shader declares resource with alignment of %u bytes, but implementation only supports %u.\n",
+                  d3d_binding->alignment, shader_interface_info->min_ssbo_alignment);
+        }
         return DXIL_SPV_TRUE;
     }
     else
