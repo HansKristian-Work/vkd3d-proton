@@ -5252,8 +5252,9 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_pool(struct d3d12_descrip
     const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
     VkDescriptorPoolSize vk_pool_sizes[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
     const struct d3d12_device *device = descriptor_heap->device;
+    unsigned int i, pool_count = 0, ssbo_count = 0;
     VkDescriptorPoolCreateInfo vk_pool_info;
-    unsigned int i, pool_count = 0;
+    VkDescriptorPoolSize *ssbo_pool = NULL;
     VkResult vr;
 
     for (i = 0; i < device->bindless_state.set_count; i++)
@@ -5265,8 +5266,23 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_pool(struct d3d12_descrip
             VkDescriptorPoolSize *vk_pool_size = &vk_pool_sizes[pool_count++];
             vk_pool_size->type = set_info->vk_descriptor_type;
             vk_pool_size->descriptorCount = descriptor_heap->desc.NumDescriptors;
+
+            if (set_info->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+                ssbo_pool = vk_pool_size;
         }
+
+        ssbo_count += vkd3d_popcount(set_info->flags & VKD3D_BINDLESS_SET_EXTRA_MASK);
     }
+
+    if (ssbo_count && !ssbo_pool)
+    {
+        ssbo_pool = &vk_pool_sizes[pool_count++];
+        ssbo_pool->type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        ssbo_pool->descriptorCount = 0;  /* see below */
+    }
+
+    if (ssbo_pool)
+        ssbo_pool->descriptorCount += ssbo_count;
 
     if (!pool_count)
         return S_OK;
@@ -5289,7 +5305,8 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_pool(struct d3d12_descrip
 }
 
 static void d3d12_descriptor_heap_zero_initialize(struct d3d12_descriptor_heap *descriptor_heap,
-        VkDescriptorType vk_descriptor_type, VkDescriptorSet vk_descriptor_set, uint32_t descriptor_count)
+        VkDescriptorType vk_descriptor_type, VkDescriptorSet vk_descriptor_set,
+        uint32_t binding_index, uint32_t descriptor_count)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
     const struct d3d12_device *device = descriptor_heap->device;
@@ -5303,7 +5320,7 @@ static void d3d12_descriptor_heap_zero_initialize(struct d3d12_descriptor_heap *
     write.pNext = NULL;
     write.descriptorType = vk_descriptor_type;
     write.dstSet = vk_descriptor_set;
-    write.dstBinding = 0;
+    write.dstBinding = binding_index;
     write.dstArrayElement = 0;
     write.descriptorCount = descriptor_count;
     write.pTexelBufferView = NULL;
@@ -5376,7 +5393,8 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_set(struct d3d12_descript
         binding->vk_descriptor_type != VK_DESCRIPTOR_TYPE_SAMPLER)
     {
         d3d12_descriptor_heap_zero_initialize(descriptor_heap,
-                binding->vk_descriptor_type, *vk_descriptor_set, descriptor_count);
+                binding->vk_descriptor_type, *vk_descriptor_set,
+                binding->binding_index, descriptor_count);
     }
 
     return S_OK;
@@ -5427,6 +5445,66 @@ static HRESULT d3d12_descriptor_heap_create_uav_counter_buffer(struct d3d12_desc
     return S_OK;
 }
 
+static void d3d12_descriptor_heap_update_extra_bindings(struct d3d12_descriptor_heap *descriptor_heap,
+        struct d3d12_device *device)
+{
+    VkDescriptorBufferInfo vk_buffer_info[VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS];
+    VkWriteDescriptorSet vk_writes[VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS];
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    unsigned int i, binding_index, set_index = 0, write_count = 0;
+    uint32_t flags;
+
+    for (i = 0; i < device->bindless_state.set_count; i++)
+    {
+        const struct vkd3d_bindless_set_info *set_info = &device->bindless_state.set_info[i];
+
+        if (set_info->heap_type != descriptor_heap->desc.Type)
+            continue;
+
+        flags = set_info->flags & VKD3D_BINDLESS_SET_EXTRA_MASK;
+        binding_index = 0;
+
+        while (flags)
+        {
+            enum vkd3d_bindless_set_flag flag = (enum vkd3d_bindless_set_flag)(flags & -flags);
+            VkDescriptorBufferInfo *vk_buffer = &vk_buffer_info[write_count];
+            VkWriteDescriptorSet *vk_write = &vk_writes[write_count];
+
+            vk_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            vk_write->pNext = NULL;
+            vk_write->dstSet = descriptor_heap->vk_descriptor_sets[set_index];
+            vk_write->dstBinding = binding_index++;
+            vk_write->dstArrayElement = 0;
+            vk_write->descriptorCount = 1;
+            vk_write->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            vk_write->pImageInfo = NULL;
+            vk_write->pBufferInfo = vk_buffer;
+            vk_write->pTexelBufferView = NULL;
+
+            switch (flag)
+            {
+                case VKD3D_BINDLESS_SET_EXTRA_UAV_COUNTER_BUFFER:
+                    vk_buffer->buffer = descriptor_heap->uav_counters.vk_buffer;
+                    vk_buffer->offset = 0;
+                    vk_buffer->range = VK_WHOLE_SIZE;
+                    break;
+
+                default:
+                    ERR("Unsupported etra flags %#x.\n", flag);
+                    continue;
+            }
+
+            write_count += 1;
+            flags -= flag;
+        }
+
+        set_index += 1;
+    }
+
+    if (write_count)
+        VK_CALL(vkUpdateDescriptorSets(device->vk_device, write_count, vk_writes, 0, NULL));
+}
+
 static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descriptor_heap,
         struct d3d12_device *device, const D3D12_DESCRIPTOR_HEAP_DESC *desc)
 {
@@ -5474,6 +5552,9 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
             goto fail;
         }
     }
+
+    if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
+        d3d12_descriptor_heap_update_extra_bindings(descriptor_heap, device);
 
     if (FAILED(hr = vkd3d_private_store_init(&descriptor_heap->private_store)))
         goto fail;

@@ -3350,11 +3350,13 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
         struct d3d12_device *device, uint32_t flags, VkDescriptorType vk_descriptor_type)
 {
     struct vkd3d_bindless_set_info *set_info = &bindless_state->set_info[bindless_state->set_count++];
+    VkDescriptorSetLayoutBinding vk_binding_info[VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS + 1];
+    VkDescriptorBindingFlagsEXT vk_binding_flags[VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS + 1];
     VkDescriptorSetLayoutBindingFlagsCreateInfoEXT vk_binding_flags_info;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDescriptorSetLayoutCreateInfo vk_set_layout_info;
-    VkDescriptorSetLayoutBinding vk_binding_info;
-    VkDescriptorBindingFlagsEXT vk_binding_flags;
+    VkDescriptorSetLayoutBinding *vk_binding;
+    unsigned int i;
     VkResult vr;
 
     set_info->vk_descriptor_type = vk_descriptor_type;
@@ -3362,35 +3364,48 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
             ? D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER
             : D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     set_info->flags = flags;
-    set_info->binding_index = 0;
+    set_info->binding_index = vkd3d_popcount(flags & VKD3D_BINDLESS_SET_EXTRA_MASK);
 
-    vk_binding_flags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT |
+    for (i = 0; i < set_info->binding_index; i++)
+    {
+        /* all extra bindings are storage buffers right now */
+        vk_binding_info[i].binding = i;
+        vk_binding_info[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        vk_binding_info[i].descriptorCount = 1;
+        vk_binding_info[i].stageFlags = VK_SHADER_STAGE_ALL;
+        vk_binding_info[i].pImmutableSamplers = NULL;
+
+        vk_binding_flags[i] = 0;
+    }
+
+    vk_binding = &vk_binding_info[set_info->binding_index];
+    vk_binding->binding = set_info->binding_index;
+    vk_binding->descriptorType = set_info->vk_descriptor_type;
+    vk_binding->descriptorCount = d3d12_max_descriptor_count_from_heap_type(set_info->heap_type);
+    vk_binding->stageFlags = VK_SHADER_STAGE_ALL;
+    vk_binding->pImmutableSamplers = NULL;
+
+    vk_binding_flags[set_info->binding_index] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT |
             VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT_EXT |
             VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT |
             VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT_EXT;
 
     vk_binding_flags_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT;
     vk_binding_flags_info.pNext = NULL;
-    vk_binding_flags_info.bindingCount = 1;
-    vk_binding_flags_info.pBindingFlags = &vk_binding_flags;
-
-    vk_binding_info.binding = 0;
-    vk_binding_info.descriptorType = set_info->vk_descriptor_type;
-    vk_binding_info.descriptorCount = d3d12_max_descriptor_count_from_heap_type(set_info->heap_type);
-    vk_binding_info.stageFlags = VK_SHADER_STAGE_ALL;
-    vk_binding_info.pImmutableSamplers = NULL;
+    vk_binding_flags_info.bindingCount = set_info->binding_index + 1;
+    vk_binding_flags_info.pBindingFlags = vk_binding_flags;
 
     vk_set_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     vk_set_layout_info.pNext = &vk_binding_flags_info;
     vk_set_layout_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT_EXT;
-    vk_set_layout_info.bindingCount = 1;
-    vk_set_layout_info.pBindings = &vk_binding_info;
+    vk_set_layout_info.bindingCount = set_info->binding_index + 1;
+    vk_set_layout_info.pBindings = vk_binding_info;
 
     if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device,
             &vk_set_layout_info, NULL, &set_info->vk_set_layout))) < 0)
         ERR("Failed to create descriptor set layout, vr %d.\n", vr);
 
-    vk_binding_info.descriptorCount = d3d12_max_host_descriptor_count_from_heap_type(device, set_info->heap_type);
+    vk_binding->descriptorCount = d3d12_max_host_descriptor_count_from_heap_type(device, set_info->heap_type);
 
     if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device,
             &vk_set_layout_info, NULL, &set_info->vk_host_set_layout))) < 0)
@@ -3455,6 +3470,7 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
 {
     const uint32_t required_flags = VKD3D_BINDLESS_SRV |
             VKD3D_BINDLESS_UAV | VKD3D_BINDLESS_CBV | VKD3D_BINDLESS_SAMPLER;
+    uint32_t extra_bindings = 0;
     HRESULT hr = E_FAIL;
 
     memset(bindless_state, 0, sizeof(*bindless_state));
@@ -3466,12 +3482,15 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
         goto fail;
     }
 
+    if (bindless_state->flags & VKD3D_RAW_VA_UAV_COUNTER)
+        extra_bindings |= VKD3D_BINDLESS_SET_EXTRA_UAV_COUNTER_BUFFER;
+
     if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
             VKD3D_BINDLESS_SET_SAMPLER, VK_DESCRIPTOR_TYPE_SAMPLER)))
         goto fail;
 
     if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-            VKD3D_BINDLESS_SET_CBV,
+            VKD3D_BINDLESS_SET_CBV | extra_bindings,
             vkd3d_bindless_state_get_cbv_descriptor_type(bindless_state))))
         goto fail;
 
@@ -3527,6 +3546,11 @@ void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
     }
 }
 
+static inline uint32_t vkd3d_bindless_state_get_extra_binding_index(uint32_t extra_flag, uint32_t set_flags)
+{
+    return vkd3d_popcount(set_flags & VKD3D_BINDLESS_SET_EXTRA_MASK & (extra_flag - 1));
+}
+
 bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindless_state,
         uint32_t flags, struct vkd3d_shader_descriptor_binding *binding)
 {
@@ -3540,6 +3564,9 @@ bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindle
         {
             binding->set = i;
             binding->binding = set_info->binding_index;
+
+            if (flags & VKD3D_BINDLESS_SET_EXTRA_MASK)
+                binding->binding = vkd3d_bindless_state_get_extra_binding_index(flags, set_info->flags);
             return true;
         }
     }
@@ -3567,6 +3594,9 @@ struct vkd3d_descriptor_binding vkd3d_bindless_state_find_set(const struct vkd3d
             {
                 binding.set = set_index;
                 binding.binding = set_info->binding_index;
+
+                if (flags & VKD3D_BINDLESS_SET_EXTRA_MASK)
+                    binding.binding = vkd3d_bindless_state_get_extra_binding_index(flags, set_info->flags);
                 return binding;
             }
 
