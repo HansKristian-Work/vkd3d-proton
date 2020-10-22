@@ -5164,7 +5164,7 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
     bool null_descriptors, ssbo;
     VkDeviceSize max_range;
 
-    ssbo = d3d12_device_use_ssbo_raw_buffer(list->device);
+    ssbo = d3d12_device_use_ssbo_root_descriptors(list->device);
     root_parameter = root_signature_get_root_descriptor(root_signature, index);
     descriptor = &bindings->root_descriptors[root_parameter->descriptor.packed_descriptor];
     null_descriptors = list->device->device_info.robustness2_features.nullDescriptor;

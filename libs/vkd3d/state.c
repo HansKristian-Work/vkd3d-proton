@@ -213,7 +213,7 @@ static enum vkd3d_shader_visibility vkd3d_shader_visibility_from_d3d12(D3D12_SHA
 
 static VkDescriptorType vk_descriptor_type_from_d3d12_root_parameter(struct d3d12_device *device, D3D12_ROOT_PARAMETER_TYPE type)
 {
-    bool use_ssbo = d3d12_device_use_ssbo_raw_buffer(device);
+    bool use_ssbo = d3d12_device_use_ssbo_root_descriptors(device);
 
     switch (type)
     {

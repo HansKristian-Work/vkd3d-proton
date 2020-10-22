@@ -1985,6 +1985,14 @@ static inline VkDeviceSize d3d12_device_get_ssbo_alignment(struct d3d12_device *
     return device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment;
 }
 
+static inline bool d3d12_device_use_ssbo_root_descriptors(struct d3d12_device *device)
+{
+    /* We only know the VA of root SRV/UAVs, so we cannot
+     * make any better assumptions about the alignment */
+    return d3d12_device_use_ssbo_raw_buffer(device) &&
+            d3d12_device_get_ssbo_alignment(device) <= 4;
+}
+
 /* ID3DBlob */
 struct d3d_blob
 {
