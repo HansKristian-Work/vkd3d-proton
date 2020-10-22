@@ -8445,6 +8445,77 @@ static uint32_t vkd3d_dxbc_compiler_emit_raw_structured_addressing(
         return offset_id;
 }
 
+static uint32_t vkd3d_dxbc_compiler_get_ssbo_bounds(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg, const struct vkd3d_shader_resource_binding *binding)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t bounds_id, vec2_ptr_id, vec2_type_id;
+    uint32_t indices[2];
+
+    vec2_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 2);
+    vec2_ptr_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassUniform, vec2_type_id);
+
+    indices[0] = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
+    indices[1] = vkd3d_dxbc_compiler_get_resource_index(compiler, reg, binding);
+
+    /* returns (offset, length) in bytes */
+    bounds_id = vkd3d_spirv_build_op_load(builder, vec2_type_id,
+            vkd3d_spirv_build_op_access_chain(builder, vec2_ptr_id,
+                    compiler->offset_buffer_var_id, indices, ARRAY_SIZE(indices)),
+            SpvMemoryAccessMaskNone);
+
+    return bounds_id;
+}
+
+static uint32_t vkd3d_dxbc_compiler_adjust_ssbo_offset(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg, uint32_t coordinate_id)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t shift_id, offset_id, length_id, bounds_id, cond_id;
+    uint32_t uint_type_id, bool_type_id;
+    const struct vkd3d_symbol *symbol;
+    unsigned int alignment;
+
+    if (!(compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER))
+        return coordinate_id;
+
+    symbol = vkd3d_dxbc_compiler_find_resource(compiler, reg);
+
+    if (symbol->info.resource.raw)
+        alignment = 16;
+    else
+        alignment = 4 * (symbol->info.resource.structure_stride & -symbol->info.resource.structure_stride);
+
+    /* Assume that offset is 0 and size matches the descriptor size */
+    if (alignment >= compiler->shader_interface.min_ssbo_alignment)
+        return coordinate_id;
+
+    bool_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, 1);
+    uint_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+
+    bounds_id = vkd3d_dxbc_compiler_get_ssbo_bounds(compiler, reg, symbol->info.resource.resource_binding);
+
+    shift_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 2);
+    offset_id = vkd3d_spirv_build_op_shift_right_logical(builder, uint_type_id,
+            vkd3d_spirv_build_op_composite_extract1(builder, uint_type_id, bounds_id, 0), shift_id);
+    length_id = vkd3d_spirv_build_op_shift_right_logical(builder, uint_type_id,
+            vkd3d_spirv_build_op_composite_extract1(builder, uint_type_id, bounds_id, 1), shift_id);
+
+    /* cond = offset < length */
+    cond_id = vkd3d_spirv_build_op_uless_than(builder, bool_type_id, coordinate_id, length_id);
+
+    /* In case of out-of-bounds access, set offset to a number that we
+     * expect to be out-of-bounds of the actual Vulkan resource as well.
+     * 0x3ffffffc is the largest offset value we can safely use without
+     * overflowing 32-bit address space, since this is a DWORD offset
+     * and we may access a total of 16 bytes starting at that offset. */
+    coordinate_id = vkd3d_spirv_build_op_select(builder, uint_type_id, cond_id,
+            vkd3d_spirv_build_op_iadd(builder, uint_type_id, coordinate_id, offset_id),
+            vkd3d_dxbc_compiler_get_constant_uint(compiler, 0x3ffffffc));
+
+    return coordinate_id;
+}
+
 static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -8490,6 +8561,9 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
     ptr_type_id = image.ssbo ? vkd3d_spirv_get_op_type_pointer(builder, image.storage_class, type_id) : 0;
     base_coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
             type_id, image.structure_stride, &src[0], VKD3DSP_WRITEMASK_0, &src[1], VKD3DSP_WRITEMASK_0);
+
+    if (image.ssbo)
+        base_coordinate_id = vkd3d_dxbc_compiler_adjust_ssbo_offset(compiler, &resource->reg, base_coordinate_id);
 
     texel_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
     result_type_id = is_sparse_op ? vkd3d_spirv_get_sparse_result_type(builder, texel_type_id) : texel_type_id;
@@ -8622,6 +8696,9 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
     assert((instruction->handler_idx == VKD3DSIH_STORE_STRUCTURED) != !image.structure_stride);
     base_coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
             type_id, image.structure_stride, &src[0], VKD3DSP_WRITEMASK_0, &src[1], VKD3DSP_WRITEMASK_0);
+
+    if (image.ssbo)
+        base_coordinate_id = vkd3d_dxbc_compiler_adjust_ssbo_offset(compiler, &dst->reg, base_coordinate_id);
 
     texel = &src[instruction->src_count - 1];
     assert(texel->reg.data_type == VKD3D_DATA_UINT);
@@ -8965,6 +9042,9 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
         coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
                 type_id, structure_stride, &src[0], VKD3DSP_WRITEMASK_0,
                 &src[0], VKD3DSP_WRITEMASK_1);
+
+        if (resource->reg.type != VKD3DSPR_GROUPSHAREDMEM && image.ssbo)
+            coordinate_id = vkd3d_dxbc_compiler_adjust_ssbo_offset(compiler, &resource->reg, coordinate_id);
     }
     else
     {
