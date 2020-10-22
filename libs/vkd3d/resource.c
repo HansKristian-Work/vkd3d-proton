@@ -3478,9 +3478,10 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
 
         if (metadata.flags & VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER)
         {
-            if (dst->heap->uav_counters.data)
+            if (dst->heap->uav_counters.host_ptr)
             {
-                dst->heap->uav_counters.data[dst->heap_offset] = src->counter_address;
+                VkDeviceAddress *counter_addresses = dst->heap->uav_counters.host_ptr;
+                counter_addresses[dst->heap_offset] = src->counter_address;
                 dst->counter_address = src->counter_address;
             }
             else
@@ -4382,8 +4383,9 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
 
     if (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER)
     {
+        VkDeviceAddress *counter_addresses = descriptor->heap->uav_counters.host_ptr;
         uint32_t descriptor_index = d3d12_desc_heap_offset(descriptor);
-        descriptor->heap->uav_counters.data[descriptor_index] = uav_counter_address;
+        counter_addresses[descriptor_index] = uav_counter_address;
         descriptor->counter_address = uav_counter_address;
     }
     else
@@ -5400,48 +5402,92 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_set(struct d3d12_descript
     return S_OK;
 }
 
-static HRESULT d3d12_descriptor_heap_create_uav_counter_buffer(struct d3d12_descriptor_heap *descriptor_heap,
-        struct d3d12_descriptor_heap_uav_counters *uav_counters)
+static void d3d12_descriptor_heap_get_buffer_range(struct d3d12_descriptor_heap *descriptor_heap,
+        VkDeviceSize *offset, VkDeviceSize size, struct vkd3d_host_visible_buffer_range *range)
+{
+    if (size)
+    {
+        range->descriptor.buffer = descriptor_heap->vk_buffer;
+        range->descriptor.offset = *offset;
+        range->descriptor.range = size;
+        range->host_ptr = void_ptr_offset(descriptor_heap->host_memory, *offset);
+
+        *offset += size;
+    }
+    else
+    {
+        range->descriptor.buffer = VK_NULL_HANDLE;
+        range->descriptor.offset = 0;
+        range->descriptor.range = VK_WHOLE_SIZE;
+        range->host_ptr = NULL;
+    }
+}
+
+static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_heap *descriptor_heap,
+        struct d3d12_device *device, const D3D12_DESCRIPTOR_HEAP_DESC *desc)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
-    struct d3d12_device *device = descriptor_heap->device;
+    VkDeviceSize alignment = max(device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment,
+            device->device_info.properties2.properties.limits.nonCoherentAtomSize);
+    VkDeviceSize uav_counter_size = 0;
+    VkDeviceSize buffer_size, offset;
     D3D12_HEAP_PROPERTIES heap_info;
     D3D12_RESOURCE_DESC buffer_desc;
     D3D12_HEAP_FLAGS heap_flags;
     VkResult vr;
     HRESULT hr;
 
-    /* concurrently accessible storage buffer */
-    memset(&buffer_desc, 0, sizeof(buffer_desc));
-    buffer_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    buffer_desc.Width = descriptor_heap->desc.NumDescriptors * sizeof(VkDeviceAddress);
-    buffer_desc.Height = 1;
-    buffer_desc.DepthOrArraySize = 1;
-    buffer_desc.MipLevels = 1;
-    buffer_desc.SampleDesc.Count = 1;
-    buffer_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    buffer_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
+            (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER))
+        uav_counter_size = align(desc->NumDescriptors * sizeof(VkDeviceAddress), alignment);
 
-    /* host-visible device memory */
-    memset(&heap_info, 0, sizeof(heap_info));
-    heap_info.Type = D3D12_HEAP_TYPE_UPLOAD;
+    buffer_size = uav_counter_size;
 
-    heap_flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    if (!buffer_size)
+        return S_OK;
 
-    if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc, &uav_counters->vk_buffer)))
-        return hr;
-
-    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, uav_counters->vk_buffer, NULL,
-            &heap_info, heap_flags, &uav_counters->vk_memory, NULL, NULL)))
-        return hr;
-
-    if ((vr = VK_CALL(vkMapMemory(device->vk_device, uav_counters->vk_memory,
-            0, VK_WHOLE_SIZE, 0, (void **)&uav_counters->data))))
+    if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
     {
-        ERR("Failed to map UAV counter address buffer, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
+        memset(&buffer_desc, 0, sizeof(buffer_desc));
+        buffer_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        buffer_desc.Width = buffer_size;
+        buffer_desc.Height = 1;
+        buffer_desc.DepthOrArraySize = 1;
+        buffer_desc.MipLevels = 1;
+        buffer_desc.SampleDesc.Count = 1;
+        buffer_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        buffer_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+        /* host-visible device memory */
+        memset(&heap_info, 0, sizeof(heap_info));
+        heap_info.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+        heap_flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+
+        if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc, &descriptor_heap->vk_buffer)))
+            return hr;
+
+        if (FAILED(hr = vkd3d_allocate_buffer_memory(device, descriptor_heap->vk_buffer, NULL,
+                &heap_info, heap_flags, &descriptor_heap->vk_memory, NULL, NULL)))
+            return hr;
+
+        if ((vr = VK_CALL(vkMapMemory(device->vk_device, descriptor_heap->vk_memory,
+                0, VK_WHOLE_SIZE, 0, &descriptor_heap->host_memory))))
+        {
+            ERR("Failed to map buffer, vr %d.\n", vr);
+            return hresult_from_vk_result(vr);
+        }
+    }
+    else
+    {
+        descriptor_heap->vk_memory = VK_NULL_HANDLE;
+        descriptor_heap->vk_buffer = VK_NULL_HANDLE;
+        descriptor_heap->host_memory = vkd3d_calloc(1, buffer_size);
     }
 
+    offset = 0;
+
+    d3d12_descriptor_heap_get_buffer_range(descriptor_heap, &offset, uav_counter_size, &descriptor_heap->uav_counters);
     return S_OK;
 }
 
@@ -5484,9 +5530,7 @@ static void d3d12_descriptor_heap_update_extra_bindings(struct d3d12_descriptor_
             switch (flag)
             {
                 case VKD3D_BINDLESS_SET_EXTRA_UAV_COUNTER_BUFFER:
-                    vk_buffer->buffer = descriptor_heap->uav_counters.vk_buffer;
-                    vk_buffer->offset = 0;
-                    vk_buffer->range = VK_WHOLE_SIZE;
+                    *vk_buffer = descriptor_heap->uav_counters.descriptor;
                     break;
 
                 default:
@@ -5537,21 +5581,8 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
         }
     }
 
-    if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
-            (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER))
-    {
-        if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
-        {
-            if (FAILED(hr = d3d12_descriptor_heap_create_uav_counter_buffer(descriptor_heap,
-                    &descriptor_heap->uav_counters)))
-                goto fail;
-        }
-        else if (!(descriptor_heap->uav_counters.data = vkd3d_calloc(desc->NumDescriptors, sizeof(VkDeviceSize))))
-        {
-            ERR("Failed to allocate UAV counter address buffer.\n");
-            goto fail;
-        }
-    }
+    if (FAILED(hr = d3d12_descriptor_heap_init_data_buffer(descriptor_heap, device, desc)))
+        goto fail;
 
     if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
         d3d12_descriptor_heap_update_extra_bindings(descriptor_heap, device);
@@ -5648,11 +5679,11 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
     const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
     const struct d3d12_device *device = descriptor_heap->device;
 
-    if (!descriptor_heap->uav_counters.vk_memory)
-        vkd3d_free(descriptor_heap->uav_counters.data);
+    if (!descriptor_heap->vk_memory)
+        vkd3d_free(descriptor_heap->host_memory);
 
-    VK_CALL(vkDestroyBuffer(device->vk_device, descriptor_heap->uav_counters.vk_buffer, NULL));
-    VK_CALL(vkFreeMemory(device->vk_device, descriptor_heap->uav_counters.vk_memory, NULL));
+    VK_CALL(vkDestroyBuffer(device->vk_device, descriptor_heap->vk_buffer, NULL));
+    VK_CALL(vkFreeMemory(device->vk_device, descriptor_heap->vk_memory, NULL));
 
     VK_CALL(vkDestroyDescriptorPool(device->vk_device, descriptor_heap->vk_descriptor_pool, NULL));
 }
