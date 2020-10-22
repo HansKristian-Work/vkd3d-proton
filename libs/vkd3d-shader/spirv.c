@@ -2195,6 +2195,8 @@ struct vkd3d_dxbc_compiler
     struct vkd3d_shader_global_binding *global_bindings;
     size_t global_bindings_size;
     size_t global_binding_count;
+
+    uint32_t offset_buffer_var_id;
 };
 
 static bool shader_is_sm_5_1(const struct vkd3d_dxbc_compiler *compiler)
@@ -5444,6 +5446,33 @@ static void vkd3d_dxbc_compiler_emit_dcl_indexable_temp(struct vkd3d_dxbc_compil
     vkd3d_symbol_set_register_info(&reg_symbol, id,
             SpvStorageClassFunction, VKD3D_TYPE_FLOAT, VKD3DSP_WRITEMASK_ALL);
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
+}
+
+static void vkd3d_dxbc_compiler_emit_offset_buffer(struct vkd3d_dxbc_compiler *compiler)
+{
+    const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t array_id, struct_id, pointer_id, var_id;
+
+    if (!(shader_interface->flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER))
+        return;
+
+    array_id = vkd3d_spirv_build_op_type_runtime_array(builder,
+            vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 2));
+    vkd3d_spirv_build_op_decorate1(builder, array_id, SpvDecorationArrayStride, 8);
+
+    struct_id = vkd3d_spirv_build_op_type_struct(builder, &array_id, 1);
+    vkd3d_spirv_build_op_decorate(builder, struct_id, SpvDecorationBufferBlock, NULL, 0);
+    vkd3d_spirv_build_op_member_decorate1(builder, struct_id, 0, SpvDecorationOffset, 0);
+    vkd3d_spirv_build_op_name(builder, struct_id, "offset_buf");
+
+    pointer_id = vkd3d_spirv_build_op_type_pointer(builder, SpvStorageClassUniform, struct_id);
+    var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream, pointer_id, SpvStorageClassUniform, 0);
+    vkd3d_spirv_build_op_decorate1(builder, var_id, SpvDecorationDescriptorSet, shader_interface->offset_buffer_binding->set);
+    vkd3d_spirv_build_op_decorate1(builder, var_id, SpvDecorationBinding, shader_interface->offset_buffer_binding->binding);
+    vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonWritable, NULL, 0);
+
+    compiler->offset_buffer_var_id = var_id;
 }
 
 static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_compiler *compiler)
@@ -9457,6 +9486,7 @@ static void vkd3d_dxbc_compiler_emit_double_conversion(struct vkd3d_dxbc_compile
 /* This function is called after declarations are processed. */
 static void vkd3d_dxbc_compiler_emit_main_prolog(struct vkd3d_dxbc_compiler *compiler)
 {
+    vkd3d_dxbc_compiler_emit_offset_buffer(compiler);
     vkd3d_dxbc_compiler_emit_push_constant_buffers(compiler);
 }
 
