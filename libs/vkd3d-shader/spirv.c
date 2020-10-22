@@ -24,6 +24,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <inttypes.h>
 
 #include "spirv/unified1/spirv.h"
 #include "spirv/unified1/GLSL.std.450.h"
@@ -200,6 +201,7 @@ struct vkd3d_spirv_builder
     uint32_t type_bool_id;
     uint32_t type_void_id;
 
+    struct vkd3d_spirv_stream string_stream; /* OpString / OpSource instructions */
     struct vkd3d_spirv_stream debug_stream; /* debug instructions */
     struct vkd3d_spirv_stream annotation_stream; /* decoration instructions */
     struct vkd3d_spirv_stream global_stream; /* types, constants, global variables */
@@ -778,6 +780,27 @@ static void vkd3d_spirv_build_op_execution_mode(struct vkd3d_spirv_stream *strea
         uint32_t entry_point, SpvExecutionMode mode, const uint32_t *literals, unsigned int literal_count)
 {
     vkd3d_spirv_build_op2v(stream, SpvOpExecutionMode, entry_point, mode, literals, literal_count);
+}
+
+static void vkd3d_spirv_build_op_source(struct vkd3d_spirv_builder *builder,
+        SpvSourceLanguage language, uint32_t version, uint32_t source_id)
+{
+    struct vkd3d_spirv_stream *stream = &builder->string_stream;
+    vkd3d_spirv_build_word(stream, vkd3d_spirv_opcode_word(SpvOpSource, 4));
+    vkd3d_spirv_build_word(stream, language);
+    vkd3d_spirv_build_word(stream, version);
+    vkd3d_spirv_build_word(stream, source_id);
+}
+
+static void vkd3d_spirv_build_op_string(struct vkd3d_spirv_builder *builder,
+        uint32_t id, const char *name)
+{
+    struct vkd3d_spirv_stream *stream = &builder->string_stream;
+    unsigned int name_size;
+    name_size = vkd3d_spirv_string_word_count(name);
+    vkd3d_spirv_build_word(stream, vkd3d_spirv_opcode_word(SpvOpString, 2 + name_size));
+    vkd3d_spirv_build_word(stream, id);
+    vkd3d_spirv_build_string(stream, name, name_size);
 }
 
 static void vkd3d_spirv_build_op_name(struct vkd3d_spirv_builder *builder,
@@ -1648,6 +1671,7 @@ static void vkd3d_spirv_decompose_sparse_result(struct vkd3d_spirv_builder *buil
 
 static void vkd3d_spirv_builder_init(struct vkd3d_spirv_builder *builder)
 {
+    vkd3d_spirv_stream_init(&builder->string_stream);
     vkd3d_spirv_stream_init(&builder->debug_stream);
     vkd3d_spirv_stream_init(&builder->annotation_stream);
     vkd3d_spirv_stream_init(&builder->global_stream);
@@ -1680,6 +1704,7 @@ static void vkd3d_spirv_builder_begin_main_function(struct vkd3d_spirv_builder *
 
 static void vkd3d_spirv_builder_free(struct vkd3d_spirv_builder *builder)
 {
+    vkd3d_spirv_stream_free(&builder->string_stream);
     vkd3d_spirv_stream_free(&builder->debug_stream);
     vkd3d_spirv_stream_free(&builder->annotation_stream);
     vkd3d_spirv_stream_free(&builder->global_stream);
@@ -1796,6 +1821,7 @@ static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
                 builder->main_function_id, SpvExecutionModeInvocations, &builder->invocation_count, 1);
     vkd3d_spirv_stream_append(&stream, &builder->execution_mode_stream);
 
+    vkd3d_spirv_stream_append(&stream, &builder->string_stream);
     vkd3d_spirv_stream_append(&stream, &builder->debug_stream);
     vkd3d_spirv_stream_append(&stream, &builder->annotation_stream);
     vkd3d_spirv_stream_append(&stream, &builder->global_stream);
@@ -5305,6 +5331,19 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
     current->type_id = type_id;
     current->var_id = var_id;
     return current;
+}
+
+static void vkd3d_dxbc_compiler_emit_source_hash(struct vkd3d_dxbc_compiler *compiler, vkd3d_shader_hash_t hash)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    char buffer[16 + 5 + 1];
+    uint32_t id;
+
+    id = vkd3d_spirv_alloc_id(&compiler->spirv_builder);
+    sprintf(buffer, "%016"PRIx64".dxbc", hash);
+    vkd3d_spirv_build_op_string(builder, id, buffer);
+    vkd3d_spirv_build_op_source(builder, SpvSourceLanguageUnknown,
+            compiler->shader_version.major * 100 + compiler->shader_version.minor, id);
 }
 
 static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler)
@@ -10061,8 +10100,13 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         vkd3d_dxbc_compiler_emit_shader_epilogue_function(compiler);
     }
 
+    vkd3d_dxbc_compiler_emit_source_hash(compiler, spirv->meta.hash);
+
     if (compiler->options & VKD3D_SHADER_STRIP_DEBUG)
+    {
         vkd3d_spirv_stream_clear(&builder->debug_stream);
+        vkd3d_spirv_stream_clear(&builder->string_stream);
+    }
 
     if (!vkd3d_spirv_compile_module(builder, spirv))
         return VKD3D_ERROR;
