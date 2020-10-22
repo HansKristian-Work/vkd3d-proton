@@ -725,6 +725,12 @@ static inline struct d3d12_dsv_desc *d3d12_dsv_desc_from_cpu_handle(D3D12_CPU_DE
 void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc);
 
+struct vkd3d_bound_ssbo_range
+{
+    uint32_t offset;  /* offset to first byte */
+    uint32_t length;  /* bound size in bytes */
+};
+
 struct vkd3d_host_visible_buffer_range
 {
     VkDescriptorBufferInfo descriptor;
@@ -747,6 +753,7 @@ struct d3d12_descriptor_heap
     void *host_memory;
 
     struct vkd3d_host_visible_buffer_range uav_counters;
+    struct vkd3d_host_visible_buffer_range ssbo_ranges;
 
     struct d3d12_device *device;
 
@@ -1578,6 +1585,7 @@ enum vkd3d_bindless_flags
     VKD3D_RAW_VA_UAV_COUNTER    = (1u << 4),
     VKD3D_BINDLESS_CBV_AS_SSBO  = (1u << 5),
     VKD3D_BINDLESS_RAW_SSBO     = (1u << 6),
+    VKD3D_SSBO_OFFSET_BUFFER    = (1u << 7),
 };
 
 #define VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS 8
