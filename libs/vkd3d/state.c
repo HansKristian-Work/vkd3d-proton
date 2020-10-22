@@ -3362,6 +3362,7 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
             ? D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER
             : D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     set_info->flags = flags;
+    set_info->binding_index = 0;
 
     vk_binding_flags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT |
             VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT_EXT |
@@ -3538,7 +3539,7 @@ bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindle
         if ((set_info->flags & flags) == flags)
         {
             binding->set = i;
-            binding->binding = 0;
+            binding->binding = set_info->binding_index;
             return true;
         }
     }
@@ -3546,8 +3547,9 @@ bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindle
     return false;
 }
 
-unsigned int vkd3d_bindless_state_find_set(const struct vkd3d_bindless_state *bindless_state, uint32_t flags)
+struct vkd3d_descriptor_binding vkd3d_bindless_state_find_set(const struct vkd3d_bindless_state *bindless_state, uint32_t flags)
 {
+    struct vkd3d_descriptor_binding binding;
     D3D12_DESCRIPTOR_HEAP_TYPE heap_type;
     unsigned int i, set_index = 0;
 
@@ -3562,12 +3564,18 @@ unsigned int vkd3d_bindless_state_find_set(const struct vkd3d_bindless_state *bi
         if (set_info->heap_type == heap_type)
         {
             if ((set_info->flags & flags) == flags)
-                return set_index;
+            {
+                binding.set = set_index;
+                binding.binding = set_info->binding_index;
+                return binding;
+            }
 
             set_index++;
         }
     }
 
     ERR("No set found for flags %#x.", flags);
-    return 0;
+    binding.set = 0;
+    binding.binding = 0;
+    return binding;
 }

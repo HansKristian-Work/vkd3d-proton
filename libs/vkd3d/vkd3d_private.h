@@ -631,10 +631,16 @@ enum vkd3d_descriptor_flag
     VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER = (1 << 2),
 };
 
+struct vkd3d_descriptor_binding
+{
+    uint16_t set;
+    uint16_t binding;
+};
+
 struct vkd3d_descriptor_data
 {
     uint64_t cookie;
-    uint32_t set_index;
+    struct vkd3d_descriptor_binding binding;
     uint32_t flags;
 };
 
@@ -1589,6 +1595,7 @@ struct vkd3d_bindless_set_info
     VkDescriptorType vk_descriptor_type;
     D3D12_DESCRIPTOR_HEAP_TYPE heap_type;
     uint32_t flags; /* vkd3d_bindless_set_flag */
+    uint32_t binding_index;
 
     VkDescriptorSetLayout vk_set_layout;
     VkDescriptorSetLayout vk_host_set_layout;
@@ -1608,7 +1615,7 @@ void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device);
 bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindless_state,
         uint32_t flags, struct vkd3d_shader_descriptor_binding *binding);
-unsigned int vkd3d_bindless_state_find_set(const struct vkd3d_bindless_state *bindless_state, uint32_t flags);
+struct vkd3d_descriptor_binding vkd3d_bindless_state_find_set(const struct vkd3d_bindless_state *bindless_state, uint32_t flags);
 
 static inline VkDescriptorType vkd3d_bindless_state_get_cbv_descriptor_type(const struct vkd3d_bindless_state *bindless_state)
 {

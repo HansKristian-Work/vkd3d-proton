@@ -3467,11 +3467,11 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
             vk_copy = &vk_copies[copy_count++];
             vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
             vk_copy->pNext = NULL;
-            vk_copy->srcSet = src->heap->vk_descriptor_sets[metadata.set_index];
-            vk_copy->srcBinding = 0;
+            vk_copy->srcSet = src->heap->vk_descriptor_sets[metadata.binding.set];
+            vk_copy->srcBinding = metadata.binding.binding;
             vk_copy->srcArrayElement = src->heap_offset;
-            vk_copy->dstSet = dst->heap->vk_descriptor_sets[metadata.set_index];
-            vk_copy->dstBinding = 0;
+            vk_copy->dstSet = dst->heap->vk_descriptor_sets[metadata.binding.set];
+            vk_copy->dstBinding = metadata.binding.binding;
             vk_copy->dstArrayElement = dst->heap_offset;
             vk_copy->descriptorCount = 1;
         }
@@ -3485,17 +3485,17 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
             }
             else
             {
-                uint32_t set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
-                        VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_COUNTER);
+                struct vkd3d_descriptor_binding binding = vkd3d_bindless_state_find_set(
+                        &device->bindless_state, VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_COUNTER);
 
                 vk_copy = &vk_copies[copy_count++];
                 vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
                 vk_copy->pNext = NULL;
-                vk_copy->srcSet = src->heap->vk_descriptor_sets[set_index];
-                vk_copy->srcBinding = 0;
+                vk_copy->srcSet = src->heap->vk_descriptor_sets[binding.set];
+                vk_copy->srcBinding = binding.binding;
                 vk_copy->srcArrayElement = src->heap_offset;
-                vk_copy->dstSet = dst->heap->vk_descriptor_sets[set_index];
-                vk_copy->dstBinding = 0;
+                vk_copy->dstSet = dst->heap->vk_descriptor_sets[binding.set];
+                vk_copy->dstBinding = binding.binding;
                 vk_copy->dstArrayElement = dst->heap_offset;
                 vk_copy->descriptorCount = 1;
             }
@@ -3868,8 +3868,8 @@ static inline void vkd3d_init_write_descriptor_set(VkWriteDescriptorSet *vk_writ
 {
     vk_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     vk_write->pNext = NULL;
-    vk_write->dstSet = descriptor->heap->vk_descriptor_sets[descriptor->metadata.set_index];
-    vk_write->dstBinding = 0;
+    vk_write->dstSet = descriptor->heap->vk_descriptor_sets[descriptor->metadata.binding.set];
+    vk_write->dstBinding = descriptor->metadata.binding.binding;
     vk_write->dstArrayElement = d3d12_desc_heap_offset(descriptor);
     vk_write->descriptorCount = 1;
     vk_write->descriptorType = vk_descriptor_type;
@@ -3922,7 +3922,7 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
     vk_descriptor_type = vkd3d_bindless_state_get_cbv_descriptor_type(&device->bindless_state);
 
     descriptor->metadata.cookie = resource ? resource->cookie : 0;
-    descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state, VKD3D_BINDLESS_SET_CBV);
+    descriptor->metadata.binding = vkd3d_bindless_state_find_set(&device->bindless_state, VKD3D_BINDLESS_SET_CBV);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
     descriptor->info.buffer = descriptor_info.buffer;
 
@@ -3996,7 +3996,7 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
 
         descriptor->info.buffer = descriptor_info.buffer;
         descriptor->metadata.cookie = resource ? resource->cookie : 0;
-        descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
+        descriptor->metadata.binding = vkd3d_bindless_state_find_set(&device->bindless_state,
                 VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_RAW_SSBO);
         descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
 
@@ -4029,7 +4029,7 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
 
         descriptor->info.view = view;
         descriptor->metadata.cookie = view ? view->cookie : 0;
-        descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
+        descriptor->metadata.binding = vkd3d_bindless_state_find_set(&device->bindless_state,
                 VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_BUFFER);
         descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
@@ -4190,7 +4190,7 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
 
     descriptor->info.view = view;
     descriptor->metadata.cookie = view ? view->cookie : 0;
-    descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
+    descriptor->metadata.binding = vkd3d_bindless_state_find_set(&device->bindless_state,
             VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_IMAGE);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
@@ -4310,7 +4310,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
 
         descriptor->info.buffer = *buffer_info;
         descriptor->metadata.cookie = resource ? resource->cookie : 0;
-        descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
+        descriptor->metadata.binding = vkd3d_bindless_state_find_set(&device->bindless_state,
                 VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_RAW_SSBO);
         descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
 
@@ -4339,7 +4339,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
 
         descriptor->info.view = view;
         descriptor->metadata.cookie = view ? view->cookie : 0;
-        descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
+        descriptor->metadata.binding = vkd3d_bindless_state_find_set(&device->bindless_state,
                 VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_BUFFER);
         descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW | VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER;
 
@@ -4388,14 +4388,15 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     }
     else
     {
-        uint32_t set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
-            VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_COUNTER);
+        struct vkd3d_descriptor_binding binding = vkd3d_bindless_state_find_set(
+                &device->bindless_state, VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_COUNTER);
 
         descriptor_info[vk_write_count].buffer_view = uav_counter_view;
         vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], descriptor,
                 VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, &descriptor_info[vk_write_count]);
 
-        vk_write[vk_write_count].dstSet = descriptor->heap->vk_descriptor_sets[set_index];
+        vk_write[vk_write_count].dstSet = descriptor->heap->vk_descriptor_sets[binding.set];
+        vk_write[vk_write_count].dstBinding = binding.binding;
         vk_write_count++;
     }
 
@@ -4514,7 +4515,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
 
     descriptor->info.view = view;
     descriptor->metadata.cookie = view ? view->cookie : 0;
-    descriptor->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state,
+    descriptor->metadata.binding = vkd3d_bindless_state_find_set(&device->bindless_state,
             VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_IMAGE);
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
@@ -4809,7 +4810,7 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
 
     sampler->info.view = view;
     sampler->metadata.cookie = view->cookie;
-    sampler->metadata.set_index = vkd3d_bindless_state_find_set(&device->bindless_state, VKD3D_BINDLESS_SET_SAMPLER);
+    sampler->metadata.binding = vkd3d_bindless_state_find_set(&device->bindless_state, VKD3D_BINDLESS_SET_SAMPLER);
     sampler->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
     descriptor_info.image.sampler = view->vk_sampler;
