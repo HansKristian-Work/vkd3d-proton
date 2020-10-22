@@ -271,4 +271,39 @@ static inline size_t vkd3d_wcslen(const WCHAR *wstr, size_t wchar_size)
     }
 }
 
+#ifdef __SSE__
+#include <emmintrin.h>
+static inline uint32_t vkd3d_set_neutral_floating_point_mode_flags(void)
+{
+    /* This is a quite gross workaround, however, this works around a very particular compiler bug on ACO on
+     * older Mesa drivers with Death Stranding. The issue was fixed here (2020-10-22):
+     * https://gitlab.freedesktop.org/mesa/mesa/-/issues/3668
+     * https://gitlab.freedesktop.org/mesa/mesa/-/commit/4e2fe34aa9944612f2224188317a4ad2aee8035b
+     * The game sets flush-to-zero SSE flags, and what happens is that ACO performs a wrong compare of uint bitcast to FP != 0.0.
+     * This results in a denormal compare, which would normally work, but not with flush to zero.
+     * This was not reproducible when running the game in a captured form, which further complicated things.
+     * To avoid any potential weirdness happening inside the compiler which will be near-impossible to track down,
+     * we ensure there is a "neutral" FP flag setup. No flush-to-zero and no weird rounding.
+     * CSR state is per-thread, so this is safe. */
+    uint32_t saved = _mm_getcsr();
+    _mm_setcsr(_MM_MASK_MASK);
+    return saved;
+}
+
+static inline void vkd3d_restore_floating_point_mode_flags(uint32_t flags)
+{
+    _mm_setcsr(flags);
+}
+#else
+static inline uint32_t vkd3d_set_neutral_floating_point_mode_flags(void)
+{
+    return 0;
+}
+
+static inline void vkd3d_restore_floating_point_mode_flags(uint32_t ignored)
+{
+    (void)ignored;
+}
+#endif
+
 #endif  /* __VKD3D_COMMON_H */

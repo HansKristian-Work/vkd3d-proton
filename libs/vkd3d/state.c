@@ -1645,6 +1645,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
     struct vkd3d_shader_debug_ring_spec_info spec_info;
     struct vkd3d_shader_compile_arguments compile_args;
     VkComputePipelineCreateInfo pipeline_info;
+    uint32_t mode_flags;
     VkResult vr;
     HRESULT hr;
 
@@ -1670,8 +1671,10 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
         pipeline_info.stage.pSpecializationInfo = &spec_info.spec_info;
     }
 
+    mode_flags = vkd3d_set_neutral_floating_point_mode_flags();
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device,
             vk_cache, 1, &pipeline_info, NULL, vk_pipeline));
+    vkd3d_restore_floating_point_mode_flags(mode_flags);
     VK_CALL(vkDestroyShaderModule(device->vk_device, pipeline_info.stage.module, NULL));
     if (vr < 0)
     {
@@ -3067,6 +3070,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     VkGraphicsPipelineCreateInfo pipeline_desc;
     VkPipelineViewportStateCreateInfo vp_desc;
     VkPipeline vk_pipeline;
+    uint32_t mode_flags;
     unsigned int i;
     VkResult vr;
     HRESULT hr;
@@ -3157,12 +3161,15 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     *vk_render_pass = pipeline_desc.renderPass;
 
+    mode_flags = vkd3d_set_neutral_floating_point_mode_flags();
     if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device,
             vk_cache, 1, &pipeline_desc, NULL, &vk_pipeline))) < 0)
     {
         WARN("Failed to create Vulkan graphics pipeline, vr %d.\n", vr);
+        vkd3d_restore_floating_point_mode_flags(mode_flags);
         return VK_NULL_HANDLE;
     }
+    vkd3d_restore_floating_point_mode_flags(mode_flags);
 
     return vk_pipeline;
 }
