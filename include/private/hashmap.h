@@ -50,14 +50,9 @@ struct hash_map
     uint32_t used_count;
 };
 
-static inline void *hash_map_ptr_offset(void *ptr, size_t offset)
-{
-    return ((char*)ptr) + offset;
-}
-
 static inline struct hash_map_entry *hash_map_get_entry(struct hash_map *hash_map, uint32_t entry_idx)
 {
-    return hash_map_ptr_offset(hash_map->entries, hash_map->entry_size * entry_idx);
+    return void_ptr_offset(hash_map->entries, hash_map->entry_size * entry_idx);
 }
 
 static inline uint32_t hash_map_get_entry_idx(struct hash_map *hash_map, uint32_t hash_value)
@@ -98,7 +93,7 @@ static inline bool hash_map_grow(struct hash_map *hash_map)
     for (i = 0; i < old_count; i++)
     {
         /* Relocate existing entries one by one */
-        struct hash_map_entry *old_entry = hash_map_ptr_offset(old_entries, i * hash_map->entry_size);
+        struct hash_map_entry *old_entry = void_ptr_offset(old_entries, i * hash_map->entry_size);
 
         if (old_entry->flags & HASH_MAP_ENTRY_OCCUPIED)
         {

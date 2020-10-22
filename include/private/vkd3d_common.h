@@ -271,4 +271,9 @@ static inline size_t vkd3d_wcslen(const WCHAR *wstr, size_t wchar_size)
     }
 }
 
+static inline void *void_ptr_offset(void *ptr, size_t offset)
+{
+    return ((char*)ptr) + offset;
+}
+
 #endif  /* __VKD3D_COMMON_H */
