@@ -213,7 +213,7 @@ static enum vkd3d_shader_visibility vkd3d_shader_visibility_from_d3d12(D3D12_SHA
 
 static VkDescriptorType vk_descriptor_type_from_d3d12_root_parameter(struct d3d12_device *device, D3D12_ROOT_PARAMETER_TYPE type)
 {
-    bool use_ssbo = d3d12_device_use_ssbo_root_descriptors(device);
+    bool use_ssbo = d3d12_device_use_ssbo_raw_buffer(device);
 
     switch (type)
     {
@@ -3434,14 +3434,14 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
             device_info->descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing)
         flags |= VKD3D_BINDLESS_CBV | VKD3D_BINDLESS_CBV_AS_SSBO;
 
-    /* FIXME: For now, NV drivers seem to be broken when enabling this path, even if AMD with 16 byte alignment works just fine.
-     * Enable SSBO path for NV when we figure out what is going on ... */
-    if (device_info->properties2.properties.vendorID != VKD3D_VENDOR_ID_NVIDIA)
-    {
-        if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers >= 1000000 &&
-            device_info->descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind)
-            flags |= VKD3D_BINDLESS_RAW_SSBO;
-    }
+    /* Normally, we would be able to use SSBOs conditionally even when maxSSBOAlignment > 4, but
+     * applications (RE2 being one example) are of course buggy and don't match descriptor and shader usage of resources,
+     * so we cannot rely on alignment analysis to select the appropriate resource type.
+     * TODO: Implement an offset buffer system so that we can remove the minStorageBufferOffsetAlignment requirement. */
+    if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers >= 1000000 &&
+            device_info->descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind &&
+            device_info->properties2.properties.limits.minStorageBufferOffsetAlignment <= 4)
+        flags |= VKD3D_BINDLESS_RAW_SSBO;
 
     if (device_info->buffer_device_address_features.bufferDeviceAddress && (flags & VKD3D_BINDLESS_UAV))
         flags |= VKD3D_RAW_VA_UAV_COUNTER;

@@ -5748,10 +5748,11 @@ static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler
 static bool vkd3d_dxbc_compiler_use_ssbo(struct vkd3d_dxbc_compiler *compiler,
         unsigned int structure_stride, bool raw)
 {
-    /* Extract lowest bit from stride to get alignment
-     * in case the stride is not a power of two. */
-    unsigned int dword_alignment = raw ? 4 : (structure_stride & -structure_stride);
-    return dword_alignment * sizeof(uint32_t) >= compiler->shader_interface.min_ssbo_alignment;
+    /* Normally, we would also look at the alignment of these resource types to
+     * deduce if we should emit SSBOs, but this breaks in certain applications,
+     * so we will statically determine if structured buffers or raw buffers should be SSBOs.
+     * TODO: min_ssbo_alignment will be used to determine if we should use a fallback access path with offset. */
+    return structure_stride || raw;
 }
 
 static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_compiler *compiler,
