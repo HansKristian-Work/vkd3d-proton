@@ -19,6 +19,8 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_SHADER
 
 #include "vkd3d_shader_private.h"
+#include <inttypes.h>
+#include <stdio.h>
 #include <dxil_spirv_c.h>
 
 static bool dxil_match_shader_visibility(enum vkd3d_shader_visibility visibility,
@@ -455,6 +457,16 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
             ret = VKD3D_ERROR_NOT_IMPLEMENTED;
             goto end;
         }
+    }
+
+    {
+        char buffer[16 + 5 + 1];
+        const struct dxil_spv_option_shader_source_file helper =
+                { { DXIL_SPV_OPTION_SHADER_SOURCE_FILE }, buffer };
+
+        sprintf(buffer, "%016"PRIx64".dxil", spirv->meta.hash);
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+            WARN("dxil-spirv does not support SHADER_SOURCE_FILE.\n");
     }
 
     if (compiler_args)
