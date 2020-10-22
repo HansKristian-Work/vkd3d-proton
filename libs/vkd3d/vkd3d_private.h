@@ -1578,6 +1578,8 @@ enum vkd3d_bindless_flags
     VKD3D_BINDLESS_RAW_SSBO     = (1u << 6),
 };
 
+#define VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS 8
+
 enum vkd3d_bindless_set_flag
 {
     VKD3D_BINDLESS_SET_SAMPLER  = (1u << 0),
@@ -1588,6 +1590,9 @@ enum vkd3d_bindless_set_flag
     VKD3D_BINDLESS_SET_BUFFER   = (1u << 5),
     VKD3D_BINDLESS_SET_COUNTER  = (1u << 6),
     VKD3D_BINDLESS_SET_RAW_SSBO = (1u << 7),
+
+    VKD3D_BINDLESS_SET_EXTRA_UAV_COUNTER_BUFFER = (1u << 24),
+    VKD3D_BINDLESS_SET_EXTRA_MASK = 0xff000000u
 };
 
 struct vkd3d_bindless_set_info
