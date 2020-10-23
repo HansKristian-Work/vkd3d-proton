@@ -5711,7 +5711,7 @@ struct vkd3d_clear_uav_info
     } u;
 };
 
-static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
+static void d3d12_command_list_clear_uav(struct d3d12_command_list *list, const struct d3d12_desc *desc,
         struct d3d12_resource *resource, const struct vkd3d_clear_uav_info *args,
         const VkClearColorValue *clear_color, UINT rect_count, const D3D12_RECT *rects)
 {
@@ -5724,6 +5724,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     D3D12_RECT full_rect, curr_rect;
     VkWriteDescriptorSet write_set;
     VkExtent3D workgroup_size;
+    uint32_t extra_offset;
 
     d3d12_command_list_track_resource_usage(list, resource);
     d3d12_command_list_end_current_render_pass(list, false);
@@ -5802,6 +5803,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     full_rect.right = d3d12_resource_desc_get_width(&resource->desc, miplevel_idx);
     full_rect.top = 0;
     full_rect.bottom = d3d12_resource_desc_get_height(&resource->desc, miplevel_idx);
+    extra_offset = 0;
 
     if (d3d12_resource_is_buffer(resource))
     {
@@ -5811,6 +5813,12 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
                     ? args->u.view->format->byte_count
                     : sizeof(uint32_t);  /* structured buffer */
             full_rect.right = args->u.view->info.buffer.size / byte_count;
+        }
+        else if (list->device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
+        {
+            const struct vkd3d_bound_ssbo_range *ranges = desc->heap->ssbo_ranges.host_ptr;
+            extra_offset = ranges[desc->heap_offset].offset / sizeof(uint32_t);
+            full_rect.right = ranges[desc->heap_offset].length / sizeof(uint32_t);
         }
         else
             full_rect.right = args->u.buffer.range / sizeof(uint32_t);
@@ -5840,7 +5848,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
                 continue;
         }
 
-        clear_args.offset.x = curr_rect.left;
+        clear_args.offset.x = curr_rect.left + extra_offset;
         clear_args.offset.y = curr_rect.top;
         clear_args.extent.width = curr_rect.right - curr_rect.left;
         clear_args.extent.height = curr_rect.bottom - curr_rect.top;
@@ -5956,7 +5964,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
         }
     }
 
-    d3d12_command_list_clear_uav(list, resource_impl, &args, &color, rect_count, rects);
+    d3d12_command_list_clear_uav(list, desc, resource_impl, &args, &color, rect_count, rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d3d12_command_list_iface *iface,
@@ -5977,7 +5985,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
     resource_impl = unsafe_impl_from_ID3D12Resource(resource);
 
     vkd3d_clear_uav_info_from_desc(&args, desc);
-    d3d12_command_list_clear_uav(list, resource_impl, &args, &color, rect_count, rects);
+    d3d12_command_list_clear_uav(list, desc, resource_impl, &args, &color, rect_count, rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_list_iface *iface,
