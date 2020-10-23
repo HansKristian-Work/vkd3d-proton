@@ -3457,12 +3457,16 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
 
     /* Normally, we would be able to use SSBOs conditionally even when maxSSBOAlignment > 4, but
      * applications (RE2 being one example) are of course buggy and don't match descriptor and shader usage of resources,
-     * so we cannot rely on alignment analysis to select the appropriate resource type.
-     * TODO: Implement an offset buffer system so that we can remove the minStorageBufferOffsetAlignment requirement. */
+     * so we cannot rely on alignment analysis to select the appropriate resource type. */
     if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers >= 1000000 &&
             device_info->descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind &&
-            device_info->properties2.properties.limits.minStorageBufferOffsetAlignment <= 4)
+            device_info->properties2.properties.limits.minStorageBufferOffsetAlignment <= 16)
+    {
         flags |= VKD3D_BINDLESS_RAW_SSBO;
+
+        if (device_info->properties2.properties.limits.minStorageBufferOffsetAlignment > 4)
+            flags |= VKD3D_SSBO_OFFSET_BUFFER;
+    }
 
     if (device_info->buffer_device_address_features.bufferDeviceAddress && (flags & VKD3D_BINDLESS_UAV))
         flags |= VKD3D_RAW_VA_UAV_COUNTER;
