@@ -330,6 +330,7 @@ struct d3d12_root_signature_info
     uint32_t push_descriptor_count;
     uint32_t root_constant_count;
     bool has_raw_va_uav_counters;
+    bool has_ssbo_offset_buffer;
 
     uint32_t cost;
 };
@@ -345,6 +346,9 @@ static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_sig
 
             if (device->bindless_state.flags & VKD3D_BINDLESS_RAW_SSBO)
                 info->binding_count += 1;
+
+            if (device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
+                info->has_ssbo_offset_buffer = true;
             break;
         case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
             /* separate image + buffer descriptors */
@@ -355,6 +359,9 @@ static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_sig
 
             if (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER)
                 info->has_raw_va_uav_counters = true;
+
+            if (device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
+                info->has_ssbo_offset_buffer = true;
             break;
         case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
         case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
@@ -845,6 +852,15 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
                 &root_signature->uav_counter_binding);
     }
 
+    if (info.has_ssbo_offset_buffer)
+    {
+        root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER;
+
+        vkd3d_bindless_state_find_binding(&device->bindless_state,
+                VKD3D_BINDLESS_SET_EXTRA_SSBO_OFFSET_BUFFER,
+                &root_signature->offset_buffer_binding);
+    }
+
     if (FAILED(hr = d3d12_root_signature_init_root_descriptors(root_signature, desc,
                 &info, &root_signature->push_constant_range, &context,
                 &root_signature->vk_root_descriptor_layout)))
@@ -932,6 +948,9 @@ static unsigned int d3d12_root_signature_get_shader_interface_flags(const struct
 
     if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
         flags |= VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER;
+
+    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER)
+        flags |= VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER;
 
     if (root_signature->device->bindless_state.flags & VKD3D_BINDLESS_CBV_AS_SSBO)
         flags |= VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER;
@@ -1694,6 +1713,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.push_constant_buffers = root_signature->root_constants;
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
     shader_interface.push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
+    shader_interface.offset_buffer_binding = &root_signature->offset_buffer_binding;
 
     if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &state->vk_pso_cache)) < 0)
     {
@@ -2527,6 +2547,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     shader_interface.push_constant_buffers = root_signature->root_constants;
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
     shader_interface.push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
+    shader_interface.offset_buffer_binding = &root_signature->offset_buffer_binding;
 
     graphics->patch_vertex_count = 0;
 
@@ -3468,6 +3489,9 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
 
     if (bindless_state->flags & VKD3D_RAW_VA_UAV_COUNTER)
         extra_bindings |= VKD3D_BINDLESS_SET_EXTRA_UAV_COUNTER_BUFFER;
+
+    if (bindless_state->flags & VKD3D_SSBO_OFFSET_BUFFER)
+        extra_bindings |= VKD3D_BINDLESS_SET_EXTRA_SSBO_OFFSET_BUFFER;
 
     if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
             VKD3D_BINDLESS_SET_SAMPLER, VK_DESCRIPTOR_TYPE_SAMPLER)))
