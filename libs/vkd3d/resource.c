@@ -5539,6 +5539,10 @@ static void d3d12_descriptor_heap_update_extra_bindings(struct d3d12_descriptor_
                     *vk_buffer = descriptor_heap->uav_counters.descriptor;
                     break;
 
+                case VKD3D_BINDLESS_SET_EXTRA_SSBO_OFFSET_BUFFER:
+                    *vk_buffer = descriptor_heap->ssbo_ranges.descriptor;
+                    break;
+
                 default:
                     ERR("Unsupported etra flags %#x.\n", flag);
                     continue;

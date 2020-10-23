@@ -815,6 +815,7 @@ enum vkd3d_root_signature_flag
     VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS       = 0x00000001u,
     VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK   = 0x00000002u,
     VKD3D_ROOT_SIGNATURE_USE_RAW_VA_UAV_COUNTERS    = 0x00000004u,
+    VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER     = 0x00000008u,
 };
 
 struct d3d12_root_descriptor_table
@@ -883,6 +884,7 @@ struct d3d12_root_signature
     VkPushConstantRange push_constant_range;
     struct vkd3d_shader_descriptor_binding push_constant_ubo_binding;
     struct vkd3d_shader_descriptor_binding uav_counter_binding;
+    struct vkd3d_shader_descriptor_binding offset_buffer_binding;
 
     uint32_t descriptor_table_offset;
     uint32_t descriptor_table_count;
@@ -1602,6 +1604,7 @@ enum vkd3d_bindless_set_flag
     VKD3D_BINDLESS_SET_RAW_SSBO = (1u << 7),
 
     VKD3D_BINDLESS_SET_EXTRA_UAV_COUNTER_BUFFER = (1u << 24),
+    VKD3D_BINDLESS_SET_EXTRA_SSBO_OFFSET_BUFFER = (1u << 25),
     VKD3D_BINDLESS_SET_EXTRA_MASK = 0xff000000u
 };
 
