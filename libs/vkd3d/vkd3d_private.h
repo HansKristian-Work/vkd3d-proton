@@ -629,6 +629,7 @@ enum vkd3d_descriptor_flag
     VKD3D_DESCRIPTOR_FLAG_DEFINED     = (1 << 0),
     VKD3D_DESCRIPTOR_FLAG_VIEW        = (1 << 1),
     VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER = (1 << 2),
+    VKD3D_DESCRIPTOR_FLAG_SSBO_OFFSET = (1 << 3),
 };
 
 struct vkd3d_descriptor_binding

@@ -3502,6 +3502,13 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
             }
         }
 
+        if (metadata.flags & VKD3D_DESCRIPTOR_FLAG_SSBO_OFFSET)
+        {
+            const struct vkd3d_bound_ssbo_range *src_ssbo_ranges = src->heap->ssbo_ranges.host_ptr;
+            struct vkd3d_bound_ssbo_range *dst_ssbo_ranges = dst->heap->ssbo_ranges.host_ptr;
+            dst_ssbo_ranges[dst->heap_offset] = src_ssbo_ranges[src->heap_offset];
+        }
+
         if (copy_count)
             VK_CALL(vkUpdateDescriptorSets(device->vk_device, 0, NULL, copy_count, vk_copies));
     }
@@ -3948,6 +3955,43 @@ static bool vkd3d_buffer_srv_use_raw_ssbo(struct d3d12_device *device,
             ((desc->Format == DXGI_FORMAT_UNKNOWN && desc->Buffer.StructureByteStride) || raw);
 }
 
+static void vkd3d_buffer_view_get_bound_range(struct d3d12_desc *descriptor,
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        VkDeviceSize offset, VkDeviceSize range, VkDescriptorBufferInfo *vk_buffer)
+{
+    struct vkd3d_bound_ssbo_range ssbo_range;
+
+    if (resource)
+    {
+        VkDeviceSize alignment = d3d12_device_get_ssbo_alignment(device);
+        VkDeviceSize aligned_begin = offset & ~(alignment - 1);
+        VkDeviceSize aligned_end = min((offset + range + alignment - 1) & ~(alignment - 1), resource->desc.Width);
+
+        /* heap_offset is guaranteed to have 64KiB alignment */
+        vk_buffer->buffer = resource->vk_buffer;
+        vk_buffer->offset = resource->heap_offset + aligned_begin;
+        vk_buffer->range = aligned_end - aligned_begin;
+
+        ssbo_range.offset = offset - aligned_begin;
+        ssbo_range.length = range;
+    }
+    else
+    {
+        vk_buffer->buffer = VK_NULL_HANDLE;
+        vk_buffer->offset = 0;
+        vk_buffer->range = 0;
+
+        ssbo_range.offset = 0;
+        ssbo_range.length = 0;
+    }
+
+    if (device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
+    {
+        struct vkd3d_bound_ssbo_range *ssbo_ranges = descriptor->heap->ssbo_ranges.host_ptr;
+        ssbo_ranges[descriptor->heap_offset] = ssbo_range;
+    }
+}
+
 static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
@@ -3974,32 +4018,21 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
 
     if (vkd3d_buffer_srv_use_raw_ssbo(device, desc))
     {
-        if (resource)
-        {
-            uint32_t stride = desc->Format == DXGI_FORMAT_UNKNOWN
-                    ? desc->Buffer.StructureByteStride : sizeof(uint32_t);
-            descriptor_info.buffer.buffer = resource->vk_buffer;
-            descriptor_info.buffer.offset = desc->Buffer.FirstElement * stride + resource->heap_offset;
-            descriptor_info.buffer.range = desc->Buffer.NumElements * stride;
+        VkDeviceSize stride = desc->Format == DXGI_FORMAT_UNKNOWN
+                ? desc->Buffer.StructureByteStride : sizeof(uint32_t);
 
-            if (descriptor_info.buffer.offset & (d3d12_device_get_ssbo_alignment(device) - 1))
-            {
-                FIXME("Emitting SSBO at offset #%"PRIx64", but needs alignment of %"PRIu64" bytes.\n",
-                      descriptor_info.buffer.offset, d3d12_device_get_ssbo_alignment(device));
-            }
-        }
-        else
-        {
-            descriptor_info.buffer.buffer = VK_NULL_HANDLE;
-            descriptor_info.buffer.offset = 0;
-            descriptor_info.buffer.range = 0;
-        }
+        vkd3d_buffer_view_get_bound_range(descriptor, device, resource,
+                desc->Buffer.FirstElement * stride, desc->Buffer.NumElements * stride,
+                &descriptor_info.buffer);
 
         descriptor->info.buffer = descriptor_info.buffer;
         descriptor->metadata.cookie = resource ? resource->cookie : 0;
         descriptor->metadata.binding = vkd3d_bindless_state_find_set(&device->bindless_state,
                 VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_RAW_SSBO);
         descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
+
+        if (device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
+            descriptor->metadata.flags |= VKD3D_DESCRIPTOR_FLAG_SSBO_OFFSET;
 
         vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     }
@@ -4287,33 +4320,21 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     if (vkd3d_buffer_uav_use_raw_ssbo(device, desc))
     {
         VkDescriptorBufferInfo *buffer_info = &descriptor_info[vk_write_count].buffer;
+        VkDeviceSize stride = desc->Format == DXGI_FORMAT_UNKNOWN
+                ? desc->Buffer.StructureByteStride : sizeof(uint32_t);
 
-        if (resource)
-        {
-            uint32_t stride = desc->Format == DXGI_FORMAT_UNKNOWN
-                    ? desc->Buffer.StructureByteStride : sizeof(uint32_t);
-            buffer_info->buffer = resource->vk_buffer;
-            buffer_info->offset = desc->Buffer.FirstElement * stride + resource->heap_offset;
-            buffer_info->range = desc->Buffer.NumElements * stride;
-
-            if (buffer_info->offset & (d3d12_device_get_ssbo_alignment(device) - 1))
-            {
-                FIXME("Emitting SSBO at offset #%"PRIx64", but needs alignment of %"PRIu64" bytes.\n",
-                      buffer_info->offset, d3d12_device_get_ssbo_alignment(device));
-            }
-        }
-        else
-        {
-            buffer_info->buffer = VK_NULL_HANDLE;
-            buffer_info->offset = 0;
-            buffer_info->range = 0;
-        }
+        vkd3d_buffer_view_get_bound_range(descriptor, device, resource,
+                desc->Buffer.FirstElement * stride, desc->Buffer.NumElements * stride,
+                buffer_info);
 
         descriptor->info.buffer = *buffer_info;
         descriptor->metadata.cookie = resource ? resource->cookie : 0;
         descriptor->metadata.binding = vkd3d_bindless_state_find_set(&device->bindless_state,
                 VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_RAW_SSBO);
-        descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED;
+        descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER;
+
+        if (device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
+            descriptor->metadata.flags |= VKD3D_DESCRIPTOR_FLAG_SSBO_OFFSET;
 
         vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     }
