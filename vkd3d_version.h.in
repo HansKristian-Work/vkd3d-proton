@@ -1,0 +1,1 @@
+static const char vkd3d_version[] = "@VCS_TAG@";

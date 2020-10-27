@@ -1,1 +1,0 @@
-const char vkd3d_build[] = "@VCS_TAG@";

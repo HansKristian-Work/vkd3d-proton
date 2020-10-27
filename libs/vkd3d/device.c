@@ -433,7 +433,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     HRESULT hr;
     uint32_t loader_version = VK_API_VERSION_1_0;
 
-    TRACE("Build: %s.\n", vkd3d_build);
+    TRACE("Build: %s.\n", vkd3d_version);
 
     memset(instance, 0, sizeof(*instance));
 

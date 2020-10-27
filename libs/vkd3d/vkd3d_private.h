@@ -30,6 +30,8 @@
 #include "rbtree.h"
 
 #include "vkd3d.h"
+#include "vkd3d_build.h"
+#include "vkd3d_version.h"
 #include "vkd3d_shader.h"
 #include "vkd3d_threads.h"
 #include "vkd3d_platform.h"
@@ -2162,8 +2164,6 @@ HRESULT vkd3d_load_vk_instance_procs(struct vkd3d_vk_instance_procs *procs,
         const struct vkd3d_vk_global_procs *global_procs, VkInstance instance);
 HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
         const struct vkd3d_vk_instance_procs *parent_procs, VkDevice device);
-
-extern const char vkd3d_build[];
 
 VkResult vkd3d_set_vk_object_name_utf8(struct d3d12_device *device, uint64_t vk_object,
         VkObjectType vk_object_type, const char *name);
