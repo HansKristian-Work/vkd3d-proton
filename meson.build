@@ -92,10 +92,15 @@ if cpu_family == 'x86'
     language : [ 'c', 'cpp' ])
 endif
 
+vkd3d_build = vcs_tag(
+  command : ['git', 'describe', '--always', '--exclude=*', '--abbrev=15', '--dirty=0'],
+  input   : 'vkd3d_build.h.in',
+  output  : 'vkd3d_build.h')
+
 vkd3d_version = vcs_tag(
-  command : ['git', 'describe', '--always', '--dirty=+'],
-  input   : 'vkd3d_version.c.in',
-  output  : 'vkd3d_version.c')
+  command : ['git', 'describe', '--always', '--tags', '--dirty=+'],
+  input   : 'vkd3d_version.h.in',
+  output  : 'vkd3d_version.h')
 
 dxil_spirv = subproject('dxil-spirv')
 dxil_spirv_dep = dxil_spirv.get_variable('dxil_spirv_dep')
