@@ -42,7 +42,7 @@
 
 #define VK_CALL(f) (vk_procs->f)
 
-#define MAKE_MAGIC(a,b,c,d) (((uint32_t)a) | (((uint32_t)b) << 8) | (((uint32_t)c) << 16) | d)
+#define MAKE_MAGIC(a,b,c,d) (((uint32_t)a) | (((uint32_t)b) << 8) | (((uint32_t)c) << 16) | (((uint32_t)d) << 24))
 
 #define VKD3D_DESCRIPTOR_MAGIC_FREE    0x00000000u
 #define VKD3D_DESCRIPTOR_MAGIC_DSV     MAKE_MAGIC('D', 'S', 'V', 0)
