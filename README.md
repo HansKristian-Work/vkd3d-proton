@@ -42,7 +42,7 @@ Inside the VKD3D directory, run:
 
 This will create a folder `vkd3d-master` in `/your/target/directory`, which contains both 32-bit and 64-bit versions of VKD3D, which can be set up in the same way as the release versions as noted above.
 
-If you want to build natively (ie. for `libvkd3d.so`), pass `--native` to the build script. This option will make it build using your system's compilers.
+If you want to build natively (ie. for `libvkd3d-proton.so`), pass `--native` to the build script. This option will make it build using your system's compilers.
 
 In order to preserve the build directories for development, pass `--dev-build` to the script. This option implies `--no-package`. After making changes to the source code, you can then do the following to rebuild VKD3D:
 ```
@@ -54,12 +54,12 @@ ninja install
 #### Compiling manually (cross for d3d12.dll, default)
 ```
 # 64-bit build.
-meson --cross-file build-win64.txt -Denable_standalone_d3d12=True --buildtype release --prefix /your/vkd3d/directory build.64
+meson --cross-file build-win64.txt -Denable_standalone_d3d12=True --buildtype release --prefix /your/vkd3d-proton/directory build.64
 cd build.64
 ninja install
 
 # 32-bit build
-meson --cross-file build-win32.txt -Denable_standalone_d3d12=True  --buildtype release --prefix /your/vkd3d/directory build.86
+meson --cross-file build-win32.txt -Denable_standalone_d3d12=True  --buildtype release --prefix /your/vkd3d-proton/directory build.86
 cd build.86
 ninja install
 ```
@@ -67,12 +67,12 @@ ninja install
 #### Compiling manually (native)
 ```
 # 64-bit build.
-meson --buildtype release --prefix /your/vkd3d/directory build.64
+meson --buildtype release --prefix /your/vkd3d-proton/directory build.64
 cd build.64
 ninja install
 
 # 32-bit build
-meson --cross-file x86-linux-gnu --buildtype release --prefix /your/vkd3d/directory build.86
+meson --cross-file x86-linux-gnu --buildtype release --prefix /your/vkd3d-proton/directory build.86
 cd build.86
 ninja install
 ```
@@ -94,16 +94,16 @@ removed in the future versions of VKD3D.
 Some of debug variables are lists of elements. Elements must be separated by
 commas or semicolons.
 
- - `VKD3D_CONFIG` - a list of options that change the behavior of libvkd3d.
+ - `VKD3D_CONFIG` - a list of options that change the behavior of vkd3d-proton.
     - vk_debug - enables Vulkan debug extensions and loads validation layer.
  - `VKD3D_DEBUG` - controls the debug level for log messages produced by
-   libvkd3d. Accepts the following values: none, err, fixme, warn, trace.
+   vkd3d-proton. Accepts the following values: none, err, fixme, warn, trace.
  - `VKD3D_SHADER_DEBUG` - controls the debug level for log messages produced by
-   libvkd3d-shader. See `VKD3D_DEBUG` for accepted values.
+   the shader compilers. See `VKD3D_DEBUG` for accepted values.
  - `VKD3D_LOG_FILE` - If set, redirects `VKD3D_DEBUG` logging output to a file instead.
  - `VKD3D_VULKAN_DEVICE` - a zero-based device index. Use to force the selected
    Vulkan device.
- - `VKD3D_DISABLE_EXTENSIONS` - a list of Vulkan extensions that libvkd3d should
+ - `VKD3D_DISABLE_EXTENSIONS` - a list of Vulkan extensions that vkd3d-proton should
    not use even if available.
  - `VKD3D_TEST_DEBUG` - enables additional debug messages in tests. Set to 0, 1
    or 2.
