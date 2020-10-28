@@ -97,6 +97,15 @@ VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12CreateVersionedRootSignatureDeserializer(
     return vkd3d_create_versioned_root_signature_deserializer(data, data_size, iid, deserializer);
 }
 
+VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12EnableExperimentalFeatures(UINT feature_count,
+        const IID *iids, void *configurations, UINT *configurations_sizes)
+{
+    FIXME("feature_count %u, iids %p, configurations %p, configurations_sizes %p stub!\n",
+            feature_count, iids, configurations, configurations_sizes);
+
+    return E_NOINTERFACE;
+}
+
 VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob)
 {
