@@ -49,7 +49,7 @@ if not enable_standalone_d3d12
     dependencies        : [ vkd3d_common_dep, vkd3d_shader_dep ] + vkd3d_extra_libs,
     include_directories : vkd3d_private_includes,
     install             : true,
-    version             : '1.1.0',
+    version             : '2.0.0',
     c_args              : '-DVKD3D_EXPORTS',
     override_options    : [ 'c_std='+vkd3d_c_std ])
 else

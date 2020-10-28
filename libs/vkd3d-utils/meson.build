@@ -6,6 +6,7 @@ vkd3d_utils_lib = shared_library('vkd3d-utils', vkd3d_utils_src, vkd3d_headers,
   dependencies        : vkd3d_dep,
   include_directories : vkd3d_private_includes,
   install             : true,
+  version             : '2.0.0',
   c_args              : '-DVKD3D_UTILS_EXPORTS',
   override_options    : [ 'c_std='+vkd3d_c_std ])
 
