@@ -51,6 +51,7 @@ static uint32_t vkd3d_get_vk_version(void)
     int major, minor;
 
     vkd3d_parse_version(PACKAGE_VERSION, &major, &minor);
+    INFO("vkd3d-proton - applicationVersion: %d.%d.0.\n", major, minor);
     return VK_MAKE_VERSION(major, minor, 0);
 }
 
@@ -496,6 +497,8 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     application_info.pEngineName = "vkd3d";
     application_info.engineVersion = vkd3d_get_vk_version();
     application_info.apiVersion = loader_version;
+
+    INFO("vkd3d-proton - build: %"PRIx64".\n", vkd3d_build);
 
     if ((vkd3d_application_info = vkd3d_find_struct(create_info->next, APPLICATION_INFO)))
     {
