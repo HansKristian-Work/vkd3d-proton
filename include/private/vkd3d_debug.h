@@ -40,6 +40,7 @@ enum vkd3d_dbg_level
     VKD3D_DBG_LEVEL_UNKNOWN,
     VKD3D_DBG_LEVEL_NONE,
     VKD3D_DBG_LEVEL_ERR,
+    VKD3D_DBG_LEVEL_INFO,
     VKD3D_DBG_LEVEL_FIXME,
     VKD3D_DBG_LEVEL_WARN,
     VKD3D_DBG_LEVEL_TRACE,
@@ -97,6 +98,7 @@ const char *debugstr_w(const WCHAR *wstr, size_t wchar_size);
 #endif
 
 #define ERR   VKD3D_DBG_LOG(ERR)
+#define INFO  VKD3D_DBG_LOG(INFO)
 
 #ifndef TRACE_ON
 #define TRACE_ON() (vkd3d_dbg_get_level(VKD3D_DBG_CHANNEL) == VKD3D_DBG_LEVEL_TRACE)
