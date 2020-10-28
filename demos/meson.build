@@ -1,5 +1,5 @@
 demo_vkd3d_deps = [
-  threads_dep
+  threads_dep, vkd3d_headers_dep
 ]
 
 if vkd3d_platform != 'windows'
@@ -18,14 +18,14 @@ else
   ]
 endif
 
-executable('gears', 'gears.c', vkd3d_headers,
+executable('gears', 'gears.c',
   dependencies        : demo_vkd3d_deps,
   include_directories : vkd3d_public_includes,
   install             : true,
   gui_app             : true,
   override_options    : [ 'c_std='+vkd3d_c_std ])
 
-executable('triangle', 'triangle.c', vkd3d_headers,
+executable('triangle', 'triangle.c',
   dependencies        : demo_vkd3d_deps,
   include_directories : vkd3d_public_includes,
   install             : true,
