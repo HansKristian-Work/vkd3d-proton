@@ -156,7 +156,7 @@ void *vkd3d_shader_debug_ring_thread_main(void *arg)
                     }
                 }
 
-                ERR("%s\n", message_buffer);
+                INFO("%s\n", message_buffer);
 
 #undef READ_RING_WORD
                 i += message_word_count;
