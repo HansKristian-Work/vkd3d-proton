@@ -64,7 +64,7 @@ function build_arch {
         # get rid of some useless .a files
         rm "$VKD3D_BUILD_DIR/x$1/"*.!(dll)
         # get rid of vkd3d-utils.dll
-        rm "$VKD3D_BUILD_DIR/x$1/libvkd3d-utils.dll"
+        rm "$VKD3D_BUILD_DIR/x$1/libvkd3d-proton-utils-2.dll"
     fi
     rm -R "$VKD3D_BUILD_DIR/build.$1"
   fi
