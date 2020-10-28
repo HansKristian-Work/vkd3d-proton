@@ -31,10 +31,18 @@ extern "C" {
 #define VKD3D_INFINITE (~0u)
 
 #ifdef _WIN32
-# ifdef VKD3D_UTILS_EXPORTS
-#  define VKD3D_UTILS_EXPORT __declspec(dllexport)
+# ifdef _MSC_VER
+#  define VKD3D_UTILS_EXPORT
 # else
-#  define VKD3D_UTILS_EXPORT __declspec(dllimport)
+  /* We need to specify the __declspec(dllexport) attribute
+   * on MinGW because otherwise the stdcall aliases/fixups
+   * don't get exported.
+   */
+#  ifdef VKD3D_UTILS_EXPORTS
+#   define VKD3D_UTILS_EXPORT __declspec(dllexport)
+#  else
+#   define VKD3D_UTILS_EXPORT __declspec(dllimport)
+#  endif
 # endif
 #elif defined(__GNUC__)
 # define VKD3D_UTILS_EXPORT DECLSPEC_VISIBLE
