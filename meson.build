@@ -1,4 +1,4 @@
-project('vkd3d', ['c'], version : '1.1', meson_version : '>= 0.49', default_options : [
+project('vkd3d-proton', ['c'], version : '2.0-beta0', meson_version : '>= 0.49', default_options : [
   'warning_level=2',
 ])
 
@@ -108,12 +108,12 @@ dxil_spirv_dep = dxil_spirv.get_variable('dxil_spirv_dep')
 
 if vkd3d_platform == 'linux'
   pkg = import('pkgconfig')
-  vkd3d = library('vkd3d')
-  pkg.generate(vkd3d, filebase : 'libvkd3d', subdirs : 'vkd3d', description : 'The VKD3D 3D Graphics Library')
-  vkd3dutils = library('vkd3d-utils')
-  pkg.generate(vkd3dutils, filebase : 'libvkd3d-utils', subdirs : 'vkd3d', description : 'The VKD3D 3D Graphics Utility Library')
+  vkd3d = library('vkd3d-proton')
+  pkg.generate(vkd3d, filebase : 'libvkd3d-proton', subdirs : 'vkd3d', description : 'The VKD3D-Proton 3D Graphics Library')
+  vkd3dutils = library('vkd3d-proton-utils')
+  pkg.generate(vkd3dutils, filebase : 'libvkd3d-proton-utils', subdirs : 'vkd3d', description : 'The VKD3D-Proton 3D Graphics Utility Library')
 
-  install_headers('include/vkd3d.h', 'include/vkd3d_sonames.h', 'include/vkd3d_types.h', 'include/vkd3d_utils.h', 'include/vkd3d_win32.h', 'include/vkd3d_windows.h', subdir : 'vkd3d')
+  install_headers('include/vkd3d.h', 'include/vkd3d_sonames.h', 'include/vkd3d_types.h', 'include/vkd3d_utils.h', 'include/vkd3d_win32.h', 'include/vkd3d_windows.h', subdir : 'vkd3d-proton')
 endif
 
 subdir('include')
