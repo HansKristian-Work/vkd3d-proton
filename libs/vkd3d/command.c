@@ -8227,12 +8227,13 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
     struct d3d12_command_queue_transition_pool pool;
     struct d3d12_command_queue *queue = userdata;
     uint64_t transition_timeline_value = 0;
-    VKD3D_REGION_DECL(queue_wait);
-    VKD3D_REGION_DECL(queue_signal);
-    VKD3D_REGION_DECL(queue_execute);
     VkCommandBuffer transition_cmd;
     unsigned int i;
     HRESULT hr;
+
+    VKD3D_REGION_DECL(queue_wait);
+    VKD3D_REGION_DECL(queue_signal);
+    VKD3D_REGION_DECL(queue_execute);
 
     vkd3d_set_thread_name("vkd3d_queue");
 
