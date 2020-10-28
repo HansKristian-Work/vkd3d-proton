@@ -127,21 +127,19 @@ static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *
 {
     const struct vkd3d_shader_interface_info *shader_interface_info = userdata;
     unsigned int resource_flags, resource_flags_ssbo;
-    bool use_ssbo;
 
     resource_flags_ssbo = dxil_resource_flags_from_kind(d3d_binding->kind, true);
     resource_flags = dxil_resource_flags_from_kind(d3d_binding->kind, false);
-
-    use_ssbo = resource_flags_ssbo != resource_flags;
+    bool use_ssbo = resource_flags_ssbo != resource_flags;
 
     if (use_ssbo && dxil_remap(shader_interface_info, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,
             d3d_binding, &vk_binding->buffer_binding, resource_flags_ssbo))
     {
         vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
-        if (d3d_binding->alignment < shader_interface_info->min_ssbo_alignment)
+        if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER)
         {
-            FIXME("Shader declares resource with alignment of %u bytes, but implementation only supports %u.\n",
-                  d3d_binding->alignment, shader_interface_info->min_ssbo_alignment);
+            vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
+            vk_binding->offset_binding.binding = shader_interface_info->offset_buffer_binding->binding;
         }
         return DXIL_SPV_TRUE;
     }
@@ -226,15 +224,10 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
 {
     const struct vkd3d_shader_interface_info *shader_interface_info = userdata;
     unsigned int resource_flags, resource_flags_ssbo;
-    bool use_ssbo;
 
     resource_flags_ssbo = dxil_resource_flags_from_kind(d3d_binding->d3d_binding.kind, true);
     resource_flags = dxil_resource_flags_from_kind(d3d_binding->d3d_binding.kind, false);
-
-    if (resource_flags != resource_flags_ssbo)
-        use_ssbo = d3d_binding->d3d_binding.alignment >= shader_interface_info->min_ssbo_alignment;
-    else
-        use_ssbo = false;
+    bool use_ssbo = resource_flags != resource_flags_ssbo;
 
     if (use_ssbo)
     {
@@ -242,6 +235,11 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
                 &vk_binding->buffer_binding, resource_flags_ssbo))
         {
             vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
+            if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER)
+            {
+                vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
+                vk_binding->offset_binding.binding = shader_interface_info->offset_buffer_binding->binding;
+            }
         }
         else if (!dxil_remap(shader_interface_info, VKD3D_SHADER_DESCRIPTOR_TYPE_UAV, &d3d_binding->d3d_binding,
                 &vk_binding->buffer_binding, resource_flags))
