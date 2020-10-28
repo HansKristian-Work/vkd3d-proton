@@ -39,6 +39,7 @@ static const char *debug_level_names[] =
     /* VKD3D_DBG_LEVEL_UNKNOWN */ NULL,
     /* VKD3D_DBG_LEVEL_NONE    */ "none",
     /* VKD3D_DBG_LEVEL_ERR     */ "err",
+    /* VKD3D_DBG_LEVEL_INFO    */ "info",
     /* VKD3D_DBG_LEVEL_FIXME   */ "fixme",
     /* VKD3D_DBG_LEVEL_WARN    */ "warn",
     /* VKD3D_DBG_LEVEL_TRACE   */ "trace",
