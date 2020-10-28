@@ -87,7 +87,7 @@ if [ $opt_native -eq 0 ]; then
   build_script
 else
   build_arch 64
-  build_arch 86 "--cross-file x86-linux-gnu"
+  build_arch 86 "--cross-file build-linux32.txt"
 fi
 
 if [ $opt_nopackage -eq 0 ]; then
