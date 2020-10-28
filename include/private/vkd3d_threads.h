@@ -77,8 +77,9 @@ static inline int pthread_create(pthread_t *out_thread, void *attr, void * (*thr
 
 static inline int pthread_join(pthread_t thread, void **ret)
 {
+    int success;
     (void)ret;
-    int success = WaitForSingleObject(thread->thread, INFINITE) == WAIT_OBJECT_0;
+    success = WaitForSingleObject(thread->thread, INFINITE) == WAIT_OBJECT_0;
     if (success)
     {
         CloseHandle(thread->thread);
@@ -152,9 +153,9 @@ typedef INIT_ONCE pthread_once_t;
 
 static inline BOOL CALLBACK pthread_once_wrapper(PINIT_ONCE once, PVOID parameter, PVOID *context)
 {
+    void (*func)(void) = parameter;
     (void)once;
     (void)context;
-    void (*func)(void) = parameter;
     func();
     return TRUE;
 }
