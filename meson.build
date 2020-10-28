@@ -75,6 +75,7 @@ add_project_arguments(vkd3d_compiler.get_supported_arguments([
     '-Wno-format',
     '-Wno-missing-field-initializers',
     '-Wno-unused-parameter',
+    '-Wdeclaration-after-statement',
     '/wd4244', # Narrowing conversion
     '/wd4101', # Unreferenced local variable
     '/wd4267', # Another narrowing conversion
