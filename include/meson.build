@@ -12,4 +12,8 @@ vkd3d_idl = [
   'vkd3d_swapchain_factory.idl',
 ]
 
-vkd3d_headers = idl_generator.process(vkd3d_idl)
+vkd3d_header_files = idl_generator.process(vkd3d_idl)
+vkd3d_headers_lib  = static_library('vkd3d-headers', vkd3d_header_files)
+vkd3d_headers_dep  = declare_dependency(
+  link_with           : vkd3d_headers_lib,
+  include_directories : vkd3d_headers_lib.private_dir_include())
