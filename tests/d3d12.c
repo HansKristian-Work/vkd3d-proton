@@ -1639,7 +1639,7 @@ static void test_create_command_list(void)
 
 static void test_create_command_queue(void)
 {
-    ID3D12CommandQueue* direct_queues[32], *compute_queues[32];
+    ID3D12CommandQueue* direct_queues[8], *compute_queues[8];
     D3D12_COMMAND_QUEUE_DESC desc, result_desc;
     ID3D12Device *device, *tmp_device;
     ID3D12CommandQueue *queue;
