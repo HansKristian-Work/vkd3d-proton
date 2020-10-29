@@ -3189,6 +3189,13 @@ static void STDMETHODCALLTYPE d3d12_device_CreateSampler(d3d12_device_iface *ifa
     d3d12_desc_create_sampler(d3d12_desc_from_cpu_handle(descriptor), device, desc);
 }
 
+static inline D3D12_CPU_DESCRIPTOR_HANDLE d3d12_advance_cpu_descriptor_handle(D3D12_CPU_DESCRIPTOR_HANDLE handle,
+        unsigned int increment, unsigned int units)
+{
+    handle.ptr += increment * units;
+    return handle;
+}
+
 static inline void d3d12_device_copy_descriptors(struct d3d12_device *device,
         UINT dst_descriptor_range_count, const D3D12_CPU_DESCRIPTOR_HANDLE *dst_descriptor_range_offsets,
         const UINT *dst_descriptor_range_sizes,
@@ -3197,15 +3204,11 @@ static inline void d3d12_device_copy_descriptors(struct d3d12_device *device,
         D3D12_DESCRIPTOR_HEAP_TYPE descriptor_heap_type)
 {
     unsigned int dst_range_idx, dst_idx, src_range_idx, src_idx;
+    D3D12_CPU_DESCRIPTOR_HANDLE dst, src, dst_start, src_start;
     unsigned int dst_range_size, src_range_size;
-    struct d3d12_desc *dst, *src;
+    unsigned int increment;
 
-    if (descriptor_heap_type != D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV
-            && descriptor_heap_type != D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
-    {
-        FIXME("Unhandled descriptor heap type %#x.\n", descriptor_heap_type);
-        return;
-    }
+    increment = d3d12_device_get_descriptor_handle_increment_size(device, descriptor_heap_type);
 
     dst_range_idx = dst_idx = 0;
     src_range_idx = src_idx = 0;
@@ -3214,11 +3217,31 @@ static inline void d3d12_device_copy_descriptors(struct d3d12_device *device,
         dst_range_size = dst_descriptor_range_sizes ? dst_descriptor_range_sizes[dst_range_idx] : 1;
         src_range_size = src_descriptor_range_sizes ? src_descriptor_range_sizes[src_range_idx] : 1;
 
-        dst = d3d12_desc_from_cpu_handle(dst_descriptor_range_offsets[dst_range_idx]);
-        src = d3d12_desc_from_cpu_handle(src_descriptor_range_offsets[src_range_idx]);
+        dst_start = dst_descriptor_range_offsets[dst_range_idx];
+        src_start = src_descriptor_range_offsets[src_range_idx];
 
         while (dst_idx < dst_range_size && src_idx < src_range_size)
-            d3d12_desc_copy(&dst[dst_idx++], &src[src_idx++], device);
+        {
+            dst = d3d12_advance_cpu_descriptor_handle(dst_start, increment, dst_idx++);
+            src = d3d12_advance_cpu_descriptor_handle(src_start, increment, src_idx++);
+
+            switch (descriptor_heap_type)
+            {
+                case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
+                case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
+                    d3d12_desc_copy(d3d12_desc_from_cpu_handle(dst),
+                            d3d12_desc_from_cpu_handle(src), device);
+                    break;
+                case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
+                case D3D12_DESCRIPTOR_HEAP_TYPE_DSV:
+                    d3d12_rtv_desc_copy(d3d12_rtv_desc_from_cpu_handle(dst),
+                            d3d12_rtv_desc_from_cpu_handle(src));
+                    break;
+                default:
+                    ERR("Unhandled descriptor heap type %u.\n", descriptor_heap_type);
+                    return;
+            }
+        }
 
         if (dst_idx >= dst_range_size)
         {

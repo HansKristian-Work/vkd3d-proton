@@ -4845,6 +4845,11 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
 }
 
 /* RTVs */
+void d3d12_rtv_desc_copy(struct d3d12_rtv_desc *dst, struct d3d12_rtv_desc *src)
+{
+    *dst = *src;
+}
+
 void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_RENDER_TARGET_VIEW_DESC *desc)
 {
