@@ -43785,7 +43785,8 @@ static void test_buffer_feedback_instructions(bool use_dxil)
         pipeline_state = create_compute_pipeline_state(context.device,
                 root_signature, use_dxil ? tests[i].cs_dxil : tests[i].cs_dxbc);
 
-        /* This can fail for SSBO buffer feedback case. */
+        /* This will fail for SSBO buffer feedback case on DXIL. */
+        todo_if(use_dxil)
         ok(!!pipeline_state, "Failed to create pipeline state.\n");
         if (!pipeline_state)
             continue;
@@ -43848,9 +43849,9 @@ static void test_buffer_feedback_instructions(bool use_dxil)
             UINT tile_index = j / 16;
 
             set_box(&box, 2 * j, 0, 0, 2 * j + 1, 1, 1);
-            check_readback_data_uint(&rb, &box, (tile_index & 1) ? 0 : (tile_index + 1), 0);
+            todo check_readback_data_uint(&rb, &box, (tile_index & 1) ? 0 : (tile_index + 1), 0);
             set_box(&box, 2 * j + 1, 0, 0, 2 * j + 2, 1, 1);
-            check_readback_data_uint(&rb, &box, (tile_index & 1) ? 0 : 1, 0);
+            todo check_readback_data_uint(&rb, &box, (tile_index & 1) ? 0 : 1, 0);
         }
 
         release_resource_readback(&rb);
