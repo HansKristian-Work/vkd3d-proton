@@ -287,13 +287,13 @@ int main(int argc, char **argv)
 
     vkd3d_test_main(argc, argv);
 
-    printf("%s: %lu tests executed (%lu failures, %lu skipped, %lu todo, %lu bugs).\n",
+    printf("%s: %lu tests executed (%lu failures, %lu successful todo, %lu skipped, %lu todo, %lu bugs).\n",
             vkd3d_test_name,
             (unsigned long)(vkd3d_test_state.success_count
             + vkd3d_test_state.failure_count + vkd3d_test_state.todo_count
             + vkd3d_test_state.todo_success_count),
-            (unsigned long)(vkd3d_test_state.failure_count
-            + vkd3d_test_state.todo_success_count),
+            (unsigned long)vkd3d_test_state.failure_count,
+            (unsigned long)vkd3d_test_state.todo_success_count,
             (unsigned long)vkd3d_test_state.skip_count,
             (unsigned long)vkd3d_test_state.todo_count,
             (unsigned long)vkd3d_test_state.bug_count);
@@ -302,7 +302,7 @@ int main(int argc, char **argv)
         free(test_platform);
 
     fflush(stdout);
-    return vkd3d_test_state.failure_count || vkd3d_test_state.todo_success_count;
+    return vkd3d_test_state.failure_count != 0;
 }
 
 #ifdef _WIN32
