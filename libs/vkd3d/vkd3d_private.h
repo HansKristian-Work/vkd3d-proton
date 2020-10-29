@@ -695,6 +695,8 @@ struct d3d12_rtv_desc
     struct d3d12_resource *resource;
 };
 
+void d3d12_rtv_desc_copy(struct d3d12_rtv_desc *dst, struct d3d12_rtv_desc *src);
+
 static inline struct d3d12_rtv_desc *d3d12_rtv_desc_from_cpu_handle(D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle)
 {
     return (struct d3d12_rtv_desc *)cpu_handle.ptr;
