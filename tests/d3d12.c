@@ -40809,6 +40809,13 @@ static void test_bindless_bufinfo(bool use_dxil)
     if (!init_compute_test_context(&context))
         return;
 
+    if (is_radv_device(context.device))
+    {
+        skip("Bindless bufinfo is known to fail on RADV for time being and may lock up the system. Skipping.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
     if (use_dxil && !context_supports_dxil(&context))
     {
         destroy_test_context(&context);
