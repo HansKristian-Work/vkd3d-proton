@@ -32047,7 +32047,6 @@ static void test_tessellation_primitive_id(void)
 
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    bug_if(is_nvidia_device(context.device))
     check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
 
     ID3D12Resource_Release(vb);
