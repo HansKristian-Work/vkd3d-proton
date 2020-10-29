@@ -228,8 +228,6 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         return VKD3D_OK;
     }
 
-    scan_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
-    scan_info.next = NULL;
     if ((ret = vkd3d_shader_scan_dxbc(dxbc, &scan_info)) < 0)
         return ret;
 
@@ -413,12 +411,6 @@ int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
     int ret;
 
     TRACE("dxbc {%p, %zu}, scan_info %p.\n", dxbc->code, dxbc->size, scan_info);
-
-    if (scan_info->type != VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO)
-    {
-        WARN("Invalid structure type %#x.\n", scan_info->type);
-        return VKD3D_ERROR_INVALID_ARGUMENT;
-    }
 
     if (shader_is_dxil(dxbc->code, dxbc->size))
     {

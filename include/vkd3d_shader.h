@@ -561,9 +561,6 @@ enum vkd3d_shader_uav_flag
 
 struct vkd3d_shader_scan_info
 {
-    enum vkd3d_shader_structure_type type;
-    void *next;
-
     unsigned int uav_flags[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS]; /* vkd3d_shader_uav_flags */
     unsigned int sampler_comparison_mode_mask; /* 16 */
     bool use_vocp;
