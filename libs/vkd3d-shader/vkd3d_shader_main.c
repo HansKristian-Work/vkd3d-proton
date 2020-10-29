@@ -184,6 +184,77 @@ static int vkd3d_shader_validate_compile_args(const struct vkd3d_shader_compile_
     return VKD3D_OK;
 }
 
+struct vkd3d_shader_scan_key
+{
+    enum vkd3d_shader_register_type register_type;
+    unsigned int register_id;
+};
+
+struct vkd3d_shader_scan_entry
+{
+    struct hash_map_entry entry;
+    struct vkd3d_shader_scan_key key;
+    unsigned int flags;
+};
+
+static uint32_t vkd3d_shader_scan_entry_hash(const void *key)
+{
+    const struct vkd3d_shader_scan_key *k = key;
+    return hash_combine(k->register_type, k->register_id);
+}
+
+static bool vkd3d_shader_scan_entry_compare(const void *key, const struct hash_map_entry *entry)
+{
+    const struct vkd3d_shader_scan_entry *e = (const struct vkd3d_shader_scan_entry*) entry;
+    const struct vkd3d_shader_scan_key *k = key;
+    return e->key.register_type == k->register_type && e->key.register_id == k->register_id;
+}
+
+unsigned int vkd3d_shader_scan_get_register_flags(const struct vkd3d_shader_scan_info *scan_info,
+        enum vkd3d_shader_register_type type, unsigned int id)
+{
+    struct vkd3d_shader_scan_key key;
+    struct hash_map_entry *e;
+
+    key.register_type = type;
+    key.register_id = id;
+    
+    e = hash_map_find(&scan_info->register_map, &key);
+    return e ? e->flags : 0u;
+}
+
+static void vkd3d_shader_scan_set_register_flags(struct vkd3d_shader_scan_info *scan_info,
+        enum vkd3d_shader_register_type type, unsigned int id, unsigned int flags)
+{
+    struct vkd3d_shader_scan_entry entry;
+    struct vkd3d_shader_scan_key key;
+    struct hash_map_entry *e;
+
+    key.register_type = type;
+    key.register_id = id;
+
+    if ((e = hash_map_find(&scan_info->register_map, &key)))
+        e->flags |= flags;
+    else
+    {
+        entry.key = key;
+        entry.flags = flags;
+        hash_map_insert(&scan_info->register_map, &key, &entry.entry);
+    }
+}
+
+static void vkd3d_shader_scan_init(struct vkd3d_shader_scan_info *scan_info)
+{
+    memset(scan_info, 0, sizeof(*scan_info));
+    hash_map_init(&scan_info->register_map, &vkd3d_shader_scan_entry_hash,
+            &vkd3d_shader_scan_entry_compare, sizeof(struct vkd3d_shader_scan_entry));
+}
+
+static void vkd3d_shader_scan_destroy(struct vkd3d_shader_scan_info *scan_info)
+{
+    hash_map_clear(&scan_info->register_map);
+}
+
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv, unsigned int compiler_options,
         const struct vkd3d_shader_interface_info *shader_interface_info,
@@ -228,11 +299,19 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         return VKD3D_OK;
     }
 
+    vkd3d_shader_scan_init(&scan_info);
+
     if ((ret = vkd3d_shader_scan_dxbc(dxbc, &scan_info)) < 0)
+    {
+        vkd3d_shader_scan_destroy(&scan_info);
         return ret;
+    }
 
     if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
+    {
+        vkd3d_shader_scan_destroy(&scan_info);
         return ret;
+    }
 
     vkd3d_shader_dump_shader(hash, dxbc, "dxbc");
 
@@ -243,6 +322,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
             &parser.shader_desc, compiler_options, shader_interface_info, compile_args, &scan_info)))
     {
         ERR("Failed to create DXBC compiler.\n");
+        vkd3d_shader_scan_destroy(&scan_info);
         vkd3d_shader_parser_destroy(&parser);
         return VKD3D_ERROR;
     }
@@ -255,6 +335,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         {
             WARN("Encountered unrecognized or invalid instruction.\n");
             vkd3d_dxbc_compiler_destroy(spirv_compiler);
+            vkd3d_shader_scan_destroy(&scan_info);
             vkd3d_shader_parser_destroy(&parser);
             return VKD3D_ERROR_INVALID_ARGUMENT;
         }
@@ -270,6 +351,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         vkd3d_shader_dump_spirv_shader(hash, spirv);
 
     vkd3d_dxbc_compiler_destroy(spirv_compiler);
+    vkd3d_shader_scan_destroy(&scan_info);
     vkd3d_shader_parser_destroy(&parser);
     return ret;
 }
@@ -421,8 +503,6 @@ int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
     {
         if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
             return ret;
-
-        memset(scan_info, 0, sizeof(*scan_info));
 
         while (!shader_sm4_is_end(parser.data, &parser.ptr))
         {
