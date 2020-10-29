@@ -396,17 +396,6 @@ static void vkd3d_shader_scan_input_declaration(struct vkd3d_shader_scan_info *s
         scan_info->use_vocp = true;
 }
 
-static void vkd3d_shader_scan_sampler_declaration(struct vkd3d_shader_scan_info *scan_info,
-        const struct vkd3d_shader_instruction *instruction)
-{
-    unsigned int sampler_index = instruction->declaration.dst.reg.idx[0].offset;
-    if (instruction->flags & VKD3DSI_SAMPLER_COMPARISON_MODE)
-    {
-        assert(sampler_index < CHAR_BIT * sizeof(scan_info->sampler_comparison_mode_mask));
-        scan_info->sampler_comparison_mode_mask |= 1u << sampler_index;
-    }
-}
-
 static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_info *scan_info,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -416,9 +405,6 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_info *scan_in
     {
         case VKD3DSIH_DCL_INPUT:
             vkd3d_shader_scan_input_declaration(scan_info, instruction);
-            break;
-        case VKD3DSIH_DCL_SAMPLER:
-            vkd3d_shader_scan_sampler_declaration(scan_info, instruction);
             break;
         default:
             break;
