@@ -22,6 +22,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <hashmap.h>
 #include <vkd3d_types.h>
 
 #ifdef __cplusplus
@@ -561,6 +562,7 @@ enum vkd3d_shader_uav_flag
 
 struct vkd3d_shader_scan_info
 {
+    struct hash_map register_map;
     unsigned int uav_flags[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS]; /* vkd3d_shader_uav_flags */
     unsigned int sampler_comparison_mode_mask; /* 16 */
     bool use_vocp;
