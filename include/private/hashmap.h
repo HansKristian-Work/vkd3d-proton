@@ -50,17 +50,17 @@ struct hash_map
     uint32_t used_count;
 };
 
-static inline struct hash_map_entry *hash_map_get_entry(struct hash_map *hash_map, uint32_t entry_idx)
+static inline struct hash_map_entry *hash_map_get_entry(const struct hash_map *hash_map, uint32_t entry_idx)
 {
     return void_ptr_offset(hash_map->entries, hash_map->entry_size * entry_idx);
 }
 
-static inline uint32_t hash_map_get_entry_idx(struct hash_map *hash_map, uint32_t hash_value)
+static inline uint32_t hash_map_get_entry_idx(const struct hash_map *hash_map, uint32_t hash_value)
 {
     return hash_value % hash_map->entry_count;
 }
 
-static inline uint32_t hash_map_next_entry_idx(struct hash_map *hash_map, uint32_t entry_idx)
+static inline uint32_t hash_map_next_entry_idx(const struct hash_map *hash_map, uint32_t entry_idx)
 {
     uint32_t next_idx = entry_idx + 1;
     return next_idx < hash_map->entry_count ? next_idx : 0;
@@ -120,7 +120,7 @@ static inline bool hash_map_should_grow_before_insert(struct hash_map *hash_map)
     return 10 * hash_map->used_count >= 7 * hash_map->entry_count;
 }
 
-static inline struct hash_map_entry *hash_map_find(struct hash_map *hash_map, const void *key)
+static inline struct hash_map_entry *hash_map_find(const struct hash_map *hash_map, const void *key)
 {
     uint32_t hash_value, entry_idx;
     
