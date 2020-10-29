@@ -551,9 +551,6 @@ struct vkd3d_versioned_root_signature_desc
     };
 };
 
-/* FIXME: Add support for 64 UAV bind slots. */
-#define VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS 64
-
 enum vkd3d_shader_uav_flag
 {
     VKD3D_SHADER_UAV_FLAG_READ_ACCESS     = 0x00000001,
@@ -563,7 +560,6 @@ enum vkd3d_shader_uav_flag
 struct vkd3d_shader_scan_info
 {
     struct hash_map register_map;
-    unsigned int uav_flags[VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS]; /* vkd3d_shader_uav_flags */
     unsigned int sampler_comparison_mode_mask; /* 16 */
     bool use_vocp;
 };
