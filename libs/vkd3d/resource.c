@@ -4933,7 +4933,6 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
     if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
         return;
 
-    rtv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_RTV;
     rtv_desc->sample_count = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
     rtv_desc->format = key.u.texture.format;
     rtv_desc->width = d3d12_resource_desc_get_width(&resource->desc, key.u.texture.miplevel_idx);
@@ -5041,7 +5040,6 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
     if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
         return;
 
-    dsv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_DSV;
     dsv_desc->sample_count = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
     dsv_desc->format = key.u.texture.format;
     dsv_desc->width = d3d12_resource_desc_get_width(&resource->desc, key.u.texture.miplevel_idx);
