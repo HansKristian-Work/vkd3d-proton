@@ -34188,19 +34188,25 @@ static void test_dual_source_blending(bool use_dxil)
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
-    ID3D12PipelineState_Release(context.pipeline_state);
+    if (SUCCEEDED(hr))
+        ID3D12PipelineState_Release(context.pipeline_state);
     context.pipeline_state = NULL;
 
     pso_desc.BlendState.RenderTarget[1] = pso_desc.BlendState.RenderTarget[0];
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12PipelineState_Release(context.pipeline_state);
+    context.pipeline_state = NULL;
 
     pso_desc.BlendState.RenderTarget[1].DestBlendAlpha = D3D12_BLEND_SRC_ALPHA;
     pso_desc.BlendState.RenderTarget[1].DestBlend = D3D12_BLEND_SRC_COLOR;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12PipelineState_Release(context.pipeline_state);
     context.pipeline_state = NULL;
 
     pso_desc.NumRenderTargets = 2;
@@ -34215,7 +34221,10 @@ static void test_dual_source_blending(bool use_dxil)
     pso_desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12PipelineState_Release(context.pipeline_state);
+    context.pipeline_state = NULL;
 
     destroy_test_context(&context);
 }
