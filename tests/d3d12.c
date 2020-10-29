@@ -43230,6 +43230,7 @@ static void test_buffer_feedback_instructions(bool use_dxil)
     unsigned int i, j;
     ID3D12Heap *heap;
     UINT tile_offset;
+    bool test_is_raw;
     HRESULT hr;
 
 #if 0
@@ -43780,12 +43781,14 @@ static void test_buffer_feedback_instructions(bool use_dxil)
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
         vkd3d_test_set_context("Test %u", i);
+        test_is_raw = (i == 2) || (i == 3);
 
+        todo_if(use_dxil && test_is_raw)
         pipeline_state = create_compute_pipeline_state(context.device,
                 root_signature, use_dxil ? tests[i].cs_dxil : tests[i].cs_dxbc);
 
         /* This will fail for SSBO buffer feedback case on DXIL. */
-        todo_if(use_dxil)
+        todo_if(use_dxil && test_is_raw)
         ok(!!pipeline_state, "Failed to create pipeline state.\n");
         if (!pipeline_state)
             continue;
@@ -43848,9 +43851,9 @@ static void test_buffer_feedback_instructions(bool use_dxil)
             UINT tile_index = j / 16;
 
             set_box(&box, 2 * j, 0, 0, 2 * j + 1, 1, 1);
-            todo check_readback_data_uint(&rb, &box, (tile_index & 1) ? 0 : (tile_index + 1), 0);
+            todo_if(test_is_raw) check_readback_data_uint(&rb, &box, (tile_index & 1) ? 0 : (tile_index + 1), 0);
             set_box(&box, 2 * j + 1, 0, 0, 2 * j + 2, 1, 1);
-            todo check_readback_data_uint(&rb, &box, (tile_index & 1) ? 0 : 1, 0);
+            todo_if(test_is_raw) check_readback_data_uint(&rb, &box, (tile_index & 1) ? 0 : 1, 0);
         }
 
         release_resource_readback(&rb);
