@@ -5822,8 +5822,7 @@ static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler
     format = SpvImageFormatUnknown;
     if ((is_uav = (reg->type == VKD3DSPR_UAV)))
     {
-        assert(reg->idx[0].offset < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
-        uav_flags = scan_info->uav_flags[reg->idx[0].offset];
+        uav_flags = vkd3d_shader_scan_get_register_flags(scan_info, VKD3DSPR_UAV, reg->idx[0].offset);
         uav_read = (uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS) != 0;
         if (raw_structured || (uav_read && !vkd3d_dxbc_compiler_supports_typed_uav_load_without_format(compiler)))
             format = image_format_for_image_read(data_type);
@@ -5885,8 +5884,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
 
     if (is_uav)
     {
-        assert(reg->idx[0].offset < VKD3D_SHADER_MAX_UNORDERED_ACCESS_VIEWS);
-        uav_flags = scan_info->uav_flags[reg->idx[0].offset];
+        uav_flags = vkd3d_shader_scan_get_register_flags(scan_info, VKD3DSPR_UAV, reg->idx[0].offset);
     }
     else
         uav_flags = 0;
