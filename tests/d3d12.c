@@ -5357,6 +5357,7 @@ static void test_clear_render_target_view(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     for (i = 0; i < ARRAY_SIZE(array_expected_colors); ++i)
     {
+        bug_if(is_radv_device(context.device) && (i == 0 || i == 1))
         check_sub_resource_uint(resource, i, queue, command_list, array_expected_colors[i], 2);
         reset_command_list(command_list, context.allocator);
     }
