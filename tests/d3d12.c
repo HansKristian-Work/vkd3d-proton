@@ -41264,6 +41264,7 @@ static void test_stencil_export(bool use_dxil)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
+    todo_if(use_dxil)
     check_sub_resource_uint8(context.render_target, 0, queue, command_list, 0x000000ff, 0);
 
     ID3D12DescriptorHeap_Release(srv_heap);
