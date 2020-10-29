@@ -7480,6 +7480,7 @@ static void test_draw_uav_only(void)
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
     D3D12_ROOT_PARAMETER root_parameter;
+    D3D12_RESOURCE_BARRIER barrier;
     struct test_context_desc desc;
     struct test_context context;
     ID3D12CommandQueue *queue;
@@ -7546,6 +7547,11 @@ static void test_draw_uav_only(void)
     ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(command_list,
             gpu_handle, cpu_handle, resource, zero, 0, NULL);
 
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barrier.UAV.pResource = resource;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barrier);
+
     set_rect(&context.scissor_rect, 0, 0, 1000, 1000);
     set_viewport(&context.viewport, 0.0f, 0.0f, 1.0f, 100.0f, 0.0f, 0.0f);
 
@@ -7562,7 +7568,6 @@ static void test_draw_uav_only(void)
 
     transition_resource_state(command_list, resource,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    bug_if(is_radv_device(context.device))
     check_sub_resource_uint(resource, 0, queue, command_list, 500, 0);
 
     ID3D12DescriptorHeap_Release(cpu_descriptor_heap);
