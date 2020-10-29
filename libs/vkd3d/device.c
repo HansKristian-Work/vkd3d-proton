@@ -3091,10 +3091,8 @@ static UINT STDMETHODCALLTYPE d3d12_device_GetDescriptorHandleIncrementSize(d3d1
             return sizeof(struct d3d12_desc);
 
         case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
-            return sizeof(struct d3d12_rtv_desc);
-
         case D3D12_DESCRIPTOR_HEAP_TYPE_DSV:
-            return sizeof(struct d3d12_dsv_desc);
+            return sizeof(struct d3d12_rtv_desc);
 
         default:
             FIXME("Unhandled type %#x.\n", descriptor_heap_type);
@@ -3177,7 +3175,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateDepthStencilView(d3d12_device_i
     TRACE("iface %p, resource %p, desc %p, descriptor %#lx.\n",
             iface, resource, desc, descriptor.ptr);
 
-    d3d12_dsv_desc_create_dsv(d3d12_dsv_desc_from_cpu_handle(descriptor),
+    d3d12_rtv_desc_create_dsv(d3d12_rtv_desc_from_cpu_handle(descriptor),
             impl_from_ID3D12Device(iface), unsafe_impl_from_ID3D12Resource(resource), desc);
 }
 
