@@ -1956,9 +1956,6 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
         return;
     }
 
-    if (!d3d12_command_allocator_add_view(list->allocator, view))
-        WARN("Failed to add view.\n");
-
     extent.width = d3d12_resource_desc_get_width(&resource->desc, view->info.texture.miplevel_idx);
     extent.height = d3d12_resource_desc_get_height(&resource->desc, view->info.texture.miplevel_idx);
     extent.depth = view->info.texture.layer_count;
@@ -5538,10 +5535,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
 
         d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
 
-        /* In D3D12 CPU descriptors are consumed when a command is recorded. */
-        if (!d3d12_command_allocator_add_view(list->allocator, rtv_desc->view))
-            WARN("Failed to add view.\n");
-
         list->rtvs[i] = *rtv_desc;
         list->fb_width = min(list->fb_width, rtv_desc->width);
         list->fb_height = min(list->fb_height, rtv_desc->height);
@@ -5554,10 +5547,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
                 && rtv_desc->resource)
         {
             d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
-
-            /* In D3D12 CPU descriptors are consumed when a command is recorded. */
-            if (!d3d12_command_allocator_add_view(list->allocator, rtv_desc->view))
-                WARN("Failed to add view.\n");
 
             list->dsv = *rtv_desc;
             list->fb_width = min(list->fb_width, rtv_desc->width);

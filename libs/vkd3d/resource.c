@@ -4845,22 +4845,11 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
 }
 
 /* RTVs */
-static void d3d12_rtv_desc_destroy(struct d3d12_rtv_desc *rtv, struct d3d12_device *device)
-{
-    if (rtv->magic != VKD3D_DESCRIPTOR_MAGIC_RTV)
-        return;
-
-    vkd3d_view_decref(rtv->view, device);
-    memset(rtv, 0, sizeof(*rtv));
-}
-
 void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_RENDER_TARGET_VIEW_DESC *desc)
 {
-    struct vkd3d_texture_view_desc vkd3d_desc;
+    struct vkd3d_view_key key;
     struct vkd3d_view *view;
-
-    d3d12_rtv_desc_destroy(rtv_desc, device);
 
     if (!resource)
     {
@@ -4868,87 +4857,88 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
         return;
     }
 
-    if (!init_default_texture_view_desc(&vkd3d_desc, resource, desc ? desc->Format : 0))
+    if (!init_default_texture_view_desc(&key.u.texture, resource, desc ? desc->Format : 0))
         return;
 
-    if (vkd3d_desc.format->vk_aspect_mask != VK_IMAGE_ASPECT_COLOR_BIT)
+    if (key.u.texture.format->vk_aspect_mask != VK_IMAGE_ASPECT_COLOR_BIT)
     {
-        WARN("Trying to create RTV for depth/stencil format %#x.\n", vkd3d_desc.format->dxgi_format);
+        WARN("Trying to create RTV for depth/stencil format %#x.\n", key.u.texture.format->dxgi_format);
         return;
     }
 
-    vkd3d_desc.layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    key.view_type = VKD3D_VIEW_TYPE_IMAGE;
+    key.u.texture.layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
     if (desc)
     {
         switch (desc->ViewDimension)
         {
             case D3D12_RTV_DIMENSION_TEXTURE1D:
-                vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_1D;
-                vkd3d_desc.miplevel_idx = desc->Texture1D.MipSlice;
-                vkd3d_desc.layer_count = 1;
+                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_1D;
+                key.u.texture.miplevel_idx = desc->Texture1D.MipSlice;
+                key.u.texture.layer_count = 1;
                 break;
             case D3D12_RTV_DIMENSION_TEXTURE1DARRAY:
-                vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_1D_ARRAY;
-                vkd3d_desc.miplevel_idx = desc->Texture1DArray.MipSlice;
-                vkd3d_desc.layer_idx = desc->Texture1DArray.FirstArraySlice;
-                vkd3d_desc.layer_count = desc->Texture1DArray.ArraySize;
+                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_1D_ARRAY;
+                key.u.texture.miplevel_idx = desc->Texture1DArray.MipSlice;
+                key.u.texture.layer_idx = desc->Texture1DArray.FirstArraySlice;
+                key.u.texture.layer_count = desc->Texture1DArray.ArraySize;
                 break;
             case D3D12_RTV_DIMENSION_TEXTURE2D:
-                vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
-                vkd3d_desc.miplevel_idx = desc->Texture2D.MipSlice;
-                vkd3d_desc.layer_count = 1;
+                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D;
+                key.u.texture.miplevel_idx = desc->Texture2D.MipSlice;
+                key.u.texture.layer_count = 1;
                 if (desc->Texture2D.PlaneSlice)
                     FIXME("Ignoring plane slice %u.\n", desc->Texture2D.PlaneSlice);
                 break;
             case D3D12_RTV_DIMENSION_TEXTURE2DARRAY:
-                vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-                vkd3d_desc.miplevel_idx = desc->Texture2DArray.MipSlice;
-                vkd3d_desc.layer_idx = desc->Texture2DArray.FirstArraySlice;
-                vkd3d_desc.layer_count = desc->Texture2DArray.ArraySize;
+                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+                key.u.texture.miplevel_idx = desc->Texture2DArray.MipSlice;
+                key.u.texture.layer_idx = desc->Texture2DArray.FirstArraySlice;
+                key.u.texture.layer_count = desc->Texture2DArray.ArraySize;
                 if (desc->Texture2DArray.PlaneSlice)
                     FIXME("Ignoring plane slice %u.\n", desc->Texture2DArray.PlaneSlice);
                 break;
             case D3D12_RTV_DIMENSION_TEXTURE2DMS:
-                vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
-                vkd3d_desc.layer_count = 1;
+                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D;
+                key.u.texture.layer_count = 1;
                 break;
             case D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY:
-                vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-                vkd3d_desc.layer_idx = desc->Texture2DMSArray.FirstArraySlice;
-                vkd3d_desc.layer_count = desc->Texture2DMSArray.ArraySize;
+                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+                key.u.texture.layer_idx = desc->Texture2DMSArray.FirstArraySlice;
+                key.u.texture.layer_count = desc->Texture2DMSArray.ArraySize;
                 break;
             case D3D12_RTV_DIMENSION_TEXTURE3D:
-                vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-                vkd3d_desc.miplevel_idx = desc->Texture3D.MipSlice;
-                vkd3d_desc.layer_idx = desc->Texture3D.FirstWSlice;
-                vkd3d_desc.layer_count = desc->Texture3D.WSize;
+                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+                key.u.texture.miplevel_idx = desc->Texture3D.MipSlice;
+                key.u.texture.layer_idx = desc->Texture3D.FirstWSlice;
+                key.u.texture.layer_count = desc->Texture3D.WSize;
                 break;
             default:
                 FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
         }
 
         /* Avoid passing down UINT32_MAX here since that makes framebuffer logic later rather awkward. */
-        vkd3d_desc.layer_count = min(vkd3d_desc.layer_count, resource->desc.DepthOrArraySize - vkd3d_desc.layer_idx);
+        key.u.texture.layer_count = min(key.u.texture.layer_count, resource->desc.DepthOrArraySize - key.u.texture.layer_idx);
     }
     else if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
     {
-        vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-        vkd3d_desc.layer_idx = 0;
-        vkd3d_desc.layer_count = resource->desc.DepthOrArraySize;
+        key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        key.u.texture.layer_idx = 0;
+        key.u.texture.layer_count = resource->desc.DepthOrArraySize;
     }
 
     assert(d3d12_resource_is_texture(resource));
 
-    if (!vkd3d_create_texture_view(device, &vkd3d_desc, &view))
+    if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
         return;
 
     rtv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_RTV;
     rtv_desc->sample_count = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
-    rtv_desc->format = vkd3d_desc.format;
-    rtv_desc->width = d3d12_resource_desc_get_width(&resource->desc, vkd3d_desc.miplevel_idx);
-    rtv_desc->height = d3d12_resource_desc_get_height(&resource->desc, vkd3d_desc.miplevel_idx);
-    rtv_desc->layer_count = vkd3d_desc.layer_count;
+    rtv_desc->format = key.u.texture.format;
+    rtv_desc->width = d3d12_resource_desc_get_width(&resource->desc, key.u.texture.miplevel_idx);
+    rtv_desc->height = d3d12_resource_desc_get_height(&resource->desc, key.u.texture.miplevel_idx);
+    rtv_desc->layer_count = key.u.texture.layer_count;
     rtv_desc->view = view;
     rtv_desc->resource = resource;
 }
@@ -4974,10 +4964,8 @@ static VkImageLayout d3d12_dsv_layout_from_flags(UINT flags)
 void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc)
 {
-    struct vkd3d_texture_view_desc vkd3d_desc;
+    struct vkd3d_view_key key;
     struct vkd3d_view *view;
-
-    d3d12_rtv_desc_destroy(dsv_desc, device);
 
     if (!resource)
     {
@@ -4991,72 +4979,74 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
         return;
     }
 
-    if (!init_default_texture_view_desc(&vkd3d_desc, resource, desc ? desc->Format : 0))
+    if (!init_default_texture_view_desc(&key.u.texture, resource, desc ? desc->Format : 0))
         return;
 
-    if (!(vkd3d_desc.format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
+    if (!(key.u.texture.format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
     {
-        WARN("Trying to create DSV for format %#x.\n", vkd3d_desc.format->dxgi_format);
+        WARN("Trying to create DSV for format %#x.\n", key.u.texture.format->dxgi_format);
         return;
     }
 
+    key.view_type = VKD3D_VIEW_TYPE_IMAGE;
+
     if (desc)
     {
-        vkd3d_desc.layout = d3d12_resource_pick_layout(resource,
+        key.u.texture.layout = d3d12_resource_pick_layout(resource,
                 d3d12_dsv_layout_from_flags(desc->Flags));
 
         switch (desc->ViewDimension)
         {
             case D3D12_DSV_DIMENSION_TEXTURE1D:
-                vkd3d_desc.miplevel_idx = desc->Texture1D.MipSlice;
-                vkd3d_desc.layer_count = 1;
+                key.u.texture.miplevel_idx = desc->Texture1D.MipSlice;
+                key.u.texture.layer_count = 1;
                 break;
             case D3D12_DSV_DIMENSION_TEXTURE1DARRAY:
-                vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_1D_ARRAY;
-                vkd3d_desc.miplevel_idx = desc->Texture1DArray.MipSlice;
-                vkd3d_desc.layer_idx = desc->Texture1DArray.FirstArraySlice;
-                vkd3d_desc.layer_count = desc->Texture1DArray.ArraySize;
+                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_1D_ARRAY;
+                key.u.texture.miplevel_idx = desc->Texture1DArray.MipSlice;
+                key.u.texture.layer_idx = desc->Texture1DArray.FirstArraySlice;
+                key.u.texture.layer_count = desc->Texture1DArray.ArraySize;
                 break;
             case D3D12_DSV_DIMENSION_TEXTURE2D:
-                vkd3d_desc.miplevel_idx = desc->Texture2D.MipSlice;
-                vkd3d_desc.layer_count = 1;
+                key.u.texture.miplevel_idx = desc->Texture2D.MipSlice;
+                key.u.texture.layer_count = 1;
                 break;
             case D3D12_DSV_DIMENSION_TEXTURE2DARRAY:
-                vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-                vkd3d_desc.miplevel_idx = desc->Texture2DArray.MipSlice;
-                vkd3d_desc.layer_idx = desc->Texture2DArray.FirstArraySlice;
-                vkd3d_desc.layer_count = desc->Texture2DArray.ArraySize;
+                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+                key.u.texture.miplevel_idx = desc->Texture2DArray.MipSlice;
+                key.u.texture.layer_idx = desc->Texture2DArray.FirstArraySlice;
+                key.u.texture.layer_count = desc->Texture2DArray.ArraySize;
                 break;
             case D3D12_DSV_DIMENSION_TEXTURE2DMS:
-                vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
-                vkd3d_desc.layer_count = 1;
+                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D;
+                key.u.texture.layer_count = 1;
                 break;
             case D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY:
-                vkd3d_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-                vkd3d_desc.layer_idx = desc->Texture2DMSArray.FirstArraySlice;
-                vkd3d_desc.layer_count = desc->Texture2DMSArray.ArraySize;
+                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+                key.u.texture.layer_idx = desc->Texture2DMSArray.FirstArraySlice;
+                key.u.texture.layer_count = desc->Texture2DMSArray.ArraySize;
                 break;
             default:
                 FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
         }
 
         /* Avoid passing down UINT32_MAX here since that makes framebuffer logic later rather awkward. */
-        vkd3d_desc.layer_count = min(vkd3d_desc.layer_count, resource->desc.DepthOrArraySize - vkd3d_desc.layer_idx);
+        key.u.texture.layer_count = min(key.u.texture.layer_count, resource->desc.DepthOrArraySize - key.u.texture.layer_idx);
     }
     else
-        vkd3d_desc.layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        key.u.texture.layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
     assert(d3d12_resource_is_texture(resource));
 
-    if (!vkd3d_create_texture_view(device, &vkd3d_desc, &view))
+    if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
         return;
 
     dsv_desc->magic = VKD3D_DESCRIPTOR_MAGIC_DSV;
     dsv_desc->sample_count = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
-    dsv_desc->format = vkd3d_desc.format;
-    dsv_desc->width = d3d12_resource_desc_get_width(&resource->desc, vkd3d_desc.miplevel_idx);
-    dsv_desc->height = d3d12_resource_desc_get_height(&resource->desc, vkd3d_desc.miplevel_idx);
-    dsv_desc->layer_count = vkd3d_desc.layer_count;
+    dsv_desc->format = key.u.texture.format;
+    dsv_desc->width = d3d12_resource_desc_get_width(&resource->desc, key.u.texture.miplevel_idx);
+    dsv_desc->height = d3d12_resource_desc_get_height(&resource->desc, key.u.texture.miplevel_idx);
+    dsv_desc->layer_count = key.u.texture.layer_count;
     dsv_desc->view = view;
     dsv_desc->resource = resource;
 }
@@ -5109,31 +5099,9 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
     if (!refcount)
     {
         struct d3d12_device *device = heap->device;
-        unsigned int i;
 
         d3d12_descriptor_heap_cleanup(heap);
         vkd3d_private_store_destroy(&heap->private_store);
-
-        switch (heap->desc.Type)
-        {
-            case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
-            case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
-                break;
-
-            case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
-            case D3D12_DESCRIPTOR_HEAP_TYPE_DSV:
-            {
-                struct d3d12_rtv_desc *rtvs = (struct d3d12_rtv_desc *)heap->descriptors;
-
-                for (i = 0; i < heap->desc.NumDescriptors; ++i)
-                    d3d12_rtv_desc_destroy(&rtvs[i], device);
-                break;
-            }
-
-            default:
-                break;
-        }
-
         vkd3d_free(heap);
 
         d3d12_device_release(device);
