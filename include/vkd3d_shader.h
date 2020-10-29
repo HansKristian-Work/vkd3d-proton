@@ -560,7 +560,6 @@ enum vkd3d_shader_uav_flag
 struct vkd3d_shader_scan_info
 {
     struct hash_map register_map;
-    unsigned int sampler_comparison_mode_mask; /* 16 */
     bool use_vocp;
 };
 
