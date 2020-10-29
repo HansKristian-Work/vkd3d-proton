@@ -4954,15 +4954,6 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 }
 
 /* DSVs */
-static void d3d12_dsv_desc_destroy(struct d3d12_dsv_desc *dsv, struct d3d12_device *device)
-{
-    if (dsv->magic != VKD3D_DESCRIPTOR_MAGIC_DSV)
-        return;
-
-    vkd3d_view_decref(dsv->view, device);
-    memset(dsv, 0, sizeof(*dsv));
-}
-
 static VkImageLayout d3d12_dsv_layout_from_flags(UINT flags)
 {
     const D3D12_DSV_FLAGS mask = D3D12_DSV_FLAG_READ_ONLY_DEPTH | D3D12_DSV_FLAG_READ_ONLY_STENCIL;
@@ -4980,13 +4971,13 @@ static VkImageLayout d3d12_dsv_layout_from_flags(UINT flags)
     }
 }
 
-void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_device *device,
+void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc)
 {
     struct vkd3d_texture_view_desc vkd3d_desc;
     struct vkd3d_view *view;
 
-    d3d12_dsv_desc_destroy(dsv_desc, device);
+    d3d12_rtv_desc_destroy(dsv_desc, device);
 
     if (!resource)
     {
@@ -5130,20 +5121,12 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
                 break;
 
             case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
+            case D3D12_DESCRIPTOR_HEAP_TYPE_DSV:
             {
                 struct d3d12_rtv_desc *rtvs = (struct d3d12_rtv_desc *)heap->descriptors;
 
                 for (i = 0; i < heap->desc.NumDescriptors; ++i)
                     d3d12_rtv_desc_destroy(&rtvs[i], device);
-                break;
-            }
-
-            case D3D12_DESCRIPTOR_HEAP_TYPE_DSV:
-            {
-                struct d3d12_dsv_desc *dsvs = (struct d3d12_dsv_desc *)heap->descriptors;
-
-                for (i = 0; i < heap->desc.NumDescriptors; ++i)
-                    d3d12_dsv_desc_destroy(&dsvs[i], device);
                 break;
             }
 

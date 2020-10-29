@@ -693,7 +693,7 @@ struct d3d12_rtv_desc
     uint32_t magic;
     VkSampleCountFlagBits sample_count;
     const struct vkd3d_format *format;
-    uint64_t width;
+    unsigned int width;
     unsigned int height;
     unsigned int layer_count;
     struct vkd3d_view *view;
@@ -708,24 +708,7 @@ static inline struct d3d12_rtv_desc *d3d12_rtv_desc_from_cpu_handle(D3D12_CPU_DE
 void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_RENDER_TARGET_VIEW_DESC *desc);
 
-struct d3d12_dsv_desc
-{
-    uint32_t magic;
-    VkSampleCountFlagBits sample_count;
-    const struct vkd3d_format *format;
-    uint64_t width;
-    unsigned int height;
-    unsigned int layer_count;
-    struct vkd3d_view *view;
-    struct d3d12_resource *resource;
-};
-
-static inline struct d3d12_dsv_desc *d3d12_dsv_desc_from_cpu_handle(D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle)
-{
-    return (struct d3d12_dsv_desc *)cpu_handle.ptr;
-}
-
-void d3d12_dsv_desc_create_dsv(struct d3d12_dsv_desc *dsv_desc, struct d3d12_device *device,
+void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc);
 
 struct vkd3d_bound_ssbo_range
@@ -1294,7 +1277,7 @@ struct d3d12_command_list
     DXGI_FORMAT index_buffer_format;
 
     struct d3d12_rtv_desc rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-    struct d3d12_dsv_desc dsv;
+    struct d3d12_rtv_desc dsv;
     struct vkd3d_clear_state clear_state;
     VkImageLayout dsv_layout;
     unsigned int fb_width;

@@ -2258,7 +2258,7 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkImageMemoryBarrier vk_image_barriers[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
     VkPipelineStageFlags stage_mask = 0;
-    struct d3d12_dsv_desc *dsv;
+    struct d3d12_rtv_desc *dsv;
     bool do_clear = false;
     uint32_t i, j;
 
@@ -5491,7 +5491,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
     const VkPhysicalDeviceLimits *limits = &list->device->vk_info.device_limits;
     VkFormat prev_dsv_format, next_dsv_format;
     const struct d3d12_rtv_desc *rtv_desc;
-    const struct d3d12_dsv_desc *dsv_desc;
     unsigned int i;
 
     TRACE("iface %p, render_target_descriptor_count %u, render_target_descriptors %p, "
@@ -5551,20 +5550,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
 
     if (depth_stencil_descriptor)
     {
-        if ((dsv_desc = d3d12_dsv_desc_from_cpu_handle(*depth_stencil_descriptor))
-                && dsv_desc->resource)
+        if ((rtv_desc = d3d12_rtv_desc_from_cpu_handle(*depth_stencil_descriptor))
+                && rtv_desc->resource)
         {
-            d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
+            d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
 
             /* In D3D12 CPU descriptors are consumed when a command is recorded. */
-            if (!d3d12_command_allocator_add_view(list->allocator, dsv_desc->view))
+            if (!d3d12_command_allocator_add_view(list->allocator, rtv_desc->view))
                 WARN("Failed to add view.\n");
 
-            list->dsv = *dsv_desc;
-            list->fb_width = min(list->fb_width, dsv_desc->width);
-            list->fb_height = min(list->fb_height, dsv_desc->height);
-            list->fb_layer_count = min(list->fb_layer_count, dsv_desc->layer_count);
-            next_dsv_format = dsv_desc->format->vk_format;
+            list->dsv = *rtv_desc;
+            list->fb_width = min(list->fb_width, rtv_desc->width);
+            list->fb_height = min(list->fb_height, rtv_desc->height);
+            list->fb_layer_count = min(list->fb_layer_count, rtv_desc->layer_count);
+            next_dsv_format = rtv_desc->format->vk_format;
         }
         else
         {
@@ -5634,7 +5633,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(d3d12_com
 {
     const union VkClearValue clear_value = {.depthStencil = {depth, stencil}};
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct d3d12_dsv_desc *dsv_desc = d3d12_dsv_desc_from_cpu_handle(dsv);
+    const struct d3d12_rtv_desc *dsv_desc = d3d12_rtv_desc_from_cpu_handle(dsv);
     VkImageAspectFlags clear_aspects = 0;
 
     TRACE("iface %p, dsv %#lx, flags %#x, depth %.8e, stencil 0x%02x, rect_count %u, rects %p.\n",
