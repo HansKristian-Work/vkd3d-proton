@@ -46,10 +46,6 @@
 
 #define MAKE_MAGIC(a,b,c,d) (((uint32_t)a) | (((uint32_t)b) << 8) | (((uint32_t)c) << 16) | (((uint32_t)d) << 24))
 
-#define VKD3D_DESCRIPTOR_MAGIC_FREE    0x00000000u
-#define VKD3D_DESCRIPTOR_MAGIC_DSV     MAKE_MAGIC('D', 'S', 'V', 0)
-#define VKD3D_DESCRIPTOR_MAGIC_RTV     MAKE_MAGIC('R', 'T', 'V', 0)
-
 #define VKD3D_MAX_COMPATIBLE_FORMAT_COUNT 6u
 #define VKD3D_MAX_SHADER_EXTENSIONS       2u
 #define VKD3D_MAX_SHADER_STAGES           5u
@@ -690,7 +686,6 @@ HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
 
 struct d3d12_rtv_desc
 {
-    uint32_t magic;
     VkSampleCountFlagBits sample_count;
     const struct vkd3d_format *format;
     unsigned int width;
