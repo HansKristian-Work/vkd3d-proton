@@ -1220,8 +1220,7 @@ static void test_check_feature_support(void)
                 break;
         }
 
-        is_todo = format == DXGI_FORMAT_R9G9B9E5_SHAREDEXP
-                || format == DXGI_FORMAT_R8G8_B8G8_UNORM
+        is_todo = format == DXGI_FORMAT_R8G8_B8G8_UNORM
                 || format == DXGI_FORMAT_G8R8_G8B8_UNORM
                 || format == DXGI_FORMAT_B5G6R5_UNORM
                 || format == DXGI_FORMAT_B5G5R5A1_UNORM
