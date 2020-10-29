@@ -45477,6 +45477,9 @@ static void test_discard_resource(void)
 
 static void test_clock_calibration(void)
 {
+#ifndef _WIN32
+    skip("Clock calibration tests cannot pass on native Linux. Skipping.\n");
+#else
     uint64_t cpu_times[2], gpu_times[2];
     struct test_context context;
     HRESULT hr;
@@ -45496,6 +45499,7 @@ static void test_clock_calibration(void)
     ok(cpu_times[1] > cpu_times[0], "Inconsistent CPU timestamps.\n");
 
     destroy_test_context(&context);
+#endif
 }
 
 static void test_open_heap_from_address(void)
