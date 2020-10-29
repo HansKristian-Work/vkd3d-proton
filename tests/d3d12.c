@@ -23110,11 +23110,6 @@ static void test_atomic_instructions(void)
             unsigned int value = get_readback_uint(&rb, j, 0, 0);
             unsigned int expected = test->expected_result[j];
 
-            is_todo = test->i.x < 0
-                    && (!strcmp(instructions[j], "atomic_imax") || !strcmp(instructions[j], "atomic_imin"));
-
-            bug_if(is_todo && is_nvidia_device(device))
-            todo_if(is_todo)
             ok(value == expected, "Test %u: Got %#x (%d), expected %#x (%d) for '%s' "
                     "with inputs (%u, %u), (%d), %#x (%d).\n",
                     i, value, value, expected, expected, instructions[j],
@@ -23128,13 +23123,9 @@ static void test_atomic_instructions(void)
         get_buffer_readback_with_command_list(cs_buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
         for (j = 0; j < ARRAY_SIZE(instructions); ++j)
         {
-            bool todo_instruction = !strcmp(imm_instructions[j], "imm_atomic_imax")
-                    || !strcmp(imm_instructions[j], "imm_atomic_imin");
             unsigned int value = get_readback_uint(&rb, j, 0, 0);
             unsigned int expected = test->expected_result[j];
 
-            bug_if(test->i.x < 0 && todo_instruction && is_nvidia_device(device))
-            todo_if(test->i.x < 0 && todo_instruction)
             ok(value == expected, "Test %u: Got %#x (%d), expected %#x (%d) for '%s' "
                     "with inputs (%u, %u), (%d), %#x (%d).\n",
                     i, value, value, expected, expected, imm_instructions[j],
