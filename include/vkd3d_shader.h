@@ -189,6 +189,7 @@ enum vkd3d_shader_interface_flag
     VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER = 0x00000001u,
     VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER   = 0x00000002u,
     VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER               = 0x00000004u,
+    VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER              = 0x00000008u,
 };
 
 struct vkd3d_shader_interface_info
@@ -207,7 +208,7 @@ struct vkd3d_shader_interface_info
 
     /* Ignored unless VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER is set */
     const struct vkd3d_shader_descriptor_binding *push_constant_ubo_binding;
-    /* Ignored unless VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER is set */
+    /* Ignored unless VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER or TYPED_OFFSET_BUFFER is set */
     const struct vkd3d_shader_descriptor_binding *offset_buffer_binding;
 };
 
