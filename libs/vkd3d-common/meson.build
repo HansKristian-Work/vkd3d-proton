@@ -5,10 +5,10 @@ vkd3d_common_src = [
   'profiling.c'
 ]
 
-vkd3d_common_lib = static_library('vkd3d_common', vkd3d_common_src,
+vkd3d_common_lib = static_library('vkd3d_common', vkd3d_common_src, vkd3d_header_files,
   include_directories : vkd3d_private_includes,
   override_options    : [ 'c_std='+vkd3d_c_std ])
 
 vkd3d_common_dep = declare_dependency(
   link_with           : vkd3d_common_lib,
-  include_directories : vkd3d_public_includes)
+  include_directories : [ vkd3d_public_includes, vkd3d_common_lib.private_dir_include() ])
