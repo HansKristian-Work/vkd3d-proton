@@ -145,7 +145,15 @@ static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *
         return DXIL_SPV_TRUE;
     }
     else
+    {
         vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_TEXEL_BUFFER;
+        if (d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_TYPED_BUFFER &&
+            (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER))
+        {
+            vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
+            vk_binding->offset_binding.binding = shader_interface_info->offset_buffer_binding->binding;
+        }
+    }
 
     return dxil_remap(shader_interface_info, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,
             d3d_binding, &vk_binding->buffer_binding, resource_flags);
@@ -258,6 +266,13 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
                 &vk_binding->buffer_binding, resource_flags))
         {
             return DXIL_SPV_FALSE;
+        }
+
+        if (d3d_binding->d3d_binding.kind == DXIL_SPV_RESOURCE_KIND_TYPED_BUFFER &&
+            (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER))
+        {
+            vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
+            vk_binding->offset_binding.binding = shader_interface_info->offset_buffer_binding->binding;
         }
     }
 
@@ -424,6 +439,19 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
             ERR("dxil-spirv does not support PHYSICAL_STORAGE_BUFFER.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER)
+    {
+        const struct dxil_spv_option_bindless_typed_buffer_offsets helper =
+                { { DXIL_SPV_OPTION_BINDLESS_TYPED_BUFFER_OFFSETS },
+                  DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support BINDLESS_TYPED_BUFFER_OFFSETS.\n");
             ret = VKD3D_ERROR_NOT_IMPLEMENTED;
             goto end;
         }
