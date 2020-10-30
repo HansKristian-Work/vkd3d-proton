@@ -1628,6 +1628,11 @@ struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
     if (!hash_map_insert(&view_map->map, key, &entry.entry))
         ERR("Failed to insert view into hash map.\n");
 
+    /* If we start emitting too many typed SRVs, we will eventually crash on NV, since
+     * VkBufferView objects appear to consume GPU resources. */
+    if ((view_map->map.used_count % 1024) == 0)
+        ERR("Intense view map pressure! Got %u views in hash map %p.\n", view_map->map.used_count, &view_map->map);
+
     pthread_mutex_unlock(&view_map->mutex);
     return view;
 }
