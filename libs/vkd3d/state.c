@@ -857,7 +857,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER;
 
         vkd3d_bindless_state_find_binding(&device->bindless_state,
-                VKD3D_BINDLESS_SET_EXTRA_SSBO_OFFSET_BUFFER,
+                VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER,
                 &root_signature->offset_buffer_binding);
     }
 
@@ -3495,7 +3495,7 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
         extra_bindings |= VKD3D_BINDLESS_SET_EXTRA_UAV_COUNTER_BUFFER;
 
     if (bindless_state->flags & VKD3D_SSBO_OFFSET_BUFFER)
-        extra_bindings |= VKD3D_BINDLESS_SET_EXTRA_SSBO_OFFSET_BUFFER;
+        extra_bindings |= VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER;
 
     if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
             VKD3D_BINDLESS_SET_SAMPLER, VK_DESCRIPTOR_TYPE_SAMPLER)))
