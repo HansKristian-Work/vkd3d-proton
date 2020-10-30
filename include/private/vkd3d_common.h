@@ -59,7 +59,7 @@ static inline unsigned int vkd3d_popcount(unsigned int v)
 {
 #ifdef _MSC_VER
     return __popcnt(v);
-#elif defined(HAVE_BUILTIN_POPCOUNT)
+#elif defined(__GNUC__) || defined(__clang__)
     return __builtin_popcount(v);
 #else
     v -= (v >> 1) & 0x55555555;
@@ -174,7 +174,7 @@ static inline unsigned int vkd3d_log2i(unsigned int x)
     unsigned long result;
     _BitScanReverse(&result, x);
     return (unsigned int)result;
-#elif defined(HAVE_BUILTIN_CLZ)
+#elif defined(__GNUC__) || defined(__clang__)
     return __builtin_clz(x) ^ 0x1f;
 #else
     static const unsigned int l[] =
