@@ -3478,6 +3478,9 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
             flags |= VKD3D_SSBO_OFFSET_BUFFER;
     }
 
+    /* Always use a typed offset buffer. Otherwise, we risk ending up with unbounded size on view maps. */
+    flags |= VKD3D_TYPED_OFFSET_BUFFER;
+
     if (device_info->buffer_device_address_features.bufferDeviceAddress && (flags & VKD3D_BINDLESS_UAV))
         flags |= VKD3D_RAW_VA_UAV_COUNTER;
 
