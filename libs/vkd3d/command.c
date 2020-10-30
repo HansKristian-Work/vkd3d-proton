@@ -6509,10 +6509,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                     FIXME("Ignoring command count %u.\n", max_command_count);
 
                 if (count_buffer)
-                {
-                    FIXME("Count buffers not supported for indirect dispatch.\n");
-                    break;
-                }
+                    FIXME_ONCE("Count buffers not supported for indirect dispatch.\n");
 
                 if (!d3d12_command_list_update_compute_state(list))
                 {
