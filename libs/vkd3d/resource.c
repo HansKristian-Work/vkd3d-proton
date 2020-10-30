@@ -3514,15 +3514,15 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
             }
         }
 
-        if (metadata.flags & VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET)
-        {
-            const struct vkd3d_bound_buffer_range *src_buffer_ranges = src->heap->buffer_ranges.host_ptr;
-            struct vkd3d_bound_buffer_range *dst_buffer_ranges = dst->heap->buffer_ranges.host_ptr;
-            dst_buffer_ranges[dst->heap_offset] = src_buffer_ranges[src->heap_offset];
-        }
-
         if (copy_count)
             VK_CALL(vkUpdateDescriptorSets(device->vk_device, 0, NULL, copy_count, vk_copies));
+    }
+
+    if (metadata.flags & VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET)
+    {
+        const struct vkd3d_bound_buffer_range *src_buffer_ranges = src->heap->buffer_ranges.host_ptr;
+        struct vkd3d_bound_buffer_range *dst_buffer_ranges = dst->heap->buffer_ranges.host_ptr;
+        dst_buffer_ranges[dst->heap_offset] = src_buffer_ranges[src->heap_offset];
     }
 }
 
