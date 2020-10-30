@@ -624,10 +624,10 @@ bool vkd3d_create_texture_view(struct d3d12_device *device,
 
 enum vkd3d_descriptor_flag
 {
-    VKD3D_DESCRIPTOR_FLAG_DEFINED     = (1 << 0),
-    VKD3D_DESCRIPTOR_FLAG_VIEW        = (1 << 1),
-    VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER = (1 << 2),
-    VKD3D_DESCRIPTOR_FLAG_SSBO_OFFSET = (1 << 3),
+    VKD3D_DESCRIPTOR_FLAG_DEFINED       = (1 << 0),
+    VKD3D_DESCRIPTOR_FLAG_VIEW          = (1 << 1),
+    VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER   = (1 << 2),
+    VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET = (1 << 3),
 };
 
 struct vkd3d_descriptor_binding
@@ -708,10 +708,10 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc);
 
-struct vkd3d_bound_ssbo_range
+struct vkd3d_bound_buffer_range
 {
-    uint32_t offset;  /* offset to first byte */
-    uint32_t length;  /* bound size in bytes */
+    uint32_t offset;  /* offset to first byte for SSBO, or offset in elements for typed views. */
+    uint32_t length;  /* bound size in bytes, or size in elements for typed views. */
 };
 
 struct vkd3d_host_visible_buffer_range
@@ -736,7 +736,7 @@ struct d3d12_descriptor_heap
     void *host_memory;
 
     struct vkd3d_host_visible_buffer_range uav_counters;
-    struct vkd3d_host_visible_buffer_range ssbo_ranges;
+    struct vkd3d_host_visible_buffer_range buffer_ranges;
 
     struct d3d12_device *device;
 
