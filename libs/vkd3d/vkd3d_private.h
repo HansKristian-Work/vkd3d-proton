@@ -1571,6 +1571,7 @@ enum vkd3d_bindless_flags
     VKD3D_BINDLESS_CBV_AS_SSBO  = (1u << 5),
     VKD3D_BINDLESS_RAW_SSBO     = (1u << 6),
     VKD3D_SSBO_OFFSET_BUFFER    = (1u << 7),
+    VKD3D_TYPED_OFFSET_BUFFER   = (1u << 8)
 };
 
 #define VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS 8
