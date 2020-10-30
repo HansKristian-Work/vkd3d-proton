@@ -3351,6 +3351,12 @@ VKD3D_EXPORT HRESULT vkd3d_create_image_resource(ID3D12Device *device,
 
     object->format = vkd3d_format_from_d3d12_resource_desc(d3d12_device, &create_info->desc, 0);
 
+    if (FAILED(hr = vkd3d_view_map_init(&object->view_map)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
+
     if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
     {
         vkd3d_free(object);
