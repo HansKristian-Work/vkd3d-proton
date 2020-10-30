@@ -4858,7 +4858,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 
     if (!resource)
     {
-        FIXME("NULL resource RTV not implemented.\n");
+        memset(rtv_desc, 0, sizeof(*rtv_desc));
         return;
     }
 
@@ -4973,7 +4973,7 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
 
     if (!resource)
     {
-        FIXME("NULL resource DSV not implemented.\n");
+        memset(dsv_desc, 0, sizeof(*dsv_desc));
         return;
     }
 
