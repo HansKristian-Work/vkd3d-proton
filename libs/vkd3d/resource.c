@@ -4004,6 +4004,20 @@ static void vkd3d_buffer_view_get_bound_range_ssbo(struct d3d12_desc *descriptor
     }
 }
 
+static bool vkd3d_buffer_view_get_aligned_view(struct d3d12_desc *descriptor,
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        DXGI_FORMAT format, unsigned int vk_flags,
+        VkDeviceSize first_element, VkDeviceSize num_elements,
+        VkDeviceSize structured_stride, struct vkd3d_view **view)
+{
+    if (!vkd3d_create_buffer_view_for_resource(device, resource, format,
+            first_element, num_elements,
+            structured_stride, vk_flags, view))
+        return false;
+
+    return true;
+}
+
 static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
@@ -4052,11 +4066,9 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
     {
         if (resource)
         {
-            unsigned int flags = vkd3d_view_flags_from_d3d12_buffer_srv_flags(desc->Buffer.Flags);
-
-            if (!vkd3d_create_buffer_view_for_resource(device, resource, desc->Format,
-                    desc->Buffer.FirstElement, desc->Buffer.NumElements,
-                    desc->Buffer.StructureByteStride, flags, &view))
+            unsigned int vk_flags = vkd3d_view_flags_from_d3d12_buffer_srv_flags(desc->Buffer.Flags);
+            if (!vkd3d_buffer_view_get_aligned_view(descriptor, device, resource, desc->Format, vk_flags,
+                    desc->Buffer.FirstElement, desc->Buffer.NumElements, desc->Buffer.StructureByteStride, &view))
                 return;
         }
         else if (!device->device_info.robustness2_features.nullDescriptor)
@@ -4356,9 +4368,9 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     {
         if (resource)
         {
-            if (!vkd3d_create_buffer_view_for_resource(device, resource, desc->Format,
+            if (!vkd3d_buffer_view_get_aligned_view(descriptor, device, resource, desc->Format, flags,
                     desc->Buffer.FirstElement, desc->Buffer.NumElements,
-                    desc->Buffer.StructureByteStride, flags, &view))
+                    desc->Buffer.StructureByteStride, &view))
                 return;
         }
         else if (!device->device_info.robustness2_features.nullDescriptor)
