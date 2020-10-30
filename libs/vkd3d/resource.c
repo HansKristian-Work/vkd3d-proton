@@ -3967,7 +3967,7 @@ static bool vkd3d_buffer_srv_use_raw_ssbo(struct d3d12_device *device,
             ((desc->Format == DXGI_FORMAT_UNKNOWN && desc->Buffer.StructureByteStride) || raw);
 }
 
-static void vkd3d_buffer_view_get_bound_range(struct d3d12_desc *descriptor,
+static void vkd3d_buffer_view_get_bound_range_ssbo(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         VkDeviceSize offset, VkDeviceSize range, VkDescriptorBufferInfo *vk_buffer)
 {
@@ -4033,7 +4033,7 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
         VkDeviceSize stride = desc->Format == DXGI_FORMAT_UNKNOWN
                 ? desc->Buffer.StructureByteStride : sizeof(uint32_t);
 
-        vkd3d_buffer_view_get_bound_range(descriptor, device, resource,
+        vkd3d_buffer_view_get_bound_range_ssbo(descriptor, device, resource,
                 desc->Buffer.FirstElement * stride, desc->Buffer.NumElements * stride,
                 &descriptor_info.buffer);
 
@@ -4337,7 +4337,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
         VkDeviceSize stride = desc->Format == DXGI_FORMAT_UNKNOWN
                 ? desc->Buffer.StructureByteStride : sizeof(uint32_t);
 
-        vkd3d_buffer_view_get_bound_range(descriptor, device, resource,
+        vkd3d_buffer_view_get_bound_range_ssbo(descriptor, device, resource,
                 desc->Buffer.FirstElement * stride, desc->Buffer.NumElements * stride,
                 buffer_info);
 
