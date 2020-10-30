@@ -23,7 +23,7 @@
 
 #include <stddef.h>
 
-#include "memory.h"
+#include "vkd3d_memory.h"
 
 enum hash_map_entry_flag
 {
