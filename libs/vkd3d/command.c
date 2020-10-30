@@ -5796,16 +5796,25 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list, const 
 
     if (d3d12_resource_is_buffer(resource))
     {
+        const struct vkd3d_bound_buffer_range *ranges = desc->heap->buffer_ranges.host_ptr;
+
         if (args->has_view)
         {
-            VkDeviceSize byte_count = args->u.view->format->byte_count
-                    ? args->u.view->format->byte_count
-                    : sizeof(uint32_t);  /* structured buffer */
-            full_rect.right = args->u.view->info.buffer.size / byte_count;
+            if (list->device->bindless_state.flags & VKD3D_TYPED_OFFSET_BUFFER)
+            {
+                extra_offset = ranges[desc->heap_offset].offset;
+                full_rect.right = ranges[desc->heap_offset].length;
+            }
+            else
+            {
+                VkDeviceSize byte_count = args->u.view->format->byte_count
+                        ? args->u.view->format->byte_count
+                        : sizeof(uint32_t);  /* structured buffer */
+                full_rect.right = args->u.view->info.buffer.size / byte_count;
+            }
         }
         else if (list->device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
         {
-            const struct vkd3d_bound_ssbo_range *ranges = desc->heap->ssbo_ranges.host_ptr;
             extra_offset = ranges[desc->heap_offset].offset / sizeof(uint32_t);
             full_rect.right = ranges[desc->heap_offset].length / sizeof(uint32_t);
         }
