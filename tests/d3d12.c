@@ -19400,6 +19400,54 @@ static void test_null_uav(void)
     destroy_test_context(&context);
 }
 
+static void test_null_rtv(void)
+{
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12PipelineState pso;
+    ID3D12Device *device;
+    unsigned int i;
+    HRESULT hr;
+
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+    memset(&desc, 0, sizeof(desc));
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+    rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    rtv_desc.Texture2D.MipSlice = 0;
+    rtv_desc.Texture2D.PlaneSlice = 0;
+    ID3D12Device_CreateRenderTargetView(device, context.render_target, &rtv_desc, context.rtv);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, true, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12Device_CreateRenderTargetView(device, NULL, &rtv_desc, context.rtv);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, true, NULL);
+
+    /* Attempting to clear a NULL RTV crashes on native D3D12, so try to draw something instead */
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_sub_resource_state(command_list, context.render_target, 0,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xffffffff, 0);
+
+    destroy_test_context(&context);
+}
+
 static void test_null_vbv(void)
 {
     ID3D12GraphicsCommandList *command_list;
@@ -46417,6 +46465,7 @@ START_TEST(d3d12)
     run_test(test_null_cbv);
     run_test(test_null_srv);
     run_test(test_null_uav);
+    run_test(test_null_rtv);
     run_test(test_null_vbv);
     run_test(test_get_copyable_footprints);
     run_test(test_depth_clip);
