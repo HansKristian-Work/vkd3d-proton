@@ -4010,10 +4010,75 @@ static bool vkd3d_buffer_view_get_aligned_view(struct d3d12_desc *descriptor,
         VkDeviceSize first_element, VkDeviceSize num_elements,
         VkDeviceSize structured_stride, struct vkd3d_view **view)
 {
+    struct vkd3d_bound_buffer_range typed_range = { 0, 0 };
+    bool is_untyped_buffer, is_typed_buffer;
+    const struct vkd3d_format *vkd3d_format;
+    VkDeviceSize max_resource_elements;
+    VkDeviceSize max_element_headroom;
+    VkDeviceSize element_align;
+    VkDeviceSize max_elements;
+    VkDeviceSize begin_range;
+    VkDeviceSize end_range;
+
+    is_untyped_buffer =
+            (structured_stride && format == DXGI_FORMAT_UNKNOWN) ||
+            (vk_flags & VKD3D_VIEW_RAW_BUFFER) != 0;
+    is_typed_buffer = !is_untyped_buffer;
+
+    if (is_typed_buffer && (device->bindless_state.flags & VKD3D_TYPED_OFFSET_BUFFER))
+    {
+        /* For typed buffers, we will try to remove two cases of extreme hashmap contention, i.e.
+         * first_element and num_elements. By quantizing these two and relying on offset buffers,
+         * we should achieve a bounded value for number of possible views we can create for a given resource. */
+        max_elements = device->device_info.properties2.properties.limits.maxTexelBufferElements;
+        vkd3d_format = vkd3d_get_format(device, format, false);
+        max_resource_elements = resource->desc.Width / vkd3d_format->byte_count;
+
+        /* Requantizing the typed offset is shaky business if we overflow max_elements when doing so.
+         * We can always fall back to 0 offset for the difficult and rare cases. */
+
+        if (num_elements > max_elements)
+        {
+            FIXME("Application is attempting to use more elements in a typed buffer (%llu) than supported by device (%llu).\n",
+                  (unsigned long long)num_elements, (unsigned long long)max_elements);
+            typed_range.offset = 0;
+            typed_range.length = num_elements;
+        }
+        else if (num_elements >= max_resource_elements)
+        {
+            typed_range.offset = 0;
+            typed_range.length = num_elements;
+        }
+        else
+        {
+            /* Quantizing to alignment of N will at most increment number of elements in the view by N - 1. */
+            max_element_headroom = max_elements - num_elements + 1;
+
+            /* Based on headroom, align offset to the largest POT factor of N. */
+            element_align = 1u << vkd3d_log2i(max_element_headroom);
+
+            begin_range = first_element & ~(element_align - 1);
+            end_range = (first_element + num_elements + element_align - 1) & ~(element_align - 1);
+            end_range = min(end_range, max_resource_elements);
+
+            typed_range.offset = first_element - begin_range;
+            typed_range.length = num_elements;
+
+            first_element = begin_range;
+            num_elements = end_range - begin_range;
+        }
+    }
+
     if (!vkd3d_create_buffer_view_for_resource(device, resource, format,
             first_element, num_elements,
             structured_stride, vk_flags, view))
         return false;
+
+    if (device->bindless_state.flags & VKD3D_TYPED_OFFSET_BUFFER)
+    {
+        struct vkd3d_bound_buffer_range *buffer_ranges = descriptor->heap->buffer_ranges.host_ptr;
+        buffer_ranges[descriptor->heap_offset] = typed_range;
+    }
 
     return true;
 }
