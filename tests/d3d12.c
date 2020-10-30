@@ -18550,6 +18550,125 @@ static void test_copy_descriptors_range_sizes(void)
     destroy_test_context(&context);
 }
 
+static void test_copy_rtv_descriptors(void)
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE dst_ranges[1], src_ranges[2];
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    UINT dst_sizes[1], src_sizes[2];
+    ID3D12DescriptorHeap *rtv_heap;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    D3D12_RESOURCE_DESC rt_desc;
+    ID3D12Resource *rt_texture;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    unsigned int i;
+    HRESULT hr;
+
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+    static const struct
+    {
+        float color[4];
+    }
+    clears[] =
+    {
+        {{1.0f, 0.0f, 0.0f, 1.0f}},
+        {{0.0f, 1.0f, 0.0f, 1.0f}},
+        {{0.0f, 0.0f, 1.0f, 1.0f}},
+        {{0.0f, 1.0f, 1.0f, 1.0f}},
+    };
+
+    static const UINT expected[] =
+    {
+        0xffffff00u,
+        0xff0000ffu,
+        0xff00ff00u,
+        0xffff0000u,
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    rt_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    rt_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    rt_desc.Width = 1;
+    rt_desc.Height = 1;
+    rt_desc.DepthOrArraySize = 4;
+    rt_desc.MipLevels = 1;
+    rt_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    rt_desc.SampleDesc.Count = 1;
+    rt_desc.SampleDesc.Quality = 0;
+    rt_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    rt_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    hr = ID3D12Device_CreateCommittedResource(device,
+            &heap_properties, D3D12_HEAP_FLAG_NONE, &rt_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
+            &IID_ID3D12Resource, (void **)&rt_texture);
+
+    rtv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 9);
+
+    ID3D12Device_CreateRenderTargetView(device, rt_texture, NULL, get_cpu_rtv_handle(&context, rtv_heap, 0));
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, get_cpu_rtv_handle(&context, rtv_heap, 0), white, 0, NULL);
+
+    rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    rtv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+    rtv_desc.Texture2DArray.MipSlice = 0;
+    rtv_desc.Texture2DArray.ArraySize = 1;
+    rtv_desc.Texture2DArray.PlaneSlice = 0;
+
+    for (i = 0; i < 4; i++)
+    {
+        rtv_desc.Texture2DArray.FirstArraySlice = i;
+        ID3D12Device_CreateRenderTargetView(device, rt_texture, &rtv_desc,
+                get_cpu_rtv_handle(&context, rtv_heap, 1 + i));
+    }
+
+    ID3D12Device_CopyDescriptorsSimple(device, 2,
+            get_cpu_rtv_handle(&context, rtv_heap, 5),
+            get_cpu_rtv_handle(&context, rtv_heap, 2),
+            D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+    dst_ranges[0] = get_cpu_rtv_handle(&context, rtv_heap, 7);
+    src_ranges[0] = get_cpu_rtv_handle(&context, rtv_heap, 4);
+    src_ranges[1] = get_cpu_rtv_handle(&context, rtv_heap, 1);
+
+    dst_sizes[0] = 2;
+    src_sizes[0] = 1;
+    src_sizes[1] = 1;
+
+    ID3D12Device_CopyDescriptors(device,
+            ARRAY_SIZE(dst_ranges), dst_ranges, dst_sizes,
+            ARRAY_SIZE(src_ranges), src_ranges, src_sizes,
+            D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+    for (i = 0; i < 4; i++)
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, get_cpu_rtv_handle(&context, rtv_heap, 5 + i), clears[i].color, 0, NULL);
+
+    for (i = 0; i < 4; i++)
+    {
+        transition_sub_resource_state(command_list, rt_texture, i,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(rt_texture, i, queue, command_list, expected[i], 0);
+        reset_command_list(command_list, context.allocator);
+    }
+
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    ID3D12Resource_Release(rt_texture);
+    destroy_test_context(&context);
+}
+
 static void test_descriptors_visibility(void)
 {
     ID3D12Resource *vs_raw_buffer, *ps_raw_buffer;
@@ -46460,6 +46579,7 @@ START_TEST(d3d12)
     run_test(test_update_descriptor_tables_after_root_signature_change);
     run_test(test_copy_descriptors);
     run_test(test_copy_descriptors_range_sizes);
+    run_test(test_copy_rtv_descriptors);
     run_test(test_descriptors_visibility);
     run_test(test_create_null_descriptors);
     run_test(test_null_cbv);
