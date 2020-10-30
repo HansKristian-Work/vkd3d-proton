@@ -1,5 +1,5 @@
 demo_vkd3d_deps = [
-  threads_dep, vkd3d_headers_dep
+  threads_dep, vkd3d_common_dep
 ]
 
 if vkd3d_platform != 'windows'
