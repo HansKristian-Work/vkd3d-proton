@@ -1612,7 +1612,8 @@ struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
 
         default:
             ERR("Unsupported view type %u.\n", key->view_type);
-            return NULL;
+            success = false;
+            break;
     }
 
     if (!success)
