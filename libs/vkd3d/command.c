@@ -3242,13 +3242,13 @@ static void d3d12_command_list_fetch_inline_uniform_block_data(struct d3d12_comm
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
-    uint64_t descriptor_table_mask = bindings->descriptor_table_active_mask;
     uint64_t root_constant_mask = root_signature->root_constant_mask;
     const uint32_t *src_data = bindings->root_constants;
     const struct d3d12_root_descriptor_table *table;
     const struct d3d12_root_constant *root_constant;
     const struct d3d12_desc *base_descriptor;
     unsigned int root_parameter_index;
+    uint64_t descriptor_table_mask;
     uint32_t first_table_offset;
 
     while (root_constant_mask)
@@ -3262,6 +3262,7 @@ static void d3d12_command_list_fetch_inline_uniform_block_data(struct d3d12_comm
     }
 
     first_table_offset = root_signature->descriptor_table_offset / sizeof(uint32_t);
+    descriptor_table_mask = root_signature->descriptor_table_mask & bindings->descriptor_table_active_mask;
 
     while (descriptor_table_mask)
     {
