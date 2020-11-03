@@ -5510,7 +5510,7 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
         if (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER)
             uav_counter_size = align(desc->NumDescriptors * sizeof(VkDeviceAddress), alignment);
 
-        if (device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
+        if (device->bindless_state.flags & (VKD3D_SSBO_OFFSET_BUFFER | VKD3D_TYPED_OFFSET_BUFFER))
             offset_buffer_size = align(desc->NumDescriptors * sizeof(struct vkd3d_bound_buffer_range), alignment);
     }
 
