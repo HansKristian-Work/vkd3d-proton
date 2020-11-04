@@ -36,7 +36,7 @@ vkd3d_src = [
   'vkd3d_main.c',
 ]
 
-if enable_standalone_d3d12
+if enable_d3d12
   vkd3d_src += 'swapchain.c'
 endif
 
@@ -44,7 +44,7 @@ if enable_renderdoc
   vkd3d_src += ['renderdoc.c']
 endif
 
-if not enable_standalone_d3d12
+if not enable_d3d12
   vkd3d_lib = shared_library('vkd3d-proton', vkd3d_src, glsl_generator.process(vkd3d_shaders), vkd3d_build, vkd3d_version,
     dependencies        : [ vkd3d_common_dep, vkd3d_shader_dep ] + vkd3d_extra_libs,
     include_directories : vkd3d_private_includes,

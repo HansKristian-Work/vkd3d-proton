@@ -1,7 +1,7 @@
 
 vkd3d_test_flags = []
 if vkd3d_platform == 'windows'
-  if enable_standalone_d3d12
+  if enable_d3d12
     vkd3d_test_deps = [ lib_d3d12, lib_dxgi, vkd3d_common_dep ]
   else
     vkd3d_test_deps = [ vkd3d_dep, vkd3d_utils_dep ]

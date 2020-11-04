@@ -54,12 +54,12 @@ ninja install
 #### Compiling manually (cross for d3d12.dll, default)
 ```
 # 64-bit build.
-meson --cross-file build-win64.txt -Denable_standalone_d3d12=True --buildtype release --prefix /your/vkd3d-proton/directory build.64
+meson --cross-file build-win64.txt --buildtype release --prefix /your/vkd3d-proton/directory build.64
 cd build.64
 ninja install
 
 # 32-bit build
-meson --cross-file build-win32.txt -Denable_standalone_d3d12=True  --buildtype release --prefix /your/vkd3d-proton/directory build.86
+meson --cross-file build-win32.txt --buildtype release --prefix /your/vkd3d-proton/directory build.86
 cd build.86
 ninja install
 ```
