@@ -11,11 +11,17 @@ vkd3d_platform = target_machine.system()
 
 enable_tests             = get_option('enable_tests')
 enable_extras            = get_option('enable_extras')
-enable_standalone_d3d12  = get_option('enable_standalone_d3d12')
+enable_d3d12             = get_option('enable_d3d12')
 enable_profiling         = get_option('enable_profiling')
 enable_renderdoc         = get_option('enable_renderdoc')
 
-if vkd3d_platform != 'windows' and enable_standalone_d3d12
+if enable_d3d12 == 'auto'
+    enable_d3d12 = (vkd3d_platform == 'windows')
+else
+    enable_d3d12 = (enable_d3d12 == 'true')
+endif
+
+if vkd3d_platform != 'windows' and enable_d3d12
   error('Standalone D3D12 is only supported on Windows.')
 endif
 
@@ -27,7 +33,7 @@ if vkd3d_platform == 'windows'
   add_project_arguments('-D_WIN32_WINNT=0x600', language : 'c')
 endif
 
-if enable_standalone_d3d12
+if enable_d3d12
   add_project_arguments('-DVKD3D_BUILD_STANDALONE_D3D12', language : 'c')
 endif
 
@@ -120,7 +126,7 @@ subdir('include')
 subdir('libs')
 
 if vkd3d_platform == 'windows'
-  if enable_standalone_d3d12
+  if enable_d3d12
     lib_d3d12 = d3d12_dep
   elif not lib_d3d12.found()
     lib_d3d12 = vkd3d_utils_dep
