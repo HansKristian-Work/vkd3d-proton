@@ -89,7 +89,7 @@ if [ $opt_native -eq 0 ]; then
   build_script
 else
   build_arch 64
-  build_arch 86 --cross-file build-linux32.txt
+  CC="gcc -m32" CXX="g++ -m32" PKG_CONFIG_PATH="/usr/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib/pkgconfig" build_arch 86
 fi
 
 if [ $opt_nopackage -eq 0 ]; then

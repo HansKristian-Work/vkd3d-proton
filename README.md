@@ -55,11 +55,13 @@ ninja install
 ```
 # 64-bit build.
 meson --cross-file build-win64.txt --buildtype release --prefix /your/vkd3d-proton/directory build.64
+
 cd build.64
 ninja install
 
 # 32-bit build
 meson --cross-file build-win32.txt --buildtype release --prefix /your/vkd3d-proton/directory build.86
+
 cd build.86
 ninja install
 ```
@@ -68,11 +70,15 @@ ninja install
 ```
 # 64-bit build.
 meson --buildtype release --prefix /your/vkd3d-proton/directory build.64
+
 cd build.64
 ninja install
 
 # 32-bit build
-meson --cross-file x86-linux-gnu --buildtype release --prefix /your/vkd3d-proton/directory build.86
+CC="gcc -m32" CXX="g++ -m32" \
+PKG_CONFIG_PATH="/usr/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib/pkgconfig" \
+meson --buildtype release --prefix /your/vkd3d-proton/directory build.86
+
 cd build.86
 ninja install
 ```
