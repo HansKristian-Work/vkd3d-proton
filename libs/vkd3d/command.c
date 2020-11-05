@@ -8282,7 +8282,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_BIND_SPARSE:
-            d3d12_command_queue_bind_sparse(queue, submission.bind_sparse.mode, 
+            d3d12_command_queue_bind_sparse(queue, submission.bind_sparse.mode,
                     submission.bind_sparse.dst_resource, submission.bind_sparse.src_resource,
                     submission.bind_sparse.bind_count, submission.bind_sparse.bind_infos);
             vkd3d_free(submission.bind_sparse.bind_infos);

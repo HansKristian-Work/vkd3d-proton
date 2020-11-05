@@ -4267,7 +4267,7 @@ static void d3d12_device_caps_init_feature_options1(struct d3d12_device *device)
         const VkPhysicalDeviceShaderCorePropertiesAMD *amd = &device->device_info.shader_core_properties;
         const VkPhysicalDeviceShaderCoreProperties2AMD *amd2 = &device->device_info.shader_core_properties2;
         uint32_t compute_units;
-        
+
         if (device->vk_info.AMD_shader_core_properties2)
             compute_units = amd2->activeComputeUnitCount;
         else

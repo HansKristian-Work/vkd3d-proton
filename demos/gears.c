@@ -291,7 +291,7 @@ static double cxg_get_time(void)
 
 static void cxg_render_frame(struct cx_gears *cxg)
 {
-    static double t_prev = -1.0;    
+    static double t_prev = -1.0;
     double dt, t;
     float a;
 
