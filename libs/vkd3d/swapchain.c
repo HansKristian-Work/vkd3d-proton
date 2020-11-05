@@ -19,7 +19,7 @@
  * This file uses extracts from the Wine project
  * specifically dlls/wined3d/swapchain.c and dlls/dxgi/swapchain.c
  * the license is as follows:
- * 
+ *
  * Copyright 2002-2003 Jason Edmeades
  * Copyright 2002-2003 Raphael Junqueira
  * Copyright 2005 Oliver Stieber
@@ -315,7 +315,7 @@ static HRESULT d3d12_output_set_display_mode(IDXGIOutput *output, DXGI_MODE_DESC
                 ERR("Interlacing mode not supported.");
                 return DXGI_ERROR_NOT_CURRENTLY_AVAILABLE;
             }
-                
+
         }
     }
     else

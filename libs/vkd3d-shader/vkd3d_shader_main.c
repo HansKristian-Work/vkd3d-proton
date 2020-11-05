@@ -218,7 +218,7 @@ unsigned int vkd3d_shader_scan_get_register_flags(const struct vkd3d_shader_scan
 
     key.register_type = type;
     key.register_id = id;
-    
+
     e = hash_map_find(&scan_info->register_map, &key);
     return e ? e->flags : 0u;
 }

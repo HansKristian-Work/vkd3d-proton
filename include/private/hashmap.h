@@ -123,7 +123,7 @@ static inline bool hash_map_should_grow_before_insert(struct hash_map *hash_map)
 static inline struct hash_map_entry *hash_map_find(const struct hash_map *hash_map, const void *key)
 {
     uint32_t hash_value, entry_idx;
-    
+
     if (!hash_map->entries)
         return NULL;
 

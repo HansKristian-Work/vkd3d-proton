@@ -114,7 +114,7 @@ FORCEINLINE uint32_t vkd3d_atomic_uint32_decrement(uint32_t *target, vkd3d_memor
 #define vkd3d_memory_order_acquire __ATOMIC_ACQUIRE
 #define vkd3d_memory_order_release __ATOMIC_RELEASE
 #define vkd3d_memory_order_acq_rel __ATOMIC_ACQ_REL
-#define vkd3d_memory_order_seq_cst __ATOMIC_SEQ_CST 
+#define vkd3d_memory_order_seq_cst __ATOMIC_SEQ_CST
 
 # define vkd3d_atomic_uint32_load_explicit(target, order)            __atomic_load_n(target, order)
 # define vkd3d_atomic_uint32_store_explicit(target, value, order)    __atomic_store_n(target, value, order)
