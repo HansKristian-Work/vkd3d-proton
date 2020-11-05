@@ -46899,6 +46899,191 @@ static void test_typed_buffers_many_objects_dxil(void)
     test_typed_buffers_many_objects(true);
 }
 
+static void test_create_pipeline_with_null_root_signature(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC graphics_desc;
+    D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc;
+    ID3D12PipelineState *pipeline_state = NULL;
+    ID3D12RootSignature *root_signature = NULL;
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *uav_buffer;
+    ID3D12CommandQueue *queue;
+    HRESULT hr;
+    UINT value;
+
+    static const float green[] = { 0.0f, 1.0f, 0.0f, 1.0f };
+
+#if 0
+    #define rs_text "UAV(u0), RootConstants(num32BitConstants=1, b0)"
+
+    RWStructuredBuffer<uint> buffer : register(u0);
+
+    cbuffer info_t : register(b0)
+    {
+            uint value;
+    };
+
+    [RootSignature(rs_text)]
+    [numthreads(1,1,1)]
+    void main()
+    {
+            buffer[0] = value;
+    }
+#endif
+    static const DWORD cs_code[] =
+    {
+        0x43425844, 0x3032c9e9, 0x035e534c, 0x1513248b, 0xdb9ceb89, 0x00000001, 0x00000110, 0x00000004,
+        0x00000030, 0x00000040, 0x00000050, 0x000000c0, 0x4e475349, 0x00000008, 0x00000000, 0x00000008,
+        0x4e47534f, 0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000068, 0x00050050, 0x0000001a,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400009e, 0x0011e000, 0x00000000,
+        0x00000004, 0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x0a0000a8, 0x0011e012, 0x00000000,
+        0x00004001, 0x00000000, 0x00004001, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
+        0x30535452, 0x00000048, 0x00000002, 0x00000002, 0x00000018, 0x00000000, 0x00000048, 0x00000000,
+        0x00000004, 0x00000000, 0x00000030, 0x00000001, 0x00000000, 0x0000003c, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x00000000, 0x00000001,
+    };
+
+#if 0
+    #define rs_text "RootConstants(num32BitConstants=4, b0)"
+
+    [RootSignature(rs_text)]
+    float4 main(uint vid : SV_VERTEXID) : SV_POSITION
+    {
+            return float4(
+                    -1.0f + 4.0f * float(vid % 2),
+                    -1.0f + 2.0f * float(vid & 2),
+                    0.0f, 1.0f);
+    }
+#endif
+    static const DWORD vs_code[] =
+    {
+        0x43425844, 0x7d259eed, 0xd7246bd4, 0xeb5e0efc, 0x9e31fb00, 0x00000001, 0x000001b4, 0x00000004,
+        0x00000030, 0x00000064, 0x00000098, 0x0000017c, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008,
+        0x00000020, 0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x45545245,
+        0x00444958, 0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001,
+        0x00000003, 0x00000000, 0x0000000f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x58454853, 0x000000dc,
+        0x00010050, 0x00000037, 0x0100086a, 0x04000060, 0x00101012, 0x00000000, 0x00000006, 0x04000067,
+        0x001020f2, 0x00000000, 0x00000001, 0x02000068, 0x00000001, 0x0a000001, 0x00100032, 0x00000000,
+        0x00101006, 0x00000000, 0x00004002, 0x00000001, 0x00000002, 0x00000000, 0x00000000, 0x05000056,
+        0x00100032, 0x00000000, 0x00100046, 0x00000000, 0x09000032, 0x00102012, 0x00000000, 0x0010000a,
+        0x00000000, 0x00004001, 0x40800000, 0x00004001, 0xbf800000, 0x09000032, 0x00102022, 0x00000000,
+        0x0010001a, 0x00000000, 0x00004001, 0x40000000, 0x00004001, 0xbf800000, 0x08000036, 0x001020c2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e, 0x30535452,
+        0x00000030, 0x00000002, 0x00000001, 0x00000018, 0x00000000, 0x00000030, 0x00000000, 0x00000001,
+        0x00000000, 0x00000024, 0x00000000, 0x00000000, 0x00000004,
+    };
+
+#if 0
+    #define rs_text "RootConstants(num32BitConstants=4, b0)"
+
+    cbuffer info_t : register(b0)
+    {
+            float4 color;
+    };
+
+    [RootSignature(rs_text)]
+    float4 main() : SV_TARGET0
+    {
+            return color;
+    }
+#endif
+    static const DWORD ps_code[] =
+    {
+        0x43425844, 0x8f5e3ee2, 0x0d8ffa83, 0x9d34e012, 0x6e287df7, 0x00000001, 0x000000f8, 0x00000004,
+        0x00000030, 0x00000040, 0x00000074, 0x000000c0, 0x4e475349, 0x00000008, 0x00000000, 0x00000008,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x58454853, 0x00000044, 0x00000050,
+        0x00000011, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2,
+        0x00000000, 0x06000036, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
+        0x30535452, 0x00000030, 0x00000002, 0x00000001, 0x00000018, 0x00000000, 0x00000030, 0x00000000,
+        0x00000001, 0x00000000, 0x00000024, 0x00000000, 0x00000000, 0x00000004,
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    
+    command_list = context.list;
+    queue = context.queue;
+
+    uav_buffer = create_default_buffer(context.device, 4, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    hr = ID3D12Device_CreateRootSignature(context.device, 0, cs_code, sizeof(cs_code), &IID_ID3D12RootSignature, (void**)&root_signature);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    memset(&compute_desc, 0, sizeof(compute_desc));
+    compute_desc.CS = shader_bytecode(cs_code, sizeof(cs_code));
+    hr = ID3D12Device_CreateComputePipelineState(context.device, &compute_desc, &IID_ID3D12PipelineState, (void**)&pipeline_state);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    if (root_signature && pipeline_state)
+    {
+        ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list, 0, ID3D12Resource_GetGPUVirtualAddress(uav_buffer));
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(command_list, 1, 1, 0);
+        ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
+    }
+
+    transition_resource_state(command_list, uav_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(uav_buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+
+    value = get_readback_uint(&rb, 0, 0, 0);
+    ok(value == 1, "Got unexpected readback value %u.\n", value);
+
+    release_resource_readback(&rb);
+    reset_command_list(command_list, context.allocator);
+
+    if (root_signature)
+        ID3D12RootSignature_Release(root_signature);
+    if (pipeline_state)
+        ID3D12PipelineState_Release(pipeline_state);
+
+    ID3D12Resource_Release(uav_buffer);
+
+    hr = ID3D12Device_CreateRootSignature(context.device, 0, vs_code, sizeof(vs_code), &IID_ID3D12RootSignature, (void**)&root_signature);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    memset(&graphics_desc, 0, sizeof(graphics_desc));
+    graphics_desc.VS = shader_bytecode(vs_code, sizeof(vs_code));
+    graphics_desc.PS = shader_bytecode(ps_code, sizeof(ps_code));
+    graphics_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    graphics_desc.SampleMask = 0xffffffffu;
+    graphics_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    graphics_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    graphics_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    graphics_desc.NumRenderTargets = 1;
+    graphics_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    graphics_desc.SampleDesc.Count = 1;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &graphics_desc, &IID_ID3D12PipelineState, (void**)&pipeline_state);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    if (root_signature && pipeline_state)
+    {
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, green, 0);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    }
+
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+
+    if (root_signature)
+        ID3D12RootSignature_Release(root_signature);
+    if (pipeline_state)
+        ID3D12PipelineState_Release(pipeline_state);
+
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -47131,4 +47316,5 @@ START_TEST(d3d12)
     run_test(test_buffers_oob_behavior_dxil);
     run_test(test_typed_buffers_many_objects_dxbc);
     run_test(test_typed_buffers_many_objects_dxil);
+    run_test(test_create_pipeline_with_null_root_signature);
 }
