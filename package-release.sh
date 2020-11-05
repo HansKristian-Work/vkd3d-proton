@@ -45,28 +45,30 @@ while [ $# -gt 0 ]; do
 done
 
 function build_arch {
+  local arch="$1"
+  shift
+
   cd "$VKD3D_SRC_DIR"
 
-  # shellcheck disable=SC2086
-  meson $2                           \
+  meson "$@"                         \
         --buildtype "release"        \
         --prefix "$VKD3D_BUILD_DIR"  \
         --strip                      \
-        --bindir "x$1"               \
-        --libdir "x$1"               \
-        "$VKD3D_BUILD_DIR/build.$1"
+        --bindir "x${arch}"          \
+        --libdir "x${arch}"          \
+        "$VKD3D_BUILD_DIR/build.${arch}"
 
-  cd "$VKD3D_BUILD_DIR/build.$1"
+  cd "$VKD3D_BUILD_DIR/build.${arch}"
   ninja install
 
   if [ $opt_devbuild -eq 0 ]; then
     if [ $opt_native -eq 0 ]; then
         # get rid of some useless .a files
-        rm "$VKD3D_BUILD_DIR/x$1/"*.!(dll)
+        rm "$VKD3D_BUILD_DIR/x${arch}/"*.!(dll)
         # get rid of vkd3d-proton-utils.dll
-        rm "$VKD3D_BUILD_DIR/x$1/libvkd3d-proton-utils-2.dll"
+        rm "$VKD3D_BUILD_DIR/x${arch}/libvkd3d-proton-utils-2.dll"
     fi
-    rm -R "$VKD3D_BUILD_DIR/build.$1"
+    rm -R "$VKD3D_BUILD_DIR/build.${arch}"
   fi
 }
 
@@ -82,12 +84,12 @@ function package {
 }
 
 if [ $opt_native -eq 0 ]; then
-  build_arch 64 "--cross-file build-win64.txt"
-  build_arch 86 "--cross-file build-win32.txt"
+  build_arch 64 --cross-file build-win64.txt
+  build_arch 86 --cross-file build-win32.txt
   build_script
 else
   build_arch 64
-  build_arch 86 "--cross-file build-linux32.txt"
+  build_arch 86 --cross-file build-linux32.txt
 fi
 
 if [ $opt_nopackage -eq 0 ]; then
