@@ -82,8 +82,8 @@ function package {
 }
 
 if [ $opt_native -eq 0 ]; then
-  build_arch 64 "--cross-file build-win64.txt
-  build_arch 86 "--cross-file build-win32.txt
+  build_arch 64 "--cross-file build-win64.txt"
+  build_arch 86 "--cross-file build-win32.txt"
   build_script
 else
   build_arch 64
