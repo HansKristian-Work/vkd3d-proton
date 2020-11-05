@@ -2797,8 +2797,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             (desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH || graphics->patch_vertex_count != 0) &&
             desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
 
+    graphics->pipeline_layout = root_signature->vk_pipeline_layout;
     graphics->pipeline = VK_NULL_HANDLE;
-    graphics->root_signature = root_signature;
     state->device = device;
 
     if (supports_extended_dynamic_state)
@@ -3154,7 +3154,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     pipeline_desc.pDepthStencilState = &graphics->ds_desc;
     pipeline_desc.pColorBlendState = &graphics->blend_desc;
     pipeline_desc.pDynamicState = &dynamic_create_info;
-    pipeline_desc.layout = graphics->root_signature->vk_pipeline_layout;
+    pipeline_desc.layout = graphics->pipeline_layout;
     pipeline_desc.subpass = 0;
     pipeline_desc.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_desc.basePipelineIndex = -1;

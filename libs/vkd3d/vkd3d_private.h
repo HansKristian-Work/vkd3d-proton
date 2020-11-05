@@ -958,8 +958,7 @@ struct d3d12_graphics_pipeline_state
 
     uint32_t dynamic_state_flags; /* vkd3d_dynamic_state_flag */
 
-    const struct d3d12_root_signature *root_signature;
-
+    VkPipelineLayout pipeline_layout;
     VkPipeline pipeline;
     struct list compiled_fallback_pipelines;
 
