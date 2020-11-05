@@ -1478,6 +1478,10 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState 
             VK_CALL(vkDestroyPipeline(device->vk_device, state->compute.vk_pipeline, NULL));
 
         VK_CALL(vkDestroyPipelineCache(device->vk_device, state->vk_pso_cache, NULL));
+
+        if (state->private_root_signature)
+            ID3D12RootSignature_Release(state->private_root_signature);
+
         vkd3d_free(state);
 
         d3d12_device_release(device);
@@ -1706,11 +1710,10 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     state->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
     state->refcount = 1;
 
-    if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->root_signature)))
-    {
-        WARN("Root signature is NULL.\n");
-        return E_INVALIDARG;
-    }
+    if (desc->root_signature)
+        root_signature = unsafe_impl_from_ID3D12RootSignature(desc->root_signature);
+    else
+        root_signature = unsafe_impl_from_ID3D12RootSignature(state->private_root_signature);
 
     shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
     shader_interface.next = NULL;
@@ -2361,11 +2364,10 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         }
     }
 
-    if (!(root_signature = unsafe_impl_from_ID3D12RootSignature(desc->root_signature)))
-    {
-        WARN("Root signature is NULL.\n");
-        return E_INVALIDARG;
-    }
+    if (desc->root_signature)
+        root_signature = unsafe_impl_from_ID3D12RootSignature(desc->root_signature);
+    else
+        root_signature = unsafe_impl_from_ID3D12RootSignature(state->private_root_signature);
 
     sample_count = vk_samples_from_dxgi_sample_desc(&desc->sample_desc);
     if (desc->sample_desc.Count != 1 && desc->sample_desc.Quality)
@@ -2857,6 +2859,19 @@ bool d3d12_pipeline_state_has_replaced_shaders(struct d3d12_pipeline_state *stat
         return false;
 }
 
+static HRESULT d3d12_pipeline_create_private_root_signature(struct d3d12_device *device,
+        VkPipelineBindPoint bind_point, const struct d3d12_pipeline_state_desc *desc,
+        ID3D12RootSignature **root_signature)
+{
+    const struct D3D12_SHADER_BYTECODE *bytecode = bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS ? &desc->vs : &desc->cs;
+
+    if (!bytecode->BytecodeLength)
+        return E_INVALIDARG;
+
+    return ID3D12Device_CreateRootSignature(&device->ID3D12Device_iface, 0,
+            bytecode->pShaderBytecode, bytecode->BytecodeLength, &IID_ID3D12RootSignature, (void**)root_signature);
+}
+
 HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
         const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state)
 {
@@ -2867,6 +2882,17 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
         return E_OUTOFMEMORY;
 
     memset(object, 0, sizeof(*object));
+
+    if (!desc->root_signature)
+    {
+        if (FAILED(hr = d3d12_pipeline_create_private_root_signature(device,
+                bind_point, desc, &object->private_root_signature)))
+        {
+            ERR("No root signature for pipeline.\n");
+            vkd3d_free(object);
+            return hr;
+        }
+    }
 
     switch (bind_point)
     {
@@ -2885,6 +2911,9 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
 
     if (FAILED(hr))
     {
+        if (object->private_root_signature)
+            ID3D12RootSignature_Release(object->private_root_signature);
+
         vkd3d_free(object);
         return hr;
     }
