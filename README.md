@@ -9,10 +9,48 @@ The original project is available at [WineHQ](https://source.winehq.org/git/vkd3
 
 ## Priorities
 
-Performance and compatibility are important targets, at the expense of compatibility with older drivers and systems.
-Modern Vulkan extensions and features are aggressively made use of to improve performance and compatibility.
+Performance and game compatibility are important targets, at the expense of compatibility with older drivers and systems.
+Modern Vulkan extensions and features are aggressively made use of to improve game performance and compatibility.
 It is recommended to use the very latest drivers you can get your hands on for the best experience.
 Backwards compatibility with the vkd3d standalone API is not a goal of this project.
+
+## Drivers
+
+There are some hard requirements on drivers to be able to implement D3D12 in a reasonably performant way.
+
+- Vulkan 1.1
+- `VK_EXT_descriptor_indexing` with at least 1000000 UpdateAfterBind descriptors for all types except UniformBuffer.
+  Essentially all features in `VkPhysicalDeviceDescriptorIndexingFeatures` must be supported.
+- `VK_KHR_timeline_semaphore`
+
+Some notable extensions that **should** be supported for optimal or correct behavior.
+These extensions will likely become mandatory later.
+
+- `VK_EXT_robustness2`
+- `VK_KHR_buffer_device_address`
+- `VK_EXT_extended_dynamic_state`
+
+### AMD (RADV / ACO)
+
+For AMD, RADV is the recommended driver and the one that sees most testing on AMD GPUs.
+The recommendation here is to use a driver built from Git.
+
+### NVIDIA
+
+The [Vulkan beta drivers](https://developer.nvidia.com/vulkan-driver) generally contain the latest
+driver fixes that we identify while getting games to work.
+At least Linux 455.26.01 (2020-10-20) is recommended as it contains fixes for:
+
+> Reduce host memory consumption for descriptor memory when VkDescriptorSetVariableDescriptorCountAllocateInfo is used.
+
+> Fixed a bug in a barrier optimization that allowed some back-to-back copies to run unordered
+
+These fixes should find their way into stable drivers eventually, but if you're having issues, test the latest development drivers,
+as that is what we test against.
+
+### Intel
+
+We have not done any testing against Intel iGPUs yet.
 
 ------
 
@@ -24,78 +62,82 @@ git clone --recursive https://github.com/HansKristian-Work/vkd3d-proton
 ```
 in order to pull in all the submodules which are needed for building.
 
-## Building VKD3D
+## Building VKD3D-Proton
 
 ### Requirements:
 - [wine](https://www.winehq.org/) (for `widl`) [for native builds]
   - On Windows this may be substituted for [Strawberry Perl](http://strawberryperl.com/) as it ships `widl` and is easy to find and install -- although this dependency may be eliminated in the future.
-- [Meson](http://mesonbuild.com/) build system (at least version 0.51)
+- [Meson](http://mesonbuild.com/) build system (at least version 0.49)
 - [glslang](https://github.com/KhronosGroup/glslang) compiler
 - [Mingw-w64](http://mingw-w64.org/) compiler, headers and tools (at least version 7.0) [for cross-builds for d3d12.dll which are default]
 
 ### Building:
 #### The simple way
-Inside the VKD3D directory, run:
+Inside the VKD3D-Proton directory, run:
 ```
 ./package-release.sh master /your/target/directory --no-package
 ```
 
-This will create a folder `vkd3d-master` in `/your/target/directory`, which contains both 32-bit and 64-bit versions of VKD3D, which can be set up in the same way as the release versions as noted above.
+This will create a folder `vkd3d-master` in `/your/target/directory`, which contains both 32-bit and 64-bit versions of VKD3D-Proton, which can be set up in the same way as the release versions as noted above.
 
 If you want to build natively (ie. for `libvkd3d-proton.so`), pass `--native` to the build script. This option will make it build using your system's compilers.
 
-In order to preserve the build directories for development, pass `--dev-build` to the script. This option implies `--no-package`. After making changes to the source code, you can then do the following to rebuild VKD3D:
+In order to preserve the build directories for development, pass `--dev-build` to the script. This option implies `--no-package`. After making changes to the source code, you can then do the following to rebuild VKD3D-Proton:
 ```
 # change to build.86 for 32-bit
-cd /your/target/directory/build.64
-ninja install
+ninja -C /your/target/directory/build.64 install
 ```
 
 #### Compiling manually (cross for d3d12.dll, default)
 ```
 # 64-bit build.
 meson --cross-file build-win64.txt --buildtype release --prefix /your/vkd3d-proton/directory build.64
-
-cd build.64
-ninja install
+ninja -C build.64 install
 
 # 32-bit build
 meson --cross-file build-win32.txt --buildtype release --prefix /your/vkd3d-proton/directory build.86
-
-cd build.86
-ninja install
+ninja -C build.86 install
 ```
 
 #### Compiling manually (native)
 ```
 # 64-bit build.
 meson --buildtype release --prefix /your/vkd3d-proton/directory build.64
-
-cd build.64
-ninja install
+ninja -C build.64 install
 
 # 32-bit build
 CC="gcc -m32" CXX="g++ -m32" \
 PKG_CONFIG_PATH="/usr/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib/pkgconfig" \
 meson --buildtype release --prefix /your/vkd3d-proton/directory build.86
-
-cd build.86
-ninja install
+ninja -C build.86 install
 ```
 
-## Using VKD3D
+## Using VKD3D-Proton
 
-VKD3D can be used by projects that target Direct3D 12 as a drop-in replacement
-at build-time with some modest source modifications.
+The intended way to use VKD3D-Proton is as a native Win32 d3d12.dll.
+This serves as a drop-in replacement for D3D12, and can be used in Wine (Proton or vanilla flavors), or on Windows.
 
-If VKD3D is available when building Wine, then Wine will use it to support
-Direct3D 12 applications.
+VKD3D-Proton does not supply the necessary DXGI component.
+VKD3D-Proton can be used with either DXVK's DXGI implementation, or
+Wine's DXGI implementation.
+VKD3D-Proton implements its own IDXGISwapChain when built as a native d3d12.dll.
+
+### A note on using VKD3D-Proton on Windows
+
+Native Windows use is mostly relevant for developer testing purposes.
+Do not expect games running on Windows 7 or 8.1 to magically make use of VKD3D-Proton,
+as many games will only even attempt to load d3d12.dll if they are running on Windows 10.
+
+### Native Linux build
+
+A native Linux binary can be built, but it is not intended to be compatible with upstream Wine.
+A native option is mostly relevant for development purposes.
 
 ## Environment variables
 
-Most of the environment variables used by VKD3D are for debugging purposes. The
+Most of the environment variables used by VKD3D-Proton are for debugging purposes. The
 environment variables are not considered a part of API and might be changed or
-removed in the future versions of VKD3D.
+removed in the future versions of VKD3D-Proton.
 
 Some of debug variables are lists of elements. Elements must be separated by
 commas or semicolons.
