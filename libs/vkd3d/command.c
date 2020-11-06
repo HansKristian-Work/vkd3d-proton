@@ -4061,13 +4061,13 @@ cleanup:
     vk_image_barriers[0].oldLayout = dst_layout;
     vk_image_barriers[0].newLayout = dst_resource->common_layout;
 
-    vk_image_barriers[1].srcAccessMask = src_access;
+    vk_image_barriers[1].srcAccessMask = 0;
     vk_image_barriers[1].dstAccessMask = 0;
     vk_image_barriers[1].oldLayout = src_layout;
     vk_image_barriers[1].newLayout = src_resource->common_layout;
 
     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            dst_stages, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            src_stages | dst_stages, VK_PIPELINE_STAGE_TRANSFER_BIT,
             0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers),
             vk_image_barriers));
 }
