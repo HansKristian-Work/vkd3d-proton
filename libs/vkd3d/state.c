@@ -482,7 +482,6 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
 
 struct vkd3d_descriptor_set_context
 {
-    uint32_t packed_descriptor_index;
     uint32_t binding_index;
     uint32_t vk_set;
     uint32_t vk_binding;
@@ -665,9 +664,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
         param = &root_signature->parameters[i];
         param->parameter_type = p->ParameterType;
         param->descriptor.binding = binding;
-        param->descriptor.packed_descriptor = context->packed_descriptor_index;
 
-        context->packed_descriptor_index += 1;
         context->binding_index += 1;
         context->vk_binding += 1;
     }
@@ -821,7 +818,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         set_layouts[context.vk_set] = root_signature->vk_sampler_descriptor_layout;
         root_signature->sampler_descriptor_set = context.vk_set;
 
-        context.packed_descriptor_index = 0;
         context.vk_binding = 0;
         context.vk_set += 1;
     }
@@ -880,7 +876,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         set_layouts[context.vk_set] = root_signature->vk_root_descriptor_layout;
         root_signature->root_descriptor_set = context.vk_set;
 
-        context.packed_descriptor_index = 0;
         context.vk_binding = 0;
         context.vk_set += 1;
     }

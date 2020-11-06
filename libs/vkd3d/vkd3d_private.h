@@ -818,7 +818,6 @@ struct d3d12_root_constant
 struct d3d12_root_descriptor
 {
     struct vkd3d_shader_resource_binding *binding;
-    uint32_t packed_descriptor;
 };
 
 struct d3d12_root_parameter
@@ -1200,7 +1199,7 @@ struct vkd3d_pipeline_bindings
     uint64_t descriptor_heap_dirty_mask;
 
     /* Needed when VK_KHR_push_descriptor is not available. */
-    struct vkd3d_root_descriptor_info root_descriptors[D3D12_MAX_ROOT_COST / 2];
+    struct vkd3d_root_descriptor_info root_descriptors[D3D12_MAX_ROOT_COST];
     uint64_t root_descriptor_dirty_mask;
     uint64_t root_descriptor_active_mask;
 
