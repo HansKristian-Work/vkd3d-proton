@@ -3241,7 +3241,8 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         return VK_NULL_HANDLE;
 
     /* Unknown DSV format workaround. */
-    if (dsv_format != graphics->dsv_format)
+    if ((dsv_format != graphics->dsv_format) && (graphics->dsv_format != VK_FORMAT_UNDEFINED ||
+            state->graphics.ds_desc.depthTestEnable || state->graphics.ds_desc.stencilTestEnable))
     {
         TRACE("DSV format mismatch, expected %u, got %u, buggy application!\n",
               graphics->dsv_format, dsv_format);
