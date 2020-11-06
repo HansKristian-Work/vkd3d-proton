@@ -3132,9 +3132,8 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
 
 static bool vk_write_descriptor_set_from_root_descriptor(struct d3d12_command_list *list,
         VkWriteDescriptorSet *vk_descriptor_write, const struct d3d12_root_parameter *root_parameter,
-        VkDescriptorSet vk_descriptor_set, const struct vkd3d_root_descriptor_info *descriptors)
+        VkDescriptorSet vk_descriptor_set, const struct vkd3d_root_descriptor_info *descriptor)
 {
-    const struct vkd3d_root_descriptor_info *descriptor = &descriptors[root_parameter->descriptor.packed_descriptor];
     bool is_buffer, is_defined;
 
     is_buffer = descriptor->vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
@@ -3309,7 +3308,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
 
         if (!vk_write_descriptor_set_from_root_descriptor(list,
                 &descriptor_writes[descriptor_write_count], root_parameter,
-                descriptor_set, bindings->root_descriptors))
+                descriptor_set, &bindings->root_descriptors[root_parameter_index]))
             continue;
 
         descriptor_write_count += 1;
@@ -5164,7 +5163,7 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
 
     ssbo = d3d12_device_use_ssbo_root_descriptors(list->device);
     root_parameter = root_signature_get_root_descriptor(root_signature, index);
-    descriptor = &bindings->root_descriptors[root_parameter->descriptor.packed_descriptor];
+    descriptor = &bindings->root_descriptors[index];
     null_descriptors = list->device->device_info.robustness2_features.nullDescriptor;
 
     if (ssbo || root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV)
