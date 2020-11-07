@@ -6367,6 +6367,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetMarker(d3d12_command_list_if
         label.color[i] = 1.0f;
 
     VK_CALL(vkCmdInsertDebugUtilsLabelEXT(list->vk_command_buffer, &label));
+    vkd3d_free(label_str);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_BeginEvent(d3d12_command_list_iface *iface,
