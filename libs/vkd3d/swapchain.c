@@ -1755,18 +1755,16 @@ static HRESULT d3d12_swapchain_present(struct d3d12_swapchain *swapchain,
 
     if (flags & ~DXGI_PRESENT_TEST)
         FIXME("Unimplemented flags %#x.\n", flags);
-    if (flags & DXGI_PRESENT_TEST)
-    {
-        WARN("Returning S_OK for DXGI_PRESENT_TEST.\n");
-        return S_OK;
-    }
 
     if (swapchain->vk_swapchain == VK_NULL_HANDLE)
     {
         /* We're in a minimized state where we cannot present. However, we might be able to present now, so check that. */
         if (!d3d12_swapchain_has_nonzero_surface_size(swapchain))
-            return S_OK;
+            return DXGI_STATUS_OCCLUDED;
     }
+
+    if (flags & DXGI_PRESENT_TEST)
+        return S_OK;
 
     if (FAILED(hr = d3d12_swapchain_set_sync_interval(swapchain, sync_interval)))
         return hr;
