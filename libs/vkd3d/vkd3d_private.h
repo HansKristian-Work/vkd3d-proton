@@ -410,6 +410,7 @@ struct d3d12_heap
 
     VkDeviceMemory vk_memory;
     void *map_ptr;
+    void *write_watch_ptr;
     uint32_t vk_memory_type;
 
     struct d3d12_resource *buffer_resource;

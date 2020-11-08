@@ -428,6 +428,59 @@ static ULONG STDMETHODCALLTYPE d3d12_heap_AddRef(d3d12_heap_iface *iface)
 
 static ULONG d3d12_resource_decref(struct d3d12_resource *resource);
 
+static void *d3d12_allocate_write_watch_pointer(const D3D12_HEAP_PROPERTIES* properties, VkDeviceSize size)
+{
+    DWORD protect;
+    void *ptr;
+
+    switch (properties->Type)
+    {
+    case D3D12_HEAP_TYPE_DEFAULT:
+        return NULL;
+    case D3D12_HEAP_TYPE_UPLOAD:
+        protect = PAGE_READWRITE | PAGE_WRITECOMBINE;
+        break;
+    case D3D12_HEAP_TYPE_READBACK:
+        // WRITE_WATCH fails for this type in native D3D12.
+        // Otherwise it would be PAGE_READWRITE.
+        return NULL;
+    case D3D12_HEAP_TYPE_CUSTOM:
+        switch (properties->CPUPageProperty)
+        {
+        case D3D12_CPU_PAGE_PROPERTY_UNKNOWN:
+            return NULL;
+        case D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE:
+            return NULL;
+        case D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE:
+            protect = PAGE_READWRITE | PAGE_WRITECOMBINE;
+            break;
+        case D3D12_CPU_PAGE_PROPERTY_WRITE_BACK:
+            protect = PAGE_READWRITE;
+            break;
+        default:
+            ERR("Invalid CPU page property %#x.\n", properties->CPUPageProperty);
+            return NULL;
+        }
+    default:
+        ERR("Invalid heap type %#x.\n", properties->Type);
+        return NULL;
+    }
+
+    if (!(ptr = VirtualAlloc(NULL, size, MEM_COMMIT | MEM_RESERVE | MEM_WRITE_WATCH, protect)))
+    {
+        ERR("Failed to allocate write watch pointer %#x.\n", GetLastError());
+        return NULL;
+    }
+
+    return ptr;
+}
+
+static void d3d12_free_write_watch_pointer(const D3D12_HEAP_DESC* desc, void* pointer)
+{
+    if (VirtualFree(pointer, 0, MEM_RELEASE))
+        ERR("Failed to free write watch pointer %#x.\n", GetLastError());
+}
+
 static void d3d12_heap_cleanup(struct d3d12_heap *heap)
 {
     struct d3d12_device *device = heap->device;
@@ -437,6 +490,9 @@ static void d3d12_heap_cleanup(struct d3d12_heap *heap)
         d3d12_resource_decref(heap->buffer_resource);
 
     VK_CALL(vkFreeMemory(device->vk_device, heap->vk_memory, NULL));
+
+    if (heap->write_watch_ptr)
+        d3d12_free_write_watch_pointer(&heap->desc, heap->write_watch_ptr);
 
     if (heap->is_private)
         device = NULL;
@@ -710,7 +766,7 @@ static HRESULT d3d12_heap_allocate_storage(struct d3d12_heap *heap,
     {
         if (d3d12_resource_is_buffer(resource))
         {
-            hr = vkd3d_allocate_buffer_memory(device, resource->vk_buffer, NULL,
+            hr = vkd3d_allocate_buffer_memory(device, resource->vk_buffer, host_memory,
                     &heap->desc.Properties, heap->desc.Flags | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS,
                     &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
         }
@@ -775,6 +831,7 @@ static HRESULT d3d12_heap_allocate_storage(struct d3d12_heap *heap,
 static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
         struct d3d12_device *device, const D3D12_HEAP_DESC *desc, const struct d3d12_resource *resource)
 {
+    const struct vkd3d_vk_device_procs* vk_procs = &device->vk_procs;
     bool buffers_allowed;
     HRESULT hr;
 
@@ -826,7 +883,36 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
         return hr;
     }
 
-    if (FAILED(hr = d3d12_heap_allocate_storage(heap, device, resource, NULL)))
+    if (heap->desc.Flags & D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH)
+    {
+        VkDeviceSize size = heap->desc.SizeInBytes;
+
+        if (resource)
+        {
+            VkMemoryRequirements2 memory_requirements2;
+            VkBufferMemoryRequirementsInfo2 info;
+
+            assert(d3d12_resource_is_buffer(resource));
+
+            memory_requirements2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+            memory_requirements2.pNext = NULL;
+
+            info.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_REQUIREMENTS_INFO_2;
+            info.pNext = NULL;
+            info.buffer = resource->vk_buffer;
+
+            VK_CALL(vkGetBufferMemoryRequirements2(device->vk_device, &info, &memory_requirements2));
+
+            size = memory_requirements2.memoryRequirements.size;
+        }
+
+        if (device->vk_info.EXT_external_memory_host)
+            heap->write_watch_ptr = d3d12_allocate_write_watch_pointer(&heap->desc.Properties, size);
+        else
+            WARN("VK_EXT_external_memory_host is not supported. Falling back to a private allocation. This will likely break debug code.\n");
+    }
+
+    if (FAILED(hr = d3d12_heap_allocate_storage(heap, device, resource, heap->write_watch_ptr)))
     {
         d3d12_heap_cleanup(heap);
         return hr;
