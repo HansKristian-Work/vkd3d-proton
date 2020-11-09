@@ -53,6 +53,7 @@
 
 #define VKD3D_MAX_DESCRIPTOR_SETS 10u
 #define VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS 8u
+#define VKD3D_MAX_MUTABLE_DESCRIPTOR_TYPES 6u
 
 #define VKD3D_PIPELINE_BIND_POINT_COUNT 2u
 
@@ -136,6 +137,8 @@ struct vkd3d_vulkan_info
     bool AMD_shader_core_properties2;
     /* NV device extensions */
     bool NV_shader_sm_builtins;
+    /* VALVE extensions */
+    bool VALVE_mutable_descriptor_type;
 
     bool rasterization_stream;
     bool transform_feedback_queries;
@@ -1625,6 +1628,7 @@ enum vkd3d_bindless_set_flag
     VKD3D_BINDLESS_SET_BUFFER   = (1u << 5),
     VKD3D_BINDLESS_SET_COUNTER  = (1u << 6),
     VKD3D_BINDLESS_SET_RAW_SSBO = (1u << 7),
+    VKD3D_BINDLESS_MUTABLE_TYPE = (1u << 8),
 
     VKD3D_BINDLESS_SET_EXTRA_UAV_COUNTER_BUFFER = (1u << 24),
     VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER      = (1u << 25),
@@ -1980,6 +1984,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR subgroup_extended_types_features;
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features;
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extended_dynamic_state_features;
+    VkPhysicalDeviceMutableDescriptorTypeFeaturesVALVE mutable_descriptor_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
