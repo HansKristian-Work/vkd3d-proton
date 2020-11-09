@@ -1756,7 +1756,7 @@ static HRESULT d3d12_swapchain_present(struct d3d12_swapchain *swapchain,
         return DXGI_ERROR_INVALID_CALL;
     }
 
-    if (flags & ~DXGI_PRESENT_TEST)
+    if (flags & ~(DXGI_PRESENT_TEST | DXGI_PRESENT_ALLOW_TEARING))
         FIXME("Unimplemented flags %#x.\n", flags);
 
     if (swapchain->vk_swapchain == VK_NULL_HANDLE)
