@@ -1468,6 +1468,9 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
     else
     {
         /* Fallback path for when surface size is 0. We'll try to create a proper swapchain in a future Present call. */
+        if (FAILED(hr = d3d12_swapchain_create_user_buffers(swapchain, vk_format)))
+            return hr;
+
         d3d12_swapchain_destroy_buffers(swapchain, FALSE);
         d3d12_swapchain_destroy_framebuffers(swapchain);
         swapchain->buffer_count = 0;
