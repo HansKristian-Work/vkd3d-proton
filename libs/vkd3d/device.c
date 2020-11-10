@@ -4516,6 +4516,7 @@ static void d3d12_device_caps_override(struct d3d12_device *device)
 
 static void d3d12_device_caps_init(struct d3d12_device *device)
 {
+    d3d12_device_caps_init_shader_model(device);
     d3d12_device_caps_init_feature_options(device);
     d3d12_device_caps_init_feature_options1(device);
     d3d12_device_caps_init_feature_options2(device);
@@ -4524,7 +4525,6 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options5(device);
     d3d12_device_caps_init_feature_options6(device);
     d3d12_device_caps_init_feature_level(device);
-    d3d12_device_caps_init_shader_model(device);
 
     d3d12_device_caps_override(device);
 }
