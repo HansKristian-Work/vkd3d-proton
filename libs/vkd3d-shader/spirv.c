@@ -6180,6 +6180,25 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
         type_id = global_binding->type_id;
         var_id = global_binding->var_id;
     }
+    else if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA))
+    {
+        unsigned int flags = 0;
+
+        if (is_uav)
+        {
+            if (!(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
+                flags |= VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY;
+
+            if (instruction->flags & VKD3DSUF_GLOBALLY_COHERENT)
+                flags |= VKD3D_SHADER_GLOBAL_BINDING_COHERENT;
+        }
+
+        storage_class = SpvStorageClassPhysicalStorageBuffer;
+        type_id = vkd3d_dxbc_compiler_get_buffer_reference_type(compiler,
+                is_uav ? VKD3D_DATA_UAV : VKD3D_DATA_RESOURCE, 1, 0, flags)->type_id;
+        var_id = compiler->root_parameter_var_id;
+        use_ssbo = true;
+    }
     else
     {
         if (use_ssbo)
@@ -8233,6 +8252,11 @@ static uint32_t vkd3d_dxbc_compiler_get_resource_pointer(struct vkd3d_dxbc_compi
         ptr_id = vkd3d_spirv_build_op_access_chain(builder,
                 ptr_type_id, ptr_id, &index_id, 1);
     }
+    if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA))
+    {
+        ptr_id = vkd3d_dxbc_compiler_load_root_descriptor_va(compiler,
+                symbol->info.resource.type_id, binding);
+    }
 
     return ptr_id;
 }
@@ -8814,11 +8838,13 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
+    SpvMemoryAccessMask access_mask = SpvMemoryAccessMaskNone;
     const struct vkd3d_shader_src_param *resource;
     uint32_t base_coordinate_id, component_idx;
     uint32_t constituents[VKD3D_VEC4_SIZE];
     struct vkd3d_shader_image image;
     unsigned int i, j, member_idx;
+    const uint32_t alignment = 4;
     uint32_t members[2];
     bool is_sparse_op;
     SpvOp op;
@@ -8853,7 +8879,9 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
     base_coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
             type_id, image.structure_stride, &src[0], VKD3DSP_WRITEMASK_0, &src[1], VKD3DSP_WRITEMASK_0);
 
-    if (image.ssbo)
+    if (image.storage_class == SpvStorageClassPhysicalStorageBuffer)
+        access_mask = SpvMemoryAccessAlignedMask;
+    else if (image.ssbo)
         base_coordinate_id = vkd3d_dxbc_compiler_adjust_ssbo_offset(compiler, &resource->reg, base_coordinate_id);
     else if (!image.raw && !image.structure_stride)
         base_coordinate_id = vkd3d_dxbc_compiler_adjust_typed_buffer_offset(compiler, &resource->reg, base_coordinate_id);
@@ -8884,7 +8912,7 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
             indices[0] = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
             indices[1] = coordinate_id;
             ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id, image.id, indices, ARRAY_SIZE(indices));
-            constituents[j++] = vkd3d_spirv_build_op_load(builder, type_id, ptr_id, SpvMemoryAccessMaskNone);
+            constituents[j++] = vkd3d_spirv_build_op_loadv(builder, type_id, ptr_id, access_mask, &alignment, 1);
 
             if (resource->reg.modifier == VKD3DSPRM_NONUNIFORM)
                 vkd3d_dxbc_compiler_decorate_nonuniform(compiler, ptr_id);
@@ -8979,10 +9007,12 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
     uint32_t coordinate_id, type_id, ptr_type_id, val_id, texel_id;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
+    SpvMemoryAccessMask access_mask = SpvMemoryAccessMaskNone;
     const struct vkd3d_shader_src_param *texel;
     uint32_t base_coordinate_id, component_idx;
     struct vkd3d_shader_image image;
     unsigned int component_count;
+    const uint32_t alignment = 4;
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
     vkd3d_dxbc_compiler_prepare_image(compiler, &image, &dst->reg, NULL, VKD3D_IMAGE_FLAG_NONE);
@@ -8990,7 +9020,9 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
     base_coordinate_id = vkd3d_dxbc_compiler_emit_raw_structured_addressing(compiler,
             type_id, image.structure_stride, &src[0], VKD3DSP_WRITEMASK_0, &src[1], VKD3DSP_WRITEMASK_0);
 
-    if (image.ssbo)
+    if (image.storage_class == SpvStorageClassPhysicalStorageBuffer)
+        access_mask = SpvMemoryAccessAlignedMask;
+    else if (image.ssbo)
         base_coordinate_id = vkd3d_dxbc_compiler_adjust_ssbo_offset(compiler, &dst->reg, base_coordinate_id);
     else if (!image.raw && !image.structure_stride)
         base_coordinate_id = vkd3d_dxbc_compiler_adjust_typed_buffer_offset(compiler, &dst->reg, base_coordinate_id);
@@ -9020,7 +9052,7 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
                 texel_id = vkd3d_spirv_build_op_composite_extract1(builder, type_id, texel_id, component_idx);
 
             ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id, image.id, indices, ARRAY_SIZE(indices));
-            vkd3d_spirv_build_op_store(builder, ptr_id, texel_id, SpvMemoryAccessMaskNone);
+            vkd3d_spirv_build_op_storev(builder, ptr_id, texel_id, access_mask, &alignment, 1);
 
             if (dst->reg.modifier == VKD3DSPRM_NONUNIFORM)
                 vkd3d_dxbc_compiler_decorate_nonuniform(compiler, ptr_id);
@@ -9343,7 +9375,7 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
                 type_id, structure_stride, &src[0], VKD3DSP_WRITEMASK_0,
                 &src[0], VKD3DSP_WRITEMASK_1);
 
-        if (resource->reg.type != VKD3DSPR_GROUPSHAREDMEM && image.ssbo)
+        if (resource->reg.type != VKD3DSPR_GROUPSHAREDMEM && image.ssbo && reg_info.storage_class != SpvStorageClassPhysicalStorageBuffer)
             coordinate_id = vkd3d_dxbc_compiler_adjust_ssbo_offset(compiler, &resource->reg, coordinate_id);
     }
     else
