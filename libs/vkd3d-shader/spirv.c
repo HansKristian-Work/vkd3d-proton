@@ -2232,7 +2232,7 @@ struct vkd3d_dxbc_compiler
     size_t spec_constants_size;
 
     uint32_t push_constant_member_count;
-    uint32_t descriptor_table_var_id;
+    uint32_t root_parameter_var_id;
     uint32_t descriptor_table_member;
 
     struct vkd3d_shader_global_binding *global_bindings;
@@ -5688,6 +5688,8 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
             pointer_type_id, storage_class, 0);
 
+    compiler->root_parameter_var_id = var_id;
+
     for (i = 0, j = 0; i < root_descriptor_count; i++)
     {
         vkd3d_spirv_build_op_member_decorate1(builder, struct_id, j, SpvDecorationOffset, sizeof(uint64_t) * i);
@@ -5721,10 +5723,7 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
     }
 
     if (compiler->shader_interface.descriptor_tables.count)
-    {
-        compiler->descriptor_table_var_id = var_id;
         compiler->descriptor_table_member = j;
-    }
 
     for (i = 0; i < compiler->shader_interface.descriptor_tables.count; ++i)
     {
@@ -8073,7 +8072,7 @@ static uint32_t vkd3d_dxbc_compiler_load_descriptor_table_offset(struct vkd3d_dx
             compiler->descriptor_table_member + descriptor_table);
 
     ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
-            compiler->descriptor_table_var_id, &index, 1);
+            compiler->root_parameter_var_id, &index, 1);
 
     return vkd3d_spirv_build_op_load(builder, uint_type_id, ptr_id, SpvMemoryAccessMaskNone);
 }
