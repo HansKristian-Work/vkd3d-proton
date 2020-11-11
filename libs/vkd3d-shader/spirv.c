@@ -1206,6 +1206,18 @@ static uint32_t vkd3d_spirv_build_op_load(struct vkd3d_spirv_builder *builder,
                 result_type, pointer_id, memory_access);
 }
 
+static uint32_t vkd3d_spirv_build_op_loadv(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t pointer_id, uint32_t memory_access,
+        const uint32_t *operands, uint32_t operand_count)
+{
+    if (memory_access == SpvMemoryAccessMaskNone)
+        return vkd3d_spirv_build_op_tr1(builder, &builder->function_stream, SpvOpLoad,
+                result_type, pointer_id);
+    else
+        return vkd3d_spirv_build_op_tr2v(builder, &builder->function_stream, SpvOpLoad,
+                result_type, pointer_id, memory_access, operands, operand_count);
+}
+
 static void vkd3d_spirv_build_op_store(struct vkd3d_spirv_builder *builder,
         uint32_t pointer_id, uint32_t object_id, uint32_t memory_access)
 {
@@ -1215,6 +1227,18 @@ static void vkd3d_spirv_build_op_store(struct vkd3d_spirv_builder *builder,
     else
         vkd3d_spirv_build_op3(&builder->function_stream, SpvOpStore,
             pointer_id, object_id, memory_access);
+}
+
+static void vkd3d_spirv_build_op_storev(struct vkd3d_spirv_builder *builder,
+        uint32_t pointer_id, uint32_t object_id, uint32_t memory_access,
+        const uint32_t *operands, uint32_t operand_count)
+{
+    if (memory_access == SpvMemoryAccessMaskNone)
+        vkd3d_spirv_build_op2(&builder->function_stream, SpvOpStore,
+                pointer_id, object_id);
+    else
+        vkd3d_spirv_build_op3v(&builder->function_stream, SpvOpStore,
+                pointer_id, object_id, memory_access, operands, operand_count);
 }
 
 static void vkd3d_spirv_build_op_copy_memory(struct vkd3d_spirv_builder *builder,
