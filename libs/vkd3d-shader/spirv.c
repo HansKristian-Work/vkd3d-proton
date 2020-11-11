@@ -911,6 +911,9 @@ static uint32_t vkd3d_spirv_build_op_type_int(struct vkd3d_spirv_builder *builde
 static uint32_t vkd3d_spirv_get_op_type_int(struct vkd3d_spirv_builder *builder,
         uint32_t width, uint32_t signedness)
 {
+    if (width == 64)
+        vkd3d_spirv_enable_capability(builder, SpvCapabilityInt64);
+
     return vkd3d_spirv_build_once2(builder, SpvOpTypeInt, width, signedness,
             vkd3d_spirv_build_op_type_int);
 }
