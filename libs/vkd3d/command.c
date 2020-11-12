@@ -3319,7 +3319,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     unsigned int root_parameter_index, va_count;
     unsigned int descriptor_write_count = 0;
 
-    if (!(root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS))
+    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET)
     {
         /* Ensure that we populate all descriptors if push descriptors cannot be used */
         bindings->root_descriptor_dirty_mask |= bindings->root_descriptor_active_mask & root_signature->root_descriptor_mask;
@@ -3369,19 +3369,19 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     if (!descriptor_write_count)
         return;
 
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS)
-    {
-        VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, bind_point,
-                root_signature->vk_pipeline_layout, root_signature->root_descriptor_set,
-                descriptor_write_count, descriptor_writes));
-    }
-    else
+    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET)
     {
         VK_CALL(vkUpdateDescriptorSets(list->device->vk_device,
                 descriptor_write_count, descriptor_writes, 0, NULL));
         VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
                 root_signature->vk_pipeline_layout, root_signature->root_descriptor_set,
                 1, &descriptor_set, 0, NULL));
+    }
+    else
+    {
+        VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, bind_point,
+                root_signature->vk_pipeline_layout, root_signature->root_descriptor_set,
+                descriptor_write_count, descriptor_writes));
     }
 }
 
