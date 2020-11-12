@@ -5147,7 +5147,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRoot32BitConstants(d
             root_parameter_index, dst_offset, constant_count, data);
 }
 
-static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *list,
+static void d3d12_command_list_set_push_descriptor_info(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point, unsigned int index, D3D12_GPU_VIRTUAL_ADDRESS gpu_address)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
@@ -5228,6 +5228,35 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
                     : list->device->null_resources.vk_storage_buffer_view;
         }
     }
+}
+
+static void d3d12_command_list_set_root_descriptor_va(struct d3d12_command_list *list,
+        struct vkd3d_root_descriptor_info *descriptor, D3D12_GPU_VIRTUAL_ADDRESS gpu_address)
+{
+    const struct d3d12_resource *resource;
+    VkDeviceAddress va = 0;
+
+    if (gpu_address)
+    {
+        /* We're not actually passing real VAs to the app, so we need to remap the address */
+        resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, gpu_address);
+        va = vkd3d_get_buffer_device_address(list->device, resource->vk_buffer) + gpu_address - resource->gpu_address;
+    }
+
+    descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
+    descriptor->info.va = va;
+}
+
+static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point, unsigned int index, D3D12_GPU_VIRTUAL_ADDRESS gpu_address)
+{
+    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    struct vkd3d_root_descriptor_info *descriptor = &bindings->root_descriptors[index];
+
+    if (list->device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR)
+        d3d12_command_list_set_root_descriptor_va(list, descriptor, gpu_address);
+    else
+        d3d12_command_list_set_push_descriptor_info(list, bind_point, index, gpu_address);
 
     bindings->root_descriptor_dirty_mask |= 1ull << index;
     bindings->root_descriptor_active_mask |= 1ull << index;
