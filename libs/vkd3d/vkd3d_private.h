@@ -1179,6 +1179,7 @@ union vkd3d_descriptor_info
     VkBufferView buffer_view;
     VkDescriptorBufferInfo buffer;
     VkDescriptorImageInfo image;
+    VkDeviceAddress va;
 };
 
 struct vkd3d_root_descriptor_info
