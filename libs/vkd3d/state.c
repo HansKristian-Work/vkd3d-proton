@@ -715,8 +715,8 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
 
     if (j)
     {
-        vk_flags = root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS
-                ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0;
+        vk_flags = root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET
+                ? 0 : VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
 
         hr = vkd3d_create_descriptor_set_layout(root_signature->device, vk_flags,
                 j, vk_binding_info, vk_set_layout);
@@ -860,14 +860,15 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
     if (root_signature->push_constant_range.size <= vk_device_properties->limits.maxPushConstantsSize)
     {
-        if (info.push_descriptor_count <= device->device_info.push_descriptor_properties.maxPushDescriptors)
-            root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS;
+        if (info.push_descriptor_count > device->device_info.push_descriptor_properties.maxPushDescriptors)
+            root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET;
     }
     else if (device->device_info.inline_uniform_block_features.inlineUniformBlock)
     {
         /* Stores push constant data with the root descriptor set,
          * so we can't use push descriptors in this case. */
-        root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK;
+        root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK |
+                VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET;
     }
     else
     {
