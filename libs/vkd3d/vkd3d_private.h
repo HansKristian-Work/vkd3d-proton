@@ -293,39 +293,6 @@ void vkd3d_va_map_free_fake_va(struct vkd3d_va_map *va_map, VkDeviceAddress va, 
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map);
 void vkd3d_va_map_cleanup(struct vkd3d_va_map *va_map);
 
-struct vkd3d_gpu_va_allocation
-{
-    D3D12_GPU_VIRTUAL_ADDRESS base;
-    size_t size;
-    void *ptr;
-};
-
-struct vkd3d_gpu_va_slab
-{
-    size_t size;
-    void *ptr;
-};
-
-struct vkd3d_gpu_va_allocator
-{
-    pthread_mutex_t mutex;
-
-    D3D12_GPU_VIRTUAL_ADDRESS fallback_floor;
-    struct vkd3d_gpu_va_allocation *fallback_allocations;
-    size_t fallback_allocations_size;
-    size_t fallback_allocation_count;
-
-    struct vkd3d_gpu_va_slab *slabs;
-    struct vkd3d_gpu_va_slab *free_slab;
-};
-
-D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_allocator *allocator,
-        size_t alignment, size_t size, void *ptr);
-void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocator,
-        D3D12_GPU_VIRTUAL_ADDRESS address);
-void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator,
-        D3D12_GPU_VIRTUAL_ADDRESS address);
-
 struct vkd3d_render_pass_key
 {
     unsigned int attachment_count;
@@ -551,7 +518,8 @@ struct d3d12_resource
 
     D3D12_RESOURCE_DESC desc;
 
-    D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
+    VkDeviceAddress gpu_address;
+    VkDeviceSize gpu_size;
     union
     {
         VkBuffer vk_buffer;
@@ -1972,7 +1940,7 @@ struct d3d12_device
     PFN_vkd3d_signal_event signal_event;
     size_t wchar_size;
 
-    struct vkd3d_gpu_va_allocator gpu_va_allocator;
+    struct vkd3d_va_map gpu_va_map;
     struct vkd3d_fence_worker fence_worker;
 
     pthread_mutex_t mutex;

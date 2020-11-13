@@ -2001,7 +2001,10 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
     if (!(resource->flags & VKD3D_RESOURCE_PLACED_BUFFER))
     {
         if (resource->gpu_address)
-            vkd3d_gpu_va_allocator_free(&device->gpu_va_allocator, resource->gpu_address);
+        {
+            vkd3d_va_map_remove(&device->gpu_va_map, resource);
+            vkd3d_va_map_free_fake_va(&device->gpu_va_map, resource->gpu_address, resource->gpu_size);
+        }
 
         if (d3d12_resource_is_buffer(resource))
             VK_CALL(vkDestroyBuffer(device->vk_device, resource->vk_buffer, NULL));
@@ -3076,6 +3079,7 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
         WARN("Ignoring optimized clear value.\n");
 
     resource->gpu_address = 0;
+    resource->gpu_size = 0;
     resource->flags = 0;
     resource->initial_layout_transition = 0;
     resource->common_layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -3104,14 +3108,18 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
             if (FAILED(hr = vkd3d_create_buffer(device, heap_properties, heap_flags,
                     &resource->desc, &resource->vk_buffer)))
                 return hr;
-            if (!(resource->gpu_address = vkd3d_gpu_va_allocator_allocate(&device->gpu_va_allocator,
-                    desc->Alignment ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
-                    desc->Width, resource)))
+
+            resource->gpu_size = align(desc->Width, VKD3D_VA_BLOCK_SIZE);
+            resource->gpu_address = vkd3d_va_map_alloc_fake_va(&device->gpu_va_map, resource->gpu_size);
+
+            if (!resource->gpu_address)
             {
                 ERR("Failed to allocate GPU VA.\n");
                 d3d12_resource_destroy(resource, device);
                 return E_OUTOFMEMORY;
             }
+            
+            vkd3d_va_map_insert(&device->gpu_va_map, resource);
             break;
 
         case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
@@ -3926,7 +3934,7 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
 
     if (desc->BufferLocation)
     {
-        resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, desc->BufferLocation);
+        resource = vkd3d_va_map_deref(&device->gpu_va_map, desc->BufferLocation);
         descriptor_info.buffer.buffer = resource->vk_buffer;
         descriptor_info.buffer.offset = desc->BufferLocation - resource->gpu_address;
         descriptor_info.buffer.range = min(desc->SizeInBytes, resource->desc.Width - descriptor_info.buffer.offset);
@@ -4682,7 +4690,7 @@ bool vkd3d_create_raw_buffer_view(struct d3d12_device *device,
     uint64_t offset;
 
     format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
-    resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, gpu_address);
+    resource = vkd3d_va_map_deref(&device->gpu_va_map, gpu_address);
     assert(d3d12_resource_is_buffer(resource));
 
     offset = gpu_address - resource->gpu_address;
