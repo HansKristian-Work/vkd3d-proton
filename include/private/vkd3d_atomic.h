@@ -53,7 +53,7 @@ FORCEINLINE void vkd3d_atomic_load_barrier(vkd3d_memory_order order)
     }
 }
 
-// Redefinitions for invalid memory orders...
+/* Redefinitions for invalid memory orders */
 #define InterlockedExchangeRelease     InterlockedExchange
 #define InterlockedExchangeRelease64   InterlockedExchange64
 
@@ -79,7 +79,7 @@ FORCEINLINE void vkd3d_atomic_uint32_store_explicit(uint32_t *target, uint32_t v
 {
     switch (order)
     {
-        case vkd3d_memory_order_release: vkd3d_atomic_rw_barrier(); // fallthrough...
+        case vkd3d_memory_order_release: vkd3d_atomic_rw_barrier(); /* fallthrough */
         case vkd3d_memory_order_relaxed: *((volatile uint32_t*)target) = value; break;
         default:
         case vkd3d_memory_order_seq_cst:
@@ -119,7 +119,7 @@ FORCEINLINE void vkd3d_atomic_uint64_store_explicit(uint64_t *target, uint64_t v
 {
     switch (order)
     {
-        case vkd3d_memory_order_release: vkd3d_atomic_rw_barrier(); // fallthrough...
+        case vkd3d_memory_order_release: vkd3d_atomic_rw_barrier(); /* fallthrough */
         case vkd3d_memory_order_relaxed: *((volatile uint64_t*)target) = value; break;
         default:
         case vkd3d_memory_order_seq_cst:
