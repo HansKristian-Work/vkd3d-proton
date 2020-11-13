@@ -449,7 +449,7 @@ struct d3d12_heap
 };
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
-        const struct d3d12_resource *resource, struct d3d12_heap **heap);
+        struct d3d12_resource *resource, struct d3d12_heap **heap);
 HRESULT d3d12_heap_create_from_host_pointer(struct d3d12_device *device, void *addr, size_t size,
         struct d3d12_heap **heap);
 bool d3d12_heap_needs_host_barrier_for_write(struct d3d12_heap *heap);

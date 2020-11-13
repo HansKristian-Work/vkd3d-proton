@@ -704,8 +704,17 @@ static HRESULT d3d12_heap_init_omnipotent_buffer(struct d3d12_heap *heap, struct
     return S_OK;
 }
 
+static void d3d12_resource_assign_gpu_address(struct d3d12_device *device, struct d3d12_resource *resource)
+{
+    resource->gpu_address = device->device_info.buffer_device_address_features.bufferDeviceAddress
+            ? vkd3d_get_buffer_device_address(device, resource->vk_buffer)
+            : vkd3d_va_map_alloc_fake_va(&device->gpu_va_map, resource->gpu_size);
+
+    vkd3d_va_map_insert(&device->gpu_va_map, resource);
+}
+
 static HRESULT d3d12_heap_allocate_storage(struct d3d12_heap *heap,
-        struct d3d12_device *device, const struct d3d12_resource *resource, void *host_memory)
+        struct d3d12_device *device, struct d3d12_resource *resource, void *host_memory)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const VkMemoryType *memory_type;
@@ -720,6 +729,9 @@ static HRESULT d3d12_heap_allocate_storage(struct d3d12_heap *heap,
             hr = vkd3d_allocate_buffer_memory(device, resource->vk_buffer, NULL,
                     &heap->desc.Properties, heap->desc.Flags | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS,
                     &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
+
+            if (SUCCEEDED(hr))
+                d3d12_resource_assign_gpu_address(device, resource);
         }
         else
         {
@@ -735,6 +747,9 @@ static HRESULT d3d12_heap_allocate_storage(struct d3d12_heap *heap,
         hr = vkd3d_allocate_buffer_memory(device, heap->buffer_resource->vk_buffer, host_memory,
                 &heap->desc.Properties, heap->desc.Flags,
                 &heap->vk_memory, &heap->vk_memory_type, &vk_memory_size);
+
+        if (SUCCEEDED(hr))
+            d3d12_resource_assign_gpu_address(device, heap->buffer_resource);
     }
     else
     {
@@ -780,7 +795,7 @@ static HRESULT d3d12_heap_allocate_storage(struct d3d12_heap *heap,
 }
 
 static HRESULT d3d12_heap_init(struct d3d12_heap *heap,
-        struct d3d12_device *device, const D3D12_HEAP_DESC *desc, const struct d3d12_resource *resource)
+        struct d3d12_device *device, const D3D12_HEAP_DESC *desc, struct d3d12_resource *resource)
 {
     bool buffers_allowed;
     HRESULT hr;
@@ -892,7 +907,7 @@ static HRESULT d3d12_heap_init_from_host_pointer(struct d3d12_heap *heap,
 }
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
-        const struct d3d12_resource *resource, struct d3d12_heap **heap)
+        struct d3d12_resource *resource, struct d3d12_heap **heap)
 {
     struct d3d12_heap *object;
     HRESULT hr;
@@ -2003,7 +2018,9 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
         if (resource->gpu_address)
         {
             vkd3d_va_map_remove(&device->gpu_va_map, resource);
-            vkd3d_va_map_free_fake_va(&device->gpu_va_map, resource->gpu_address, resource->gpu_size);
+
+            if (!device->device_info.buffer_device_address_features.bufferDeviceAddress)
+                vkd3d_va_map_free_fake_va(&device->gpu_va_map, resource->gpu_address, resource->gpu_size);
         }
 
         if (d3d12_resource_is_buffer(resource))
@@ -3048,6 +3065,7 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, bool placed)
 {
+    D3D12_RESOURCE_DESC real_desc;
     HRESULT hr;
 
     resource->ID3D12Resource_iface.lpVtbl = &d3d12_resource_vtbl;
@@ -3105,21 +3123,14 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
                 break;
             }
 
+            resource->gpu_size = align(resource->desc.Width, VKD3D_VA_BLOCK_SIZE);
+
+            real_desc = resource->desc;
+            real_desc.Width = resource->gpu_size;
+
             if (FAILED(hr = vkd3d_create_buffer(device, heap_properties, heap_flags,
-                    &resource->desc, &resource->vk_buffer)))
+                    &real_desc, &resource->vk_buffer)))
                 return hr;
-
-            resource->gpu_size = align(desc->Width, VKD3D_VA_BLOCK_SIZE);
-            resource->gpu_address = vkd3d_va_map_alloc_fake_va(&device->gpu_va_map, resource->gpu_size);
-
-            if (!resource->gpu_address)
-            {
-                ERR("Failed to allocate GPU VA.\n");
-                d3d12_resource_destroy(resource, device);
-                return E_OUTOFMEMORY;
-            }
-            
-            vkd3d_va_map_insert(&device->gpu_va_map, resource);
             break;
 
         case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
@@ -3324,6 +3335,9 @@ HRESULT d3d12_reserved_resource_create(struct d3d12_device *device,
     if (FAILED(hr = d3d12_resource_create(device, NULL, 0,
             desc, initial_state, optimized_clear_value, false, &object)))
         return hr;
+
+    if (d3d12_resource_is_buffer(object))
+        d3d12_resource_assign_gpu_address(device, object);
 
     TRACE("Created reserved resource %p.\n", object);
 
@@ -4490,10 +4504,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
         assert(desc->Buffer.StructureByteStride);
 
         if (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER)
-        {
-            VkDeviceAddress address = vkd3d_get_buffer_device_address(device, counter_resource->vk_buffer);
-            uav_counter_address = address + counter_resource->heap_offset + desc->Buffer.CounterOffsetInBytes;
-        }
+            uav_counter_address = counter_resource->gpu_address + desc->Buffer.CounterOffsetInBytes;
         else
         {
             struct vkd3d_view *view;

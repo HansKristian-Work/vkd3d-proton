@@ -5275,18 +5275,8 @@ static void d3d12_command_list_set_push_descriptor_info(struct d3d12_command_lis
 static void d3d12_command_list_set_root_descriptor_va(struct d3d12_command_list *list,
         struct vkd3d_root_descriptor_info *descriptor, D3D12_GPU_VIRTUAL_ADDRESS gpu_address)
 {
-    const struct d3d12_resource *resource;
-    VkDeviceAddress va = 0;
-
-    if (gpu_address)
-    {
-        /* We're not actually passing real VAs to the app, so we need to remap the address */
-        resource = vkd3d_va_map_deref(&list->device->gpu_va_map, gpu_address);
-        va = vkd3d_get_buffer_device_address(list->device, resource->vk_buffer) + gpu_address - resource->gpu_address;
-    }
-
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
-    descriptor->info.va = va;
+    descriptor->info.va = gpu_address;
 }
 
 static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *list,
