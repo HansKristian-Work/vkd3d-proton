@@ -3337,19 +3337,19 @@ static uint32_t vkd3d_dxbc_compiler_load_root_descriptor_va(struct vkd3d_dxbc_co
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_root_descriptor_info *root_descriptor;
-    uint32_t uint64_id, var_id, ptr_id, ptr_type_id;
+    uint32_t uint32x2_id, var_id, ptr_id, ptr_type_id;
     SpvStorageClass storage_class;
 
     root_descriptor = vkd3d_dxbc_compiler_find_root_descriptor(compiler, binding);
     storage_class = (compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER)
             ? SpvStorageClassUniform : SpvStorageClassPushConstant;
 
-    uint64_id = vkd3d_spirv_get_op_type_int(builder, 64, 0);
-    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, uint64_id);
+    uint32x2_id = vkd3d_spirv_get_op_type_vector(builder, vkd3d_spirv_get_op_type_int(builder, 32, 0), 2);
+    ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, storage_class, uint32x2_id);
 
     ptr_id = vkd3d_spirv_build_op_access_chain1(builder, ptr_type_id, compiler->root_parameter_var_id,
             vkd3d_dxbc_compiler_get_constant_uint(compiler, root_descriptor->member_idx));
-    var_id = vkd3d_spirv_build_op_load(builder, uint64_id, ptr_id, SpvMemoryAccessMaskNone);
+    var_id = vkd3d_spirv_build_op_load(builder, uint32x2_id, ptr_id, SpvMemoryAccessMaskNone);
     return vkd3d_spirv_build_op_bitcast(builder, type_id, var_id);
 }
 
@@ -5682,7 +5682,7 @@ static void vkd3d_dxbc_compiler_emit_offset_buffer(struct vkd3d_dxbc_compiler *c
 
 static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_compiler *compiler)
 {
-    uint32_t uint_id, uint64_id, float_id, struct_id, pointer_type_id, var_id;
+    uint32_t uint_id, uint32x2_id, float_id, struct_id, pointer_type_id, var_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     unsigned int i, j, k, count, root_descriptor_count, reg_idx;
     struct vkd3d_symbol reg_symbol;
@@ -5723,7 +5723,7 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
 
     uint_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
     float_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 1);
-    uint64_id = 0;
+    uint32x2_id = 0;
 
     compiler->root_descriptor_count = root_descriptor_count;
     compiler->root_descriptor_info = vkd3d_calloc(root_descriptor_count, sizeof(*compiler->root_descriptor_info));
@@ -5735,13 +5735,13 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
         if ((binding->flags & (VKD3D_SHADER_BINDING_FLAG_RAW_VA | VKD3D_SHADER_BINDING_FLAG_COUNTER)) != VKD3D_SHADER_BINDING_FLAG_RAW_VA)
             continue;
 
-        if (!uint64_id)
-            uint64_id = vkd3d_spirv_get_op_type_int(builder, 64, 0);
+        if (!uint32x2_id)
+            uint32x2_id = vkd3d_spirv_get_op_type_vector(builder, vkd3d_spirv_get_op_type_int(builder, 32, 0), 2);
 
         compiler->root_descriptor_info[j].binding = binding;
         compiler->root_descriptor_info[j].member_idx = j;
 
-        member_ids[j] = uint64_id;
+        member_ids[j] = uint32x2_id;
         j++;
     }
 
