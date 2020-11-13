@@ -230,6 +230,69 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
 HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
         struct d3d12_device *device);
 
+/* TODO suballocate small committed buffers
+ * and heaps so we can increase this to 20 */
+#define VKD3D_VA_BLOCK_SIZE_BITS (16)
+#define VKD3D_VA_BLOCK_SIZE (1ull << VKD3D_VA_BLOCK_SIZE_BITS)
+#define VKD3D_VA_LO_MASK (VKD3D_VA_BLOCK_SIZE - 1)
+
+#define VKD3D_VA_BLOCK_BITS (20)
+#define VKD3D_VA_BLOCK_COUNT (1ull << VKD3D_VA_BLOCK_BITS)
+#define VKD3D_VA_BLOCK_MASK (VKD3D_VA_BLOCK_COUNT - 1)
+
+#define VKD3D_VA_NEXT_BITS (14)
+#define VKD3D_VA_NEXT_COUNT (1ull << VKD3D_VA_NEXT_BITS)
+#define VKD3D_VA_NEXT_MASK (VKD3D_VA_NEXT_COUNT - 1)
+
+struct vkd3d_va_entry
+{
+    VkDeviceAddress va;
+    struct d3d12_resource *resource;
+};
+
+struct vkd3d_va_block
+{
+    struct vkd3d_va_entry l;
+    struct vkd3d_va_entry r;
+};
+
+struct vkd3d_va_tree
+{
+    struct vkd3d_va_block blocks[1u << VKD3D_VA_BLOCK_BITS];
+    struct vkd3d_va_tree *next[VKD3D_VA_NEXT_COUNT];
+};
+
+struct vkd3d_va_range
+{
+    VkDeviceAddress base;
+    VkDeviceSize size;
+};
+
+struct vkd3d_va_allocator
+{
+    pthread_mutex_t mutex;
+
+    struct vkd3d_va_range *free_ranges;
+    size_t free_ranges_size;
+    size_t free_range_count;
+
+    VkDeviceAddress next_va;
+};
+
+struct vkd3d_va_map
+{
+    struct vkd3d_va_tree va_tree;
+    struct vkd3d_va_allocator va_allocator;
+};
+
+void vkd3d_va_map_insert(struct vkd3d_va_map *va_map, struct d3d12_resource *resource);
+void vkd3d_va_map_remove(struct vkd3d_va_map *va_map, struct d3d12_resource *resource);
+struct d3d12_resource *vkd3d_va_map_deref(const struct vkd3d_va_map *va_map, VkDeviceAddress va);
+VkDeviceAddress vkd3d_va_map_alloc_fake_va(struct vkd3d_va_map *va_map, VkDeviceSize size);
+void vkd3d_va_map_free_fake_va(struct vkd3d_va_map *va_map, VkDeviceAddress va, VkDeviceSize size);
+void vkd3d_va_map_init(struct vkd3d_va_map *va_map);
+void vkd3d_va_map_cleanup(struct vkd3d_va_map *va_map);
+
 struct vkd3d_gpu_va_allocation
 {
     D3D12_GPU_VIRTUAL_ADDRESS base;

@@ -33,6 +33,7 @@ vkd3d_src = [
   'state.c',
   'utils.c',
   'debug_ring.c',
+  'va_map.c',
   'vkd3d_main.c',
 ]
 
