@@ -796,7 +796,7 @@ static inline void d3d12_query_heap_mark_result_as_available(struct d3d12_query_
 
 enum vkd3d_root_signature_flag
 {
-    VKD3D_ROOT_SIGNATURE_USE_PUSH_DESCRIPTORS       = 0x00000001u,
+    VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET    = 0x00000001u,
     VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK   = 0x00000002u,
     VKD3D_ROOT_SIGNATURE_USE_RAW_VA_UAV_COUNTERS    = 0x00000004u,
     VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER     = 0x00000008u,
@@ -1180,6 +1180,7 @@ union vkd3d_descriptor_info
     VkBufferView buffer_view;
     VkDescriptorBufferInfo buffer;
     VkDescriptorImageInfo image;
+    VkDeviceAddress va;
 };
 
 struct vkd3d_root_descriptor_info
@@ -1572,7 +1573,8 @@ enum vkd3d_bindless_flags
     VKD3D_BINDLESS_CBV_AS_SSBO  = (1u << 5),
     VKD3D_BINDLESS_RAW_SSBO     = (1u << 6),
     VKD3D_SSBO_OFFSET_BUFFER    = (1u << 7),
-    VKD3D_TYPED_OFFSET_BUFFER   = (1u << 8)
+    VKD3D_TYPED_OFFSET_BUFFER   = (1u << 8),
+    VKD3D_RAW_VA_ROOT_DESCRIPTOR = (1u << 9),
 };
 
 #define VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS 8

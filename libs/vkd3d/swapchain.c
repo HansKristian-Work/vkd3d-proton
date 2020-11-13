@@ -1468,6 +1468,9 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
     else
     {
         /* Fallback path for when surface size is 0. We'll try to create a proper swapchain in a future Present call. */
+        if (FAILED(hr = d3d12_swapchain_create_user_buffers(swapchain, vk_format)))
+            return hr;
+
         d3d12_swapchain_destroy_buffers(swapchain, FALSE);
         d3d12_swapchain_destroy_framebuffers(swapchain);
         swapchain->buffer_count = 0;
@@ -1753,20 +1756,18 @@ static HRESULT d3d12_swapchain_present(struct d3d12_swapchain *swapchain,
         return DXGI_ERROR_INVALID_CALL;
     }
 
-    if (flags & ~DXGI_PRESENT_TEST)
+    if (flags & ~(DXGI_PRESENT_TEST | DXGI_PRESENT_ALLOW_TEARING))
         FIXME("Unimplemented flags %#x.\n", flags);
-    if (flags & DXGI_PRESENT_TEST)
-    {
-        WARN("Returning S_OK for DXGI_PRESENT_TEST.\n");
-        return S_OK;
-    }
 
     if (swapchain->vk_swapchain == VK_NULL_HANDLE)
     {
         /* We're in a minimized state where we cannot present. However, we might be able to present now, so check that. */
         if (!d3d12_swapchain_has_nonzero_surface_size(swapchain))
-            return S_OK;
+            return DXGI_STATUS_OCCLUDED;
     }
+
+    if (flags & DXGI_PRESENT_TEST)
+        return S_OK;
 
     if (FAILED(hr = d3d12_swapchain_set_sync_interval(swapchain, sync_interval)))
         return hr;

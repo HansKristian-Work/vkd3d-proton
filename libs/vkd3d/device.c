@@ -4248,7 +4248,9 @@ static void d3d12_device_caps_init_feature_options1(struct d3d12_device *device)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS1 *options1 = &device->d3d12_caps.options1;
 
-    options1->WaveOps = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_0;
+    /* FIXME: Enabling wave ops breaks HZD, disable for time being. */
+    /*options1->WaveOps = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_0;*/
+    options1->WaveOps = FALSE;
 
     if (device->vk_info.EXT_subgroup_size_control)
     {
@@ -4516,6 +4518,7 @@ static void d3d12_device_caps_override(struct d3d12_device *device)
 
 static void d3d12_device_caps_init(struct d3d12_device *device)
 {
+    d3d12_device_caps_init_shader_model(device);
     d3d12_device_caps_init_feature_options(device);
     d3d12_device_caps_init_feature_options1(device);
     d3d12_device_caps_init_feature_options2(device);
@@ -4524,7 +4527,6 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options5(device);
     d3d12_device_caps_init_feature_options6(device);
     d3d12_device_caps_init_feature_level(device);
-    d3d12_device_caps_init_shader_model(device);
 
     d3d12_device_caps_override(device);
 }
