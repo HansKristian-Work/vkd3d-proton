@@ -3542,6 +3542,9 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
     if (device_info->buffer_device_address_features.bufferDeviceAddress && (flags & VKD3D_BINDLESS_UAV))
         flags |= VKD3D_RAW_VA_UAV_COUNTER;
 
+    if (device_info->buffer_device_address_features.bufferDeviceAddress)
+        flags |= VKD3D_RAW_VA_ROOT_DESCRIPTOR;
+
     return flags;
 }
 
