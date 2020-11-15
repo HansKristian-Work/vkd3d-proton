@@ -2165,6 +2165,65 @@ static void vkd3d_gpu_va_allocator_cleanup(struct vkd3d_gpu_va_allocator *alloca
     pthread_mutex_destroy(&allocator->mutex);
 }
 
+struct d3d12_device_singleton
+{
+    struct list entry;
+    LUID adapter_luid;
+    struct d3d12_device *device;
+};
+
+static pthread_once_t d3d12_device_map_mutex_init_once = PTHREAD_ONCE_INIT;
+static pthread_mutex_t d3d12_device_map_mutex;
+static struct list d3d12_device_map;
+
+static void d3d12_init_device_map_once(void)
+{
+    pthread_mutex_init(&d3d12_device_map_mutex, NULL);
+    list_init(&d3d12_device_map);
+}
+
+static struct d3d12_device *d3d12_find_device_singleton(LUID luid)
+{
+    struct d3d12_device_singleton* current;
+
+    LIST_FOR_EACH_ENTRY(current, &d3d12_device_map, struct d3d12_device_singleton, entry)
+    {
+        if (!memcmp(&current->adapter_luid, &luid, sizeof(LUID)))
+            return current->device;
+    }
+
+    return NULL;
+}
+
+static void d3d12_add_device_singleton(struct d3d12_device *device, LUID luid)
+{
+    struct d3d12_device_singleton *e;
+
+    if (!(e = vkd3d_malloc(sizeof(*e))))
+    {
+        ERR("Failed to register device singleton for adapter.");
+        return;
+    }
+    e->adapter_luid = luid;
+    e->device = device;
+
+    list_add_tail(&d3d12_device_map, &e->entry);
+}
+
+static void d3d12_remove_device_singleton(LUID luid)
+{
+    struct d3d12_device_singleton *current;
+
+    LIST_FOR_EACH_ENTRY(current, &d3d12_device_map, struct d3d12_device_singleton, entry)
+    {
+        if (!memcmp(&current->adapter_luid, &luid, sizeof(LUID)))
+        {
+            list_remove(&current->entry);
+            return;
+        }
+    }
+}
+
 /* ID3D12Device */
 static inline struct d3d12_device *impl_from_ID3D12Device(d3d12_device_iface *iface)
 {
@@ -2234,17 +2293,41 @@ static void d3d12_device_destroy(struct d3d12_device *device)
 static ULONG STDMETHODCALLTYPE d3d12_device_Release(d3d12_device_iface *iface)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    ULONG refcount = InterlockedDecrement(&device->refcount);
+    ULONG cur_refcount, cas_refcount;
+    bool is_locked = false;
 
-    TRACE("%p decreasing refcount to %u.\n", device, refcount);
+    cur_refcount = 0;
+    cas_refcount = vkd3d_atomic_uint32_load_explicit(&device->refcount, vkd3d_memory_order_relaxed);
 
-    if (!refcount)
+    /* In order to prevent another thread from resurrecting a destroyed device,
+     * we need to lock the container mutex before decrementing the ref count to
+     * zero, so we'll have to use a CAS loop rather than basic atomic decrement */
+    while (cas_refcount != cur_refcount)
     {
+        cur_refcount = cas_refcount;
+
+        if (cur_refcount == 1 && !is_locked)
+        {
+            pthread_mutex_lock(&d3d12_device_map_mutex);
+            is_locked = true;
+        }
+
+        cas_refcount = vkd3d_atomic_uint32_compare_exchange((uint32_t*)&device->refcount, cur_refcount,
+                cur_refcount - 1, vkd3d_memory_order_acq_rel, vkd3d_memory_order_relaxed);
+    }
+
+    if (cur_refcount == 1)
+    {
+        d3d12_remove_device_singleton(device->adapter_luid);
         d3d12_device_destroy(device);
         vkd3d_free(device);
     }
 
-    return refcount;
+    if (is_locked)
+        pthread_mutex_unlock(&d3d12_device_map_mutex);
+
+    TRACE("%p decreasing refcount to %u.\n", device, cur_refcount - 1);
+    return cur_refcount - 1;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_GetPrivateData(d3d12_device_iface *iface,
@@ -4660,12 +4743,27 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
     struct d3d12_device *object;
     HRESULT hr;
 
+    pthread_once(&d3d12_device_map_mutex_init_once, d3d12_init_device_map_once);
+    pthread_mutex_lock(&d3d12_device_map_mutex);
+    if ((object = d3d12_find_device_singleton(create_info->adapter_luid)))
+    {
+        TRACE("Returned existing singleton device %p.\n", object);
+
+        d3d12_device_add_ref(*device = object);
+        pthread_mutex_unlock(&d3d12_device_map_mutex);
+        return S_OK;
+    }
+
     if (!(object = vkd3d_malloc(sizeof(*object))))
+    {
+        pthread_mutex_unlock(&d3d12_device_map_mutex);
         return E_OUTOFMEMORY;
+    }
 
     if (FAILED(hr = d3d12_device_init(object, instance, create_info)))
     {
         vkd3d_free(object);
+        pthread_mutex_unlock(&d3d12_device_map_mutex);
         return hr;
     }
 
@@ -4674,10 +4772,15 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         WARN("Feature level %#x is not supported.\n", create_info->minimum_feature_level);
         d3d12_device_destroy(object);
         vkd3d_free(object);
+        pthread_mutex_unlock(&d3d12_device_map_mutex);
         return E_INVALIDARG;
     }
 
     TRACE("Created device %p.\n", object);
+
+    d3d12_add_device_singleton(object, create_info->adapter_luid);
+
+    pthread_mutex_unlock(&d3d12_device_map_mutex);
 
     *device = object;
 
