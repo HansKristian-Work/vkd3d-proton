@@ -682,6 +682,13 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device,
 
 bool d3d12_heap_needs_host_barrier_for_write(struct d3d12_heap *heap)
 {
+    if (!heap)
+    {
+        /* This is a reserved resource and we have no guarantee
+         * it's not mapped to something with readback. */
+        return true;
+    }
+
     switch (heap->desc.Properties.Type)
     {
     case D3D12_HEAP_TYPE_DEFAULT:
