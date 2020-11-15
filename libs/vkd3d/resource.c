@@ -4021,7 +4021,7 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
     {
         descriptor_info.buffer.buffer = VK_NULL_HANDLE;
         descriptor_info.buffer.offset = 0;
-        descriptor_info.buffer.range = 0;
+        descriptor_info.buffer.range = VK_WHOLE_SIZE;
     }
     else
     {
