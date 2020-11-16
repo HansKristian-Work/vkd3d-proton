@@ -108,11 +108,12 @@ FORCEINLINE uint32_t vkd3d_atomic_uint32_decrement(uint32_t *target, vkd3d_memor
     return result;
 }
 
-FORCEINLINE uint32_t vkd3d_atomic_uint32_compare_exchange(uint32_t* target, uint32_t expected, uint32_t desired, vkd3d_memory_order order)
+FORCEINLINE uint32_t vkd3d_atomic_uint32_compare_exchange(uint32_t* target, uint32_t expected, uint32_t desired,
+        vkd3d_memory_order success_order, vkd3d_memory_order fail_order)
 {
     uint32_t result;
     /* InterlockedCompareExchange has desired (ExChange) first, then expected (Comperand) */
-    vkd3d_atomic_choose_intrinsic(order, result, InterlockedCompareExchange, /* no suffix */, (LONG*)target, desired, expected);
+    vkd3d_atomic_choose_intrinsic(success_order, result, InterlockedCompareExchange, /* no suffix */, (LONG*)target, desired, expected);
     return result;
 }
 
@@ -156,11 +157,12 @@ FORCEINLINE uint64_t vkd3d_atomic_uint64_decrement(uint64_t *target, vkd3d_memor
     return result;
 }
 
-FORCEINLINE uint64_t vkd3d_atomic_uint64_compare_exchange(uint64_t* target, uint64_t expected, uint64_t desired, vkd3d_memory_order order)
+FORCEINLINE uint64_t vkd3d_atomic_uint64_compare_exchange(uint64_t* target, uint64_t expected, uint64_t desired,
+        vkd3d_memory_order success_order, vkd3d_memory_order fail_order)
 {
     uint64_t result;
     /* InterlockedCompareExchange has desired (ExChange) first, then expected (Comperand) */
-    vkd3d_atomic_choose_intrinsic(order, result, InterlockedCompareExchange, 64, (LONG64*)target, desired, expected);
+    vkd3d_atomic_choose_intrinsic(success_order, result, InterlockedCompareExchange, 64, (LONG64*)target, desired, expected);
     return result;
 }
 
@@ -187,10 +189,11 @@ typedef enum
 # define vkd3d_atomic_uint32_exchange_explicit(target, value, order) vkd3d_atomic_generic_exchange_explicit(target, value, order)
 # define vkd3d_atomic_uint32_increment(target, order)                vkd3d_atomic_generic_increment(target, order)
 # define vkd3d_atomic_uint32_decrement(target, order)                vkd3d_atomic_generic_decrement(target, order)
-FORCEINLINE uint32_t vkd3d_atomic_uint32_compare_exchange(uint32_t* target, uint32_t expected, uint32_t desired, vkd3d_memory_order order)
+static inline uint32_t vkd3d_atomic_uint32_compare_exchange(uint32_t* target, uint32_t expected, uint32_t desired,
+        vkd3d_memory_order success_order, vkd3d_memory_order fail_order)
 {
     /* Expected is written to with the old value in the case that *target != expected */
-    __atomic_compare_exchange_n(target, &expected, desired, 0, order, order);
+    __atomic_compare_exchange_n(target, &expected, desired, 0, success_order, fail_order);
     return expected;
 }
 
@@ -199,21 +202,22 @@ FORCEINLINE uint32_t vkd3d_atomic_uint32_compare_exchange(uint32_t* target, uint
 # define vkd3d_atomic_uint64_exchange_explicit(target, value, order) vkd3d_atomic_generic_exchange_explicit(target, value, order)
 # define vkd3d_atomic_uint64_increment(target, order)                vkd3d_atomic_generic_increment(target, order)
 # define vkd3d_atomic_uint64_decrement(target, order)                vkd3d_atomic_generic_decrement(target, order)
-FORCEINLINE uint64_t vkd3d_atomic_uint64_compare_exchange(uint64_t* target, uint64_t expected, uint64_t desired, vkd3d_memory_order order)
+static inline uint64_t vkd3d_atomic_uint64_compare_exchange(uint64_t* target, uint64_t expected, uint64_t desired,
+        vkd3d_memory_order success_order, vkd3d_memory_order fail_order)
 {
     /* Expected is written to with the old value in the case that *target != expected */
-    __atomic_compare_exchange_n(target, &expected, desired, 0, order, order);
+    __atomic_compare_exchange_n(target, &expected, desired, 0, success_order, fail_order);
     return expected;
 }
 
 # ifndef __MINGW32__
 #  define InterlockedIncrement(target)                            vkd3d_atomic_uint32_increment(target, vkd3d_memory_order_seq_cst)
 #  define InterlockedDecrement(target)                            vkd3d_atomic_uint32_decrement(target, vkd3d_memory_order_seq_cst)
-#  define InterlockedCompareExchange(target, desired, expected)   vkd3d_atomic_uint32_compare_exchange(target, expected, desired, vkd3d_memory_order_seq_cst)
+#  define InterlockedCompareExchange(target, desired, expected)   vkd3d_atomic_uint32_compare_exchange(target, expected, desired, vkd3d_memory_order_seq_cst, vkd3d_memory_order_acquire)
 
 #  define InterlockedIncrement64(target)                          vkd3d_atomic_uint64_increment(target, vkd3d_memory_order_seq_cst)
 #  define InterlockedDecrement64(target)                          vkd3d_atomic_uint64_decrement(target, vkd3d_memory_order_seq_cst)
-#  define InterlockedCompareExchange64(target, desired, expected) vkd3d_atomic_uint64_compare_exchange(target, expected, desired, vkd3d_memory_order_seq_cst)
+#  define InterlockedCompareExchange64(target, desired, expected) vkd3d_atomic_uint64_compare_exchange(target, expected, desired, vkd3d_memory_order_seq_cst, vkd3d_memory_order_acquire)
 # endif
 
 #else
@@ -228,14 +232,16 @@ FORCEINLINE uint64_t vkd3d_atomic_uint64_compare_exchange(uint64_t* target, uint
 # define vkd3d_atomic_ptr_exchange_explicit(target, value, order)            ((void *)vkd3d_atomic_uint64_exchange_explicit((uint64_t *)target, value, order))
 # define vkd3d_atomic_ptr_increment(target, order)                           ((void *)vkd3d_atomic_uint64_increment((uint64_t *)target, order))
 # define vkd3d_atomic_ptr_decrement(target, order)                           ((void *)vkd3d_atomic_uint64_decrement((uint64_t *)target, order))
-# define vkd3d_atomic_ptr_compare_exchange(target, expected, desired, order) ((void *)vkd3d_atomic_uint64_compare_exchange((uint64_t *)target, expected, desired, order))
+# define vkd3d_atomic_ptr_compare_exchange(target, expected, desired, success_order, fail_order) \
+        ((void *)vkd3d_atomic_uint64_compare_exchange((uint64_t *)target, (uint64_t)expected, (uint64_t)desired, success_order, fail_order))
 #else
 # define vkd3d_atomic_ptr_load_explicit(target, order)                       ((void *)vkd3d_atomic_uint32_load_explicit((uint32_t *)target, order))
 # define vkd3d_atomic_ptr_store_explicit(target, value, order)               ((void *)vkd3d_atomic_uint32_store_explicit((uint32_t *)target, value, order))
 # define vkd3d_atomic_ptr_exchange_explicit(target, value, order)            ((void *)vkd3d_atomic_uint32_exchange_explicit((uint32_t *)target, value, order))
 # define vkd3d_atomic_ptr_increment(target, order)                           ((void *)vkd3d_atomic_uint32_increment((uint32_t *)target, order))
 # define vkd3d_atomic_ptr_decrement(target, order)                           ((void *)vkd3d_atomic_uint32_decrement((uint32_t *)target, order))
-# define vkd3d_atomic_ptr_compare_exchange(target, expected, desired, order) ((void *)vkd3d_atomic_uint32_compare_exchange((uint32_t *)target, expected, desired, order))
+# define vkd3d_atomic_ptr_compare_exchange(target, expected, desired, success_order, fail_order) \
+        ((void *)vkd3d_atomic_uint32_compare_exchange((uint32_t *)target, (uint32_t)expected, (uint32_t)desired, success_order, fail_order))
 #endif
 
 #endif
