@@ -835,7 +835,8 @@ struct d3d12_root_signature
 
     uint64_t descriptor_table_mask;
     uint64_t root_constant_mask;
-    uint64_t root_descriptor_mask;
+    uint64_t root_descriptor_raw_va_mask;
+    uint64_t root_descriptor_push_mask;
 
     D3D12_ROOT_SIGNATURE_FLAGS d3d12_flags;
     unsigned int flags; /* vkd3d_root_signature_flag */
@@ -1563,16 +1564,17 @@ void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
 /* Bindless */
 enum vkd3d_bindless_flags
 {
-    VKD3D_BINDLESS_SAMPLER      = (1u << 0),
-    VKD3D_BINDLESS_CBV          = (1u << 1),
-    VKD3D_BINDLESS_SRV          = (1u << 2),
-    VKD3D_BINDLESS_UAV          = (1u << 3),
-    VKD3D_RAW_VA_UAV_COUNTER    = (1u << 4),
-    VKD3D_BINDLESS_CBV_AS_SSBO  = (1u << 5),
-    VKD3D_BINDLESS_RAW_SSBO     = (1u << 6),
-    VKD3D_SSBO_OFFSET_BUFFER    = (1u << 7),
-    VKD3D_TYPED_OFFSET_BUFFER   = (1u << 8),
-    VKD3D_RAW_VA_ROOT_DESCRIPTOR = (1u << 9),
+    VKD3D_BINDLESS_SAMPLER               = (1u << 0),
+    VKD3D_BINDLESS_CBV                   = (1u << 1),
+    VKD3D_BINDLESS_SRV                   = (1u << 2),
+    VKD3D_BINDLESS_UAV                   = (1u << 3),
+    VKD3D_RAW_VA_UAV_COUNTER             = (1u << 4),
+    VKD3D_BINDLESS_CBV_AS_SSBO           = (1u << 5),
+    VKD3D_BINDLESS_RAW_SSBO              = (1u << 6),
+    VKD3D_SSBO_OFFSET_BUFFER             = (1u << 7),
+    VKD3D_TYPED_OFFSET_BUFFER            = (1u << 8),
+    VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV     = (1u << 9),
+    VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV = (1u << 10),
 };
 
 #define VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS 8
