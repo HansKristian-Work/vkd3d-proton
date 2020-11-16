@@ -2428,7 +2428,9 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
     if (bindings->root_signature->descriptor_table_count)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
 
-    bindings->root_descriptor_dirty_mask = bindings->root_signature->root_descriptor_mask;
+    bindings->root_descriptor_dirty_mask =
+            bindings->root_signature->root_descriptor_raw_va_mask |
+            bindings->root_signature->root_descriptor_push_mask;
     bindings->root_constant_dirty_mask = bindings->root_signature->root_constant_mask;
 
     if (invalidate_descriptor_heaps)
@@ -2541,7 +2543,7 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                 *stages |= queue_shader_stages;
                 *access |= VK_ACCESS_UNIFORM_READ_BIT;
 
-                if (device->bindless_state.flags & (VKD3D_BINDLESS_CBV_AS_SSBO | VKD3D_RAW_VA_ROOT_DESCRIPTOR))
+                if (device->bindless_state.flags & (VKD3D_BINDLESS_CBV_AS_SSBO | VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV))
                     *access |= VK_ACCESS_SHADER_READ_BIT;
 
                 if (vk_queue_flags & VK_QUEUE_GRAPHICS_BIT)
@@ -3337,7 +3339,7 @@ static unsigned int d3d12_command_list_fetch_root_descriptor_vas(struct d3d12_co
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
-    uint64_t root_descriptor_mask = root_signature->root_descriptor_mask;
+    uint64_t root_descriptor_mask = root_signature->root_descriptor_raw_va_mask;
     unsigned int va_idx = 0;
 
     /* Ignore dirty mask. We'll always update all VAs either via push constants
@@ -3349,7 +3351,6 @@ static unsigned int d3d12_command_list_fetch_root_descriptor_vas(struct d3d12_co
         dst_data->root_descriptor_vas[va_idx++] = bindings->root_descriptors[root_parameter_index].info.va;
     }
 
-    bindings->root_descriptor_dirty_mask = 0;
     return va_idx;
 }
 
@@ -3367,8 +3368,7 @@ static void d3d12_command_list_fetch_inline_uniform_block_data(struct d3d12_comm
     uint64_t descriptor_table_mask;
     uint32_t first_table_offset;
 
-    if (list->device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR)
-        d3d12_command_list_fetch_root_descriptor_vas(list, bind_point, dst_data);
+    /* Root descriptors are already filled in dst_data. */
 
     while (root_constant_mask)
     {
@@ -3409,26 +3409,37 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     const struct d3d12_root_parameter *root_parameter;
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
     union root_parameter_data root_parameter_data;
-    unsigned int root_parameter_index, va_count;
     unsigned int descriptor_write_count = 0;
+    unsigned int root_parameter_index;
+    unsigned int va_count = 0;
+    uint64_t dirty_push_mask;
 
     if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET)
     {
         /* Ensure that we populate all descriptors if push descriptors cannot be used */
-        bindings->root_descriptor_dirty_mask |= bindings->root_descriptor_active_mask & root_signature->root_descriptor_mask;
+        bindings->root_descriptor_dirty_mask |=
+                bindings->root_descriptor_active_mask &
+                (root_signature->root_descriptor_raw_va_mask | root_signature->root_descriptor_push_mask);
 
         descriptor_set = d3d12_command_allocator_allocate_descriptor_set(
                 list->allocator, root_signature->vk_root_descriptor_layout, VKD3D_DESCRIPTOR_POOL_TYPE_STATIC);
     }
 
-    if (!(list->device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR))
+    if (bindings->root_descriptor_dirty_mask)
     {
-        /* TODO bind null descriptors for inactive root descriptors */
-        bindings->root_descriptor_dirty_mask &= bindings->root_descriptor_active_mask;
+        /* If any raw VA descriptor is dirty, we need to update all of them. */
+        if (root_signature->root_descriptor_raw_va_mask & bindings->root_descriptor_dirty_mask)
+            va_count = d3d12_command_list_fetch_root_descriptor_vas(list, bind_point, &root_parameter_data);
 
-        while (bindings->root_descriptor_dirty_mask)
+        /* TODO bind null descriptors for inactive root descriptors. */
+        dirty_push_mask =
+                bindings->root_descriptor_dirty_mask &
+                root_signature->root_descriptor_push_mask &
+                bindings->root_descriptor_active_mask;
+
+        while (dirty_push_mask)
         {
-            root_parameter_index = vkd3d_bitmask_iter64(&bindings->root_descriptor_dirty_mask);
+            root_parameter_index = vkd3d_bitmask_iter64(&dirty_push_mask);
             root_parameter = root_signature_get_root_descriptor(root_signature, root_parameter_index);
 
             if (!vk_write_descriptor_set_from_root_descriptor(list,
@@ -3438,6 +3449,8 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
 
             descriptor_write_count += 1;
         }
+
+        bindings->root_descriptor_dirty_mask = 0;
     }
 
     if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
@@ -3449,10 +3462,8 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
 
         descriptor_write_count += 1;
     }
-    else if (bindings->root_descriptor_dirty_mask)
+    else if (va_count)
     {
-        va_count = d3d12_command_list_fetch_root_descriptor_vas(list, bind_point, &root_parameter_data);
-
         VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
                 root_signature->vk_pipeline_layout, VK_SHADER_STAGE_ALL,
                 0, va_count * sizeof(*root_parameter_data.root_descriptor_vas),
@@ -5367,7 +5378,7 @@ static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *li
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     struct vkd3d_root_descriptor_info *descriptor = &bindings->root_descriptors[index];
 
-    if (list->device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR)
+    if (bindings->root_signature->root_descriptor_raw_va_mask & (1ull << index))
         d3d12_command_list_set_root_descriptor_va(list, descriptor, gpu_address);
     else
         d3d12_command_list_set_push_descriptor_info(list, bind_point, index, gpu_address);

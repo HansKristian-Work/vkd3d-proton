@@ -403,9 +403,16 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
                 break;
 
             case D3D12_ROOT_PARAMETER_TYPE_CBV:
+                if (!(device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV))
+                    info->push_descriptor_count += 1;
+
+                info->binding_count += 1;
+                info->cost += 2;
+                break;
+
             case D3D12_ROOT_PARAMETER_TYPE_SRV:
             case D3D12_ROOT_PARAMETER_TYPE_UAV:
-                if (!(device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR))
+                if (!(device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV))
                     info->push_descriptor_count += 1;
 
                 info->binding_count += 1;
@@ -427,6 +434,17 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
     return S_OK;
 }
 
+static bool d3d12_root_signature_parameter_is_raw_va(struct d3d12_root_signature *root_signature,
+        D3D12_ROOT_PARAMETER_TYPE type)
+{
+    if (type == D3D12_ROOT_PARAMETER_TYPE_CBV)
+        return !!(root_signature->device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV);
+    else if (type == D3D12_ROOT_PARAMETER_TYPE_SRV || type == D3D12_ROOT_PARAMETER_TYPE_UAV)
+        return !!(root_signature->device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV);
+    else
+        return false;
+}
+
 static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signature *root_signature,
         const D3D12_ROOT_SIGNATURE_DESC *desc, const struct d3d12_root_signature_info *info,
         struct VkPushConstantRange *push_constant_range)
@@ -438,17 +456,11 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
     push_constant_range->size = 0;
 
     /* Put root descriptor VAs at the start to avoid alignment issues */
-    if (root_signature->device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR)
+    for (i = 0; i < desc->NumParameters; ++i)
     {
-        for (i = 0; i < desc->NumParameters; ++i)
-        {
-            const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
-
-            if (p->ParameterType == D3D12_ROOT_PARAMETER_TYPE_CBV ||
-                    p->ParameterType == D3D12_ROOT_PARAMETER_TYPE_SRV ||
-                    p->ParameterType == D3D12_ROOT_PARAMETER_TYPE_UAV)
-                push_constant_range->size += sizeof(VkDeviceSize);
-        }
+        const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
+        if (d3d12_root_signature_parameter_is_raw_va(root_signature, p->ParameterType))
+            push_constant_range->size += sizeof(VkDeviceSize);
     }
 
     /* Append actual root constants */
@@ -639,27 +651,29 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     struct d3d12_root_parameter *param;
     unsigned int i, j;
     HRESULT hr = S_OK;
-    bool raw_va;
-
-    raw_va = !!(root_signature->device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR);
 
     if (info->push_descriptor_count || (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK))
     {
         if (!(vk_binding_info = vkd3d_malloc(sizeof(*vk_binding_info) * (info->push_descriptor_count + 1))))
             return E_OUTOFMEMORY;
     }
-    else if (!raw_va)
+    else if (!(root_signature->device->bindless_state.flags &
+            (VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV | VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV)))
+    {
         return S_OK;
+    }
 
     for (i = 0, j = 0; i < desc->NumParameters; ++i)
     {
         const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
+        bool raw_va;
+
         if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_CBV
                 && p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_SRV
                 && p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_UAV)
             continue;
 
-        root_signature->root_descriptor_mask |= 1ull << i;
+        raw_va = d3d12_root_signature_parameter_is_raw_va(root_signature, p->ParameterType);
 
         if (!raw_va)
         {
@@ -669,7 +683,10 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
             vk_binding->descriptorCount = 1;
             vk_binding->stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
             vk_binding->pImmutableSamplers = NULL;
+            root_signature->root_descriptor_push_mask |= 1ull << i;
         }
+        else
+            root_signature->root_descriptor_raw_va_mask |= 1ull << i;
 
         binding = &root_signature->bindings[context->binding_index];
         binding->type = vkd3d_descriptor_type_from_d3d12_root_parameter_type(p->ParameterType);
@@ -3546,7 +3563,7 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
         flags |= VKD3D_RAW_VA_UAV_COUNTER;
 
     if (device_info->buffer_device_address_features.bufferDeviceAddress)
-        flags |= VKD3D_RAW_VA_ROOT_DESCRIPTOR;
+        flags |= VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV | VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV;
 
     return flags;
 }
