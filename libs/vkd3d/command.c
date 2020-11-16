@@ -2469,7 +2469,7 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                 *stages |= queue_shader_stages;
                 *access |= VK_ACCESS_UNIFORM_READ_BIT;
 
-                if (device->bindless_state.flags & VKD3D_BINDLESS_CBV_AS_SSBO)
+                if (device->bindless_state.flags & (VKD3D_BINDLESS_CBV_AS_SSBO | VKD3D_RAW_VA_ROOT_DESCRIPTOR))
                     *access |= VK_ACCESS_SHADER_READ_BIT;
 
                 if (vk_queue_flags & VK_QUEUE_GRAPHICS_BIT)
