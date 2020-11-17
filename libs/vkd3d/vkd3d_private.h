@@ -1266,7 +1266,6 @@ struct d3d12_command_list
 
     bool is_recording;
     bool is_valid;
-    bool need_host_barrier;
     bool debug_capture;
     bool has_replaced_shaders;
     bool has_valid_index_buffer;

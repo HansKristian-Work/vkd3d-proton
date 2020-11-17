@@ -624,34 +624,6 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device,
                                      const D3D12_CLEAR_VALUE *optimized_clear_value, bool placed,
                                      struct d3d12_resource **resource);
 
-bool d3d12_heap_needs_host_barrier_for_write(struct d3d12_heap *heap)
-{
-    if (!heap)
-    {
-        /* This is a reserved resource and we have no guarantee
-         * it's not mapped to something with readback. */
-        return true;
-    }
-
-    switch (heap->desc.Properties.Type)
-    {
-    case D3D12_HEAP_TYPE_DEFAULT:
-    case D3D12_HEAP_TYPE_UPLOAD:
-        return false;
-
-    case D3D12_HEAP_TYPE_READBACK:
-        return true;
-
-    case D3D12_HEAP_TYPE_CUSTOM:
-        return heap->desc.Properties.CPUPageProperty != D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE;
-
-    default:
-        break;
-    }
-
-    return false;
-}
-
 static HRESULT d3d12_heap_init_omnipotent_buffer(struct d3d12_heap *heap, struct d3d12_device *device,
         const D3D12_HEAP_DESC *desc)
 {
