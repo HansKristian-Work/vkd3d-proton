@@ -183,8 +183,7 @@ static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *
     else
     {
         vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_TEXEL_BUFFER;
-        if (d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_TYPED_BUFFER &&
-            (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER))
+        if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER)
         {
             vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
             vk_binding->offset_binding.binding = shader_interface_info->offset_buffer_binding->binding;
@@ -299,6 +298,11 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
             /* By default, we use TEXEL_BUFFER unless dxil_remap remaps it to BDA.
              * We won't trigger SSBO path when using BDA. */
             vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_TEXEL_BUFFER;
+            if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER)
+            {
+                vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
+                vk_binding->offset_binding.binding = shader_interface_info->offset_buffer_binding->binding;
+            }
         }
     }
     else
@@ -310,8 +314,7 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
             return DXIL_SPV_FALSE;
         }
 
-        if (d3d_binding->d3d_binding.kind == DXIL_SPV_RESOURCE_KIND_TYPED_BUFFER &&
-            (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER))
+        if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER)
         {
             vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
             vk_binding->offset_binding.binding = shader_interface_info->offset_buffer_binding->binding;
