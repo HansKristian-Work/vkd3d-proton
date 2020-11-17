@@ -312,10 +312,6 @@ void vkd3d_shader_debug_ring_end_command_buffer(struct d3d12_command_list *list)
                                 list->device->debug_ring.host_buffer,
                                 1, &buffer_copy));
 
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-                                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0,
-                                     1, &barrier, 0, NULL, 0, NULL));
+        /* Host barrier is taken care of automatically. */
     }
 }

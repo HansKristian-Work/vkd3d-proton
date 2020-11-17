@@ -103,12 +103,14 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device,
     begin_info.pInheritanceInfo = NULL;
     VK_CALL(vkBeginCommandBuffer(object->barrier_command_buffer, &begin_info));
 
+    /* To avoid unnecessary tracking, just emit a host barrier on every submit. */
     memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     memory_barrier.pNext = NULL;
     memory_barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
-    memory_barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    memory_barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_HOST_READ_BIT;
     VK_CALL(vkCmdPipelineBarrier(object->barrier_command_buffer,
-            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_HOST_BIT, 0,
             1, &memory_barrier, 0, NULL, 0, NULL));
     VK_CALL(vkEndCommandBuffer(object->barrier_command_buffer));
 
@@ -2795,7 +2797,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs;
-    VkMemoryBarrier barrier;
     VkResult vr;
 
     TRACE("iface %p.\n", iface);
@@ -2811,20 +2812,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     d3d12_command_list_end_current_render_pass(list, false);
     if (list->is_predicated)
         VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
-
-    if (list->need_host_barrier)
-    {
-        /* Need to emit host barrier here. There is no obvious RESOURCE_STATE we can map this to.
-         * Rely on simple tracking to do this. */
-        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        barrier.pNext = NULL;
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-
-        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0,
-                1, &barrier, 0, NULL, 0, NULL));
-    }
 
     vkd3d_shader_debug_ring_end_command_buffer(list);
 
@@ -2870,7 +2857,6 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 
     list->is_predicated = false;
     list->render_pass_suspended = false;
-    list->need_host_barrier = false;
 #ifdef VKD3D_ENABLE_RENDERDOC
     list->debug_capture = vkd3d_renderdoc_active() && vkd3d_renderdoc_should_capture_shader_hash(0);
 #else
@@ -3808,10 +3794,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
 
     VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
             src_resource->vk_buffer, dst_resource->vk_buffer, 1, &buffer_copy));
-
-    /* There is no explicit host barrier for readbacks. */
-    if (d3d12_heap_needs_host_barrier_for_write(dst_resource->heap))
-        list->need_host_barrier = true;
 }
 
 static void vk_image_subresource_layers_from_d3d12(VkImageSubresourceLayers *subresource,
@@ -4376,10 +4358,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
     {
         FIXME("Copy type %#x -> %#x not implemented.\n", src->Type, dst->Type);
     }
-
-    /* There is no explicit host barrier for readbacks. */
-    if (d3d12_heap_needs_host_barrier_for_write(dst_resource->heap))
-        list->need_host_barrier = true;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list_iface *iface,
@@ -4437,10 +4415,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
                     src_resource, src_resource->format, &vk_image_copy, true);
         }
     }
-
-    /* There is no explicit host barrier for readbacks. */
-    if (d3d12_heap_needs_host_barrier_for_write(dst_resource->heap))
-        list->need_host_barrier = true;
 }
 
 static unsigned int vkd3d_get_tile_index_from_region(const struct d3d12_sparse_info *sparse,
@@ -6368,10 +6342,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
         VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
                 query_heap->vk_query_pool, first, count, buffer->vk_buffer,
                 buffer->heap_offset + offset, stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
-
-        /* There is no explicit host barrier for readbacks. */
-        if (d3d12_heap_needs_host_barrier_for_write(buffer->heap))
-            list->need_host_barrier = true;
     }
 }
 
