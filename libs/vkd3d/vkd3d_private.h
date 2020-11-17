@@ -1336,6 +1336,10 @@ struct vkd3d_queue
 
     VkQueue vk_queue;
 
+    VkCommandPool barrier_pool;
+    VkCommandBuffer barrier_command_buffer;
+    VkSemaphore serializing_binary_semaphore;
+
     uint32_t vk_family_index;
     VkQueueFlags vk_queue_flags;
     uint32_t timestamp_bits;
@@ -1387,8 +1391,9 @@ struct d3d12_command_queue_submission_signal
 struct d3d12_command_queue_submission_execute
 {
     VkCommandBuffer *cmd;
-    LONG **outstanding_submissions_count;
-    UINT count;
+    LONG **outstanding_submissions_counters;
+    UINT cmd_count;
+    UINT outstanding_submissions_counter_count;
 
     struct d3d12_resource_initial_transition *transitions;
     size_t transition_count;
@@ -1453,8 +1458,6 @@ struct d3d12_command_queue
     size_t submissions_size;
     uint64_t drain_count;
     uint64_t queue_drain_count;
-
-    struct vkd3d_timeline_semaphore submit_timeline;
 
     struct vkd3d_private_store private_store;
 
