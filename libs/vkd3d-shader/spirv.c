@@ -8921,7 +8921,7 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
         access_mask = SpvMemoryAccessAlignedMask;
     else if (image.ssbo)
         base_coordinate_id = vkd3d_dxbc_compiler_adjust_ssbo_offset(compiler, &resource->reg, base_coordinate_id);
-    else if (!image.raw && !image.structure_stride)
+    else
         base_coordinate_id = vkd3d_dxbc_compiler_adjust_typed_buffer_offset(compiler, &resource->reg, base_coordinate_id);
 
     texel_type_id = vkd3d_spirv_get_type_id(builder, image.sampled_type, VKD3D_VEC4_SIZE);
@@ -9062,7 +9062,7 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
         access_mask = SpvMemoryAccessAlignedMask;
     else if (image.ssbo)
         base_coordinate_id = vkd3d_dxbc_compiler_adjust_ssbo_offset(compiler, &dst->reg, base_coordinate_id);
-    else if (!image.raw && !image.structure_stride)
+    else
         base_coordinate_id = vkd3d_dxbc_compiler_adjust_typed_buffer_offset(compiler, &dst->reg, base_coordinate_id);
 
     texel = &src[instruction->src_count - 1];
@@ -9413,8 +9413,13 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
                 type_id, structure_stride, &src[0], VKD3DSP_WRITEMASK_0,
                 &src[0], VKD3DSP_WRITEMASK_1);
 
-        if (resource->reg.type != VKD3DSPR_GROUPSHAREDMEM && image.ssbo && reg_info.storage_class != SpvStorageClassPhysicalStorageBuffer)
-            coordinate_id = vkd3d_dxbc_compiler_adjust_ssbo_offset(compiler, &resource->reg, coordinate_id);
+        if (resource->reg.type != VKD3DSPR_GROUPSHAREDMEM && reg_info.storage_class != SpvStorageClassPhysicalStorageBuffer)
+        {
+            if (image.ssbo)
+                coordinate_id = vkd3d_dxbc_compiler_adjust_ssbo_offset(compiler, &resource->reg, coordinate_id);
+            else
+                coordinate_id = vkd3d_dxbc_compiler_adjust_typed_buffer_offset(compiler, &resource->reg, coordinate_id);
+        }
     }
     else
     {
