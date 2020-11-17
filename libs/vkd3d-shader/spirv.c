@@ -7067,6 +7067,44 @@ static void vkd3d_dxbc_compiler_emit_alu_instruction(struct vkd3d_dxbc_compiler 
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
+static void vkd3d_dxbc_compiler_emit_bit_shift_instruction(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const struct vkd3d_shader_dst_param *dst = instruction->dst;
+    const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t type_id, val_id, mask_id, cnt_id, src_id;
+    unsigned int component_count;
+    SpvOp op;
+
+    op = vkd3d_dxbc_compiler_map_alu_instruction(instruction);
+
+    if (op == SpvOpMax)
+    {
+        ERR("Unexpected instruction %#x.\n", instruction->handler_idx);
+        return;
+    }
+
+    assert(instruction->dst_count == 1);
+    assert(instruction->src_count == 2);
+
+    component_count = vkd3d_write_mask_component_count(dst->write_mask);
+    type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, dst);
+
+    /* The bit shift amount is modulo 31, higher bits are ignored */
+    src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], dst->write_mask);
+    cnt_id = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], dst->write_mask);
+
+    if (src[1].reg.type != VKD3DSPR_IMMCONST)
+    {
+        mask_id = vkd3d_dxbc_compiler_get_constant_vector(compiler, VKD3D_TYPE_UINT, component_count, 0x1f);
+        cnt_id = vkd3d_spirv_build_op_and(builder, type_id, cnt_id, mask_id);
+    }
+
+    val_id = vkd3d_spirv_build_op_tr2(builder, &builder->function_stream, op, type_id, src_id, cnt_id);
+    vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
+}
+
 static enum GLSLstd450 vkd3d_dxbc_compiler_map_ext_glsl_instruction(
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -10070,17 +10108,19 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_FTOU:
         case VKD3DSIH_IADD:
         case VKD3DSIH_INEG:
-        case VKD3DSIH_ISHL:
-        case VKD3DSIH_ISHR:
         case VKD3DSIH_ITOF:
         case VKD3DSIH_DMUL:
         case VKD3DSIH_MUL:
         case VKD3DSIH_NOT:
         case VKD3DSIH_OR:
-        case VKD3DSIH_USHR:
         case VKD3DSIH_UTOF:
         case VKD3DSIH_XOR:
             vkd3d_dxbc_compiler_emit_alu_instruction(compiler, instruction);
+            break;
+        case VKD3DSIH_ISHL:
+        case VKD3DSIH_ISHR:
+        case VKD3DSIH_USHR:
+            vkd3d_dxbc_compiler_emit_bit_shift_instruction(compiler, instruction);
             break;
         case VKD3DSIH_EXP:
         case VKD3DSIH_FIRSTBIT_HI:
