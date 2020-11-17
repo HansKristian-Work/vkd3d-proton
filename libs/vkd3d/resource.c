@@ -3988,7 +3988,6 @@ static bool vkd3d_buffer_view_get_aligned_view(struct d3d12_desc *descriptor,
         VkDeviceSize structured_stride, struct vkd3d_view **view)
 {
     struct vkd3d_bound_buffer_range typed_range = { 0, 0 };
-    bool is_untyped_buffer, is_typed_buffer;
     const struct vkd3d_format *vkd3d_format;
     VkDeviceSize max_resource_elements;
     VkDeviceSize max_element_headroom;
@@ -3997,19 +3996,29 @@ static bool vkd3d_buffer_view_get_aligned_view(struct d3d12_desc *descriptor,
     VkDeviceSize begin_range;
     VkDeviceSize end_range;
 
-    is_untyped_buffer =
-            (structured_stride && format == DXGI_FORMAT_UNKNOWN) ||
-            (vk_flags & VKD3D_VIEW_RAW_BUFFER) != 0;
-    is_typed_buffer = !is_untyped_buffer;
-
-    if (is_typed_buffer && (device->bindless_state.flags & VKD3D_TYPED_OFFSET_BUFFER))
+    if (device->bindless_state.flags & VKD3D_TYPED_OFFSET_BUFFER)
     {
         /* For typed buffers, we will try to remove two cases of extreme hashmap contention, i.e.
          * first_element and num_elements. By quantizing these two and relying on offset buffers,
          * we should achieve a bounded value for number of possible views we can create for a given resource. */
         max_elements = device->device_info.properties2.properties.limits.maxTexelBufferElements;
-        vkd3d_format = vkd3d_get_format(device, format, false);
-        max_resource_elements = resource->desc.Width / vkd3d_format->byte_count;
+
+        if (format)
+        {
+            vkd3d_format = vkd3d_get_format(device, format, false);
+            max_resource_elements = resource->desc.Width / vkd3d_format->byte_count;
+        }
+        else
+        {
+            /* For structured buffers, we need to rescale input parameters to
+             * be in terms of u32 since the offset buffer must be in terms of words.
+             * When using typed buffers, the offset buffer is in format of u32
+             * (element offset, element size). */
+            first_element = (first_element * structured_stride) / sizeof(uint32_t);
+            num_elements = (num_elements * structured_stride) / sizeof(uint32_t);
+            structured_stride = sizeof(uint32_t);
+            max_resource_elements = resource->desc.Width / sizeof(uint32_t);
+        }
 
         /* Requantizing the typed offset is shaky business if we overflow max_elements when doing so.
          * We can always fall back to 0 offset for the difficult and rare cases. */
