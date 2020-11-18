@@ -369,6 +369,27 @@ static dxil_spv_bool dxil_cbv_remap(void *userdata, const dxil_spv_d3d_binding *
             VKD3D_SHADER_BINDING_FLAG_BUFFER);
 }
 
+static void vkd3d_dxil_log_callback(void *userdata, dxil_spv_log_level level, const char *msg)
+{
+    /* msg already has a newline. */
+    (void)userdata;
+    switch (level)
+    {
+    case DXIL_SPV_LOG_LEVEL_ERROR:
+        ERR("dxil-spirv: %s", msg);
+        break;
+
+    case DXIL_SPV_LOG_LEVEL_WARN:
+        WARN("dxil-spirv: %s", msg);
+        break;
+
+    default:
+    case DXIL_SPV_LOG_LEVEL_DEBUG:
+        TRACE("dxil-spirv: %s", msg);
+        break;
+    }
+}
+
 int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv,
         const struct vkd3d_shader_interface_info *shader_interface_info,
@@ -387,6 +408,8 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     vkd3d_shader_hash_t hash;
     int ret = VKD3D_OK;
     void *code;
+
+    dxil_spv_set_thread_log_callback(vkd3d_dxil_log_callback, NULL);
 
     hash = vkd3d_shader_hash(dxbc);
     spirv->meta.replaced = false;
