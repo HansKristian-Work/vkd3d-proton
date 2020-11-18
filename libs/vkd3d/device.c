@@ -2211,15 +2211,8 @@ struct d3d12_device_singleton
     struct d3d12_device *device;
 };
 
-static pthread_once_t d3d12_device_map_mutex_init_once = PTHREAD_ONCE_INIT;
-static pthread_mutex_t d3d12_device_map_mutex;
-static struct list d3d12_device_map;
-
-static void d3d12_init_device_map_once(void)
-{
-    pthread_mutex_init(&d3d12_device_map_mutex, NULL);
-    list_init(&d3d12_device_map);
-}
+static pthread_mutex_t d3d12_device_map_mutex = PTHREAD_MUTEX_INITIALIZER;
+static struct list d3d12_device_map = LIST_INIT(d3d12_device_map);
 
 static struct d3d12_device *d3d12_find_device_singleton(LUID luid)
 {
@@ -4782,7 +4775,6 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
     struct d3d12_device *object;
     HRESULT hr;
 
-    pthread_once(&d3d12_device_map_mutex_init_once, d3d12_init_device_map_once);
     pthread_mutex_lock(&d3d12_device_map_mutex);
     if ((object = d3d12_find_device_singleton(create_info->adapter_luid)))
     {
