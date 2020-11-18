@@ -43,6 +43,8 @@ typedef struct pthread_mutex
     SRWLOCK lock;
 } pthread_mutex_t;
 
+#define PTHREAD_MUTEX_INITIALIZER {SRWLOCK_INIT}
+
 /* pthread_cond_t is not copyable, so embed CV inline. */
 typedef struct pthread_cond
 {
