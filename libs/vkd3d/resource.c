@@ -5883,18 +5883,17 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct d3d12_query_heap *object;
     VkQueryPoolCreateInfo pool_info;
-    unsigned int element_count;
     VkResult vr;
     HRESULT hr;
 
-    element_count = DIV_ROUND_UP(desc->Count, sizeof(*object->availability_mask) * CHAR_BIT);
-    if (!(object = vkd3d_malloc(offsetof(struct d3d12_query_heap, availability_mask[element_count]))))
+    if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
     object->ID3D12QueryHeap_iface.lpVtbl = &d3d12_query_heap_vtbl;
     object->refcount = 1;
     object->device = device;
-    memset(object->availability_mask, 0, element_count * sizeof(*object->availability_mask));
+    object->desc = *desc;
+    object->initialized = 0;
 
     pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
     pool_info.pNext = NULL;

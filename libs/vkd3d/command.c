@@ -2642,6 +2642,10 @@ static void d3d12_command_list_add_transition(struct d3d12_command_list *list, s
                 skip = list->init_transitions[i - 1].resource.resource == transition->resource.resource;
                 break;
 
+            case VKD3D_INITIAL_TRANSITION_TYPE_QUERY_HEAP:
+                skip = list->init_transitions[i - 1].query_heap == transition->query_heap;
+                break;
+
             default:
                 ERR("Unhandled transition type %u.\n", transition->type);
                 continue;
@@ -2665,6 +2669,10 @@ static void d3d12_command_list_add_transition(struct d3d12_command_list *list, s
                   transition->resource.resource, transition->resource.perform_initial_transition ? "yes" : "no");
             break;
 
+        case VKD3D_INITIAL_TRANSITION_TYPE_QUERY_HEAP:
+            TRACE("Adding initialization for query heap %p.\n", transition->query_heap);
+            break;
+
         default:
             ERR("Unhandled transition type %u.\n", transition->type);
     }
@@ -2685,6 +2693,19 @@ static void d3d12_command_list_track_resource_usage(struct d3d12_command_list *l
         transition.type = VKD3D_INITIAL_TRANSITION_TYPE_RESOURCE;
         transition.resource.resource = resource;
         transition.resource.perform_initial_transition = perform_initial_transition;
+        d3d12_command_list_add_transition(list, &transition);
+    }
+}
+
+static void d3d12_command_list_track_query_heap(struct d3d12_command_list *list,
+        struct d3d12_query_heap *heap)
+{
+    struct vkd3d_initial_transition transition;
+
+    if (!vkd3d_atomic_uint32_load_explicit(&heap->initialized, vkd3d_memory_order_relaxed))
+    {
+        transition.type = VKD3D_INITIAL_TRANSITION_TYPE_QUERY_HEAP;
+        transition.query_heap = heap;
         d3d12_command_list_add_transition(list, &transition);
     }
 }
@@ -6201,13 +6222,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
-    const struct vkd3d_vk_device_procs *vk_procs;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkQueryControlFlags flags = 0;
 
     TRACE("iface %p, heap %p, type %#x, index %u.\n", iface, heap, type, index);
 
-    vk_procs = &list->device->vk_procs;
-
+    d3d12_command_list_track_query_heap(list, query_heap);
     d3d12_command_list_end_current_render_pass(list, true);
 
     VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
@@ -6231,15 +6251,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
-    const struct vkd3d_vk_device_procs *vk_procs;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
     TRACE("iface %p, heap %p, type %#x, index %u.\n", iface, heap, type, index);
 
-    vk_procs = &list->device->vk_procs;
-
+    d3d12_command_list_track_query_heap(list, query_heap);
     d3d12_command_list_end_current_render_pass(list, true);
-
-    d3d12_query_heap_mark_result_as_available(query_heap, index);
 
     if (type == D3D12_QUERY_TYPE_TIMESTAMP)
     {
@@ -6275,19 +6292,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
         ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT start_index, UINT query_count,
         ID3D12Resource *dst_buffer, UINT64 aligned_dst_buffer_offset)
 {
-    const struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
+    struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *buffer = unsafe_impl_from_ID3D12Resource(dst_buffer);
-    const struct vkd3d_vk_device_procs *vk_procs;
-    unsigned int i, first, count;
-    VkDeviceSize offset, stride;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
     TRACE("iface %p, heap %p, type %#x, start_index %u, query_count %u, "
             "dst_buffer %p, aligned_dst_buffer_offset %#"PRIx64".\n",
             iface, heap, type, start_index, query_count,
             dst_buffer, aligned_dst_buffer_offset);
 
-    vk_procs = &list->device->vk_procs;
+    d3d12_command_list_track_query_heap(list, query_heap);
 
     /* Vulkan is less strict than D3D12 here. Vulkan implementations are free
      * to return any non-zero result for binary occlusion with at least one
@@ -6307,49 +6322,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
 
     d3d12_command_list_end_current_render_pass(list, true);
 
-    stride = get_query_stride(type);
-
-    count = 0;
-    first = start_index;
-    offset = aligned_dst_buffer_offset;
-    for (i = 0; i < query_count; ++i)
-    {
-        if (d3d12_query_heap_is_result_available(query_heap, start_index + i))
-        {
-            ++count;
-        }
-        else
-        {
-            if (count)
-            {
-                VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
-                        query_heap->vk_query_pool, first, count, buffer->vk_buffer,
-                        buffer->heap_offset + offset, stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
-            }
-            count = 0;
-            first = start_index + i;
-            offset = aligned_dst_buffer_offset + i * stride;
-
-            /* We cannot copy query results if a query was not issued:
-             *
-             *   "If the query does not become available in a finite amount of
-             *   time (e.g. due to not issuing a query since the last reset),
-             *   a VK_ERROR_DEVICE_LOST error may occur."
-             */
-            VK_CALL(vkCmdFillBuffer(list->vk_command_buffer,
-                    buffer->vk_buffer, buffer->heap_offset + offset, stride, 0x00000000));
-
-            ++first;
-            offset += stride;
-        }
-    }
-
-    if (count)
-    {
-        VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
-                query_heap->vk_query_pool, first, count, buffer->vk_buffer,
-                buffer->heap_offset + offset, stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
-    }
+    VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer, query_heap->vk_query_pool,
+            start_index, query_count, buffer->vk_buffer, buffer->heap_offset + aligned_dst_buffer_offset,
+            get_query_stride(type), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_list_iface *iface,
@@ -7826,6 +7801,10 @@ struct d3d12_command_queue_transition_pool
     VkImageMemoryBarrier *barriers;
     size_t barriers_size;
     size_t barriers_count;
+
+    const struct d3d12_query_heap **query_heaps;
+    size_t query_heaps_size;
+    size_t query_heaps_count;
 };
 
 static HRESULT d3d12_command_queue_transition_pool_init(struct d3d12_command_queue_transition_pool *pool,
@@ -7883,6 +7862,8 @@ static void d3d12_command_queue_transition_pool_deinit(struct d3d12_command_queu
     d3d12_command_queue_transition_pool_wait(pool, device, pool->timeline_value);
     VK_CALL(vkDestroyCommandPool(device->vk_device, pool->pool, NULL));
     VK_CALL(vkDestroySemaphore(device->vk_device, pool->timeline, NULL));
+    vkd3d_free(pool->barriers);
+    vkd3d_free(pool->query_heaps);
 }
 
 static void d3d12_command_queue_transition_pool_add_barrier(struct d3d12_command_queue_transition_pool *pool,
@@ -7922,6 +7903,53 @@ static void d3d12_command_queue_transition_pool_add_barrier(struct d3d12_command
           resource, barrier->oldLayout, barrier->newLayout);
 }
 
+static void d3d12_command_queue_transition_pool_add_query_heap(struct d3d12_command_queue_transition_pool *pool,
+            const struct d3d12_query_heap *heap)
+{
+    if (!vkd3d_array_reserve((void**)&pool->query_heaps, &pool->query_heaps_size,
+            pool->query_heaps_count + 1, sizeof(*pool->query_heaps)))
+    {
+        ERR("Failed to allocate query heap list.\n");
+        return;
+    }
+
+    pool->query_heaps[pool->query_heaps_count++] = heap;
+
+    TRACE("Initialization for query heap %p.\n", heap);
+}
+
+static void d3d12_command_queue_init_query_heap(struct d3d12_device *device, VkCommandBuffer vk_cmd_buffer,
+        const struct d3d12_query_heap *heap)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    unsigned int i;
+
+    VK_CALL(vkCmdResetQueryPool(vk_cmd_buffer, heap->vk_query_pool, 0, heap->desc.Count));
+
+    for (i = 0; i < heap->desc.Count; i++)
+    {
+        switch (heap->desc.Type)
+        {
+            case D3D12_QUERY_HEAP_TYPE_OCCLUSION:
+            case D3D12_QUERY_HEAP_TYPE_SO_STATISTICS:
+            case D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS:
+                VK_CALL(vkCmdBeginQuery(vk_cmd_buffer, heap->vk_query_pool, i, 0));
+                VK_CALL(vkCmdEndQuery(vk_cmd_buffer, heap->vk_query_pool, i));
+                break;
+
+            case D3D12_QUERY_HEAP_TYPE_TIMESTAMP:
+            case D3D12_QUERY_HEAP_TYPE_COPY_QUEUE_TIMESTAMP:
+                VK_CALL(vkCmdWriteTimestamp(vk_cmd_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        heap->vk_query_pool, i));
+                break;
+
+            default:
+                ERR("Unhandled query pool type %u.\n", heap->desc.Type);
+                return;
+        }
+    }
+}
+
 static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue_transition_pool *pool,
         struct d3d12_device *device, const struct vkd3d_initial_transition *transitions, size_t count,
         VkCommandBuffer *vk_cmd_buffer, uint64_t *timeline_value)
@@ -7934,6 +7962,7 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     size_t i;
 
     pool->barriers_count = 0;
+    pool->query_heaps_count = 0;
 
     if (!count)
     {
@@ -7958,12 +7987,17 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
                     d3d12_command_queue_transition_pool_add_barrier(pool, transition->resource.resource);
                 break;
 
+            case VKD3D_INITIAL_TRANSITION_TYPE_QUERY_HEAP:
+                if (!vkd3d_atomic_uint32_exchange_explicit(&transition->query_heap->initialized, 1, vkd3d_memory_order_relaxed))
+                    d3d12_command_queue_transition_pool_add_query_heap(pool, transition->query_heap);
+                break;
+
             default:
                 ERR("Unhandled transition type %u.\n", transition->type);
         }
     }
 
-    if (!pool->barriers_count)
+    if (!pool->barriers_count && !pool->query_heaps_count)
     {
         *vk_cmd_buffer = VK_NULL_HANDLE;
         return;
@@ -7984,6 +8018,8 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     VK_CALL(vkCmdPipelineBarrier(pool->cmd[command_index],
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
             0, 0, NULL, 0, NULL, pool->barriers_count, pool->barriers));
+    for (i = 0; i < pool->query_heaps_count; i++)
+        d3d12_command_queue_init_query_heap(device, pool->cmd[command_index], pool->query_heaps[i]);
     VK_CALL(vkEndCommandBuffer(pool->cmd[command_index]));
 
     *vk_cmd_buffer = pool->cmd[command_index];
