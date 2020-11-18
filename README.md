@@ -145,7 +145,7 @@ commas or semicolons.
  - `VKD3D_CONFIG` - a list of options that change the behavior of vkd3d-proton.
     - vk_debug - enables Vulkan debug extensions and loads validation layer.
  - `VKD3D_DEBUG` - controls the debug level for log messages produced by
-   vkd3d-proton. Accepts the following values: none, err, fixme, warn, trace.
+   vkd3d-proton. Accepts the following values: none, err, info, fixme, warn, trace.
  - `VKD3D_SHADER_DEBUG` - controls the debug level for log messages produced by
    the shader compilers. See `VKD3D_DEBUG` for accepted values.
  - `VKD3D_LOG_FILE` - If set, redirects `VKD3D_DEBUG` logging output to a file instead.
