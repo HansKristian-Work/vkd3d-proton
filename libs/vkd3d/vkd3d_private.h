@@ -1250,10 +1250,22 @@ struct vkd3d_clear_state
     struct vkd3d_clear_attachment attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
 };
 
-struct d3d12_resource_initial_transition
+enum vkd3d_initial_transition_type
 {
-    struct d3d12_resource *resource;
-    bool perform_initial_transition;
+    VKD3D_INITIAL_TRANSITION_TYPE_RESOURCE,
+};
+
+struct vkd3d_initial_transition
+{
+    enum vkd3d_initial_transition_type type;
+    union
+    {
+        struct
+        {
+            struct d3d12_resource *resource;
+            bool perform_initial_transition;
+        } resource;
+    };
 };
 
 struct d3d12_command_list
@@ -1315,9 +1327,9 @@ struct d3d12_command_list
     size_t descriptor_updates_size;
     size_t descriptor_updates_count;
 
-    struct d3d12_resource_initial_transition *resource_init_transitions;
-    size_t resource_init_transitions_size;
-    size_t resource_init_transitions_count;
+    struct vkd3d_initial_transition *init_transitions;
+    size_t init_transitions_size;
+    size_t init_transitions_count;
 
     LONG *outstanding_submissions_count;
 
@@ -1394,7 +1406,7 @@ struct d3d12_command_queue_submission_execute
     UINT cmd_count;
     UINT outstanding_submissions_counter_count;
 
-    struct d3d12_resource_initial_transition *transitions;
+    struct vkd3d_initial_transition *transitions;
     size_t transition_count;
 
     bool debug_capture;
