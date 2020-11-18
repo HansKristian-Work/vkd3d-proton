@@ -763,37 +763,18 @@ struct d3d12_query_heap
     ID3D12QueryHeap ID3D12QueryHeap_iface;
     LONG refcount;
 
+    D3D12_QUERY_HEAP_DESC desc;
     VkQueryPool vk_query_pool;
+    uint32_t initialized;
 
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
-
-    uint64_t availability_mask[];
 };
 
 HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_HEAP_DESC *desc,
         struct d3d12_query_heap **heap);
 struct d3d12_query_heap *unsafe_impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface);
-
-/* A Vulkan query has to be issued at least one time before the result is
- * available. In D3D12 it is legal to get query reults for not issued queries.
- */
-static inline bool d3d12_query_heap_is_result_available(const struct d3d12_query_heap *heap,
-        unsigned int query_index)
-{
-    unsigned int index = query_index / (sizeof(*heap->availability_mask) * CHAR_BIT);
-    unsigned int shift = query_index % (sizeof(*heap->availability_mask) * CHAR_BIT);
-    return heap->availability_mask[index] & ((uint64_t)1 << shift);
-}
-
-static inline void d3d12_query_heap_mark_result_as_available(struct d3d12_query_heap *heap,
-        unsigned int query_index)
-{
-    unsigned int index = query_index / (sizeof(*heap->availability_mask) * CHAR_BIT);
-    unsigned int shift = query_index % (sizeof(*heap->availability_mask) * CHAR_BIT);
-    heap->availability_mask[index] |= (uint64_t)1 << shift;
-}
 
 enum vkd3d_root_signature_flag
 {
@@ -1255,6 +1236,7 @@ struct vkd3d_clear_state
 enum vkd3d_initial_transition_type
 {
     VKD3D_INITIAL_TRANSITION_TYPE_RESOURCE,
+    VKD3D_INITIAL_TRANSITION_TYPE_QUERY_HEAP,
 };
 
 struct vkd3d_initial_transition
@@ -1267,6 +1249,7 @@ struct vkd3d_initial_transition
             struct d3d12_resource *resource;
             bool perform_initial_transition;
         } resource;
+        struct d3d12_query_heap *query_heap;
     };
 };
 
