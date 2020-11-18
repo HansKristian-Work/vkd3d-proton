@@ -2625,52 +2625,68 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
         FIXME("Unhandled resource state %#x.\n", unhandled_state);
 }
 
-static void d3d12_command_list_add_initial_resource(struct d3d12_command_list *list,
-        struct d3d12_resource *resource, bool perform_initial_transition)
+static void d3d12_command_list_add_transition(struct d3d12_command_list *list, struct vkd3d_initial_transition *transition)
 {
-    struct d3d12_resource_initial_transition *initial;
+    bool skip;
     size_t i;
 
     /* Search in reverse as we're more likely to use same resource again. */
-    for (i = list->resource_init_transitions_count; i; i--)
-        if (list->resource_init_transitions[i - 1].resource == resource)
-            return;
+    for (i = list->init_transitions_count; i; i--)
+    {
+        if (list->init_transitions[i - 1].type != transition->type)
+            continue;
 
-    if (!vkd3d_array_reserve((void**)&list->resource_init_transitions, &list->resource_init_transitions_size,
-            list->resource_init_transitions_count + 1, sizeof(*list->resource_init_transitions)))
+        switch (transition->type)
+        {
+            case VKD3D_INITIAL_TRANSITION_TYPE_RESOURCE:
+                skip = list->init_transitions[i - 1].resource.resource == transition->resource.resource;
+                break;
+
+            default:
+                ERR("Unhandled transition type %u.\n", transition->type);
+                continue;
+        }
+
+        if (skip)
+            return;
+    }
+
+    if (!vkd3d_array_reserve((void**)&list->init_transitions, &list->init_transitions_size,
+            list->init_transitions_count + 1, sizeof(*list->init_transitions)))
     {
         ERR("Failed to allocate memory.\n");
         return;
     }
 
-    initial = &list->resource_init_transitions[list->resource_init_transitions_count++];
-    initial->resource = resource;
-    initial->perform_initial_transition = perform_initial_transition;
+    switch (transition->type)
+    {
+        case VKD3D_INITIAL_TRANSITION_TYPE_RESOURCE:
+            TRACE("Adding initial resource transition for resource %p (%s).\n",
+                  transition->resource.resource, transition->resource.perform_initial_transition ? "yes" : "no");
+            break;
 
-    TRACE("Adding initial resource transition for resource %p (%s).\n",
-          resource, perform_initial_transition ? "yes" : "no");
+        default:
+            ERR("Unhandled transition type %u.\n", transition->type);
+    }
+
+    list->init_transitions[list->init_transitions_count++] = *transition;
 }
 
 static void d3d12_command_list_track_resource_usage(struct d3d12_command_list *list,
-        struct d3d12_resource *resource)
+        struct d3d12_resource *resource, bool perform_initial_transition)
 {
+    struct vkd3d_initial_transition transition;
+
     /* When a command queue has confirmed that it has received a command list for submission, this flag will eventually
      * be cleared. The command queue will only perform the transition once.
      * Until that point, we must keep submitting initial transitions like this. */
-    uint32_t transition = vkd3d_atomic_uint32_load_explicit(&resource->initial_layout_transition, vkd3d_memory_order_relaxed);
-    if (transition)
-        d3d12_command_list_add_initial_resource(list, resource, true);
-}
-
-/* Called if we observe that the resource will be transitioned away from UNDEFINED explicitly,
- * through either an aliasing barrier or Discard/Clear/Copy that touches the entire resource.
- * In this case, we will simply clear the initial layout flag on submission, but not perform any barrier. */
-static void d3d12_command_list_track_resource_usage_skip_initial_transition(struct d3d12_command_list *list,
-        struct d3d12_resource *resource)
-{
-    uint32_t transition = vkd3d_atomic_uint32_load_explicit(&resource->initial_layout_transition, vkd3d_memory_order_relaxed);
-    if (transition)
-        d3d12_command_list_add_initial_resource(list, resource, false);
+    if (vkd3d_atomic_uint32_load_explicit(&resource->initial_layout_transition, vkd3d_memory_order_relaxed))
+    {
+        transition.type = VKD3D_INITIAL_TRANSITION_TYPE_RESOURCE;
+        transition.resource.resource = resource;
+        transition.resource.perform_initial_transition = perform_initial_transition;
+        d3d12_command_list_add_transition(list, &transition);
+    }
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_iface *iface,
@@ -2727,7 +2743,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_ifa
         if (list->allocator)
             d3d12_command_allocator_free_command_buffer(list->allocator, list);
 
-        vkd3d_free(list->resource_init_transitions);
+        vkd3d_free(list->init_transitions);
         vkd3d_free(list);
 
         d3d12_device_release(device);
@@ -2893,7 +2909,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     memset(list->so_counter_buffers, 0, sizeof(list->so_counter_buffers));
     memset(list->so_counter_buffer_offsets, 0, sizeof(list->so_counter_buffer_offsets));
 
-    list->resource_init_transitions_count = 0;
+    list->init_transitions_count = 0;
 
     ID3D12GraphicsCommandList_SetPipelineState(iface, initial_pipeline_state);
 }
@@ -3783,8 +3799,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
     src_resource = unsafe_impl_from_ID3D12Resource(src);
     assert(d3d12_resource_is_buffer(src_resource));
 
-    d3d12_command_list_track_resource_usage(list, dst_resource);
-    d3d12_command_list_track_resource_usage(list, src_resource);
+    d3d12_command_list_track_resource_usage(list, dst_resource, true);
+    d3d12_command_list_track_resource_usage(list, src_resource, true);
 
     d3d12_command_list_end_current_render_pass(list, true);
 
@@ -4224,14 +4240,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
     dst_resource = unsafe_impl_from_ID3D12Resource(dst->pResource);
     src_resource = unsafe_impl_from_ID3D12Resource(src->pResource);
 
-    d3d12_command_list_track_resource_usage(list, src_resource);
+    d3d12_command_list_track_resource_usage(list, src_resource, true);
 
     d3d12_command_list_end_current_render_pass(list, false);
 
     if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
             && dst->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
     {
-        d3d12_command_list_track_resource_usage(list, dst_resource);
+        d3d12_command_list_track_resource_usage(list, dst_resource, true);
         assert(d3d12_resource_is_buffer(dst_resource));
         assert(d3d12_resource_is_texture(src_resource));
 
@@ -4303,10 +4319,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
                 &buffer_image_copy.imageExtent, &buffer_image_copy.imageSubresource);
 
-        if (writes_full_subresource)
-            d3d12_command_list_track_resource_usage_skip_initial_transition(list, dst_resource);
-        else
-            d3d12_command_list_track_resource_usage(list, dst_resource);
+        d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_subresource);
 
         d3d12_command_list_transition_image_layout(list, dst_resource->vk_image,
                 &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -4346,10 +4359,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
                 &image_copy.extent, &image_copy.dstSubresource);
 
-        if (writes_full_subresource)
-            d3d12_command_list_track_resource_usage_skip_initial_transition(list, dst_resource);
-        else
-            d3d12_command_list_track_resource_usage(list, dst_resource);
+        d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_subresource);
 
         d3d12_command_list_copy_image(list, dst_resource, dst_format,
                 src_resource, src_format, &image_copy, writes_full_subresource);
@@ -4378,8 +4388,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     dst_resource = unsafe_impl_from_ID3D12Resource(dst);
     src_resource = unsafe_impl_from_ID3D12Resource(src);
 
-    d3d12_command_list_track_resource_usage_skip_initial_transition(list, dst_resource);
-    d3d12_command_list_track_resource_usage(list, src_resource);
+    d3d12_command_list_track_resource_usage(list, dst_resource, false);
+    d3d12_command_list_track_resource_usage(list, src_resource, true);
 
     d3d12_command_list_end_current_render_pass(list, false);
 
@@ -4446,7 +4456,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
     tiled_res = unsafe_impl_from_ID3D12Resource(tiled_resource);
     linear_res = unsafe_impl_from_ID3D12Resource(buffer);
 
-    d3d12_command_list_track_resource_usage(list, tiled_res);
+    d3d12_command_list_track_resource_usage(list, tiled_res, true);
 
     /* We can't rely on D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER being
      * set for the copy-to-buffer case, since D3D12_TILE_COPY_FLAG_NONE behaves the same. */
@@ -4619,11 +4629,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
             &vk_image_resolve.extent, &vk_image_resolve.dstSubresource);
 
-    if (writes_full_subresource)
-        d3d12_command_list_track_resource_usage_skip_initial_transition(list, dst_resource);
-    else
-        d3d12_command_list_track_resource_usage(list, dst_resource);
-    d3d12_command_list_track_resource_usage(list, src_resource);
+    d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_subresource);
+    d3d12_command_list_track_resource_usage(list, src_resource, true);
 
     vk_image_barriers[0].srcAccessMask = 0;
     vk_image_barriers[0].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -5018,7 +5025,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
         }
 
         if (preserve_resource)
-            d3d12_command_list_track_resource_usage(list, preserve_resource);
+            d3d12_command_list_track_resource_usage(list, preserve_resource, true);
 
         /* We will need to skip any initial transition if the aliasing barrier is the first use we observe in
          * a command list.
@@ -5035,7 +5042,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
          * It is critical to avoid redundant initial layout transitions if the first use transitions away from
          * UNDEFINED to make sure aliasing ownership is maintained correctly throughout a submission. */
         if (discard_resource)
-            d3d12_command_list_track_resource_usage_skip_initial_transition(list, discard_resource);
+            d3d12_command_list_track_resource_usage(list, discard_resource, false);
     }
 
     if (src_stage_mask && dst_stage_mask)
@@ -5647,7 +5654,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
             continue;
         }
 
-        d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
+        d3d12_command_list_track_resource_usage(list, rtv_desc->resource, true);
 
         list->rtvs[i] = *rtv_desc;
         list->fb_width = min(list->fb_width, rtv_desc->width);
@@ -5660,7 +5667,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
         if ((rtv_desc = d3d12_rtv_desc_from_cpu_handle(*depth_stencil_descriptor))
                 && rtv_desc->resource)
         {
-            d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
+            d3d12_command_list_track_resource_usage(list, rtv_desc->resource, true);
 
             list->dsv = *rtv_desc;
             list->fb_width = min(list->fb_width, rtv_desc->width);
@@ -5742,7 +5749,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(d3d12_com
     TRACE("iface %p, dsv %#lx, flags %#x, depth %.8e, stencil 0x%02x, rect_count %u, rects %p.\n",
             iface, dsv.ptr, flags, depth, stencil, rect_count, rects);
 
-    d3d12_command_list_track_resource_usage(list, dsv_desc->resource);
+    d3d12_command_list_track_resource_usage(list, dsv_desc->resource, true);
 
     if (flags & D3D12_CLEAR_FLAG_DEPTH)
         clear_aspects |= VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -5772,7 +5779,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(d3d12_com
     TRACE("iface %p, rtv %#lx, color %p, rect_count %u, rects %p.\n",
             iface, rtv.ptr, color, rect_count, rects);
 
-    d3d12_command_list_track_resource_usage(list, rtv_desc->resource);
+    d3d12_command_list_track_resource_usage(list, rtv_desc->resource, true);
 
     if (rtv_desc->format->type == VKD3D_FORMAT_TYPE_UINT)
     {
@@ -5829,7 +5836,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list, const 
     VkExtent3D workgroup_size;
     uint32_t extra_offset;
 
-    d3d12_command_list_track_resource_usage(list, resource);
+    d3d12_command_list_track_resource_usage(list, resource, true);
     d3d12_command_list_end_current_render_pass(list, false);
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
@@ -7380,7 +7387,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         UINT command_list_count, ID3D12CommandList * const *command_lists)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
-    struct d3d12_resource_initial_transition *transitions;
+    struct vkd3d_initial_transition *transitions;
     struct d3d12_command_queue_submission sub;
     struct d3d12_command_list *cmd_list;
     VkCommandBuffer *buffers;
@@ -7422,7 +7429,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             return;
         }
 
-        num_transitions += cmd_list->resource_init_transitions_count;
+        num_transitions += cmd_list->init_transitions_count;
 
         outstanding[i] = cmd_list->outstanding_submissions_count;
         InterlockedIncrement(outstanding[i]);
@@ -7440,11 +7447,11 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     {
         /* Pilfer directly. */
         cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[0]);
-        sub.execute.transitions = cmd_list->resource_init_transitions;
-        sub.execute.transition_count = cmd_list->resource_init_transitions_count;
-        cmd_list->resource_init_transitions = NULL;
-        cmd_list->resource_init_transitions_count = 0;
-        cmd_list->resource_init_transitions_size = 0;
+        sub.execute.transitions = cmd_list->init_transitions;
+        sub.execute.transition_count = cmd_list->init_transitions_count;
+        cmd_list->init_transitions = NULL;
+        cmd_list->init_transitions_count = 0;
+        cmd_list->init_transitions_size = 0;
     }
     else if (num_transitions != 0)
     {
@@ -7454,9 +7461,9 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         for (i = 0; i < command_list_count; ++i)
         {
             cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[i]);
-            memcpy(transitions, cmd_list->resource_init_transitions,
-                   cmd_list->resource_init_transitions_count * sizeof(*transitions));
-            transitions += cmd_list->resource_init_transitions_count;
+            memcpy(transitions, cmd_list->init_transitions,
+                   cmd_list->init_transitions_count * sizeof(*transitions));
+            transitions += cmd_list->init_transitions_count;
         }
     }
     else
@@ -7916,11 +7923,11 @@ static void d3d12_command_queue_transition_pool_add_barrier(struct d3d12_command
 }
 
 static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue_transition_pool *pool,
-        struct d3d12_device *device, const struct d3d12_resource_initial_transition *transitions, size_t count,
+        struct d3d12_device *device, const struct vkd3d_initial_transition *transitions, size_t count,
         VkCommandBuffer *vk_cmd_buffer, uint64_t *timeline_value)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    const struct d3d12_resource_initial_transition *transition;
+    const struct vkd3d_initial_transition *transition;
     VkCommandBufferBeginInfo begin_info;
     unsigned int command_index;
     uint32_t need_transition;
@@ -7938,14 +7945,22 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     {
         transition = &transitions[i];
 
-        /* Memory order can be relaxed since this only needs to return 1 once.
-         * Ordering is guaranteed by synchronization between queues.
-         * A Signal() -> Wait() pair on the queue will guarantee that this step is done in execution order. */
-        need_transition = vkd3d_atomic_uint32_exchange_explicit(&transition->resource->initial_layout_transition,
-                0, vkd3d_memory_order_relaxed);
+        switch (transition->type)
+        {
+            case VKD3D_INITIAL_TRANSITION_TYPE_RESOURCE:
+                /* Memory order can be relaxed since this only needs to return 1 once.
+                 * Ordering is guaranteed by synchronization between queues.
+                 * A Signal() -> Wait() pair on the queue will guarantee that this step is done in execution order. */
+                need_transition = vkd3d_atomic_uint32_exchange_explicit(&transition->resource.resource->initial_layout_transition,
+                        0, vkd3d_memory_order_relaxed);
 
-        if (need_transition && transition->perform_initial_transition)
-            d3d12_command_queue_transition_pool_add_barrier(pool, transition->resource);
+                if (need_transition && transition->resource.perform_initial_transition)
+                    d3d12_command_queue_transition_pool_add_barrier(pool, transition->resource.resource);
+                break;
+
+            default:
+                ERR("Unhandled transition type %u.\n", transition->type);
+        }
     }
 
     if (!pool->barriers_count)
@@ -8563,8 +8578,8 @@ VKD3D_EXPORT void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID
     sub.type = VKD3D_SUBMISSION_EXECUTE;
     sub.execute.transition_count = 1;
     sub.execute.transitions = vkd3d_malloc(sizeof(*sub.execute.transitions));
-    sub.execute.transitions[0].resource = d3d12_resource;
-    sub.execute.transitions[0].perform_initial_transition = true;
+    sub.execute.transitions[0].resource.resource = d3d12_resource;
+    sub.execute.transitions[0].resource.perform_initial_transition = true;
     d3d12_command_queue_add_submission(d3d12_queue, &sub);
 }
 
