@@ -23985,8 +23985,8 @@ static void test_query_occlusion(void)
         else
             expected_result = samples_passed ? 640 * 480 : 0;
 
-        ok(result == expected_result || (expected_result && result >= expected_result),
-                "Test %u: Got unexpected result %"PRIu64".\n", i, result);
+        todo_if(expected_result && tests[i].type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)
+        ok(result == expected_result, "Test %u: Got unexpected result %"PRIu64".\n", i, result);
     }
     release_resource_readback(&rb);
 
@@ -24038,8 +24038,8 @@ static void test_resolve_non_issued_query_data(void)
     timestamps = get_readback_data(&rb, 0, 0, 0, sizeof(*timestamps));
     ok(timestamps[0] != initial_data[0] && timestamps[0] > 0,
             "Got unexpected timestamp %#"PRIx64".\n", timestamps[0]);
-    ok(!timestamps[1], "Got unexpected timestamp %#"PRIx64".\n", timestamps[1]);
-    ok(!timestamps[2], "Got unexpected timestamp %#"PRIx64".\n", timestamps[2]);
+    todo ok(!timestamps[1], "Got unexpected timestamp %#"PRIx64".\n", timestamps[1]);
+    todo ok(!timestamps[2], "Got unexpected timestamp %#"PRIx64".\n", timestamps[2]);
     ok(timestamps[3] != initial_data[3] && timestamps[3] > 0,
             "Got unexpected timestamp %#"PRIx64".\n", timestamps[3]);
     release_resource_readback(&rb);
@@ -24191,7 +24191,7 @@ static void test_resolve_query_data_in_reordered_command_list(void)
     reset_command_list(command_lists[0], context.allocator);
     get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_UNKNOWN, &rb, queue, command_lists[0]);
     result = get_readback_uint64(&rb, 0, 0);
-    todo ok(result == context.render_target_desc.Width * context.render_target_desc.Height,
+    ok(result == context.render_target_desc.Width * context.render_target_desc.Height,
             "Got unexpected result %"PRIu64".\n", result);
     release_resource_readback(&rb);
 
