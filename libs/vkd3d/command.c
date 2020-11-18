@@ -8625,6 +8625,7 @@ VKD3D_EXPORT void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID
     sub.type = VKD3D_SUBMISSION_EXECUTE;
     sub.execute.transition_count = 1;
     sub.execute.transitions = vkd3d_malloc(sizeof(*sub.execute.transitions));
+    sub.execute.transitions[0].type = VKD3D_INITIAL_TRANSITION_TYPE_RESOURCE;
     sub.execute.transitions[0].resource.resource = d3d12_resource;
     sub.execute.transitions[0].resource.perform_initial_transition = true;
     d3d12_command_queue_add_submission(d3d12_queue, &sub);
