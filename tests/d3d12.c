@@ -22300,6 +22300,7 @@ static void test_cs_uav_store(void)
     ID3D12DescriptorHeap *descriptor_heap;
     ID3D12RootSignature *root_signature;
     ID3D12PipelineState *pipeline_state;
+    D3D12_RESOURCE_BARRIER uav_barrier;
     struct resource_readback rb;
     struct test_context context;
     ID3D12CommandQueue *queue;
@@ -22526,6 +22527,9 @@ static void test_cs_uav_store(void)
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
 
+    memset(&uav_barrier, 0, sizeof(uav_barrier));
+    uav_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+
     current_shader = NULL;
     pipeline_state = NULL;
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
@@ -22551,7 +22555,7 @@ static void test_cs_uav_store(void)
 
         ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(command_list,
                 gpu_descriptor_handle, cpu_descriptor_handle, resource, zero, 0, NULL);
-
+        ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &uav_barrier);
         ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
         ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
         ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(command_list, 1,
@@ -22579,6 +22583,7 @@ static void test_cs_uav_store(void)
 
     ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(command_list,
             gpu_descriptor_handle, cpu_descriptor_handle, resource, zero, 0, NULL);
+    ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &uav_barrier);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
     ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(command_list, 1,
