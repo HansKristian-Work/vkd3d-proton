@@ -144,6 +144,8 @@ commas or semicolons.
 
  - `VKD3D_CONFIG` - a list of options that change the behavior of vkd3d-proton.
     - `vk_debug` - enables Vulkan debug extensions and loads validation layer.
+    - `skip_application_workarounds` - Skips all application workarounds.
+      For debugging purposes.
     - `force_bindless_texel_buffer` - Forces use of texel buffers for bindless Raw/Structured buffers.
       For game workarounds only!
  - `VKD3D_DEBUG` - controls the debug level for log messages produced by

@@ -402,6 +402,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     /* Never use VKD3D_BINDLESS_RAW_SSBO.
      * Works around buggy games which mix typed and raw buffer types. */
     {"force_bindless_texel_buffer", VKD3D_CONFIG_FLAG_FORCE_BINDLESS_TEXEL_BUFFER},
+    {"skip_application_workarounds", VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS},
 };
 
 static uint64_t vkd3d_init_config_flags(void)
@@ -416,6 +417,37 @@ static uint64_t vkd3d_init_config_flags(void)
         TRACE("VKD3D_CONFIG='%s'.\n", config);
 
     return config_flags;
+}
+
+struct vkd3d_instance_application_meta
+{
+    const char *name;
+    uint64_t global_flags_add;
+    uint64_t global_flags_remove;
+};
+static const struct vkd3d_instance_application_meta application_override[] = {
+    /* Application uses R32_UINT and misses raw buffer type.
+     * Fixes map rendering. */
+    { "ds.exe", VKD3D_CONFIG_FLAG_FORCE_BINDLESS_TEXEL_BUFFER, 0 },
+};
+
+static void vkd3d_instance_apply_application_workarounds(const char *app, uint64_t *flags)
+{
+    size_t i;
+    if (!app)
+        return;
+
+    for (i = 0; i < ARRAY_SIZE(application_override); i++)
+    {
+        if (!strcmp(app, application_override[i].name))
+        {
+            *flags |= application_override[i].global_flags_add;
+            *flags &= ~application_override[i].global_flags_remove;
+            INFO("Detected game %s, adding config 0x%"PRIx64", removing masks 0x%"PRIx64".\n",
+                 app, application_override[i].global_flags_add, application_override[i].global_flags_remove);
+            break;
+        }
+    }
 }
 
 static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
@@ -518,6 +550,9 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     {
         application_info.pApplicationName = application_name;
     }
+
+    if (!(instance->config_flags & VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS))
+        vkd3d_instance_apply_application_workarounds(application_info.pApplicationName, &instance->config_flags);
 
     TRACE("Application: %s.\n", debugstr_a(application_info.pApplicationName));
 
