@@ -155,6 +155,7 @@ struct vkd3d_vulkan_info
 enum vkd3d_config_flags
 {
     VKD3D_CONFIG_FLAG_VULKAN_DEBUG = 0x00000001,
+    VKD3D_CONFIG_FLAG_FORCE_BINDLESS_TEXEL_BUFFER = 0x00000002,
 };
 
 struct vkd3d_instance
