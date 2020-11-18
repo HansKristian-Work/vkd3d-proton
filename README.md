@@ -143,7 +143,9 @@ Some of debug variables are lists of elements. Elements must be separated by
 commas or semicolons.
 
  - `VKD3D_CONFIG` - a list of options that change the behavior of vkd3d-proton.
-    - vk_debug - enables Vulkan debug extensions and loads validation layer.
+    - `vk_debug` - enables Vulkan debug extensions and loads validation layer.
+    - `force_bindless_texel_buffer` - Forces use of texel buffers for bindless Raw/Structured buffers.
+      For game workarounds only!
  - `VKD3D_DEBUG` - controls the debug level for log messages produced by
    vkd3d-proton. Accepts the following values: none, err, info, fixme, warn, trace.
  - `VKD3D_SHADER_DEBUG` - controls the debug level for log messages produced by

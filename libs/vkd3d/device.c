@@ -397,7 +397,11 @@ static void vkd3d_init_debug_messenger_callback(struct vkd3d_instance *instance)
 
 static const struct vkd3d_debug_option vkd3d_config_options[] =
 {
-    {"vk_debug", VKD3D_CONFIG_FLAG_VULKAN_DEBUG}, /* enable Vulkan debug extensions */
+    /* Enable Vulkan debug extensions. */
+    {"vk_debug", VKD3D_CONFIG_FLAG_VULKAN_DEBUG},
+    /* Never use VKD3D_BINDLESS_RAW_SSBO.
+     * Works around buggy games which mix typed and raw buffer types. */
+    {"force_bindless_texel_buffer", VKD3D_CONFIG_FLAG_FORCE_BINDLESS_TEXEL_BUFFER},
 };
 
 static uint64_t vkd3d_init_config_flags(void)
