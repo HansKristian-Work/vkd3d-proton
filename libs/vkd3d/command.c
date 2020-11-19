@@ -6296,6 +6296,75 @@ static size_t get_query_stride(D3D12_QUERY_TYPE type)
     return sizeof(uint64_t);
 }
 
+static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_command_list *list,
+        struct d3d12_resource *buffer, UINT64 offset, UINT query_count)
+{
+    const struct vkd3d_query_ops *query_ops = &list->device->meta_ops.query;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkDeviceSize alignment, aligned_offset, aligned_end;
+    VkDescriptorBufferInfo buffer_info;
+    struct vkd3d_query_op_args args;
+    VkWriteDescriptorSet vk_write;
+    unsigned int num_workgroups;
+    VkMemoryBarrier vk_barrier;
+    VkDescriptorSet vk_set;
+
+    d3d12_command_list_invalidate_current_pipeline(list, true);
+    d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
+
+    alignment = list->device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment;
+    aligned_end = align(offset + query_count * sizeof(uint64_t), alignment);
+    aligned_offset = offset & ~(alignment - 1);
+
+    vk_set = d3d12_command_allocator_allocate_descriptor_set(list->allocator,
+            query_ops->vk_set_layout, VKD3D_DESCRIPTOR_POOL_TYPE_STATIC);
+
+    /* TODO suppprt some sort of scratch buffer so that
+     * we don't do write->read->write on host memory */
+    buffer_info.buffer = buffer->vk_buffer;
+    buffer_info.offset = buffer->heap_offset + aligned_offset;
+    buffer_info.range = aligned_end - aligned_offset;
+
+    vk_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    vk_write.pNext = NULL;
+    vk_write.dstSet = vk_set;
+    vk_write.dstBinding = 0;
+    vk_write.dstArrayElement = 0;
+    vk_write.descriptorCount = 1;
+    vk_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    vk_write.pImageInfo = NULL;
+    vk_write.pBufferInfo = &buffer_info;
+    vk_write.pTexelBufferView = NULL;
+    
+    VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &vk_write, 0, NULL));
+
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    vk_barrier.pNext = NULL;
+    vk_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0, 1, &vk_barrier, 0, NULL, 0, NULL));
+
+    num_workgroups = (query_count + VKD3D_QUERY_OP_WORKGROUP_SIZE - 1) / VKD3D_QUERY_OP_WORKGROUP_SIZE;
+    args.query_offset = (offset - aligned_offset) / sizeof(uint64_t);
+    args.query_count = query_count;
+
+    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            query_ops->vk_resolve_binary_pipeline));
+    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            query_ops->vk_pipeline_layout, 0, 1, &vk_set, 0, NULL));
+    VK_CALL(vkCmdPushConstants(list->vk_command_buffer, query_ops->vk_pipeline_layout,
+            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(args), &args));
+    VK_CALL(vkCmdDispatch(list->vk_command_buffer, num_workgroups, 1, 1));
+
+    vk_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    vk_barrier.dstAccessMask = 0;
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 1, &vk_barrier, 0, NULL, 0, NULL));
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_list_iface *iface,
         ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT start_index, UINT query_count,
         ID3D12Resource *dst_buffer, UINT64 aligned_dst_buffer_offset)
@@ -6310,29 +6379,22 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
             iface, heap, type, start_index, query_count,
             dst_buffer, aligned_dst_buffer_offset);
 
-    d3d12_command_list_track_query_heap(list, query_heap);
-
-    /* Vulkan is less strict than D3D12 here. Vulkan implementations are free
-     * to return any non-zero result for binary occlusion with at least one
-     * sample passing, while D3D12 guarantees that the result is 1 then.
-     *
-     * For example, the Nvidia binary blob drivers on Linux seem to always
-     * count precisely, even when it was signalled that non-precise is enough.
-     */
-    if (type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)
-        FIXME_ONCE("D3D12 guarantees binary occlusion queries result in only 0 and 1.\n");
-
     if (!d3d12_resource_is_buffer(buffer))
     {
         WARN("Destination resource is not a buffer.\n");
         return;
     }
 
+    d3d12_command_list_track_query_heap(list, query_heap);
     d3d12_command_list_end_current_render_pass(list, true);
 
     VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer, query_heap->vk_query_pool,
             start_index, query_count, buffer->vk_buffer, buffer->heap_offset + aligned_dst_buffer_offset,
             get_query_stride(type), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+
+    if (type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)
+        d3d12_command_list_resolve_binary_occlusion_queries(list,
+                buffer, aligned_dst_buffer_offset, query_count);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_list_iface *iface,
