@@ -1075,7 +1075,7 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
         if (!key->vk_formats[index])
         {
             attachment_references[index].attachment = VK_ATTACHMENT_UNUSED;
-            attachment_references[index].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            attachment_references[index].layout = VK_IMAGE_LAYOUT_UNDEFINED;
             continue;
         }
 
