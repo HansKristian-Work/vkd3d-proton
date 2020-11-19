@@ -1070,6 +1070,51 @@ HRESULT vkd3d_meta_get_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
     return S_OK;
 }
 
+HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
+        struct d3d12_device *device)
+{
+    VkPushConstantRange push_constant_range;
+    VkDescriptorSetLayoutBinding binding;
+    VkResult vr;
+
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    binding.descriptorCount = 1;
+    binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    binding.pImmutableSamplers = NULL;
+
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    push_constant_range.offset = 0;
+    push_constant_range.size = sizeof(struct vkd3d_query_op_args);
+
+    if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &binding, &meta_query_ops->vk_set_layout)) < 0)
+        goto fail;
+
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_query_ops->vk_set_layout,
+            1, &push_constant_range, &meta_query_ops->vk_pipeline_layout)) < 0)
+        goto fail;
+
+    if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_resolve_binary_queries), cs_resolve_binary_queries,
+            meta_query_ops->vk_pipeline_layout, NULL, &meta_query_ops->vk_resolve_binary_pipeline)) < 0)
+        goto fail;
+
+    return S_OK;
+
+fail:
+    vkd3d_query_ops_cleanup(meta_query_ops, device);
+    return hresult_from_vk_result(vr);
+}
+
+void vkd3d_query_ops_cleanup(struct vkd3d_query_ops *meta_query_ops,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_query_ops->vk_set_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_query_ops->vk_pipeline_layout, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, meta_query_ops->vk_resolve_binary_pipeline, NULL));
+}
+
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
 {
     HRESULT hr;
@@ -1089,8 +1134,13 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
     if (FAILED(hr = vkd3d_swapchain_ops_init(&meta_ops->swapchain, device)))
         goto fail_swapchain_ops;
 
+    if (FAILED(hr = vkd3d_query_ops_init(&meta_ops->query, device)))
+        goto fail_query_ops;
+
     return S_OK;
 
+fail_query_ops:
+    vkd3d_swapchain_ops_cleanup(&meta_ops->swapchain, device);
 fail_swapchain_ops:
     vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image, device);
 fail_copy_image_ops:
@@ -1103,6 +1153,7 @@ fail_common:
 
 HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
 {
+    vkd3d_query_ops_cleanup(&meta_ops->query, device);
     vkd3d_swapchain_ops_cleanup(&meta_ops->swapchain, device);
     vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image, device);
     vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav, device);

@@ -41,6 +41,7 @@ enum vkd3d_meta_copy_mode
 #include <cs_clear_uav_image_2d_uint.h>
 #include <cs_clear_uav_image_3d_float.h>
 #include <cs_clear_uav_image_3d_uint.h>
+#include <cs_resolve_binary_queries.h>
 #include <vs_fullscreen_layer.h>
 #include <vs_fullscreen.h>
 #include <gs_fullscreen.h>
