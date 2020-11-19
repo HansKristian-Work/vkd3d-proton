@@ -4741,15 +4741,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(d3d12_command_li
 
     for (i = 0; i < viewport_count; ++i)
     {
-        if (!viewports[i].Width || !viewports[i].Height)
-        {
-            FIXME_ONCE("Invalid viewport %u, ignoring RSSetViewports().\n", i);
-            return;
-        }
-    }
-
-    for (i = 0; i < viewport_count; ++i)
-    {
         VkViewport *vk_viewport = &dyn_state->viewports[i];
         vk_viewport->x = viewports[i].TopLeftX;
         vk_viewport->y = viewports[i].TopLeftY + viewports[i].Height;
@@ -4757,6 +4748,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(d3d12_command_li
         vk_viewport->height = -viewports[i].Height;
         vk_viewport->minDepth = viewports[i].MinDepth;
         vk_viewport->maxDepth = viewports[i].MaxDepth;
+
+        if (vk_viewport->width <= 0.0f)
+        {
+            vk_viewport->width = 1.0f;
+            vk_viewport->height = 0.0f;
+        }
     }
 
     if (dyn_state->viewport_count != viewport_count)
