@@ -1009,7 +1009,9 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
     if (heap_type == D3D12_HEAP_TYPE_UPLOAD)
         buffer_info.usage &= ~VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     else if (heap_type == D3D12_HEAP_TYPE_READBACK)
-        buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    {
+        buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    }
 
     if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
         buffer_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR;
