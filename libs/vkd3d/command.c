@@ -6410,7 +6410,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
 
     if (!vk_info->EXT_conditional_rendering)
     {
-        FIXME("Vulkan conditional rendering extension not present. Conditional rendering not supported.\n");
+        FIXME_ONCE("Vulkan conditional rendering extension not present. Conditional rendering not supported.\n");
         return;
     }
 
@@ -6440,7 +6440,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
         cond_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
         cond_info.pNext = NULL;
         cond_info.buffer = resource->vk_buffer;
-        cond_info.offset = aligned_buffer_offset;
+        cond_info.offset = resource->heap_offset + aligned_buffer_offset;
         switch (operation)
         {
             case D3D12_PREDICATION_OP_EQUAL_ZERO:
