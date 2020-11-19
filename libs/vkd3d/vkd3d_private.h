@@ -1781,6 +1781,26 @@ HRESULT vkd3d_swapchain_ops_init(struct vkd3d_swapchain_ops *meta_swapchain_ops,
 void vkd3d_swapchain_ops_cleanup(struct vkd3d_swapchain_ops *meta_swapchain_ops,
         struct d3d12_device *device);
 
+#define VKD3D_QUERY_OP_WORKGROUP_SIZE (64)
+
+struct vkd3d_query_op_args
+{
+    uint32_t query_offset;
+    uint32_t query_count;
+};
+
+struct vkd3d_query_ops
+{
+    VkDescriptorSetLayout vk_set_layout;
+    VkPipelineLayout vk_pipeline_layout;
+    VkPipeline vk_resolve_binary_pipeline;
+};
+
+HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
+        struct d3d12_device *device);
+void vkd3d_query_ops_cleanup(struct vkd3d_query_ops *meta_query_ops,
+        struct d3d12_device *device);
+
 struct vkd3d_meta_ops_common
 {
     VkShaderModule vk_module_fullscreen_vs;
@@ -1794,6 +1814,7 @@ struct vkd3d_meta_ops
     struct vkd3d_clear_uav_ops clear_uav;
     struct vkd3d_copy_image_ops copy_image;
     struct vkd3d_swapchain_ops swapchain;
+    struct vkd3d_query_ops query;
 };
 
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device);
