@@ -23985,7 +23985,6 @@ static void test_query_occlusion(void)
         else
             expected_result = samples_passed ? 640 * 480 : 0;
 
-        todo_if(expected_result && tests[i].type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)
         ok(result == expected_result, "Test %u: Got unexpected result %"PRIu64".\n", i, result);
     }
     release_resource_readback(&rb);
