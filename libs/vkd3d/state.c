@@ -2464,6 +2464,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         }
 
         blend_attachment_from_d3d12(&graphics->blend_attachments[i], rt_desc);
+
+        if (graphics->null_attachment_mask & (1u << i))
+            memset(&graphics->blend_attachments[i], 0, sizeof(graphics->blend_attachments[i]));
     }
 
     for (i = rt_count; i < ARRAY_SIZE(graphics->rtv_formats); ++i)
@@ -2538,6 +2541,14 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     ps_compile_args.dual_source_blending = is_dual_source_blending(&desc->blend_state.RenderTarget[0]);
     ps_compile_args.output_swizzles = ps_output_swizzle;
     ps_compile_args.output_swizzle_count = rt_count;
+
+    if (ps_compile_args.dual_source_blending)
+    {
+        /* If we're using dual source blending, we can only safely write to MRT 0.
+         * Be defensive about programs which do not do this for us. */
+        memset(graphics->blend_attachments + 1, 0,
+                sizeof(graphics->blend_attachments[0]) * (ARRAY_SIZE(graphics->blend_attachments) - 1));
+    }
 
     if (compile_args.dual_source_blending && rt_count > 1)
     {
