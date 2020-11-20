@@ -136,6 +136,9 @@ struct vkd3d_vulkan_info
     bool AMD_shader_core_properties2;
     /* NV device extensions */
     bool NV_shader_sm_builtins;
+#ifdef VKD3D_ENABLE_AFTERMATH
+    bool NV_device_diagnostics_config;
+#endif
 
     bool rasterization_stream;
     bool transform_feedback_queries;
@@ -1535,6 +1538,11 @@ void *vkd3d_shader_debug_ring_thread_main(void *arg);
 void vkd3d_shader_debug_ring_init_spec_constant(struct d3d12_device *device,
         struct vkd3d_shader_debug_ring_spec_info *info, vkd3d_shader_hash_t hash);
 void vkd3d_shader_debug_ring_end_command_buffer(struct d3d12_command_list *list);
+
+#ifdef VKD3D_ENABLE_AFTERMATH
+void vkd3d_aftermath_register_spirv(const void *spirv, size_t size);
+bool vkd3d_aftermath_init_library(VkDeviceDiagnosticsConfigCreateInfoNV *diagnostics);
+#endif
 
 /* NULL resources */
 struct vkd3d_null_resources

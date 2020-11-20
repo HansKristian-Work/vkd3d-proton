@@ -1683,6 +1683,10 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     shader_desc.pCode = spirv.code;
     *meta = spirv.meta;
 
+#ifdef VKD3D_ENABLE_AFTERMATH
+    vkd3d_aftermath_register_spirv(spirv.code, spirv.size);
+#endif
+
     vr = VK_CALL(vkCreateShaderModule(device->vk_device, &shader_desc, NULL, &stage_desc->module));
     vkd3d_shader_free_shader_code(&spirv);
     if (vr < 0)

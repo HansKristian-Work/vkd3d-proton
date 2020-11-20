@@ -45,6 +45,10 @@ if enable_renderdoc
   vkd3d_src += ['renderdoc.c']
 endif
 
+if enable_aftermath
+  vkd3d_src += ['aftermath_integration.c']
+endif
+
 if not enable_d3d12
   vkd3d_lib = shared_library('vkd3d-proton', vkd3d_src, glsl_generator.process(vkd3d_shaders), vkd3d_build, vkd3d_version,
     dependencies        : [ vkd3d_common_dep, vkd3d_shader_dep ] + vkd3d_extra_libs,

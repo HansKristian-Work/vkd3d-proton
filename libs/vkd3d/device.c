@@ -104,6 +104,9 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES_2, AMD_shader_core_properties2),
     /* NV extensions */
     VK_EXTENSION(NV_SHADER_SM_BUILTINS, NV_shader_sm_builtins),
+#ifdef VKD3D_ENABLE_AFTERMATH
+    VK_EXTENSION(NV_DEVICE_DIAGNOSTICS_CONFIG, NV_device_diagnostics_config),
+#endif
 };
 
 static unsigned int get_spec_version(const VkExtensionProperties *extensions,
@@ -1819,6 +1822,9 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     const struct vkd3d_optional_device_extensions_info *optional_extensions;
+#ifdef VKD3D_ENABLE_AFTERMATH
+    VkDeviceDiagnosticsConfigCreateInfoNV diagnostics_nv;
+#endif
     struct vkd3d_device_queue_info device_queue_info;
     VkPhysicalDeviceProperties device_properties;
     bool *user_extension_supported = NULL;
@@ -1892,6 +1898,19 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     device_info.ppEnabledExtensionNames = extensions;
     device_info.pEnabledFeatures = &device->device_info.features2.features;
     vkd3d_free(user_extension_supported);
+
+#ifdef VKD3D_ENABLE_AFTERMATH
+    if (getenv("VKD3D_AFTERMATH") &&
+        device->vk_info.NV_device_diagnostics_config &&
+        vkd3d_aftermath_init_library(&diagnostics_nv))
+    {
+        INFO("Enabling Aftermath.\n");
+        diagnostics_nv.pNext = device_info.pNext;
+        device_info.pNext = &diagnostics_nv;
+    }
+    else
+        INFO("Not enabling Aftermath.\n");
+#endif
 
     vr = VK_CALL(vkCreateDevice(physical_device, &device_info, NULL, &vk_device));
     vkd3d_free((void *)extensions);

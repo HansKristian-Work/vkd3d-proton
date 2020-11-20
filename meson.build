@@ -14,6 +14,7 @@ enable_extras            = get_option('enable_extras')
 enable_d3d12             = get_option('enable_d3d12')
 enable_profiling         = get_option('enable_profiling')
 enable_renderdoc         = get_option('enable_renderdoc')
+enable_aftermath         = get_option('enable_aftermath')
 
 if enable_d3d12 == 'auto'
     enable_d3d12 = (vkd3d_platform == 'windows')
@@ -48,6 +49,11 @@ endif
 vkd3d_external_includes = [ './subprojects/Vulkan-Headers/include', './subprojects/SPIRV-Headers/include' ]
 vkd3d_public_includes   = [ './include' ] + vkd3d_external_includes
 vkd3d_private_includes  = [ './include/private' ] + vkd3d_public_includes
+
+if enable_aftermath
+  add_project_arguments('-DVKD3D_ENABLE_AFTERMATH', language : 'c')
+  vkd3d_private_includes = [ './include/aftermath' ] + vkd3d_private_includes
+endif
 
 vkd3d_external_includes = include_directories(vkd3d_external_includes)
 vkd3d_public_includes   = include_directories(vkd3d_public_includes)

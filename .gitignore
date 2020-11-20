@@ -26,3 +26,5 @@ vkd3d-*.tar.xz
 build
 build.native
 build.cross
+
+include/aftermath/*.h
