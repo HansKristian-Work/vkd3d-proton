@@ -1,0 +1,40 @@
+#version 450
+
+#extension GL_EXT_buffer_reference : require
+
+layout(local_size_x = 1) in;
+
+layout(constant_id = 0) const uint c_arg_count = 0;
+layout(constant_id = 1) const bool c_arg_indirect = false;
+
+layout(std430, buffer_reference, buffer_reference_align = 4)
+readonly buffer predicate_t {
+  uint data;
+};
+
+layout(std430, buffer_reference, buffer_reference_align = 4)
+readonly buffer src_args_t {
+  uint data[];
+};
+
+layout(std430, buffer_reference, buffer_reference_align = 4)
+writeonly buffer dst_args_t {
+  uint data[];
+};
+
+layout(push_constant)
+uniform u_info_t {
+  predicate_t predicate;
+  src_args_t src_args;
+  dst_args_t dst_args;
+  uint cmd_args[5];
+};
+
+void main() {
+  bool do_exec = predicate.data != 0;
+
+  for (uint i = 0; i < c_arg_count; i++) {
+    uint arg = c_arg_indirect ? src_args.data[i] : cmd_args[i];
+    dst_args.data[i] = do_exec ? arg : 0u;
+  }
+}

@@ -1,0 +1,26 @@
+#version 450
+
+#extension GL_EXT_buffer_reference : require
+
+layout(local_size_x = 1) in;
+
+layout(std430, buffer_reference, buffer_reference_align = 8)
+readonly buffer src_predicate_t {
+  uvec2 data;
+};
+
+layout(std430, buffer_reference, buffer_reference_align = 4)
+writeonly buffer dst_predicate_t {
+  uint data;
+};
+
+layout(push_constant)
+uniform u_info_t {
+  src_predicate_t src;
+  dst_predicate_t dst;
+  bool invert;
+};
+
+void main() {
+  dst.data = (all(equal(src.data, 0u.xx)) != invert) ? 0u : 1u;
+}

@@ -1818,6 +1818,61 @@ HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
 void vkd3d_query_ops_cleanup(struct vkd3d_query_ops *meta_query_ops,
         struct d3d12_device *device);
 
+union vkd3d_predicate_command_direct_args
+{
+    VkDispatchIndirectCommand dispatch;
+    VkDrawIndirectCommand draw;
+    VkDrawIndexedIndirectCommand draw_indexed;
+    uint32_t draw_count;
+};
+
+struct vkd3d_predicate_command_args
+{
+    VkDeviceAddress predicate_va;
+    VkDeviceAddress src_arg_va;
+    VkDeviceAddress dst_arg_va;
+    union vkd3d_predicate_command_direct_args args;
+};
+
+enum vkd3d_predicate_command_type
+{
+    VKD3D_PREDICATE_COMMAND_DRAW,
+    VKD3D_PREDICATE_COMMAND_DRAW_INDEXED,
+    VKD3D_PREDICATE_COMMAND_DRAW_INDIRECT,
+    VKD3D_PREDICATE_COMMAND_DRAW_INDIRECT_COUNT,
+    VKD3D_PREDICATE_COMMAND_DISPATCH,
+    VKD3D_PREDICATE_COMMAND_DISPATCH_INDIRECT,
+    VKD3D_PREDICATE_COMMAND_COUNT
+};
+
+struct vkd3d_predicate_command_info
+{
+    VkPipelineLayout vk_pipeline_layout;
+    VkPipeline vk_pipeline;
+    uint32_t data_size;
+};
+
+struct vkd3d_predicate_resolve_args
+{
+    VkDeviceAddress src_va;
+    VkDeviceAddress dst_va;
+    VkBool32 invert;
+};
+
+struct vkd3d_predicate_ops
+{
+    VkPipelineLayout vk_command_pipeline_layout;
+    VkPipelineLayout vk_resolve_pipeline_layout;
+    VkPipeline vk_command_pipelines[VKD3D_PREDICATE_COMMAND_COUNT];
+    VkPipeline vk_resolve_pipeline;
+    uint32_t data_sizes[VKD3D_PREDICATE_COMMAND_COUNT];
+};
+
+HRESULT vkd3d_predicate_ops_init(struct vkd3d_predicate_ops *meta_predicate_ops,
+        struct d3d12_device *device);
+void vkd3d_predicate_ops_cleanup(struct vkd3d_predicate_ops *meta_predicate_ops,
+        struct d3d12_device *device);
+
 struct vkd3d_meta_ops_common
 {
     VkShaderModule vk_module_fullscreen_vs;
@@ -1832,6 +1887,7 @@ struct vkd3d_meta_ops
     struct vkd3d_copy_image_ops copy_image;
     struct vkd3d_swapchain_ops swapchain;
     struct vkd3d_query_ops query;
+    struct vkd3d_predicate_ops predicate;
 };
 
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device);
@@ -1856,6 +1912,9 @@ const struct vkd3d_format *vkd3d_meta_get_copy_image_attachment_format(struct vk
         const struct vkd3d_format *dst_format, const struct vkd3d_format *src_format);
 HRESULT vkd3d_meta_get_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
         const struct vkd3d_swapchain_pipeline_key *key, struct vkd3d_swapchain_info *info);
+
+void vkd3d_meta_get_predicate_pipeline(struct vkd3d_meta_ops *meta_ops,
+        enum vkd3d_predicate_command_type command_type, struct vkd3d_predicate_command_info *info);
 
 enum vkd3d_time_domain_flag
 {
