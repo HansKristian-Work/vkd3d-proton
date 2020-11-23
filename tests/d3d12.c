@@ -24638,16 +24638,16 @@ static void test_unaligned_vertex_stride(void)
 
     static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
     {
-        {"sv_position", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT,
+        {"sv_position", 0, DXGI_FORMAT_R16G16B16A16_SNORM, 0, D3D12_APPEND_ALIGNED_ELEMENT,
                 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"color",       0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, D3D12_APPEND_ALIGNED_ELEMENT,
+        {"color",       0, DXGI_FORMAT_R16G16B16A16_SNORM, 1, D3D12_APPEND_ALIGNED_ELEMENT,
                 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
     };
     static const D3D12_INPUT_ELEMENT_DESC instance_layout_desc[] =
     {
-        {"sv_position", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT,
+        {"sv_position", 0, DXGI_FORMAT_R16G16B16A16_SNORM, 0, D3D12_APPEND_ALIGNED_ELEMENT,
                 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"color",       0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, D3D12_APPEND_ALIGNED_ELEMENT,
+        {"color",       0, DXGI_FORMAT_R16G16B16A16_SNORM, 1, D3D12_APPEND_ALIGNED_ELEMENT,
                 D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 0},
     };
     static const DWORD vs_code[] =
@@ -24703,33 +24703,42 @@ static void test_unaligned_vertex_stride(void)
     };
     static const D3D12_SHADER_BYTECODE ps = { ps_code, sizeof(ps_code) };
 
-    struct unaligned_vec4
+    struct i16vec4
     {
-        uint8_t blob[4 * 4 + 1];
+        int16_t x, y, z, w;
     };
 
-    static const struct vec4 positions[] =
+    struct unaligned_i16vec4
     {
-        {-1.0f, -1.0f, 0.0f, 1.0f},
-        {-1.0f,  1.0f, 0.0f, 1.0f},
-        { 1.0f, -1.0f, 0.0f, 1.0f},
-        { 1.0f,  1.0f, 0.0f, 1.0f},
+        uint8_t blob[2 * 4 + 1];
     };
-    static const struct vec4 colors[] =
+
+#define I16_MIN -0x7fff
+#define I16_MAX 0x7fff
+    static const struct i16vec4 positions[] =
     {
-        {0.0f, 1.0f, 0.0f, 1.0f},
-        {0.0f, 1.0f, 0.0f, 1.0f},
-        {0.0f, 1.0f, 0.0f, 1.0f},
-        {0.0f, 1.0f, 0.0f, 1.0f},
-        {0.5f, 0.5f, 0.5f, 1.0f},
-        {0.5f, 0.5f, 0.5f, 1.0f},
-        {0.5f, 0.5f, 0.5f, 1.0f},
-        {0.5f, 0.5f, 0.5f, 1.0f},
+        {I16_MIN, I16_MIN, 0.0f, I16_MAX},
+        {I16_MIN, I16_MAX, 0.0f, I16_MAX},
+        {I16_MAX, I16_MIN, 0.0f, I16_MAX},
+        {I16_MAX, I16_MAX, 0.0f, I16_MAX},
     };
+
+    static const struct i16vec4 colors[] =
+    {
+        {0, I16_MAX, 0, I16_MAX},
+        {0, I16_MAX, 0, I16_MAX},
+        {0, I16_MAX, 0, I16_MAX},
+        {0, I16_MAX, 0, I16_MAX},
+        {0, 0, I16_MAX, I16_MAX},
+        {0, 0, I16_MAX, I16_MAX},
+        {0, 0, I16_MAX, I16_MAX},
+        {0, 0, I16_MAX, I16_MAX},
+    };
+
     static const float white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
 
-    struct unaligned_vec4 unaligned_positions[ARRAY_SIZE(positions)];
-    struct unaligned_vec4 unaligned_colors[ARRAY_SIZE(colors)];
+    struct unaligned_i16vec4 unaligned_positions[ARRAY_SIZE(positions)];
+    struct unaligned_i16vec4 unaligned_colors[ARRAY_SIZE(colors)];
     
     for (i = 0; i < ARRAY_SIZE(positions); i++)
         memcpy(&unaligned_positions[i], &positions[i], sizeof(*positions));
@@ -24779,7 +24788,7 @@ static void test_unaligned_vertex_stride(void)
 
     transition_resource_state(command_list, context.render_target,
         D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff808080, 2);
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xffff0000, 2);
 
     reset_command_list(command_list, context.allocator);
     transition_resource_state(command_list, context.render_target,
@@ -47285,6 +47294,7 @@ START_TEST(d3d12)
     pfn_D3D12CreateVersionedRootSignatureDeserializer = get_d3d12_pfn(D3D12CreateVersionedRootSignatureDeserializer);
     pfn_D3D12SerializeVersionedRootSignature = get_d3d12_pfn(D3D12SerializeVersionedRootSignature);
 
+#if 0
     run_test(test_create_device);
     run_test(test_node_count);
     run_test(test_check_feature_support);
