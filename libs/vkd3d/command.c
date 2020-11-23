@@ -5526,6 +5526,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
 
     for (i = 0; i < view_count; ++i)
     {
+        bool invalid_va = false;
         VkBuffer buffer;
         VkDeviceSize offset;
         VkDeviceSize size;
@@ -5534,12 +5535,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
         if (views[i].BufferLocation)
         {
             resource = vkd3d_gpu_va_allocator_dereference(gpu_va_allocator, views[i].BufferLocation);
-            buffer = resource->vk_buffer;
-            offset = views[i].BufferLocation - resource->gpu_address;
-            stride = views[i].StrideInBytes;
-            size = views[i].SizeInBytes;
+            if (resource)
+            {
+                buffer = resource->vk_buffer;
+                offset = views[i].BufferLocation - resource->gpu_address;
+                stride = views[i].StrideInBytes;
+                size = views[i].SizeInBytes;
+            }
+            else
+            {
+                invalid_va = true;
+                FIXME("Attempting to bind a VBO VA that does not exist, binding NULL VA ...\n");
+            }
         }
         else
+            invalid_va = true;
+
+        if (invalid_va)
         {
             bool null_descriptors = list->device->device_info.robustness2_features.nullDescriptor;
             buffer = null_descriptors ? VK_NULL_HANDLE : null_resources->vk_buffer;
