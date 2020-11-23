@@ -10373,6 +10373,7 @@ static void test_shader_instructions(void)
         {&ps_f16tof32_2, {{{0xffff0000, 0xffff3c00, 0xffff5640, 0xffff5bd0}}}, {{250, 100, 1, 0}}},
 
         {&ps_f32tof16, {.f = {{0.0f, 1.0f, -1.0f, 666.0f}}}, {{0, 0x3c00, 0xbc00, 0x6134}}},
+        {&ps_f32tof16, {.f = {{INFINITY, -INFINITY, 100000.0f, -100000.0}}}, {{0x7C00, 0xFC00, 0x7BFF, 0xFBFF}}},
 
         {&ps_f32tof16_2, {.f = {{0.0f, 1.0f, -1.0f, 666.0f}}}, {{0x6134, 0xbc00, 0x3c00, 0}}},
 
