@@ -3123,6 +3123,25 @@ static bool d3d12_command_list_update_compute_pipeline(struct d3d12_command_list
     return true;
 }
 
+static void d3d12_command_list_check_vbo_alignment(struct d3d12_command_list *list)
+{
+    const uint32_t *stride_masks;
+    VkDeviceSize *offsets;
+    uint32_t update_vbos;
+    unsigned int index;
+
+    stride_masks = list->state->graphics.vertex_buffer_stride_align_mask;
+    update_vbos = list->state->graphics.vertex_buffer_mask;
+    offsets = list->dynamic_state.vertex_offsets;
+
+    while (update_vbos)
+    {
+        index = vkd3d_bitmask_iter32(&update_vbos);
+        if (stride_masks[index] & offsets[index])
+            list->dynamic_state.dirty_vbos |= 1u << index;
+    }
+}
+
 static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -3169,6 +3188,12 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     if (list->command_buffer_pipeline != vk_pipeline)
     {
         VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, vk_pipeline));
+
+        /* If we bind a new pipeline, make sure that we end up binding VBOs that are aligned.
+         * It is fine to do it here, since we are binding a pipeline right before we perform
+         * a draw call. If we trip any dirty check here, VBO offsets will be fixed up when emitting
+         * dynamic state after this. */
+        d3d12_command_list_check_vbo_alignment(list);
 
         /* The application did set vertex buffers that we didn't bind because of the pipeline vbo mask.
          * The new pipeline could use those so we need to rebind vertex buffers. */
@@ -3540,8 +3565,10 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
+    const uint32_t *stride_align_masks;
     struct vkd3d_bitmask_range range;
     uint32_t update_vbos;
+    unsigned int i;
 
     /* Make sure we only update states that are dynamic in the pipeline */
     dyn_state->dirty_flags &= list->dynamic_state.active_flags;
@@ -3597,10 +3624,38 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
         update_vbos = (dyn_state->dirty_vbos | dyn_state->dirty_vbo_strides) & list->state->graphics.vertex_buffer_mask;
         dyn_state->dirty_vbos &= ~update_vbos;
         dyn_state->dirty_vbo_strides &= ~update_vbos;
+        stride_align_masks = list->state->graphics.vertex_buffer_stride_align_mask;
 
         while (update_vbos)
         {
             range = vkd3d_bitmask_iter32_range(&update_vbos);
+
+            for (i = 0; i < range.count; i++)
+            {
+                if (dyn_state->vertex_offsets[i + range.offset] & stride_align_masks[i + range.offset])
+                {
+                    FIXME("Binding VBO at offset %"PRIu64", but required alignment is %u.\n",
+                          dyn_state->vertex_offsets[i + range.offset],
+                          stride_align_masks[i + range.offset] + 1);
+
+                    /* This modifies global state, but if app hits this, it's already buggy. */
+                    dyn_state->vertex_offsets[i + range.offset] &= ~(VkDeviceSize)stride_align_masks[i + range.offset];
+                }
+
+                if (dyn_state->vertex_strides[i + range.offset] & stride_align_masks[i + range.offset])
+                {
+                    FIXME("Binding VBO with stride %"PRIu64", but required alignment is %u.\n",
+                          dyn_state->vertex_strides[i + range.offset],
+                          stride_align_masks[i + range.offset] + 1);
+
+                    /* This modifies global state, but if app hits this, it's already buggy.
+                     * Round up, so that we don't hit offset > size case with dynamic strides. */
+                    dyn_state->vertex_strides[i + range.offset] =
+                            (dyn_state->vertex_strides[i + range.offset] + stride_align_masks[i + range.offset]) &
+                            ~(VkDeviceSize)stride_align_masks[i + range.offset];
+                }
+            }
+
             VK_CALL(vkCmdBindVertexBuffers2EXT(list->vk_command_buffer,
                     range.offset, range.count,
                     dyn_state->vertex_buffers + range.offset,
@@ -3614,10 +3669,39 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
         update_vbos = dyn_state->dirty_vbos & list->state->graphics.vertex_buffer_mask;
         dyn_state->dirty_vbos &= ~update_vbos;
         dyn_state->dirty_vbo_strides &= ~update_vbos;
+        stride_align_masks = list->state->graphics.vertex_buffer_stride_align_mask;
 
         while (update_vbos)
         {
             range = vkd3d_bitmask_iter32_range(&update_vbos);
+
+            for (i = 0; i < range.count; i++)
+            {
+                if (dyn_state->vertex_offsets[i + range.offset] & stride_align_masks[i + range.offset])
+                {
+                    FIXME("Binding VBO at offset %"PRIu64", but required alignment is %u.\n",
+                          dyn_state->vertex_offsets[i + range.offset],
+                          stride_align_masks[i + range.offset] + 1);
+                    dyn_state->vertex_offsets[i + range.offset] &= ~(VkDeviceSize)stride_align_masks[i + range.offset];
+                }
+
+                if (list->device->device_info.extended_dynamic_state_features.extendedDynamicState)
+                {
+                    if (dyn_state->vertex_strides[i + range.offset] & stride_align_masks[i + range.offset])
+                    {
+                        FIXME("Binding VBO with stride %"PRIu64", but required alignment is %u.\n",
+                              dyn_state->vertex_strides[i + range.offset],
+                              stride_align_masks[i + range.offset] + 1);
+
+                        /* This modifies global state, but if app hits this, it's already buggy.
+                         * Round up, so that we don't hit offset > size case with dynamic strides. */
+                        dyn_state->vertex_strides[i + range.offset] =
+                                (dyn_state->vertex_strides[i + range.offset] + stride_align_masks[i + range.offset]) &
+                                ~(VkDeviceSize)stride_align_masks[i + range.offset];
+                    }
+                }
+            }
+
             if (list->device->device_info.extended_dynamic_state_features.extendedDynamicState)
             {
                 VK_CALL(vkCmdBindVertexBuffers2EXT(list->vk_command_buffer,

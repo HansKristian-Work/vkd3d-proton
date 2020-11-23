@@ -2703,6 +2703,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->instance_divisor_count = 0;
     graphics->attribute_binding_count = 0;
     memset(graphics->minimum_vertex_buffer_dynamic_stride, 0, sizeof(graphics->minimum_vertex_buffer_dynamic_stride));
+    memset(graphics->vertex_buffer_stride_align_mask, 0, sizeof(graphics->vertex_buffer_stride_align_mask));
 
     for (i = 0, j = 0, mask = 0; i < graphics->attribute_count; ++i)
     {
@@ -2742,6 +2743,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         graphics->minimum_vertex_buffer_dynamic_stride[e->InputSlot] =
                 max(graphics->minimum_vertex_buffer_dynamic_stride[e->InputSlot],
                     graphics->attributes[j].offset + format->byte_count);
+
+        graphics->vertex_buffer_stride_align_mask[e->InputSlot] =
+                max(graphics->vertex_buffer_stride_align_mask[e->InputSlot], format->byte_count);
 
         ++j;
 
@@ -2801,6 +2805,27 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->attribute_count = j;
     graphics->vertex_buffer_mask = mask;
     vkd3d_shader_free_shader_signature(&input_signature);
+
+    for (i = 0; i < D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT; i++)
+    {
+        if (mask & (1u << i))
+        {
+            /* In D3D12, VBO strides must be aligned to min(4, max-for-all(format->byte_size)) for a given input slot.
+             * Native drivers and Windows Vulkan drivers happen to be robust against buggy applications
+             * which use unaligned formats, but Vulkan drivers are not always robust here (they don't have to be).
+             * AMD Windows D3D12/Vulkan drivers return the wrong result for unaligned VBO strides,
+             * but it doesn't crash at least!
+             * RDNA will hang if we emit tbuffer_loads which don't conform to D3D12 rules. */
+
+            /* Essentially all VBO types in D3D12 are POT sized, so this works.
+             * The exception to this is RGB32, which will clamp to 4 anyways.
+             * Two potential formats that could mess this analysis up is RGB8 and RGB16,
+             * but neither of these formats exist. */
+            graphics->vertex_buffer_stride_align_mask[i] = min(graphics->vertex_buffer_stride_align_mask[i], 4u);
+            /* POT - 1 for an alignment mask. */
+            graphics->vertex_buffer_stride_align_mask[i] -= 1;
+        }
+    }
 
     switch (desc->strip_cut_value)
     {
@@ -3342,6 +3367,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     struct d3d12_device *device = state->device;
     struct vkd3d_pipeline_key pipeline_key;
+    uint32_t stride, stride_align_mask;
     bool extended_dynamic_state;
     VkPipeline vk_pipeline;
     unsigned int i;
@@ -3372,7 +3398,17 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     else
     {
         for (i = 0; i < graphics->attribute_binding_count; ++i)
-            pipeline_key.strides[i] = dyn_state->vertex_strides[graphics->attribute_bindings[i].binding];
+        {
+            stride = dyn_state->vertex_strides[graphics->attribute_bindings[i].binding];
+            stride_align_mask = state->graphics.vertex_buffer_stride_align_mask[graphics->attribute_bindings[i].binding];
+            if (stride & stride_align_mask)
+            {
+                FIXME("Attempting to use VBO stride of %u bytes, but D3D12 requires alignment of %u bytes. VBO stride will be adjusted.\n",
+                        stride, stride_align_mask + 1);
+                stride &= ~stride_align_mask;
+            }
+            pipeline_key.strides[i] = stride;
+        }
     }
 
     pipeline_key.dsv_format = dsv_format;
