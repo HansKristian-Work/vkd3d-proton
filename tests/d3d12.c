@@ -24624,6 +24624,190 @@ static void test_dispatch_zero_thread_groups(void)
     destroy_test_context(&context);
 }
 
+static void test_unaligned_vertex_stride(void)
+{
+    ID3D12PipelineState *instance_pipeline_state;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
+    D3D12_VERTEX_BUFFER_VIEW vbv[2];
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *vb[2];
+    unsigned int i;
+
+    static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
+    {
+        {"sv_position", 0, DXGI_FORMAT_R16G16B16A16_SNORM, 0, D3D12_APPEND_ALIGNED_ELEMENT,
+                D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"color",       0, DXGI_FORMAT_R16G16B16A16_SNORM, 1, D3D12_APPEND_ALIGNED_ELEMENT,
+                D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+    static const D3D12_INPUT_ELEMENT_DESC instance_layout_desc[] =
+    {
+        {"sv_position", 0, DXGI_FORMAT_R16G16B16A16_SNORM, 0, D3D12_APPEND_ALIGNED_ELEMENT,
+                D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"color",       0, DXGI_FORMAT_R16G16B16A16_SNORM, 1, D3D12_APPEND_ALIGNED_ELEMENT,
+                D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 0},
+    };
+    static const DWORD vs_code[] =
+    {
+#if 0
+        struct vs_data
+        {
+            float4 pos : SV_POSITION;
+            float4 color : COLOR;
+        };
+
+        void main(in struct vs_data vs_input, out struct vs_data vs_output)
+        {
+            vs_output.pos = vs_input.pos;
+            vs_output.color = vs_input.color;
+        }
+#endif
+        0x43425844, 0xd5b32785, 0x35332906, 0x4d05e031, 0xf66a58af, 0x00000001, 0x00000144, 0x00000003,
+        0x0000002c, 0x00000080, 0x000000d4, 0x4e475349, 0x0000004c, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x00000044, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000f0f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x4f4c4f43, 0xabab0052,
+        0x4e47534f, 0x0000004c, 0x00000002, 0x00000008, 0x00000038, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x00000044, 0x00000000, 0x00000000, 0x00000003, 0x00000001, 0x0000000f,
+        0x505f5653, 0x5449534f, 0x004e4f49, 0x4f4c4f43, 0xabab0052, 0x52444853, 0x00000068, 0x00010040,
+        0x0000001a, 0x0300005f, 0x001010f2, 0x00000000, 0x0300005f, 0x001010f2, 0x00000001, 0x04000067,
+        0x001020f2, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000001, 0x05000036, 0x001020f2,
+        0x00000000, 0x00101e46, 0x00000000, 0x05000036, 0x001020f2, 0x00000001, 0x00101e46, 0x00000001,
+        0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs = { vs_code, sizeof(vs_code) };
+    static const DWORD ps_code[] =
+    {
+#if 0
+        struct ps_data
+        {
+            float4 pos : SV_POSITION;
+            float4 color : COLOR;
+        };
+
+        float4 main(struct ps_data ps_input) : SV_Target
+        {
+            return ps_input.color;
+        }
+#endif
+        0x43425844, 0x89803e59, 0x3f798934, 0xf99181df, 0xf5556512, 0x00000001, 0x000000f4, 0x00000003,
+        0x0000002c, 0x00000080, 0x000000b4, 0x4e475349, 0x0000004c, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x00000044, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000f0f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x4f4c4f43, 0xabab0052,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x00000038, 0x00000040,
+        0x0000000e, 0x03001062, 0x001010f2, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x05000036,
+        0x001020f2, 0x00000000, 0x00101e46, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = { ps_code, sizeof(ps_code) };
+
+    struct i16vec4
+    {
+        int16_t x, y, z, w;
+    };
+
+    struct unaligned_i16vec4
+    {
+        uint8_t blob[2 * 4 + 1];
+    };
+
+#define I16_MIN -0x7fff
+#define I16_MAX 0x7fff
+    static const struct i16vec4 positions[] =
+    {
+        {I16_MIN, I16_MIN, 0.0f, I16_MAX},
+        {I16_MIN, I16_MAX, 0.0f, I16_MAX},
+        {I16_MAX, I16_MIN, 0.0f, I16_MAX},
+        {I16_MAX, I16_MAX, 0.0f, I16_MAX},
+    };
+
+    static const struct i16vec4 colors[] =
+    {
+        {I16_MAX, 0, 0, 0},
+        {0, I16_MAX, 0, 0},
+        {0, 0, I16_MAX, 0},
+        {0, 0, 0, I16_MAX},
+        {0, 0, 0, I16_MAX},
+        {0, 0, I16_MAX, 0},
+        {0, I16_MAX, 0, 0},
+        {I16_MAX, 0, 0, 0},
+    };
+
+    static const float white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    struct unaligned_i16vec4 unaligned_colors[ARRAY_SIZE(colors)];
+    
+    for (i = 0; i < ARRAY_SIZE(colors); i++)
+        memcpy(&unaligned_colors[i], &colors[i], sizeof(*colors));
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_empty_root_signature(context.device,
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+    input_layout.pInputElementDescs = layout_desc;
+    input_layout.NumElements = ARRAY_SIZE(layout_desc);
+    context.pipeline_state = create_pipeline_state(context.device,
+        context.root_signature, context.render_target_desc.Format, &vs, &ps, &input_layout);
+
+    input_layout.pInputElementDescs = instance_layout_desc;
+    input_layout.NumElements = ARRAY_SIZE(instance_layout_desc);
+    instance_pipeline_state = create_pipeline_state(context.device,
+        context.root_signature, context.render_target_desc.Format, &vs, &ps, &input_layout);
+
+    memset(vbv, 0, sizeof(vbv));
+    vb[0] = create_upload_buffer(context.device, sizeof(positions), positions);
+    vbv[0].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb[0]);
+    vbv[0].StrideInBytes = sizeof(*positions);
+    vbv[0].SizeInBytes = sizeof(positions);
+
+    vb[1] = create_upload_buffer(context.device, sizeof(unaligned_colors), unaligned_colors);
+    vbv[1].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb[1]) + 2 * sizeof(*unaligned_colors);
+    vbv[1].StrideInBytes = sizeof(*unaligned_colors);
+    vbv[1].SizeInBytes = 4 * sizeof(*unaligned_colors);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, ARRAY_SIZE(vbv), vbv);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 4, 0, 0);
+
+    vbv[1].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb[1]);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, instance_pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, ARRAY_SIZE(vbv), vbv);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 4, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    /* There is no one correct result. If we don't crash the GPU, we pass the test. */
+    check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0xff);
+
+    ID3D12Resource_Release(vb[1]);
+    ID3D12Resource_Release(vb[0]);
+    ID3D12PipelineState_Release(instance_pipeline_state);
+    destroy_test_context(&context);
+}
+
 static void test_zero_vertex_stride(void)
 {
     ID3D12PipelineState *instance_pipeline_state;
@@ -47215,6 +47399,7 @@ START_TEST(d3d12)
     run_test(test_resolve_query_data_in_reordered_command_list);
     run_test(test_execute_indirect);
     run_test(test_dispatch_zero_thread_groups);
+    run_test(test_unaligned_vertex_stride);
     run_test(test_zero_vertex_stride);
     run_test(test_instance_id_dxbc);
     run_test(test_instance_id_dxil);
