@@ -1393,11 +1393,25 @@ static uint32_t vkd3d_spirv_build_op_shift_right_logical(struct vkd3d_spirv_buil
             SpvOpShiftRightLogical, result_type, base, shift);
 }
 
+static uint32_t vkd3d_spirv_build_op_logical_not(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t operand)
+{
+    return vkd3d_spirv_build_op_tr1(builder, &builder->function_stream,
+            SpvOpLogicalNot, result_type, operand);
+}
+
 static uint32_t vkd3d_spirv_build_op_logical_and(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand0, uint32_t operand1)
 {
     return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
             SpvOpLogicalAnd, result_type, operand0, operand1);
+}
+
+static uint32_t vkd3d_spirv_build_op_iequal(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t operand0, uint32_t operand1)
+{
+    return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
+            SpvOpIEqual, result_type, operand0, operand1);
 }
 
 static uint32_t vkd3d_spirv_build_op_uless_than(struct vkd3d_spirv_builder *builder,
@@ -1426,6 +1440,13 @@ static uint32_t vkd3d_spirv_build_op_bitcast(struct vkd3d_spirv_builder *builder
 {
     return vkd3d_spirv_build_op_tr1(builder, &builder->function_stream,
             SpvOpBitcast, result_type, operand);
+}
+
+static uint32_t vkd3d_spirv_build_op_is_inf(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t operand)
+{
+    return vkd3d_spirv_build_op_tr1(builder, &builder->function_stream,
+            SpvOpIsInf, result_type, operand);
 }
 
 static uint32_t vkd3d_spirv_build_op_image_texel_pointer(struct vkd3d_spirv_builder *builder,
@@ -7550,9 +7571,11 @@ static void vkd3d_dxbc_compiler_emit_f32tof16(struct vkd3d_dxbc_compiler *compil
         const struct vkd3d_shader_instruction *instruction)
 {
     uint32_t instr_set_id, type_id, scalar_type_id, src_id, zero_id, constituents[2];
+    uint32_t one_id, bool_id, f16_infinity_id, f16_mask_id, dst_id, vec2_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
+    uint32_t is_src_inf_id, is_dst_inf_id;
     uint32_t components[VKD3D_VEC4_SIZE];
     unsigned int i, j;
     DWORD write_mask;
@@ -7561,8 +7584,11 @@ static void vkd3d_dxbc_compiler_emit_f32tof16(struct vkd3d_dxbc_compiler *compil
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_FLOAT, 2);
     scalar_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
     zero_id = vkd3d_dxbc_compiler_get_constant_float(compiler, 0.0f);
+    one_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 1);
+    f16_infinity_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0x7C00);
+    f16_mask_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0x7FFF);
+    bool_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, 1);
 
-    /* FIXME: Consider a single PackHalf2x16 intruction per 2 components. */
     assert(dst->write_mask & VKD3DSP_WRITEMASK_ALL);
     for (i = 0, j = 0; i < VKD3D_VEC4_SIZE; ++i)
     {
@@ -7572,10 +7598,22 @@ static void vkd3d_dxbc_compiler_emit_f32tof16(struct vkd3d_dxbc_compiler *compil
         src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, write_mask);
         constituents[0] = src_id;
         constituents[1] = zero_id;
-        src_id = vkd3d_spirv_build_op_composite_construct(builder,
+        vec2_id = vkd3d_spirv_build_op_composite_construct(builder,
                 type_id, constituents, ARRAY_SIZE(constituents));
-        components[j++] = vkd3d_spirv_build_op_ext_inst(builder, scalar_type_id,
-                instr_set_id, GLSLstd450PackHalf2x16, &src_id, 1);
+        dst_id = vkd3d_spirv_build_op_ext_inst(builder, scalar_type_id,
+                instr_set_id, GLSLstd450PackHalf2x16, &vec2_id, 1);
+
+        /* Make sure we only return infinity if the input is infinite. Some
+         * drivers and GPU architectures will return infinity for numbers
+         * larger than the highest representable 16-bit float. */
+        is_src_inf_id = vkd3d_spirv_build_op_is_inf(builder, bool_id, src_id);
+        is_dst_inf_id = vkd3d_spirv_build_op_iequal(builder, bool_id, f16_infinity_id,
+                vkd3d_spirv_build_op_and(builder, scalar_type_id, dst_id, f16_mask_id));
+
+        components[j++] = vkd3d_spirv_build_op_select(builder, scalar_type_id,
+                vkd3d_spirv_build_op_logical_and(builder, bool_id, is_dst_inf_id,
+                        vkd3d_spirv_build_op_logical_not(builder, bool_id, is_src_inf_id)),
+                vkd3d_spirv_build_op_isub(builder, scalar_type_id, dst_id, one_id), dst_id);
     }
 
     vkd3d_dxbc_compiler_emit_store_dst_components(compiler,
