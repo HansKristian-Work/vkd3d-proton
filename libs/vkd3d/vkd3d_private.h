@@ -914,6 +914,7 @@ struct d3d12_graphics_pipeline_state
     VkVertexInputBindingDivisorDescriptionEXT instance_divisors[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     VkVertexInputBindingDescription attribute_bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     uint32_t minimum_vertex_buffer_dynamic_stride[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    uint32_t vertex_buffer_stride_align_mask[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     size_t instance_divisor_count;
     size_t attribute_binding_count;
     size_t attribute_count;
