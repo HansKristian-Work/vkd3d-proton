@@ -281,8 +281,8 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_library_Release(d3d12_pipeline_lib
     if (!refcount)
     {
         d3d12_pipeline_library_cleanup(pipeline_library, pipeline_library->device);
-        vkd3d_free(pipeline_library);
         d3d12_device_release(pipeline_library->device);
+        vkd3d_free(pipeline_library);
     }
 
     return refcount;
