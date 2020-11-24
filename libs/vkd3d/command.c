@@ -6367,46 +6367,16 @@ static size_t get_query_stride(D3D12_QUERY_TYPE type)
 }
 
 static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_command_list *list,
-        struct d3d12_resource *buffer, UINT64 offset, UINT query_count)
+        VkDeviceAddress src_va, VkDeviceAddress dst_va, UINT query_count)
 {
     const struct vkd3d_query_ops *query_ops = &list->device->meta_ops.query;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkDeviceSize alignment, aligned_offset, aligned_end;
-    VkDescriptorBufferInfo buffer_info;
     struct vkd3d_query_op_args args;
-    VkWriteDescriptorSet vk_write;
     unsigned int num_workgroups;
     VkMemoryBarrier vk_barrier;
-    VkDescriptorSet vk_set;
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
-
-    alignment = list->device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment;
-    aligned_end = align(offset + query_count * sizeof(uint64_t), alignment);
-    aligned_offset = offset & ~(alignment - 1);
-
-    vk_set = d3d12_command_allocator_allocate_descriptor_set(list->allocator,
-            query_ops->vk_set_layout, VKD3D_DESCRIPTOR_POOL_TYPE_STATIC);
-
-    /* TODO suppprt some sort of scratch buffer so that
-     * we don't do write->read->write on host memory */
-    buffer_info.buffer = buffer->vk_buffer;
-    buffer_info.offset = buffer->heap_offset + aligned_offset;
-    buffer_info.range = aligned_end - aligned_offset;
-
-    vk_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    vk_write.pNext = NULL;
-    vk_write.dstSet = vk_set;
-    vk_write.dstBinding = 0;
-    vk_write.dstArrayElement = 0;
-    vk_write.descriptorCount = 1;
-    vk_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    vk_write.pImageInfo = NULL;
-    vk_write.pBufferInfo = &buffer_info;
-    vk_write.pTexelBufferView = NULL;
-    
-    VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &vk_write, 0, NULL));
 
     vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     vk_barrier.pNext = NULL;
@@ -6416,14 +6386,13 @@ static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_com
             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
             0, 1, &vk_barrier, 0, NULL, 0, NULL));
 
-    num_workgroups = (query_count + VKD3D_QUERY_OP_WORKGROUP_SIZE - 1) / VKD3D_QUERY_OP_WORKGROUP_SIZE;
-    args.query_offset = (offset - aligned_offset) / sizeof(uint64_t);
+    args.src_queries = src_va;
+    args.dst_queries = dst_va;
     args.query_count = query_count;
 
+    num_workgroups = vkd3d_compute_workgroup_count(query_count, VKD3D_QUERY_OP_WORKGROUP_SIZE);
     VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
             query_ops->vk_resolve_binary_pipeline));
-    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-            query_ops->vk_pipeline_layout, 0, 1, &vk_set, 0, NULL));
     VK_CALL(vkCmdPushConstants(list->vk_command_buffer, query_ops->vk_pipeline_layout,
             VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(args), &args));
     VK_CALL(vkCmdDispatch(list->vk_command_buffer, num_workgroups, 1, 1));
@@ -6443,6 +6412,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *buffer = unsafe_impl_from_ID3D12Resource(dst_buffer);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_scratch_allocation scratch;
+    size_t stride = get_query_stride(type);
+    bool do_fixup = false;
 
     TRACE("iface %p, heap %p, type %#x, start_index %u, query_count %u, "
             "dst_buffer %p, aligned_dst_buffer_offset %#"PRIx64".\n",
@@ -6455,16 +6427,33 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
         return;
     }
 
+    if (type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)
+    {
+        if (list->device->device_info.buffer_device_address_features.bufferDeviceAddress)
+            do_fixup = d3d12_command_allocator_allocate_scratch_memory(list->allocator, stride * query_count, stride, &scratch);
+        else
+            FIXME_ONCE("bufferDeviceAddress not supported by device.\n");
+    }
+
+    if (!do_fixup)
+    {
+        scratch.buffer = buffer->vk_buffer;
+        scratch.offset = buffer->heap_offset + aligned_dst_buffer_offset;
+        scratch.va = 0;
+    }
+
     d3d12_command_list_track_query_heap(list, query_heap);
     d3d12_command_list_end_current_render_pass(list, true);
 
     VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer, query_heap->vk_query_pool,
-            start_index, query_count, buffer->vk_buffer, buffer->heap_offset + aligned_dst_buffer_offset,
-            get_query_stride(type), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+            start_index, query_count, scratch.buffer, scratch.offset, stride,
+            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
 
-    if (type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)
-        d3d12_command_list_resolve_binary_occlusion_queries(list,
-                buffer, aligned_dst_buffer_offset, query_count);
+    if (do_fixup)
+    {
+        d3d12_command_list_resolve_binary_occlusion_queries(list, scratch.va,
+                d3d12_resource_get_va(buffer, aligned_dst_buffer_offset), query_count);
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_list_iface *iface,

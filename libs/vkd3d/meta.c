@@ -1074,24 +1074,13 @@ HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
         struct d3d12_device *device)
 {
     VkPushConstantRange push_constant_range;
-    VkDescriptorSetLayoutBinding binding;
     VkResult vr;
-
-    binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    binding.descriptorCount = 1;
-    binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    binding.pImmutableSamplers = NULL;
 
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     push_constant_range.offset = 0;
     push_constant_range.size = sizeof(struct vkd3d_query_op_args);
 
-    if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &binding, &meta_query_ops->vk_set_layout)) < 0)
-        goto fail;
-
-    if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_query_ops->vk_set_layout,
-            1, &push_constant_range, &meta_query_ops->vk_pipeline_layout)) < 0)
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1, &push_constant_range, &meta_query_ops->vk_pipeline_layout)) < 0)
         goto fail;
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_resolve_binary_queries), cs_resolve_binary_queries,
@@ -1110,7 +1099,6 @@ void vkd3d_query_ops_cleanup(struct vkd3d_query_ops *meta_query_ops,
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
-    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_query_ops->vk_set_layout, NULL));
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_query_ops->vk_pipeline_layout, NULL));
     VK_CALL(vkDestroyPipeline(device->vk_device, meta_query_ops->vk_resolve_binary_pipeline, NULL));
 }

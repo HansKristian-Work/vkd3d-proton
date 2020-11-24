@@ -1,26 +1,30 @@
 #version 450
 
+#extension GL_EXT_buffer_reference : require
+
 layout(local_size_x = 64) in;
 
-layout(binding = 0, std430)
-buffer s_query_buffer_t {
+layout(buffer_reference, std430, buffer_reference_align = 8)
+buffer query_buffer_t {
   uvec2 data[];
-} s_query_buffer;
+};
 
 layout(push_constant)
 uniform u_info_t {
-  uint query_offset;
+  query_buffer_t src_queries;
+  query_buffer_t dst_queries;
   uint query_count;
-} u_info;
+};
 
 void main() {
   uint thread_id = gl_GlobalInvocationID.x;
 
-  if (thread_id < u_info.query_count) {
-    uint query_id = u_info.query_offset + thread_id;
-    uvec2 query_data = s_query_buffer.data[query_id];
+  if (thread_id < query_count) {
+    uvec2 query_data = src_queries.data[thread_id];
 
     if (any(greaterThan(query_data, uvec2(1, 0))))
-      s_query_buffer.data[query_id] = uvec2(1, 0);
+      query_data = uvec2(1, 0);
+
+    dst_queries.data[thread_id] = query_data;
   }
 }

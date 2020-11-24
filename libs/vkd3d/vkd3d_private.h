@@ -1801,13 +1801,13 @@ void vkd3d_swapchain_ops_cleanup(struct vkd3d_swapchain_ops *meta_swapchain_ops,
 
 struct vkd3d_query_op_args
 {
-    uint32_t query_offset;
+    VkDeviceAddress src_queries;
+    VkDeviceAddress dst_queries;
     uint32_t query_count;
 };
 
 struct vkd3d_query_ops
 {
-    VkDescriptorSetLayout vk_set_layout;
     VkPipelineLayout vk_pipeline_layout;
     VkPipeline vk_resolve_binary_pipeline;
 };
