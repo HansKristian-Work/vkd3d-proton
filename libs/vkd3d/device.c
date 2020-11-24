@@ -2256,6 +2256,98 @@ static void d3d12_remove_device_singleton(LUID luid)
     }
 }
 
+static HRESULT d3d12_device_create_scratch_buffer(struct d3d12_device *device, VkDeviceSize size, struct vkd3d_scratch_buffer *scratch)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkDeviceMemory vk_memory = VK_NULL_HANDLE;
+    VkBuffer vk_buffer = VK_NULL_HANDLE;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_HEAP_PROPERTIES heap_desc;
+    HRESULT hr;
+
+    TRACE("device %p, size %llu, scratch %p.\n", device, size, scratch);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc.Width = size;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    if (FAILED(hr = vkd3d_create_buffer(device, &heap_desc, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &resource_desc, &vk_buffer)))
+        return hr;
+
+    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, vk_buffer, NULL,
+            &heap_desc, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &vk_memory, NULL, NULL)))
+    {
+        VK_CALL(vkDestroyBuffer(device->vk_device, vk_buffer, NULL));
+        return hr;
+    }
+
+    scratch->vk_buffer = vk_buffer;
+    scratch->vk_memory = vk_memory;
+    scratch->size = size;
+    scratch->offset = 0;
+    scratch->va = device->device_info.buffer_device_address_features.bufferDeviceAddress
+            ? vkd3d_get_buffer_device_address(device, vk_buffer) : 0ull;
+    return S_OK;
+}
+
+static void d3d12_device_destroy_scratch_buffer(struct d3d12_device *device, const struct vkd3d_scratch_buffer *scratch)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    TRACE("device %p, scratch %p.\n", device, scratch);
+
+    VK_CALL(vkFreeMemory(device->vk_device, scratch->vk_memory, NULL));
+    VK_CALL(vkDestroyBuffer(device->vk_device, scratch->vk_buffer, NULL));
+}
+
+HRESULT d3d12_device_get_scratch_buffer(struct d3d12_device *device, VkDeviceSize min_size, struct vkd3d_scratch_buffer *scratch)
+{
+    if (min_size > VKD3D_SCRATCH_BUFFER_SIZE)
+        return d3d12_device_create_scratch_buffer(device, min_size, scratch);
+
+    pthread_mutex_lock(&device->mutex);
+
+    if (device->scratch_buffer_count)
+    {
+        *scratch = device->scratch_buffers[--device->scratch_buffer_count];
+        scratch->offset = 0;
+        pthread_mutex_unlock(&device->mutex);
+        return S_OK;
+    }
+    else
+    {
+        pthread_mutex_unlock(&device->mutex);
+        return d3d12_device_create_scratch_buffer(device, VKD3D_SCRATCH_BUFFER_SIZE, scratch);
+    }
+}
+
+void d3d12_device_return_scratch_buffer(struct d3d12_device *device, const struct vkd3d_scratch_buffer *scratch)
+{
+    pthread_mutex_lock(&device->mutex);
+
+    if (scratch->size == VKD3D_SCRATCH_BUFFER_SIZE && device->scratch_buffer_count < VKD3D_SCRATCH_BUFFER_COUNT)
+    {
+        device->scratch_buffers[device->scratch_buffer_count++] = *scratch;
+        pthread_mutex_unlock(&device->mutex);
+    }
+    else
+    {
+        pthread_mutex_unlock(&device->mutex);
+        d3d12_device_destroy_scratch_buffer(device, scratch);
+    }
+}
+
 /* ID3D12Device */
 static inline struct d3d12_device *impl_from_ID3D12Device(d3d12_device_iface *iface)
 {
@@ -2301,6 +2393,10 @@ static ULONG STDMETHODCALLTYPE d3d12_device_AddRef(d3d12_device_iface *iface)
 static void d3d12_device_destroy(struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    size_t i;
+
+    for (i = 0; i < device->scratch_buffer_count; i++)
+        d3d12_device_destroy_scratch_buffer(device, &device->scratch_buffers[i]);
 
     vkd3d_private_store_destroy(&device->private_store);
 
