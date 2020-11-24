@@ -2178,6 +2178,13 @@ static inline unsigned int d3d12_resource_desc_get_sub_resource_count(const D3D1
     return d3d12_resource_desc_get_layer_count(desc) * desc->MipLevels;
 }
 
+VkDeviceAddress vkd3d_get_buffer_device_address(struct d3d12_device *device, VkBuffer vk_buffer);
+
+static inline VkDeviceAddress d3d12_resource_get_va(const struct d3d12_resource *resource, VkDeviceSize offset)
+{
+    return vkd3d_get_buffer_device_address(resource->device, resource->vk_buffer) + resource->heap_offset + offset;
+}
+
 static inline unsigned int vkd3d_compute_workgroup_count(unsigned int thread_count, unsigned int workgroup_size)
 {
     return (thread_count + workgroup_size - 1) / workgroup_size;
@@ -2231,8 +2238,6 @@ static inline void vk_prepend_struct(void *header, void *structure)
     vk_structure->pNext = vk_header->pNext;
     vk_header->pNext = vk_structure;
 }
-
-VkDeviceAddress vkd3d_get_buffer_device_address(struct d3d12_device *device, VkBuffer vk_buffer);
 
 #define VKD3D_NULL_BUFFER_SIZE 16
 
