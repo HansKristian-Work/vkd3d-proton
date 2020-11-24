@@ -1108,6 +1108,18 @@ enum vkd3d_descriptor_pool_types
     VKD3D_DESCRIPTOR_POOL_TYPE_COUNT
 };
 
+#define VKD3D_SCRATCH_BUFFER_SIZE (1ull << 20)
+#define VKD3D_SCRATCH_BUFFER_COUNT (32u)
+
+struct vkd3d_scratch_buffer
+{
+    VkBuffer vk_buffer;
+    VkDeviceMemory vk_memory;
+    VkDeviceSize size;
+    VkDeviceSize offset;
+    VkDeviceAddress va;
+};
+
 /* ID3D12CommandAllocator */
 struct d3d12_command_allocator
 {
@@ -1140,6 +1152,10 @@ struct d3d12_command_allocator
     VkCommandBuffer *command_buffers;
     size_t command_buffers_size;
     size_t command_buffer_count;
+
+    struct vkd3d_scratch_buffer *scratch_buffers;
+    size_t scratch_buffers_size;
+    size_t scratch_buffer_count;
 
     LONG outstanding_submissions_count;
 
@@ -1955,6 +1971,9 @@ struct d3d12_device
     struct vkd3d_private_store private_store;
     struct d3d12_caps d3d12_caps;
 
+    struct vkd3d_scratch_buffer scratch_buffers[VKD3D_SCRATCH_BUFFER_COUNT];
+    size_t scratch_buffer_count;
+
     HRESULT removed_reason;
 
     const struct vkd3d_format *depth_stencil_formats;
@@ -1977,6 +1996,9 @@ bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent);
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
         const char *message, ...) VKD3D_PRINTF_FUNC(3, 4);
 struct d3d12_device *unsafe_impl_from_ID3D12Device(d3d12_device_iface *iface);
+
+HRESULT d3d12_device_get_scratch_buffer(struct d3d12_device *device, VkDeviceSize min_size, struct vkd3d_scratch_buffer *scratch);
+void d3d12_device_return_scratch_buffer(struct d3d12_device *device, const struct vkd3d_scratch_buffer *scratch);
 
 static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, REFIID iid, void **object)
 {

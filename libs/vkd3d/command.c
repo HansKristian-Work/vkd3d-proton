@@ -1492,6 +1492,10 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
         vkd3d_free(allocator->command_buffers);
         VK_CALL(vkDestroyCommandPool(device->vk_device, allocator->vk_command_pool, NULL));
 
+        for (i = 0; i < allocator->scratch_buffer_count; i++)
+            d3d12_device_return_scratch_buffer(device, &allocator->scratch_buffers[i]);
+
+        vkd3d_free(allocator->scratch_buffers);
         vkd3d_free(allocator);
 
         d3d12_device_release(device);
@@ -1557,6 +1561,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
     struct d3d12_device *device;
     LONG pending;
     VkResult vr;
+    size_t i;
 
     TRACE("iface %p.\n", iface);
 
@@ -1606,6 +1611,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
         return hresult_from_vk_result(vr);
     }
 
+    /* Return scratch buffers to the device */
+    for (i = 0; i < allocator->scratch_buffer_count; i++)
+        d3d12_device_return_scratch_buffer(device, &allocator->scratch_buffers[i]);
+
+    allocator->scratch_buffer_count = 0;
     return S_OK;
 }
 
@@ -1711,6 +1721,10 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     allocator->command_buffers_size = 0;
     allocator->command_buffer_count = 0;
 
+    allocator->scratch_buffers = NULL;
+    allocator->scratch_buffers_size = 0;
+    allocator->scratch_buffer_count = 0;
+
     allocator->current_command_list = NULL;
 
     d3d12_device_add_ref(allocator->device = device);
@@ -1744,6 +1758,62 @@ HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
     *allocator = object;
 
     return S_OK;
+}
+
+struct vkd3d_scratch_allocation
+{
+    VkBuffer buffer;
+    VkDeviceSize offset;
+    VkDeviceAddress va;
+};
+
+static bool d3d12_command_allocator_allocate_scratch_memory(struct d3d12_command_allocator *allocator,
+        VkDeviceSize size, VkDeviceSize alignment, struct vkd3d_scratch_allocation *allocation)
+{
+    VkDeviceSize aligned_offset, aligned_size;
+    struct vkd3d_scratch_buffer *scratch;
+    unsigned int i;
+
+    aligned_size = align(size, alignment);
+
+    /* Probe last block first since the others are likely full */
+    for (i = allocator->scratch_buffer_count; i; i--)
+    {
+        scratch = &allocator->scratch_buffers[i - 1];
+        aligned_offset = align(scratch->offset, alignment);
+
+        if (aligned_offset + aligned_size <= scratch->size)
+        {
+            scratch->offset = aligned_offset + aligned_size;
+
+            allocation->buffer = scratch->vk_buffer;
+            allocation->offset = aligned_offset;
+            allocation->va = scratch->va + aligned_offset;
+            return true;
+        }
+    }
+
+    if (!vkd3d_array_reserve((void**)&allocator->scratch_buffers, &allocator->scratch_buffers_size,
+            allocator->scratch_buffer_count + 1, sizeof(*allocator->scratch_buffers)))
+    {
+        ERR("Failed to allocate scratch buffer.\n");
+        return false;
+    }
+
+    scratch = &allocator->scratch_buffers[allocator->scratch_buffer_count];
+    if (FAILED(d3d12_device_get_scratch_buffer(allocator->device, aligned_size, scratch)))
+    {
+        ERR("Failed to create scratch buffer.\n");
+        return false;
+    }
+
+    allocator->scratch_buffer_count += 1;
+    scratch->offset = aligned_size;
+
+    allocation->buffer = scratch->vk_buffer;
+    allocation->offset = 0;
+    allocation->va = scratch->va;
+    return true;
 }
 
 /* ID3D12CommandList */
