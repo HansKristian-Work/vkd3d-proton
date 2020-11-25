@@ -2536,7 +2536,8 @@ static VkAccessFlags vk_access_flags_all_possible_for_buffer(const struct d3d12_
             access |= VK_ACCESS_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT;
     }
 
-    if (consider_reads && (vk_queue_flags & VK_QUEUE_GRAPHICS_BIT) && device->vk_info.EXT_conditional_rendering)
+    if (consider_reads && (vk_queue_flags & VK_QUEUE_GRAPHICS_BIT) &&
+            device->device_info.conditional_rendering_features.conditionalRendering)
         access |= VK_ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT;
 
     if (consider_reads && (vk_queue_flags & VK_QUEUE_GRAPHICS_BIT))
@@ -2662,10 +2663,16 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                 *stages |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
                 *access |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
 
-                if (device->vk_info.EXT_conditional_rendering)
+                /* D3D12_RESOURCE_STATE_PREDICATION */
+                if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
                 {
-                    *stages |= VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT;
-                    *access |= VK_ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT;
+                    *stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+                    *access |= VK_ACCESS_SHADER_READ_BIT;
+                }
+                else
+                {
+                    *stages |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+                    *access |= VK_ACCESS_TRANSFER_READ_BIT;
                 }
                 break;
 
@@ -2919,7 +2926,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     vk_procs = &list->device->vk_procs;
 
     d3d12_command_list_end_current_render_pass(list, false);
-    if (list->is_predicated)
+
+    if (list->predicate_enabled)
         VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
 
     vkd3d_shader_debug_ring_end_command_buffer(list);
@@ -2963,9 +2971,11 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->fb_layer_count = 0;
 
     list->xfb_enabled = false;
-
-    list->is_predicated = false;
     list->render_pass_suspended = false;
+
+    list->predicate_enabled = false;
+    list->predicate_va = 0;
+
 #ifdef VKD3D_ENABLE_RENDERDOC
     list->debug_capture = vkd3d_renderdoc_active() && vkd3d_renderdoc_should_capture_shader_hash(0);
 #else
@@ -3884,19 +3894,74 @@ static void d3d12_command_list_check_index_buffer_strip_cut_value(struct d3d12_c
     }
 }
 
+static bool d3d12_command_list_emit_predicated_command(struct d3d12_command_list *list,
+        enum vkd3d_predicate_command_type command_type, VkDeviceAddress indirect_args,
+        const union vkd3d_predicate_command_direct_args *direct_args, struct vkd3d_scratch_allocation *scratch)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_predicate_command_info pipeline_info;
+    struct vkd3d_predicate_command_args args;
+    VkMemoryBarrier vk_barrier;
+
+    vkd3d_meta_get_predicate_pipeline(&list->device->meta_ops, command_type, &pipeline_info);
+
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+            pipeline_info.data_size, sizeof(uint32_t), scratch))
+        return false;
+
+    d3d12_command_list_end_current_render_pass(list, true);
+
+    d3d12_command_list_invalidate_current_pipeline(list, true);
+    d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
+
+    args.predicate_va = list->predicate_va;
+    args.dst_arg_va = scratch->va;
+    args.src_arg_va = indirect_args;
+    args.args = *direct_args;
+
+    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            pipeline_info.vk_pipeline));
+    VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+            pipeline_info.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+            0, sizeof(args), &args));
+    VK_CALL(vkCmdDispatch(list->vk_command_buffer, 1, 1, 1));
+
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    vk_barrier.pNext = NULL;
+    vk_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+            0, 1, &vk_barrier, 0, NULL, 0, NULL));
+    return true;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(d3d12_command_list_iface *iface,
         UINT vertex_count_per_instance, UINT instance_count, UINT start_vertex_location,
         UINT start_instance_location)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs;
+    const struct vkd3d_vk_device_procs *vk_procs = vk_procs = &list->device->vk_procs;
+    struct vkd3d_scratch_allocation scratch;
 
     TRACE("iface %p, vertex_count_per_instance %u, instance_count %u, "
             "start_vertex_location %u, start_instance_location %u.\n",
             iface, vertex_count_per_instance, instance_count,
             start_vertex_location, start_instance_location);
 
-    vk_procs = &list->device->vk_procs;
+    if (list->predicate_va)
+    {
+        union vkd3d_predicate_command_direct_args args;
+        args.draw.vertexCount = vertex_count_per_instance;
+        args.draw.instanceCount = instance_count;
+        args.draw.firstVertex = start_vertex_location;
+        args.draw.firstInstance = start_instance_location;
+
+        if (!d3d12_command_list_emit_predicated_command(list, VKD3D_PREDICATE_COMMAND_DRAW, 0, &args, &scratch))
+            return;
+    }
 
     if (!d3d12_command_list_begin_render_pass(list))
     {
@@ -3904,8 +3969,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(d3d12_command_lis
         return;
     }
 
-    VK_CALL(vkCmdDraw(list->vk_command_buffer, vertex_count_per_instance,
-            instance_count, start_vertex_location, start_instance_location));
+    if (!list->predicate_va)
+        VK_CALL(vkCmdDraw(list->vk_command_buffer, vertex_count_per_instance,
+                instance_count, start_vertex_location, start_instance_location));
+    else
+        VK_CALL(vkCmdDrawIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset, 1, 0));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_command_list_iface *iface,
@@ -3913,7 +3981,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
         INT base_vertex_location, UINT start_instance_location)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs;
+    const struct vkd3d_vk_device_procs *vk_procs = vk_procs = &list->device->vk_procs;
+    struct vkd3d_scratch_allocation scratch;
 
     TRACE("iface %p, index_count_per_instance %u, instance_count %u, start_vertex_location %u, "
             "base_vertex_location %d, start_instance_location %u.\n",
@@ -3933,27 +4002,53 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
         return;
     }
 
+    if (list->predicate_va)
+    {
+        union vkd3d_predicate_command_direct_args args;
+        args.draw_indexed.indexCount = index_count_per_instance;
+        args.draw_indexed.instanceCount = instance_count;
+        args.draw_indexed.firstIndex = start_vertex_location;
+        args.draw_indexed.vertexOffset = base_vertex_location;
+        args.draw_indexed.firstInstance = start_instance_location;
+
+        if (!d3d12_command_list_emit_predicated_command(list, VKD3D_PREDICATE_COMMAND_DRAW_INDEXED, 0, &args, &scratch))
+            return;
+    }
+
     if (!d3d12_command_list_begin_render_pass(list))
     {
         WARN("Failed to begin render pass, ignoring draw call.\n");
         return;
     }
 
-    vk_procs = &list->device->vk_procs;
-
     d3d12_command_list_check_index_buffer_strip_cut_value(list);
 
-    VK_CALL(vkCmdDrawIndexed(list->vk_command_buffer, index_count_per_instance,
-            instance_count, start_vertex_location, base_vertex_location, start_instance_location));
+    if (!list->predicate_va)
+        VK_CALL(vkCmdDrawIndexed(list->vk_command_buffer, index_count_per_instance,
+                instance_count, start_vertex_location, base_vertex_location, start_instance_location));
+    else
+        VK_CALL(vkCmdDrawIndexedIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset, 1, 0));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_iface *iface,
         UINT x, UINT y, UINT z)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_scratch_allocation scratch;
 
     TRACE("iface %p, x %u, y %u, z %u.\n", iface, x, y, z);
+
+    if (list->predicate_va)
+    {
+        union vkd3d_predicate_command_direct_args args;
+        args.dispatch.x = x;
+        args.dispatch.y = y;
+        args.dispatch.z = z;
+
+        if (!d3d12_command_list_emit_predicated_command(list, VKD3D_PREDICATE_COMMAND_DISPATCH, 0, &args, &scratch))
+            return;
+    }
 
     if (!d3d12_command_list_update_compute_state(list))
     {
@@ -3961,9 +4056,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
         return;
     }
 
-    vk_procs = &list->device->vk_procs;
-
-    VK_CALL(vkCmdDispatch(list->vk_command_buffer, x, y, z));
+    if (!list->predicate_va)
+        VK_CALL(vkCmdDispatch(list->vk_command_buffer, x, y, z));
+    else
+        VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_list_iface *iface,
@@ -6557,69 +6653,113 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *resource = unsafe_impl_from_ID3D12Resource(buffer);
-    const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
-    const struct vkd3d_vk_device_procs *vk_procs;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct vkd3d_predicate_ops *predicate_ops = &list->device->meta_ops.predicate;
+    struct vkd3d_predicate_resolve_args resolve_args;
+    VkConditionalRenderingBeginInfoEXT begin_info;
+    VkPipelineStageFlags dst_stages, src_stages;
+    struct vkd3d_scratch_allocation scratch;
+    VkAccessFlags dst_access, src_access;
+    VkMemoryBarrier vk_barrier;
+    VkBufferCopy copy_region;
 
     TRACE("iface %p, buffer %p, aligned_buffer_offset %#"PRIx64", operation %#x.\n",
             iface, buffer, aligned_buffer_offset, operation);
 
-    if (!vk_info->EXT_conditional_rendering)
+    d3d12_command_list_end_current_render_pass(list, true);
+
+    if (resource && (aligned_buffer_offset & 0x7))
+        return;
+
+    if (!list->device->device_info.buffer_device_address_features.bufferDeviceAddress &&
+            !list->device->device_info.conditional_rendering_features.conditionalRendering)
     {
-        FIXME_ONCE("Vulkan conditional rendering extension not present. Conditional rendering not supported.\n");
+        FIXME_ONCE("Conditional rendering not supported by device.\n");
         return;
     }
 
-    vk_procs = &list->device->vk_procs;
-
-    d3d12_command_list_end_current_render_pass(list, true);
+    if (list->predicate_enabled)
+        VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
 
     if (resource)
     {
-        VkConditionalRenderingBeginInfoEXT cond_info;
-
-        if (aligned_buffer_offset & (sizeof(uint64_t) - 1))
-        {
-            WARN("Unaligned predicate argument buffer offset %#"PRIx64".\n", aligned_buffer_offset);
+        if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+                sizeof(uint32_t), sizeof(uint32_t), &scratch))
             return;
-        }
 
-        if (!d3d12_resource_is_buffer(resource))
+        begin_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
+        begin_info.pNext = NULL;
+        begin_info.buffer = scratch.buffer;
+        begin_info.offset = scratch.offset;
+        begin_info.flags = 0;
+
+        if (list->device->device_info.buffer_device_address_features.bufferDeviceAddress)
         {
-            WARN("Predicate arguments must be stored in a buffer resource.\n");
-            return;
+            /* Resolve 64-bit predicate into a 32-bit location so that this works with
+             * VK_EXT_conditional_rendering. We'll handle the predicate operation here
+             * so setting VK_CONDITIONAL_RENDERING_INVERTED_BIT_EXT is not necessary. */
+            d3d12_command_list_invalidate_current_pipeline(list, true);
+            d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
+
+            resolve_args.src_va = d3d12_resource_get_va(resource, aligned_buffer_offset);
+            resolve_args.dst_va = scratch.va;
+            resolve_args.invert = operation != D3D12_PREDICATION_OP_EQUAL_ZERO;
+
+            VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    predicate_ops->vk_resolve_pipeline));
+            VK_CALL(vkCmdPushConstants(list->vk_command_buffer, predicate_ops->vk_resolve_pipeline_layout,
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(resolve_args), &resolve_args));
+            VK_CALL(vkCmdDispatch(list->vk_command_buffer, 1, 1, 1));
+
+            src_stages = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+            src_access = VK_ACCESS_SHADER_WRITE_BIT;
         }
-
-        FIXME_ONCE("Predication doesn't support clear and copy commands, "
-                "and predication values are treated as 32-bit values.\n");
-
-        cond_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
-        cond_info.pNext = NULL;
-        cond_info.buffer = resource->vk_buffer;
-        cond_info.offset = resource->heap_offset + aligned_buffer_offset;
-        switch (operation)
+        else
         {
-            case D3D12_PREDICATION_OP_EQUAL_ZERO:
-                cond_info.flags = 0;
-                break;
+            FIXME_ONCE("64-bit predicates not supported.\n");
 
-            case D3D12_PREDICATION_OP_NOT_EQUAL_ZERO:
-                cond_info.flags = VK_CONDITIONAL_RENDERING_INVERTED_BIT_EXT;
-                break;
+            copy_region.srcOffset = resource->heap_offset + aligned_buffer_offset;
+            copy_region.dstOffset = scratch.offset;
+            copy_region.size = sizeof(uint32_t);
 
-            default:
-                FIXME("Unhandled predication operation %#x.\n", operation);
-                return;
+            VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
+                    resource->vk_buffer, scratch.buffer, 1, &copy_region));
+
+            src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            src_access = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+            if (operation != D3D12_PREDICATION_OP_EQUAL_ZERO)
+                begin_info.flags = VK_CONDITIONAL_RENDERING_INVERTED_BIT_EXT;
         }
 
-        if (list->is_predicated)
-            VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
-        VK_CALL(vkCmdBeginConditionalRenderingEXT(list->vk_command_buffer, &cond_info));
-        list->is_predicated = true;
+        if (list->device->device_info.conditional_rendering_features.conditionalRendering)
+        {
+            dst_stages = VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT;
+            dst_access = VK_ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT;
+            list->predicate_enabled = true;
+        }
+        else
+        {
+            dst_stages = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+            dst_access = VK_ACCESS_SHADER_READ_BIT;
+            list->predicate_va = scratch.va;
+        }
+
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        vk_barrier.pNext = NULL;
+        vk_barrier.srcAccessMask = src_access;
+        vk_barrier.dstAccessMask = dst_access;
+
+        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+                src_stages, dst_stages, 0, 1, &vk_barrier, 0, NULL, 0, NULL));
+
+        if (list->predicate_enabled)
+            VK_CALL(vkCmdBeginConditionalRenderingEXT(list->vk_command_buffer, &begin_info));
     }
-    else if (list->is_predicated)
+    else
     {
-        VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
-        list->is_predicated = false;
+        list->predicate_enabled = false;
+        list->predicate_va = 0;
     }
 }
 
@@ -6745,8 +6885,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
     struct d3d12_resource *count_impl = unsafe_impl_from_ID3D12Resource(count_buffer);
     struct d3d12_resource *arg_impl = unsafe_impl_from_ID3D12Resource(arg_buffer);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const D3D12_COMMAND_SIGNATURE_DESC *signature_desc;
-    const struct vkd3d_vk_device_procs *vk_procs;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const D3D12_COMMAND_SIGNATURE_DESC *signature_desc = &sig_impl->desc;
+    struct vkd3d_scratch_allocation scratch;
     unsigned int i;
 
     TRACE("iface %p, command_signature %p, max_command_count %u, arg_buffer %p, "
@@ -6754,18 +6895,62 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
             iface, command_signature, max_command_count, arg_buffer, arg_buffer_offset,
             count_buffer, count_buffer_offset);
 
-    vk_procs = &list->device->vk_procs;
-
-    if (count_buffer && !list->device->vk_info.KHR_draw_indirect_count)
+    if ((count_buffer || list->predicate_va) && !list->device->vk_info.KHR_draw_indirect_count)
     {
         FIXME("Count buffers not supported by Vulkan implementation.\n");
         return;
     }
 
-    signature_desc = &sig_impl->desc;
     for (i = 0; i < signature_desc->NumArgumentDescs; ++i)
     {
         const D3D12_INDIRECT_ARGUMENT_DESC *arg_desc = &signature_desc->pArgumentDescs[i];
+
+        if (list->predicate_va)
+        {
+            union vkd3d_predicate_command_direct_args args;
+            enum vkd3d_predicate_command_type type;
+            VkDeviceSize indirect_va;
+
+            switch (arg_desc->Type)
+            {
+                case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
+                case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
+                    if (count_buffer)
+                    {
+                        type = VKD3D_PREDICATE_COMMAND_DRAW_INDIRECT_COUNT;
+                        indirect_va = d3d12_resource_get_va(count_impl, count_buffer_offset);
+                    }
+                    else
+                    {
+                        args.draw_count = max_command_count;
+                        type = VKD3D_PREDICATE_COMMAND_DRAW_INDIRECT;
+                        indirect_va = 0;
+                    }
+                    break;
+
+                case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
+                    type = VKD3D_PREDICATE_COMMAND_DISPATCH_INDIRECT;
+                    indirect_va = d3d12_resource_get_va(arg_impl, arg_buffer_offset);
+                    break;
+
+                default:
+                    FIXME("Ignoring unhandled argument type %#x.\n", arg_desc->Type);
+                    continue;
+            }
+
+            if (!d3d12_command_list_emit_predicated_command(list, type, indirect_va, &args, &scratch))
+                return;
+        }
+        else if (count_buffer)
+        {
+            scratch.buffer = count_impl->vk_buffer;
+            scratch.offset = count_impl->heap_offset + count_buffer_offset;
+        }
+        else
+        {
+            scratch.buffer = arg_impl->vk_buffer;
+            scratch.offset = arg_impl->heap_offset + arg_buffer_offset;
+        }
 
         switch (arg_desc->Type)
         {
@@ -6776,11 +6961,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                     break;
                 }
 
-                if (count_buffer)
+                if (count_buffer || list->predicate_va)
                 {
                     VK_CALL(vkCmdDrawIndirectCountKHR(list->vk_command_buffer, arg_impl->vk_buffer,
-                            arg_buffer_offset + arg_impl->heap_offset, count_impl->vk_buffer,
-                            count_buffer_offset + count_impl->heap_offset,
+                            arg_buffer_offset + arg_impl->heap_offset, scratch.buffer, scratch.offset,
                             max_command_count, signature_desc->ByteStride));
                 }
                 else
@@ -6805,11 +6989,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
                 d3d12_command_list_check_index_buffer_strip_cut_value(list);
 
-                if (count_buffer)
+                if (count_buffer || list->predicate_va)
                 {
                     VK_CALL(vkCmdDrawIndexedIndirectCountKHR(list->vk_command_buffer, arg_impl->vk_buffer,
-                            arg_buffer_offset + arg_impl->heap_offset, count_impl->vk_buffer,
-                            count_buffer_offset + count_impl->heap_offset,
+                            arg_buffer_offset + arg_impl->heap_offset, scratch.buffer, scratch.offset,
                             max_command_count, signature_desc->ByteStride));
                 }
                 else
@@ -6832,8 +7015,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                     return;
                 }
 
-                VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer,
-                        arg_impl->vk_buffer, arg_buffer_offset + arg_impl->heap_offset));
+                VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset));
                 break;
 
             default:
