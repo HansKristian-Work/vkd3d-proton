@@ -1297,9 +1297,10 @@ struct d3d12_command_list
     unsigned int fb_layer_count;
 
     bool xfb_enabled;
-
-    bool is_predicated;
     bool render_pass_suspended;
+
+    bool predicate_enabled;
+    VkDeviceAddress predicate_va;
 
     VkFramebuffer current_framebuffer;
 
