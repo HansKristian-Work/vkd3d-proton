@@ -37533,7 +37533,7 @@ static void test_conditional_rendering(void)
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
-    /* 64-bit conditional 0x100000000 - fails due to Vulkan 32-bit values. */
+    /* 64-bit conditional 0x100000000 */
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
     prepare_instanced_draw(&context);
     ID3D12GraphicsCommandList_SetPredication(command_list, conditions,
@@ -37545,7 +37545,7 @@ static void test_conditional_rendering(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    todo check_readback_data_uint(&rb, NULL, 0xffffffff, 0);
+    check_readback_data_uint(&rb, NULL, 0xffffffff, 0);
     release_resource_readback(&rb);
     reset_command_list(command_list, context.allocator);
     transition_resource_state(command_list, context.render_target,
