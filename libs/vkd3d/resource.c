@@ -3970,7 +3970,7 @@ static void vkd3d_buffer_view_get_bound_range_ssbo(struct d3d12_desc *descriptor
     {
         vk_buffer->buffer = VK_NULL_HANDLE;
         vk_buffer->offset = 0;
-        vk_buffer->range = 0;
+        vk_buffer->range = VK_WHOLE_SIZE;
 
         ssbo_range.offset = 0;
         ssbo_range.length = 0;
