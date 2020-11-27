@@ -1241,16 +1241,6 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     image_info.mipLevels = min(desc->MipLevels, max_miplevel_count(desc));
     image_info.samples = vk_samples_from_dxgi_sample_desc(&desc->SampleDesc);
 
-    /* Additional usage flags for shader-based copies */
-    typeless_format = vkd3d_get_typeless_format(device, format->dxgi_format);
-
-    if (typeless_format == DXGI_FORMAT_R32_TYPELESS || typeless_format == DXGI_FORMAT_R16_TYPELESS)
-    {
-        image_info.usage |= (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
-                ? VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
-                : VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    }
-
     if (sparse_resource)
     {
         if (desc->Layout != D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE)
@@ -1284,6 +1274,16 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
         image_info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
         image_info.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+
+    /* Additional usage flags for shader-based copies */
+    typeless_format = vkd3d_get_typeless_format(device, format->dxgi_format);
+
+    if (typeless_format == DXGI_FORMAT_R32_TYPELESS || typeless_format == DXGI_FORMAT_R16_TYPELESS)
+    {
+        image_info.usage |= (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                ? VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                : VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    }
 
     if ((desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) && device->queue_family_count > 1)
     {
