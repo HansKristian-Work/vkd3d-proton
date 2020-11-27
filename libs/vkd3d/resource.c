@@ -4944,6 +4944,9 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
         return;
     }
 
+    if (!(resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
+        FIXME("Resource %p does not set D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET.\n", resource);
+
     if (!init_default_texture_view_desc(&key.u.texture, resource, desc ? desc->Format : 0))
         return;
 
@@ -5058,6 +5061,9 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
         memset(dsv_desc, 0, sizeof(*dsv_desc));
         return;
     }
+
+    if (!(resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+        FIXME("Resource %p does not set D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL.\n", resource);
 
     if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
     {
