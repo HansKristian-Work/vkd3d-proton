@@ -2844,6 +2844,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_ifa
             d3d12_command_allocator_free_command_buffer(list->allocator, list);
 
         vkd3d_free(list->init_transitions);
+        vkd3d_free(list->query_ranges);
         vkd3d_free(list);
 
         d3d12_device_release(device);
@@ -2955,6 +2956,114 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     return S_OK;
 }
 
+static bool d3d12_command_list_find_query(struct d3d12_command_list *list,
+        VkQueryPool vk_pool, uint32_t index, size_t *out_pos)
+{
+    const struct vkd3d_query_range *range;
+    size_t hi = list->query_ranges_count;
+    size_t lo = 0;
+
+    while (lo < hi)
+    {
+        size_t pos = lo + (hi - lo) / 2;
+        range = &list->query_ranges[pos];
+
+        if (vk_pool < range->vk_pool)
+            hi = pos;
+        else if (vk_pool > range->vk_pool)
+            lo = pos + 1;
+        else if (index < range->index)
+            hi = pos;
+        else if (index >= range->index + range->count)
+            lo = pos + 1;
+        else
+        {
+            if (out_pos)
+                *out_pos = pos;
+            return true;
+        }
+    }
+
+    if (out_pos)
+        *out_pos = lo;
+    return false;
+}
+
+static void d3d12_command_list_insert_query_range(struct d3d12_command_list *list, size_t pos,
+        VkQueryPool vk_pool, uint32_t index, uint32_t count, uint32_t flags)
+{
+    struct vkd3d_query_range *range;
+
+    vkd3d_array_reserve((void**)&list->query_ranges, &list->query_ranges_size,
+            list->query_ranges_count + 1, sizeof(*list->query_ranges));
+
+    for (size_t i = list->query_ranges_count; i > pos; i--)
+        list->query_ranges[i] = list->query_ranges[i - 1];
+
+    range = &list->query_ranges[pos];
+    range->vk_pool = vk_pool;
+    range->index = index;
+    range->count = count;
+    range->flags = flags;
+
+    list->query_ranges_count++;
+}
+
+static void d3d12_command_list_read_query_range(struct d3d12_command_list *list,
+        VkQueryPool vk_pool, uint32_t index, uint32_t count)
+{
+    const struct vkd3d_query_range *range;
+    size_t hi = index + count;
+    size_t lo = index;
+    size_t pos;
+
+    /* pos contains either the location of an existing range
+     * containing the first query of the new range, or the
+     * location where we need to insert it */
+    d3d12_command_list_find_query(list, vk_pool, index, &pos);
+
+    /* Do not attempt to merge adjacent ranges, but make sure
+     * that each query is only contained in one range */
+    while (lo < hi)
+    {
+        if (pos < list->query_ranges_count)
+        {
+            range = &list->query_ranges[pos];
+
+            if (lo >= range->index)
+                lo = max(lo, range->index + range->count);
+            else
+            {
+                size_t range_end = min(hi, range->index);
+                d3d12_command_list_insert_query_range(list, pos,
+                        vk_pool, lo, range_end - lo, 0);
+                lo = range_end;
+            }
+
+            pos += 1;
+        }
+        else
+        {
+            d3d12_command_list_insert_query_range(list, pos,
+                    vk_pool, lo, hi - lo, 0);
+            lo = hi;
+        }
+    }
+}
+
+static bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
+        VkQueryPool vk_pool, uint32_t index)
+{
+    size_t pos;
+
+    if (d3d12_command_list_find_query(list, vk_pool, index, &pos))
+        return false;
+
+    d3d12_command_list_insert_query_range(list, pos,
+            vk_pool, index, 1, VKD3D_QUERY_RANGE_RESET);
+    return true;
+}
+
 static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
         ID3D12PipelineState *initial_pipeline_state)
 {
@@ -3013,6 +3122,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     memset(list->so_counter_buffer_offsets, 0, sizeof(list->so_counter_buffer_offsets));
 
     list->init_transitions_count = 0;
+    list->query_ranges_count = 0;
 
     ID3D12GraphicsCommandList_SetPipelineState(iface, initial_pipeline_state);
 }
