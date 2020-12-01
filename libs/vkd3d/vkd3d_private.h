@@ -1271,6 +1271,19 @@ struct vkd3d_initial_transition
     };
 };
 
+enum vkd3d_query_range_flag
+{
+    VKD3D_QUERY_RANGE_RESET = 0x1,
+};
+
+struct vkd3d_query_range
+{
+    VkQueryPool vk_pool;
+    uint32_t index;
+    uint32_t count;
+    uint32_t flags;
+};
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
@@ -1334,6 +1347,10 @@ struct d3d12_command_list
     struct vkd3d_initial_transition *init_transitions;
     size_t init_transitions_size;
     size_t init_transitions_count;
+
+    struct vkd3d_query_range *query_ranges;
+    size_t query_ranges_size;
+    size_t query_ranges_count;
 
     LONG *outstanding_submissions_count;
 
