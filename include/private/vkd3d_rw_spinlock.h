@@ -44,9 +44,10 @@ static inline void rw_spinlock_release_read(spinlock_t *spinlock)
 
 static inline void rw_spinlock_acquire_write(spinlock_t *spinlock)
 {
-    while (vkd3d_atomic_uint32_compare_exchange(spinlock,
-            VKD3D_RW_SPINLOCK_IDLE, VKD3D_RW_SPINLOCK_WRITE,
-            vkd3d_memory_order_acquire, vkd3d_memory_order_relaxed) != VKD3D_RW_SPINLOCK_IDLE)
+    while (vkd3d_atomic_uint32_load_explicit(spinlock, vkd3d_memory_order_relaxed) != VKD3D_RW_SPINLOCK_IDLE ||
+            vkd3d_atomic_uint32_compare_exchange(spinlock,
+                    VKD3D_RW_SPINLOCK_IDLE, VKD3D_RW_SPINLOCK_WRITE,
+                    vkd3d_memory_order_acquire, vkd3d_memory_order_relaxed) != VKD3D_RW_SPINLOCK_IDLE)
     {
 #ifdef __SSE2__
         _mm_pause();
