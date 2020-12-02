@@ -167,16 +167,21 @@ static inline struct hash_map_entry *hash_map_insert(struct hash_map *hash_map, 
         if (!(current->flags & HASH_MAP_ENTRY_OCCUPIED) ||
                 (current->hash_value == hash_value && hash_map->compare_func(key, entry)))
             target = current;
-
-        entry_idx = hash_map_next_entry_idx(hash_map, entry_idx);
+        else
+            entry_idx = hash_map_next_entry_idx(hash_map, entry_idx);
     }
 
     if (!(target->flags & HASH_MAP_ENTRY_OCCUPIED))
+    {
         hash_map->used_count += 1;
+        memcpy(target, entry, hash_map->entry_size);
+        target->flags = HASH_MAP_ENTRY_OCCUPIED;
+        target->hash_value = hash_value;
+    }
 
-    memcpy(target, entry, hash_map->entry_size);
-    target->flags = HASH_MAP_ENTRY_OCCUPIED;
-    target->hash_value = hash_value;
+    /* If target is occupied, we already have an entry in the hashmap.
+     * Return old one, caller is responsible for cleaning up the node we attempted to add. */
+
     return target;
 }
 
