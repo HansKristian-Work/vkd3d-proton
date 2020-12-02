@@ -8270,7 +8270,7 @@ static void d3d12_command_queue_transition_pool_deinit(struct d3d12_command_queu
     VK_CALL(vkDestroyCommandPool(device->vk_device, pool->pool, NULL));
     VK_CALL(vkDestroySemaphore(device->vk_device, pool->timeline, NULL));
     vkd3d_free(pool->barriers);
-    vkd3d_free(pool->query_heaps);
+    vkd3d_free((void*)pool->query_heaps);
 }
 
 static void d3d12_command_queue_transition_pool_add_barrier(struct d3d12_command_queue_transition_pool *pool,
