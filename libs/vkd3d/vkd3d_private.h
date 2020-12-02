@@ -470,7 +470,7 @@ struct d3d12_sparse_info
 
 struct vkd3d_view_map
 {
-    pthread_mutex_t mutex;
+    spinlock_t spinlock;
     struct hash_map map;
 };
 

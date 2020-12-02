@@ -22,6 +22,7 @@
 #include <float.h>
 
 #include "vkd3d_private.h"
+#include "vkd3d_rw_spinlock.h"
 #include "hashmap.h"
 
 #define VKD3D_NULL_SRV_FORMAT DXGI_FORMAT_R8G8B8A8_UNORM
@@ -1520,11 +1521,7 @@ static bool vkd3d_view_entry_compare(const void *key, const struct hash_map_entr
 
 HRESULT vkd3d_view_map_init(struct vkd3d_view_map *view_map)
 {
-    int rc;
-
-    if ((rc = pthread_mutex_init(&view_map->mutex, NULL)))
-        return hresult_from_errno(rc);
-
+    view_map->spinlock = 0;
     hash_map_init(&view_map->map, &vkd3d_view_entry_hash, &vkd3d_view_entry_compare, sizeof(struct vkd3d_view_entry));
     return S_OK;
 }
@@ -1544,8 +1541,6 @@ void vkd3d_view_map_destroy(struct vkd3d_view_map *view_map, struct d3d12_device
     }
 
     hash_map_clear(&view_map->map);
-
-    pthread_mutex_destroy(&view_map->mutex);
 }
 
 static struct vkd3d_view *vkd3d_view_create(enum vkd3d_view_type type);
@@ -1557,22 +1552,22 @@ struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
         struct d3d12_device *device, const struct vkd3d_view_key *key)
 {
     struct vkd3d_view_entry entry, *e;
+    struct vkd3d_view *redundant_view;
     struct vkd3d_view *view;
     bool success;
-    int rc;
 
-    if ((rc = pthread_mutex_lock(&view_map->mutex)))
-    {
-        ERR("Failed to lock mutex, rc %d.\n", rc);
-        return NULL;
-    }
+    /* In the steady state, we will be reading existing entries from a view map.
+     * Prefer read-write spinlocks here to reduce contention as much as possible. */
+    rw_spinlock_acquire_read(&view_map->spinlock);
 
     if ((e = (struct vkd3d_view_entry *)hash_map_find(&view_map->map, key)))
     {
         view = e->view;
-        pthread_mutex_unlock(&view_map->mutex);
+        rw_spinlock_release_read(&view_map->spinlock);
         return view;
     }
+
+    rw_spinlock_release_read(&view_map->spinlock);
 
     switch (key->view_type)
     {
@@ -1596,23 +1591,36 @@ struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
     }
 
     if (!success)
-    {
-        pthread_mutex_unlock(&view_map->mutex);
         return NULL;
-    }
 
     entry.key = *key;
     entry.view = view;
 
-    if (!hash_map_insert(&view_map->map, key, &entry.entry))
+    rw_spinlock_acquire_write(&view_map->spinlock);
+
+    if (!(e = (struct vkd3d_view_entry *)hash_map_insert(&view_map->map, key, &entry.entry)))
         ERR("Failed to insert view into hash map.\n");
 
-    /* If we start emitting too many typed SRVs, we will eventually crash on NV, since
-     * VkBufferView objects appear to consume GPU resources. */
-    if ((view_map->map.used_count % 1024) == 0)
-        ERR("Intense view map pressure! Got %u views in hash map %p.\n", view_map->map.used_count, &view_map->map);
+    if (e->view != view)
+    {
+        /* We yielded on the insert because another thread came in-between, and allocated a new hash map entry.
+         * This can happen between releasing reader lock, and acquiring writer lock. */
+        redundant_view = view;
+        view = e->view;
+        rw_spinlock_release_write(&view_map->spinlock);
+        vkd3d_view_decref(redundant_view, device);
+    }
+    else
+    {
+        /* If we start emitting too many typed SRVs, we will eventually crash on NV, since
+         * VkBufferView objects appear to consume GPU resources. */
+        if ((view_map->map.used_count % 1024) == 0)
+            ERR("Intense view map pressure! Got %u views in hash map %p.\n", view_map->map.used_count, &view_map->map);
 
-    pthread_mutex_unlock(&view_map->mutex);
+        view = e->view;
+        rw_spinlock_release_write(&view_map->spinlock);
+    }
+
     return view;
 }
 
