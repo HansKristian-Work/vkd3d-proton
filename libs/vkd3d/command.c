@@ -2964,11 +2964,56 @@ static D3D12_COMMAND_LIST_TYPE STDMETHODCALLTYPE d3d12_command_list_GetType(d3d1
     return list->type;
 }
 
+static HRESULT d3d12_command_list_batch_reset_query_pools(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    HRESULT hr;
+    size_t i;
+
+    for (i = 0; i < list->query_ranges_count; i++)
+    {
+        const struct vkd3d_query_range *range = &list->query_ranges[i];
+
+        if (!(range->flags & VKD3D_QUERY_RANGE_RESET))
+            continue;
+
+        if (FAILED(hr = d3d12_command_allocator_allocate_init_command_buffer(list->allocator, list)))
+            return hr;
+
+        VK_CALL(vkCmdResetQueryPool(list->vk_init_commands,
+                range->vk_pool, range->index, range->count));
+    }
+
+    return S_OK;
+}
+
+static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkResult vr;
+    HRESULT hr;
+
+    if (FAILED(hr = d3d12_command_list_batch_reset_query_pools(list)))
+        return hr;
+
+    if (!list->vk_init_commands)
+        return S_OK;
+
+    if ((vr = VK_CALL(vkEndCommandBuffer(list->vk_init_commands))) < 0)
+    {
+        WARN("Failed to end command buffer, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_iface *iface)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkResult vr;
+    HRESULT hr;
 
     TRACE("iface %p.\n", iface);
 
@@ -2978,14 +3023,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
         return E_FAIL;
     }
 
-    vk_procs = &list->device->vk_procs;
-
     d3d12_command_list_end_current_render_pass(list, false);
 
     if (list->predicate_enabled)
         VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
 
     vkd3d_shader_debug_ring_end_command_buffer(list);
+
+    if (FAILED(hr = d3d12_command_list_build_init_commands(list)))
+        return hr;
 
     if ((vr = VK_CALL(vkEndCommandBuffer(list->vk_command_buffer))) < 0)
     {
@@ -6711,7 +6757,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
     d3d12_command_list_track_query_heap(list, query_heap);
     d3d12_command_list_end_current_render_pass(list, true);
 
-    VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
+    if (!d3d12_command_list_reset_query(list, query_heap->vk_query_pool, index))
+        VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
 
     if (type == D3D12_QUERY_TYPE_OCCLUSION)
         flags = VK_QUERY_CONTROL_PRECISE_BIT;
@@ -6741,7 +6788,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
 
     if (type == D3D12_QUERY_TYPE_TIMESTAMP)
     {
-        VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
+        if (!d3d12_command_list_reset_query(list, query_heap->vk_query_pool, index))
+            VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
         VK_CALL(vkCmdWriteTimestamp(list->vk_command_buffer,
                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_heap->vk_query_pool, index));
         return;
@@ -6846,6 +6894,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
     }
 
     d3d12_command_list_track_query_heap(list, query_heap);
+    d3d12_command_list_read_query_range(list, query_heap->vk_query_pool, start_index, query_count);
     d3d12_command_list_end_current_render_pass(list, true);
 
     VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer, query_heap->vk_query_pool,
