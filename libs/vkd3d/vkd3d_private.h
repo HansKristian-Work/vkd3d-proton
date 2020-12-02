@@ -1298,6 +1298,7 @@ struct d3d12_command_list
     bool has_replaced_shaders;
     bool has_valid_index_buffer;
     VkCommandBuffer vk_command_buffer;
+    VkCommandBuffer vk_init_commands;
 
     DXGI_FORMAT index_buffer_format;
 
