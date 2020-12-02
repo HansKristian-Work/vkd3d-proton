@@ -48,11 +48,11 @@ static const void *vkd3d_find_struct_(const struct vkd3d_struct *chain,
 
 static uint32_t vkd3d_get_vk_version(void)
 {
-    int major, minor;
+    int major, minor, patch;
 
-    vkd3d_parse_version(PACKAGE_VERSION, &major, &minor);
-    INFO("vkd3d-proton - applicationVersion: %d.%d.0.\n", major, minor);
-    return VK_MAKE_VERSION(major, minor, 0);
+    vkd3d_parse_version(PACKAGE_VERSION, &major, &minor, &patch);
+    INFO("vkd3d-proton - applicationVersion: %d.%d.%d.\n", major, minor, patch);
+    return VK_MAKE_VERSION(major, minor, patch);
 }
 
 struct vkd3d_optional_extension_info

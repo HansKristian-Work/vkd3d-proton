@@ -231,16 +231,19 @@ static inline bool is_power_of_two(unsigned int x)
     return x && !(x & (x -1));
 }
 
-static inline void vkd3d_parse_version(const char *version, int *major, int *minor)
+static inline void vkd3d_parse_version(const char *version, int *major, int *minor, int *patch)
 {
-    *major = atoi(version);
+    char *end;
 
-    while (isdigit(*version))
-        ++version;
+    *major = strtol(version, &end, 10);
+    version = end;
     if (*version == '.')
         ++version;
-
-    *minor = atoi(version);
+    *minor = strtol(version, &end, 10);
+    version = end;
+    if (*version == '.')
+        ++version;
+    *patch = strtol(version, NULL, 10);
 }
 
 static inline uint32_t float_bits_to_uint32(float f)
