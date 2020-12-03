@@ -6754,6 +6754,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
 
     TRACE("iface %p, heap %p, type %#x, index %u.\n", iface, heap, type, index);
 
+    if (type == D3D12_QUERY_TYPE_TIMESTAMP)
+    {
+        WARN("Query type %u is not scoped.\n", type);
+        return;
+    }
+
     d3d12_command_list_track_query_heap(list, query_heap);
     d3d12_command_list_end_current_render_pass(list, true);
 
@@ -6768,10 +6774,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
         unsigned int stream_index = type - D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0;
         VK_CALL(vkCmdBeginQueryIndexedEXT(list->vk_command_buffer,
                 query_heap->vk_query_pool, index, flags, stream_index));
-        return;
     }
-
-    VK_CALL(vkCmdBeginQuery(list->vk_command_buffer, query_heap->vk_query_pool, index, flags));
+    else
+        VK_CALL(vkCmdBeginQuery(list->vk_command_buffer, query_heap->vk_query_pool, index, flags));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_iface *iface,
@@ -6784,26 +6789,31 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
     TRACE("iface %p, heap %p, type %#x, index %u.\n", iface, heap, type, index);
 
     d3d12_command_list_track_query_heap(list, query_heap);
-    d3d12_command_list_end_current_render_pass(list, true);
 
     if (type == D3D12_QUERY_TYPE_TIMESTAMP)
     {
         if (!d3d12_command_list_reset_query(list, query_heap->vk_query_pool, index))
+        {
+            d3d12_command_list_end_current_render_pass(list, true);
             VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
+        }
+
         VK_CALL(vkCmdWriteTimestamp(list->vk_command_buffer,
                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_heap->vk_query_pool, index));
-        return;
     }
-
-    if (D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0 <= type && type <= D3D12_QUERY_TYPE_SO_STATISTICS_STREAM3)
+    else
     {
-        unsigned int stream_index = type - D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0;
-        VK_CALL(vkCmdEndQueryIndexedEXT(list->vk_command_buffer,
-                query_heap->vk_query_pool, index, stream_index));
-        return;
-    }
+        d3d12_command_list_end_current_render_pass(list, true);
 
-    VK_CALL(vkCmdEndQuery(list->vk_command_buffer, query_heap->vk_query_pool, index));
+        if (D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0 <= type && type <= D3D12_QUERY_TYPE_SO_STATISTICS_STREAM3)
+        {
+            unsigned int stream_index = type - D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0;
+            VK_CALL(vkCmdEndQueryIndexedEXT(list->vk_command_buffer,
+                    query_heap->vk_query_pool, index, stream_index));
+        }
+        else
+            VK_CALL(vkCmdEndQuery(list->vk_command_buffer, query_heap->vk_query_pool, index));
+    }
 }
 
 static size_t get_query_stride(D3D12_QUERY_TYPE type)
