@@ -2989,24 +2989,69 @@ static bool d3d12_command_list_find_query(struct d3d12_command_list *list,
     return false;
 }
 
-static void d3d12_command_list_insert_query_range(struct d3d12_command_list *list, size_t pos,
+static void d3d12_command_list_insert_query_range(struct d3d12_command_list *list, size_t *where,
         VkQueryPool vk_pool, uint32_t index, uint32_t count, uint32_t flags)
 {
     struct vkd3d_query_range *range;
+    unsigned int move_count;
+    bool merge_lo, merge_hi;
+    size_t pos = *where;
 
-    vkd3d_array_reserve((void**)&list->query_ranges, &list->query_ranges_size,
-            list->query_ranges_count + 1, sizeof(*list->query_ranges));
+    merge_lo = false;
+    merge_hi = false;
 
-    for (size_t i = list->query_ranges_count; i > pos; i--)
-        list->query_ranges[i] = list->query_ranges[i - 1];
+    if (pos > 0)
+    {
+        range = &list->query_ranges[pos - 1];
+        merge_lo = range->flags == flags
+                && range->index + range->count == index;
+    }
 
-    range = &list->query_ranges[pos];
-    range->vk_pool = vk_pool;
-    range->index = index;
-    range->count = count;
-    range->flags = flags;
+    if (pos < list->query_ranges_count)
+    {
+        range = &list->query_ranges[pos];
+        merge_hi = range->flags == flags
+                && range->index == index + count;
+    }
 
-    list->query_ranges_count++;
+    /* The idea is that 'where' will point to the range that contains
+     * the original range it was pointing to before the insertion, which
+     * may be moved around depending on which ranges get merged. */
+    if (merge_lo)
+    {
+        range = &list->query_ranges[pos - 1];
+        range[0].count += count;
+
+        if (merge_hi)
+        {
+            range[0].count += range[1].count;
+            move_count = (--list->query_ranges_count) - pos;
+            memmove(&range[1], &range[2], sizeof(*range) * move_count);
+            (*where)--;
+        }
+    }
+    else if (merge_hi)
+    {
+        range = &list->query_ranges[pos];
+        range->index = index;
+        range->count += count;
+    }
+    else
+    {
+        vkd3d_array_reserve((void**)&list->query_ranges, &list->query_ranges_size,
+                list->query_ranges_count + 1, sizeof(*list->query_ranges));
+
+        range = &list->query_ranges[pos];
+        move_count = (list->query_ranges_count++) - pos;
+        memmove(range + 1, range, sizeof(*range) * move_count);
+
+        range->vk_pool = vk_pool;
+        range->index = index;
+        range->count = count;
+        range->flags = flags;
+
+        (*where)++;
+    }
 }
 
 static void d3d12_command_list_read_query_range(struct d3d12_command_list *list,
@@ -3022,8 +3067,9 @@ static void d3d12_command_list_read_query_range(struct d3d12_command_list *list,
      * location where we need to insert it */
     d3d12_command_list_find_query(list, vk_pool, index, &pos);
 
-    /* Do not attempt to merge adjacent ranges, but make sure
-     * that each query is only contained in one range */
+    /* Avoid overriding already existing ranges by splitting
+     * this range into pieces so that each query is contained
+     * in at most one range. */
     while (lo < hi)
     {
         if (pos < list->query_ranges_count)
@@ -3031,20 +3077,21 @@ static void d3d12_command_list_read_query_range(struct d3d12_command_list *list,
             range = &list->query_ranges[pos];
 
             if (lo >= range->index)
+            {
                 lo = max(lo, range->index + range->count);
+                pos += 1;
+            }
             else
             {
                 size_t range_end = min(hi, range->index);
-                d3d12_command_list_insert_query_range(list, pos,
+                d3d12_command_list_insert_query_range(list, &pos,
                         vk_pool, lo, range_end - lo, 0);
                 lo = range_end;
             }
-
-            pos += 1;
         }
         else
         {
-            d3d12_command_list_insert_query_range(list, pos,
+            d3d12_command_list_insert_query_range(list, &pos,
                     vk_pool, lo, hi - lo, 0);
             lo = hi;
         }
@@ -3059,7 +3106,7 @@ static bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
     if (d3d12_command_list_find_query(list, vk_pool, index, &pos))
         return false;
 
-    d3d12_command_list_insert_query_range(list, pos,
+    d3d12_command_list_insert_query_range(list, &pos,
             vk_pool, index, 1, VKD3D_QUERY_RANGE_RESET);
     return true;
 }
