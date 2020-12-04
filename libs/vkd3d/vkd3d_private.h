@@ -1274,6 +1274,21 @@ struct vkd3d_initial_transition
     };
 };
 
+enum vkd3d_active_query_state
+{
+    VKD3D_ACTIVE_QUERY_RESET,
+    VKD3D_ACTIVE_QUERY_BEGUN,
+    VKD3D_ACTIVE_QUERY_ENDED,
+};
+
+struct vkd3d_active_query
+{
+    VkQueryPool vk_pool;
+    uint32_t index;
+    uint32_t flags;
+    enum vkd3d_active_query_state state;
+};
+
 enum vkd3d_query_range_flag
 {
     VKD3D_QUERY_RANGE_RESET = 0x1,
@@ -1355,6 +1370,10 @@ struct d3d12_command_list
     struct vkd3d_query_range *query_ranges;
     size_t query_ranges_size;
     size_t query_ranges_count;
+
+    struct vkd3d_active_query *active_queries;
+    size_t active_queries_size;
+    size_t active_queries_count;
 
     LONG *outstanding_submissions_count;
 
