@@ -6096,6 +6096,7 @@ static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler
     uint32_t sampled_type_id;
     unsigned int uav_flags;
     SpvImageFormat format;
+    bool uav_atomic;
     bool uav_read;
     bool is_uav;
 
@@ -6104,7 +6105,8 @@ static uint32_t vkd3d_dxbc_compiler_get_image_type_id(struct vkd3d_dxbc_compiler
     {
         uav_flags = vkd3d_shader_scan_get_register_flags(scan_info, VKD3DSPR_UAV, reg->idx[0].offset);
         uav_read = (uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS) != 0;
-        if (raw_structured || (uav_read && !vkd3d_dxbc_compiler_supports_typed_uav_load_without_format(compiler)))
+        uav_atomic = (uav_flags & VKD3D_SHADER_UAV_FLAG_ATOMIC_ACCESS) != 0;
+        if (raw_structured || uav_atomic || (uav_read && !vkd3d_dxbc_compiler_supports_typed_uav_load_without_format(compiler)))
             format = image_format_for_image_read(data_type);
     }
 
@@ -6173,14 +6175,17 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     {
         SpvImageFormat format = SpvImageFormatUnknown;
         unsigned int flags = 0;
+        bool uav_atomic;
         bool uav_read;
 
         if (is_uav)
         {
             uav_read = (uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS) != 0;
+            uav_atomic = (uav_flags & VKD3D_SHADER_UAV_FLAG_ATOMIC_ACCESS) != 0;
+
             if (structure_stride || raw || uav_read)
             {
-                if ((uav_read && !structure_stride && !raw) &&
+                if ((uav_read && !structure_stride && !raw && !uav_atomic) &&
                     vkd3d_dxbc_compiler_supports_typed_uav_load_without_format(compiler))
                 {
                     format = SpvImageFormatUnknown;

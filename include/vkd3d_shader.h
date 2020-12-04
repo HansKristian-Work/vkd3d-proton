@@ -556,6 +556,7 @@ enum vkd3d_shader_uav_flag
 {
     VKD3D_SHADER_UAV_FLAG_READ_ACCESS     = 0x00000001,
     VKD3D_SHADER_UAV_FLAG_ATOMIC_COUNTER  = 0x00000002,
+    VKD3D_SHADER_UAV_FLAG_ATOMIC_ACCESS   = 0x00000004,
 };
 
 struct vkd3d_shader_scan_info
