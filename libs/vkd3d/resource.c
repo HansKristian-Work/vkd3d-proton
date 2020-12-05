@@ -1419,14 +1419,14 @@ static uint32_t vkd3d_view_entry_hash(const void *key)
             hash = hash_uint64((uint64_t)k->u.buffer.buffer);
             hash = hash_combine(hash, hash_uint64(k->u.buffer.offset));
             hash = hash_combine(hash, hash_uint64(k->u.buffer.size));
-            hash = hash_combine(hash, k->u.buffer.format->vk_format);
+            hash = hash_combine(hash, (uintptr_t)k->u.buffer.format);
             break;
 
         case VKD3D_VIEW_TYPE_IMAGE:
             hash = hash_uint64((uint64_t)k->u.texture.image);
             hash = hash_combine(hash, k->u.texture.view_type);
             hash = hash_combine(hash, k->u.texture.layout);
-            hash = hash_combine(hash, k->u.texture.format->vk_format);
+            hash = hash_combine(hash, (uintptr_t)k->u.texture.format);
             hash = hash_combine(hash, k->u.texture.miplevel_idx);
             hash = hash_combine(hash, k->u.texture.miplevel_count);
             hash = hash_combine(hash, k->u.texture.layer_idx);
