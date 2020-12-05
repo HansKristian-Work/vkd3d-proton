@@ -14,6 +14,7 @@ enable_extras            = get_option('enable_extras')
 enable_d3d12             = get_option('enable_d3d12')
 enable_profiling         = get_option('enable_profiling')
 enable_renderdoc         = get_option('enable_renderdoc')
+enable_descriptor_qa     = get_option('enable_descriptor_qa')
 
 if enable_d3d12 == 'auto'
     enable_d3d12 = (vkd3d_platform == 'windows')
@@ -43,6 +44,10 @@ endif
 
 if enable_renderdoc
   add_project_arguments('-DVKD3D_ENABLE_RENDERDOC', language : 'c')
+endif
+
+if enable_descriptor_qa
+  add_project_arguments('-DVKD3D_ENABLE_DESCRIPTOR_QA', language : 'c')
 endif
 
 vkd3d_external_includes = [ './subprojects/Vulkan-Headers/include', './subprojects/SPIRV-Headers/include' ]

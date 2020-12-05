@@ -25,6 +25,10 @@
 #include "vkd3d_renderdoc.h"
 #endif
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+#include "vkd3d_descriptor_debug.h"
+#endif
+
 struct vkd3d_struct
 {
     enum vkd3d_structure_type type;
@@ -645,6 +649,10 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
 #ifdef VKD3D_ENABLE_RENDERDOC
     /* Need to init this sometime after creating the instance so that the layer has loaded. */
     vkd3d_renderdoc_init();
+#endif
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_init();
 #endif
 
     return S_OK;

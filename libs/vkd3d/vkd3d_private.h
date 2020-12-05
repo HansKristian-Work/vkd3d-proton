@@ -475,6 +475,9 @@ struct vkd3d_view_map
 {
     spinlock_t spinlock;
     struct hash_map map;
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    uint64_t resource_cookie;
+#endif
 };
 
 HRESULT vkd3d_view_map_init(struct vkd3d_view_map *view_map);
