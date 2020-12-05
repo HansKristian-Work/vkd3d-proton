@@ -234,3 +234,82 @@ void DEBUG_CHANNEL_MSG(float v0, float v1, ...); // Up to 4 components, ...
 ```
 
 These functions log, formatting is `#%x` for uint, `%d` for int and `%f` for float type.
+
+## Descriptor debugging
+
+If `-Denable_descriptor_qa=true` is enabled in build, you can set the `VKD3D_DESCRIPTOR_QA_LOG` env-var to a file.
+All descriptor updates and copies are logged so that it's possible to correlate descriptors with
+GPU crash dumps. `enable_descriptor_qa` is not enabled by default,
+since it adds some flat overhead in an extremely hot code path.
+
+### Debugging descriptor crashes with RADV/ACO dumps (hardcore ultra nightmare mode)
+
+For when you're absolutely desperate, there is a way to debug GPU hangs.
+First, install [umr](https://gitlab.freedesktop.org/tomstdenis/umr) and make the binary setsuid.
+
+`ACO_DEBUG=force-waitcnt RADV_DEBUG=hang VKD3D_DESCRIPTOR_QA_LOG=/somewhere/desc.txt %command%`
+
+It is possible to use `RADV_DEBUG=hang,umr` as well, but from within Wine, there are weird things
+happening where UMR dumps do not always succeed.
+Instead, it is possible to invoke umr manually from an SSH shell when the GPU hangs.
+
+```
+#!/bin/bash
+
+mkdir -p "$HOME/umr-dump"
+
+# For Navi, older GPUs might have different rings. See RADV source.
+umr -R gfx_0.0.0 > "$HOME/umr-dump/ring.txt" 2>&1
+umr -O halt_waves -wa gfx_0.0.0 > "$HOME/umr-dump/halt-waves-1.txt" 2>&1
+umr -O bits,halt_waves -wa gfx_0.0.0 > "$HOME/umr-dump/halt-waves-2.txt" 2>&1
+```
+
+A folder is placed in `~/radv_dumps*` by RADV, and the UMR script will place wave dumps in `~/umr-dump`.
+
+First, we can study the wave dumps to see where things crash, e.g.:
+
+```
+    pgm[6@0x800120e26c00 + 0x584 ] = 0xf0001108		image_load v47, v[4:5], s[48:55] dmask:0x1 dim:SQ_RSRC_IMG_2D unorm
+    pgm[6@0x800120e26c00 + 0x588 ] = 0x000c2f04	;;
+    pgm[6@0x800120e26c00 + 0x58c ] = 0xbf8c3f70		s_waitcnt vmcnt(0)
+ *  pgm[6@0x800120e26c00 + 0x590 ] = 0x930118c0		s_mul_i32 s1, 64, s24
+    pgm[6@0x800120e26c00 + 0x594 ] = 0xf40c0c09		s_load_dwordx8 s[48:55], s[18:19], s1
+    pgm[6@0x800120e26c00 + 0x598 ] = 0x02000000	;;
+```
+
+excp: 256 is a memory error (at least on 5700xt).
+```
+TRAPSTS[50000100]:
+	                excp:      256 |         illegal_inst:        0 |           buffer_oob:        0 |           excp_cycle:        0 |
+	       excp_wave64hi:        0 |          xnack_error:        1 |              dp_rate:        2 |      excp_group_mask:        0 |
+```
+
+We can inspect all VGPRs and all SGPRs, here for the image descriptor.
+
+```
+    [  48..  51] = { 0130a000, c0500080, 810dc1df, 93b00204 }
+    [  52..  55] = { 00000000, 00400000, 002b0000, 800130c8 }
+```
+
+Decode the VA and study `bo_history.log`. There is a script in RADV which lets you query history for a VA.
+This lets us verify that the VA in question was freed at some point.
+At point of writing, there is no easy way to decode raw descriptor blobs, but when you're desperate enough you can do it by hand :|
+
+In `pipeline.log` we have the full SPIR-V (with OpSource reference to the source DXIL/DXBC)
+and disassembly of the crashed pipeline. Here we can study the code to figure out which descriptor was read.
+
+```
+    // s7 is the descriptor heap index, s1 is the offset (64 bytes per image descriptor),
+    // s[18:19] is the descriptor heap.
+    s_mul_i32 s1, 64, s7                                        ; 930107c0
+    s_load_dwordx8 s[48:55], s[18:19], s1                       ; f40c0c09 02000000
+    s_waitcnt lgkmcnt(0)                                        ; bf8cc07f
+    image_load v47, v[4:5], s[48:55] dmask:0x1 dim:SQ_RSRC_IMG_2D unorm ; f0001108 000c2f04
+```
+
+```
+    [   4..   7] = { 03200020, ffff8000, 0000002b, 00000103 }
+```
+
+Which is descriptor index #259. Based on this, we can inspect the descriptor QA log and verify that the application
+did indeed do something invalid, which caused the GPU hang.
