@@ -165,7 +165,7 @@ static inline struct hash_map_entry *hash_map_insert(struct hash_map *hash_map, 
         struct hash_map_entry *current = hash_map_get_entry(hash_map, entry_idx);
 
         if (!(current->flags & HASH_MAP_ENTRY_OCCUPIED) ||
-                (current->hash_value == hash_value && hash_map->compare_func(key, entry)))
+                (current->hash_value == hash_value && hash_map->compare_func(key, current)))
             target = current;
         else
             entry_idx = hash_map_next_entry_idx(hash_map, entry_idx);
