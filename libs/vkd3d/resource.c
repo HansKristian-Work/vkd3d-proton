@@ -25,6 +25,10 @@
 #include "vkd3d_rw_spinlock.h"
 #include "hashmap.h"
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+#include "vkd3d_descriptor_debug.h"
+#endif
+
 #define VKD3D_NULL_SRV_FORMAT DXGI_FORMAT_R8G8B8A8_UNORM
 #define VKD3D_NULL_UAV_FORMAT DXGI_FORMAT_R32_UINT
 
@@ -1593,6 +1597,10 @@ struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
     if (!success)
         return NULL;
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_register_view_cookie(view->cookie, view_map->resource_cookie);
+#endif
+
     entry.key = *key;
     entry.view = view;
 
@@ -1968,6 +1976,10 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
     vkd3d_view_map_destroy(&resource->view_map, resource->device);
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_unregister_cookie(resource->cookie);
+#endif
 
     if (resource->flags & VKD3D_RESOURCE_EXTERNAL)
         return;
@@ -3036,8 +3048,16 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     resource->desc = *desc;
     resource->cookie = InterlockedIncrement64(&global_cookie_counter);
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_register_resource_cookie(resource->cookie, desc);
+#endif
+
     if (FAILED(hr = vkd3d_view_map_init(&resource->view_map)))
         return hr;
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    resource->view_map.resource_cookie = resource->cookie;
+#endif
 
     if (heap_properties && !d3d12_resource_validate_heap_properties(resource, heap_properties, initial_state))
         return E_INVALIDARG;
@@ -3402,6 +3422,10 @@ static void vkd3d_view_destroy(struct vkd3d_view *view, struct d3d12_device *dev
 
     TRACE("Destroying view %p.\n", view);
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_unregister_cookie(view->cookie);
+#endif
+
     switch (view->type)
     {
         case VKD3D_VIEW_TYPE_BUFFER:
@@ -3584,6 +3608,16 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
         unsigned int count, D3D12_DESCRIPTOR_HEAP_TYPE heap_type, struct d3d12_device *device)
 {
     unsigned int i;
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    for (i = 0; i < count; i++)
+    {
+        vkd3d_descriptor_debug_copy_descriptor(
+                dst[i].heap, dst[i].heap_offset,
+                src[i].heap, src[i].heap_offset,
+                src[i].metadata.cookie);
+    }
+#endif
 
     if (device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE)
         d3d12_desc_copy_range(dst, src, count, heap_type, device);
@@ -4015,6 +4049,11 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
     descriptor->info.buffer = descriptor_info.buffer;
 
     vkd3d_init_write_descriptor_set(&vk_write, descriptor, vk_descriptor_type, &descriptor_info);
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_write_descriptor(descriptor->heap, descriptor->heap_offset, vk_write.descriptorType, descriptor->metadata.cookie);
+#endif
+
     VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
 }
 
@@ -4239,6 +4278,11 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
     }
 
     vkd3d_init_write_descriptor_set(&vk_write, descriptor, vk_descriptor_type, &descriptor_info);
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_write_descriptor(descriptor->heap, descriptor->heap_offset, vk_write.descriptorType, descriptor->metadata.cookie);
+#endif
+
     VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
 }
 
@@ -4397,6 +4441,11 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
     vkd3d_init_write_descriptor_set(&vk_write, descriptor, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &descriptor_info);
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_write_descriptor(descriptor->heap, descriptor->heap_offset, vk_write.descriptorType, descriptor->metadata.cookie);
+#endif
+
     VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
 }
 
@@ -4539,6 +4588,10 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
 
         vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
     }
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_write_descriptor(descriptor->heap, descriptor->heap_offset, vk_descriptor_type, descriptor->metadata.cookie);
+#endif
 
     vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], descriptor,
             vk_descriptor_type, &descriptor_info[vk_write_count]);
@@ -4714,6 +4767,11 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
     descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_DEFINED | VKD3D_DESCRIPTOR_FLAG_VIEW;
 
     vkd3d_init_write_descriptor_set(&vk_write, descriptor, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, &descriptor_info);
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_write_descriptor(descriptor->heap, descriptor->heap_offset, vk_write.descriptorType, descriptor->metadata.cookie);
+#endif
+
     VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
 }
 
@@ -5002,6 +5060,10 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
     if (!(view = vkd3d_view_map_create_view(&device->sampler_map, device, &key)))
         return;
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_register_view_cookie(view->cookie, 0);
+#endif
+
     sampler->info.view = view;
     sampler->metadata.cookie = view->cookie;
     sampler->metadata.binding = vkd3d_bindless_state_find_set(&device->bindless_state, VKD3D_BINDLESS_SET_SAMPLER);
@@ -5012,6 +5074,11 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
     descriptor_info.image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     vkd3d_init_write_descriptor_set(&vk_write, sampler, VK_DESCRIPTOR_TYPE_SAMPLER, &descriptor_info);
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_write_descriptor(sampler->heap, sampler->heap_offset, vk_write.descriptorType, sampler->metadata.cookie);
+#endif
+
     VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
 }
 
@@ -5111,6 +5178,10 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 
     if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
         return;
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_register_view_cookie(view->cookie, resource->cookie);
+#endif
 
     rtv_desc->sample_count = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
     rtv_desc->format = key.u.texture.format;
@@ -5221,6 +5292,10 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
 
     if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
         return;
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_register_view_cookie(view->cookie, resource->cookie);
+#endif
 
     dsv_desc->sample_count = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
     dsv_desc->format = key.u.texture.format;
@@ -5844,6 +5919,10 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
 
     TRACE("Created descriptor heap %p.\n", object);
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_register_heap(object, desc);
+#endif
+
     *descriptor_heap = object;
 
     return S_OK;
@@ -5861,6 +5940,10 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
     VK_CALL(vkFreeMemory(device->vk_device, descriptor_heap->vk_memory, NULL));
 
     VK_CALL(vkDestroyDescriptorPool(device->vk_device, descriptor_heap->vk_descriptor_pool, NULL));
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_unregister_heap(descriptor_heap);
+#endif
 }
 
 /* ID3D12QueryHeap */
