@@ -672,7 +672,7 @@ static inline struct d3d12_desc *d3d12_desc_from_gpu_handle(D3D12_GPU_DESCRIPTOR
 }
 
 void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
-        struct d3d12_device *device);
+        unsigned int count, struct d3d12_device *device);
 void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc);
 void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
@@ -700,7 +700,7 @@ struct d3d12_rtv_desc
     struct d3d12_resource *resource;
 };
 
-void d3d12_rtv_desc_copy(struct d3d12_rtv_desc *dst, struct d3d12_rtv_desc *src);
+void d3d12_rtv_desc_copy(struct d3d12_rtv_desc *dst, struct d3d12_rtv_desc *src, unsigned int count);
 
 static inline struct d3d12_rtv_desc *d3d12_rtv_desc_from_cpu_handle(D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle)
 {

@@ -3426,7 +3426,7 @@ void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device)
         vkd3d_view_destroy(view, device);
 }
 
-void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
+static void d3d12_desc_copy_single(struct d3d12_desc *dst, struct d3d12_desc *src,
         struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -3511,6 +3511,15 @@ void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
         struct vkd3d_bound_buffer_range *dst_buffer_ranges = dst->heap->buffer_ranges.host_ptr;
         dst_buffer_ranges[dst->heap_offset] = src_buffer_ranges[src->heap_offset];
     }
+}
+
+void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
+        unsigned int count, struct d3d12_device *device)
+{
+    unsigned int i;
+
+    for (i = 0; i < count; i++)
+        d3d12_desc_copy_single(dst + i, src + i, device);
 }
 
 static VkDeviceSize vkd3d_get_required_texel_buffer_alignment(const struct d3d12_device *device,
@@ -4935,9 +4944,9 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
 }
 
 /* RTVs */
-void d3d12_rtv_desc_copy(struct d3d12_rtv_desc *dst, struct d3d12_rtv_desc *src)
+void d3d12_rtv_desc_copy(struct d3d12_rtv_desc *dst, struct d3d12_rtv_desc *src, unsigned int count)
 {
-    *dst = *src;
+    memcpy(dst, src, sizeof(*dst) * count);
 }
 
 void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_device *device,
