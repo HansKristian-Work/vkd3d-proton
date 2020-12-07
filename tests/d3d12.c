@@ -37492,7 +37492,6 @@ static void test_conditional_rendering(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
-    bug_if(is_radv_device(context.device))
     todo check_readback_data_uint(&rb, NULL, 0xffffffff, 0);
     release_resource_readback(&rb);
 
@@ -37727,7 +37726,6 @@ static void test_conditional_rendering(void)
             D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_texture_readback_with_command_list(texture_copy, 0, &rb, queue, command_list);
-    bug_if(is_radv_device(context.device))
     todo check_readback_data_uint(&rb, NULL, r8g8b8a8_data[1], 0);
     release_resource_readback(&rb);
 
