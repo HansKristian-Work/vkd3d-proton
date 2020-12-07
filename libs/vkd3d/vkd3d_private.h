@@ -1633,6 +1633,7 @@ enum vkd3d_bindless_flags
     VKD3D_TYPED_OFFSET_BUFFER            = (1u << 8),
     VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV     = (1u << 9),
     VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV = (1u << 10),
+    VKD3D_BINDLESS_MUTABLE_TYPE          = (1u << 11),
 };
 
 #define VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS 8
@@ -1647,7 +1648,6 @@ enum vkd3d_bindless_set_flag
     VKD3D_BINDLESS_SET_BUFFER   = (1u << 5),
     VKD3D_BINDLESS_SET_COUNTER  = (1u << 6),
     VKD3D_BINDLESS_SET_RAW_SSBO = (1u << 7),
-    VKD3D_BINDLESS_MUTABLE_TYPE = (1u << 8),
 
     VKD3D_BINDLESS_SET_EXTRA_UAV_COUNTER_BUFFER = (1u << 24),
     VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER      = (1u << 25),
