@@ -30,6 +30,8 @@ These extensions will likely become mandatory later.
 - `VK_KHR_buffer_device_address`
 - `VK_EXT_extended_dynamic_state`
 
+`VK_VALVE_mutable_descriptor_type` is also highly recommended, but not mandatory.
+
 ### AMD (RADV / ACO)
 
 For AMD, RADV is the recommended driver and the one that sees most testing on AMD GPUs.
