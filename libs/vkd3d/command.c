@@ -2653,9 +2653,12 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
 static VkAccessFlags vk_access_flags_all_possible_for_buffer(const struct d3d12_device *device,
         VkQueueFlags vk_queue_flags, bool consider_reads)
 {
-    /* Should use MEMORY_READ/WRITE_BIT here, but current RADV is buggy,
+    /* FIXME: Should use MEMORY_READ/WRITE_BIT here, but older RADV is buggy,
      * and does not consider these access flags at all.
-     * Exhaustively enumerate all relevant access flags ... */
+     * Exhaustively enumerate all relevant access flags ...
+     * TODO: Should be replaced with MEMORY_READ/WRITE_BIT eventually when
+     * we're confident we don't care about older drivers.
+     * Driver was fixed around 2020-07-08. */
 
     VkAccessFlags access = VK_ACCESS_TRANSFER_WRITE_BIT;
     if (consider_reads)
