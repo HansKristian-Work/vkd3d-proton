@@ -3513,13 +3513,85 @@ static void d3d12_desc_copy_single(struct d3d12_desc *dst, struct d3d12_desc *sr
     }
 }
 
+void d3d12_desc_copy_range(struct d3d12_desc *dst, struct d3d12_desc *src,
+        unsigned int count, D3D12_DESCRIPTOR_HEAP_TYPE heap_type, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkCopyDescriptorSet vk_copies[2], *vk_copy;
+    struct vkd3d_descriptor_binding binding;
+    enum vkd3d_bindless_set_flag flag;
+    uint32_t copy_count = 0;
+    unsigned int i;
+
+    flag = heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER ? VKD3D_BINDLESS_SET_SAMPLER : VKD3D_BINDLESS_SET_MUTABLE;
+    binding = vkd3d_bindless_state_find_set(&device->bindless_state, flag);
+
+    vk_copy = &vk_copies[copy_count++];
+    vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+    vk_copy->pNext = NULL;
+    vk_copy->srcSet = src->heap->vk_descriptor_sets[binding.set];
+    vk_copy->srcBinding = binding.binding;
+    vk_copy->srcArrayElement = src->heap_offset;
+    vk_copy->dstSet = dst->heap->vk_descriptor_sets[binding.set];
+    vk_copy->dstBinding = binding.binding;
+    vk_copy->dstArrayElement = dst->heap_offset;
+    vk_copy->descriptorCount = count;
+
+    if (heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+    {
+        if (device->bindless_state.flags & VKD3D_RAW_VA_UAV_COUNTER)
+        {
+            const VkDeviceAddress *src_vas = src->heap->uav_counters.host_ptr;
+            VkDeviceAddress *dst_vas = dst->heap->uav_counters.host_ptr;
+            memcpy(dst_vas + dst->heap_offset, src_vas + src->heap_offset, sizeof(*dst_vas) * count);
+        }
+        else
+        {
+            binding = vkd3d_bindless_state_find_set(&device->bindless_state, VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_COUNTER);
+
+            vk_copy = &vk_copies[copy_count++];
+            vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+            vk_copy->pNext = NULL;
+            vk_copy->srcSet = src->heap->vk_descriptor_sets[binding.set];
+            vk_copy->srcBinding = binding.binding;
+            vk_copy->srcArrayElement = src->heap_offset;
+            vk_copy->dstSet = dst->heap->vk_descriptor_sets[binding.set];
+            vk_copy->dstBinding = binding.binding;
+            vk_copy->dstArrayElement = dst->heap_offset;
+            vk_copy->descriptorCount = count;
+        }
+
+        if (device->bindless_state.flags & (VKD3D_TYPED_OFFSET_BUFFER | VKD3D_SSBO_OFFSET_BUFFER))
+        {
+            const struct vkd3d_bound_buffer_range *src_ranges = src->heap->buffer_ranges.host_ptr;
+            struct vkd3d_bound_buffer_range *dst_ranges = dst->heap->buffer_ranges.host_ptr;
+            memcpy(dst_ranges + dst->heap_offset, src_ranges + src->heap_offset, sizeof(*dst_ranges) * count);
+        }
+    }
+
+    for (i = 0; i < count; i++)
+    {
+        dst[i].metadata = src[i].metadata;
+        dst[i].info = src[i].info;
+        dst[i].counter_address = src[i].counter_address;
+    }
+
+    if (copy_count)
+        VK_CALL(vkUpdateDescriptorSets(device->vk_device, 0, NULL, copy_count, vk_copies));
+}
+
 void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
-        unsigned int count, struct d3d12_device *device)
+        unsigned int count, D3D12_DESCRIPTOR_HEAP_TYPE heap_type, struct d3d12_device *device)
 {
     unsigned int i;
 
-    for (i = 0; i < count; i++)
-        d3d12_desc_copy_single(dst + i, src + i, device);
+    if (device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE)
+        d3d12_desc_copy_range(dst, src, count, heap_type, device);
+    else
+    {
+        for (i = 0; i < count; i++)
+            d3d12_desc_copy_single(dst + i, src + i, device);
+    }
 }
 
 static VkDeviceSize vkd3d_get_required_texel_buffer_alignment(const struct d3d12_device *device,

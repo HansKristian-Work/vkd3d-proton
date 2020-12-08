@@ -3451,7 +3451,8 @@ static inline void d3d12_device_copy_descriptors(struct d3d12_device *device,
             case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
             case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
                 d3d12_desc_copy(d3d12_desc_from_cpu_handle(dst),
-                        d3d12_desc_from_cpu_handle(src), copy_count, device);
+                        d3d12_desc_from_cpu_handle(src), copy_count,
+                        descriptor_heap_type, device);
                 break;
             case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
             case D3D12_DESCRIPTOR_HEAP_TYPE_DSV:

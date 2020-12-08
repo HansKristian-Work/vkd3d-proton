@@ -3774,7 +3774,7 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
                 VKD3D_BINDLESS_SET_CBV | VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_SRV |
                 VKD3D_BINDLESS_SET_BUFFER | VKD3D_BINDLESS_SET_IMAGE |
                 ((bindless_state->flags & VKD3D_BINDLESS_RAW_SSBO) ? VKD3D_BINDLESS_SET_RAW_SSBO : 0) |
-                extra_bindings,
+                VKD3D_BINDLESS_SET_MUTABLE | extra_bindings,
                 VK_DESCRIPTOR_TYPE_MUTABLE_VALVE)))
             goto fail;
     }
