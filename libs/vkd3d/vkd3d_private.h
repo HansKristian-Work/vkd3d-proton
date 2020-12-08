@@ -672,7 +672,7 @@ static inline struct d3d12_desc *d3d12_desc_from_gpu_handle(D3D12_GPU_DESCRIPTOR
 }
 
 void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
-        unsigned int count, struct d3d12_device *device);
+        unsigned int count, D3D12_DESCRIPTOR_HEAP_TYPE heap_type, struct d3d12_device *device);
 void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc);
 void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
@@ -1648,6 +1648,7 @@ enum vkd3d_bindless_set_flag
     VKD3D_BINDLESS_SET_BUFFER   = (1u << 5),
     VKD3D_BINDLESS_SET_COUNTER  = (1u << 6),
     VKD3D_BINDLESS_SET_RAW_SSBO = (1u << 7),
+    VKD3D_BINDLESS_SET_MUTABLE  = (1u << 8),
 
     VKD3D_BINDLESS_SET_EXTRA_UAV_COUNTER_BUFFER = (1u << 24),
     VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER      = (1u << 25),
