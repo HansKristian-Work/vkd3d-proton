@@ -5685,13 +5685,20 @@ static void vkd3d_dxbc_compiler_emit_offset_buffer(struct vkd3d_dxbc_compiler *c
     const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t array_id, struct_id, pointer_id, var_id;
+    uint32_t member_ids[2];
 
     if (!(shader_interface->flags & (VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER | VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER)))
         return;
 
-    array_id = vkd3d_spirv_build_op_type_runtime_array(builder,
-            vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 2));
-    vkd3d_spirv_build_op_decorate1(builder, array_id, SpvDecorationArrayStride, 8);
+    member_ids[0] = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 2);
+    member_ids[1] = member_ids[0];
+
+    struct_id = vkd3d_spirv_build_op_type_struct(builder, member_ids, ARRAY_SIZE(member_ids));
+    vkd3d_spirv_build_op_member_decorate1(builder, struct_id, 0, SpvDecorationOffset, 0);
+    vkd3d_spirv_build_op_member_decorate1(builder, struct_id, 1, SpvDecorationOffset, 8);
+
+    array_id = vkd3d_spirv_build_op_type_runtime_array(builder, struct_id);
+    vkd3d_spirv_build_op_decorate1(builder, array_id, SpvDecorationArrayStride, 16);
 
     struct_id = vkd3d_spirv_build_op_type_struct(builder, &array_id, 1);
     vkd3d_spirv_build_op_decorate(builder, struct_id, SpvDecorationBufferBlock, NULL, 0);
@@ -8815,17 +8822,19 @@ static uint32_t vkd3d_dxbc_compiler_emit_raw_structured_addressing(
 }
 
 static uint32_t vkd3d_dxbc_compiler_get_buffer_bounds(struct vkd3d_dxbc_compiler *compiler,
-        const struct vkd3d_shader_register *reg, const struct vkd3d_shader_resource_binding *binding)
+        const struct vkd3d_shader_register *reg, bool texel_buffer,
+        const struct vkd3d_shader_resource_binding *binding)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t bounds_id, vec2_ptr_id, vec2_type_id;
-    uint32_t indices[2];
+    uint32_t indices[3];
 
     vec2_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 2);
     vec2_ptr_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassUniform, vec2_type_id);
 
     indices[0] = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
     indices[1] = vkd3d_dxbc_compiler_get_resource_index(compiler, reg, binding);
+    indices[2] = vkd3d_dxbc_compiler_get_constant_uint(compiler, texel_buffer ? 1 : 0);
 
     /* returns (offset, length) in bytes, or (elem offset, count) for typed buffers. */
     bounds_id = vkd3d_spirv_build_op_load(builder, vec2_type_id,
@@ -8862,7 +8871,7 @@ static uint32_t vkd3d_dxbc_compiler_adjust_ssbo_offset(struct vkd3d_dxbc_compile
     bool_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, 1);
     uint_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
 
-    bounds_id = vkd3d_dxbc_compiler_get_buffer_bounds(compiler, reg, symbol->info.resource.resource_binding);
+    bounds_id = vkd3d_dxbc_compiler_get_buffer_bounds(compiler, reg, false, symbol->info.resource.resource_binding);
 
     shift_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 2);
     offset_id = vkd3d_spirv_build_op_shift_right_logical(builder, uint_type_id,
@@ -8898,7 +8907,7 @@ static uint32_t vkd3d_dxbc_compiler_adjust_typed_buffer_offset(struct vkd3d_dxbc
         return coordinate_id;
 
     symbol = vkd3d_dxbc_compiler_find_resource(compiler, reg);
-    bounds_id = vkd3d_dxbc_compiler_get_buffer_bounds(compiler, reg, symbol->info.resource.resource_binding);
+    bounds_id = vkd3d_dxbc_compiler_get_buffer_bounds(compiler, reg, true, symbol->info.resource.resource_binding);
 
     bool_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, 1);
     uint_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
@@ -9555,7 +9564,7 @@ static void vkd3d_dxbc_compiler_emit_bufinfo(struct vkd3d_dxbc_compiler *compile
         {
             const struct vkd3d_symbol *symbol = vkd3d_dxbc_compiler_find_resource(compiler, &src->reg);
             bounds_id = vkd3d_dxbc_compiler_get_buffer_bounds(compiler, &src->reg,
-                    symbol->info.resource.resource_binding);
+                    false, symbol->info.resource.resource_binding);
 
             val_id = vkd3d_spirv_build_op_shift_right_logical(builder, type_id,
                     vkd3d_spirv_build_op_composite_extract1(builder, type_id, bounds_id, 1),
@@ -9573,7 +9582,7 @@ static void vkd3d_dxbc_compiler_emit_bufinfo(struct vkd3d_dxbc_compiler *compile
     {
         const struct vkd3d_symbol *symbol = vkd3d_dxbc_compiler_find_resource(compiler, &src->reg);
         bounds_id = vkd3d_dxbc_compiler_get_buffer_bounds(compiler, &src->reg,
-                symbol->info.resource.resource_binding);
+                true, symbol->info.resource.resource_binding);
         val_id = vkd3d_spirv_build_op_composite_extract1(builder, type_id, bounds_id, 1);
     }
     else
