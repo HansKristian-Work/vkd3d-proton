@@ -435,6 +435,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Application uses R32_UINT and misses raw buffer type.
      * Fixes map rendering. */
     { "ds.exe", VKD3D_CONFIG_FLAG_FORCE_BINDLESS_TEXEL_BUFFER, 0 },
+    /* Application has many bugs with descriptor handling.
+     * Not using this triggers weird flickering artifacts which are very distracting. */
+    { "Cyberpunk2077.exe", VKD3D_CONFIG_FLAG_FORCE_BINDLESS_TEXEL_BUFFER, 0 },
 };
 
 static void vkd3d_instance_apply_application_workarounds(const char *app, uint64_t *flags)
