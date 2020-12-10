@@ -717,8 +717,10 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
 
 struct vkd3d_bound_buffer_range
 {
-    uint32_t offset;  /* offset to first byte for SSBO, or offset in elements for typed views. */
-    uint32_t length;  /* bound size in bytes, or size in elements for typed views. */
+    uint32_t byte_offset;
+    uint32_t byte_count;
+    uint32_t element_offset;
+    uint32_t element_count;
 };
 
 struct vkd3d_host_visible_buffer_range

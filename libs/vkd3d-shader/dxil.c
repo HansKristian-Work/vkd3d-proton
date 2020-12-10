@@ -546,6 +546,18 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     }
 
     {
+        const struct dxil_spv_option_bindless_offset_buffer_layout helper =
+                { { DXIL_SPV_OPTION_BINDLESS_OFFSET_BUFFER_LAYOUT },
+                  0, 1, 2 };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support BINDLESS_OFFSET_BUFFER_LAYOUT.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    {
         char buffer[16 + 5 + 1];
         const struct dxil_spv_option_shader_source_file helper =
                 { { DXIL_SPV_OPTION_SHADER_SOURCE_FILE }, buffer };

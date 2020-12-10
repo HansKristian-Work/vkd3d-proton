@@ -4112,8 +4112,8 @@ static void vkd3d_buffer_view_get_bound_range_ssbo(struct d3d12_desc *descriptor
         vk_buffer->offset = resource->heap_offset + aligned_begin;
         vk_buffer->range = aligned_end - aligned_begin;
 
-        ssbo_range.offset = offset - aligned_begin;
-        ssbo_range.length = range;
+        ssbo_range.byte_offset = offset - aligned_begin;
+        ssbo_range.byte_count = range;
     }
     else
     {
@@ -4121,9 +4121,12 @@ static void vkd3d_buffer_view_get_bound_range_ssbo(struct d3d12_desc *descriptor
         vk_buffer->offset = 0;
         vk_buffer->range = VK_WHOLE_SIZE;
 
-        ssbo_range.offset = 0;
-        ssbo_range.length = 0;
+        ssbo_range.byte_offset = 0;
+        ssbo_range.byte_count = 0;
     }
+
+    ssbo_range.element_offset = 0;
+    ssbo_range.element_count = 0;
 
     if (device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
     {
@@ -4138,12 +4141,13 @@ static bool vkd3d_buffer_view_get_aligned_view(struct d3d12_desc *descriptor,
         VkDeviceSize first_element, VkDeviceSize num_elements,
         VkDeviceSize structured_stride, struct vkd3d_view **view)
 {
-    struct vkd3d_bound_buffer_range typed_range = { 0, 0 };
+    struct vkd3d_bound_buffer_range typed_range = { 0, 0, 0, 0 };
     const struct vkd3d_format *vkd3d_format;
     VkDeviceSize max_resource_elements;
     VkDeviceSize max_element_headroom;
     VkDeviceSize element_align;
     VkDeviceSize max_elements;
+    VkDeviceSize element_size;
     VkDeviceSize begin_range;
     VkDeviceSize end_range;
 
@@ -4157,7 +4161,8 @@ static bool vkd3d_buffer_view_get_aligned_view(struct d3d12_desc *descriptor,
         if (format)
         {
             vkd3d_format = vkd3d_get_format(device, format, false);
-            max_resource_elements = resource->desc.Width / vkd3d_format->byte_count;
+            element_size = vkd3d_format->byte_count;
+            max_resource_elements = resource->desc.Width / element_size;
         }
         else
         {
@@ -4165,6 +4170,7 @@ static bool vkd3d_buffer_view_get_aligned_view(struct d3d12_desc *descriptor,
              * be in terms of u32 since the offset buffer must be in terms of words.
              * When using typed buffers, the offset buffer is in format of u32
              * (element offset, element size). */
+            element_size = sizeof(uint32_t);
             first_element = (first_element * structured_stride) / sizeof(uint32_t);
             num_elements = (num_elements * structured_stride) / sizeof(uint32_t);
             structured_stride = sizeof(uint32_t);
@@ -4178,13 +4184,13 @@ static bool vkd3d_buffer_view_get_aligned_view(struct d3d12_desc *descriptor,
         {
             FIXME("Application is attempting to use more elements in a typed buffer (%llu) than supported by device (%llu).\n",
                   (unsigned long long)num_elements, (unsigned long long)max_elements);
-            typed_range.offset = 0;
-            typed_range.length = num_elements;
+            typed_range.element_offset = 0;
+            typed_range.element_count = num_elements;
         }
         else if (num_elements >= max_resource_elements)
         {
-            typed_range.offset = 0;
-            typed_range.length = num_elements;
+            typed_range.element_offset = 0;
+            typed_range.element_count = num_elements;
         }
         else
         {
@@ -4198,12 +4204,15 @@ static bool vkd3d_buffer_view_get_aligned_view(struct d3d12_desc *descriptor,
             end_range = (first_element + num_elements + element_align - 1) & ~(element_align - 1);
             end_range = min(end_range, max_resource_elements);
 
-            typed_range.offset = first_element - begin_range;
-            typed_range.length = num_elements;
+            typed_range.element_offset = first_element - begin_range;
+            typed_range.element_count = num_elements;
 
             first_element = begin_range;
             num_elements = end_range - begin_range;
         }
+
+        typed_range.byte_offset = typed_range.element_offset * element_size;
+        typed_range.byte_count = typed_range.element_count * element_size;
     }
 
     if (!vkd3d_create_buffer_view_for_resource(device, resource, format,
