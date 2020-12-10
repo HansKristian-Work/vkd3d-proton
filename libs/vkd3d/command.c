@@ -6566,8 +6566,8 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list, const 
         {
             if (list->device->bindless_state.flags & VKD3D_TYPED_OFFSET_BUFFER)
             {
-                extra_offset = ranges[desc->heap_offset].offset;
-                full_rect.right = ranges[desc->heap_offset].length;
+                extra_offset = ranges[desc->heap_offset].element_offset;
+                full_rect.right = ranges[desc->heap_offset].element_count;
             }
             else
             {
@@ -6579,8 +6579,8 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list, const 
         }
         else if (list->device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
         {
-            extra_offset = ranges[desc->heap_offset].offset / sizeof(uint32_t);
-            full_rect.right = ranges[desc->heap_offset].length / sizeof(uint32_t);
+            extra_offset = ranges[desc->heap_offset].byte_offset / sizeof(uint32_t);
+            full_rect.right = ranges[desc->heap_offset].byte_count / sizeof(uint32_t);
         }
         else
             full_rect.right = args->u.buffer.range / sizeof(uint32_t);
