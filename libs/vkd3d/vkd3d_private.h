@@ -2147,6 +2147,12 @@ static inline bool d3d12_device_use_ssbo_root_descriptors(struct d3d12_device *d
             d3d12_device_get_ssbo_alignment(device) <= 4;
 }
 
+static inline unsigned int d3d12_device_get_shader_min_ssbo_alignment(struct d3d12_device *device)
+{
+    return (device->vkd3d_instance->config_flags & VKD3D_CONFIG_FLAG_FORCE_BINDLESS_TEXEL_BUFFER)
+            ? ~0u : d3d12_device_get_ssbo_alignment(device);
+}
+
 /* ID3DBlob */
 struct d3d_blob
 {
