@@ -3503,9 +3503,9 @@ static void d3d12_desc_copy_single(struct d3d12_desc *dst, struct d3d12_desc *sr
         {
             if (dst->heap->uav_counters.host_ptr)
             {
-                VkDeviceAddress *counter_addresses = dst->heap->uav_counters.host_ptr;
-                counter_addresses[dst->heap_offset] = src->counter_address;
-                dst->counter_address = src->counter_address;
+                const VkDeviceAddress *src_vas = src->heap->uav_counters.host_ptr;
+                VkDeviceAddress *dst_vas = dst->heap->uav_counters.host_ptr;
+                dst_vas[dst->heap_offset] = src_vas[src->heap_offset];
             }
             else
             {
@@ -3597,7 +3597,6 @@ void d3d12_desc_copy_range(struct d3d12_desc *dst, struct d3d12_desc *src,
     {
         dst[i].metadata = src[i].metadata;
         dst[i].info = src[i].info;
-        dst[i].counter_address = src[i].counter_address;
     }
 
     if (copy_count)
@@ -4630,7 +4629,6 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
         VkDeviceAddress *counter_addresses = descriptor->heap->uav_counters.host_ptr;
         uint32_t descriptor_index = d3d12_desc_heap_offset(descriptor);
         counter_addresses[descriptor_index] = uav_counter_address;
-        descriptor->counter_address = uav_counter_address;
     }
     else
     {
