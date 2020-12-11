@@ -6845,8 +6845,11 @@ static inline bool d3d12_query_type_is_indexed(D3D12_QUERY_TYPE type)
             type <= D3D12_QUERY_TYPE_SO_STATISTICS_STREAM3;
 }
 
-static inline bool d3d12_query_type_is_inline(D3D12_QUERY_TYPE type)
+static inline bool d3d12_query_type_is_inline(struct d3d12_device *device, D3D12_QUERY_TYPE type)
 {
+    if (device->vkd3d_instance->config_flags & VKD3D_CONFIG_FLAG_DISABLE_QUERY_OPTIMIZATION)
+        return false;
+
     return type == D3D12_QUERY_TYPE_OCCLUSION ||
             type == D3D12_QUERY_TYPE_BINARY_OCCLUSION;
 }
@@ -6880,7 +6883,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
 
     d3d12_command_list_track_query_heap(list, query_heap);
 
-    if (d3d12_query_type_is_inline(type))
+    if (d3d12_query_type_is_inline(list->device, type))
     {
         d3d12_command_list_enable_query(list, query_heap->vk_query_pool, index, flags);
     }
@@ -6913,7 +6916,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
 
     d3d12_command_list_track_query_heap(list, query_heap);
 
-    if (d3d12_query_type_is_inline(type))
+    if (d3d12_query_type_is_inline(list->device, type))
     {
         d3d12_command_list_disable_query(list, query_heap->vk_query_pool, index);
     }

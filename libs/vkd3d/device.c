@@ -409,6 +409,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
      * Works around buggy games which mix typed and raw buffer types. */
     {"force_bindless_texel_buffer", VKD3D_CONFIG_FLAG_FORCE_BINDLESS_TEXEL_BUFFER},
     {"skip_application_workarounds", VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS},
+    {"disable_query_optimization", VKD3D_CONFIG_FLAG_DISABLE_QUERY_OPTIMIZATION},
 };
 
 static uint64_t vkd3d_init_config_flags(void)
