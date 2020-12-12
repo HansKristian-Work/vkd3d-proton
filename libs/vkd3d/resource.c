@@ -331,12 +331,13 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
     return hresult_from_vk_result(vr);
 }
 
-static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_image,
+static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_image, void *host_memory,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         VkDeviceMemory *vk_memory, uint32_t *vk_memory_type, VkDeviceSize *vk_memory_size)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryDedicatedRequirements dedicated_requirements;
+    VkMemoryHostPointerPropertiesEXT host_properties;
     VkMemoryDedicatedAllocateInfo dedicated_info;
     VkMemoryRequirements2 memory_requirements2;
     VkMemoryRequirements *memory_requirements;
@@ -360,6 +361,25 @@ static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage 
 
     VK_CALL(vkGetImageMemoryRequirements2(device->vk_device, &info, &memory_requirements2));
 
+    if (host_memory)
+    {
+        if (((uintptr_t)host_memory) &
+            (device->device_info.external_memory_host_properties.minImportedHostPointerAlignment - 1))
+        {
+            FIXME("Imported host memory is misaligned.\n");
+            return E_INVALIDARG;
+        }
+
+        host_properties.sType = VK_STRUCTURE_TYPE_MEMORY_HOST_POINTER_PROPERTIES_EXT;
+        host_properties.pNext = NULL;
+        if (VK_CALL(vkGetMemoryHostPointerPropertiesEXT(device->vk_device,
+                VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
+                host_memory, &host_properties)) != VK_SUCCESS)
+            return E_INVALIDARG;
+
+        memory_requirements->memoryTypeBits &= host_properties.memoryTypeBits;
+    }
+
     if (dedicated_requirements.prefersDedicatedAllocation)
     {
         dedicated_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
@@ -372,9 +392,18 @@ static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage 
     if (FAILED(hr = vkd3d_select_memory_flags(device, heap_properties, &type_flags)))
         return hr;
 
-    if (FAILED(hr = vkd3d_allocate_memory(device, memory_requirements->size, type_flags,
-            memory_requirements->memoryTypeBits, pNext, vk_memory, vk_memory_type)))
-        return hr;
+    if (host_memory)
+    {
+        if (FAILED(hr = vkd3d_import_host_memory(device, host_memory, memory_requirements->size, type_flags,
+                memory_requirements->memoryTypeBits, pNext, vk_memory, vk_memory_type)))
+            return hr;
+    }
+    else
+    {
+        if (FAILED(hr = vkd3d_allocate_memory(device, memory_requirements->size, type_flags,
+                memory_requirements->memoryTypeBits, pNext, vk_memory, vk_memory_type)))
+            return hr;
+    }
 
     if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, vk_image, *vk_memory, 0))) < 0)
     {
@@ -6424,7 +6453,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     if (FAILED(hr = vkd3d_create_image(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, NULL, &null_resources->vk_2d_image)))
         goto fail;
-    if (FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_image,
+    if (FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_image, NULL,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_2d_image_memory, NULL, NULL)))
         goto fail;
 
@@ -6445,7 +6474,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     if (FAILED(hr = vkd3d_create_image(device, use_sparse_resources ? NULL : &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, NULL, &null_resources->vk_2d_storage_image)))
         goto fail;
-    if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_storage_image,
+    if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_storage_image, NULL,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_2d_storage_image_memory, NULL, NULL)))
         goto fail;
 
