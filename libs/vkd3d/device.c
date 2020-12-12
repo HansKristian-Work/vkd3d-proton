@@ -439,6 +439,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Application has many bugs with descriptor handling.
      * Not using this triggers weird flickering artifacts which are very distracting. */
     { "Cyberpunk2077.exe", VKD3D_CONFIG_FLAG_FORCE_BINDLESS_TEXEL_BUFFER, 0 },
+    /* Game changes render targets while occlusion queries are active */
+    { "ACValhalla.exe", VKD3D_CONFIG_FLAG_DISABLE_QUERY_OPTIMIZATION, 0 },
+    { "ACValhalla_Plus.exe", VKD3D_CONFIG_FLAG_DISABLE_QUERY_OPTIMIZATION, 0 },
 };
 
 static void vkd3d_instance_apply_application_workarounds(const char *app, uint64_t *flags)
