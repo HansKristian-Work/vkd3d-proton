@@ -7,19 +7,22 @@ This release fixes various bugs (mostly workarounds) and improves GPU-bound perf
 New games added to "expected to work" list:
  - The Division (was working already in 2.0, but missing from list)
  - AC: Valhalla (*)
- - Cyberpunk 2077 (**)
 
 (*): Game requires full D3D12 sparse texture support to work.
 Currently only works on NVIDIA drivers.
 RADV status remains unknown until support for this feature lands in Mesa.
 
+New games added to "kinda works, but expect a lot of jank" list:
+ - Cyberpunk 2077 (**)
+
 (**): Currently only runs correctly on AMD hardware with RADV and `VK_VALVE_mutable_descriptor_type`.
-As of writing, this requires the latest Mesa Git build.
+As of game version 1.03, this requires the latest Mesa Git build.
 The game has some fatal bugs where it relies on undefined behavior with descriptor management
 which this extension works around by accident.
 The game will start and run on NVIDIA, but just like what happens without the extension on AMD,
 the GPU will randomly hang, making the game effectively unplayable.
 A game update to fix this bug would likely make the game playable on NVIDIA as well.
+Game version 1.04 changed some behavior, and support for this game will likely fluctuate over time as future patches come in.
 
 Bug fixes and workarounds:
  - Fix various implementation bugs which caused AC: Valhalla to not work.
