@@ -13,15 +13,46 @@ jobs:
   # This workflow contains a single job called "build"
   build:
     # The type of runner that the job will run on
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
         with:
           submodules: recursive
+          
+      - name: Setting up mingw
+        run: sudo apt install mingw-w64 mingw-w64
+
+      - name: Setting up wine
+        run: sudo apt install wine64 wine64-tools
+
+      - name: Setup python
+        uses: actions/setup-python@v1
+
+      - name: Setup meson
+        run: pip3 install meson
+
+      - name: Setup ninja
+        run: sudo apt install ninja-build
+
+      - name: Setup glslang
+        run: |
+          git clone --recursive https://github.com/KhronosGroup/glslang.git glslang
+          cd glslang
+          git checkout 8.13.3743
+          cmake .
+          sudo cmake --build . --config Release --target install
 
       # Runs a single command using the runners shell
       - name: Build
-        run: ./package-release.sh release build --no-package
+        run: |
+          ./package-release.sh ${GITHUB_REF##*/} build --no-package
+          echo "BRANCH_NAME=${GITHUB_REF##*/}" >> $GITHUB_ENV
+
+      - name: Uploading artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: vkd3d-proton-${{ env.BRANCH_NAME }}
+          path: build/vkd3d-proton-${{ env.BRANCH_NAME }}
+          if-no-files-found: error
