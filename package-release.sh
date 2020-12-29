@@ -24,6 +24,7 @@ shift 2
 opt_nopackage=0
 opt_devbuild=0
 opt_native=0
+opt_buildtype="release"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -36,6 +37,9 @@ while [ $# -gt 0 ]; do
   "--dev-build")
     opt_nopackage=1
     opt_devbuild=1
+    ;;
+  "--debug")
+    opt_buildtype="debug"
     ;;
   *)
     echo "Unrecognized option: $1" >&2
@@ -50,12 +54,12 @@ function build_arch {
 
   cd "$VKD3D_SRC_DIR"
 
-  meson "$@"                         \
-        --buildtype "release"        \
-        --prefix "$VKD3D_BUILD_DIR"  \
-        --strip                      \
-        --bindir "x${arch}"          \
-        --libdir "x${arch}"          \
+  meson "$@"                           \
+        --buildtype "${opt_buildtype}" \
+        --prefix "$VKD3D_BUILD_DIR"    \
+        --strip                        \
+        --bindir "x${arch}"            \
+        --libdir "x${arch}"            \
         "$VKD3D_BUILD_DIR/build.${arch}"
 
   cd "$VKD3D_BUILD_DIR/build.${arch}"
