@@ -772,6 +772,8 @@ struct d3d12_query_heap
 
     D3D12_QUERY_HEAP_DESC desc;
     VkQueryPool vk_query_pool;
+    VkDeviceMemory vk_memory;
+    VkBuffer vk_buffer;
     uint32_t initialized;
 
     struct d3d12_device *device;
@@ -782,6 +784,7 @@ struct d3d12_query_heap
 HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_HEAP_DESC *desc,
         struct d3d12_query_heap **heap);
 struct d3d12_query_heap *unsafe_impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface);
+size_t d3d12_query_heap_type_get_data_size(D3D12_QUERY_HEAP_TYPE heap_type);
 
 enum vkd3d_root_signature_flag
 {
