@@ -6059,6 +6059,8 @@ static ULONG STDMETHODCALLTYPE d3d12_query_heap_Release(ID3D12QueryHeap *iface)
         vkd3d_private_store_destroy(&heap->private_store);
 
         VK_CALL(vkDestroyQueryPool(device->vk_device, heap->vk_query_pool, NULL));
+        VK_CALL(vkDestroyBuffer(device->vk_device, heap->vk_buffer, NULL));
+        VK_CALL(vkFreeMemory(device->vk_device, heap->vk_memory, NULL));
 
         vkd3d_free(heap);
 
@@ -6140,12 +6142,33 @@ struct d3d12_query_heap *unsafe_impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface
     return impl_from_ID3D12QueryHeap(iface);
 }
 
+size_t d3d12_query_heap_type_get_data_size(D3D12_QUERY_HEAP_TYPE heap_type)
+{
+    switch (heap_type)
+    {
+        case D3D12_QUERY_HEAP_TYPE_OCCLUSION:
+        case D3D12_QUERY_HEAP_TYPE_TIMESTAMP:
+        case D3D12_QUERY_HEAP_TYPE_COPY_QUEUE_TIMESTAMP:
+            return sizeof(uint64_t);
+        case D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS:
+            return sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS);
+        case D3D12_QUERY_HEAP_TYPE_SO_STATISTICS:
+            return sizeof(D3D12_QUERY_DATA_SO_STATISTICS);
+        default:
+            ERR("Unhandled query pool type %u.\n", heap_type);
+            return 0;
+    }
+}
+
 HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_HEAP_DESC *desc,
         struct d3d12_query_heap **heap)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    D3D12_HEAP_PROPERTIES heap_properties;
     struct d3d12_query_heap *object;
     VkQueryPoolCreateInfo pool_info;
+    D3D12_RESOURCE_DESC buffer_desc;
+    size_t data_size;
     VkResult vr;
     HRESULT hr;
 
@@ -6208,18 +6231,55 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
             return E_INVALIDARG;
     }
 
+    if ((vr = VK_CALL(vkCreateQueryPool(device->vk_device, &pool_info, NULL, &object->vk_query_pool))) < 0)
+    {
+        WARN("Failed to create Vulkan query pool, vr %d.\n", vr);
+        vkd3d_free(object);
+        return hresult_from_vk_result(vr);
+    }
+
+    if ((data_size = (d3d12_query_heap_type_get_data_size(desc->Type) * desc->Count)))
+    {
+        memset(&heap_properties, 0, sizeof(heap_properties));
+        heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+        buffer_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        buffer_desc.Alignment = 0;
+        buffer_desc.Width = data_size;
+        buffer_desc.Height = 1;
+        buffer_desc.DepthOrArraySize = 1;
+        buffer_desc.MipLevels = 1;
+        buffer_desc.Format = DXGI_FORMAT_UNKNOWN;
+        buffer_desc.SampleDesc.Count = 1;
+        buffer_desc.SampleDesc.Quality = 0;
+        buffer_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        buffer_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+        if (FAILED(hr = vkd3d_create_buffer(device, &heap_properties,
+                D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &buffer_desc, &object->vk_buffer)))
+        {
+            vkd3d_free(object);
+            return hr;
+        }
+
+        if (FAILED(hr = vkd3d_allocate_buffer_memory(device, object->vk_buffer, NULL,
+                &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &object->vk_memory, NULL, NULL)))
+        {
+            VK_CALL(vkDestroyBuffer(device->vk_device, object->vk_buffer, NULL));
+            vkd3d_free(object);
+            return hr;
+        }
+    }
+    else
+    {
+        object->vk_memory = VK_NULL_HANDLE;
+        object->vk_buffer = VK_NULL_HANDLE;
+    }
+
     if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
     {
         vkd3d_free(object);
         return hr;
-    }
-
-    if ((vr = VK_CALL(vkCreateQueryPool(device->vk_device, &pool_info, NULL, &object->vk_query_pool))) < 0)
-    {
-        WARN("Failed to create Vulkan query pool, vr %d.\n", vr);
-        vkd3d_private_store_destroy(&object->private_store);
-        vkd3d_free(object);
-        return hresult_from_vk_result(vr);
     }
 
     d3d12_device_add_ref(device);
@@ -6227,7 +6287,6 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
     TRACE("Created query heap %p.\n", object);
 
     *heap = object;
-
     return S_OK;
 }
 
