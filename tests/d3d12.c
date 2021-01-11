@@ -42353,6 +42353,7 @@ static void test_get_resource_tiling(void)
         UINT tile_shape_h;
         UINT tile_shape_d;
         D3D12_TILED_RESOURCES_TIER min_tier;
+        bool todo_radv;
     }
     tests[] =
     {
@@ -42365,8 +42366,8 @@ static void test_get_resource_tiling(void)
         { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,      512,  512,  1,  1, 16,  1,  1,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
         { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R16G16B16A16_UNORM,  512,  512,  1,  1, 32,  1,  1,   128,  64,   1, D3D12_TILED_RESOURCES_TIER_1 },
         { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R32G32B32A32_FLOAT,  512,  512,  1,  1, 64,  1,  1,    64,  64,   1, D3D12_TILED_RESOURCES_TIER_1 },
-        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_D16_UNORM,           512,  512,  1,  1,  8,  1,  1,   256, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
-        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_D32_FLOAT,           512,  512,  1,  1, 16,  1,  1,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_D16_UNORM,           512,  512,  1,  1,  8,  1,  1,   256, 128,   1, D3D12_TILED_RESOURCES_TIER_1, true },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_D32_FLOAT,           512,  512,  1,  1, 16,  1,  1,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1, true },
         { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_BC1_UNORM,           512,  512,  1,  1,  2,  1,  1,   512, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
         { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_BC3_UNORM,           512,  512,  1,  1,  4,  1,  1,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
         /* Test rectangular textures */
@@ -42475,6 +42476,7 @@ static void test_get_resource_tiling(void)
 
         hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &IID_ID3D12Resource, (void **)&resource);
+        todo_if(is_radv_device(context.device) && tests[i].todo_radv)
         ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
 
         if (hr != S_OK)
