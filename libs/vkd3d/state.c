@@ -3486,11 +3486,13 @@ static uint32_t d3d12_max_host_descriptor_count_from_heap_type(struct d3d12_devi
 static uint32_t vkd3d_bindless_build_mutable_type_list(VkDescriptorType *list, uint32_t flags)
 {
     uint32_t count = 0;
-    if ((flags & VKD3D_BINDLESS_CBV) && !(flags & VKD3D_BINDLESS_CBV_AS_SSBO))
-        list[count++] = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    if (flags & VKD3D_BINDLESS_CBV)
+    {
+        list[count++] = flags & VKD3D_BINDLESS_CBV_AS_SSBO ?
+                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    }
 
-    if (flags & (VKD3D_BINDLESS_CBV_AS_SSBO | VKD3D_BINDLESS_RAW_SSBO))
-        list[count++] = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    /* SSBO for untyped UAV is deliberately left out since it has its own descriptor set. */
 
     if (flags & VKD3D_BINDLESS_UAV)
     {
@@ -3774,11 +3776,12 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
 
     if (bindless_state->flags & VKD3D_BINDLESS_MUTABLE_TYPE)
     {
-        /* If we can, prefer to use one universal descriptor type which works for any descriptor. */
+        /* If we can, prefer to use one universal descriptor type which works for any descriptor.
+         * The exception is SSBOs since we need to workaround buggy applications which create typed buffers,
+         * but assume they can be read as untyped buffers. */
         if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
                 VKD3D_BINDLESS_SET_CBV | VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_SRV |
                 VKD3D_BINDLESS_SET_BUFFER | VKD3D_BINDLESS_SET_IMAGE |
-                ((bindless_state->flags & VKD3D_BINDLESS_RAW_SSBO) ? VKD3D_BINDLESS_SET_RAW_SSBO : 0) |
                 VKD3D_BINDLESS_SET_MUTABLE | extra_bindings,
                 VK_DESCRIPTOR_TYPE_MUTABLE_VALVE)))
             goto fail;
@@ -3805,15 +3808,15 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
                 VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_IMAGE,
                 VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)))
             goto fail;
+    }
 
-        if (bindless_state->flags & VKD3D_BINDLESS_RAW_SSBO)
-        {
-            if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                    VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_SRV |
-                    VKD3D_BINDLESS_SET_RAW_SSBO,
-                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)))
-                goto fail;
-        }
+    if (bindless_state->flags & VKD3D_BINDLESS_RAW_SSBO)
+    {
+        if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+                VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_SRV |
+                VKD3D_BINDLESS_SET_RAW_SSBO,
+                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)))
+            goto fail;
     }
 
     if (!(bindless_state->flags & VKD3D_RAW_VA_UAV_COUNTER))
