@@ -1,0 +1,62 @@
+#version 450
+
+#extension GL_ARB_gpu_shader_int64 : require
+
+layout(local_size_x = 64) in;
+
+layout(constant_id = 0) const uint c_field_count = 1;
+
+layout(std430, binding = 0)
+buffer dst_queries_t {
+  uint64_t dst_queries[];
+};
+
+layout(std430, binding = 1)
+readonly buffer src_queries_t {
+  uint64_t src_queries[];
+};
+
+struct query_map_entry_t {
+  uint dst_index;
+  uint src_index;
+  uint next;
+};
+
+layout(std430, binding = 2)
+readonly buffer query_map_t {
+  query_map_entry_t entries[];
+} map;
+
+layout(push_constant)
+uniform u_info_t {
+  uint query_count;
+  uint entry_offset;
+};
+
+void main() {
+  uint thread_id = gl_GlobalInvocationID.x;
+
+  if (thread_id >= query_count)
+    return;
+
+  // The query map is an array of linked lists, with the
+  // first query_count entries guaranteed to be list heads
+  query_map_entry_t entry = map.entries[thread_id + entry_offset];
+  uint64_t dst_data[c_field_count];
+
+  // By copying the first query we get the reset for free
+  for (uint i = 0; i < c_field_count; i++)
+    dst_data[i] = src_queries[c_field_count * entry.src_index + i];
+
+  // Accumulate data from additional queries
+  while (entry.next != ~0u) {
+    entry = map.entries[entry.next + entry_offset];
+
+    for (uint i = 0; i < c_field_count; i++)
+      dst_data[i] += src_queries[c_field_count * entry.src_index + i];
+  }
+
+  // dst_index has the same value for all entries in the list
+  for (uint i = 0; i < c_field_count; i++)
+    dst_queries[c_field_count * entry.dst_index + i] = dst_data[i];
+}
