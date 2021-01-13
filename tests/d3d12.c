@@ -47464,7 +47464,7 @@ static void test_undefined_read_typed_buffer_as_untyped(bool use_dxil)
     {
         UINT value = get_readback_uint(&rb, i, 0, 0);
         UINT reference = i;
-        todo ok(value == reference, "Readback value for buffer iteration %u is: %u\n", i, value);
+        ok(value == reference, "Readback value for buffer iteration %u is: %u\n", i, value);
     }
 
     release_resource_readback(&rb);
