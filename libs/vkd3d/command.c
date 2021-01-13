@@ -6885,6 +6885,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
 
     if (d3d12_query_type_is_inline(list->device, type))
     {
+        if (!d3d12_command_list_reset_query(list, query_heap->vk_query_pool, index))
+        {
+            d3d12_command_list_end_current_render_pass(list, true);
+            VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
+        }
+
         d3d12_command_list_enable_query(list, query_heap->vk_query_pool, index, flags);
     }
     else
