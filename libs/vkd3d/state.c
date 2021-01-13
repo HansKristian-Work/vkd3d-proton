@@ -3701,20 +3701,17 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
             device_info->descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing)
         flags |= VKD3D_BINDLESS_CBV | VKD3D_BINDLESS_CBV_AS_SSBO;
 
-    if (!(device->vkd3d_instance->config_flags & VKD3D_CONFIG_FLAG_FORCE_BINDLESS_TEXEL_BUFFER))
+    /* Normally, we would be able to use SSBOs conditionally even when maxSSBOAlignment > 4, but
+     * applications (RE2 being one example) are of course buggy and don't match descriptor and shader usage of resources,
+     * so we cannot rely on alignment analysis to select the appropriate resource type. */
+    if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers >= 1000000 &&
+        device_info->descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind &&
+        device_info->properties2.properties.limits.minStorageBufferOffsetAlignment <= 16)
     {
-        /* Normally, we would be able to use SSBOs conditionally even when maxSSBOAlignment > 4, but
-         * applications (RE2 being one example) are of course buggy and don't match descriptor and shader usage of resources,
-         * so we cannot rely on alignment analysis to select the appropriate resource type. */
-        if (device_info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers >= 1000000 &&
-                device_info->descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind &&
-                device_info->properties2.properties.limits.minStorageBufferOffsetAlignment <= 16)
-        {
-            flags |= VKD3D_BINDLESS_RAW_SSBO;
+        flags |= VKD3D_BINDLESS_RAW_SSBO;
 
-            if (device_info->properties2.properties.limits.minStorageBufferOffsetAlignment > 4)
-                flags |= VKD3D_SSBO_OFFSET_BUFFER;
-        }
+        if (device_info->properties2.properties.limits.minStorageBufferOffsetAlignment > 4)
+            flags |= VKD3D_SSBO_OFFSET_BUFFER;
     }
 
     /* Always use a typed offset buffer. Otherwise, we risk ending up with unbounded size on view maps. */
