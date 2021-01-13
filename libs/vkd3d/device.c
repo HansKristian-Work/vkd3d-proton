@@ -2364,6 +2364,115 @@ void d3d12_device_return_scratch_buffer(struct d3d12_device *device, const struc
     }
 }
 
+static HRESULT d3d12_device_create_query_pool(struct d3d12_device *device, D3D12_QUERY_HEAP_TYPE heap_type, struct vkd3d_query_pool *pool)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkQueryPoolCreateInfo pool_info;
+    VkResult vr;
+
+    TRACE("device %p, heap_type %u, pool %p.\n", device, heap_type, pool);
+
+    pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+    pool_info.pNext = NULL;
+    pool_info.flags = 0;
+    pool_info.pipelineStatistics = 0;
+
+    switch (heap_type)
+    {
+        case D3D12_QUERY_HEAP_TYPE_OCCLUSION:
+            /* Expect a large number of occlusion queries
+             * to be used within a single command list */
+            pool_info.queryType = VK_QUERY_TYPE_OCCLUSION;
+            pool_info.queryCount = 4096;
+            break;
+
+        case D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS:
+            pool_info.queryType = VK_QUERY_TYPE_PIPELINE_STATISTICS;
+            pool_info.queryCount = 128;
+            pool_info.pipelineStatistics =
+                    VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_VERTICES_BIT |
+                    VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_PRIMITIVES_BIT |
+                    VK_QUERY_PIPELINE_STATISTIC_VERTEX_SHADER_INVOCATIONS_BIT |
+                    VK_QUERY_PIPELINE_STATISTIC_GEOMETRY_SHADER_INVOCATIONS_BIT |
+                    VK_QUERY_PIPELINE_STATISTIC_GEOMETRY_SHADER_PRIMITIVES_BIT |
+                    VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT |
+                    VK_QUERY_PIPELINE_STATISTIC_CLIPPING_PRIMITIVES_BIT |
+                    VK_QUERY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS_BIT |
+                    VK_QUERY_PIPELINE_STATISTIC_TESSELLATION_CONTROL_SHADER_PATCHES_BIT |
+                    VK_QUERY_PIPELINE_STATISTIC_TESSELLATION_EVALUATION_SHADER_INVOCATIONS_BIT |
+                    VK_QUERY_PIPELINE_STATISTIC_COMPUTE_SHADER_INVOCATIONS_BIT;
+            break;
+
+        case D3D12_QUERY_HEAP_TYPE_SO_STATISTICS:
+            pool_info.queryType = VK_QUERY_TYPE_TRANSFORM_FEEDBACK_STREAM_EXT;
+            pool_info.queryCount = 128;
+            break;
+
+        default:
+            ERR("Unhandled query type %u.\n", heap_type);
+            return E_INVALIDARG;
+    }
+
+    if ((vr = VK_CALL(vkCreateQueryPool(device->vk_device, &pool_info, NULL, &pool->vk_query_pool))) < 0)
+    {
+        ERR("Failed to create query pool, vr %u.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    pool->heap_type = heap_type;
+    pool->query_count = pool_info.queryCount;
+    pool->next_index = 0;
+    return S_OK;
+}
+
+static void d3d12_device_destroy_query_pool(struct d3d12_device *device, const struct vkd3d_query_pool *pool)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    TRACE("device %p, pool %p.\n", device, pool);
+
+    VK_CALL(vkDestroyQueryPool(device->vk_device, pool->vk_query_pool, NULL));
+}
+
+HRESULT d3d12_device_get_query_pool(struct d3d12_device *device, D3D12_QUERY_HEAP_TYPE heap_type, struct vkd3d_query_pool *pool)
+{
+    size_t i;
+
+    pthread_mutex_lock(&device->mutex);
+
+    for (i = 0; i < device->query_pool_count; i++)
+    {
+        if (device->query_pools[i].heap_type == heap_type)
+        {
+            *pool = device->query_pools[i];
+            pool->next_index = 0;
+            if (--device->query_pool_count != i)
+                device->query_pools[i] = device->query_pools[device->query_pool_count];
+            pthread_mutex_unlock(&device->mutex);
+            return S_OK;
+        }
+    }
+
+    pthread_mutex_unlock(&device->mutex);
+    return d3d12_device_create_query_pool(device, heap_type, pool);
+}
+
+void d3d12_device_return_query_pool(struct d3d12_device *device, const struct vkd3d_query_pool *pool)
+{
+    pthread_mutex_lock(&device->mutex);
+
+    if (device->query_pool_count < VKD3D_VIRTUAL_QUERY_POOL_COUNT)
+    {
+        device->query_pools[device->query_pool_count++] = *pool;
+        pthread_mutex_unlock(&device->mutex);
+    }
+    else
+    {
+        pthread_mutex_unlock(&device->mutex);
+        d3d12_device_destroy_query_pool(device, pool);
+    }
+}
+
 /* ID3D12Device */
 static inline struct d3d12_device *impl_from_ID3D12Device(d3d12_device_iface *iface)
 {
@@ -2413,6 +2522,9 @@ static void d3d12_device_destroy(struct d3d12_device *device)
 
     for (i = 0; i < device->scratch_buffer_count; i++)
         d3d12_device_destroy_scratch_buffer(device, &device->scratch_buffers[i]);
+
+    for (i = 0; i < device->query_pool_count; i++)
+        d3d12_device_destroy_query_pool(device, &device->query_pools[i]);
 
     vkd3d_private_store_destroy(&device->private_store);
 
