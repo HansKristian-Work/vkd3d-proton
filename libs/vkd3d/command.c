@@ -1549,7 +1549,11 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
         for (i = 0; i < allocator->scratch_buffer_count; i++)
             d3d12_device_return_scratch_buffer(device, &allocator->scratch_buffers[i]);
 
+        for (i = 0; i < allocator->query_pool_count; i++)
+            d3d12_device_return_query_pool(device, &allocator->query_pools[i]);
+
         vkd3d_free(allocator->scratch_buffers);
+        vkd3d_free(allocator->query_pools);
         vkd3d_free(allocator);
 
         d3d12_device_release(device);
@@ -1670,6 +1674,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
         d3d12_device_return_scratch_buffer(device, &allocator->scratch_buffers[i]);
 
     allocator->scratch_buffer_count = 0;
+
+    /* Return query pools to the device */
+    for (i = 0; i < allocator->query_pool_count; i++)
+        d3d12_device_return_query_pool(device, &allocator->query_pools[i]);
+
+    allocator->query_pool_count = 0;
+    memset(&allocator->active_query_pools, 0, sizeof(allocator->active_query_pools));
     return S_OK;
 }
 
@@ -1779,6 +1790,11 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     allocator->scratch_buffers_size = 0;
     allocator->scratch_buffer_count = 0;
 
+    allocator->query_pools = NULL;
+    allocator->query_pools_size = 0;
+    allocator->query_pool_count = 0;
+    memset(&allocator->active_query_pools, 0, sizeof(allocator->active_query_pools));
+
     allocator->current_command_list = NULL;
 
     d3d12_device_add_ref(allocator->device = device);
@@ -1867,6 +1883,58 @@ static bool d3d12_command_allocator_allocate_scratch_memory(struct d3d12_command
     allocation->buffer = scratch->vk_buffer;
     allocation->offset = 0;
     allocation->va = scratch->va;
+    return true;
+}
+
+static struct vkd3d_query_pool *d3d12_command_allocator_find_active_query_pool(struct d3d12_command_allocator *allocator,
+        D3D12_QUERY_HEAP_TYPE heap_type)
+{
+    uint32_t i;
+
+    static const struct
+    {
+        D3D12_QUERY_HEAP_TYPE heap_type;
+        uint32_t index;
+    }
+    map[] =
+    {
+        { D3D12_QUERY_HEAP_TYPE_OCCLUSION,            VKD3D_QUERY_TYPE_INDEX_OCCLUSION            },
+        { D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS,  VKD3D_QUERY_TYPE_INDEX_PIPELINE_STATISTICS  },
+        { D3D12_QUERY_HEAP_TYPE_SO_STATISTICS,        VKD3D_QUERY_TYPE_INDEX_TRANSFORM_FEEDBACK   },
+    };
+
+    for (i = 0; i < ARRAY_SIZE(map); i++)
+    {
+        if (map[i].heap_type == heap_type)
+            return &allocator->active_query_pools[map[i].index];
+    }
+
+    ERR("Unhandled query heap type %u.\n", heap_type);
+    return NULL;
+}
+
+static bool d3d12_command_allocator_allocate_query(struct d3d12_command_allocator *allocator,
+        D3D12_QUERY_HEAP_TYPE heap_type, VkQueryPool *query_pool, uint32_t *query_index)
+{
+    struct vkd3d_query_pool *pool = d3d12_command_allocator_find_active_query_pool(allocator, heap_type);
+
+    if (!pool)
+        return false;
+
+    if (pool->next_index >= pool->query_count)
+    {
+        if (FAILED(d3d12_device_get_query_pool(allocator->device, heap_type, pool)))
+            return false;
+
+        if (vkd3d_array_reserve((void**)&allocator->query_pools, &allocator->query_pools_size,
+                allocator->query_pool_count + 1, sizeof(*allocator->query_pools)))
+            allocator->query_pools[allocator->query_pool_count++] = *pool;
+        else
+            ERR("Failed to add query pool.\n");
+    }
+
+    *query_pool = pool->vk_query_pool;
+    *query_index = pool->next_index++;
     return true;
 }
 

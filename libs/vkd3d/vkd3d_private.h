@@ -1127,6 +1127,20 @@ struct vkd3d_scratch_buffer
     VkDeviceAddress va;
 };
 
+#define VKD3D_QUERY_TYPE_INDEX_OCCLUSION (0u)
+#define VKD3D_QUERY_TYPE_INDEX_PIPELINE_STATISTICS (1u)
+#define VKD3D_QUERY_TYPE_INDEX_TRANSFORM_FEEDBACK (2u)
+#define VKD3D_VIRTUAL_QUERY_TYPE_COUNT (3u)
+#define VKD3D_VIRTUAL_QUERY_POOL_COUNT (128u)
+
+struct vkd3d_query_pool
+{
+    D3D12_QUERY_HEAP_TYPE heap_type;
+    VkQueryPool vk_query_pool;
+    uint32_t query_count;
+    uint32_t next_index;
+};
+
 /* ID3D12CommandAllocator */
 struct d3d12_command_allocator
 {
@@ -1163,6 +1177,12 @@ struct d3d12_command_allocator
     struct vkd3d_scratch_buffer *scratch_buffers;
     size_t scratch_buffers_size;
     size_t scratch_buffer_count;
+
+    struct vkd3d_query_pool *query_pools;
+    size_t query_pools_size;
+    size_t query_pool_count;
+
+    struct vkd3d_query_pool active_query_pools[VKD3D_VIRTUAL_QUERY_TYPE_COUNT];
 
     LONG outstanding_submissions_count;
 
@@ -2087,6 +2107,9 @@ struct d3d12_device
     struct vkd3d_scratch_buffer scratch_buffers[VKD3D_SCRATCH_BUFFER_COUNT];
     size_t scratch_buffer_count;
 
+    struct vkd3d_query_pool query_pools[VKD3D_VIRTUAL_QUERY_POOL_COUNT];
+    size_t query_pool_count;
+
     HRESULT removed_reason;
 
     const struct vkd3d_format *depth_stencil_formats;
@@ -2112,6 +2135,9 @@ struct d3d12_device *unsafe_impl_from_ID3D12Device(d3d12_device_iface *iface);
 
 HRESULT d3d12_device_get_scratch_buffer(struct d3d12_device *device, VkDeviceSize min_size, struct vkd3d_scratch_buffer *scratch);
 void d3d12_device_return_scratch_buffer(struct d3d12_device *device, const struct vkd3d_scratch_buffer *scratch);
+
+HRESULT d3d12_device_get_query_pool(struct d3d12_device *device, D3D12_QUERY_HEAP_TYPE heap_type, struct vkd3d_query_pool *pool);
+void d3d12_device_return_query_pool(struct d3d12_device *device, const struct vkd3d_query_pool *pool);
 
 static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, REFIID iid, void **object)
 {
