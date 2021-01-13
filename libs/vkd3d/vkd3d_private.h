@@ -1880,8 +1880,25 @@ struct vkd3d_query_op_args
     uint32_t query_count;
 };
 
+struct vkd3d_query_gather_args
+{
+    uint32_t query_count;
+    uint32_t entry_offset;
+};
+
+struct vkd3d_query_gather_info
+{
+    VkDescriptorSetLayout vk_set_layout;
+    VkPipelineLayout vk_pipeline_layout;
+    VkPipeline vk_pipeline;
+};
+
 struct vkd3d_query_ops
 {
+    VkDescriptorSetLayout vk_gather_set_layout;
+    VkPipelineLayout vk_gather_pipeline_layout;
+    VkPipeline vk_gather_occlusion_pipeline;
+    VkPipeline vk_gather_so_statistics_pipeline;
     VkPipelineLayout vk_pipeline_layout;
     VkPipeline vk_resolve_binary_pipeline;
 };
@@ -1985,6 +2002,9 @@ const struct vkd3d_format *vkd3d_meta_get_copy_image_attachment_format(struct vk
         const struct vkd3d_format *dst_format, const struct vkd3d_format *src_format);
 HRESULT vkd3d_meta_get_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
         const struct vkd3d_swapchain_pipeline_key *key, struct vkd3d_swapchain_info *info);
+
+bool vkd3d_meta_get_query_gather_pipeline(struct vkd3d_meta_ops *meta_ops,
+        D3D12_QUERY_HEAP_TYPE heap_type, struct vkd3d_query_gather_info *info);
 
 void vkd3d_meta_get_predicate_pipeline(struct vkd3d_meta_ops *meta_ops,
         enum vkd3d_predicate_command_type command_type, struct vkd3d_predicate_command_info *info);

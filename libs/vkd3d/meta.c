@@ -1074,10 +1074,46 @@ HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
         struct d3d12_device *device)
 {
     VkPushConstantRange push_constant_range;
+    VkSpecializationInfo spec_info;
+    uint32_t field_count;
     VkResult vr;
+
+    static const VkDescriptorSetLayoutBinding bindings[] =
+    {
+        { 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT },
+        { 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT },
+        { 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT },
+    };
+
+    static const VkSpecializationMapEntry spec_map = { 0, 0, sizeof(uint32_t) };
+
+    if ((vr = vkd3d_meta_create_descriptor_set_layout(device,
+            ARRAY_SIZE(bindings), bindings, &meta_query_ops->vk_gather_set_layout)) < 0)
+        goto fail;
 
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     push_constant_range.offset = 0;
+    push_constant_range.size = sizeof(struct vkd3d_query_gather_args);
+
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_query_ops->vk_gather_set_layout,
+            1, &push_constant_range, &meta_query_ops->vk_gather_pipeline_layout)) < 0)
+        goto fail;
+
+    spec_info.mapEntryCount = 1;
+    spec_info.pMapEntries = &spec_map;
+    spec_info.dataSize = sizeof(field_count);
+    spec_info.pData = &field_count;
+
+    field_count = 1;
+    if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_resolve_query), cs_resolve_query,
+            meta_query_ops->vk_gather_pipeline_layout, &spec_info, &meta_query_ops->vk_gather_occlusion_pipeline)) < 0)
+        goto fail;
+
+    field_count = 2;
+    if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_resolve_query), cs_resolve_query,
+            meta_query_ops->vk_gather_pipeline_layout, &spec_info, &meta_query_ops->vk_gather_so_statistics_pipeline)) < 0)
+        goto fail;
+
     push_constant_range.size = sizeof(struct vkd3d_query_op_args);
 
     if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1, &push_constant_range, &meta_query_ops->vk_pipeline_layout)) < 0)
@@ -1099,8 +1135,36 @@ void vkd3d_query_ops_cleanup(struct vkd3d_query_ops *meta_query_ops,
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+    VK_CALL(vkDestroyPipeline(device->vk_device, meta_query_ops->vk_gather_occlusion_pipeline, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, meta_query_ops->vk_gather_so_statistics_pipeline, NULL));
+
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_query_ops->vk_gather_pipeline_layout, NULL));
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_query_ops->vk_gather_set_layout, NULL));
+
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_query_ops->vk_pipeline_layout, NULL));
     VK_CALL(vkDestroyPipeline(device->vk_device, meta_query_ops->vk_resolve_binary_pipeline, NULL));
+}
+
+bool vkd3d_meta_get_query_gather_pipeline(struct vkd3d_meta_ops *meta_ops,
+        D3D12_QUERY_HEAP_TYPE heap_type, struct vkd3d_query_gather_info *info)
+{
+    const struct vkd3d_query_ops *query_ops = &meta_ops->query;
+
+    info->vk_set_layout = query_ops->vk_gather_set_layout;
+    info->vk_pipeline_layout = query_ops->vk_gather_pipeline_layout;
+
+    switch (heap_type)
+    {
+        case D3D12_QUERY_HEAP_TYPE_OCCLUSION:
+            info->vk_pipeline = query_ops->vk_gather_occlusion_pipeline;
+            return true;
+        case D3D12_QUERY_HEAP_TYPE_SO_STATISTICS:
+            info->vk_pipeline = query_ops->vk_gather_so_statistics_pipeline;
+            return true;
+        default:
+            ERR("No pipeline for query heap type %u.\n", heap_type);
+            return false;
+    }
 }
 
 HRESULT vkd3d_predicate_ops_init(struct vkd3d_predicate_ops *meta_predicate_ops,
