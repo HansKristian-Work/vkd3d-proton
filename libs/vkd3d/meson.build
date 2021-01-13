@@ -15,6 +15,7 @@ vkd3d_shaders =[
   'shaders/cs_predicate_command.comp',
   'shaders/cs_resolve_binary_queries.comp',
   'shaders/cs_resolve_predicate.comp',
+  'shaders/cs_resolve_query.comp',
 
   'shaders/fs_copy_image_float.frag',
 
