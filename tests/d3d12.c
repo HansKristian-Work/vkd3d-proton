@@ -47277,6 +47277,7 @@ static void test_undefined_read_typed_buffer_as_untyped(bool use_dxil)
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_ROOT_PARAMETER root_parameters[1];
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
+    ID3D12DescriptorHeap *cpu_heap;
     ID3D12DescriptorHeap *heap;
 
     ID3D12Resource *output_buffer;
@@ -47429,8 +47430,9 @@ static void test_undefined_read_typed_buffer_as_untyped(bool use_dxil)
         shader_bytecode(use_dxil ? (const void *)cs_code_dxil : (const void *)cs_code_dxbc,
             use_dxil ? sizeof(cs_code_dxil) : sizeof(cs_code_dxbc)));
 
+    cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 64);
     heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 64);
-    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_heap);
     gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
     descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
@@ -47450,6 +47452,10 @@ static void test_undefined_read_typed_buffer_as_untyped(bool use_dxil)
         h.ptr += i * descriptor_size;
         ID3D12Device_CreateUnorderedAccessView(context.device, output_buffer, NULL, &view, h);
     }
+
+    ID3D12Device_CopyDescriptorsSimple(context.device, 64,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap), cpu_handle,
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
@@ -47471,6 +47477,7 @@ static void test_undefined_read_typed_buffer_as_untyped(bool use_dxil)
     reset_command_list(command_list, context.allocator);
 
     ID3D12Resource_Release(output_buffer);
+    ID3D12DescriptorHeap_Release(cpu_heap);
     ID3D12DescriptorHeap_Release(heap);
     destroy_test_context(&context);
 }
