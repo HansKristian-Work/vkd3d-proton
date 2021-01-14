@@ -1307,9 +1307,11 @@ enum vkd3d_active_query_state
 
 struct vkd3d_active_query
 {
-    VkQueryPool vk_pool;
+    struct d3d12_query_heap *heap;
     uint32_t index;
-    uint32_t flags;
+    D3D12_QUERY_TYPE type;
+    VkQueryPool vk_pool;
+    uint32_t vk_index;
     enum vkd3d_active_query_state state;
 };
 
