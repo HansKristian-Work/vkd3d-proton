@@ -7066,17 +7066,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
         FIXME("Unhandled query type %u.\n", type);
 }
 
-static size_t get_query_stride(D3D12_QUERY_TYPE type)
-{
-    if (type == D3D12_QUERY_TYPE_PIPELINE_STATISTICS)
-        return sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS);
-
-    if (D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0 <= type && type <= D3D12_QUERY_TYPE_SO_STATISTICS_STREAM3)
-        return sizeof(D3D12_QUERY_DATA_SO_STATISTICS);
-
-    return sizeof(uint64_t);
-}
-
 static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_command_list *list,
         VkDeviceAddress src_va, VkDeviceAddress dst_va, UINT query_count)
 {
@@ -7123,8 +7112,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *buffer = unsafe_impl_from_ID3D12Resource(dst_buffer);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    size_t stride = d3d12_query_heap_type_get_data_size(query_heap->desc.Type);
     struct vkd3d_scratch_allocation scratch;
-    size_t stride = get_query_stride(type);
     bool do_fixup = false;
 
     TRACE("iface %p, heap %p, type %#x, start_index %u, query_count %u, "
