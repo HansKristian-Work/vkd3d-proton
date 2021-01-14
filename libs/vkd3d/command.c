@@ -2556,13 +2556,44 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
         j, vk_image_barriers));
 }
 
+static inline bool d3d12_query_type_is_indexed(D3D12_QUERY_TYPE type)
+{
+    return type >= D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0 &&
+            type <= D3D12_QUERY_TYPE_SO_STATISTICS_STREAM3;
+}
+
+static VkQueryControlFlags d3d12_query_type_get_vk_flags(D3D12_QUERY_TYPE type)
+{
+    return type == D3D12_QUERY_TYPE_OCCLUSION
+            ? VK_QUERY_CONTROL_PRECISE_BIT : 0;
+}
+
+static bool d3d12_command_list_add_pending_query(struct d3d12_command_list *list,
+        const struct vkd3d_active_query *query)
+{
+    if (!vkd3d_array_reserve((void **)&list->pending_queries, &list->pending_queries_size,
+            list->pending_queries_count + 1, sizeof(*list->pending_queries)))
+
+    list->pending_queries[list->pending_queries_count++] = *query;
+    return true;
+}
+
 static void d3d12_command_list_begin_active_query(struct d3d12_command_list *list,
         struct vkd3d_active_query *query)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkQueryControlFlags flags = d3d12_query_type_get_vk_flags(query->type);
+
     assert(query->state == VKD3D_ACTIVE_QUERY_RESET);
 
-    VK_CALL(vkCmdBeginQuery(list->vk_command_buffer, query->vk_pool, query->index, query->flags));
+    if (d3d12_query_type_is_indexed(query->type))
+    {
+        unsigned int stream = query->type - D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0;
+        VK_CALL(vkCmdBeginQueryIndexedEXT(list->vk_command_buffer, query->vk_pool, query->vk_index, flags, stream));
+    }
+    else
+        VK_CALL(vkCmdBeginQuery(list->vk_command_buffer, query->vk_pool, query->vk_index, flags));
+
     query->state = VKD3D_ACTIVE_QUERY_BEGUN;
 }
 
@@ -2572,12 +2603,19 @@ static void d3d12_command_list_end_active_query(struct d3d12_command_list *list,
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     assert(query->state == VKD3D_ACTIVE_QUERY_BEGUN);
 
-    VK_CALL(vkCmdEndQuery(list->vk_command_buffer, query->vk_pool, query->index));
+    if (d3d12_query_type_is_indexed(query->type))
+    {
+        unsigned int stream = query->type - D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0;
+        VK_CALL(vkCmdEndQueryIndexedEXT(list->vk_command_buffer, query->vk_pool, query->vk_index, stream));
+    }
+    else
+        VK_CALL(vkCmdEndQuery(list->vk_command_buffer, query->vk_pool, query->vk_index));
+
     query->state = VKD3D_ACTIVE_QUERY_ENDED;
 }
 
-static void d3d12_command_list_enable_query(struct d3d12_command_list *list,
-        VkQueryPool vk_query_pool, uint32_t index, VkQueryControlFlags flags)
+static bool d3d12_command_list_enable_query(struct d3d12_command_list *list,
+        struct d3d12_query_heap *heap, uint32_t index, D3D12_QUERY_TYPE type)
 {
     struct vkd3d_active_query *query;
 
@@ -2585,18 +2623,24 @@ static void d3d12_command_list_enable_query(struct d3d12_command_list *list,
             list->active_queries_count + 1, sizeof(*list->active_queries)))
     {
         ERR("Failed to add query.\n");
-        return;
+        return false;
     }
 
     query = &list->active_queries[list->active_queries_count++];
-    query->vk_pool = vk_query_pool;
+    query->heap = heap;
     query->index = index;
-    query->flags = flags;
+    query->type = type;
     query->state = VKD3D_ACTIVE_QUERY_RESET;
+    query->vk_pool = heap->vk_query_pool;
+    query->vk_index = index;
+    return true;
+
+/*    return d3d12_command_allocator_allocate_query(list->allocator,
+            heap->desc.Type, &query->vk_pool, &query->vk_index); */
 }
 
-static void d3d12_command_list_disable_query(struct d3d12_command_list *list,
-        VkQueryPool vk_query_pool, uint32_t index)
+static bool d3d12_command_list_disable_query(struct d3d12_command_list *list,
+        struct d3d12_query_heap *heap, uint32_t index)
 {
     unsigned int i;
 
@@ -2631,7 +2675,7 @@ static void d3d12_command_list_handle_active_queries(struct d3d12_command_list *
          * query for multiple draw calls, which may require multiple render
          * pass instances. In that case, we can only handle the first instance. */
         if (query->state == VKD3D_ACTIVE_QUERY_ENDED && !end)
-            FIXME("Query (%#"PRIx64",%u) already ended.\n", (uint64_t)query->vk_pool, query->index);
+            FIXME("Query (%#"PRIx64",%u) already ended.\n", (uint64_t)query->vk_pool, query->vk_index);
 
         if (query->state == VKD3D_ACTIVE_QUERY_RESET)
             d3d12_command_list_begin_active_query(list, query);
@@ -6907,12 +6951,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     }
 }
 
-static inline bool d3d12_query_type_is_indexed(D3D12_QUERY_TYPE type)
-{
-    return type >= D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0 &&
-            type <= D3D12_QUERY_TYPE_SO_STATISTICS_STREAM3;
-}
-
 static inline bool d3d12_query_type_is_inline(struct d3d12_device *device, D3D12_QUERY_TYPE type)
 {
     if (device->vkd3d_instance->config_flags & VKD3D_CONFIG_FLAG_DISABLE_QUERY_OPTIMIZATION)
@@ -6925,12 +6963,6 @@ static inline bool d3d12_query_type_is_inline(struct d3d12_device *device, D3D12
 static inline bool d3d12_query_type_is_scoped(D3D12_QUERY_TYPE type)
 {
     return type != D3D12_QUERY_TYPE_TIMESTAMP;
-}
-
-VkQueryControlFlags d3d12_query_type_get_vk_flags(D3D12_QUERY_TYPE type)
-{
-    return type == D3D12_QUERY_TYPE_OCCLUSION
-            ? VK_QUERY_CONTROL_PRECISE_BIT : 0;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_iface *iface,
@@ -6959,7 +6991,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
             VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
         }
 
-        d3d12_command_list_enable_query(list, query_heap->vk_query_pool, index, flags);
+        if (!d3d12_command_list_enable_query(list, query_heap, index, type))
+            d3d12_command_list_mark_as_invalid(list, "Failed to enable virtual query.\n");
     }
     else
     {
