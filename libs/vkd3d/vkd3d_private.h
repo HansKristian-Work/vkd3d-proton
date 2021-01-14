@@ -1401,6 +1401,10 @@ struct d3d12_command_list
     size_t active_queries_size;
     size_t active_queries_count;
 
+    struct vkd3d_active_query *pending_queries;
+    size_t pending_queries_size;
+    size_t pending_queries_count;
+
     LONG *outstanding_submissions_count;
 
     struct vkd3d_private_store private_store;

@@ -2573,6 +2573,10 @@ static bool d3d12_command_list_add_pending_query(struct d3d12_command_list *list
 {
     if (!vkd3d_array_reserve((void **)&list->pending_queries, &list->pending_queries_size,
             list->pending_queries_count + 1, sizeof(*list->pending_queries)))
+    {
+        ERR("Failed to add pending query.\n");
+        return false;
+    }
 
     list->pending_queries[list->pending_queries_count++] = *query;
     return true;
@@ -2648,19 +2652,23 @@ static bool d3d12_command_list_disable_query(struct d3d12_command_list *list,
     {
         struct vkd3d_active_query *query = &list->active_queries[i];
 
-        if (query->vk_pool == vk_query_pool && query->index == index)
+        if (query->heap == heap && query->index == index)
         {
+            if (!d3d12_command_list_add_pending_query(list, query))
+                return false;
+
             if (query->state == VKD3D_ACTIVE_QUERY_RESET)
                 d3d12_command_list_begin_active_query(list, query);
             if (query->state == VKD3D_ACTIVE_QUERY_BEGUN)
                 d3d12_command_list_end_active_query(list, query);
 
             *query = list->active_queries[--list->active_queries_count];
-            return;
+            return true;
         }
     }
 
-    WARN("Query (%#"PRIx64",%u) not active.\n", (uint64_t)vk_query_pool, index);
+    WARN("Query (%#"PRIx64",%u) not active.\n", (uint64_t)heap, index);
+    return true;
 }
 
 static void d3d12_command_list_handle_active_queries(struct d3d12_command_list *list, bool end)
@@ -3101,6 +3109,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_ifa
         vkd3d_free(list->init_transitions);
         vkd3d_free(list->query_ranges);
         vkd3d_free(list->active_queries);
+        vkd3d_free(list->pending_queries);
         vkd3d_free(list);
 
         d3d12_device_release(device);
@@ -3473,6 +3482,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->init_transitions_count = 0;
     list->query_ranges_count = 0;
     list->active_queries_count = 0;
+    list->pending_queries_count = 0;
 
     ID3D12GraphicsCommandList_SetPipelineState(iface, initial_pipeline_state);
 }
@@ -7025,7 +7035,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
 
     if (d3d12_query_type_is_inline(list->device, type))
     {
-        d3d12_command_list_disable_query(list, query_heap->vk_query_pool, index);
+        if (!d3d12_command_list_disable_query(list, query_heap, index))
+            d3d12_command_list_mark_as_invalid(list, "Failed to disable virtual query.\n");
     }
     else if (d3d12_query_type_is_scoped(type))
     {
