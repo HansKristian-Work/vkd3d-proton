@@ -2556,6 +2556,9 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
         j, vk_image_barriers));
 }
 
+static bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
+        VkQueryPool vk_pool, uint32_t index);
+
 static inline bool d3d12_query_type_is_indexed(D3D12_QUERY_TYPE type)
 {
     return type >= D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0 &&
@@ -2635,12 +2638,13 @@ static bool d3d12_command_list_enable_query(struct d3d12_command_list *list,
     query->index = index;
     query->type = type;
     query->state = VKD3D_ACTIVE_QUERY_RESET;
-    query->vk_pool = heap->vk_query_pool;
-    query->vk_index = index;
-    return true;
+    query->resolve_index = 0;
 
-/*    return d3d12_command_allocator_allocate_query(list->allocator,
-            heap->desc.Type, &query->vk_pool, &query->vk_index); */
+    if (!d3d12_command_allocator_allocate_query(list->allocator,
+            heap->desc.Type, &query->vk_pool, &query->vk_index))
+        return false;
+
+    return d3d12_command_list_reset_query(list, query->vk_pool, query->vk_index);
 }
 
 static bool d3d12_command_list_disable_query(struct d3d12_command_list *list,
@@ -2690,6 +2694,341 @@ static void d3d12_command_list_handle_active_queries(struct d3d12_command_list *
         if (query->state == VKD3D_ACTIVE_QUERY_BEGUN && end)
             d3d12_command_list_end_active_query(list, query);
     }
+}
+
+int vkd3d_compare_pending_query(const void* query_a, const void* query_b)
+{
+    const struct vkd3d_active_query *a = query_a;
+    const struct vkd3d_active_query *b = query_b;
+
+    // Sort by D3D12 heap since we need to do one compute dispatch per buffer
+    if (a->heap < b->heap) return -1;
+    if (a->heap > b->heap) return 1;
+
+    // Sort by Vulkan query pool and index to batch query resolves
+    if (a->vk_pool > b->vk_pool) return -1;
+    if (a->vk_pool < b->vk_pool) return 1;
+
+    return (int)(a->vk_index - b->vk_index);
+}
+
+static size_t get_query_heap_stride(D3D12_QUERY_HEAP_TYPE heap_type)
+{
+    if (heap_type == D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS)
+        return sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS);
+
+    if (heap_type == D3D12_QUERY_HEAP_TYPE_SO_STATISTICS)
+        return sizeof(D3D12_QUERY_DATA_SO_STATISTICS);
+
+    return sizeof(uint64_t);
+}
+
+static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list *list)
+{
+    /* TODO allocate arrays from command allocator in case
+     * games hit this path multiple times per frame */
+    VkDeviceSize resolve_buffer_size, resolve_buffer_stride, ssbo_alignment, entry_buffer_size;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_scratch_allocation resolve_buffer, entry_buffer;
+    VkDescriptorBufferInfo dst_buffer, src_buffer, map_buffer;
+    struct vkd3d_query_gather_info gather_pipeline;
+    const struct vkd3d_active_query *src_queries;
+    unsigned int i, j, k, workgroup_count;
+    uint32_t resolve_index, entry_offset;
+    struct vkd3d_query_gather_args args;
+    VkWriteDescriptorSet vk_writes[3];
+    VkMemoryBarrier vk_barrier;
+    VkDescriptorSet vk_set;
+    bool result = false;
+
+    struct dispatch_entry
+    {
+        struct d3d12_query_heap *heap;
+        uint32_t virtual_query_count;
+        uint32_t unique_query_count;
+        VkDeviceSize resolve_buffer_offset;
+        VkDeviceSize resolve_buffer_size;
+    };
+    
+    struct dispatch_entry *dispatches = NULL;
+    size_t dispatch_size = 0;
+    size_t dispatch_count = 0;
+
+    struct resolve_entry
+    {
+        VkQueryPool query_pool;
+        uint32_t first_query;
+        uint32_t query_count;
+        VkDeviceSize offset;
+        VkDeviceSize stride;
+    };
+    
+    struct resolve_entry *resolves = NULL;
+    size_t resolve_size = 0;
+    size_t resolve_count = 0;
+
+    struct query_entry
+    {
+        uint32_t dst_index;
+        uint32_t src_index;
+        uint32_t next;
+    };
+    
+    struct query_entry *dst_queries = NULL;
+    struct query_entry *query_list = NULL;
+    struct query_entry **query_map = NULL;
+    size_t query_map_size = 0;
+
+    if (!list->pending_queries_count)
+        return true;
+
+    /* Sort pending query list so that we can batch commands */
+    qsort(list->pending_queries, list->pending_queries_count,
+            sizeof(*list->pending_queries), &vkd3d_compare_pending_query);
+
+    ssbo_alignment = d3d12_device_get_ssbo_alignment(list->device);
+    resolve_buffer_size = 0;
+    resolve_buffer_stride = 0;
+    resolve_index = 0;
+
+    for (i = 0; i < list->pending_queries_count; i++)
+    {
+        struct dispatch_entry *d = dispatches ? &dispatches[dispatch_count - 1] : NULL;
+        struct resolve_entry *r = resolves ? &resolves[resolve_count - 1] : NULL;
+        struct vkd3d_active_query *q = &list->pending_queries[i];
+
+        /* Prepare one compute dispatch per D3D12 query heap */
+        if (!d || d->heap != q->heap)
+        {
+            if (!vkd3d_array_reserve((void **)&dispatches, &dispatch_size, dispatch_count + 1, sizeof(*dispatches)))
+            {
+                ERR("Failed to allocate dispatch list.\n");
+                goto cleanup;
+            }
+
+            /* Force new resolve entry as well so that binding the scratch buffer
+             * doesn't get overly complicated when we need to deal with potential
+             * SSBO alignment issues on some hardware. */
+            resolve_buffer_stride = get_query_heap_stride(q->heap->desc.Type);
+            resolve_buffer_size = align(resolve_buffer_size, ssbo_alignment);
+            resolve_index = 0;
+
+            d = &dispatches[dispatch_count++];
+            d->heap = q->heap;
+            d->virtual_query_count = 1;
+            d->unique_query_count = 0;
+            d->resolve_buffer_offset = resolve_buffer_size;
+
+            r = NULL;
+        }
+        else
+            d->virtual_query_count++;
+
+        /* Prepare one resolve entry per Vulkan query range */
+        if (!r || r->query_pool != q->vk_pool || r->first_query + r->query_count != q->vk_index)
+        {
+            if (!vkd3d_array_reserve((void **)&resolves, &resolve_size, resolve_count + 1, sizeof(*resolves)))
+            {
+                ERR("Failed to allocate resolve list.\n");
+                goto cleanup;
+            }
+
+            r = &resolves[resolve_count++];
+            r->query_pool = q->vk_pool;
+            r->first_query = q->vk_index;
+            r->query_count = 1;
+            r->offset = resolve_buffer_size;
+            r->stride = get_query_heap_stride(q->heap->desc.Type);
+        }
+        else
+            r->query_count++;
+
+        query_map_size = max(query_map_size, q->index + 1);
+        resolve_buffer_size += resolve_buffer_stride;
+
+        d->resolve_buffer_size = resolve_buffer_size - d->resolve_buffer_offset;
+        q->resolve_index = resolve_index++;
+    }
+
+    /* Allocate scratch buffer and resolve virtual Vulkan queries into it */
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+            resolve_buffer_size, ssbo_alignment, &resolve_buffer))
+        goto cleanup;
+
+    for (i = 0; i < resolve_count; i++)
+    {
+        const struct resolve_entry *r = &resolves[i];
+
+        VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
+            r->query_pool, r->first_query, r->query_count,
+            resolve_buffer.buffer, resolve_buffer.offset + r->offset,
+            r->stride, VK_QUERY_RESULT_WAIT_BIT | VK_QUERY_RESULT_64_BIT));
+    }
+
+    /* Allocate scratch buffer for query lists */
+    entry_buffer_size = sizeof(struct query_entry) * list->pending_queries_count;
+
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+            entry_buffer_size, ssbo_alignment, &entry_buffer))
+        goto cleanup;
+
+    if (!(query_map = vkd3d_malloc(sizeof(*query_map) * query_map_size)) ||
+            !(query_list = vkd3d_malloc(sizeof(*query_list) * list->pending_queries_count)))
+    {
+        ERR("Failed to allocate query map.\n");
+        goto cleanup;
+    }
+
+    /* Active list for the current dispatch */
+    src_queries = list->pending_queries;
+    dst_queries = query_list;
+
+    for (i = 0; i < dispatch_count; i++)
+    {
+        struct dispatch_entry *d = &dispatches[i];
+        memset(query_map, 0, sizeof(*query_map) * query_map_size);
+
+        /* First pass that counts unique queries since the compute
+         * shader expects list heads to be packed first in the array */
+        for (j = 0; j < d->virtual_query_count; j++)
+        {
+            const struct vkd3d_active_query *q = &src_queries[j];
+
+            if (!query_map[q->index])
+            {
+                query_map[q->index] = &dst_queries[d->unique_query_count++];
+                query_map[q->index]->dst_index = q->index;
+                query_map[q->index]->src_index = q->resolve_index;
+                query_map[q->index]->next = ~0u;
+            }
+        }
+
+        /* Second pass that actually generates the query list. */
+        for (j = 0, k = d->unique_query_count; j < d->virtual_query_count; j++)
+        {
+            const struct vkd3d_active_query *q = &src_queries[j];
+
+            /* Skip entries that we already added in the first pass */
+            if (query_map[q->index]->src_index == q->resolve_index)
+                continue;
+
+            query_map[q->index]->next = k;
+            query_map[q->index] = &dst_queries[k++];
+            query_map[q->index]->dst_index = q->index;
+            query_map[q->index]->src_index = q->resolve_index;
+            query_map[q->index]->next = ~0u;
+        }
+
+        src_queries += d->virtual_query_count;
+        dst_queries += d->virtual_query_count;
+    }
+
+    /* Upload query lists in chunks since vkCmdUpdateBuffer is limited to
+     * 64kiB per invocation. Normally, one single iteration should suffice. */
+    for (i = 0; i < list->pending_queries_count; i += 2048)
+    {
+        unsigned int count = min(2048, list->pending_queries_count - i);
+
+        VK_CALL(vkCmdUpdateBuffer(list->vk_command_buffer, entry_buffer.buffer,
+                sizeof(struct query_entry) * i + entry_buffer.offset,
+                sizeof(struct query_entry) * count, &query_list[i]));
+    }
+
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    vk_barrier.pNext = NULL;
+    vk_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0, 1, &vk_barrier, 0, NULL, 0, NULL));
+
+    /* Gather virtual query results and store
+     * them in the query heap's buffer */
+    entry_offset = 0;
+
+    for (i = 0; i < ARRAY_SIZE(vk_writes); i++)
+    {
+        vk_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        vk_writes[i].pNext = NULL;
+        vk_writes[i].dstBinding = i;
+        vk_writes[i].dstArrayElement = 0;
+        vk_writes[i].descriptorCount = 1;
+        vk_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        vk_writes[i].pImageInfo = NULL;
+        vk_writes[i].pTexelBufferView = NULL;
+    }
+
+    vk_writes[0].pBufferInfo = &dst_buffer;
+    vk_writes[1].pBufferInfo = &src_buffer;
+    vk_writes[2].pBufferInfo = &map_buffer;
+
+    for (i = 0; i < dispatch_count; i++)
+    {
+        const struct dispatch_entry *d = &dispatches[i];
+
+        if (!(vkd3d_meta_get_query_gather_pipeline(&list->device->meta_ops,
+                d->heap->desc.Type, &gather_pipeline)))
+            goto cleanup;
+
+        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
+                VK_PIPELINE_BIND_POINT_COMPUTE, gather_pipeline.vk_pipeline));
+
+        vk_set = d3d12_command_allocator_allocate_descriptor_set(list->allocator,
+                gather_pipeline.vk_set_layout, VKD3D_DESCRIPTOR_POOL_TYPE_STATIC);
+
+        dst_buffer.buffer = d->heap->vk_buffer;
+        dst_buffer.offset = 0;
+        dst_buffer.range = VK_WHOLE_SIZE;
+
+        src_buffer.buffer = resolve_buffer.buffer;
+        src_buffer.offset = resolve_buffer.offset + d->resolve_buffer_offset;
+        src_buffer.range = d->resolve_buffer_size;
+
+        map_buffer.buffer = entry_buffer.buffer;
+        map_buffer.offset = entry_buffer.offset;
+        map_buffer.range = entry_buffer_size;
+
+        for (j = 0; j < ARRAY_SIZE(vk_writes); j++)
+            vk_writes[j].dstSet = vk_set;
+
+        VK_CALL(vkUpdateDescriptorSets(list->device->vk_device,
+                ARRAY_SIZE(vk_writes), vk_writes, 0, NULL));
+
+        VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer,
+                VK_PIPELINE_BIND_POINT_COMPUTE, gather_pipeline.vk_pipeline_layout,
+                0, 1, &vk_set, 0, NULL));
+
+        args.query_count = d->unique_query_count;
+        args.entry_offset = entry_offset;
+        entry_offset += d->virtual_query_count;
+
+        VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+                gather_pipeline.vk_pipeline_layout,
+                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(args), &args));
+
+        workgroup_count = vkd3d_compute_workgroup_count(d->unique_query_count, VKD3D_QUERY_OP_WORKGROUP_SIZE);
+        VK_CALL(vkCmdDispatch(list->vk_command_buffer, workgroup_count, 1, 1));
+    }
+
+    vk_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 1, &vk_barrier, 0, NULL, 0, NULL));
+
+    list->pending_queries_count = 0;
+    result = true;
+
+cleanup:
+    vkd3d_free(resolves);
+    vkd3d_free(dispatches);
+    vkd3d_free(query_list);
+    vkd3d_free(query_map);
+    return result;
 }
 
 static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list, bool suspend)
@@ -3238,6 +3577,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
 
     if (list->predicate_enabled)
         VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
+
+    if (!d3d12_command_list_gather_pending_queries(list))
+        d3d12_command_list_mark_as_invalid(list, "Failed to gather virtual queries.\n");
 
     vkd3d_shader_debug_ring_end_command_buffer(list);
 
@@ -6995,12 +7337,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
 
     if (d3d12_query_type_is_inline(list->device, type))
     {
-        if (!d3d12_command_list_reset_query(list, query_heap->vk_query_pool, index))
-        {
-            d3d12_command_list_end_current_render_pass(list, true);
-            VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
-        }
-
         if (!d3d12_command_list_enable_query(list, query_heap, index, type))
             d3d12_command_list_mark_as_invalid(list, "Failed to enable virtual query.\n");
     }
@@ -7066,44 +7402,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
         FIXME("Unhandled query type %u.\n", type);
 }
 
-static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_command_list *list,
-        VkDeviceAddress src_va, VkDeviceAddress dst_va, UINT query_count)
-{
-    const struct vkd3d_query_ops *query_ops = &list->device->meta_ops.query;
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    struct vkd3d_query_op_args args;
-    unsigned int num_workgroups;
-    VkMemoryBarrier vk_barrier;
-
-    d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
-
-    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    vk_barrier.pNext = NULL;
-    vk_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vk_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            0, 1, &vk_barrier, 0, NULL, 0, NULL));
-
-    args.src_queries = src_va;
-    args.dst_queries = dst_va;
-    args.query_count = query_count;
-
-    num_workgroups = vkd3d_compute_workgroup_count(query_count, VKD3D_QUERY_OP_WORKGROUP_SIZE);
-    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-            query_ops->vk_resolve_binary_pipeline));
-    VK_CALL(vkCmdPushConstants(list->vk_command_buffer, query_ops->vk_pipeline_layout,
-            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(args), &args));
-    VK_CALL(vkCmdDispatch(list->vk_command_buffer, num_workgroups, 1, 1));
-
-    vk_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    vk_barrier.dstAccessMask = 0;
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, 1, &vk_barrier, 0, NULL, 0, NULL));
-}
-
 static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_list_iface *iface,
         ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT start_index, UINT query_count,
         ID3D12Resource *dst_buffer, UINT64 aligned_dst_buffer_offset)
@@ -7113,8 +7411,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
     struct d3d12_resource *buffer = unsafe_impl_from_ID3D12Resource(dst_buffer);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     size_t stride = d3d12_query_heap_type_get_data_size(query_heap->desc.Type);
-    struct vkd3d_scratch_allocation scratch;
-    bool do_fixup = false;
+    VkBufferCopy copy_region;
 
     TRACE("iface %p, heap %p, type %#x, start_index %u, query_count %u, "
             "dst_buffer %p, aligned_dst_buffer_offset %#"PRIx64".\n",
@@ -7127,33 +7424,31 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
         return;
     }
 
-    if (type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)
-    {
-        if (list->device->device_info.buffer_device_address_features.bufferDeviceAddress)
-            do_fixup = d3d12_command_allocator_allocate_scratch_memory(list->allocator, stride * query_count, stride, &scratch);
-        else
-            FIXME_ONCE("bufferDeviceAddress not supported by device.\n");
-    }
-
-    if (!do_fixup)
-    {
-        scratch.buffer = buffer->vk_buffer;
-        scratch.offset = buffer->heap_offset + aligned_dst_buffer_offset;
-        scratch.va = 0;
-    }
-
     d3d12_command_list_track_query_heap(list, query_heap);
-    d3d12_command_list_read_query_range(list, query_heap->vk_query_pool, start_index, query_count);
     d3d12_command_list_end_current_render_pass(list, true);
 
-    VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer, query_heap->vk_query_pool,
-            start_index, query_count, scratch.buffer, scratch.offset, stride,
-            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
-
-    if (do_fixup)
+    if (d3d12_query_type_is_inline(list->device, type))
     {
-        d3d12_command_list_resolve_binary_occlusion_queries(list, scratch.va,
-                d3d12_resource_get_va(buffer, aligned_dst_buffer_offset), query_count);
+        if (!d3d12_command_list_gather_pending_queries(list))
+        {
+            d3d12_command_list_mark_as_invalid(list, "Failed to gather virtual queries.\n");
+            return;
+        }
+
+        copy_region.srcOffset = stride * start_index;
+        copy_region.dstOffset = buffer->heap_offset + aligned_dst_buffer_offset;
+        copy_region.size = stride * query_count;
+
+        VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
+                query_heap->vk_buffer, buffer->vk_buffer,
+                1, &copy_region));
+    }
+    else
+    {
+        d3d12_command_list_read_query_range(list, query_heap->vk_query_pool, start_index, query_count);
+        VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer, query_heap->vk_query_pool,
+                start_index, query_count, buffer->vk_buffer, buffer->heap_offset + aligned_dst_buffer_offset,
+                stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
     }
 }
 

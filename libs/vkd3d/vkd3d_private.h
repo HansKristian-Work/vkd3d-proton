@@ -1316,6 +1316,7 @@ struct vkd3d_active_query
     VkQueryPool vk_pool;
     uint32_t vk_index;
     enum vkd3d_active_query_state state;
+    uint32_t resolve_index;
 };
 
 enum vkd3d_query_range_flag
