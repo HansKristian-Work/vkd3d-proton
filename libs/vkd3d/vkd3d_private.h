@@ -785,6 +785,12 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
 struct d3d12_query_heap *unsafe_impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface);
 size_t d3d12_query_heap_type_get_data_size(D3D12_QUERY_HEAP_TYPE heap_type);
 
+static inline bool d3d12_query_heap_type_is_inline(D3D12_QUERY_HEAP_TYPE heap_type)
+{
+    return heap_type == D3D12_QUERY_HEAP_TYPE_OCCLUSION ||
+            heap_type == D3D12_QUERY_HEAP_TYPE_SO_STATISTICS;
+}
+
 enum vkd3d_root_signature_flag
 {
     VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET    = 0x00000001u,
