@@ -2621,6 +2621,22 @@ static void d3d12_command_list_end_active_query(struct d3d12_command_list *list,
     query->state = VKD3D_ACTIVE_QUERY_ENDED;
 }
 
+static void d3d12_command_list_reset_active_query(struct d3d12_command_list *list,
+        struct vkd3d_active_query *query)
+{
+    if (!d3d12_command_list_add_pending_query(list, query))
+        return;
+
+    if (!d3d12_command_allocator_allocate_query(list->allocator,
+            query->heap->desc.Type, &query->vk_pool, &query->vk_index))
+        return;
+
+    if (!d3d12_command_list_reset_query(list, query->vk_pool, query->vk_index))
+        return;
+
+    query->state = VKD3D_ACTIVE_QUERY_RESET;
+}
+
 static bool d3d12_command_list_enable_query(struct d3d12_command_list *list,
         struct d3d12_query_heap *heap, uint32_t index, D3D12_QUERY_TYPE type)
 {
@@ -2683,11 +2699,8 @@ static void d3d12_command_list_handle_active_queries(struct d3d12_command_list *
     {
         struct vkd3d_active_query *query = &list->active_queries[i];
 
-        /* It is possible (although unexpected) that an app uses an occlusion
-         * query for multiple draw calls, which may require multiple render
-         * pass instances. In that case, we can only handle the first instance. */
         if (query->state == VKD3D_ACTIVE_QUERY_ENDED && !end)
-            FIXME("Query (%#"PRIx64",%u) already ended.\n", (uint64_t)query->vk_pool, query->vk_index);
+            d3d12_command_list_reset_active_query(list, query);
 
         if (query->state == VKD3D_ACTIVE_QUERY_RESET)
             d3d12_command_list_begin_active_query(list, query);
