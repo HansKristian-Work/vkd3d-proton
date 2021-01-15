@@ -1883,10 +1883,10 @@ void vkd3d_swapchain_ops_cleanup(struct vkd3d_swapchain_ops *meta_swapchain_ops,
 
 #define VKD3D_QUERY_OP_WORKGROUP_SIZE (64)
 
-struct vkd3d_query_op_args
+struct vkd3d_query_resolve_args
 {
-    VkDeviceAddress src_queries;
-    VkDeviceAddress dst_queries;
+    uint32_t dst_index;
+    uint32_t src_index;
     uint32_t query_count;
 };
 
@@ -1909,7 +1909,8 @@ struct vkd3d_query_ops
     VkPipelineLayout vk_gather_pipeline_layout;
     VkPipeline vk_gather_occlusion_pipeline;
     VkPipeline vk_gather_so_statistics_pipeline;
-    VkPipelineLayout vk_pipeline_layout;
+    VkDescriptorSetLayout vk_resolve_set_layout;
+    VkPipelineLayout vk_resolve_pipeline_layout;
     VkPipeline vk_resolve_binary_pipeline;
 };
 
