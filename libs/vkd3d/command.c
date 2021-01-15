@@ -7402,6 +7402,86 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
         FIXME("Unhandled query type %u.\n", type);
 }
 
+static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_command_list *list,
+        VkBuffer src_buffer, uint32_t src_index, VkBuffer dst_buffer, VkDeviceSize dst_offset,
+        VkDeviceSize dst_size, uint32_t dst_index, uint32_t count)
+{
+    const struct vkd3d_query_ops *query_ops = &list->device->meta_ops.query;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkDescriptorBufferInfo dst_buffer_info, src_buffer_info;
+    struct vkd3d_query_resolve_args args;
+    VkWriteDescriptorSet vk_writes[2];
+    unsigned int workgroup_count;
+    VkMemoryBarrier vk_barrier;
+    VkDescriptorSet vk_set;
+    unsigned int i;
+
+    d3d12_command_list_invalidate_current_pipeline(list, true);
+    d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
+
+    /* dst_buffer is in COPY_DEST state */
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0, 0, NULL, 0, NULL, 0, NULL));
+
+    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
+            VK_PIPELINE_BIND_POINT_COMPUTE,
+            query_ops->vk_resolve_binary_pipeline));
+
+    vk_set = d3d12_command_allocator_allocate_descriptor_set(list->allocator,
+            query_ops->vk_resolve_set_layout, VKD3D_DESCRIPTOR_POOL_TYPE_STATIC);
+
+    for (i = 0; i < ARRAY_SIZE(vk_writes); i++)
+    {
+        vk_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        vk_writes[i].pNext = NULL;
+        vk_writes[i].dstSet = vk_set;
+        vk_writes[i].dstBinding = i;
+        vk_writes[i].dstArrayElement = 0;
+        vk_writes[i].descriptorCount = 1;
+        vk_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        vk_writes[i].pImageInfo = NULL;
+        vk_writes[i].pTexelBufferView = NULL;
+    }
+
+    vk_writes[0].pBufferInfo = &dst_buffer_info;
+    vk_writes[1].pBufferInfo = &src_buffer_info;
+
+    dst_buffer_info.buffer = dst_buffer;
+    dst_buffer_info.offset = dst_offset;
+    dst_buffer_info.range = dst_size;
+    
+    src_buffer_info.buffer = src_buffer;
+    src_buffer_info.offset = 0;
+    src_buffer_info.range = VK_WHOLE_SIZE;
+
+    VK_CALL(vkUpdateDescriptorSets(list->device->vk_device,
+            ARRAY_SIZE(vk_writes), vk_writes, 0, NULL));
+
+    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            query_ops->vk_resolve_pipeline_layout, 0, 1, &vk_set, 0, NULL));
+
+    args.dst_index = dst_index;
+    args.src_index = src_index;
+    args.query_count = count;
+
+    VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+            query_ops->vk_resolve_pipeline_layout,
+            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(args), &args));
+
+    workgroup_count = vkd3d_compute_workgroup_count(count, VKD3D_QUERY_OP_WORKGROUP_SIZE);
+    VK_CALL(vkCmdDispatch(list->vk_command_buffer, workgroup_count, 1, 1));
+
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    vk_barrier.pNext = NULL;
+    vk_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    vk_barrier.dstAccessMask = 0;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 1, &vk_barrier, 0, NULL, 0, NULL));
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_list_iface *iface,
         ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT start_index, UINT query_count,
         ID3D12Resource *dst_buffer, UINT64 aligned_dst_buffer_offset)
@@ -7435,13 +7515,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
             return;
         }
 
-        copy_region.srcOffset = stride * start_index;
-        copy_region.dstOffset = buffer->heap_offset + aligned_dst_buffer_offset;
-        copy_region.size = stride * query_count;
+        if (type != D3D12_QUERY_TYPE_BINARY_OCCLUSION)
+        {
+            copy_region.srcOffset = stride * start_index;
+            copy_region.dstOffset = buffer->heap_offset + aligned_dst_buffer_offset;
+            copy_region.size = stride * query_count;
 
-        VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
-                query_heap->vk_buffer, buffer->vk_buffer,
-                1, &copy_region));
+            VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
+                    query_heap->vk_buffer, buffer->vk_buffer,
+                    1, &copy_region));
+        }
+        else
+        {
+            uint32_t dst_index = aligned_dst_buffer_offset / sizeof(uint64_t);
+
+            d3d12_command_list_resolve_binary_occlusion_queries(list,
+                    query_heap->vk_buffer, start_index, buffer->vk_buffer,
+                    buffer->heap_offset, buffer->desc.Width, dst_index,
+                    query_count);
+        }
     }
     else
     {
