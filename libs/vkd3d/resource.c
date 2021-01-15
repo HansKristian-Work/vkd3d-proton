@@ -6168,84 +6168,68 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
     struct d3d12_query_heap *object;
     VkQueryPoolCreateInfo pool_info;
     D3D12_RESOURCE_DESC buffer_desc;
-    size_t data_size;
     VkResult vr;
     HRESULT hr;
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
+    memset(object, 0, sizeof(*object));
     object->ID3D12QueryHeap_iface.lpVtbl = &d3d12_query_heap_vtbl;
     object->refcount = 1;
     object->device = device;
     object->desc = *desc;
-    object->initialized = 0;
 
-    pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
-    pool_info.pNext = NULL;
-    pool_info.flags = 0;
-    pool_info.queryCount = desc->Count;
-
-    switch (desc->Type)
+    if (!d3d12_query_heap_type_is_inline(desc->Type))
     {
-        case D3D12_QUERY_HEAP_TYPE_OCCLUSION:
-            pool_info.queryType = VK_QUERY_TYPE_OCCLUSION;
-            pool_info.pipelineStatistics = 0;
-            break;
+        pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+        pool_info.pNext = NULL;
+        pool_info.flags = 0;
+        pool_info.queryCount = desc->Count;
 
-        case D3D12_QUERY_HEAP_TYPE_TIMESTAMP:
-            pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-            pool_info.pipelineStatistics = 0;
-            break;
+        switch (desc->Type)
+        {
+            case D3D12_QUERY_HEAP_TYPE_TIMESTAMP:
+                pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+                pool_info.pipelineStatistics = 0;
+                break;
 
-        case D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS:
-            pool_info.queryType = VK_QUERY_TYPE_PIPELINE_STATISTICS;
-            pool_info.pipelineStatistics = VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_VERTICES_BIT
-                    | VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_PRIMITIVES_BIT
-                    | VK_QUERY_PIPELINE_STATISTIC_VERTEX_SHADER_INVOCATIONS_BIT
-                    | VK_QUERY_PIPELINE_STATISTIC_GEOMETRY_SHADER_INVOCATIONS_BIT
-                    | VK_QUERY_PIPELINE_STATISTIC_GEOMETRY_SHADER_PRIMITIVES_BIT
-                    | VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT
-                    | VK_QUERY_PIPELINE_STATISTIC_CLIPPING_PRIMITIVES_BIT
-                    | VK_QUERY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS_BIT
-                    | VK_QUERY_PIPELINE_STATISTIC_TESSELLATION_CONTROL_SHADER_PATCHES_BIT
-                    | VK_QUERY_PIPELINE_STATISTIC_TESSELLATION_EVALUATION_SHADER_INVOCATIONS_BIT
-                    | VK_QUERY_PIPELINE_STATISTIC_COMPUTE_SHADER_INVOCATIONS_BIT;
-            break;
+            case D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS:
+                pool_info.queryType = VK_QUERY_TYPE_PIPELINE_STATISTICS;
+                pool_info.pipelineStatistics = VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_VERTICES_BIT
+                        | VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_PRIMITIVES_BIT
+                        | VK_QUERY_PIPELINE_STATISTIC_VERTEX_SHADER_INVOCATIONS_BIT
+                        | VK_QUERY_PIPELINE_STATISTIC_GEOMETRY_SHADER_INVOCATIONS_BIT
+                        | VK_QUERY_PIPELINE_STATISTIC_GEOMETRY_SHADER_PRIMITIVES_BIT
+                        | VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT
+                        | VK_QUERY_PIPELINE_STATISTIC_CLIPPING_PRIMITIVES_BIT
+                        | VK_QUERY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS_BIT
+                        | VK_QUERY_PIPELINE_STATISTIC_TESSELLATION_CONTROL_SHADER_PATCHES_BIT
+                        | VK_QUERY_PIPELINE_STATISTIC_TESSELLATION_EVALUATION_SHADER_INVOCATIONS_BIT
+                        | VK_QUERY_PIPELINE_STATISTIC_COMPUTE_SHADER_INVOCATIONS_BIT;
+                break;
 
-        case D3D12_QUERY_HEAP_TYPE_SO_STATISTICS:
-            if (!device->vk_info.transform_feedback_queries)
-            {
-                FIXME("Transform feedback queries are not supported by Vulkan implementation.\n");
+            default:
+                WARN("Invalid query heap type %u.\n", desc->Type);
                 vkd3d_free(object);
-                return E_NOTIMPL;
-            }
+                return E_INVALIDARG;
+        }
 
-            pool_info.queryType = VK_QUERY_TYPE_TRANSFORM_FEEDBACK_STREAM_EXT;
-            pool_info.pipelineStatistics = 0;
-            break;
-
-        default:
-            WARN("Invalid query heap type %u.\n", desc->Type);
+        if ((vr = VK_CALL(vkCreateQueryPool(device->vk_device, &pool_info, NULL, &object->vk_query_pool))) < 0)
+        {
+            WARN("Failed to create Vulkan query pool, vr %d.\n", vr);
             vkd3d_free(object);
-            return E_INVALIDARG;
+            return hresult_from_vk_result(vr);
+        }
     }
-
-    if ((vr = VK_CALL(vkCreateQueryPool(device->vk_device, &pool_info, NULL, &object->vk_query_pool))) < 0)
-    {
-        WARN("Failed to create Vulkan query pool, vr %d.\n", vr);
-        vkd3d_free(object);
-        return hresult_from_vk_result(vr);
-    }
-
-    if ((data_size = (d3d12_query_heap_type_get_data_size(desc->Type) * desc->Count)))
+    else
     {
         memset(&heap_properties, 0, sizeof(heap_properties));
         heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
         buffer_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
         buffer_desc.Alignment = 0;
-        buffer_desc.Width = data_size;
+        buffer_desc.Width = d3d12_query_heap_type_get_data_size(desc->Type) * desc->Count;
         buffer_desc.Height = 1;
         buffer_desc.DepthOrArraySize = 1;
         buffer_desc.MipLevels = 1;
@@ -6269,11 +6253,10 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
             vkd3d_free(object);
             return hr;
         }
-    }
-    else
-    {
-        object->vk_memory = VK_NULL_HANDLE;
-        object->vk_buffer = VK_NULL_HANDLE;
+
+        /* Explicit initialization is not required for these since
+         * we can expect the buffer to be zero-initialized. */
+        object->initialized = 1;
     }
 
     if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
