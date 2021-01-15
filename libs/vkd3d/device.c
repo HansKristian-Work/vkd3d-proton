@@ -406,7 +406,6 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     /* Enable Vulkan debug extensions. */
     {"vk_debug", VKD3D_CONFIG_FLAG_VULKAN_DEBUG},
     {"skip_application_workarounds", VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS},
-    {"disable_query_optimization", VKD3D_CONFIG_FLAG_DISABLE_QUERY_OPTIMIZATION},
 };
 
 static uint64_t vkd3d_init_config_flags(void)
@@ -430,9 +429,7 @@ struct vkd3d_instance_application_meta
     uint64_t global_flags_remove;
 };
 static const struct vkd3d_instance_application_meta application_override[] = {
-    /* Game changes render targets while occlusion queries are active */
-    { "ACValhalla.exe", VKD3D_CONFIG_FLAG_DISABLE_QUERY_OPTIMIZATION, 0 },
-    { "ACValhalla_Plus.exe", VKD3D_CONFIG_FLAG_DISABLE_QUERY_OPTIMIZATION, 0 },
+
 };
 
 static void vkd3d_instance_apply_application_workarounds(const char *app, uint64_t *flags)
