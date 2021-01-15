@@ -7316,13 +7316,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     }
 }
 
-static inline bool d3d12_query_type_is_inline(struct d3d12_device *device, D3D12_QUERY_TYPE type)
+static inline bool d3d12_query_type_is_inline(D3D12_QUERY_TYPE type)
 {
-    if (device->vkd3d_instance->config_flags & VKD3D_CONFIG_FLAG_DISABLE_QUERY_OPTIMIZATION)
-        return false;
-
     return type == D3D12_QUERY_TYPE_OCCLUSION ||
-            type == D3D12_QUERY_TYPE_BINARY_OCCLUSION;
+            type == D3D12_QUERY_TYPE_BINARY_OCCLUSION ||
+            (type >= D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0 &&
+                type <= D3D12_QUERY_TYPE_SO_STATISTICS_STREAM3);
 }
 
 static inline bool d3d12_query_type_is_scoped(D3D12_QUERY_TYPE type)
@@ -7348,7 +7347,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
 
     d3d12_command_list_track_query_heap(list, query_heap);
 
-    if (d3d12_query_type_is_inline(list->device, type))
+    if (d3d12_query_type_is_inline(type))
     {
         if (!d3d12_command_list_enable_query(list, query_heap, index, type))
             d3d12_command_list_mark_as_invalid(list, "Failed to enable virtual query.\n");
@@ -7382,7 +7381,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
 
     d3d12_command_list_track_query_heap(list, query_heap);
 
-    if (d3d12_query_type_is_inline(list->device, type))
+    if (d3d12_query_type_is_inline(type))
     {
         if (!d3d12_command_list_disable_query(list, query_heap, index))
             d3d12_command_list_mark_as_invalid(list, "Failed to disable virtual query.\n");
@@ -7520,7 +7519,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
     d3d12_command_list_track_query_heap(list, query_heap);
     d3d12_command_list_end_current_render_pass(list, true);
 
-    if (d3d12_query_type_is_inline(list->device, type))
+    if (d3d12_query_type_is_inline(type))
     {
         if (!d3d12_command_list_gather_pending_queries(list))
         {
