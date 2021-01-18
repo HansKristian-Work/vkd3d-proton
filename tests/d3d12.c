@@ -47492,6 +47492,139 @@ static void test_undefined_read_typed_buffer_as_untyped_dxil(void)
     test_undefined_read_typed_buffer_as_untyped(true);
 }
 
+static void test_virtual_queries(void)
+{
+    struct test_context_desc desc;
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    struct depth_stencil_resource ds[2];
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_QUERY_HEAP_DESC heap_desc;
+    ID3D12QueryHeap *query_heaps[2];
+    ID3D12Resource *resource;
+    struct resource_readback rb;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float depth;
+
+        float main() : SV_Depth
+        {
+            return depth;
+        }
+#endif
+        0x43425844, 0x91af6cd0, 0x7e884502, 0xcede4f54, 0x6f2c9326, 0x00000001, 0x000000b0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0xffffffff,
+        0x00000e01, 0x445f5653, 0x68747065, 0xababab00, 0x52444853, 0x00000038, 0x00000040, 0x0000000e,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x02000065, 0x0000c001, 0x05000036, 0x0000c001,
+        0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const uint32_t expected_results[] = {1,0,1,1,614400,0,307200,307200};
+    static const float depth_one = 1.0f;
+    static const float depth_zero = 0.0f;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    for (i = 0; i < ARRAY_SIZE(ds); i++)
+      init_depth_stencil(&ds[i], context.device, 640, 480, 1, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
+    set_viewport(&context.viewport, 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f);
+    set_rect(&context.scissor_rect, 0, 0, 640, 480);
+
+    context.root_signature = create_32bit_constants_root_signature(context.device,
+            0, 1, D3D12_SHADER_VISIBILITY_PIXEL);
+    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
+    pso_desc.NumRenderTargets = 0;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso_desc.DepthStencilState.DepthEnable = true;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+
+    heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
+    heap_desc.Count = ARRAY_SIZE(expected_results) / 2;
+    heap_desc.NodeMask = 0;
+    for (i = 0; i < ARRAY_SIZE(query_heaps); i++)
+    {
+        hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heaps[i]);
+        ok(SUCCEEDED(hr), "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, hr);
+    }
+
+    resource = create_readback_buffer(device, ARRAY_SIZE(expected_results) * sizeof(uint64_t));
+
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds[0].dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds[1].dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, false, &ds[0].dsv_handle);
+    ID3D12GraphicsCommandList_BeginQuery(command_list, query_heaps[0], D3D12_QUERY_TYPE_BINARY_OCCLUSION, 0);
+    ID3D12GraphicsCommandList_BeginQuery(command_list, query_heaps[0], D3D12_QUERY_TYPE_BINARY_OCCLUSION, 1);
+    ID3D12GraphicsCommandList_BeginQuery(command_list, query_heaps[0], D3D12_QUERY_TYPE_BINARY_OCCLUSION, 2);
+    ID3D12GraphicsCommandList_BeginQuery(command_list, query_heaps[1], D3D12_QUERY_TYPE_OCCLUSION, 0);
+    ID3D12GraphicsCommandList_BeginQuery(command_list, query_heaps[1], D3D12_QUERY_TYPE_OCCLUSION, 1);
+    ID3D12GraphicsCommandList_BeginQuery(command_list, query_heaps[1], D3D12_QUERY_TYPE_OCCLUSION, 2);
+    ID3D12GraphicsCommandList_EndQuery(command_list, query_heaps[0], D3D12_QUERY_TYPE_BINARY_OCCLUSION, 1);
+    ID3D12GraphicsCommandList_EndQuery(command_list, query_heaps[1], D3D12_QUERY_TYPE_OCCLUSION, 1);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 1, &depth_zero, 0);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList_EndQuery(command_list, query_heaps[0], D3D12_QUERY_TYPE_BINARY_OCCLUSION, 2);
+    ID3D12GraphicsCommandList_EndQuery(command_list, query_heaps[1], D3D12_QUERY_TYPE_OCCLUSION, 2);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, false, &ds[1].dsv_handle);
+    ID3D12GraphicsCommandList_BeginQuery(command_list, query_heaps[0], D3D12_QUERY_TYPE_BINARY_OCCLUSION, 3);
+    ID3D12GraphicsCommandList_BeginQuery(command_list, query_heaps[1], D3D12_QUERY_TYPE_OCCLUSION, 3);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList_EndQuery(command_list, query_heaps[0], D3D12_QUERY_TYPE_BINARY_OCCLUSION, 0);
+    ID3D12GraphicsCommandList_EndQuery(command_list, query_heaps[1], D3D12_QUERY_TYPE_OCCLUSION, 0);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 1, &depth_one, 0);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList_EndQuery(command_list, query_heaps[0], D3D12_QUERY_TYPE_BINARY_OCCLUSION, 3);
+    ID3D12GraphicsCommandList_EndQuery(command_list, query_heaps[1], D3D12_QUERY_TYPE_OCCLUSION, 3);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, false, &ds[1].dsv_handle);
+
+    for (i = 0; i < ARRAY_SIZE(query_heaps); i++)
+    {
+        ID3D12GraphicsCommandList_ResolveQueryData(command_list, query_heaps[i],
+                i ? D3D12_QUERY_TYPE_OCCLUSION : D3D12_QUERY_TYPE_BINARY_OCCLUSION,
+                0, 4, resource, i * 4 * sizeof(uint64_t));
+    }
+
+    get_buffer_readback_with_command_list(resource, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
+    for (i = 0; i < ARRAY_SIZE(expected_results); ++i)
+    {
+        const uint64_t result = get_readback_uint64(&rb, i, 0);
+        ok(result == expected_results[i], "Test %u: Got unexpected result %"PRIu64".\n", i, result);
+    }
+    release_resource_readback(&rb);
+
+    for (i = 0; i < ARRAY_SIZE(query_heaps); i++)
+        ID3D12QueryHeap_Release(query_heaps[i]);
+    ID3D12Resource_Release(resource);
+    for (i = 0; i < ARRAY_SIZE(ds); i++)
+        destroy_depth_stencil(&ds[i]);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -47728,4 +47861,5 @@ START_TEST(d3d12)
     run_test(test_create_pipeline_with_null_root_signature);
     run_test(test_undefined_read_typed_buffer_as_untyped_dxbc);
     run_test(test_undefined_read_typed_buffer_as_untyped_dxil);
+    run_test(test_virtual_queries);
 }
