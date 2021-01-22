@@ -560,6 +560,8 @@ struct vkd3d_memory_allocator
     struct vkd3d_memory_chunk **chunks;
     size_t chunks_size;
     size_t chunks_count;
+
+    struct vkd3d_va_map va_map;
 };
 
 void vkd3d_free_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,

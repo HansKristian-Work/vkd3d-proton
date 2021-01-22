@@ -228,12 +228,15 @@ static HRESULT vkd3d_allocation_assign_gpu_address(struct vkd3d_memory_allocatio
     if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
         allocation->resource.va = vkd3d_get_buffer_device_address(device, allocation->resource.vk_buffer);
     else
+        allocation->resource.va = vkd3d_va_map_alloc_fake_va(&allocator->va_map, allocation->resource.size);
+
+    if (!allocation->resource.va)
     {
-        /* TODO implement */
+        ERR("Failed to get GPU address for allocation.\n");
+        return E_OUTOFMEMORY;
     }
 
-    /* TODO register GPU address */
-
+    vkd3d_va_map_insert(&allocator->va_map, &allocation->resource);
     return S_OK;
 }
 
@@ -241,7 +244,13 @@ static void vkd3d_memory_allocation_free(const struct vkd3d_memory_allocation *a
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
-    /* TODO unregister GPU address */
+    if ((allocation->flags & VKD3D_ALLOCATION_FLAG_GPU_ADDRESS) && allocation->resource.va)
+    {
+        vkd3d_va_map_remove(&allocator->va_map, &allocation->resource);
+
+        if (!device->device_info.buffer_device_address_features.bufferDeviceAddress)
+            vkd3d_va_map_free_fake_va(&allocator->va_map, allocation->resource.va, allocation->resource.size);
+    }
 
     if (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER)
         VK_CALL(vkDestroyBuffer(device->vk_device, allocation->resource.vk_buffer, NULL));
@@ -387,6 +396,7 @@ HRESULT vkd3d_memory_allocator_init(struct vkd3d_memory_allocator *allocator, st
     if ((rc = pthread_mutex_init(&allocator->mutex, NULL)))
         return hresult_from_errno(rc);
 
+    vkd3d_va_map_init(&allocator->va_map);
     return S_OK;
 }
 
@@ -398,6 +408,7 @@ void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, st
         vkd3d_memory_chunk_destroy(allocator->chunks[i], device, allocator);
 
     vkd3d_free(allocator->chunks);
+    vkd3d_va_map_cleanup(&allocator->va_map);
     pthread_mutex_destroy(&allocator->mutex);
 }
 
