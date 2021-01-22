@@ -407,6 +407,102 @@ struct d3d12_fence
 HRESULT d3d12_fence_create(struct d3d12_device *device,
         uint64_t initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence);
 
+enum vkd3d_allocation_flag
+{
+    VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER     = (1u << 0),
+    VKD3D_ALLOCATION_FLAG_DEDICATED_BUFFER  = (1u << 1),
+    VKD3D_ALLOCATION_FLAG_GPU_ADDRESS       = (1u << 2),
+    VKD3D_ALLOCATION_FLAG_CPU_ACCESS        = (1u << 3),
+};
+
+struct vkd3d_memory_chunk;
+
+struct vkd3d_allocate_memory_info
+{
+    VkMemoryRequirements memory_requirements;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_HEAP_FLAGS heap_flags;
+    VkBuffer vk_buffer;
+    void *host_ptr;
+    const void *pNext;
+    uint32_t flags;
+};
+
+struct vkd3d_allocate_heap_memory_info
+{
+    D3D12_HEAP_DESC heap_desc;
+    void *host_ptr;
+};
+
+struct vkd3d_allocate_resource_memory_info
+{
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_HEAP_FLAGS heap_flags;
+    VkBuffer vk_buffer;
+    VkImage vk_image;
+    void *host_ptr;
+};
+
+struct vkd3d_unique_resource
+{
+    union
+    {
+        VkBuffer vk_buffer;
+        VkImage vk_image;
+    };
+    uint64_t cookie;
+    VkDeviceAddress va;
+    VkDeviceSize size;
+};
+
+struct vkd3d_memory_allocation
+{
+    struct vkd3d_unique_resource resource;
+    VkDeviceMemory vk_memory;
+    VkDeviceSize offset;
+    void *cpu_address;
+
+    D3D12_HEAP_TYPE heap_type;
+    D3D12_HEAP_FLAGS heap_flags;
+    uint32_t vk_memory_type;
+    uint32_t flags;
+
+    struct vkd3d_memory_chunk *chunk;
+};
+
+struct vkd3d_memory_free_range
+{
+    VkDeviceSize offset;
+    VkDeviceSize length;
+};
+
+struct vkd3d_memory_chunk
+{
+    struct vkd3d_memory_allocation allocation;
+    struct vkd3d_memory_free_range *free_ranges;
+    size_t free_ranges_size;
+    size_t free_ranges_count;
+};
+
+struct vkd3d_memory_allocator
+{
+    pthread_mutex_t mutex;
+
+    struct vkd3d_memory_chunk **chunks;
+    size_t chunks_size;
+    size_t chunks_count;
+};
+
+void vkd3d_free_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
+        const struct vkd3d_memory_allocation *allocation);
+HRESULT vkd3d_allocate_heap_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
+        const struct vkd3d_allocate_heap_memory_info *info, struct vkd3d_memory_allocation *allocation);
+HRESULT vkd3d_allocate_resource_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
+        const struct vkd3d_allocate_resource_memory_info *info, struct vkd3d_memory_allocation *allocation);
+
+HRESULT vkd3d_memory_allocator_init(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device);
+void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device);
+
 /* ID3D12Heap */
 typedef ID3D12Heap1 d3d12_heap_iface;
 
