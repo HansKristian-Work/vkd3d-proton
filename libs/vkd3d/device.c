@@ -1597,9 +1597,12 @@ static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
     VkPhysicalDeviceProperties device_properties;
     VkPhysicalDevice device = VK_NULL_HANDLE;
     VkPhysicalDevice *physical_devices;
+    const char *filter;
     uint32_t count;
     unsigned int i;
     VkResult vr;
+
+    filter = getenv("VKD3D_FILTER_DEVICE_NAME");
 
     count = 0;
     if ((vr = VK_CALL(vkEnumeratePhysicalDevices(vk_instance, &count, NULL))) < 0)
@@ -1639,6 +1642,12 @@ static HRESULT vkd3d_select_physical_device(struct vkd3d_instance *instance,
 
         if (i == device_index)
             device = physical_devices[i];
+
+        if (filter && !strstr(device_properties.deviceName, filter))
+        {
+            INFO("Device %s doesn't match filter %s, skipping.\n", device_properties.deviceName, filter);
+            continue;
+        }
 
         if (device_properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && !dgpu_device)
             dgpu_device = physical_devices[i];
