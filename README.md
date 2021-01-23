@@ -155,6 +155,7 @@ commas or semicolons.
  - `VKD3D_LOG_FILE` - If set, redirects `VKD3D_DEBUG` logging output to a file instead.
  - `VKD3D_VULKAN_DEVICE` - a zero-based device index. Use to force the selected
    Vulkan device.
+ - `VKD3D_FILTER_DEVICE_NAME` - skips devices that don't include this substring.
  - `VKD3D_DISABLE_EXTENSIONS` - a list of Vulkan extensions that vkd3d-proton should
    not use even if available.
  - `VKD3D_TEST_DEBUG` - enables additional debug messages in tests. Set to 0, 1
