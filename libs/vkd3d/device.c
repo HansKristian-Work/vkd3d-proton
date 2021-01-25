@@ -4741,7 +4741,6 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
             VK_SHADER_STAGE_FRAGMENT_BIT;
 
     if (device->api_version >= VK_API_VERSION_1_1 &&
-        vkd3d_shader_supports_dxil() &&
         physical_device_info->subgroup_properties.subgroupSize >= 4 &&
         (physical_device_info->subgroup_properties.supportedOperations & required) == required &&
         (physical_device_info->subgroup_properties.supportedStages & required_stages) == required_stages)

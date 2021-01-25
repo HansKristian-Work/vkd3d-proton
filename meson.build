@@ -26,7 +26,6 @@ if vkd3d_platform != 'windows' and enable_d3d12
   error('Standalone D3D12 is only supported on Windows.')
 endif
 
-add_project_arguments('-DHAVE_DXIL_SPV', language : 'c')
 add_project_arguments('-D_GNU_SOURCE',   language : 'c')
 add_project_arguments('-DPACKAGE_VERSION="' + meson.project_version() + '"',   language : 'c')
 
