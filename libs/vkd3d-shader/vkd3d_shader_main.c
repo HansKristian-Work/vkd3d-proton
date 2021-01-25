@@ -282,12 +282,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     /* DXIL is handled externally through dxil-spirv. */
     if (shader_is_dxil(dxbc->code, dxbc->size))
     {
-#ifdef HAVE_DXIL_SPV
         return vkd3d_shader_compile_dxil(dxbc, spirv, shader_interface_info, compile_args);
-#else
-        ERR("DXIL shader found, but DXIL support is not enabled in vkd3d.\n");
-        return VKD3D_ERROR_INVALID_SHADER;
-#endif
     }
 
     hash = vkd3d_shader_hash(dxbc);
@@ -632,15 +627,6 @@ void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature
 
     vkd3d_free(signature->elements);
     signature->elements = NULL;
-}
-
-int vkd3d_shader_supports_dxil(void)
-{
-#ifdef HAVE_DXIL_SPV
-    return 1;
-#else
-    return 0;
-#endif
 }
 
 vkd3d_shader_hash_t vkd3d_shader_hash(const struct vkd3d_shader_code *shader)
