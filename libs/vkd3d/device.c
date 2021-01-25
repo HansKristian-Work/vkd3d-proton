@@ -4853,8 +4853,16 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
 
         /* SM 6.3 adds:
          * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.3
-         * Ray tracing
+         * Ray tracing (lib_6_3 multi entry point targets).
          */
+        if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_2 &&
+            device->device_info.ray_tracing_pipeline_features.rayTracingPipeline &&
+            device->vk_info.KHR_spirv_1_4)
+        {
+            /* SPIR-V 1.4 is required for lib_6_3 since that is required for RT. */
+            device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_3;
+            TRACE("Enabling support for SM 6.3.\n");
+        }
 
         /* SM 6.4 adds:
          * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.4
